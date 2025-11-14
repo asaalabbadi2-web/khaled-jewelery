@@ -1,0 +1,5 @@
+# تجاهل جميع الملفات في المجلد المؤرشف
+# Ignore all files in archived folder
+*
+!README.md
+!.gitignore

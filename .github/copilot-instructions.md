@@ -1,57 +1,80 @@
-<!-- Use this file to provide workspace-specific custom instructions to Copilot. For more details, visit https://code.visualstudio.com/docs/copilot/copilot-customization#_use-a-githubcopilotinstructionsmd-file -->
-- [ ] Verify that the copilot-instructions.md file in the .github directory is created.
+# Yasar Gold & Jewelry POS System
 
-- [ ] Clarify Project Requirements
-	<!-- Ask for project type, language, and frameworks if not specified. Skip if already provided. -->
+## Project Architecture
+This is a **bilingual (Arabic/English) gold jewelry POS system** with a Flask REST API backend and Flutter frontend. The system manages gold transactions by **weight-based calculations** rather than monetary values.
 
-- [ ] Scaffold the Project
-	<!--
-	Ensure that the previous step has been marked as completed.
-	Call project setup tool with projectType parameter.
-	Run scaffolding command to create project files and folders.
-	Use '.' as the working directory.
-	If no appropriate projectType is available, search documentation using available tools.
-	Otherwise, create the project structure manually using available file creation tools.
-	-->
+### Core Components
+- **Backend (`backend/`)**: Flask REST API with SQLAlchemy, PostgreSQL/SQLite support
+- **Frontend (`frontend/`)**: Flutter mobile app with Arabic UI and bilingual support
+- **Gold Price Integration**: Automated gold price fetching and manual updates
 
-- [ ] Customize the Project
-	<!--
-	Verify that all previous steps have been completed successfully and you have marked the step as completed.
-	Develop a plan to modify codebase according to user requirements.
-	Apply modifications using appropriate tools and user-provided references.
-	Skip this step for "Hello World" projects.
-	-->
+### Key Architectural Patterns
 
-- [ ] Install Required Extensions
-	<!-- ONLY install extensions provided mentioned in the get_project_setup_info. Skip this step otherwise and mark as completed. -->
+#### Weight-Based Business Logic
+- **ALL business calculations use weight (grams), not currency**
+- Gold items stored with karat (عيار) and converted to main karat (21) via `weight_in_main_karat()`
+- Manufacturing wages converted to gold equivalent via `wage_in_gold()` method
+- See `backend/models.py` Item class and `backend/config.py` for MAIN_KARAT constant
 
-- [ ] Compile the Project
-	<!--
-	Verify that all previous steps have been completed.
-	Install any missing dependencies.
-	Run diagnostics and resolve any issues.
-	Check for markdown files in project folder for relevant instructions on how to do this.
-	-->
+#### Data Models (`backend/models.py`)
+- **Customer**: Full address, ID details, birth_date support
+- **Item**: Weight-based with karat conversion methods
+- **Invoice/InvoiceItem**: Support for buy/sell transaction types
+- **JournalEntry/JournalEntryLine**: Models for double-entry accounting for cash and gold.
+- **GoldPrice**: Auto-fetched price data with manual override capability
 
-- [ ] Create and Run Task
-	<!--
-	Verify that all previous steps have been completed.
-	Check https://code.visualstudio.com/docs/debugtest/tasks to determine if the project needs a task. If so, use the create_and_run_task to create and launch a task based on package.json, README.md, and project structure.
-	Skip this step otherwise.
-	 -->
+#### API Architecture (`backend/routes.py`)
+- RESTful endpoints: `/customers`, `/items`, `/invoices`, `/journal-entries`, `/gold_price`
+- **Robust Journal Entry Handling**: The `/api/journal-entries` endpoint includes server-side logic to automatically balance minor floating-point discrepancies in gold weights, ensuring data integrity.
+- CORS enabled for cross-origin Flutter requests
+- Weight normalization via `backend/utils.py`
 
-- [ ] Launch the Project
-	<!--
-	Verify that all previous steps have been completed.
-	Prompt user for debug mode, launch only if confirmed.
-	 -->
+## Development Workflows
 
-- [ ] Ensure Documentation is Complete
-	<!--
-	Verify that all previous steps have been completed.
-	Verify that README.md and the copilot-instructions.md file in the .github directory exists and contains current project information.
-	Clean up the copilot-instructions.md file in the .github directory by removing all HTML comments.
-	 -->
+### Backend Development
+```bash
+cd backend
+source venv/bin/activate  # ALWAYS activate venv first
+python app.py            # Runs on port 8001
+```
+
+### Frontend Development  
+```bash
+cd frontend
+flutter run             # Check baseUrl in api_service.dart points to backend
+```
+### Frontend UI/UX Notes
+- **Journal Entry Screen**: Features client-side validation to ensure all entry lines with data have an account selected before submission. It provides immediate user feedback via SnackBars for validation errors or unbalanced entries.
+- **Summary Cards**: Professional summary cards are used to display key information, such as in the journal entry screen.
+
+### Database Operations
+- Uses Alembic for migrations (`alembic/versions/`)
+- Models auto-create tables on first run
+- SQLite default, PostgreSQL production-ready
+
+## Project Conventions
+
+### Arabic UI Standards
+- Cairo font family configured in `pubspec.yaml`
+- RTL layout support throughout Flutter app
+- Bilingual toggle in main app (`_MyAppState._toggleLocale()`)
+- Gold-themed color scheme (Color(0xFFFFD700))
+
+### API Communication
+- **Base URL**: `http://localhost:8001` (see `frontend/lib/api_service.dart` line 69)
+- Flutter HTTP client with JSON serialization
+- Error handling patterns in ApiService class
+
+### Code Organization
+- **Backend routes**: Grouped by resource in `routes.py`
+- **Flutter screens**: One file per screen in `lib/screens/`
+- **Business logic**: Weight conversion methods in model classes
+- **Configuration**: Centralized in `backend/config.py`
+
+### Integration Points
+- Gold price fetching: `backend/gold_price.py` with external API
+- Database: SQLAlchemy ORM with relationship cascades
+- Cross-platform: Flutter supports iOS/Android/Web/Desktop
 
 <!--
 ## Execution Guidelines

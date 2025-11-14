@@ -1,0 +1,100 @@
+import 'package:flutter/material.dart';
+import '../api_service.dart';
+
+class InvoicesProvider with ChangeNotifier {
+  final ApiService api;
+  List<dynamic> _invoices = [];
+  int _currentPage = 1;
+  int _totalPages = 1;
+  int _totalInvoices = 0;
+  bool _isLoading = false;
+  String _sortBy = 'date';
+  String _sortOrder = 'desc';
+  String _search = '';
+  String _status = 'all';
+  String? _invoiceType;
+  DateTimeRange? _dateRange;
+
+  InvoicesProvider(this.api, {String? initialInvoiceType}) {
+    _invoiceType = initialInvoiceType;
+    fetchInvoices();
+  }
+
+  List<dynamic> get invoices => _invoices;
+  int get currentPage => _currentPage;
+  int get totalPages => _totalPages;
+  int get totalInvoices => _totalInvoices;
+  bool get isLoading => _isLoading;
+  String get sortBy => _sortBy;
+  String get sortOrder => _sortOrder;
+  String get search => _search;
+  String get status => _status;
+  String? get invoiceType => _invoiceType;
+  DateTimeRange? get dateRange => _dateRange;
+
+  void _setLoading(bool loading) {
+    if (_isLoading == loading) return; // تجنب تحديث غير ضروري
+    _isLoading = loading;
+    notifyListeners();
+  }
+
+  bool _isFetching = false; // منع الاستدعاءات المتزامنة
+
+  Future<void> fetchInvoices({int page = 1}) async {
+    if (_isFetching) return; // تجنب حلقة لا نهائية
+    _isFetching = true;
+    _setLoading(true);
+    try {
+      final response = await api.getInvoices(
+        page: page,
+        sortBy: _sortBy,
+        sortOrder: _sortOrder,
+        search: _search,
+        status: _status,
+        invoiceType: _invoiceType,
+        dateFrom: _dateRange?.start,
+        dateTo: _dateRange?.end,
+      );
+      _invoices = response['invoices'];
+      _currentPage = response['current_page'];
+      _totalPages = response['pages'];
+      _totalInvoices = response['total'];
+    } catch (e) {
+      // Handle error
+      print(e);
+    } finally {
+      _isFetching = false;
+      _setLoading(false);
+    }
+  }
+
+  void onSort(String sortBy) {
+    if (_sortBy == sortBy) {
+      _sortOrder = _sortOrder == 'asc' ? 'desc' : 'asc';
+    } else {
+      _sortBy = sortBy;
+      _sortOrder = 'desc';
+    }
+    fetchInvoices();
+  }
+
+  void onSearch(String search) {
+    _search = search;
+    fetchInvoices();
+  }
+
+  void onStatusChange(String status) {
+    _status = status;
+    fetchInvoices();
+  }
+
+  void onInvoiceTypeChange(String? invoiceType) {
+    _invoiceType = invoiceType;
+    fetchInvoices();
+  }
+
+  void onDateRangeChange(DateTimeRange? dateRange) {
+    _dateRange = dateRange;
+    fetchInvoices();
+  }
+}

@@ -1,0 +1,3 @@
+# تجاهل جميع ملفات Dart في المجلد المؤرشف
+# Ignore all Dart files in archived folder
+*.dart

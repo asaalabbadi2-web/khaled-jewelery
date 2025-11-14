@@ -1,0 +1,3338 @@
+from flask import Blueprint, request, jsonify
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy import func
+from backend.gold_price import fetch_gold_price, save_gold_price
+from backend.models import GoldPrice, db, Customer, Item, Invoice, InvoiceItem, Account, JournalEntry, JournalEntryLine, Settings, Supplier, VoucherAccountLine, Voucher, PaymentMethod, InvoicePayment
+from backend.utils import normalize_number
+from datetime import datetime
+
+api = Blueprint('api', __name__)
+
+@api.route('/settings', methods=['GET'])
+def get_settings():
+    settings = Settings.query.first()
+    if not settings:
+        # If no settings exist, create one with default value
+        settings = Settings(main_karat=21)
+        db.session.add(settings)
+        db.session.commit()
+    return jsonify(settings.to_dict())
+
+@api.route('/settings', methods=['PUT'])
+def update_settings():
+    import json
+    settings = Settings.query.first()
+    if not settings:
+        settings = Settings()
+        db.session.add(settings)
+    
+    data = request.get_json()
+    
+    # إعدادات أساسية
+    if 'main_karat' in data:
+        settings.main_karat = data['main_karat']
+    if 'currency_symbol' in data:
+        settings.currency_symbol = data['currency_symbol']
+    
+    # إعدادات الضريبة
+    if 'tax_rate' in data:
+        settings.tax_rate = data['tax_rate']
+    if 'tax_enabled' in data:
+        settings.tax_enabled = data['tax_enabled']
+    
+    # وسائل الدفع
+    if 'payment_methods' in data:
+        settings.payment_methods = json.dumps(data['payment_methods'], ensure_ascii=False)
+    
+    # إعدادات الفواتير
+    if 'invoice_prefix' in data:
+        settings.invoice_prefix = data['invoice_prefix']
+    if 'show_company_logo' in data:
+        settings.show_company_logo = data['show_company_logo']
+    if 'company_name' in data:
+        settings.company_name = data['company_name']
+    if 'company_address' in data:
+        settings.company_address = data['company_address']
+    if 'company_phone' in data:
+        settings.company_phone = data['company_phone']
+    if 'company_tax_number' in data:
+        settings.company_tax_number = data['company_tax_number']
+    
+    # إعدادات التنسيق
+    if 'decimal_places' in data:
+        settings.decimal_places = data['decimal_places']
+    if 'date_format' in data:
+        settings.date_format = data['date_format']
+    
+    # إعدادات الخصم
+    if 'default_discount_rate' in data:
+        settings.default_discount_rate = data['default_discount_rate']
+    if 'allow_discount' in data:
+        settings.allow_discount = data['allow_discount']
+    
+    db.session.commit()
+    return jsonify(settings.to_dict())
+
+@api.route('/system/reset', methods=['POST'])
+def system_reset():
+    from backend.app import reset_database
+    try:
+        reset_database()
+        return jsonify({'status': 'success', 'message': 'System has been reset successfully.'}), 200
+    except Exception as e:
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+@api.route('/accounts/<int:account_id>/statement', methods=['GET'])
+def get_account_statement(account_id):
+    account = Account.query.get_or_404(account_id)
+    account = Account.query.get_or_404(account_id)
+    main_karat = get_main_karat()
+
+    # Sum up all opening balances for the account
+    opening_balances = db.session.query(
+        func.sum(JournalEntryLine.cash_debit - JournalEntryLine.cash_credit).label('balance_cash'),
+        func.sum(JournalEntryLine.debit_18k - JournalEntryLine.credit_18k).label('balance_18k'),
+        func.sum(JournalEntryLine.debit_21k - JournalEntryLine.credit_21k).label('balance_21k'),
+        func.sum(JournalEntryLine.debit_22k - JournalEntryLine.credit_22k).label('balance_22k'),
+        func.sum(JournalEntryLine.debit_24k - JournalEntryLine.credit_24k).label('balance_24k')
+    ).filter(JournalEntryLine.account_id == account_id).first()
+
+    # Initialize running balances for each karat
+    running_balance_cash = opening_balances.balance_cash or 0
+    running_balances_gold = {
+        '18k': opening_balances.balance_18k or 0,
+        '21k': opening_balances.balance_21k or 0,
+        '22k': opening_balances.balance_22k or 0,
+        '24k': opening_balances.balance_24k or 0,
+    }
+
+    lines = JournalEntryLine.query.join(JournalEntry) \
+        .filter(JournalEntryLine.account_id == account_id) \
+        .order_by(JournalEntry.date.asc(), JournalEntry.id.asc()) \
+        .all()
+
+    statement_lines = []
+    total_cash_debit = 0
+    total_cash_credit = 0
+    total_gold_debit_normalized = 0
+    total_gold_credit_normalized = 0
+
+    for line in lines:
+        # Update running balances for each karat
+        running_balances_gold['18k'] += (line.debit_18k or 0) - (line.credit_18k or 0)
+        running_balances_gold['21k'] += (line.debit_21k or 0) - (line.credit_21k or 0)
+        running_balances_gold['22k'] += (line.debit_22k or 0) - (line.credit_22k or 0)
+        running_balances_gold['24k'] += (line.debit_24k or 0) - (line.credit_24k or 0)
+        running_balance_cash += (line.cash_debit or 0) - (line.cash_credit or 0)
+
+        # Normalize gold for the line item display
+        gold_debit_normalized = (
+            convert_to_main_karat(line.debit_18k or 0, 18) +
+            convert_to_main_karat(line.debit_21k or 0, 21) +
+            convert_to_main_karat(line.debit_22k or 0, 22) +
+            convert_to_main_karat(line.debit_24k or 0, 24)
+        )
+        gold_credit_normalized = (
+            convert_to_main_karat(line.credit_18k or 0, 18) +
+            convert_to_main_karat(line.credit_21k or 0, 21) +
+            convert_to_main_karat(line.credit_22k or 0, 22) +
+            convert_to_main_karat(line.credit_24k or 0, 24)
+        )
+
+        statement_lines.append({
+            'id': line.id,
+            'date': line.journal_entry.date.isoformat(),
+            'description': line.journal_entry.description,
+            'journal_entry_id': line.journal_entry_id,
+            'cash_debit': line.cash_debit or 0,
+            'cash_credit': line.cash_credit or 0,
+            'gold_debit': gold_debit_normalized,
+            'gold_credit': gold_credit_normalized,
+            'debit_18k': line.debit_18k or 0,
+            'credit_18k': line.credit_18k or 0,
+            'debit_21k': line.debit_21k or 0,
+            'credit_21k': line.credit_21k or 0,
+            'debit_22k': line.debit_22k or 0,
+            'credit_22k': line.credit_22k or 0,
+            'debit_24k': line.debit_24k or 0,
+            'credit_24k': line.credit_24k or 0,
+        })
+        
+        total_cash_debit += line.cash_debit or 0
+        total_cash_credit += line.cash_credit or 0
+        total_gold_debit_normalized += gold_debit_normalized
+        total_gold_credit_normalized += gold_credit_normalized
+
+    # Final closing balances
+    closing_balance_gold_normalized = (
+        convert_to_main_karat(running_balances_gold['18k'], 18) +
+        convert_to_main_karat(running_balances_gold['21k'], 21) +
+        convert_to_main_karat(running_balances_gold['22k'], 22) +
+        convert_to_main_karat(running_balances_gold['24k'], 24)
+    )
+
+    return jsonify({
+        'account_name': account.name,
+        'main_karat': main_karat,
+        'opening_balance_cash': 0, # Statements start from zero
+        'opening_balance_gold_normalized': 0,
+        'lines': statement_lines,
+        'totals': {
+            'cash_debit': total_cash_debit,
+            'cash_credit': total_cash_credit,
+            'gold_debit_normalized': total_gold_debit_normalized,
+            'gold_credit_normalized': total_gold_credit_normalized,
+        },
+        'closing_balance_cash': running_balance_cash,
+        'closing_balance_gold_normalized': closing_balance_gold_normalized,
+        'closing_balance_gold_details': running_balances_gold,
+    })
+
+# Customers CRUD
+@api.route('/customers/<int:id>', methods=['DELETE'])
+def delete_customer(id):
+    customer = Customer.query.get_or_404(id)
+    try:
+        # Check if customer has invoices
+        has_invoices = Invoice.query.filter_by(customer_id=id).first()
+        if has_invoices:
+            return jsonify({'error': 'لا يمكن حذف عميل نشط'}), 400
+        
+        # Check if customer has journal entries
+        has_journal_entries = JournalEntryLine.query.filter_by(customer_id=id).first()
+        if has_journal_entries:
+            return jsonify({'error': 'لا يمكن حذف عميل لديه قيود يومية'}), 400
+        
+        db.session.delete(customer)
+        db.session.commit()
+        return jsonify({'result': 'success'})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': f'Failed to delete customer: {str(e)}'}), 500
+
+@api.route('/customers/<int:id>/statement', methods=['GET'])
+def get_customer_statement(id):
+    """
+    كشف حساب العميل - عرض جميع القيود اليومية المتعلقة بالعميل
+    """
+    customer = Customer.query.get_or_404(id)
+    
+    # Get all journal entry lines linked to this customer
+    lines = JournalEntryLine.query.filter_by(customer_id=id).join(
+        JournalEntry
+    ).order_by(JournalEntry.date.desc(), JournalEntry.id.desc()).all()
+    
+    # Format the statement
+    statement_lines = []
+    for line in lines:
+        entry = line.journal_entry
+        statement_lines.append({
+            'id': line.id,
+            'date': entry.date.isoformat(),
+            'entry_number': entry.entry_number,
+            'description': entry.description,
+            'account_number': line.account.account_number if line.account else None,
+            'account_name': line.account.name if line.account else None,
+            'debit_cash': float(line.debit_cash) if line.debit_cash else 0.0,
+            'credit_cash': float(line.credit_cash) if line.credit_cash else 0.0,
+            'debit_gold_18k': float(line.debit_gold_18k) if line.debit_gold_18k else 0.0,
+            'credit_gold_18k': float(line.credit_gold_18k) if line.credit_gold_18k else 0.0,
+            'debit_gold_21k': float(line.debit_gold_21k) if line.debit_gold_21k else 0.0,
+            'credit_gold_21k': float(line.credit_gold_21k) if line.credit_gold_21k else 0.0,
+            'debit_gold_22k': float(line.debit_gold_22k) if line.debit_gold_22k else 0.0,
+            'credit_gold_22k': float(line.credit_gold_22k) if line.credit_gold_22k else 0.0,
+            'debit_gold_24k': float(line.debit_gold_24k) if line.debit_gold_24k else 0.0,
+            'credit_gold_24k': float(line.credit_gold_24k) if line.credit_gold_24k else 0.0,
+        })
+    
+    return jsonify({
+        'customer': customer.to_dict(),
+        'statement': statement_lines
+    })
+
+@api.route('/customers/next-code', methods=['GET'])
+def get_next_customer_code():
+    """
+    الحصول على الكود التالي المتاح للعميل
+    """
+    from backend.code_generator import generate_customer_code, get_customer_statistics
+    
+    stats = get_customer_statistics()
+    return jsonify({
+        'next_code': generate_customer_code(),
+        'total_customers': stats['total_customers'],
+        'remaining_capacity': stats['remaining_capacity']
+    })
+
+@api.route('/suppliers/next-code', methods=['GET'])
+def get_next_supplier_code():
+    """
+    الحصول على الكود التالي المتاح للمورد
+    """
+    from backend.code_generator import generate_supplier_code, get_supplier_statistics
+    
+    stats = get_supplier_statistics()
+    return jsonify({
+        'next_code': generate_supplier_code(),
+        'total_suppliers': stats['total_suppliers'],
+        'remaining_capacity': stats['remaining_capacity']
+    })
+
+@api.route('/customers', methods=['GET'])
+def get_customers():
+    customers = Customer.query.all()
+    results = []
+    for c in customers:
+        account = Account.query.filter_by(name=c.name).first()
+        results.append({
+            'id': c.id, 
+            'name': c.name, 
+            'phone': c.phone, 
+            'email': c.email,
+            'id_number': c.id_number, 
+            'birth_date': c.birth_date.isoformat() if c.birth_date else None,
+            'id_version_number': c.id_version_number,
+            'account_id': account.id if account else None
+        })
+    return jsonify(results)
+
+@api.route('/customers', methods=['POST'])
+def add_customer():
+    """
+    إضافة عميل جديد (النظام الهجين)
+    يتم توليد customer_code تلقائياً
+    """
+    from code_generator import generate_customer_code
+    
+    data = request.json
+    
+    # Basic validation
+    if not data or 'name' not in data:
+        return jsonify({'error': 'الاسم مطلوب'}), 400
+
+    birth_date_str = data.get('birth_date')
+    birth_date = None
+    if birth_date_str:
+        try:
+            birth_date = datetime.strptime(birth_date_str, '%Y-%m-%d').date()
+        except (ValueError, TypeError):
+            pass
+
+    try:
+        # 1. توليد كود العميل تلقائياً
+        customer_code = data.get('customer_code')
+        if not customer_code:
+            customer_code = generate_customer_code()
+        
+        # 2. تحديد الحساب التجميعي (افتراضي: عملاء بيع ذهب - 1100)
+        account_category_number = data.get('account_category_number', '1100')
+        account_category = Account.query.filter_by(account_number=account_category_number).first()
+        
+        if not account_category:
+            # fallback: ابحث عن أي حساب عملاء
+            account_category = Account.query.filter_by(account_number='110').first()
+        
+        # 3. إنشاء العميل
+        customer = Customer(
+            customer_code=customer_code,
+            name=data.get('name'),
+            phone=data.get('phone'),
+            email=data.get('email'),
+            address_line_1=data.get('address_line_1'),
+            address_line_2=data.get('address_line_2'),
+            city=data.get('city'),
+            state=data.get('state'),
+            postal_code=data.get('postal_code'),
+            country=data.get('country'),
+            id_number=data.get('id_number'),
+            birth_date=birth_date,
+            id_version_number=data.get('id_version_number'),
+            notes=data.get('notes'),
+            active=data.get('active', True),
+            account_category_id=account_category.id if account_category else None,
+            balance_cash=0.0,
+            balance_gold_18k=0.0,
+            balance_gold_21k=0.0,
+            balance_gold_22k=0.0,
+            balance_gold_24k=0.0
+        )
+        db.session.add(customer)
+        db.session.commit()
+
+        return jsonify(customer.to_dict()), 201
+
+    except IntegrityError as e:
+        db.session.rollback()
+        if 'customer_code' in str(e):
+            return jsonify({'error': f'كود العميل {customer_code} مستخدم بالفعل'}), 409
+        return jsonify({'error': 'عميل بنفس البيانات موجود بالفعل'}), 409
+    except Exception as e:
+        db.session.rollback()
+        # Log the full error for debugging
+        print(f"ERROR in add_customer: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': f'An unexpected error occurred: {str(e)}'}), 500
+
+# Suppliers CRUD
+@api.route('/suppliers', methods=['GET'])
+def get_suppliers():
+    suppliers = Supplier.query.all()
+    return jsonify([s.to_dict() for s in suppliers])
+
+
+@api.route('/suppliers', methods=['POST'])
+def add_supplier():
+    """
+    إضافة مورد جديد (النظام الهجين)
+    يتم توليد supplier_code تلقائياً
+    """
+    from code_generator import generate_supplier_code, validate_supplier_code
+    
+    data = request.get_json()
+    
+    # Check for required fields
+    if not data or 'name' not in data:
+        return jsonify({'error': 'الاسم مطلوب'}), 400
+
+    try:
+        # 1. توليد كود المورد تلقائياً
+        supplier_code = data.get('supplier_code')
+        if not supplier_code:
+            supplier_code = generate_supplier_code()
+        else:
+            # إذا تم توفير كود، تحقق من صحته
+            validation = validate_supplier_code(supplier_code)
+            if not validation['is_valid']:
+                return jsonify({'error': validation['message']}), 400
+        
+        # 2. تحديد الحساب التجميعي (افتراضي: الموردين - 211)
+        account_category_number = data.get('account_category_number', '211')
+        account_category = Account.query.filter_by(account_number=account_category_number).first()
+        
+        if not account_category:
+            # fallback: ابحث عن أي حساب موردين
+            account_category = Account.query.filter_by(account_number='21').first()
+        
+        # 3. إنشاء المورد
+        new_supplier = Supplier(
+            supplier_code=supplier_code,
+            name=data['name'],
+            phone=data.get('phone'),
+            email=data.get('email'),
+            address_line_1=data.get('address_line_1'),
+            address_line_2=data.get('address_line_2'),
+            city=data.get('city'),
+            state=data.get('state'),
+            postal_code=data.get('postal_code'),
+            country=data.get('country'),
+            account_category_id=account_category.id if account_category else None,
+            balance_cash=0.0,
+            balance_gold_18k=0.0,
+            balance_gold_21k=0.0,
+            balance_gold_22k=0.0,
+            balance_gold_24k=0.0
+        )
+        db.session.add(new_supplier)
+        db.session.commit()
+
+        return jsonify(new_supplier.to_dict()), 201
+        
+    except IntegrityError as e:
+        db.session.rollback()
+        if 'supplier_code' in str(e):
+            return jsonify({'error': f'كود المورد {supplier_code} مستخدم بالفعل'}), 409
+        return jsonify({'error': 'مورد بنفس البيانات موجود بالفعل'}), 409
+    except Exception as e:
+        db.session.rollback()
+        print(f"Error adding supplier: {e}")
+        return jsonify({'error': 'حدث خطأ داخلي'}), 500
+
+@api.route('/suppliers/<int:id>', methods=['PUT'])
+def update_supplier(id):
+    """
+    تحديث بيانات المورد (النظام الهجين)
+    لا يتم تحديث supplier_code بعد الإنشاء
+    """
+    supplier = Supplier.query.get_or_404(id)
+    data = request.json
+
+    # Update supplier details (but not supplier_code)
+    supplier.name = data.get('name', supplier.name)
+    supplier.phone = data.get('phone', supplier.phone)
+    supplier.email = data.get('email', supplier.email)
+    supplier.address_line_1 = data.get('address_line_1', supplier.address_line_1)
+    supplier.address_line_2 = data.get('address_line_2', supplier.address_line_2)
+    supplier.city = data.get('city', supplier.city)
+    supplier.state = data.get('state', supplier.state)
+    supplier.postal_code = data.get('postal_code', supplier.postal_code)
+    supplier.country = data.get('country', supplier.country)
+
+    # Allow updating account_category if needed
+    if 'account_category_number' in data:
+        account_category = Account.query.filter_by(account_number=data['account_category_number']).first()
+        if account_category:
+            supplier.account_category_id = account_category.id
+
+    try:
+        db.session.commit()
+        return jsonify(supplier.to_dict())
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': f'Failed to update supplier: {str(e)}'}), 500
+
+@api.route('/suppliers/<int:id>', methods=['DELETE'])
+def delete_supplier(id):
+    supplier = Supplier.query.get_or_404(id)
+    try:
+        if supplier.account_id:
+            account = Account.query.get(supplier.account_id)
+            if account:
+                # Optional: Check if account has transactions before deleting
+                has_transactions = JournalEntryLine.query.filter_by(account_id=account.id).first()
+                if has_transactions:
+                    return jsonify({'error': 'Cannot delete supplier with existing transactions.'}), 400
+                db.session.delete(account)
+        
+        db.session.delete(supplier)
+        db.session.commit()
+        return jsonify({'result': 'success'})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': f'Failed to delete supplier: {str(e)}'}), 500
+
+# Items CRUD
+@api.route('/items/<int:id>', methods=['PUT'])
+def update_item(id):
+    """
+    تحديث صنف موجود
+    
+    لا يتم تحديث item_code بعد الإنشاء
+    إذا تم تحديث barcode إلى فارغ، يُولّد تلقائياً من item_code
+    """
+    from code_generator import generate_barcode_from_item_code
+    
+    item = Item.query.get_or_404(id)
+    data = request.json
+    
+    # Update item details (but not item_code)
+    item.name = data.get('name', item.name)
+    
+    # إذا تم حذف barcode، أعد توليده
+    new_barcode = data.get('barcode', item.barcode)
+    if not new_barcode:
+        new_barcode = generate_barcode_from_item_code(item.item_code)
+    item.barcode = new_barcode
+    
+    item.karat = normalize_number(str(data.get('karat', item.karat)))
+    item.weight = normalize_number(str(data.get('weight', item.weight)))
+    item.count = normalize_number(str(data.get('count', item.count)))
+    item.wage = normalize_number(str(data.get('wage', item.wage)))
+    item.manufacturing_wage_per_gram = normalize_number(str(data.get('manufacturing_wage_per_gram', item.manufacturing_wage_per_gram)))
+    item.description = data.get('description', item.description)
+    item.price = normalize_number(str(data.get('price', item.price)))
+    item.stock = normalize_number(str(data.get('stock', item.stock)))
+    
+    db.session.commit()
+    return jsonify({
+        'result': 'success',
+        'item_code': item.item_code,
+        'barcode': item.barcode
+    })
+
+@api.route('/items/<int:id>', methods=['DELETE'])
+def delete_item(id):
+    item = Item.query.get_or_404(id)
+    db.session.delete(item)
+    db.session.commit()
+    return jsonify({'result': 'success'})
+@api.route('/items', methods=['GET'])
+def get_items():
+    items = Item.query.all()
+    return jsonify([
+        {
+            'id': i.id,
+            'item_code': i.item_code,
+            'name': i.name,
+            'barcode': i.barcode,
+            'karat': i.karat,
+            'weight': i.weight,
+            'count': i.count,
+            'wage': i.wage,
+            'manufacturing_wage_per_gram': i.manufacturing_wage_per_gram,
+            'description': i.description,
+            'price': i.price,
+            'stock': i.stock
+        } for i in items
+    ])
+
+@api.route('/items/search/barcode/<barcode>', methods=['GET'])
+def search_item_by_barcode(barcode):
+    """
+    البحث عن صنف بالباركود
+    يُستخدم عند مسح الباركود لإضافة الصنف تلقائياً للفاتورة
+    """
+    item = Item.query.filter_by(barcode=barcode).first()
+    if not item:
+        return jsonify({'error': 'الصنف غير موجود'}), 404
+    
+    return jsonify({
+        'id': item.id,
+        'item_code': item.item_code,
+        'name': item.name,
+        'barcode': item.barcode,
+        'karat': item.karat,
+        'weight': item.weight,
+        'count': item.count,
+        'wage': item.wage,
+        'manufacturing_wage_per_gram': item.manufacturing_wage_per_gram or 0.0,
+        'description': item.description,
+        'price': item.price,
+        'stock': item.stock
+    })
+
+@api.route('/items', methods=['POST'])
+def add_item():
+    """
+    إضافة صنف جديد
+    
+    يتم توليد item_code تلقائياً
+    إذا لم يُدخل barcode، يتم توليده تلقائياً من item_code
+    """
+    from code_generator import generate_item_code, generate_barcode_from_item_code, validate_item_code
+    
+    data = request.json
+    
+    try:
+        # توليد item_code تلقائياً
+        item_code = data.get('item_code')
+        if not item_code:
+            item_code = generate_item_code()
+        else:
+            # التحقق من صحة الكود المدخل
+            validation = validate_item_code(item_code)
+            if not validation['is_valid']:
+                return jsonify({'error': validation['message']}), 400
+        
+        # توليد barcode إذا لم يُدخل
+        barcode = data.get('barcode')
+        if not barcode:
+            barcode = generate_barcode_from_item_code(item_code)
+        
+        item = Item(
+            item_code=item_code,
+            name=data['name'],
+            barcode=barcode,
+            karat=normalize_number(str(data.get('karat', ''))),
+            weight=normalize_number(str(data.get('weight', ''))),
+            count=normalize_number(str(data.get('count', ''))),
+            wage=normalize_number(str(data.get('wage', ''))),
+            manufacturing_wage_per_gram=normalize_number(str(data.get('manufacturing_wage_per_gram', 0))),
+            description=data.get('description'),
+            price=normalize_number(str(data.get('price', 0))),
+            stock=normalize_number(str(data.get('stock', 0)))
+        )
+        db.session.add(item)
+        db.session.commit()
+        return jsonify({
+            'id': item.id,
+            'item_code': item.item_code,
+            'barcode': item.barcode
+        }), 201
+        
+    except Exception as e:
+        db.session.rollback()
+        # تحقق من خطأ التكرار
+        if 'item_code' in str(e):
+            return jsonify({'error': f'كود الصنف {item_code} مستخدم بالفعل'}), 409
+        if 'barcode' in str(e):
+            return jsonify({'error': f'الباركود {barcode} مستخدم بالفعل'}), 409
+        return jsonify({'error': str(e)}), 500
+
+# Endpoint لجلب سعر الذهب الحالي
+@api.route('/gold_price', methods=['GET'])
+def get_gold_price():
+    """
+    يجلب آخر سعر ذهب من قاعدة البيانات
+    إذا لم يكن موجود أو قديم (أكثر من 24 ساعة)، يجلب سعر جديد من API
+    """
+    from datetime import datetime, timedelta
+    
+    latest = GoldPrice.query.order_by(GoldPrice.date.desc()).first()
+    
+    # إذا لم يكن هناك سعر أو السعر قديم (أكثر من 24 ساعة)
+    should_update = False
+    if not latest:
+        print('[INFO] لا يوجد سعر ذهب في قاعدة البيانات - سيتم الجلب من API')
+        should_update = True
+    elif (datetime.now() - latest.date) > timedelta(hours=24):
+        print(f'[INFO] السعر المحفوظ قديم ({latest.date}) - سيتم التحديث')
+        should_update = True
+    
+    if should_update:
+        try:
+            # جلب سعر جديد من API
+            price_usd = fetch_gold_price()
+            if price_usd:
+                # تحويل من دولار للأونصة إلى ريال للجرام
+                # 1 أونصة = 31.1035 جرام
+                # 1 دولار ≈ 3.75 ريال سعودي
+                price_per_gram_sar = (price_usd / 31.1035) * 3.75
+                
+                # حفظ في قاعدة البيانات
+                from flask import current_app
+                save_gold_price(current_app._get_current_object(), price_usd)
+                
+                print(f'[SUCCESS] تم جلب وحفظ سعر جديد: ${price_usd}/أونصة = {price_per_gram_sar:.2f} ر.س/جم')
+                
+                return jsonify({
+                    'price_24k': round(price_per_gram_sar, 2),
+                    'price_usd_per_oz': price_usd,
+                    'currency': 'ر.س',
+                    'date': datetime.now().isoformat(),
+                    'source': 'API'
+                })
+        except Exception as e:
+            print(f'[ERROR] فشل جلب السعر من API: {e}')
+            # إذا فشل الجلب واستخدم آخر سعر محفوظ
+            if latest:
+                price_per_gram_sar = (latest.price / 31.1035) * 3.75
+                return jsonify({
+                    'price_24k': round(price_per_gram_sar, 2),
+                    'price_usd_per_oz': latest.price,
+                    'currency': 'ر.س',
+                    'date': latest.date.isoformat() if latest.date else None,
+                    'source': 'Database (Fallback)'
+                })
+    
+    # إرجاع السعر المحفوظ
+    if latest:
+        price_per_gram_sar = (latest.price / 31.1035) * 3.75
+        return jsonify({
+            'price_24k': round(price_per_gram_sar, 2),
+            'price_usd_per_oz': latest.price,
+            'currency': 'ر.س',
+            'date': latest.date.isoformat() if latest.date else None,
+            'source': 'Database (Cached)'
+        })
+    
+    # إذا لم يكن هناك أي سعر
+    return jsonify({
+        'price_24k': 0,
+        'price_usd_per_oz': 0,
+        'currency': 'ر.س',
+        'date': None,
+        'error': 'لا يوجد سعر ذهب متاح'
+    }), 404
+
+    # Endpoint لتحديث سعر الذهب يدوياً
+@api.route('/gold_price/update', methods=['POST'])
+def update_gold_price():
+    import traceback
+    try:
+        data = request.get_json(silent=True)
+        if data and 'price' in data:
+            price = float(data['price'])
+        else:
+            price = fetch_gold_price()
+        if price:
+            save_gold_price(price)
+            return jsonify({'success': True, 'price': price})
+        return jsonify({'success': False, 'error': 'No price returned'}), 500
+    except Exception as e:
+        print('[ERROR] تحديث سعر الذهب تلقائياً:', str(e))
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': str(e), 'trace': traceback.format_exc()}), 500
+# Invoices CRUD
+@api.route('/invoices', methods=['GET'])
+def get_invoices():
+    # Pagination parameters
+    page = request.args.get('page', 1, type=int)
+    per_page = request.args.get('per_page', 10, type=int)
+
+    # Sorting parameters
+    sort_by = request.args.get('sort_by', 'date')
+    sort_order = request.args.get('sort_order', 'desc')
+
+    # Filtering parameters
+    search = request.args.get('search')
+    status = request.args.get('status')
+    invoice_type = request.args.get('invoice_type')
+    date_from_str = request.args.get('date_from')
+    date_to_str = request.args.get('date_to')
+
+    # Base query
+    query = Invoice.query
+
+    # Filtering
+    if search:
+        query = query.join(Customer).filter(
+            (Invoice.invoice_type_id.ilike(f'%{search}%')) |
+            (Customer.name.ilike(f'%{search}%'))
+        )
+    if status and status != 'all':
+        # This assumes you add a 'status' column to the Invoice model
+        query = query.filter(Invoice.status == status)
+    if invoice_type and invoice_type != 'الكل':
+        query = query.filter(Invoice.invoice_type == invoice_type)
+    if date_from_str:
+        date_from = datetime.fromisoformat(date_from_str)
+        query = query.filter(Invoice.date >= date_from)
+    if date_to_str:
+        date_to = datetime.fromisoformat(date_to_str)
+        query = query.filter(Invoice.date <= date_to)
+
+    # Sorting
+    if sort_by == 'date':
+        order = Invoice.date.desc() if sort_order == 'desc' else Invoice.date.asc()
+    elif sort_by == 'customer':
+        order = Customer.name.desc() if sort_order == 'desc' else Customer.name.asc()
+        query = query.join(Customer)
+    elif sort_by == 'amount':
+        order = Invoice.total.desc() if sort_order == 'desc' else Invoice.total.asc()
+    else:
+        order = Invoice.date.desc() # Default sort
+    
+    query = query.order_by(order)
+
+    # Pagination
+    paginated_invoices = query.paginate(page=page, per_page=per_page, error_out=False)
+    invoices = paginated_invoices.items
+
+    result = []
+    for inv in invoices:
+        invoice_dict = inv.to_dict()  # 🆕 استخدام to_dict() لتضمين payments
+        
+        # إضافة أسماء العملاء والموردين
+        customer_name = inv.customer.name if inv.customer else (inv.supplier.name if inv.supplier else "N/A")
+        supplier_name = inv.supplier.name if inv.supplier else "N/A"
+        
+        invoice_dict['customer_name'] = customer_name
+        invoice_dict['supplier_name'] = supplier_name
+        
+        result.append(invoice_dict)
+
+    return jsonify({
+        'invoices': result,
+        'total': paginated_invoices.total,
+        'pages': paginated_invoices.pages,
+        'current_page': paginated_invoices.page,
+        'per_page': paginated_invoices.per_page
+    })
+
+@api.route('/invoices', methods=['POST'])
+def add_invoice():
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify({'error': 'Invalid or missing JSON body'}), 400
+
+    # دعم كل من invoice_type و transaction_type للتوافق مع الشاشات المختلفة
+    invoice_type = data.get('invoice_type')
+    if not invoice_type:
+        # إذا كان transaction_type موجود، استخدمه لتحديد invoice_type
+        transaction_type = data.get('transaction_type', 'sell')
+        if transaction_type == 'sell':
+            invoice_type = 'بيع'
+        elif transaction_type == 'buy':
+            invoice_type = 'شراء من عميل'
+        else:
+            invoice_type = 'بيع'  # افتراضي
+    
+    if not invoice_type:
+        return jsonify({'error': 'invoice_type or transaction_type is required'}), 400
+    
+    # 🆕 Validation للمرتجعات
+    return_types = ['مرتجع بيع', 'مرتجع شراء', 'مرتجع شراء من مورد']
+    if invoice_type in return_types:
+        # التحقق من وجود original_invoice_id
+        if not data.get('original_invoice_id'):
+            return jsonify({'error': 'original_invoice_id is required for return invoices'}), 400
+        
+        # التحقق من وجود الفاتورة الأصلية
+        original_invoice = Invoice.query.get(data['original_invoice_id'])
+        if not original_invoice:
+            return jsonify({'error': f'Original invoice with ID {data["original_invoice_id"]} not found'}), 404
+        
+        # التحقق من تطابق العميل/المورد
+        if invoice_type == 'مرتجع بيع' and original_invoice.invoice_type == 'بيع':
+            if original_invoice.customer_id != data.get('customer_id'):
+                return jsonify({'error': 'Customer ID must match original invoice'}), 400
+        elif invoice_type == 'مرتجع شراء' and original_invoice.invoice_type == 'شراء من عميل':
+            if original_invoice.customer_id != data.get('customer_id'):
+                return jsonify({'error': 'Customer ID must match original invoice'}), 400
+        elif invoice_type == 'مرتجع شراء من مورد' and original_invoice.invoice_type == 'شراء من مورد':
+            if original_invoice.supplier_id != data.get('supplier_id'):
+                return jsonify({'error': 'Supplier ID must match original invoice'}), 400
+    
+    # 🆕 Validation لنوع الذهب
+    gold_type = data.get('gold_type', 'new')
+    if gold_type not in ['new', 'scrap']:
+        return jsonify({'error': 'gold_type must be either "new" or "scrap"'}), 400
+    
+    # 🆕 دعم وسائل دفع متعددة في الفاتورة الواحدة
+    # يمكن إرسال إما:
+    # 1. payment_method_id (وسيلة واحدة - للتوافق)
+    # 2. payments (array من وسائل متعددة - الميزة الجديدة)
+    
+    payment_method_id = data.get('payment_method_id')  # للتوافق مع الكود القديم
+    payments_data = data.get('payments', [])  # 🆕 دعم وسائل متعددة
+    
+    commission_amount = 0.0
+    net_amount = data['total']
+    
+    # إذا كانت هناك وسائل دفع متعددة
+    if payments_data and isinstance(payments_data, list) and len(payments_data) > 0:
+        # التحقق من أن مجموع المبالغ = إجمالي الفاتورة
+        total_payments = sum(p.get('amount', 0) for p in payments_data)
+        if abs(total_payments - data['total']) > 0.01:  # tolerance للفواصل العشرية
+            return jsonify({
+                'error': f'مجموع المبالغ ({total_payments}) لا يساوي إجمالي الفاتورة ({data["total"]})'
+            }), 400
+        
+        # حساب إجمالي العمولات
+        for payment in payments_data:
+            pm_id = payment.get('payment_method_id')
+            pm_amount = payment.get('amount', 0)
+            
+            if not pm_id:
+                return jsonify({'error': 'payment_method_id is required for each payment'}), 400
+            
+            pm_obj = PaymentMethod.query.get(pm_id)
+            if not pm_obj:
+                return jsonify({'error': f'Payment method with ID {pm_id} not found'}), 404
+            
+            if not pm_obj.is_active:
+                return jsonify({'error': f'Payment method "{pm_obj.name}" is not active'}), 400
+            
+            # حساب عمولة هذه الدفعة
+            if pm_obj.commission_rate and pm_obj.commission_rate > 0:
+                payment_commission = pm_amount * (pm_obj.commission_rate / 100)
+                commission_amount += payment_commission
+        
+        net_amount = data['total'] - commission_amount
+    
+    # وسيلة دفع واحدة (للتوافق مع الكود القديم)
+    elif payment_method_id:
+        payment_method_obj = PaymentMethod.query.get(payment_method_id)
+        if not payment_method_obj:
+            return jsonify({'error': f'Payment method with ID {payment_method_id} not found'}), 404
+        
+        if not payment_method_obj.is_active:
+            return jsonify({'error': f'Payment method "{payment_method_obj.name}" is not active'}), 400
+        
+        # حساب العمولة
+        if payment_method_obj.commission_rate and payment_method_obj.commission_rate > 0:
+            commission_amount = data['total'] * (payment_method_obj.commission_rate / 100)
+            net_amount = data['total'] - commission_amount
+    
+    try:
+        # --- 1. Create Invoice and Items ---
+        last_invoice = Invoice.query.filter_by(invoice_type=invoice_type).order_by(Invoice.invoice_type_id.desc()).first()
+        next_invoice_type_id = (last_invoice.invoice_type_id + 1) if last_invoice else 1
+
+        new_invoice = Invoice(
+            invoice_type_id=next_invoice_type_id,
+            customer_id=data.get('customer_id'),
+            supplier_id=data.get('supplier_id'),
+            date=datetime.fromisoformat(data['date']),
+            total=data['total'],
+            invoice_type=invoice_type,
+            total_weight=data.get('total_weight'),
+            total_tax=data.get('total_tax'),
+            total_cost=data.get('total_cost'),
+            payment_method=data.get('payment_method'),  # للتوافق مع الفواتير القديمة
+            payment_method_id=payment_method_id,  # 🆕 Foreign key
+            commission_amount=commission_amount,  # 🆕 العمولة المحسوبة
+            net_amount=net_amount,  # 🆕 المبلغ الصافي
+            amount_paid=data.get('amount_paid'),
+            # 🆕 الحقول الجديدة
+            original_invoice_id=data.get('original_invoice_id'),
+            return_reason=data.get('return_reason'),
+            gold_type=gold_type
+        )
+        db.session.add(new_invoice)
+        db.session.flush()
+
+        for item_data in data.get('items', []):
+            db.session.add(InvoiceItem(
+                invoice_id=new_invoice.id,
+                item_id=item_data.get('item_id'),
+                name=item_data['name'],
+                karat=item_data['karat'],
+                weight=item_data['weight'],
+                wage=item_data['wage'],
+                net=item_data['net'],
+                tax=item_data['tax'],
+                price=item_data['price'],
+                quantity=item_data.get('quantity', 1)
+            ))
+
+        # 🆕 --- 1.5. Create Invoice Payments (وسائل دفع متعددة) ---
+        if payments_data and isinstance(payments_data, list) and len(payments_data) > 0:
+            # إنشاء سجل لكل وسيلة دفع
+            for payment in payments_data:
+                pm_id = payment.get('payment_method_id')
+                pm_amount = payment.get('amount', 0)
+                pm_obj = PaymentMethod.query.get(pm_id)
+                
+                # حساب العمولة وضريبتها لهذه الدفعة
+                pm_commission_rate = payment.get('commission_rate', pm_obj.commission_rate if pm_obj else 0.0)
+                pm_commission_amount = payment.get('commission_amount', pm_amount * (pm_commission_rate / 100) if pm_commission_rate > 0 else 0.0)
+                pm_commission_vat = payment.get('commission_vat', pm_commission_amount * 0.15)  # 🆕 ضريبة 15%
+                pm_net_amount = payment.get('net_amount', pm_amount - pm_commission_amount - pm_commission_vat)
+                
+                db.session.add(InvoicePayment(
+                    invoice_id=new_invoice.id,
+                    payment_method_id=pm_id,
+                    amount=pm_amount,
+                    commission_rate=pm_commission_rate,
+                    commission_amount=pm_commission_amount,
+                    commission_vat=pm_commission_vat,
+                    net_amount=pm_net_amount,
+                    notes=payment.get('notes')
+                ))
+        
+        # وسيلة دفع واحدة (للتوافق مع الكود القديم)
+        elif payment_method_id:
+            pm_obj = PaymentMethod.query.get(payment_method_id)
+            pm_commission_rate = pm_obj.commission_rate if pm_obj else 0.0
+            
+            db.session.add(InvoicePayment(
+                invoice_id=new_invoice.id,
+                payment_method_id=payment_method_id,
+                amount=data['total'],
+                commission_rate=pm_commission_rate,
+                commission_amount=commission_amount,
+                net_amount=net_amount
+            ))
+
+        # --- 2. Aggregate Gold and Cash Totals ---
+        total_cash = new_invoice.total
+        
+        # Aggregate weights by karat from invoice items
+        gold_by_karat = {'18': 0.0, '21': 0.0, '22': 0.0, '24': 0.0}
+        for item in data.get('items', []):
+            karat_str = str(int(item['karat']))
+            if karat_str in gold_by_karat:
+                gold_by_karat[karat_str] += item['weight'] * item.get('quantity', 1)
+
+        # --- 3. Determine Accounts and Journal Entry Logic ---
+        # 🆕 منطق محدث لدعم 6 أنواع من الفواتير
+        
+        # الحسابات الأساسية
+        cash_account = Account.query.filter_by(name='صندوق النقدية').first()
+        inventory_account = Account.query.filter_by(name='المخزون').first()
+        sales_account = Account.query.filter(Account.name.like('مبيعات%')).first()
+        revenue_account = Account.query.filter(Account.name.like('الإيرادات%')).first()
+        purchases_account = Account.query.filter_by(name='تكلفة البضاعة المباعة').first()
+        
+        # حساب الطرف (عميل أو مورد)
+        party_account = None
+        if new_invoice.customer_id:
+            customer = Customer.query.get(new_invoice.customer_id)
+            if customer and customer.account_id:
+                party_account = Account.query.get(customer.account_id)
+        elif new_invoice.supplier_id:
+            supplier = Supplier.query.get(new_invoice.supplier_id)
+            if supplier and supplier.account_id:
+                party_account = Account.query.get(supplier.account_id)
+        
+        # إذا لم يكن هناك طرف، استخدم الصندوق
+        if not party_account:
+            party_account = cash_account
+
+        # --- 4. Create Journal Entry ---
+        journal_desc = f"فاتورة {invoice_type} رقم #{new_invoice.invoice_type_id}"
+        if new_invoice.original_invoice_id:
+            journal_desc += f" (مرتبطة بفاتورة #{new_invoice.original_invoice_id})"
+        
+        journal_entry = JournalEntry(date=new_invoice.date, description=journal_desc)
+        db.session.add(journal_entry)
+        db.session.flush()
+
+        # --- 5. Create Journal Entry Lines ---
+        # 🆕 منطق محدث لدعم 6 أنواع من الفواتير
+        
+        # تحضير حقول الذهب
+        gold_debit_fields = {f"debit_{k}k": v for k, v in gold_by_karat.items() if v > 0}
+        gold_credit_fields = {f"credit_{k}k": v for k, v in gold_by_karat.items() if v > 0}
+        
+        # 🆕 دالة مساعدة لإضافة قيد العمولة وضريبتها
+        def add_commission_entry(journal_entry_id, payment_method_obj, commission_amount, commission_vat=0.0):
+            """
+            إضافة قيد محاسبي للعمولة وضريبتها:
+            1. من حـ/ مصروف العمولات (مدين) - قيمة العمولة
+            2. من حـ/ ضريبة القيمة المضافة المدفوعة (مدين) - ضريبة العمولة 15%
+               إلى حـ/ الحساب البنكي (دائن) - تقليل المبلغ المستلم
+            """
+            if (commission_amount > 0 or commission_vat > 0) and payment_method_obj and payment_method_obj.account:
+                # 1. مصروف العمولة (مدين)
+                if commission_amount > 0:
+                    commission_expense_account = Account.query.filter_by(account_number='5200').first()
+                    if not commission_expense_account:
+                        # إنشاء حساب مصروف العمولات إذا لم يكن موجود
+                        commission_expense_account = Account(
+                            account_number='5200',
+                            name='مصروف العمولات',
+                            type='expense',
+                            transaction_type='cash'
+                        )
+                        db.session.add(commission_expense_account)
+                        db.session.flush()
+                    
+                    db.session.add(JournalEntryLine(
+                        journal_entry_id=journal_entry_id,
+                        account_id=commission_expense_account.id,
+                        cash_debit=commission_amount
+                    ))
+                
+                # 2. ضريبة القيمة المضافة على العمولة (مدين)
+                if commission_vat > 0:
+                    vat_account = Account.query.filter_by(account_number='1303').first()
+                    if not vat_account:
+                        # إنشاء حساب ضريبة القيمة المضافة المدفوعة
+                        vat_account = Account(
+                            account_number='1303',
+                            name='ضريبة القيمة المضافة المدفوعة',
+                            type='asset',
+                            transaction_type='cash'
+                        )
+                        db.session.add(vat_account)
+                        db.session.flush()
+                    
+                    db.session.add(JournalEntryLine(
+                        journal_entry_id=journal_entry_id,
+                        account_id=vat_account.id,
+                        cash_debit=commission_vat
+                    ))
+        
+        # --- القيود حسب نوع الفاتورة ---
+        
+        if invoice_type == 'بيع':
+            # 1. فاتورة بيع
+            # من حـ/ العميل (أو الصندوق) [مدين]
+            #     إلى حـ/ المخزون [دائن]
+            #     إلى حـ/ الإيرادات [دائن]
+            
+            # 🆕 دعم وسائل دفع متعددة في القيود المحاسبية
+            if payments_data and len(payments_data) > 0:
+                # وسائل دفع متعددة - قيد منفصل لكل وسيلة
+                for payment in payments_data:
+                    pm_obj = PaymentMethod.query.get(payment['payment_method_id'])
+                    pm_amount = payment['amount']
+                    pm_commission = payment.get('commission_amount', 0.0)
+                    pm_commission_vat = payment.get('commission_vat', 0.0)
+                    pm_net = payment.get('net_amount', pm_amount - pm_commission - pm_commission_vat)
+                    
+                    # Line 1: مدين حساب وسيلة الدفع (المبلغ الصافي)
+                    if pm_obj and pm_obj.account:
+                        db.session.add(JournalEntryLine(
+                            journal_entry_id=journal_entry.id,
+                            account_id=pm_obj.account.id,
+                            cash_debit=pm_net
+                        ))
+                    
+                    # Line 1.5: قيد العمولة وضريبتها لهذه الوسيلة
+                    if pm_commission > 0 or pm_commission_vat > 0:
+                        add_commission_entry(journal_entry.id, pm_obj, pm_commission, pm_commission_vat)
+            
+            # وسيلة دفع واحدة (للتوافق)
+            elif payment_method_id:
+                actual_debit_amount = net_amount if commission_amount > 0 else total_cash
+                
+                # Line 1: مدين الحساب البنكي/الصندوق (المبلغ الصافي بعد العمولة)
+                if payment_method_obj and payment_method_obj.account:
+                    # استخدام الحساب المرتبط بوسيلة الدفع
+                    db.session.add(JournalEntryLine(
+                        journal_entry_id=journal_entry.id,
+                        account_id=payment_method_obj.account.id,
+                        cash_debit=actual_debit_amount,
+                        **gold_debit_fields
+                    ))
+                else:
+                    # استخدام الحساب التقليدي (العميل/الصندوق)
+                    db.session.add(JournalEntryLine(
+                        journal_entry_id=journal_entry.id,
+                        account_id=party_account.id,
+                        cash_debit=total_cash,
+                        **gold_debit_fields
+                    ))
+                
+                # 🆕 Line 1.5: قيد العمولة (إن وجدت)
+                if commission_amount > 0:
+                    add_commission_entry(journal_entry.id, payment_method_obj, commission_amount)
+            
+            # لا توجد وسيلة دفع محددة - استخدام الصندوق
+            else:
+                db.session.add(JournalEntryLine(
+                    journal_entry_id=journal_entry.id,
+                    account_id=party_account.id,
+                    cash_debit=total_cash,
+                    **gold_debit_fields
+                ))
+            
+            # Line 2: دائن المخزون
+            if inventory_account:
+                db.session.add(JournalEntryLine(
+                    journal_entry_id=journal_entry.id,
+                    account_id=inventory_account.id,
+                    cash_credit=total_cash * 0.8,  # افتراض 80% تكلفة
+                    **gold_credit_fields
+                ))
+            
+            # Line 3: دائن الإيرادات
+            if revenue_account:
+                db.session.add(JournalEntryLine(
+                    journal_entry_id=journal_entry.id,
+                    account_id=revenue_account.id,
+                    cash_credit=total_cash * 0.2   # افتراض 20% ربح
+                ))
+        
+        elif invoice_type == 'شراء من عميل':
+            # 2. شراء كسر من عميل
+            # من حـ/ المخزون - كسر [مدين]
+            #     إلى حـ/ العميل (أو الصندوق) [دائن]
+            
+            # Line 1: مدين المخزون
+            if inventory_account:
+                db.session.add(JournalEntryLine(
+                    journal_entry_id=journal_entry.id,
+                    account_id=inventory_account.id,
+                    cash_debit=total_cash,
+                    **gold_debit_fields
+                ))
+            
+            # Line 2: دائن العميل/الصندوق
+            db.session.add(JournalEntryLine(
+                journal_entry_id=journal_entry.id,
+                account_id=party_account.id,
+                cash_credit=total_cash,
+                **gold_credit_fields
+            ))
+        
+        elif invoice_type == 'مرتجع بيع':
+            # 3. مرتجع بيع (عكس البيع)
+            # من حـ/ المخزون [مدين]
+            # من حـ/ الإيرادات (عكس) [مدين]
+            #     إلى حـ/ العميل (أو الصندوق) [دائن]
+            
+            # Line 1: مدين المخزون
+            if inventory_account:
+                db.session.add(JournalEntryLine(
+                    journal_entry_id=journal_entry.id,
+                    account_id=inventory_account.id,
+                    cash_debit=total_cash * 0.8,
+                    **gold_debit_fields
+                ))
+            
+            # Line 2: مدين الإيرادات (عكس القيد)
+            if revenue_account:
+                db.session.add(JournalEntryLine(
+                    journal_entry_id=journal_entry.id,
+                    account_id=revenue_account.id,
+                    cash_debit=total_cash * 0.2
+                ))
+            
+            # Line 3: دائن العميل/الصندوق
+            db.session.add(JournalEntryLine(
+                journal_entry_id=journal_entry.id,
+                account_id=party_account.id,
+                cash_credit=total_cash,
+                **gold_credit_fields
+            ))
+        
+        elif invoice_type == 'مرتجع شراء':
+            # 4. مرتجع شراء كسر (عكس الشراء من عميل)
+            # من حـ/ العميل (أو الصندوق) [مدين]
+            #     إلى حـ/ المخزون - كسر [دائن]
+            
+            # Line 1: مدين العميل/الصندوق
+            db.session.add(JournalEntryLine(
+                journal_entry_id=journal_entry.id,
+                account_id=party_account.id,
+                cash_debit=total_cash,
+                **gold_debit_fields
+            ))
+            
+            # Line 2: دائن المخزون
+            if inventory_account:
+                db.session.add(JournalEntryLine(
+                    journal_entry_id=journal_entry.id,
+                    account_id=inventory_account.id,
+                    cash_credit=total_cash,
+                    **gold_credit_fields
+                ))
+        
+        elif invoice_type == 'شراء من مورد':
+            # 5. شراء من مورد
+            # من حـ/ المخزون [مدين]
+            #     إلى حـ/ المورد (أو الصندوق) [دائن]
+            
+            # Line 1: مدين المخزون
+            if inventory_account:
+                db.session.add(JournalEntryLine(
+                    journal_entry_id=journal_entry.id,
+                    account_id=inventory_account.id,
+                    cash_debit=total_cash,
+                    **gold_debit_fields
+                ))
+            
+            # Line 2: دائن المورد/الصندوق
+            db.session.add(JournalEntryLine(
+                journal_entry_id=journal_entry.id,
+                account_id=party_account.id,
+                cash_credit=total_cash,
+                **gold_credit_fields
+            ))
+        
+        elif invoice_type == 'مرتجع شراء من مورد':
+            # 6. مرتجع شراء من مورد (عكس الشراء)
+            # من حـ/ المورد (أو الصندوق) [مدين]
+            #     إلى حـ/ المخزون [دائن]
+            
+            # Line 1: مدين المورد/الصندوق
+            db.session.add(JournalEntryLine(
+                journal_entry_id=journal_entry.id,
+                account_id=party_account.id,
+                cash_debit=total_cash,
+                **gold_debit_fields
+            ))
+            
+            # Line 2: دائن المخزون
+            if inventory_account:
+                db.session.add(JournalEntryLine(
+                    journal_entry_id=journal_entry.id,
+                    account_id=inventory_account.id,
+                    cash_credit=total_cash,
+                    **gold_credit_fields
+                ))
+
+        # --- 6. Commit and Return ---
+        db.session.commit()
+        return jsonify(new_invoice.to_dict()), 201
+
+    except (ValueError, IntegrityError) as e:
+        db.session.rollback()
+        # Log the error for debugging
+        print(f"Error adding invoice: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': 'Failed to create invoice', 'detail': str(e)}), 500
+    except Exception as e:
+        db.session.rollback()
+        print(f"An unexpected error occurred: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': 'An unexpected server error occurred.'}), 500
+
+@api.route('/accounts', methods=['GET'])
+def get_accounts():
+    """
+    الحصول على جميع الحسابات مع دعم الهيكل الهرمي (parent-child)
+    """
+    accounts = Account.query.all()
+    
+    result = []
+    for acc in accounts:
+        # استخدام to_dict() من Model
+        account_dict = acc.to_dict()
+        
+        # إضافة معلومات الحساب الأب إن وجد
+        if acc.parent_id:
+            parent = Account.query.get(acc.parent_id)
+            if parent:
+                account_dict['parent_account'] = {
+                    'id': parent.id,
+                    'account_number': parent.account_number,
+                    'name': parent.name
+                }
+        
+        # إضافة الحسابات الفرعية
+        children = Account.query.filter_by(parent_id=acc.id).all()
+        if children:
+            account_dict['sub_accounts'] = [{
+                'id': child.id,
+                'account_number': child.account_number,
+                'name': child.name,
+                'bank_name': child.bank_name,
+                'account_number_external': child.account_number_external
+            } for child in children]
+        
+        result.append(account_dict)
+    
+    return jsonify(result)
+
+
+@api.route('/accounts/balances', methods=['GET'])
+def get_accounts_balances():
+    """
+    الحصول على أرصدة جميع الحسابات (Cash + Gold) دفعة واحدة
+    """
+    # جلب جميع الحسابات
+    accounts = Account.query.all()
+    
+    balances = {}
+    
+    for acc in accounts:
+        # حساب الأرصدة من journal_entry_line
+        account_lines = db.session.query(
+            func.sum(JournalEntryLine.cash_debit - JournalEntryLine.cash_credit).label('balance_cash'),
+            func.sum(JournalEntryLine.debit_18k - JournalEntryLine.credit_18k).label('balance_18k'),
+            func.sum(JournalEntryLine.debit_21k - JournalEntryLine.credit_21k).label('balance_21k'),
+            func.sum(JournalEntryLine.debit_22k - JournalEntryLine.credit_22k).label('balance_22k'),
+            func.sum(JournalEntryLine.debit_24k - JournalEntryLine.credit_24k).label('balance_24k')
+        ).filter(
+            JournalEntryLine.account_id == acc.id,
+            JournalEntryLine.is_deleted == False
+        ).first()
+        
+        # تحويل None إلى 0
+        balance_cash = account_lines.balance_cash or 0.0
+        balance_18k = account_lines.balance_18k or 0.0
+        balance_21k = account_lines.balance_21k or 0.0
+        balance_22k = account_lines.balance_22k or 0.0
+        balance_24k = account_lines.balance_24k or 0.0
+        
+        # حفظ الأرصدة
+        balances[acc.id] = {
+            'account_id': acc.id,
+            'account_number': acc.account_number,
+            'account_name': acc.name,
+            'cash': round(balance_cash, 2),
+            'gold_18k': round(balance_18k, 3),
+            'gold_21k': round(balance_21k, 3),
+            'gold_22k': round(balance_22k, 3),
+            'gold_24k': round(balance_24k, 3),
+            'has_balance': abs(balance_cash) > 0.01 or abs(balance_18k) > 0.001 or abs(balance_21k) > 0.001 or abs(balance_22k) > 0.001 or abs(balance_24k) > 0.001
+        }
+    
+    return jsonify(balances)
+
+
+@api.route('/accounts/hierarchy', methods=['GET'])
+def get_accounts_hierarchy():
+    """
+    الحصول على شجرة الحسابات في شكل هرمي (tree structure)
+    """
+    # الحصول على الحسابات الرئيسية فقط (بدون parent)
+    root_accounts = Account.query.filter_by(parent_id=None).all()
+    
+    def build_tree(account):
+        """بناء شجرة الحسابات بشكل recursive"""
+        node = {
+            'id': account.id,
+            'account_number': account.account_number,
+            'name': account.name,
+            'type': account.type,
+            'transaction_type': account.transaction_type,
+            'children': []
+        }
+        
+        # الحصول على الحسابات الفرعية
+        children = Account.query.filter_by(parent_id=account.id).all()
+        for child in children:
+            node['children'].append(build_tree(child))
+        
+        return node
+    
+    tree = [build_tree(acc) for acc in root_accounts]
+    
+    return jsonify({
+        'accounts_tree': tree,
+        'total_accounts': Account.query.count()
+    })
+
+# 🆕 Endpoints للمرتجعات
+@api.route('/invoices/<int:invoice_id>/returns', methods=['GET'])
+def get_invoice_returns(invoice_id):
+    """
+    الحصول على جميع المرتجعات المرتبطة بفاتورة معينة
+    """
+    invoice = Invoice.query.get_or_404(invoice_id)
+    
+    # الحصول على جميع المرتجعات
+    returns = Invoice.query.filter_by(original_invoice_id=invoice_id).all()
+    
+    return jsonify({
+        'original_invoice': {
+            'id': invoice.id,
+            'invoice_type_id': invoice.invoice_type_id,
+            'invoice_type': invoice.invoice_type,
+            'date': invoice.date.isoformat(),
+            'total': invoice.total,
+            'status': invoice.status
+        },
+        'returns': [r.to_dict() for r in returns],
+        'total_returns': len(returns)
+    })
+
+@api.route('/invoices/<int:invoice_id>/can-return', methods=['GET'])
+def check_can_return(invoice_id):
+    """
+    التحقق من إمكانية إرجاع فاتورة
+    """
+    invoice = Invoice.query.get_or_404(invoice_id)
+    
+    # الفواتير التي يمكن إرجاعها
+    returnable_types = ['بيع', 'شراء من عميل', 'شراء من مورد']
+    
+    can_return = invoice.invoice_type in returnable_types
+    
+    # التحقق من المرتجعات السابقة
+    existing_returns = Invoice.query.filter_by(original_invoice_id=invoice_id).all()
+    total_returned = sum(r.total for r in existing_returns)
+    
+    return jsonify({
+        'can_return': can_return,
+        'invoice_type': invoice.invoice_type,
+        'original_total': invoice.total,
+        'total_returned': total_returned,
+        'remaining_amount': invoice.total - total_returned,
+        'existing_returns_count': len(existing_returns),
+        'message': 'يمكن إرجاع هذه الفاتورة' if can_return else 'لا يمكن إرجاع هذا النوع من الفواتير'
+    })
+
+@api.route('/invoices/returnable', methods=['GET'])
+def get_returnable_invoices():
+    """
+    الحصول على جميع الفواتير القابلة للإرجاع
+    """
+    # الأنواع القابلة للإرجاع
+    returnable_types = ['بيع', 'شراء من عميل', 'شراء من مورد']
+    
+    # فلترة حسب النوع إذا تم تحديده
+    invoice_type_filter = request.args.get('invoice_type')
+    customer_id = request.args.get('customer_id', type=int)
+    supplier_id = request.args.get('supplier_id', type=int)
+    
+    query = Invoice.query.filter(Invoice.invoice_type.in_(returnable_types))
+    
+    if invoice_type_filter:
+        query = query.filter_by(invoice_type=invoice_type_filter)
+    
+    if customer_id:
+        query = query.filter_by(customer_id=customer_id)
+    
+    if supplier_id:
+        query = query.filter_by(supplier_id=supplier_id)
+    
+    invoices = query.order_by(Invoice.date.desc()).all()
+    
+    result = []
+    for inv in invoices:
+        # حساب المرتجعات الموجودة
+        existing_returns = Invoice.query.filter_by(original_invoice_id=inv.id).all()
+        total_returned = sum(r.total for r in existing_returns)
+        
+        result.append({
+            'id': inv.id,
+            'invoice_type_id': inv.invoice_type_id,
+            'invoice_type': inv.invoice_type,
+            'date': inv.date.isoformat(),
+            'total': inv.total,
+            'total_returned': total_returned,
+            'remaining_amount': inv.total - total_returned,
+            'can_return': (inv.total - total_returned) > 0,
+            'customer_name': inv.customer.name if inv.customer else None,
+            'supplier_name': inv.supplier.name if inv.supplier else None,
+            'items_count': len(inv.items)
+        })
+    
+    return jsonify({
+        'invoices': result,
+        'total_count': len(result)
+    })
+
+@api.route('/accounts/next-number/<parent_number>', methods=['GET'])
+def get_next_account_number_api(parent_number):
+    """
+    API endpoint للحصول على رقم الحساب التالي المتاح
+    
+    Args:
+        parent_number: رقم الحساب الأب (مثل '1100' لعملاء بيع الذهب)
+        
+    Returns:
+        JSON: {'suggested_number': 'XXXXXX', 'is_valid': True, ...}
+    """
+    try:
+        from account_number_generator import suggest_account_number_with_validation
+        
+        result = suggest_account_number_with_validation(parent_number)
+        return jsonify(result), 200
+        
+    except Exception as e:
+        return jsonify({
+            'suggested_number': None,
+            'is_valid': False,
+            'message': f'خطأ: {str(e)}'
+        }), 400
+
+@api.route('/accounts/validate-number', methods=['POST'])
+def validate_account_number_api():
+    """
+    API endpoint للتحقق من صحة رقم حساب
+    
+    Body:
+        {
+            "account_number": "110000",
+            "parent_account_number": "1100"
+        }
+        
+    Returns:
+        JSON: {'is_valid': True/False, 'message': '...'}
+    """
+    try:
+        from account_number_generator import validate_account_number
+        
+        data = request.json
+        account_number = data.get('account_number')
+        parent_account_number = data.get('parent_account_number')
+        
+        if not account_number or not parent_account_number:
+            return jsonify({
+                'is_valid': False,
+                'message': 'يجب تقديم رقم الحساب ورقم الحساب الأب'
+            }), 400
+        
+        result = validate_account_number(account_number, parent_account_number)
+        return jsonify(result), 200
+        
+    except Exception as e:
+        return jsonify({
+            'is_valid': False,
+            'message': f'خطأ: {str(e)}'
+        }), 400
+
+@api.route('/accounts/capacity/<category_number>', methods=['GET'])
+def get_account_capacity_api(category_number):
+    """
+    API endpoint للحصول على معلومات السعة لفئة حسابات
+    
+    Args:
+        category_number: رقم الفئة (مثل '1100' لعملاء بيع الذهب)
+        
+    Returns:
+        JSON: معلومات السعة المتاحة والمستخدمة
+    """
+    try:
+        from account_number_generator import get_customer_account_capacity
+        
+        result = get_customer_account_capacity(category_number)
+        return jsonify(result), 200
+        
+    except Exception as e:
+        return jsonify({
+            'error': f'خطأ: {str(e)}'
+        }), 400
+
+@api.route('/accounts', methods=['POST'])
+def add_account():
+    data = request.json
+    new_account = Account(
+        account_number=data['account_number'],
+        name=data['name'],
+        type=data['type'],
+        parent_id=data.get('parent_id'),
+        transaction_type=data.get('transaction_type', 'both'),
+        bank_name=data.get('bank_name'),
+        account_number_external=data.get('account_number_external'),
+        account_type=data.get('account_type')
+    )
+    db.session.add(new_account)
+    db.session.commit()
+    return jsonify(new_account.to_dict()), 201
+
+@api.route('/accounts/<int:id>', methods=['PUT'])
+def update_account(id):
+    account = Account.query.get_or_404(id)
+    data = request.json
+    account.account_number = data.get('account_number', account.account_number)
+    account.name = data.get('name', account.name)
+    account.type = data.get('type', account.type)
+    account.parent_id = data.get('parent_id', account.parent_id)
+    account.transaction_type = data.get('transaction_type', account.transaction_type)
+    
+    # 🆕 تحديث معلومات البنك
+    if 'bank_name' in data:
+        account.bank_name = data['bank_name']
+    if 'account_number_external' in data:
+        account.account_number_external = data['account_number_external']
+    if 'account_type' in data:
+        account.account_type = data['account_type']
+    
+    db.session.commit()
+    return jsonify(account.to_dict())
+
+@api.route('/accounts/<int:id>', methods=['DELETE'])
+def delete_account(id):
+    account = Account.query.get_or_404(id)
+    db.session.delete(account)
+    db.session.commit()
+    return jsonify({'result': 'success'})
+
+# Journal Entries CRUD
+@api.route('/journal_entries', methods=['GET'])
+def get_journal_entries():
+    # إخفاء القيود المحذوفة افتراضياً
+    entries = JournalEntry.query.filter_by(is_deleted=False).order_by(JournalEntry.date.desc()).all()
+    result = []
+    for entry in entries:
+        lines = []
+        for line in entry.lines:
+            if not line.is_deleted:  # تخطي الأسطر المحذوفة
+                lines.append({
+                    'id': line.id,
+                    'account_id': line.account_id,
+                    'account_name': line.account.name,
+                    'cash_debit': line.cash_debit,
+                    'cash_credit': line.cash_credit,
+                    'debit_18k': line.debit_18k,
+                'credit_18k': line.credit_18k,
+                'debit_21k': line.debit_21k,
+                'credit_21k': line.credit_21k,
+                'debit_22k': line.debit_22k,
+                'credit_22k': line.credit_22k,
+                'debit_24k': line.debit_24k,
+                'credit_24k': line.credit_24k,
+            })
+        result.append({
+            'id': entry.id,
+            'date': entry.date.isoformat(),
+            'description': entry.description,
+            'lines': lines
+        })
+    return jsonify(result)
+
+def get_main_karat():
+    settings = Settings.query.first()
+    return settings.main_karat if settings else 21
+
+def convert_to_main_karat(weight, karat):
+    main_karat = get_main_karat()
+    if karat == 0 or main_karat == 0:
+        return 0
+    return (weight * karat) / main_karat
+
+def convert_from_main_karat(weight, karat):
+    main_karat = get_main_karat()
+    if karat == 0:
+        return 0
+    return (weight * main_karat) / karat
+
+@api.route('/journal_entries', methods=['POST'])
+def add_journal_entry():
+    data = request.get_json()
+    lines_data = data.get('lines', [])
+
+    # --- Pre-validation ---
+    # Filter out completely empty lines first
+    lines_data = [
+        line for line in lines_data if any([
+            line.get('cash_debit', 0), line.get('cash_credit', 0),
+            line.get('debit_18k', 0), line.get('credit_18k', 0),
+            line.get('debit_21k', 0), line.get('credit_21k', 0),
+            line.get('debit_22k', 0), line.get('credit_22k', 0),
+            line.get('debit_24k', 0), line.get('credit_24k', 0)
+        ]) or line.get('account_id')
+    ]
+
+    # Check if any line with data is missing an account
+    for line in lines_data:
+        has_values = any([
+            line.get('cash_debit', 0), line.get('cash_credit', 0),
+            line.get('debit_18k', 0), line.get('credit_18k', 0),
+            line.get('debit_21k', 0), line.get('credit_21k', 0),
+            line.get('debit_22k', 0), line.get('credit_22k', 0),
+            line.get('debit_24k', 0), line.get('credit_24k', 0)
+        ])
+        if has_values and not line.get('account_id'):
+            return jsonify({'error': 'Each line must have an associated account.'}), 400
+
+    if not lines_data or len(lines_data) < 2:
+        return jsonify({'error': 'يجب أن يحتوي قيد اليومية على سطرين على الأقل.'}), 400
+
+    # --- Balance Validation ---
+    total_cash_debit = sum(line.get('cash_debit', 0) for line in lines_data)
+    total_cash_credit = sum(line.get('cash_credit', 0) for line in lines_data)
+
+    if round(total_cash_debit, 3) != round(total_cash_credit, 3):
+        return jsonify({'error': 'Cash debits and credits must be balanced.'}), 400
+
+    # --- Gold Balance Calculation and Auto-Balancing ---
+    total_gold_debit_normalized = sum(
+        convert_to_main_karat(line.get('debit_18k', 0), 18) +
+        convert_to_main_karat(line.get('debit_21k', 0), 21) +
+        convert_to_main_karat(line.get('debit_22k', 0), 22) +
+        convert_to_main_karat(line.get('debit_24k', 0), 24)
+        for line in lines_data
+    )
+    total_gold_credit_normalized = sum(
+        convert_to_main_karat(line.get('credit_18k', 0), 18) +
+        convert_to_main_karat(line.get('credit_21k', 0), 21) +
+        convert_to_main_karat(line.get('credit_22k', 0), 22) +
+        convert_to_main_karat(line.get('credit_24k', 0), 24)
+        for line in lines_data
+    )
+
+    gold_difference = total_gold_debit_normalized - total_gold_credit_normalized
+
+    # Auto-balance if the difference is negligible (less than 0.01)
+    if 0 < abs(gold_difference) < 0.01:
+        adjustment_applied = False
+        # If debit is greater, increase a credit line
+        if gold_difference > 0:
+            for line in lines_data:
+                # Find a line with any credit amount to adjust
+                if any(line.get(f'credit_{k}k', 0) > 0 for k in [18, 21, 22, 24]):
+                    # Adjust the first available credit karat (prefer 21k)
+                    if line.get('credit_21k', 0) > 0:
+                        line['credit_21k'] += convert_from_main_karat(gold_difference, 21)
+                    elif line.get('credit_18k', 0) > 0:
+                        line['credit_18k'] += convert_from_main_karat(gold_difference, 18)
+                    elif line.get('credit_22k', 0) > 0:
+                        line['credit_22k'] += convert_from_main_karat(gold_difference, 22)
+                    elif line.get('credit_24k', 0) > 0:
+                        line['credit_24k'] += convert_from_main_karat(gold_difference, 24)
+                    adjustment_applied = True
+                    break
+        # If credit is greater, increase a debit line
+        else: # gold_difference < 0
+            for line in lines_data:
+                # Find a line with any debit amount to adjust
+                if any(line.get(f'debit_{k}k', 0) > 0 for k in [18, 21, 22, 24]):
+                    # Adjust the first available debit karat (prefer 21k)
+                    if line.get('debit_21k', 0) > 0:
+                        line['debit_21k'] -= convert_from_main_karat(gold_difference, 21) # subtract negative diff
+                    elif line.get('debit_18k', 0) > 0:
+                        line['debit_18k'] -= convert_from_main_karat(gold_difference, 18)
+                    elif line.get('debit_22k', 0) > 0:
+                        line['debit_22k'] -= convert_from_main_karat(gold_difference, 22)
+                    elif line.get('debit_24k', 0) > 0:
+                        line['debit_24k'] -= convert_from_main_karat(gold_difference, 24)
+                    adjustment_applied = True
+                    break
+        
+        # Recalculate totals if an adjustment was made
+        if adjustment_applied:
+            total_gold_debit_normalized = sum(
+                convert_to_main_karat(line.get('debit_18k', 0), 18) +
+                convert_to_main_karat(line.get('debit_21k', 0), 21) +
+                convert_to_main_karat(line.get('debit_22k', 0), 22) +
+                convert_to_main_karat(line.get('debit_24k', 0), 24)
+                for line in lines_data
+            )
+            total_gold_credit_normalized = sum(
+                convert_to_main_karat(line.get('credit_18k', 0), 18) +
+                convert_to_main_karat(line.get('credit_21k', 0), 21) +
+                convert_to_main_karat(line.get('credit_22k', 0), 22) +
+                convert_to_main_karat(line.get('credit_24k', 0), 24)
+                for line in lines_data
+            )
+
+    # Final check for gold balance after potential auto-balancing
+    if round(total_gold_debit_normalized, 3) != round(total_gold_credit_normalized, 3):
+        return jsonify({'error': f'Gold debits and credits must be balanced when normalized to main karat. Debit: {total_gold_debit_normalized}, Credit: {total_gold_credit_normalized}'}), 400
+    # --- End Balance Validation ---
+
+    try:
+        new_entry = JournalEntry(
+            date=datetime.fromisoformat(data['date']),
+            description=data['description']
+        )
+        db.session.add(new_entry)
+        db.session.flush() # Get the ID for the lines
+
+        for line_data in lines_data:
+            new_line = JournalEntryLine(
+                journal_entry_id=new_entry.id,
+                account_id=line_data['account_id'],
+                cash_debit=line_data.get('cash_debit', 0),
+                cash_credit=line_data.get('cash_credit', 0),
+                debit_18k=line_data.get('debit_18k', 0),
+                credit_18k=line_data.get('credit_18k', 0),
+                debit_21k=line_data.get('debit_21k', 0),
+                credit_21k=line_data.get('credit_21k', 0),
+                debit_22k=line_data.get('debit_22k', 0),
+                credit_22k=line_data.get('credit_22k', 0),
+                debit_24k=line_data.get('debit_24k', 0),
+                credit_24k=line_data.get('credit_24k', 0)
+            )
+            db.session.add(new_line)
+
+        db.session.commit()
+        return jsonify(new_entry.to_dict()), 201
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': 'Failed to save journal entry', 'details': str(e)}), 500
+
+@api.route('/journal_entries/<int:id>', methods=['GET'])
+def get_journal_entry(id):
+    entry = JournalEntry.query.get_or_404(id)
+    lines = []
+    for line in entry.lines:
+        lines.append({
+            'id': line.id,
+            'account_id': line.account_id,
+            'account_name': line.account.name,
+            'cash_debit': line.cash_debit,
+            'cash_credit': line.cash_credit,
+            'debit_18k': line.debit_18k,
+            'credit_18k': line.credit_18k,
+            'debit_21k': line.debit_21k,
+            'credit_21k': line.credit_21k,
+            'debit_22k': line.debit_22k,
+            'credit_22k': line.credit_22k,
+            'debit_24k': line.debit_24k,
+            'credit_24k': line.credit_24k,
+        })
+    return jsonify({
+        'id': entry.id,
+        'date': entry.date.isoformat(),
+        'description': entry.description,
+        'lines': lines
+    })
+
+@api.route('/journal_entries/<int:id>', methods=['PUT'])
+def update_journal_entry(id):
+    entry = JournalEntry.query.get_or_404(id)
+    data = request.get_json()
+
+    if not data.get('lines') or len(data.get('lines')) < 2:
+        return jsonify({'error': 'A journal entry must have at least two lines.'}), 400
+
+    # --- Balance Validation ---
+    total_cash_debit = sum(line.get('cash_debit', 0) for line in data['lines'])
+    total_cash_credit = sum(line.get('cash_credit', 0) for line in data['lines'])
+
+    if round(total_cash_debit, 3) != round(total_cash_credit, 3):
+        return jsonify({'error': 'Cash debits and credits must be balanced.'}), 400
+
+    total_gold_debit_normalized = sum(
+        convert_to_main_karat(line.get('debit_18k', 0), 18) +
+        convert_to_main_karat(line.get('debit_21k', 0), 21) +
+        convert_to_main_karat(line.get('debit_22k', 0), 22) +
+        convert_to_main_karat(line.get('debit_24k', 0), 24)
+        for line in data['lines']
+    )
+    total_gold_credit_normalized = sum(
+        convert_to_main_karat(line.get('credit_18k', 0), 18) +
+        convert_to_main_karat(line.get('credit_21k', 0), 21) +
+        convert_to_main_karat(line.get('credit_22k', 0), 22) +
+        convert_to_main_karat(line.get('credit_24k', 0), 24)
+        for line in data['lines']
+    )
+
+    if round(total_gold_debit_normalized, 3) != round(total_gold_credit_normalized, 3):
+        return jsonify({'error': f'Gold debits and credits must be balanced when normalized to main karat. Debit: {total_gold_debit_normalized}, Credit: {total_gold_credit_normalized}'}), 400
+    # --- End Balance Validation ---
+
+    try:
+        entry.date = datetime.fromisoformat(data['date'])
+        entry.description = data['description']
+
+        # Remove old lines
+        for line in entry.lines:
+            db.session.delete(line)
+
+        # Add new lines
+        for line_data in data['lines']:
+            new_line = JournalEntryLine(
+                journal_entry_id=entry.id,
+                account_id=line_data['account_id'],
+                cash_debit=line_data.get('cash_debit', 0),
+                cash_credit=line_data.get('cash_credit', 0),
+                debit_18k=line_data.get('debit_18k', 0),
+                credit_18k=line_data.get('credit_18k', 0),
+                debit_21k=line_data.get('debit_21k', 0),
+                credit_21k=line_data.get('credit_21k', 0),
+                debit_22k=line_data.get('debit_22k', 0),
+                credit_22k=line_data.get('credit_22k', 0),
+                debit_24k=line_data.get('debit_24k', 0),
+                credit_24k=line_data.get('credit_24k', 0),
+            )
+            db.session.add(new_line)
+
+        db.session.commit()
+        return jsonify({'result': 'success'})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': 'Failed to update journal entry', 'detail': str(e)}), 500
+
+# ===== نظام الحذف الآمن (Soft Delete) =====
+
+@api.route('/journal_entries/<int:id>/soft_delete', methods=['POST'])
+def soft_delete_journal_entry(id):
+    """حذف ناعم للقيد مع تسجيل المعلومات"""
+    entry = JournalEntry.query.get_or_404(id)
+    
+    # التحقق من أن القيد غير محذوف مسبقاً
+    if entry.is_deleted:
+        return jsonify({'error': 'القيد محذوف مسبقاً'}), 400
+    
+    data = request.get_json() or {}
+    deleted_by = data.get('deleted_by', 'غير محدد')
+    reason = data.get('reason', '')
+    
+    try:
+        # تطبيق الحذف الناعم
+        entry.soft_delete(deleted_by, reason)
+        
+        # حذف ناعم للأسطر المرتبطة
+        from datetime import datetime
+        for line in entry.lines:
+            line.is_deleted = True
+            line.deleted_at = datetime.now()
+        
+        db.session.commit()
+        
+        return jsonify({
+            'result': 'success',
+            'message': 'تم حذف القيد بنجاح (يمكن الاسترجاع)',
+            'can_restore': True,
+            'deleted_at': entry.deleted_at.isoformat(),
+            'deleted_by': entry.deleted_by
+        })
+        
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': 'فشل حذف القيد', 'detail': str(e)}), 500
+
+@api.route('/journal_entries/<int:id>/restore', methods=['POST'])
+def restore_journal_entry(id):
+    """استرجاع قيد محذوف"""
+    entry = JournalEntry.query.filter_by(id=id, is_deleted=True).first_or_404()
+    
+    data = request.get_json() or {}
+    restored_by = data.get('restored_by', 'غير محدد')
+    
+    try:
+        # استرجاع القيد
+        entry.restore(restored_by)
+        
+        # استرجاع الأسطر
+        for line in entry.lines:
+            line.is_deleted = False
+            line.deleted_at = None
+        
+        db.session.commit()
+        
+        return jsonify({
+            'result': 'success',
+            'message': 'تم استرجاع القيد بنجاح',
+            'restored_at': entry.restored_at.isoformat(),
+            'restored_by': entry.restored_by
+        })
+        
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': 'فشل استرجاع القيد', 'detail': str(e)}), 500
+
+@api.route('/journal_entries/deleted', methods=['GET'])
+def get_deleted_journal_entries():
+    """عرض القيود المحذوفة"""
+    entries = JournalEntry.query.filter_by(is_deleted=True).order_by(JournalEntry.deleted_at.desc()).all()
+    return jsonify([entry.to_dict(include_deleted_info=True) for entry in entries])
+
+@api.route('/journal_entries/<int:id>', methods=['DELETE'])
+def delete_journal_entry(id):
+    """حذف نهائي للقيد (Hard Delete) - للاستخدام الإداري فقط"""
+    entry = JournalEntry.query.get_or_404(id)
+    try:
+        db.session.delete(entry)
+        db.session.commit()
+        return jsonify({'result': 'success', 'message': 'تم الحذف النهائي للقيد'})
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': 'Failed to delete journal entry', 'detail': str(e)}), 500
+
+
+
+@api.route('/general_ledger_all', methods=['GET'])
+def get_general_ledger_all():
+    lines = JournalEntryLine.query.join(JournalEntry).order_by(JournalEntry.date.desc(), JournalEntry.id.desc()).all()
+    result = []
+    for line in lines:
+        # Combine all gold debits and credits into a single normalized value for simplicity in this view
+        gold_debit_normalized = (
+            convert_to_main_karat(line.debit_18k, 18) +
+            convert_to_main_karat(line.debit_21k, 21) +
+            convert_to_main_karat(line.debit_22k, 22) +
+            convert_to_main_karat(line.debit_24k, 24)
+        )
+        gold_credit_normalized = (
+            convert_to_main_karat(line.credit_18k, 18) +
+            convert_to_main_karat(line.credit_21k, 21) +
+            convert_to_main_karat(line.credit_22k, 22) +
+            convert_to_main_karat(line.credit_24k, 24)
+        )
+
+        result.append({
+            'date': line.journal_entry.date.isoformat(),
+            'type': 'Journal Entry', # Type is now always Journal Entry
+            'description': line.journal_entry.description,
+            'customer_name': line.account.name, # 'customer_name' is used in frontend, so we map account name to it
+            'gold_debit': gold_debit_normalized,
+            'gold_credit': gold_credit_normalized,
+            'cash_debit': line.cash_debit,
+            'cash_credit': line.cash_credit,
+        })
+    return jsonify(result)
+
+
+@api.route('/trial_balance', methods=['GET'])
+def get_trial_balance():
+    # Query to get sums of all debits and credits grouped by account
+    query_result = db.session.query(
+        Account.name,
+        func.sum(JournalEntryLine.cash_debit).label('total_cash_debit'),
+        func.sum(JournalEntryLine.cash_credit).label('total_cash_credit'),
+        func.sum(JournalEntryLine.debit_18k).label('total_debit_18k'),
+        func.sum(JournalEntryLine.credit_18k).label('total_credit_18k'),
+        func.sum(JournalEntryLine.debit_21k).label('total_debit_21k'),
+        func.sum(JournalEntryLine.credit_21k).label('total_credit_21k'),
+        func.sum(JournalEntryLine.debit_22k).label('total_debit_22k'),
+        func.sum(JournalEntryLine.credit_22k).label('total_credit_22k'),
+        func.sum(JournalEntryLine.debit_24k).label('total_debit_24k'),
+        func.sum(JournalEntryLine.credit_24k).label('total_credit_24k')
+    ).join(JournalEntryLine.account).group_by(Account.name).all()
+
+    trial_balance = []
+    total_gold_debit_grand = 0
+    total_gold_credit_grand = 0
+    total_cash_debit_grand = 0
+    total_cash_credit_grand = 0
+
+    for row in query_result:
+        # Normalize gold weights to main karat
+        gold_debit = (
+            convert_to_main_karat(row.total_debit_18k or 0, 18) +
+            convert_to_main_karat(row.total_debit_21k or 0, 21) +
+            convert_to_main_karat(row.total_debit_22k or 0, 22) +
+            convert_to_main_karat(row.total_debit_24k or 0, 24)
+        )
+        gold_credit = (
+            convert_to_main_karat(row.total_credit_18k or 0, 18) +
+            convert_to_main_karat(row.total_credit_21k or 0, 21) +
+            convert_to_main_karat(row.total_credit_22k or 0, 22) +
+            convert_to_main_karat(row.total_credit_24k or 0, 24)
+        )
+        cash_debit = row.total_cash_debit or 0
+        cash_credit = row.total_cash_credit or 0
+
+        # Only add accounts that have transactions
+        if gold_debit != 0 or gold_credit != 0 or cash_debit != 0 or cash_credit != 0:
+            trial_balance.append({
+                'account_name': row.name,
+                'gold_debit': gold_debit,
+                'gold_credit': gold_credit,
+                'cash_debit': cash_debit,
+                'cash_credit': cash_credit,
+            })
+            total_gold_debit_grand += gold_debit
+            total_gold_credit_grand += gold_credit
+            total_cash_debit_grand += cash_debit
+            total_cash_credit_grand += cash_credit
+
+    return jsonify({
+        'trial_balance': trial_balance,
+        'totals': {
+            'gold_debit': total_gold_debit_grand,
+            'gold_credit': total_gold_credit_grand,
+            'cash_debit': total_cash_debit_grand,
+            'cash_credit': total_cash_credit_grand,
+        }
+    })
+
+@api.route('/customers/<int:id>', methods=['PUT'])
+def update_customer(id):
+    """
+    تحديث بيانات العميل (النظام الهجين)
+    لا يتم تحديث customer_code بعد الإنشاء
+    """
+    customer = Customer.query.get_or_404(id)
+    data = request.json
+
+    # Update customer details (but not customer_code)
+    customer.name = data.get('name', customer.name)
+    customer.phone = data.get('phone', customer.phone)
+    customer.email = data.get('email', customer.email)
+    customer.address_line_1 = data.get('address_line_1', customer.address_line_1)
+    customer.address_line_2 = data.get('address_line_2', customer.address_line_2)
+    customer.city = data.get('city', customer.city)
+    customer.state = data.get('state', customer.state)
+    customer.postal_code = data.get('postal_code', customer.postal_code)
+    customer.country = data.get('country', customer.country)
+    customer.id_number = data.get('id_number', customer.id_number)
+    
+    birth_date_str = data.get('birth_date')
+    if birth_date_str:
+        try:
+            customer.birth_date = datetime.strptime(birth_date_str, '%Y-%m-%d').date()
+        except (ValueError, TypeError):
+            pass
+    
+    customer.id_version_number = data.get('id_version_number', customer.id_version_number)
+    customer.notes = data.get('notes', customer.notes)
+    customer.active = data.get('active', customer.active)
+    
+    # Allow updating account_category if needed
+    if 'account_category_number' in data:
+        account_category = Account.query.filter_by(account_number=data['account_category_number']).first()
+        if account_category:
+            customer.account_category_id = account_category.id
+
+    try:
+        db.session.commit()
+        return jsonify(customer.to_dict_with_account())
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': f'Failed to update customer: {str(e)}'}), 500
+
+
+# ============================================================================
+# Vouchers API Routes (سندات القبض والصرف)
+# ============================================================================
+
+def generate_voucher_number(voucher_type, year=None):
+    """
+    توليد رقم سند تلقائي
+    RV-2025-00001 (Receipt Voucher)
+    PV-2025-00001 (Payment Voucher)
+    AV-2025-00001 (Adjustment Voucher)
+    """
+    if year is None:
+        year = datetime.now().year
+    
+    # تحديد البادئة حسب النوع
+    prefix_map = {
+        'receipt': 'RV',
+        'payment': 'PV',
+        'adjustment': 'AV'
+    }
+    prefix = prefix_map.get(voucher_type, 'V')
+    
+    # البحث عن آخر رقم في نفس السنة والنوع
+    pattern = f'{prefix}-{year}-%'
+    last_voucher = Voucher.query.filter(
+        Voucher.voucher_number.like(pattern)
+    ).order_by(Voucher.voucher_number.desc()).first()
+    
+    if last_voucher:
+        # استخراج الرقم التسلسلي
+        try:
+            last_num = int(last_voucher.voucher_number.split('-')[-1])
+            new_num = last_num + 1
+        except:
+            new_num = 1
+    else:
+        new_num = 1
+    
+    return f'{prefix}-{year}-{new_num:05d}'
+
+
+def create_journal_entry_from_voucher(voucher):
+    """
+    إنشاء قيد محاسبي تلقائي من السند - نسخة محدّثة
+    
+    يدعم قيود متعددة الأطراف:
+    - نقد + عدة عيارات ذهب في نفس السند
+    - يقرأ سطور الحسابات من VoucherAccountLine
+    
+    سند القبض (Receipt):
+    - مدين: حسابات متعددة (صندوق، ذهب عيار 24، ذهب عيار 21، إلخ)
+    - دائن: حساب العميل (مجموع المبالغ)
+    
+    سند الصرف (Payment):
+    - مدين: حساب المورد (مجموع المبالغ)
+    - دائن: حسابات متعددة (صندوق، ذهب عيار 24، ذهب عيار 21، إلخ)
+    """
+    try:
+        # توليد رقم القيد
+        year = voucher.date.year
+        entry_number = JournalEntry.query.filter(
+            db.func.strftime('%Y', JournalEntry.date) == str(year)
+        ).count() + 1
+        entry_number_str = f'JE-{year}-{entry_number:05d}'
+        
+        # إنشاء القيد
+        journal_entry = JournalEntry(
+            entry_number=entry_number_str,
+            date=voucher.date,
+            description=f'{voucher.voucher_type.upper()} - {voucher.voucher_number}: {voucher.description or ""}',
+            reference_type='voucher',
+            reference_id=voucher.id,
+            created_by=voucher.created_by
+        )
+        
+        db.session.add(journal_entry)
+        db.session.flush()
+        
+        # قراءة سطور الحسابات من VoucherAccountLine
+        account_lines = VoucherAccountLine.query.filter_by(voucher_id=voucher.id).all()
+        
+        if not account_lines:
+            print(f"Warning: No account lines found for voucher {voucher.id}")
+            return None
+        
+        # إنشاء سطور القيد المحاسبي من سطور السند
+        for account_line in account_lines:
+            # تحديد المبالغ حسب نوع السطر (مدين/دائن) ونوع المبلغ (نقد/ذهب)
+            cash_debit = 0
+            cash_credit = 0
+            debit_18k = 0
+            credit_18k = 0
+            debit_21k = 0
+            credit_21k = 0
+            debit_22k = 0
+            credit_22k = 0
+            debit_24k = 0
+            credit_24k = 0
+            
+            if account_line.amount_type == 'cash':
+                if account_line.line_type == 'debit':
+                    cash_debit = account_line.amount
+                else:  # credit
+                    cash_credit = account_line.amount
+            elif account_line.amount_type == 'gold':
+                # تحديد العيار (تحويل إلى int للمقارنة)
+                karat = int(account_line.karat) if account_line.karat else 21
+                amount = account_line.amount
+                is_debit = account_line.line_type == 'debit'
+                
+                # توزيع المبلغ حسب العيار
+                if karat == 18:
+                    if is_debit:
+                        debit_18k = amount
+                    else:
+                        credit_18k = amount
+                elif karat == 21:
+                    if is_debit:
+                        debit_21k = amount
+                    else:
+                        credit_21k = amount
+                elif karat == 22:
+                    if is_debit:
+                        debit_22k = amount
+                    else:
+                        credit_22k = amount
+                elif karat == 24:
+                    if is_debit:
+                        debit_24k = amount
+                    else:
+                        credit_24k = amount
+                else:
+                    # عيار غير مدعوم - استخدام 21 كافتراضي
+                    print(f"Warning: Unsupported karat {karat}, defaulting to 21k")
+                    if is_debit:
+                        debit_21k = amount
+                    else:
+                        credit_21k = amount
+            
+            # إنشاء سطر القيد
+            journal_line = JournalEntryLine(
+                journal_entry_id=journal_entry.id,
+                account_id=account_line.account_id,
+                cash_debit=cash_debit,
+                cash_credit=cash_credit,
+                debit_18k=debit_18k,
+                credit_18k=credit_18k,
+                debit_21k=debit_21k,
+                credit_21k=credit_21k,
+                debit_22k=debit_22k,
+                credit_22k=credit_22k,
+                debit_24k=debit_24k,
+                credit_24k=credit_24k
+            )
+            
+            db.session.add(journal_line)
+        
+        db.session.flush()
+        
+        return journal_entry
+        
+    except Exception as e:
+        print(f"Error creating journal entry from voucher: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return None
+
+
+@api.route('/vouchers', methods=['GET'])
+def get_vouchers():
+    """
+    Get list of vouchers with optional filtering
+    Query parameters:
+    - type: receipt, payment, adjustment
+    - party_type: customer, supplier, other
+    - status: active, cancelled
+    - date_from: YYYY-MM-DD
+    - date_to: YYYY-MM-DD
+    - customer_id: int
+    - supplier_id: int
+    """
+    query = Voucher.query
+    
+    # Filters
+    voucher_type = request.args.get('type')
+    if voucher_type:
+        query = query.filter(Voucher.voucher_type == voucher_type)
+    
+    party_type = request.args.get('party_type')
+    if party_type:
+        query = query.filter(Voucher.party_type == party_type)
+    
+    status = request.args.get('status', 'active')
+    query = query.filter(Voucher.status == status)
+    
+    date_from = request.args.get('date_from')
+    if date_from:
+        try:
+            date_from_obj = datetime.fromisoformat(date_from)
+            query = query.filter(Voucher.date >= date_from_obj)
+        except:
+            pass
+    
+    date_to = request.args.get('date_to')
+    if date_to:
+        try:
+            date_to_obj = datetime.fromisoformat(date_to)
+            query = query.filter(Voucher.date <= date_to_obj)
+        except:
+            pass
+    
+    customer_id = request.args.get('customer_id')
+    if customer_id:
+        query = query.filter(Voucher.customer_id == int(customer_id))
+    
+    supplier_id = request.args.get('supplier_id')
+    if supplier_id:
+        query = query.filter(Voucher.supplier_id == int(supplier_id))
+    
+    # Order by date descending
+    vouchers = query.order_by(Voucher.date.desc()).all()
+    
+    return jsonify([v.to_dict() for v in vouchers])
+
+
+@api.route('/vouchers/<int:voucher_id>', methods=['GET'])
+def get_voucher(voucher_id):
+    """Get single voucher by ID"""
+    voucher = Voucher.query.get_or_404(voucher_id)
+    return jsonify(voucher.to_dict())
+
+
+@api.route('/vouchers', methods=['POST'])
+def create_voucher():
+    """
+    Create a new voucher with automatic journal entry - النسخة المحدّثة
+    
+    يدعم سطور حسابات متعددة (نقد + عدة عيارات ذهب)
+    
+    Required fields:
+    - voucher_type: receipt, payment, adjustment
+    - date: ISO format
+    - account_lines: [
+        {
+          "account_id": int,
+          "line_type": "debit" or "credit",
+          "amount_type": "cash" or "gold",
+          "amount": float,
+          "karat": float (optional, required if amount_type='gold'),
+          "description": string (optional)
+        },
+        ...
+      ]
+    
+    Optional fields:
+    - party_type: customer, supplier, other
+    - customer_id or supplier_id
+    - party_name (if not customer/supplier)
+    - description
+    - reference_type, reference_id, reference_number
+    - notes
+    """
+    data = request.get_json()
+    
+    # Validation
+    if 'voucher_type' not in data:
+        return jsonify({'error': 'voucher_type is required'}), 400
+    
+    if data['voucher_type'] not in ['receipt', 'payment', 'adjustment']:
+        return jsonify({'error': 'Invalid voucher_type'}), 400
+    
+    if 'account_lines' not in data or not data['account_lines']:
+        return jsonify({'error': 'account_lines is required and cannot be empty'}), 400
+    
+    account_lines_data = data['account_lines']
+    
+    # التحقق من وجود حسابات وأرصدة صحيحة
+    total_debit_cash = 0
+    total_credit_cash = 0
+    total_debit_gold = 0
+    total_credit_gold = 0
+    
+    for line in account_lines_data:
+        if 'account_id' not in line or 'line_type' not in line or 'amount_type' not in line or 'amount' not in line:
+            return jsonify({'error': 'Each account line must have account_id, line_type, amount_type, and amount'}), 400
+        
+        if line['line_type'] not in ['debit', 'credit']:
+            return jsonify({'error': 'line_type must be either debit or credit'}), 400
+        
+        if line['amount_type'] not in ['cash', 'gold']:
+            return jsonify({'error': 'amount_type must be either cash or gold'}), 400
+        
+        if line['amount_type'] == 'gold' and 'karat' not in line:
+            return jsonify({'error': 'karat is required when amount_type is gold'}), 400
+        
+        amount = float(line['amount'])
+        if amount <= 0:
+            return jsonify({'error': 'Amount must be greater than zero'}), 400
+        
+        # حساب المجاميع للتحقق من التوازن
+        if line['amount_type'] == 'cash':
+            if line['line_type'] == 'debit':
+                total_debit_cash += amount
+            else:
+                total_credit_cash += amount
+        elif line['amount_type'] == 'gold':
+            if line['line_type'] == 'debit':
+                total_debit_gold += amount
+            else:
+                total_credit_gold += amount
+    
+    # التحقق من التوازن (مع تسامح بسيط للأخطاء العائمة)
+    if abs(total_debit_cash - total_credit_cash) > 0.01:
+        return jsonify({'error': f'Cash amounts not balanced: Debit={total_debit_cash}, Credit={total_credit_cash}'}), 400
+    
+    if abs(total_debit_gold - total_credit_gold) > 0.001:
+        return jsonify({'error': f'Gold amounts not balanced: Debit={total_debit_gold}, Credit={total_credit_gold}'}), 400
+    
+    try:
+        # التحقق من وجود جميع الحسابات
+        for line in account_lines_data:
+            account = Account.query.get(line['account_id'])
+            if not account:
+                return jsonify({'error': f'Account {line["account_id"]} not found'}), 404
+        
+        # Generate voucher number
+        voucher_number = generate_voucher_number(data['voucher_type'])
+        
+        # Parse date
+        voucher_date = datetime.fromisoformat(data.get('date', datetime.now().isoformat()))
+        
+        # حساب المجاميع للسند (للعرض)
+        amount_cash = total_debit_cash  # أو total_credit_cash (متساوية)
+        amount_gold = total_debit_gold  # أو total_credit_gold (متساوية)
+        
+        # Create voucher
+        voucher = Voucher(
+            voucher_number=voucher_number,
+            voucher_type=data['voucher_type'],
+            date=voucher_date,
+            party_type=data.get('party_type'),
+            customer_id=data.get('customer_id'),
+            supplier_id=data.get('supplier_id'),
+            party_name=data.get('party_name'),
+            amount_cash=amount_cash,
+            amount_gold=amount_gold,
+            gold_karat=None,  # لم يعد يستخدم (الآن في سطور الحسابات)
+            description=data.get('description'),
+            reference_type=data.get('reference_type'),
+            reference_id=data.get('reference_id'),
+            reference_number=data.get('reference_number'),
+            notes=data.get('notes'),
+            created_by=data.get('created_by', 'system'),
+            status='active'
+        )
+        
+        db.session.add(voucher)
+        db.session.flush()  # Get the voucher ID
+        
+        # إنشاء سطور الحسابات
+        for line_data in account_lines_data:
+            account_line = VoucherAccountLine(
+                voucher_id=voucher.id,
+                account_id=line_data['account_id'],
+                line_type=line_data['line_type'],
+                amount_type=line_data['amount_type'],
+                amount=float(line_data['amount']),
+                karat=line_data.get('karat'),
+                description=line_data.get('description')
+            )
+            db.session.add(account_line)
+        
+        db.session.flush()
+        
+        # Create automatic journal entry
+        journal_entry = create_journal_entry_from_voucher(voucher)
+        if journal_entry:
+            voucher.journal_entry_id = journal_entry.id
+        
+        db.session.commit()
+        
+        return jsonify(voucher.to_dict()), 201
+        
+    except Exception as e:
+        db.session.rollback()
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': f'Failed to create voucher: {str(e)}'}), 500
+
+
+@api.route('/vouchers/<int:voucher_id>', methods=['PUT'])
+def update_voucher(voucher_id):
+    """Update voucher - only active vouchers can be edited"""
+    voucher = Voucher.query.get_or_404(voucher_id)
+    
+    if voucher.status != 'active':
+        return jsonify({'error': 'Cannot edit cancelled or voided voucher'}), 400
+    
+    data = request.get_json()
+    
+    try:
+        # Update allowed fields
+        if 'date' in data:
+            voucher.date = datetime.fromisoformat(data['date'])
+        
+        if 'party_type' in data:
+            voucher.party_type = data['party_type']
+        
+        if 'customer_id' in data:
+            voucher.customer_id = data['customer_id']
+        
+        if 'supplier_id' in data:
+            voucher.supplier_id = data['supplier_id']
+        
+        if 'party_name' in data:
+            voucher.party_name = data['party_name']
+        
+        if 'amount_cash' in data:
+            voucher.amount_cash = float(data['amount_cash'])
+        
+        if 'amount_gold' in data:
+            voucher.amount_gold = float(data['amount_gold'])
+        
+        if 'gold_karat' in data:
+            voucher.gold_karat = data['gold_karat']
+        
+        if 'description' in data:
+            voucher.description = data['description']
+        
+        if 'notes' in data:
+            voucher.notes = data['notes']
+        
+        # Validation
+        if voucher.amount_cash <= 0 and voucher.amount_gold <= 0:
+            return jsonify({'error': 'Amount must be greater than zero'}), 400
+        
+        db.session.commit()
+        
+        return jsonify(voucher.to_dict())
+        
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': f'Failed to update voucher: {str(e)}'}), 500
+
+
+@api.route('/vouchers/<int:voucher_id>', methods=['DELETE'])
+def delete_voucher(voucher_id):
+    """Delete voucher - only if not linked to journal entry"""
+    voucher = Voucher.query.get_or_404(voucher_id)
+    
+    if voucher.journal_entry_id:
+        return jsonify({'error': 'Cannot delete voucher linked to journal entry. Cancel it instead.'}), 400
+    
+    try:
+        db.session.delete(voucher)
+        db.session.commit()
+        return jsonify({'message': 'Voucher deleted successfully'}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': f'Failed to delete voucher: {str(e)}'}), 500
+
+
+@api.route('/vouchers/<int:voucher_id>/cancel', methods=['POST'])
+def cancel_voucher(voucher_id):
+    """Cancel voucher"""
+    voucher = Voucher.query.get_or_404(voucher_id)
+    
+    if voucher.status == 'cancelled':
+        return jsonify({'error': 'Voucher is already cancelled'}), 400
+    
+    data = request.get_json()
+    reason = data.get('reason', 'No reason provided')
+    
+    try:
+        voucher.status = 'cancelled'
+        voucher.cancellation_reason = reason
+        voucher.cancelled_at = datetime.now()
+        
+        # TODO: Reverse journal entry if exists
+        
+        db.session.commit()
+        
+        return jsonify(voucher.to_dict())
+        
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': f'Failed to cancel voucher: {str(e)}'}), 500
+
+
+@api.route('/vouchers/stats', methods=['GET'])
+def get_vouchers_stats():
+    """Get vouchers statistics"""
+    
+    # Total counts by type
+    stats = {
+        'total_receipt': Voucher.query.filter_by(voucher_type='receipt', status='active').count(),
+        'total_payment': Voucher.query.filter_by(voucher_type='payment', status='active').count(),
+        'total_adjustment': Voucher.query.filter_by(voucher_type='adjustment', status='active').count(),
+    }
+    
+    # Total amounts
+    # Total amounts
+    receipt_cash = db.session.query(db.func.sum(Voucher.amount_cash)).filter_by(
+        voucher_type='receipt', status='active'
+    ).scalar() or 0
+    
+    payment_cash = db.session.query(db.func.sum(Voucher.amount_cash)).filter_by(
+        voucher_type='payment', status='active'
+    ).scalar() or 0
+    stats['total_receipt_cash'] = float(receipt_cash)
+    stats['total_payment_cash'] = float(payment_cash)
+    stats['net_cash'] = float(receipt_cash - payment_cash)
+    
+    return jsonify(stats)
+
+
+# ========================================
+# Initialize Payment Accounts & Methods
+# ========================================
+@api.route('/initialize-payment-system', methods=['POST'])
+def initialize_payment_system():
+    """
+    تهيئة شجرة الحسابات ووسائل الدفع الافتراضية
+    هذا Endpoint يُستدعى مرة واحدة فقط عند الإعداد الأولي
+    """
+    try:
+        # التحقق من وجود بيانات مسبقاً
+        existing_accounts = Account.query.filter(Account.account_number.in_([
+            '1111', '1112', '1113', '1114', '1115', '1116', '1117'
+        ])).count()
+        
+        if existing_accounts > 0:
+            return jsonify({
+                'status': 'warning',
+                'message': 'Payment accounts already exist',
+                'existing_count': existing_accounts
+            }), 200
+        
+        # 1. إنشاء شجرة الحسابات
+        accounts_data = [
+            # الأصول (Assets)
+            {'account_number': '1000', 'name': 'الأصول', 'type': 'asset', 'transaction_type': None},
+            {'account_number': '1100', 'name': 'الأصول المتداولة', 'type': 'asset', 'transaction_type': None},
+            
+            # حسابات وسائل الدفع
+            {'account_number': '1111', 'name': 'الصندوق (نقداً)', 'type': 'asset', 'transaction_type': 'both'},
+            {'account_number': '1112', 'name': 'البنك - الحساب الجاري', 'type': 'asset', 'transaction_type': 'both'},
+            {'account_number': '1113', 'name': 'بطاقة مدى - نقاط البيع', 'type': 'asset', 'transaction_type': 'both'},
+            {'account_number': '1114', 'name': 'بطاقات فيزا/ماستركارد', 'type': 'asset', 'transaction_type': 'both'},
+            {'account_number': '1115', 'name': 'تابي - مستحقات قصيرة الأجل', 'type': 'asset', 'transaction_type': 'both'},
+            {'account_number': '1116', 'name': 'تمارا - مستحقات قصيرة الأجل', 'type': 'asset', 'transaction_type': 'both'},
+            {'account_number': '1117', 'name': 'STC Pay - المحفظة الرقمية', 'type': 'asset', 'transaction_type': 'both'},
+            {'account_number': '1118', 'name': 'Apple Pay / Google Pay', 'type': 'asset', 'transaction_type': 'both'},
+            {'account_number': '1119', 'name': 'التحويل البنكي المباشر', 'type': 'asset', 'transaction_type': 'both'},
+            
+            # المصروفات (Expenses)
+            {'account_number': '5000', 'name': 'المصروفات', 'type': 'expense', 'transaction_type': None},
+            {'account_number': '5100', 'name': 'مصروفات التشغيل', 'type': 'expense', 'transaction_type': None},
+            
+            # حسابات العمولات
+            {'account_number': '5111', 'name': 'عمولة البنك - بطاقة مدى', 'type': 'expense', 'transaction_type': 'both'},
+            {'account_number': '5112', 'name': 'عمولة البنك - فيزا/ماستركارد', 'type': 'expense', 'transaction_type': 'both'},
+            {'account_number': '5113', 'name': 'عمولة تابي (BNPL)', 'type': 'expense', 'transaction_type': 'both'},
+            {'account_number': '5114', 'name': 'عمولة تمارا (BNPL)', 'type': 'expense', 'transaction_type': 'both'},
+            {'account_number': '5115', 'name': 'عمولة STC Pay', 'type': 'expense', 'transaction_type': 'both'},
+            {'account_number': '5116', 'name': 'عمولة Apple/Google Pay', 'type': 'expense', 'transaction_type': 'both'},
+        ]
+        
+        created_accounts = []
+        for acc_data in accounts_data:
+            # التحقق من عدم وجود الحساب
+            existing = Account.query.filter_by(account_number=acc_data['account_number']).first()
+            if not existing:
+                account = Account(
+                    account_number=acc_data['account_number'],
+                    name=acc_data['name'],
+                    type=acc_data['type'],
+                    transaction_type=acc_data['transaction_type']
+                )
+                db.session.add(account)
+                created_accounts.append(acc_data['account_number'])
+        
+        db.session.commit()
+        
+        # 2. إنشاء وسائل الدفع الافتراضية
+        from backend.models import PaymentMethod
+        
+        payment_methods_data = [
+            {'name': 'نقداً', 'commission_rate': 0.0, 'account_number': '1111', 'settlement_days': 0, 
+             'notes': 'استلام فوري - لا توجد عمولات'},
+            
+            {'name': 'بطاقة مدى', 'commission_rate': 1.5, 'account_number': '1113', 'settlement_days': 2,
+             'notes': 'عمولة 1.5% - استلام خلال يومين'},
+            
+            {'name': 'فيزا / ماستركارد', 'commission_rate': 2.5, 'account_number': '1114', 'settlement_days': 3,
+             'notes': 'عمولة 2.5% - استلام خلال 3 أيام'},
+            
+            {'name': 'تابي (Tabby)', 'commission_rate': 4.0, 'account_number': '1115', 'settlement_days': 7,
+             'notes': 'عمولة 4% - استلام خلال أسبوع بعد اكتمال الأقساط'},
+            
+            {'name': 'تمارا (Tamara)', 'commission_rate': 4.0, 'account_number': '1116', 'settlement_days': 7,
+             'notes': 'عمولة 4% - استلام خلال أسبوع بعد اكتمال الأقساط'},
+            
+            {'name': 'STC Pay', 'commission_rate': 1.5, 'account_number': '1117', 'settlement_days': 1,
+             'notes': 'عمولة 1.5% - استلام خلال يوم واحد'},
+            
+            {'name': 'Apple Pay', 'commission_rate': 2.0, 'account_number': '1118', 'settlement_days': 2,
+             'notes': 'عمولة 2% - استلام خلال يومين'},
+            
+            {'name': 'تحويل بنكي', 'commission_rate': 0.0, 'account_number': '1119', 'settlement_days': 1,
+             'notes': 'بدون عمولة - استلام حسب البنك (1-3 أيام)'},
+        ]
+        
+        created_methods = []
+        for method_data in payment_methods_data:
+            # البحث عن الحساب المرتبط
+            account = Account.query.filter_by(account_number=method_data['account_number']).first()
+            
+            if account:
+                # التحقق من عدم وجود وسيلة الدفع
+                existing_method = PaymentMethod.query.filter_by(name=method_data['name']).first()
+                if not existing_method:
+                    payment_method = PaymentMethod(
+                        name=method_data['name'],
+                        commission_rate=method_data['commission_rate'],
+                        account_id=account.id,
+                        settlement_days=method_data['settlement_days'],
+                        notes=method_data['notes'],
+                        is_active=True
+                    )
+                    db.session.add(payment_method)
+                    created_methods.append(method_data['name'])
+        
+        db.session.commit()
+        
+        return jsonify({
+            'status': 'success',
+            'message': 'Payment system initialized successfully',
+            'accounts_created': len(created_accounts),
+            'payment_methods_created': len(created_methods),
+            'details': {
+                'accounts': created_accounts,
+                'payment_methods': created_methods
+            }
+        }), 201
+        
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
+
+
+# ========================================
+# Payment Methods Management
+# ========================================
+@api.route('/payment-methods', methods=['GET'])
+def get_payment_methods():
+    """
+    الحصول على وسائل الدفع مع تفاصيل الحسابات المرتبطة
+    Query Parameters:
+      - active_only=true: جلب الوسائل النشطة فقط (افتراضي: true)
+    """
+    try:
+        # جلب فقط النشطة افتراضياً (للاستخدام في الفواتير)
+        active_only = request.args.get('active_only', 'true').lower() == 'true'
+        
+        if active_only:
+            methods = PaymentMethod.query.filter_by(is_active=True).order_by(PaymentMethod.name).all()
+        else:
+            methods = PaymentMethod.query.order_by(PaymentMethod.name).all()
+        
+        result = []
+        for method in methods:
+            method_dict = method.to_dict()
+            
+            # إضافة معلومات الحساب المرتبط مع معلومات البنك الجديدة
+            if method.account:
+                method_dict['account'] = {
+                    'id': method.account.id,
+                    'account_number': method.account.account_number,
+                    'name': method.account.name,
+                    'type': method.account.type,
+                    'bank_name': method.account.bank_name,
+                    'account_number_external': method.account.account_number_external,
+                    'account_type': method.account.account_type
+                }
+            
+            result.append(method_dict)
+        
+        return jsonify(result), 200
+        
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
+
+
+@api.route('/payment-methods', methods=['POST'])
+def create_payment_method():
+    """
+    إنشاء وسيلة دفع جديدة
+    مع خيارين:
+    1. ربطها بحساب موجود (account_id)
+    2. إنشاء sub-account جديد تلقائياً (create_sub_account=true)
+    """
+    try:
+        data = request.get_json()
+        
+        # التحقق من الحقول المطلوبة
+        if not data.get('name'):
+            return jsonify({
+                'status': 'error',
+                'message': 'اسم وسيلة الدفع مطلوب'
+            }), 400
+        
+        # التحقق من عدم تكرار الاسم
+        existing = PaymentMethod.query.filter_by(name=data['name'], is_active=True).first()
+        if existing:
+            return jsonify({
+                'status': 'error',
+                'message': 'وسيلة دفع بنفس الاسم موجودة بالفعل'
+            }), 400
+        
+        account_id = data.get('account_id')
+        create_sub_account = data.get('create_sub_account', False)
+        
+        # الخيار 1: إنشاء Sub-Account تلقائياً
+        if create_sub_account and not account_id:
+            parent_account_id = data.get('parent_account_id')  # مثلاً: حساب "1112 - البنوك"
+            
+            if not parent_account_id:
+                return jsonify({
+                    'status': 'error',
+                    'message': 'يجب تحديد الحساب الأب (parent_account_id) لإنشاء sub-account'
+                }), 400
+            
+            parent_account = Account.query.get(parent_account_id)
+            if not parent_account:
+                return jsonify({
+                    'status': 'error',
+                    'message': 'الحساب الأب غير موجود'
+                }), 404
+            
+            # البحث عن آخر sub-account رقم
+            parent_code = parent_account.account_number
+            existing_subs = Account.query.filter(
+                Account.account_number.like(f'{parent_code}.%')
+            ).all()
+            
+            # حساب الرقم الفرعي التالي
+            max_sub_num = 0
+            for sub in existing_subs:
+                try:
+                    sub_parts = sub.account_number.split('.')
+                    if len(sub_parts) == 2:
+                        sub_num = int(sub_parts[1])
+                        max_sub_num = max(max_sub_num, sub_num)
+                except:
+                    continue
+            
+            new_sub_num = max_sub_num + 1
+            new_account_number = f"{parent_code}.{new_sub_num}"
+            
+            # إنشاء الحساب الجديد
+            new_account = Account(
+                account_number=new_account_number,
+                name=data['name'],  # نفس اسم وسيلة الدفع
+                type=parent_account.type,
+                parent_id=parent_account_id,
+                is_active=True
+            )
+            db.session.add(new_account)
+            db.session.flush()  # للحصول على ID
+            account_id = new_account.id
+        
+        # الخيار 2: استخدام حساب موجود
+        elif account_id:
+            account = Account.query.get(account_id)
+            if not account:
+                return jsonify({
+                    'status': 'error',
+                    'message': 'الحساب المحدد غير موجود'
+                }), 404
+        else:
+            return jsonify({
+                'status': 'error',
+                'message': 'يجب تحديد account_id أو تفعيل create_sub_account'
+            }), 400
+        
+        # إنشاء وسيلة الدفع
+        payment_method = PaymentMethod(
+            name=data['name'],
+            commission_rate=data.get('commission_rate', 0.0),
+            account_id=account_id,
+            settlement_days=data.get('settlement_days', 0),
+            notes=data.get('notes', ''),
+            is_active=True
+        )
+        
+        db.session.add(payment_method)
+        db.session.commit()
+        
+        return jsonify({
+            'status': 'success',
+            'message': 'تم إنشاء وسيلة الدفع بنجاح',
+            'data': payment_method.to_dict()
+        }), 201
+        
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
+
+
+@api.route('/payment-methods/<int:id>', methods=['PUT'])
+def update_payment_method(id):
+    """
+    تحديث وسيلة دفع موجودة
+    """
+    try:
+        payment_method = PaymentMethod.query.get_or_404(id)
+        data = request.get_json()
+        
+        # تحديث الحقول
+        if 'name' in data:
+            # التحقق من عدم تكرار الاسم
+            existing = PaymentMethod.query.filter(
+                PaymentMethod.name == data['name'],
+                PaymentMethod.id != id,
+                PaymentMethod.is_active == True
+            ).first()
+            if existing:
+                return jsonify({
+                    'status': 'error',
+                    'message': 'وسيلة دفع بنفس الاسم موجودة بالفعل'
+                }), 400
+            payment_method.name = data['name']
+        
+        if 'commission_rate' in data:
+            payment_method.commission_rate = data['commission_rate']
+        
+        if 'account_id' in data:
+            # التحقق من وجود الحساب
+            account = Account.query.get(data['account_id'])
+            if not account:
+                return jsonify({
+                    'status': 'error',
+                    'message': 'الحساب المحدد غير موجود'
+                }), 404
+            payment_method.account_id = data['account_id']
+        
+        if 'settlement_days' in data:
+            payment_method.settlement_days = data['settlement_days']
+        
+        if 'notes' in data:
+            payment_method.notes = data['notes']
+        
+        if 'is_active' in data:
+            payment_method.is_active = data['is_active']
+        
+        db.session.commit()
+        
+        return jsonify({
+            'status': 'success',
+            'message': 'تم تحديث وسيلة الدفع بنجاح',
+            'data': payment_method.to_dict()
+        }), 200
+        
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
+
+
+@api.route('/payment-methods/<int:id>', methods=['DELETE'])
+def delete_payment_method(id):
+    """
+    حذف وسيلة دفع (مع التحقق من عدم وجود معاملات)
+    """
+    try:
+        payment_method = PaymentMethod.query.get_or_404(id)
+        
+        # التحقق من عدم وجود فواتير مرتبطة بهذه الوسيلة
+        # ملاحظة: Invoice.payment_method هو نص (String) وليس foreign key
+        from sqlalchemy import func
+        invoice_count = db.session.query(func.count(Invoice.id)).filter(
+            Invoice.payment_method == payment_method.name
+        ).scalar()
+        
+        if invoice_count > 0:
+            return jsonify({
+                'status': 'error',
+                'message': f'لا يمكن حذف وسيلة الدفع "{payment_method.name}" لأنها مستخدمة في {invoice_count} فاتورة',
+                'invoice_count': invoice_count
+            }), 400
+        
+        # حذف فعلي من قاعدة البيانات
+        db.session.delete(payment_method)
+        db.session.commit()
+        
+        return jsonify({
+            'status': 'success',
+            'message': f'تم حذف وسيلة الدفع "{payment_method.name}" بنجاح'
+        }), 200
+        
+    except Exception as e:
+        import traceback
+        error_traceback = traceback.format_exc()
+        print(f"❌ DELETE ERROR: {error_traceback}")
+        db.session.rollback()
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
+
+
+# ========================================
+# Reorganize to Sub-Accounts Structure
+# ========================================
+@api.route('/reorganize-payment-accounts', methods=['POST'])
+def reorganize_payment_accounts():
+    """
+    إعادة تنظيم شجرة الحسابات لاستخدام Sub-Accounts
+    تحويل مدى/فيزا/STC/Apple Pay لحسابات فرعية تحت البنك (1112)
+    """
+    try:
+        # 1. حذف الحسابات المنفصلة القديمة (soft delete)
+        old_accounts = ['1113', '1114', '1117', '1118']
+        deleted_accounts = []
+        
+        for acc_num in old_accounts:
+            account = Account.query.filter_by(account_number=acc_num).first()
+            if account:
+                # حذف الحساب
+                db.session.delete(account)
+                deleted_accounts.append(acc_num)
+        
+        # 2. إنشاء الحسابات الفرعية تحت البنك (1112)
+        bank_account = Account.query.filter_by(account_number='1112').first()
+        if not bank_account:
+            return jsonify({
+                'status': 'error',
+                'message': 'حساب البنك الرئيسي (1112) غير موجود'
+            }), 404
+        
+        sub_accounts_data = [
+            {'account_number': '1112.1', 'name': 'بطاقة مدى - نقاط البيع', 'parent_id': bank_account.id},
+            {'account_number': '1112.2', 'name': 'بطاقات فيزا - نقاط البيع', 'parent_id': bank_account.id},
+            {'account_number': '1112.3', 'name': 'بطاقات ماستركارد - نقاط البيع', 'parent_id': bank_account.id},
+            {'account_number': '1112.4', 'name': 'STC Pay - نقاط البيع', 'parent_id': bank_account.id},
+            {'account_number': '1112.5', 'name': 'Apple Pay - نقاط البيع', 'parent_id': bank_account.id},
+        ]
+        
+        created_accounts = []
+        for sub_data in sub_accounts_data:
+            # التحقق من عدم وجود الحساب
+            existing = Account.query.filter_by(account_number=sub_data['account_number']).first()
+            if not existing:
+                sub_account = Account(
+                    account_number=sub_data['account_number'],
+                    name=sub_data['name'],
+                    type='asset',
+                    transaction_type='both',
+                    parent_id=sub_data['parent_id']
+                )
+                db.session.add(sub_account)
+                created_accounts.append(sub_data['account_number'])
+        
+        db.session.commit()
+        
+        # 3. تحديث وسائل الدفع للإشارة للحسابات الجديدة
+        payment_mapping = {
+            'بطاقة مدى': '1112.1',
+            'فيزا / ماستركارد': '1112.2',  # سنفصلها لاحقاً
+            'STC Pay': '1112.4',
+            'Apple Pay': '1112.5',
+        }
+        
+        updated_methods = []
+        for method_name, new_account_number in payment_mapping.items():
+            method = PaymentMethod.query.filter_by(name=method_name).first()
+            new_account = Account.query.filter_by(account_number=new_account_number).first()
+            
+            if method and new_account:
+                method.account_id = new_account.id
+                updated_methods.append(method_name)
+        
+        # إضافة ماستركارد كوسيلة منفصلة
+        mastercard_account = Account.query.filter_by(account_number='1112.3').first()
+        existing_mastercard = PaymentMethod.query.filter_by(name='ماستركارد').first()
+        
+        if mastercard_account and not existing_mastercard:
+            mastercard_method = PaymentMethod(
+                name='ماستركارد',
+                commission_rate=2.5,
+                account_id=mastercard_account.id,
+                settlement_days=3,
+                notes='عمولة 2.5% - استلام خلال 3 أيام عبر جهاز نقاط البيع',
+                is_active=True
+            )
+            db.session.add(mastercard_method)
+            updated_methods.append('ماستركارد (جديد)')
+        
+        # تحديث اسم فيزا
+        visa_method = PaymentMethod.query.filter_by(name='فيزا / ماستركارد').first()
+        if visa_method:
+            visa_method.name = 'فيزا'
+            visa_account = Account.query.filter_by(account_number='1112.2').first()
+            if visa_account:
+                visa_method.account_id = visa_account.id
+        
+        db.session.commit()
+        
+        return jsonify({
+            'status': 'success',
+            'message': 'تم إعادة تنظيم شجرة الحسابات بنجاح',
+            'deleted_accounts': deleted_accounts,
+            'created_sub_accounts': created_accounts,
+            'updated_payment_methods': updated_methods,
+            'structure': {
+                'main_account': '1112 - البنك - الحساب الجاري',
+                'sub_accounts': [
+                    '1112.1 - مدى',
+                    '1112.2 - فيزا',
+                    '1112.3 - ماستركارد',
+                    '1112.4 - STC Pay',
+                    '1112.5 - Apple Pay'
+                ],
+                'independent_accounts': [
+                    '1111 - الصندوق (نقداً)',
+                    '1115 - تابي (شركة خارجية)',
+                    '1116 - تمارا (شركة خارجية)',
+                    '1119 - تحويل بنكي مباشر'
+                ]
+            }
+        }), 200
+        
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
+
+
+# ========================================
+# Add Bank Information to Accounts
+# ========================================
+@api.route('/add-bank-info-to-accounts', methods=['POST'])
+def add_bank_info_to_accounts():
+    """
+    إضافة معلومات البنوك إلى الحسابات الموجودة
+    """
+    try:
+        updates = [
+            {
+                'account_number': '1112.1',
+                'bank_name': 'بنك الرياض',
+                'account_type': 'bank_account',
+                'account_number_external': 'يرجى تحديث رقم الحساب'
+            },
+            {
+                'account_number': '1112.2',
+                'bank_name': 'بنك الراجحي',
+                'account_type': 'bank_account',
+                'account_number_external': 'يرجى تحديث رقم الحساب'
+            },
+            {
+                'account_number': '1112.3',
+                'bank_name': 'بنك الراجحي',
+                'account_type': 'bank_account',
+                'account_number_external': 'يرجى تحديث رقم الحساب'
+            },
+            {
+                'account_number': '1112.4',
+                'bank_name': 'STC Pay',
+                'account_type': 'digital_wallet',
+                'account_number_external': 'يرجى تحديث رقم المحفظة'
+            },
+            {
+                'account_number': '1112.5',
+                'bank_name': 'Apple',
+                'account_type': 'digital_wallet',
+                'account_number_external': 'يرجى تحديث معلومات Apple Pay'
+            },
+            {
+                'account_number': '1115',
+                'bank_name': 'تابي (Tabby)',
+                'account_type': 'bnpl',
+                'account_number_external': 'رقم التاجر: يرجى التحديث'
+            },
+            {
+                'account_number': '1116',
+                'bank_name': 'تمارا (Tamara)',
+                'account_type': 'bnpl',
+                'account_number_external': 'رقم التاجر: يرجى التحديث'
+            },
+            {
+                'account_number': '1111',
+                'bank_name': None,
+                'account_type': 'cash',
+                'account_number_external': None
+            },
+        ]
+        
+        updated_accounts = []
+        for update_data in updates:
+            account = Account.query.filter_by(account_number=update_data['account_number']).first()
+            if account:
+                account.bank_name = update_data['bank_name']
+                account.account_type = update_data['account_type']
+                account.account_number_external = update_data['account_number_external']
+                updated_accounts.append({
+                    'account_number': account.account_number,
+                    'name': account.name,
+                    'bank_name': account.bank_name,
+                    'account_type': account.account_type
+                })
+        
+        db.session.commit()
+        
+        return jsonify({
+            'status': 'success',
+            'message': 'تم تحديث معلومات البنوك بنجاح',
+            'updated_count': len(updated_accounts),
+            'accounts': updated_accounts
+        }), 200
+        
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
+        db.session.rollback()
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500

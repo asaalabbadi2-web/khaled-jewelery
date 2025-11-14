@@ -1,0 +1,39 @@
+{
+  "invoice_type": "بيع",
+  "customer_id": 1,
+  "date": "2025-10-14T00:00:00",
+  "total": 10000,
+  "total_weight": 10.5,
+  "total_tax": 1500,
+  "total_cost": 7000,
+  "gold_type": "new",
+  "items": [
+    {
+      "name": "سبيكة ذهب 10 جرام",
+      "karat": 24,
+      "weight": 10.5,
+      "wage": 0,
+      "net": 8500,
+      "tax": 1500,
+      "price": 10000,
+      "quantity": 1
+    }
+  ],
+  "payments": [
+    {
+      "payment_method_id": 1,
+      "amount": 5000,
+      "notes": "نقداً - نصف المبلغ"
+    },
+    {
+      "payment_method_id": 11,
+      "amount": 3000,
+      "notes": "مدى - ربع المبلغ"
+    },
+    {
+      "payment_method_id": 5,
+      "amount": 2000,
+      "notes": "تمارا - الباقي"
+    }
+  ]
+}

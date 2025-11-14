@@ -1,0 +1,212 @@
+import 'package:flutter/material.dart';
+import 'package:intl/intl.dart' hide TextDirection;
+import 'package:provider/provider.dart';
+import '../api_service.dart';
+import '../providers/invoices_provider.dart';
+
+class InvoicesScreen extends StatelessWidget {
+  final ApiService api;
+  final bool isArabic;
+  final String? initialInvoiceType;
+
+  const InvoicesScreen({
+    super.key,
+    required this.api,
+    this.isArabic = true,
+    this.initialInvoiceType,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return ChangeNotifierProvider(
+      create: (_) => InvoicesProvider(api, initialInvoiceType: initialInvoiceType),
+      child: Consumer<InvoicesProvider>(
+        builder: (context, provider, child) {
+          final isAr = isArabic;
+          final gold = const Color(0xFFF7C873);
+          final screenTitle = initialInvoiceType != null && initialInvoiceType != (isAr ? 'الكل' : 'All')
+              ? (isAr ? 'فواتير $initialInvoiceType' : '$initialInvoiceType Invoices')
+              : (isAr ? 'كل الفواتير' : 'All Invoices');
+
+          return Directionality(
+            textDirection: isAr ? TextDirection.rtl : TextDirection.ltr,
+            child: Scaffold(
+              backgroundColor: Colors.black,
+              appBar: AppBar(
+                title: Text(screenTitle),
+                backgroundColor: Colors.black,
+                actions: [
+                  IconButton(
+                    icon: Icon(Icons.refresh, color: gold),
+                    onPressed: () => provider.fetchInvoices(),
+                  ),
+                ],
+              ),
+              body: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  children: [
+                    Card(
+                      color: Colors.grey[900],
+                      child: Padding(
+                        padding: const EdgeInsets.all(8.0),
+                        child: Column(
+                          children: [
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: TextField(
+                                    decoration: InputDecoration(
+                                      hintText: isAr ? 'بحث...' : 'Search...',
+                                      prefixIcon: Icon(Icons.search),
+                                      border: OutlineInputBorder(),
+                                    ),
+                                    onChanged: (value) {
+                                      provider.onSearch(value);
+                                    },
+                                  ),
+                                ),
+                                SizedBox(width: 10),
+                                DropdownButton<String>(
+                                  value: provider.status,
+                                  items: [
+                                    DropdownMenuItem(value: 'all', child: Text(isAr ? 'الكل' : 'All')),
+                                    DropdownMenuItem(value: 'paid', child: Text(isAr ? 'مدفوعة' : 'Paid')),
+                                    DropdownMenuItem(value: 'unpaid', child: Text(isAr ? 'غير مدفوعة' : 'Unpaid')),
+                                  ],
+                                  onChanged: (value) {
+                                    provider.onStatusChange(value!);
+                                  },
+                                ),
+                                IconButton(
+                                  icon: Icon(Icons.date_range),
+                                  onPressed: () async {
+                                    final picked = await showDateRangePicker(
+                                      context: context,
+                                      firstDate: DateTime(2020),
+                                      lastDate: DateTime.now().add(Duration(days: 1)),
+                                    );
+                                    if (picked != null) {
+                                      provider.onDateRangeChange(picked);
+                                    }
+                                  },
+                                ),
+                              ],
+                            ),
+                            SizedBox(height: 10),
+                            Row(
+                              children: [
+                                Text(isAr ? 'ترتيب حسب:' : 'Sort by:'),
+                                SizedBox(width: 10),
+                                DropdownButton<String>(
+                                  value: provider.sortBy,
+                                  items: [
+                                    DropdownMenuItem(value: 'date', child: Text(isAr ? 'التاريخ' : 'Date')),
+                                    DropdownMenuItem(value: 'customer', child: Text(isAr ? 'العميل' : 'Customer')),
+                                    DropdownMenuItem(value: 'amount', child: Text(isAr ? 'الإجمالي' : 'Amount')),
+                                  ],
+                                  onChanged: (value) {
+                                    provider.onSort(value!);
+                                  },
+                                ),
+                                IconButton(
+                                  icon: Icon(provider.sortOrder == 'asc' ? Icons.arrow_upward : Icons.arrow_downward),
+                                  onPressed: () {
+                                    provider.onSort(provider.sortBy);
+                                  },
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    SizedBox(height: 16),
+
+                    // Invoices DataTable
+                    Expanded(
+                      child: provider.isLoading
+                          ? Center(child: CircularProgressIndicator())
+                          : SingleChildScrollView(
+                            scrollDirection: Axis.horizontal,
+                            child: PaginatedDataTable(
+                                header: Text(isAr ? 'الفواتير' : 'Invoices'),
+                                rowsPerPage: 10,
+                                onPageChanged: (pageIndex) {
+                                  // The pageIndex is 0-based, but our API is 1-based.
+                                  provider.fetchInvoices(page: (pageIndex / 10).ceil() + 1);
+                                },
+                                columns: [
+                                  DataColumn(label: Text(isAr ? 'رقم' : 'ID')),
+                                  DataColumn(label: Text(isAr ? 'العميل' : 'Customer')),
+                                  DataColumn(label: Text(isAr ? 'التاريخ' : 'Date')),
+                                  DataColumn(label: Text(isAr ? 'الإجمالي' : 'Total')),
+                                  DataColumn(label: Text(isAr ? 'الحالة' : 'Status')),
+                                  DataColumn(label: Text(isAr ? 'إجراءات' : 'Actions')),
+                                ],
+                                source: _InvoicesDataSource(context, provider, isAr),
+                              ),
+                          ),
+                    ),
+                  ],
+                ),
+              ),
+              floatingActionButton: FloatingActionButton(
+                backgroundColor: gold,
+                child: Icon(Icons.add, color: Colors.black),
+                onPressed: () async {
+                  // ... (add invoice functionality)
+                },
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _InvoicesDataSource extends DataTableSource {
+  final BuildContext context;
+  final InvoicesProvider provider;
+  final bool isAr;
+
+  _InvoicesDataSource(this.context, this.provider, this.isAr);
+
+  @override
+  DataRow getRow(int index) {
+    final invoice = provider.invoices[index];
+    return DataRow(cells: [
+      DataCell(Text(invoice['invoice_type_id']?.toString() ?? invoice['id'].toString())),
+      DataCell(Text(invoice['customer_name'] ?? '')),
+      DataCell(Text(DateFormat('yyyy-MM-dd').format(DateTime.parse(invoice['date'])))),
+      DataCell(Text(NumberFormat("#,##0", isAr ? "ar" : "en").format(invoice['total'] ?? 0))),
+      DataCell(Text(invoice['status'] ?? '')),
+      DataCell(Row(
+        children: [
+          IconButton(
+            icon: Icon(Icons.visibility),
+            onPressed: () {
+              // View invoice details
+            },
+          ),
+          IconButton(
+            icon: Icon(Icons.delete),
+            onPressed: () {
+              // Delete invoice
+            },
+          ),
+        ],
+      )),
+    ]);
+  }
+
+  @override
+  bool get isRowCountApproximate => false;
+
+  @override
+  int get rowCount => provider.totalInvoices;
+
+  @override
+  int get selectedRowCount => 0;
+}

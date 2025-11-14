@@ -1,0 +1,6 @@
+analyzer:
+  errors:
+    # تجاهل جميع الأخطاء في الملفات المؤرشفة
+    uri_does_not_exist: ignore
+    undefined_class: ignore
+    undefined_identifier: ignore

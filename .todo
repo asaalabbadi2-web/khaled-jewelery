@@ -1,0 +1,20 @@
+- [x] Implement backend endpoint for sales-by-item report
+- [x] Wire ApiService + routing for sales-by-item
+- [x] Build Flutter UI (summary/chart/table) for sales-by-item
+- [x] Verify analyzer/tests after additions (flutter analyze reports existing legacy warnings)
+- [x] Design backend aggregation for inventory movement timeline report
+- [x] Extend ApiService + navigation for inventory movement timeline
+- [x] Build Flutter UI for inventory movement timeline (chart + table)
+- [x] Implement backend endpoint for sales-vs-purchases trend report
+- [x] Wire ApiService + navigation for sales-vs-purchases trend
+- [x] Build Flutter UI (filters/chart/table) for sales-vs-purchases trend report
+- [x] Implement backend endpoint for customer-balances-aging report
+- [x] Wire ApiService for customer-balances-aging report
+- [x] Build Flutter UI for customer-balances-aging report (chart + table + filters)
+- [x] Update catalog/docs to announce customer-balances-aging report
+- [x] Run flutter analyze after adding customer-balances-aging report
+- [x] Implement backend endpoint for low-stock report
+- [x] Wire ApiService + navigation for low-stock report
+- [x] Build Flutter UI (filters/chart/table) for low-stock report
+- [x] Update catalog/docs to announce low-stock report
+- [x] Run flutter analyze after adding low-stock report (تحذيرات تاريخية فقط)

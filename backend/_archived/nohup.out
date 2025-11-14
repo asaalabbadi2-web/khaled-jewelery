@@ -1,0 +1,584 @@
+
+[INFO] 🚀 Starting Flask server on http://0.0.0.0:5001 (CORS enabled for all origins)...
+[INFO] إذا كنت تستخدم جدار حماية أو VPN، أوقفه مؤقتاً.
+[INFO] افتح الرابط التالي من أي جهاز على الشبكة: http://<IP-الجهاز>:5001/customers
+ * Serving Flask app 'app'
+ * Debug mode: on
+[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:5001
+ * Running on http://192.168.8.230:5001
+[33mPress CTRL+C to quit[0m
+ * Restarting with stat
+ * Debugger is active!
+ * Debugger PIN: 613-423-760
+192.168.8.230 - - [18/Sep/2025 22:22:17] "[33mGET / HTTP/1.1[0m" 404 -
+192.168.8.230 - - [18/Sep/2025 22:22:17] "[33mGET /favicon.ico HTTP/1.1[0m" 404 -
+127.0.0.1 - - [18/Sep/2025 22:23:09] "GET /customers HTTP/1.1" 200 -
+127.0.0.1 - - [18/Sep/2025 22:23:09] "GET /items HTTP/1.1" 200 -
+127.0.0.1 - - [18/Sep/2025 22:23:09] "GET /invoices HTTP/1.1" 200 -
+127.0.0.1 - - [18/Sep/2025 22:23:30] "OPTIONS /customers HTTP/1.1" 200 -
+127.0.0.1 - - [18/Sep/2025 22:23:30] "[35m[1mPOST /customers HTTP/1.1[0m" 201 -
+127.0.0.1 - - [18/Sep/2025 22:27:15] "GET /customers HTTP/1.1" 200 -
+127.0.0.1 - - [18/Sep/2025 22:27:15] "GET /items HTTP/1.1" 200 -
+127.0.0.1 - - [18/Sep/2025 22:27:15] "GET /invoices HTTP/1.1" 200 -
+127.0.0.1 - - [18/Sep/2025 22:27:23] "OPTIONS /customers HTTP/1.1" 200 -
+127.0.0.1 - - [18/Sep/2025 22:27:23] "[35m[1mPOST /customers HTTP/1.1[0m" 201 -
+127.0.0.1 - - [18/Sep/2025 22:27:24] "GET /customers HTTP/1.1" 200 -
+127.0.0.1 - - [18/Sep/2025 22:27:24] "GET /items HTTP/1.1" 200 -
+127.0.0.1 - - [18/Sep/2025 22:27:24] "GET /invoices HTTP/1.1" 200 -
+127.0.0.1 - - [18/Sep/2025 22:32:22] "GET /customers HTTP/1.1" 200 -
+127.0.0.1 - - [18/Sep/2025 22:32:22] "GET /items HTTP/1.1" 200 -
+127.0.0.1 - - [18/Sep/2025 22:32:22] "GET /invoices HTTP/1.1" 200 -
+127.0.0.1 - - [18/Sep/2025 22:32:31] "OPTIONS /customers HTTP/1.1" 200 -
+127.0.0.1 - - [18/Sep/2025 22:32:31] "[35m[1mPOST /customers HTTP/1.1[0m" 201 -
+127.0.0.1 - - [18/Sep/2025 22:32:32] "GET /customers HTTP/1.1" 200 -
+127.0.0.1 - - [18/Sep/2025 22:32:32] "GET /items HTTP/1.1" 200 -
+127.0.0.1 - - [18/Sep/2025 22:32:32] "GET /invoices HTTP/1.1" 200 -
+127.0.0.1 - - [18/Sep/2025 22:32:35] "GET /customers HTTP/1.1" 200 -
+127.0.0.1 - - [18/Sep/2025 22:32:58] "GET /customers HTTP/1.1" 200 -
+127.0.0.1 - - [18/Sep/2025 22:35:29] "GET /customers HTTP/1.1" 200 -
+127.0.0.1 - - [18/Sep/2025 22:35:29] "GET /items HTTP/1.1" 200 -
+127.0.0.1 - - [18/Sep/2025 22:35:29] "GET /invoices HTTP/1.1" 200 -
+127.0.0.1 - - [18/Sep/2025 22:35:33] "GET /customers HTTP/1.1" 200 -
+127.0.0.1 - - [18/Sep/2025 22:35:33] "GET /items HTTP/1.1" 200 -
+127.0.0.1 - - [18/Sep/2025 22:35:33] "GET /invoices HTTP/1.1" 200 -
+127.0.0.1 - - [18/Sep/2025 22:35:35] "GET /customers HTTP/1.1" 200 -
+127.0.0.1 - - [18/Sep/2025 22:36:00] "OPTIONS /customers HTTP/1.1" 200 -
+127.0.0.1 - - [18/Sep/2025 22:36:00] "[35m[1mPOST /customers HTTP/1.1[0m" 201 -
+127.0.0.1 - - [18/Sep/2025 22:36:00] "GET /customers HTTP/1.1" 200 -
+127.0.0.1 - - [18/Sep/2025 22:36:09] "OPTIONS /customers HTTP/1.1" 200 -
+127.0.0.1 - - [18/Sep/2025 22:36:09] "[35m[1mPOST /customers HTTP/1.1[0m" 201 -
+127.0.0.1 - - [18/Sep/2025 22:36:09] "GET /customers HTTP/1.1" 200 -
+127.0.0.1 - - [18/Sep/2025 22:36:14] "GET /customers HTTP/1.1" 200 -
+127.0.0.1 - - [18/Sep/2025 22:36:24] "GET /customers HTTP/1.1" 200 -
+ * Detected change in '/Users/salehalabbadi/yasar/backend/models.py', reloading
+
+[INFO] 🚀 Starting Flask server on http://0.0.0.0:5001 (CORS enabled for all origins)...
+[INFO] إذا كنت تستخدم جدار حماية أو VPN، أوقفه مؤقتاً.
+[INFO] افتح الرابط التالي من أي جهاز على الشبكة: http://<IP-الجهاز>:5001/customers
+ * Restarting with stat
+ * Debugger is active!
+ * Debugger PIN: 613-423-760
+ * Detected change in '/Users/salehalabbadi/yasar/backend/routes.py', reloading
+
+[INFO] 🚀 Starting Flask server on http://0.0.0.0:5001 (CORS enabled for all origins)...
+[INFO] إذا كنت تستخدم جدار حماية أو VPN، أوقفه مؤقتاً.
+[INFO] افتح الرابط التالي من أي جهاز على الشبكة: http://<IP-الجهاز>:5001/customers
+ * Restarting with stat
+ * Debugger is active!
+ * Debugger PIN: 613-423-760
+127.0.0.1 - - [18/Sep/2025 23:12:45] "[35m[1mGET /customers HTTP/1.1[0m" 500 -
+Traceback (most recent call last):
+  File "/Users/salehalabbadi/yasar/.venv/lib/python3.9/site-packages/sqlalchemy/engine/base.py", line 1967, in _exec_single_context
+    self.dialect.do_execute(
+  File "/Users/salehalabbadi/yasar/.venv/lib/python3.9/site-packages/sqlalchemy/engine/default.py", line 951, in do_execute
+    cursor.execute(statement, parameters)
+psycopg2.errors.UndefinedColumn: column customer.street does not exist
+LINE 1: ...customer_phone, customer.email AS customer_email, customer.s...
+                                                             ^
+
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/Users/salehalabbadi/yasar/.venv/lib/python3.9/site-packages/flask/app.py", line 1536, in __call__
+    return self.wsgi_app(environ, start_response)
+  File "/Users/salehalabbadi/yasar/.venv/lib/python3.9/site-packages/flask/app.py", line 1514, in wsgi_app
+    response = self.handle_exception(e)
+  File "/Users/salehalabbadi/yasar/.venv/lib/python3.9/site-packages/flask_cors/extension.py", line 176, in wrapped_function
+    return cors_after_request(app.make_response(f(*args, **kwargs)))
+  File "/Users/salehalabbadi/yasar/.venv/lib/python3.9/site-packages/flask/app.py", line 1511, in wsgi_app
+    response = self.full_dispatch_request()
+  File "/Users/salehalabbadi/yasar/.venv/lib/python3.9/site-packages/flask/app.py", line 919, in full_dispatch_request
+    rv = self.handle_user_exception(e)
+  File "/Users/salehalabbadi/yasar/.venv/lib/python3.9/site-packages/flask_cors/extension.py", line 176, in wrapped_function
+    return cors_after_request(app.make_response(f(*args, **kwargs)))
+  File "/Users/salehalabbadi/yasar/.venv/lib/python3.9/site-packages/flask/app.py", line 917, in full_dispatch_request
+    rv = self.dispatch_request()
+  File "/Users/salehalabbadi/yasar/.venv/lib/python3.9/site-packages/flask/app.py", line 902, in dispatch_request
+    return self.ensure_sync(self.view_functions[rule.endpoint])(**view_args)  # type: ignore[no-any-return]
+  File "/Users/salehalabbadi/yasar/backend/routes.py", line 11, in get_customers
+    customers = Customer.query.all()
+  File "/Users/salehalabbadi/yasar/.venv/lib/python3.9/site-packages/sqlalchemy/orm/query.py", line 2704, in all
+    return self._iter().all()  # type: ignore
+  File "/Users/salehalabbadi/yasar/.venv/lib/python3.9/site-packages/sqlalchemy/orm/query.py", line 2857, in _iter
+    result: Union[ScalarResult[_T], Result[_T]] = self.session.execute(
+  File "/Users/salehalabbadi/yasar/.venv/lib/python3.9/site-packages/sqlalchemy/orm/session.py", line 2365, in execute
+    return self._execute_internal(
+  File "/Users/salehalabbadi/yasar/.venv/lib/python3.9/site-packages/sqlalchemy/orm/session.py", line 2251, in _execute_internal
+    result: Result[Any] = compile_state_cls.orm_execute_statement(
+  File "/Users/salehalabbadi/yasar/.venv/lib/python3.9/site-packages/sqlalchemy/orm/context.py", line 306, in orm_execute_statement
+    result = conn.execute(
+  File "/Users/salehalabbadi/yasar/.venv/lib/python3.9/site-packages/sqlalchemy/engine/base.py", line 1419, in execute
+    return meth(
+  File "/Users/salehalabbadi/yasar/.venv/lib/python3.9/site-packages/sqlalchemy/sql/elements.py", line 526, in _execute_on_connection
+    return connection._execute_clauseelement(
+  File "/Users/salehalabbadi/yasar/.venv/lib/python3.9/site-packages/sqlalchemy/engine/base.py", line 1641, in _execute_clauseelement
+    ret = self._execute_context(
+  File "/Users/salehalabbadi/yasar/.venv/lib/python3.9/site-packages/sqlalchemy/engine/base.py", line 1846, in _execute_context
+    return self._exec_single_context(
+  File "/Users/salehalabbadi/yasar/.venv/lib/python3.9/site-packages/sqlalchemy/engine/base.py", line 1986, in _exec_single_context
+    self._handle_dbapi_exception(
+  File "/Users/salehalabbadi/yasar/.venv/lib/python3.9/site-packages/sqlalchemy/engine/base.py", line 2355, in _handle_dbapi_exception
+    raise sqlalchemy_exception.with_traceback(exc_info[2]) from e
+  File "/Users/salehalabbadi/yasar/.venv/lib/python3.9/site-packages/sqlalchemy/engine/base.py", line 1967, in _exec_single_context
+    self.dialect.do_execute(
+  File "/Users/salehalabbadi/yasar/.venv/lib/python3.9/site-packages/sqlalchemy/engine/default.py", line 951, in do_execute
+    cursor.execute(statement, parameters)
+sqlalchemy.exc.ProgrammingError: (psycopg2.errors.UndefinedColumn) column customer.street does not exist
+LINE 1: ...customer_phone, customer.email AS customer_email, customer.s...
+                                                             ^
+
+[SQL: SELECT customer.id AS customer_id, customer.name AS customer_name, customer.phone AS customer_phone, customer.email AS customer_email, customer.street AS customer_street, customer.building AS customer_building, customer.district AS customer_district, customer.city AS customer_city, customer.postal AS customer_postal, customer.country AS customer_country, customer.id_number AS customer_id_number, customer.notes AS customer_notes, customer.active AS customer_active, customer.created_at AS customer_created_at 
+FROM customer]
+(Background on this error at: https://sqlalche.me/e/20/f405)
+127.0.0.1 - - [18/Sep/2025 23:13:54] "[35m[1mGET /customers HTTP/1.1[0m" 500 -
+Traceback (most recent call last):
+  File "/Users/salehalabbadi/yasar/.venv/lib/python3.9/site-packages/sqlalchemy/engine/base.py", line 1967, in _exec_single_context
+    self.dialect.do_execute(
+  File "/Users/salehalabbadi/yasar/.venv/lib/python3.9/site-packages/sqlalchemy/engine/default.py", line 951, in do_execute
+    cursor.execute(statement, parameters)
+psycopg2.errors.UndefinedColumn: column customer.street does not exist
+LINE 1: ...customer_phone, customer.email AS customer_email, customer.s...
+                                                             ^
+
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/Users/salehalabbadi/yasar/.venv/lib/python3.9/site-packages/flask/app.py", line 1536, in __call__
+    return self.wsgi_app(environ, start_response)
+  File "/Users/salehalabbadi/yasar/.venv/lib/python3.9/site-packages/flask/app.py", line 1514, in wsgi_app
+    response = self.handle_exception(e)
+  File "/Users/salehalabbadi/yasar/.venv/lib/python3.9/site-packages/flask_cors/extension.py", line 176, in wrapped_function
+    return cors_after_request(app.make_response(f(*args, **kwargs)))
+  File "/Users/salehalabbadi/yasar/.venv/lib/python3.9/site-packages/flask/app.py", line 1511, in wsgi_app
+    response = self.full_dispatch_request()
+  File "/Users/salehalabbadi/yasar/.venv/lib/python3.9/site-packages/flask/app.py", line 919, in full_dispatch_request
+    rv = self.handle_user_exception(e)
+  File "/Users/salehalabbadi/yasar/.venv/lib/python3.9/site-packages/flask_cors/extension.py", line 176, in wrapped_function
+    return cors_after_request(app.make_response(f(*args, **kwargs)))
+  File "/Users/salehalabbadi/yasar/.venv/lib/python3.9/site-packages/flask/app.py", line 917, in full_dispatch_request
+    rv = self.dispatch_request()
+  File "/Users/salehalabbadi/yasar/.venv/lib/python3.9/site-packages/flask/app.py", line 902, in dispatch_request
+    return self.ensure_sync(self.view_functions[rule.endpoint])(**view_args)  # type: ignore[no-any-return]
+  File "/Users/salehalabbadi/yasar/backend/routes.py", line 11, in get_customers
+    customers = Customer.query.all()
+  File "/Users/salehalabbadi/yasar/.venv/lib/python3.9/site-packages/sqlalchemy/orm/query.py", line 2704, in all
+    return self._iter().all()  # type: ignore
+  File "/Users/salehalabbadi/yasar/.venv/lib/python3.9/site-packages/sqlalchemy/orm/query.py", line 2857, in _iter
+    result: Union[ScalarResult[_T], Result[_T]] = self.session.execute(
+  File "/Users/salehalabbadi/yasar/.venv/lib/python3.9/site-packages/sqlalchemy/orm/session.py", line 2365, in execute
+    return self._execute_internal(
+  File "/Users/salehalabbadi/yasar/.venv/lib/python3.9/site-packages/sqlalchemy/orm/session.py", line 2251, in _execute_internal
+    result: Result[Any] = compile_state_cls.orm_execute_statement(
+  File "/Users/salehalabbadi/yasar/.venv/lib/python3.9/site-packages/sqlalchemy/orm/context.py", line 306, in orm_execute_statement
+    result = conn.execute(
+  File "/Users/salehalabbadi/yasar/.venv/lib/python3.9/site-packages/sqlalchemy/engine/base.py", line 1419, in execute
+    return meth(
+  File "/Users/salehalabbadi/yasar/.venv/lib/python3.9/site-packages/sqlalchemy/sql/elements.py", line 526, in _execute_on_connection
+    return connection._execute_clauseelement(
+  File "/Users/salehalabbadi/yasar/.venv/lib/python3.9/site-packages/sqlalchemy/engine/base.py", line 1641, in _execute_clauseelement
+    ret = self._execute_context(
+  File "/Users/salehalabbadi/yasar/.venv/lib/python3.9/site-packages/sqlalchemy/engine/base.py", line 1846, in _execute_context
+    return self._exec_single_context(
+  File "/Users/salehalabbadi/yasar/.venv/lib/python3.9/site-packages/sqlalchemy/engine/base.py", line 1986, in _exec_single_context
+    self._handle_dbapi_exception(
+  File "/Users/salehalabbadi/yasar/.venv/lib/python3.9/site-packages/sqlalchemy/engine/base.py", line 2355, in _handle_dbapi_exception
+    raise sqlalchemy_exception.with_traceback(exc_info[2]) from e
+  File "/Users/salehalabbadi/yasar/.venv/lib/python3.9/site-packages/sqlalchemy/engine/base.py", line 1967, in _exec_single_context
+    self.dialect.do_execute(
+  File "/Users/salehalabbadi/yasar/.venv/lib/python3.9/site-packages/sqlalchemy/engine/default.py", line 951, in do_execute
+    cursor.execute(statement, parameters)
+sqlalchemy.exc.ProgrammingError: (psycopg2.errors.UndefinedColumn) column customer.street does not exist
+LINE 1: ...customer_phone, customer.email AS customer_email, customer.s...
+                                                             ^
+
+[SQL: SELECT customer.id AS customer_id, customer.name AS customer_name, customer.phone AS customer_phone, customer.email AS customer_email, customer.street AS customer_street, customer.building AS customer_building, customer.district AS customer_district, customer.city AS customer_city, customer.postal AS customer_postal, customer.country AS customer_country, customer.id_number AS customer_id_number, customer.notes AS customer_notes, customer.active AS customer_active, customer.created_at AS customer_created_at 
+FROM customer]
+(Background on this error at: https://sqlalche.me/e/20/f405)
+127.0.0.1 - - [18/Sep/2025 23:15:19] "GET /customers HTTP/1.1" 200 -
+127.0.0.1 - - [18/Sep/2025 23:16:02] "GET /customers HTTP/1.1" 200 -
+127.0.0.1 - - [18/Sep/2025 23:16:02] "GET /items HTTP/1.1" 200 -
+127.0.0.1 - - [18/Sep/2025 23:16:02] "GET /invoices HTTP/1.1" 200 -
+127.0.0.1 - - [18/Sep/2025 23:16:06] "GET /customers HTTP/1.1" 200 -
+127.0.0.1 - - [18/Sep/2025 23:16:25] "[33mOPTIONS /customers/1 HTTP/1.1[0m" 404 -
+127.0.0.1 - - [18/Sep/2025 23:16:27] "[33mOPTIONS /customers/1 HTTP/1.1[0m" 404 -
+127.0.0.1 - - [18/Sep/2025 23:16:27] "[33mOPTIONS /customers/1 HTTP/1.1[0m" 404 -
+127.0.0.1 - - [18/Sep/2025 23:16:27] "[33mOPTIONS /customers/1 HTTP/1.1[0m" 404 -
+127.0.0.1 - - [18/Sep/2025 23:16:28] "[33mOPTIONS /customers/1 HTTP/1.1[0m" 404 -
+127.0.0.1 - - [18/Sep/2025 23:16:28] "[33mOPTIONS /customers/1 HTTP/1.1[0m" 404 -
+127.0.0.1 - - [18/Sep/2025 23:16:28] "[33mOPTIONS /customers/1 HTTP/1.1[0m" 404 -
+127.0.0.1 - - [18/Sep/2025 23:16:36] "GET /customers HTTP/1.1" 200 -
+127.0.0.1 - - [18/Sep/2025 23:18:52] "OPTIONS /customers HTTP/1.1" 200 -
+127.0.0.1 - - [18/Sep/2025 23:18:52] "[35m[1mPOST /customers HTTP/1.1[0m" 201 -
+127.0.0.1 - - [18/Sep/2025 23:18:52] "GET /customers HTTP/1.1" 200 -
+127.0.0.1 - - [18/Sep/2025 23:18:53] "GET /items HTTP/1.1" 200 -
+127.0.0.1 - - [18/Sep/2025 23:18:53] "GET /invoices HTTP/1.1" 200 -
+127.0.0.1 - - [18/Sep/2025 23:18:56] "GET /customers HTTP/1.1" 200 -
+127.0.0.1 - - [18/Sep/2025 23:19:23] "GET /customers HTTP/1.1" 200 -
+ * Detected change in '/Users/salehalabbadi/yasar/backend/routes.py', reloading
+
+[INFO] 🚀 Starting Flask server on http://0.0.0.0:5001 (CORS enabled for all origins)...
+[INFO] إذا كنت تستخدم جدار حماية أو VPN، أوقفه مؤقتاً.
+[INFO] افتح الرابط التالي من أي جهاز على الشبكة: http://<IP-الجهاز>:5001/customers
+ * Restarting with stat
+ * Debugger is active!
+ * Debugger PIN: 613-423-760
+127.0.0.1 - - [18/Sep/2025 23:22:54] "GET /customers HTTP/1.1" 200 -
+127.0.0.1 - - [18/Sep/2025 23:22:54] "GET /items HTTP/1.1" 200 -
+127.0.0.1 - - [18/Sep/2025 23:22:54] "GET /invoices HTTP/1.1" 200 -
+127.0.0.1 - - [18/Sep/2025 23:22:58] "GET /customers HTTP/1.1" 200 -
+127.0.0.1 - - [18/Sep/2025 23:23:11] "OPTIONS /customers/20 HTTP/1.1" 200 -
+127.0.0.1 - - [18/Sep/2025 23:23:11] "PUT /customers/20 HTTP/1.1" 200 -
+127.0.0.1 - - [18/Sep/2025 23:23:11] "GET /customers HTTP/1.1" 200 -
+127.0.0.1 - - [18/Sep/2025 23:23:32] "OPTIONS /customers/20 HTTP/1.1" 200 -
+127.0.0.1 - - [18/Sep/2025 23:23:32] "PUT /customers/20 HTTP/1.1" 200 -
+127.0.0.1 - - [18/Sep/2025 23:23:32] "GET /customers HTTP/1.1" 200 -
+127.0.0.1 - - [18/Sep/2025 23:24:09] "GET /customers HTTP/1.1" 200 -
+127.0.0.1 - - [18/Sep/2025 23:24:16] "GET /customers HTTP/1.1" 200 -
+127.0.0.1 - - [18/Sep/2025 23:24:16] "GET /items HTTP/1.1" 200 -
+127.0.0.1 - - [18/Sep/2025 23:24:16] "GET /invoices HTTP/1.1" 200 -
+127.0.0.1 - - [18/Sep/2025 23:24:19] "GET /customers HTTP/1.1" 200 -
+ * Detected change in '/Users/salehalabbadi/yasar/backend/models.py', reloading
+
+[INFO] 🚀 Starting Flask server on http://0.0.0.0:5001 (CORS enabled for all origins)...
+[INFO] إذا كنت تستخدم جدار حماية أو VPN، أوقفه مؤقتاً.
+[INFO] افتح الرابط التالي من أي جهاز على الشبكة: http://<IP-الجهاز>:5001/customers
+ * Restarting with stat
+Traceback (most recent call last):
+  File "/Users/salehalabbadi/yasar/backend/app.py", line 5, in <module>
+    from models import db
+  File "/Users/salehalabbadi/yasar/backend/models.py", line 21
+    invoices = db.relationship('Invoice', backref='customer', lazy=True, cascade="all, delete-orphan")
+IndentationError: unexpected indent
+
+[INFO] 🚀 Starting Flask server on http://0.0.0.0:5001 (CORS enabled for all origins)...
+[INFO] إذا كنت تستخدم جدار حماية أو VPN، أوقفه مؤقتاً.
+[INFO] افتح الرابط التالي من أي جهاز على الشبكة: http://<IP-الجهاز>:5001/customers
+ * Serving Flask app 'app'
+ * Debug mode: on
+[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:5001
+ * Running on http://192.168.8.228:5001
+[33mPress CTRL+C to quit[0m
+ * Restarting with stat
+ * Debugger is active!
+ * Debugger PIN: 613-423-760
+
+[INFO] 🚀 Starting Flask server on http://0.0.0.0:5001 (CORS enabled for all origins)...
+[INFO] إذا كنت تستخدم جدار حماية أو VPN، أوقفه مؤقتاً.
+[INFO] افتح الرابط التالي من أي جهاز على الشبكة: http://<IP-الجهاز>:5001/customers
+Traceback (most recent call last):
+  File "/Users/salehalabbadi/yasar/backend/app.py", line 32, in <module>
+    app.run(host="0.0.0.0", port=5001, debug=True)
+  File "/Users/salehalabbadi/yasar/.venv/lib/python3.9/site-packages/flask/app.py", line 662, in run
+    run_simple(t.cast(str, host), port, self, **options)
+  File "/Users/salehalabbadi/yasar/.venv/lib/python3.9/site-packages/werkzeug/serving.py", line 1115, in run_simple
+    run_with_reloader(
+  File "/Users/salehalabbadi/yasar/.venv/lib/python3.9/site-packages/werkzeug/_reloader.py", line 459, in run_with_reloader
+    ensure_echo_on()
+  File "/Users/salehalabbadi/yasar/.venv/lib/python3.9/site-packages/werkzeug/_reloader.py", line 439, in ensure_echo_on
+    termios.tcsetattr(sys.stdin, termios.TCSANOW, attributes)
+termios.error: (4, 'Interrupted system call')
+
+[INFO] 🚀 Starting Flask server on http://0.0.0.0:5001 (CORS enabled for all origins)...
+[INFO] إذا كنت تستخدم جدار حماية أو VPN، أوقفه مؤقتاً.
+[INFO] افتح الرابط التالي من أي جهاز على الشبكة: http://<IP-الجهاز>:5001/customers
+ * Serving Flask app 'app'
+ * Debug mode: on
+Address already in use
+Port 5001 is in use by another program. Either identify and stop that program, or start the server with a different port.
+Traceback (most recent call last):
+  File "/Users/salehalabbadi/yasar/backend/app.py", line 6, in <module>
+    from routes import api
+  File "/Users/salehalabbadi/yasar/backend/routes.py", line 66
+    return jsonify([
+IndentationError: unexpected indent
+nohup: python: No such file or directory
+
+[INFO] 🚀 Starting Flask server on http://0.0.0.0:5001 (CORS enabled for all origins)...
+[INFO] إذا كنت تستخدم جدار حماية أو VPN، أوقفه مؤقتاً.
+[INFO] افتح الرابط التالي من أي جهاز على الشبكة: http://<IP-الجهاز>:5001/customers
+ * Serving Flask app 'app'
+ * Debug mode: on
+[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:5001
+ * Running on http://192.168.8.228:5001
+[33mPress CTRL+C to quit[0m
+ * Restarting with stat
+ * Debugger is active!
+ * Debugger PIN: 143-527-920
+/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/multiprocessing/resource_tracker.py:216: UserWarning: resource_tracker: There appear to be 1 leaked semaphore objects to clean up at shutdown
+  warnings.warn('resource_tracker: There appear to be %d '
+/Applications/Xcode.app/Contents/Developer/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/multiprocessing/resource_tracker.py:216: UserWarning: resource_tracker: There appear to be 1 leaked semaphore objects to clean up at shutdown
+  warnings.warn('resource_tracker: There appear to be %d '
+/Users/salehalabbadi/نسخة ٢ من yasar/backend/venv/lib/python3.9/site-packages/urllib3/__init__.py:35: NotOpenSSLWarning: urllib3 v2 only supports OpenSSL 1.1.1+, currently the 'ssl' module is compiled with 'LibreSSL 2.8.3'. See: https://github.com/urllib3/urllib3/issues/3020
+  warnings.warn(
+[Scheduler] Disabled (set ENABLE_GOLD_SCHEDULER=1 to enable)
+
+[INFO] 🚀 Starting Flask server on http://0.0.0.0:8001 (CORS enabled for all origins)...
+[INFO] إذا كنت تستخدم جدار حماية أو VPN، أوقفه مؤقتاً.
+[INFO] افتح الرابط التالي من أي جهاز على الشبكة: http://<IP-الجهاز>:8001/customers
+ * Serving Flask app 'app'
+ * Debug mode: off
+[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:8001
+ * Running on http://192.168.8.245:8001
+[33mPress CTRL+C to quit[0m
+127.0.0.1 - - [01/Oct/2025 23:32:02] "GET /api/customers HTTP/1.1" 200 -
+127.0.0.1 - - [01/Oct/2025 23:35:36] "GET /api/customers HTTP/1.1" 200 -
+127.0.0.1 - - [01/Oct/2025 23:35:36] "GET /api/gold_price HTTP/1.1" 200 -
+127.0.0.1 - - [01/Oct/2025 23:35:44] "GET /api/settings HTTP/1.1" 200 -
+127.0.0.1 - - [01/Oct/2025 23:35:53] "GET /api/settings HTTP/1.1" 200 -
+127.0.0.1 - - [01/Oct/2025 23:36:15] "GET /api/journal_entries HTTP/1.1" 200 -
+127.0.0.1 - - [01/Oct/2025 23:36:18] "GET /api/accounts HTTP/1.1" 200 -
+127.0.0.1 - - [01/Oct/2025 23:36:57] "GET /api/journal_entries HTTP/1.1" 200 -
+127.0.0.1 - - [01/Oct/2025 23:37:00] "GET /api/accounts HTTP/1.1" 200 -
+127.0.0.1 - - [01/Oct/2025 23:37:21] "OPTIONS /api/accounts HTTP/1.1" 200 -
+127.0.0.1 - - [01/Oct/2025 23:37:21] "[35m[1mPOST /api/accounts HTTP/1.1[0m" 201 -
+127.0.0.1 - - [01/Oct/2025 23:37:21] "GET /api/accounts HTTP/1.1" 200 -
+127.0.0.1 - - [01/Oct/2025 23:37:41] "OPTIONS /api/accounts HTTP/1.1" 200 -
+127.0.0.1 - - [01/Oct/2025 23:37:41] "[35m[1mPOST /api/accounts HTTP/1.1[0m" 201 -
+127.0.0.1 - - [01/Oct/2025 23:37:41] "GET /api/accounts HTTP/1.1" 200 -
+127.0.0.1 - - [01/Oct/2025 23:38:05] "OPTIONS /api/accounts HTTP/1.1" 200 -
+127.0.0.1 - - [01/Oct/2025 23:38:05] "[35m[1mPOST /api/accounts HTTP/1.1[0m" 201 -
+127.0.0.1 - - [01/Oct/2025 23:38:05] "GET /api/accounts HTTP/1.1" 200 -
+127.0.0.1 - - [01/Oct/2025 23:38:36] "OPTIONS /api/accounts HTTP/1.1" 200 -
+127.0.0.1 - - [01/Oct/2025 23:38:36] "[35m[1mPOST /api/accounts HTTP/1.1[0m" 201 -
+127.0.0.1 - - [01/Oct/2025 23:38:36] "GET /api/accounts HTTP/1.1" 200 -
+127.0.0.1 - - [01/Oct/2025 23:39:14] "OPTIONS /api/accounts HTTP/1.1" 200 -
+127.0.0.1 - - [01/Oct/2025 23:39:14] "[35m[1mPOST /api/accounts HTTP/1.1[0m" 201 -
+127.0.0.1 - - [01/Oct/2025 23:39:14] "GET /api/accounts HTTP/1.1" 200 -
+127.0.0.1 - - [01/Oct/2025 23:39:21] "GET /api/journal_entries HTTP/1.1" 200 -
+127.0.0.1 - - [01/Oct/2025 23:39:23] "GET /api/accounts HTTP/1.1" 200 -
+127.0.0.1 - - [01/Oct/2025 23:42:00] "OPTIONS /api/journal_entries HTTP/1.1" 200 -
+127.0.0.1 - - [01/Oct/2025 23:42:00] "[31m[1mPOST /api/journal_entries HTTP/1.1[0m" 400 -
+127.0.0.1 - - [01/Oct/2025 23:42:12] "OPTIONS /api/journal_entries HTTP/1.1" 200 -
+127.0.0.1 - - [01/Oct/2025 23:42:12] "[31m[1mPOST /api/journal_entries HTTP/1.1[0m" 400 -
+127.0.0.1 - - [01/Oct/2025 23:42:17] "OPTIONS /api/journal_entries HTTP/1.1" 200 -
+127.0.0.1 - - [01/Oct/2025 23:42:17] "[31m[1mPOST /api/journal_entries HTTP/1.1[0m" 400 -
+127.0.0.1 - - [01/Oct/2025 23:43:26] "OPTIONS /api/journal_entries HTTP/1.1" 200 -
+127.0.0.1 - - [01/Oct/2025 23:43:26] "[35m[1mPOST /api/journal_entries HTTP/1.1[0m" 201 -
+127.0.0.1 - - [01/Oct/2025 23:43:26] "GET /api/journal_entries HTTP/1.1" 200 -
+127.0.0.1 - - [01/Oct/2025 23:43:47] "GET /api/accounts HTTP/1.1" 200 -
+127.0.0.1 - - [01/Oct/2025 23:43:50] "GET /api/journal_entries HTTP/1.1" 200 -
+127.0.0.1 - - [01/Oct/2025 23:43:54] "GET /api/accounts HTTP/1.1" 200 -
+127.0.0.1 - - [01/Oct/2025 23:44:04] "OPTIONS /api/journal_entries/1 HTTP/1.1" 200 -
+127.0.0.1 - - [01/Oct/2025 23:44:04] "[31m[1mPUT /api/journal_entries/1 HTTP/1.1[0m" 400 -
+127.0.0.1 - - [01/Oct/2025 23:44:10] "OPTIONS /api/journal_entries/1 HTTP/1.1" 200 -
+127.0.0.1 - - [01/Oct/2025 23:44:10] "PUT /api/journal_entries/1 HTTP/1.1" 200 -
+127.0.0.1 - - [01/Oct/2025 23:44:10] "GET /api/journal_entries HTTP/1.1" 200 -
+127.0.0.1 - - [01/Oct/2025 23:49:47] "GET /api/customers HTTP/1.1" 200 -
+127.0.0.1 - - [01/Oct/2025 23:49:47] "GET /api/gold_price HTTP/1.1" 200 -
+127.0.0.1 - - [01/Oct/2025 23:49:51] "GET /api/journal_entries HTTP/1.1" 200 -
+127.0.0.1 - - [01/Oct/2025 23:49:55] "GET /api/accounts HTTP/1.1" 200 -
+127.0.0.1 - - [01/Oct/2025 23:49:55] "GET /api/settings HTTP/1.1" 200 -
+127.0.0.1 - - [01/Oct/2025 23:59:07] "GET /api/customers HTTP/1.1" 200 -
+127.0.0.1 - - [01/Oct/2025 23:59:07] "GET /api/gold_price HTTP/1.1" 200 -
+127.0.0.1 - - [01/Oct/2025 23:59:15] "GET /api/journal_entries HTTP/1.1" 200 -
+127.0.0.1 - - [01/Oct/2025 23:59:18] "GET /api/accounts HTTP/1.1" 200 -
+127.0.0.1 - - [01/Oct/2025 23:59:18] "GET /api/settings HTTP/1.1" 200 -
+127.0.0.1 - - [02/Oct/2025 00:09:56] "GET /api/customers HTTP/1.1" 200 -
+127.0.0.1 - - [02/Oct/2025 00:09:56] "GET /api/gold_price HTTP/1.1" 200 -
+127.0.0.1 - - [02/Oct/2025 00:10:05] "GET /api/journal_entries HTTP/1.1" 200 -
+127.0.0.1 - - [02/Oct/2025 00:10:09] "GET /api/accounts HTTP/1.1" 200 -
+127.0.0.1 - - [02/Oct/2025 00:10:09] "GET /api/settings HTTP/1.1" 200 -
+127.0.0.1 - - [02/Oct/2025 00:15:47] "GET /api/customers HTTP/1.1" 200 -
+127.0.0.1 - - [02/Oct/2025 00:15:48] "GET /api/gold_price HTTP/1.1" 200 -
+127.0.0.1 - - [02/Oct/2025 00:15:52] "GET /api/journal_entries HTTP/1.1" 200 -
+127.0.0.1 - - [02/Oct/2025 00:15:54] "GET /api/settings HTTP/1.1" 200 -
+127.0.0.1 - - [02/Oct/2025 00:15:54] "GET /api/accounts HTTP/1.1" 200 -
+127.0.0.1 - - [02/Oct/2025 00:20:25] "GET /api/customers HTTP/1.1" 200 -
+127.0.0.1 - - [02/Oct/2025 00:20:25] "GET /api/gold_price HTTP/1.1" 200 -
+127.0.0.1 - - [02/Oct/2025 00:20:30] "GET /api/journal_entries HTTP/1.1" 200 -
+127.0.0.1 - - [02/Oct/2025 00:20:33] "GET /api/accounts HTTP/1.1" 200 -
+127.0.0.1 - - [02/Oct/2025 00:20:33] "GET /api/settings HTTP/1.1" 200 -
+127.0.0.1 - - [02/Oct/2025 00:23:02] "GET /api/customers HTTP/1.1" 200 -
+127.0.0.1 - - [02/Oct/2025 00:23:02] "GET /api/gold_price HTTP/1.1" 200 -
+127.0.0.1 - - [02/Oct/2025 00:23:08] "GET /api/journal_entries HTTP/1.1" 200 -
+127.0.0.1 - - [02/Oct/2025 00:23:10] "GET /api/settings HTTP/1.1" 200 -
+127.0.0.1 - - [02/Oct/2025 00:23:10] "GET /api/accounts HTTP/1.1" 200 -
+127.0.0.1 - - [02/Oct/2025 00:25:02] "GET /api/customers HTTP/1.1" 200 -
+127.0.0.1 - - [02/Oct/2025 00:25:02] "GET /api/gold_price HTTP/1.1" 200 -
+127.0.0.1 - - [02/Oct/2025 00:25:05] "GET /api/journal_entries HTTP/1.1" 200 -
+127.0.0.1 - - [02/Oct/2025 00:25:08] "GET /api/settings HTTP/1.1" 200 -
+127.0.0.1 - - [02/Oct/2025 00:25:08] "GET /api/accounts HTTP/1.1" 200 -
+127.0.0.1 - - [02/Oct/2025 00:28:47] "GET /api/customers HTTP/1.1" 200 -
+127.0.0.1 - - [02/Oct/2025 00:28:47] "GET /api/gold_price HTTP/1.1" 200 -
+127.0.0.1 - - [02/Oct/2025 00:28:50] "GET /api/journal_entries HTTP/1.1" 200 -
+127.0.0.1 - - [02/Oct/2025 00:28:53] "GET /api/settings HTTP/1.1" 200 -
+127.0.0.1 - - [02/Oct/2025 00:28:53] "GET /api/accounts HTTP/1.1" 200 -
+127.0.0.1 - - [02/Oct/2025 00:32:14] "GET /api/customers HTTP/1.1" 200 -
+127.0.0.1 - - [02/Oct/2025 00:32:14] "GET /api/gold_price HTTP/1.1" 200 -
+127.0.0.1 - - [02/Oct/2025 00:32:19] "GET /api/journal_entries HTTP/1.1" 200 -
+127.0.0.1 - - [02/Oct/2025 00:32:21] "GET /api/settings HTTP/1.1" 200 -
+127.0.0.1 - - [02/Oct/2025 00:32:21] "GET /api/accounts HTTP/1.1" 200 -
+127.0.0.1 - - [02/Oct/2025 00:37:49] "GET /api/customers HTTP/1.1" 200 -
+127.0.0.1 - - [02/Oct/2025 00:37:49] "GET /api/gold_price HTTP/1.1" 200 -
+127.0.0.1 - - [02/Oct/2025 00:37:52] "GET /api/journal_entries HTTP/1.1" 200 -
+127.0.0.1 - - [02/Oct/2025 00:37:55] "GET /api/settings HTTP/1.1" 200 -
+127.0.0.1 - - [02/Oct/2025 00:37:55] "GET /api/accounts HTTP/1.1" 200 -
+127.0.0.1 - - [02/Oct/2025 00:39:24] "OPTIONS /api/journal_entries HTTP/1.1" 200 -
+127.0.0.1 - - [02/Oct/2025 00:39:24] "[35m[1mPOST /api/journal_entries HTTP/1.1[0m" 500 -
+127.0.0.1 - - [02/Oct/2025 00:39:30] "OPTIONS /api/journal_entries HTTP/1.1" 200 -
+127.0.0.1 - - [02/Oct/2025 00:39:30] "[31m[1mPOST /api/journal_entries HTTP/1.1[0m" 400 -
+127.0.0.1 - - [02/Oct/2025 00:39:35] "[31m[1mPOST /api/journal_entries HTTP/1.1[0m" 400 -
+127.0.0.1 - - [02/Oct/2025 00:39:38] "OPTIONS /api/journal_entries HTTP/1.1" 200 -
+127.0.0.1 - - [02/Oct/2025 00:39:38] "[31m[1mPOST /api/journal_entries HTTP/1.1[0m" 400 -
+127.0.0.1 - - [02/Oct/2025 00:40:52] "OPTIONS /api/journal_entries HTTP/1.1" 200 -
+127.0.0.1 - - [02/Oct/2025 00:40:52] "[35m[1mPOST /api/journal_entries HTTP/1.1[0m" 500 -
+127.0.0.1 - - [02/Oct/2025 00:40:54] "[35m[1mPOST /api/journal_entries HTTP/1.1[0m" 500 -
+127.0.0.1 - - [02/Oct/2025 00:40:57] "OPTIONS /api/journal_entries HTTP/1.1" 200 -
+127.0.0.1 - - [02/Oct/2025 00:40:57] "[35m[1mPOST /api/journal_entries HTTP/1.1[0m" 500 -
+127.0.0.1 - - [02/Oct/2025 00:41:00] "[35m[1mPOST /api/journal_entries HTTP/1.1[0m" 500 -
+127.0.0.1 - - [02/Oct/2025 00:41:00] "[35m[1mPOST /api/journal_entries HTTP/1.1[0m" 500 -
+127.0.0.1 - - [02/Oct/2025 00:41:01] "[35m[1mPOST /api/journal_entries HTTP/1.1[0m" 500 -
+127.0.0.1 - - [02/Oct/2025 00:41:01] "[31m[1mPOST /api/journal_entries HTTP/1.1[0m" 400 -
+127.0.0.1 - - [02/Oct/2025 00:41:01] "[31m[1mPOST /api/journal_entries HTTP/1.1[0m" 400 -
+127.0.0.1 - - [02/Oct/2025 00:41:01] "[31m[1mPOST /api/journal_entries HTTP/1.1[0m" 400 -
+127.0.0.1 - - [02/Oct/2025 00:41:02] "[31m[1mPOST /api/journal_entries HTTP/1.1[0m" 400 -
+127.0.0.1 - - [02/Oct/2025 00:42:57] "GET /api/customers HTTP/1.1" 200 -
+127.0.0.1 - - [02/Oct/2025 00:42:57] "GET /api/gold_price HTTP/1.1" 200 -
+127.0.0.1 - - [02/Oct/2025 00:43:00] "GET /api/journal_entries HTTP/1.1" 200 -
+127.0.0.1 - - [02/Oct/2025 00:43:04] "GET /api/settings HTTP/1.1" 200 -
+127.0.0.1 - - [02/Oct/2025 00:43:04] "GET /api/accounts HTTP/1.1" 200 -
+127.0.0.1 - - [02/Oct/2025 00:44:49] "OPTIONS /api/journal_entries HTTP/1.1" 200 -
+127.0.0.1 - - [02/Oct/2025 00:44:49] "[35m[1mPOST /api/journal_entries HTTP/1.1[0m" 500 -
+127.0.0.1 - - [02/Oct/2025 00:44:55] "OPTIONS /api/journal_entries HTTP/1.1" 200 -
+127.0.0.1 - - [02/Oct/2025 00:44:55] "[31m[1mPOST /api/journal_entries HTTP/1.1[0m" 400 -
+127.0.0.1 - - [02/Oct/2025 00:45:00] "[31m[1mPOST /api/journal_entries HTTP/1.1[0m" 400 -
+127.0.0.1 - - [02/Oct/2025 00:45:11] "OPTIONS /api/journal_entries HTTP/1.1" 200 -
+127.0.0.1 - - [02/Oct/2025 00:45:11] "[31m[1mPOST /api/journal_entries HTTP/1.1[0m" 400 -
+127.0.0.1 - - [02/Oct/2025 00:45:17] "OPTIONS /api/journal_entries HTTP/1.1" 200 -
+127.0.0.1 - - [02/Oct/2025 00:45:17] "[31m[1mPOST /api/journal_entries HTTP/1.1[0m" 400 -
+/Users/salehalabbadi/نسخة ٢ من yasar/backend/venv/lib/python3.9/site-packages/urllib3/__init__.py:35: NotOpenSSLWarning: urllib3 v2 only supports OpenSSL 1.1.1+, currently the 'ssl' module is compiled with 'LibreSSL 2.8.3'. See: https://github.com/urllib3/urllib3/issues/3020
+  warnings.warn(
+[Scheduler] Disabled (set ENABLE_GOLD_SCHEDULER=1 to enable)
+
+[INFO] 🚀 Starting Flask server on http://0.0.0.0:8001 (CORS enabled for all origins)...
+[INFO] إذا كنت تستخدم جدار حماية أو VPN، أوقفه مؤقتاً.
+[INFO] افتح الرابط التالي من أي جهاز على الشبكة: http://<IP-الجهاز>:8001/customers
+ * Serving Flask app 'app'
+ * Debug mode: off
+[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:8001
+ * Running on http://192.168.8.245:8001
+[33mPress CTRL+C to quit[0m
+127.0.0.1 - - [02/Oct/2025 00:48:07] "GET /api/customers HTTP/1.1" 200 -
+127.0.0.1 - - [02/Oct/2025 00:48:08] "GET /api/gold_price HTTP/1.1" 200 -
+127.0.0.1 - - [02/Oct/2025 00:48:15] "GET /api/journal_entries HTTP/1.1" 200 -
+127.0.0.1 - - [02/Oct/2025 00:48:18] "GET /api/accounts HTTP/1.1" 200 -
+127.0.0.1 - - [02/Oct/2025 00:48:18] "GET /api/settings HTTP/1.1" 200 -
+127.0.0.1 - - [02/Oct/2025 00:49:02] "OPTIONS /api/journal_entries HTTP/1.1" 200 -
+127.0.0.1 - - [02/Oct/2025 00:49:02] "[35m[1mPOST /api/journal_entries HTTP/1.1[0m" 500 -
+127.0.0.1 - - [02/Oct/2025 00:49:12] "OPTIONS /api/journal_entries HTTP/1.1" 200 -
+127.0.0.1 - - [02/Oct/2025 00:49:12] "[31m[1mPOST /api/journal_entries HTTP/1.1[0m" 400 -
+127.0.0.1 - - [02/Oct/2025 00:49:18] "OPTIONS /api/journal_entries HTTP/1.1" 200 -
+127.0.0.1 - - [02/Oct/2025 00:49:18] "[31m[1mPOST /api/journal_entries HTTP/1.1[0m" 400 -
+127.0.0.1 - - [02/Oct/2025 00:49:44] "OPTIONS /api/journal_entries HTTP/1.1" 200 -
+127.0.0.1 - - [02/Oct/2025 00:49:44] "[35m[1mPOST /api/journal_entries HTTP/1.1[0m" 500 -
+127.0.0.1 - - [02/Oct/2025 00:49:47] "[31m[1mPOST /api/journal_entries HTTP/1.1[0m" 400 -
+/Users/salehalabbadi/نسخة ٢ من yasar/backend/venv/lib/python3.9/site-packages/urllib3/__init__.py:35: NotOpenSSLWarning: urllib3 v2 only supports OpenSSL 1.1.1+, currently the 'ssl' module is compiled with 'LibreSSL 2.8.3'. See: https://github.com/urllib3/urllib3/issues/3020
+  warnings.warn(
+[Scheduler] Disabled (set ENABLE_GOLD_SCHEDULER=1 to enable)
+
+[INFO] 🚀 Starting Flask server on http://0.0.0.0:8001 (CORS enabled for all origins)...
+[INFO] إذا كنت تستخدم جدار حماية أو VPN، أوقفه مؤقتاً.
+[INFO] افتح الرابط التالي من أي جهاز على الشبكة: http://<IP-الجهاز>:8001/customers
+ * Serving Flask app 'app'
+ * Debug mode: off
+[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:8001
+ * Running on http://192.168.8.245:8001
+[33mPress CTRL+C to quit[0m
+127.0.0.1 - - [02/Oct/2025 00:52:30] "GET /api/customers HTTP/1.1" 200 -
+127.0.0.1 - - [02/Oct/2025 00:52:30] "GET /api/gold_price HTTP/1.1" 200 -
+127.0.0.1 - - [02/Oct/2025 00:52:38] "GET /api/journal_entries HTTP/1.1" 200 -
+127.0.0.1 - - [02/Oct/2025 00:52:40] "GET /api/accounts HTTP/1.1" 200 -
+127.0.0.1 - - [02/Oct/2025 00:52:40] "GET /api/settings HTTP/1.1" 200 -
+127.0.0.1 - - [02/Oct/2025 00:53:49] "OPTIONS /api/journal_entries HTTP/1.1" 200 -
+127.0.0.1 - - [02/Oct/2025 00:53:49] "[35m[1mPOST /api/journal_entries HTTP/1.1[0m" 500 -
+127.0.0.1 - - [02/Oct/2025 00:53:55] "OPTIONS /api/journal_entries HTTP/1.1" 200 -
+127.0.0.1 - - [02/Oct/2025 00:53:55] "[35m[1mPOST /api/journal_entries HTTP/1.1[0m" 500 -
+127.0.0.1 - - [02/Oct/2025 00:54:00] "OPTIONS /api/journal_entries HTTP/1.1" 200 -
+127.0.0.1 - - [02/Oct/2025 00:54:00] "[35m[1mPOST /api/journal_entries HTTP/1.1[0m" 500 -
+127.0.0.1 - - [02/Oct/2025 00:54:32] "OPTIONS /api/journal_entries HTTP/1.1" 200 -
+127.0.0.1 - - [02/Oct/2025 00:54:32] "[35m[1mPOST /api/journal_entries HTTP/1.1[0m" 500 -
+/Users/salehalabbadi/نسخة ٢ من yasar/backend/venv/lib/python3.9/site-packages/urllib3/__init__.py:35: NotOpenSSLWarning: urllib3 v2 only supports OpenSSL 1.1.1+, currently the 'ssl' module is compiled with 'LibreSSL 2.8.3'. See: https://github.com/urllib3/urllib3/issues/3020
+  warnings.warn(
+[Scheduler] Disabled (set ENABLE_GOLD_SCHEDULER=1 to enable)
+
+[INFO] 🚀 Starting Flask server on http://0.0.0.0:8001 (CORS enabled for all origins)...
+[INFO] إذا كنت تستخدم جدار حماية أو VPN، أوقفه مؤقتاً.
+[INFO] افتح الرابط التالي من أي جهاز على الشبكة: http://<IP-الجهاز>:8001/customers
+ * Serving Flask app 'app'
+ * Debug mode: off
+[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:8001
+ * Running on http://192.168.8.245:8001
+[33mPress CTRL+C to quit[0m
+127.0.0.1 - - [02/Oct/2025 00:56:26] "GET /api/customers HTTP/1.1" 200 -
+127.0.0.1 - - [02/Oct/2025 00:56:26] "GET /api/gold_price HTTP/1.1" 200 -
+127.0.0.1 - - [02/Oct/2025 00:56:30] "GET /api/journal_entries HTTP/1.1" 200 -
+127.0.0.1 - - [02/Oct/2025 00:56:39] "GET /api/accounts HTTP/1.1" 200 -
+127.0.0.1 - - [02/Oct/2025 00:56:39] "GET /api/settings HTTP/1.1" 200 -
+127.0.0.1 - - [02/Oct/2025 00:57:47] "OPTIONS /api/journal_entries HTTP/1.1" 200 -
+127.0.0.1 - - [02/Oct/2025 00:57:47] "[35m[1mPOST /api/journal_entries HTTP/1.1[0m" 500 -
+127.0.0.1 - - [02/Oct/2025 00:58:09] "OPTIONS /api/journal_entries HTTP/1.1" 200 -
+127.0.0.1 - - [02/Oct/2025 00:58:09] "[35m[1mPOST /api/journal_entries HTTP/1.1[0m" 201 -
+127.0.0.1 - - [02/Oct/2025 00:58:09] "GET /api/journal_entries HTTP/1.1" 200 -
+/Users/salehalabbadi/نسخة ٢ من yasar/backend/venv/lib/python3.9/site-packages/urllib3/__init__.py:35: NotOpenSSLWarning: urllib3 v2 only supports OpenSSL 1.1.1+, currently the 'ssl' module is compiled with 'LibreSSL 2.8.3'. See: https://github.com/urllib3/urllib3/issues/3020
+  warnings.warn(
+[Scheduler] Disabled (set ENABLE_GOLD_SCHEDULER=1 to enable)
+
+[INFO] 🚀 Starting Flask server on http://0.0.0.0:8001 (CORS enabled for all origins)...
+[INFO] إذا كنت تستخدم جدار حماية أو VPN، أوقفه مؤقتاً.
+[INFO] افتح الرابط التالي من أي جهاز على الشبكة: http://<IP-الجهاز>:8001/customers
+ * Serving Flask app 'app'
+ * Debug mode: off
+[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:8001
+ * Running on http://192.168.8.245:8001
+[33mPress CTRL+C to quit[0m
+/Users/salehalabbadi/نسخة ٢ من yasar/backend/venv/lib/python3.9/site-packages/urllib3/__init__.py:35: NotOpenSSLWarning: urllib3 v2 only supports OpenSSL 1.1.1+, currently the 'ssl' module is compiled with 'LibreSSL 2.8.3'. See: https://github.com/urllib3/urllib3/issues/3020
+  warnings.warn(
+[Scheduler] Disabled (set ENABLE_GOLD_SCHEDULER=1 to enable)
+
+[INFO] 🚀 Starting Flask server on http://0.0.0.0:8001 (CORS enabled for all origins)...
+[INFO] إذا كنت تستخدم جدار حماية أو VPN، أوقفه مؤقتاً.
+[INFO] افتح الرابط التالي من أي جهاز على الشبكة: http://<IP-الجهاز>:8001/customers
+ * Serving Flask app 'app'
+ * Debug mode: off
+[31m[1mWARNING: This is a development server. Do not use it in a production deployment. Use a production WSGI server instead.[0m
+ * Running on all addresses (0.0.0.0)
+ * Running on http://127.0.0.1:8001
+ * Running on http://192.168.8.245:8001
+[33mPress CTRL+C to quit[0m
+127.0.0.1 - - [02/Oct/2025 01:07:55] "GET /api/customers HTTP/1.1" 200 -
+127.0.0.1 - - [02/Oct/2025 01:07:56] "GET /api/gold_price HTTP/1.1" 200 -
+127.0.0.1 - - [02/Oct/2025 01:08:00] "GET /api/journal_entries HTTP/1.1" 200 -
+127.0.0.1 - - [02/Oct/2025 01:08:03] "GET /api/accounts HTTP/1.1" 200 -
+127.0.0.1 - - [02/Oct/2025 01:08:03] "GET /api/settings HTTP/1.1" 200 -
+127.0.0.1 - - [02/Oct/2025 01:09:15] "OPTIONS /api/journal_entries HTTP/1.1" 200 -
+127.0.0.1 - - [02/Oct/2025 01:09:15] "[35m[1mPOST /api/journal_entries HTTP/1.1[0m" 201 -
+127.0.0.1 - - [02/Oct/2025 01:09:15] "GET /api/journal_entries HTTP/1.1" 200 -
+/Users/salehalabbadi/yasar/backend/venv/lib/python3.9/site-packages/urllib3/__init__.py:35: NotOpenSSLWarning: urllib3 v2 only supports OpenSSL 1.1.1+, currently the 'ssl' module is compiled with 'LibreSSL 2.8.3'. See: https://github.com/urllib3/urllib3/issues/3020
+  warnings.warn(
+[Scheduler] Disabled (set ENABLE_GOLD_SCHEDULER=1 to enable)
+
+[INFO] 🚀 Starting Flask server on http://0.0.0.0:8001 (CORS enabled for all origins)...
+[INFO] إذا كنت تستخدم جدار حماية أو VPN، أوقفه مؤقتاً.
+[INFO] افتح الرابط التالي من أي جهاز على الشبكة: http://<IP-الجهاز>:8001/customers
+ * Serving Flask app 'app'
+ * Debug mode: off
+Address already in use
+Port 8001 is in use by another program. Either identify and stop that program, or start the server with a different port.
