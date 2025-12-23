@@ -29,6 +29,7 @@ dependencies:
   mobile_scanner: ^5.2.3  # Barcode & QR Code scanner
   barcode_widget: ^2.0.4  # Barcode generation for printing
   image_picker: ^1.0.4  # Image picker for camera & gallery
+  file_picker: ^8.0.0+1  # File picker for template designer
   fl_chart: ^0.68.0
 
 dev_dependencies:
