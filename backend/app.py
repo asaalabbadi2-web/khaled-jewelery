@@ -20,6 +20,8 @@ from posting_routes import posting_bp  # 🆕 استيراد posting routes
 print("DEBUG: Imported posting_bp blueprint")  # Debug log
 from auth_routes import auth_bp  # 🆕 استيراد auth routes
 print("DEBUG: Imported auth_bp blueprint")  # Debug log
+from bonus_routes import bonus_bp  # 🆕 استيراد bonus routes
+print("DEBUG: Imported bonus_bp blueprint")  # Debug log
 from schema_guard import (
 	ensure_profit_weight_columns,
 	ensure_settings_columns,
@@ -46,11 +48,12 @@ with app.app_context():
 	ensure_settings_columns(db.engine)
 	ensure_weight_closing_columns(db.engine)
 	ensure_invoice_tax_columns(db.engine)
-	ensure_weight_closing_support_accounts()
+	# ensure_weight_closing_support_accounts()  # Moved to after create_tables()
 # ⚠️ ترتيب التسجيل مهم: auth_bp يجب أن يُسجل قبل api لأن auth_bp.login له أولوية
 app.register_blueprint(auth_bp, url_prefix='/api')  # 🆕 تسجيل auth & permissions routes (أولاً!)
 app.register_blueprint(posting_bp, url_prefix='/api')  # 🆕 تسجيل posting routes
 app.register_blueprint(payment_methods_api, url_prefix='/api')  # 🆕 تسجيل payment methods routes
+app.register_blueprint(bonus_bp, url_prefix='/api')  # 🆕 تسجيل bonus routes
 app.register_blueprint(offices_bp)  # 🆕 تسجيل offices routes (has its own prefix /api/offices)
 app.register_blueprint(api, url_prefix='/api')  # ✅ API الرئيسي (أخيراً)
 # recurring_journal_routes تستخدم نفس api blueprint، لذا لا حاجة لتسجيلها
@@ -85,8 +88,19 @@ def reset_database():
 
 if __name__ == "__main__":
 	port = int(os.getenv("PORT", 8001))
+	debug_mode = os.getenv("FLASK_DEBUG", "0") in ("1", "true", "True")
 	print(f"\n[INFO] 🚀 Starting Flask server on http://0.0.0.0:{port} (CORS enabled for all origins)...")
 	print("[INFO] إذا كنت تستخدم جدار حماية أو VPN، أوقفه مؤقتاً.")
 	print(f"[INFO] افتح الرابط التالي من أي جهاز على الشبكة: http://<IP-الجهاز>:{port}/customers")
+	print(f"[INFO] Debug mode: {'ON' if debug_mode else 'OFF'}")
 	create_tables()
-	app.run(host="0.0.0.0", port=port, debug=True, threaded=True)
+	ensure_weight_closing_support_accounts()  # Moved here after create_tables()
+	
+	# تفعيل مجدول المكافآت التلقائي
+	try:
+		from bonus_scheduler import start_bonus_scheduler
+		start_bonus_scheduler(app)
+	except Exception as e:
+		print(f"[WARNING] فشل تشغيل مجدول المكافآت: {e}")
+	
+	app.run(host="0.0.0.0", port=port, debug=debug_mode, threaded=True)
