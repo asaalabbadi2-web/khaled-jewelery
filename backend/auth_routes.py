@@ -39,6 +39,8 @@ from redis_client import get_redis
 
 from typing import Optional, Dict, Tuple
 
+from sqlalchemy import func
+
 from datetime import datetime, timedelta
 import hashlib
 import secrets
@@ -204,6 +206,10 @@ def login():
             _, payload, status = blocked
             return jsonify(payload), status
         
+        username = (str(username) if username is not None else '').strip()
+        password = (str(password) if password is not None else '')
+        username_key = username.lower()
+
         if not username or not password:
             return jsonify({
                 'success': False,
@@ -212,10 +218,15 @@ def login():
         
         # 1) محاولة تسجيل الدخول عبر AppUser (مرتبط بالموظفين)
         app_user = AppUser.query.filter_by(username=username).first()
+        if app_user is None:
+            # Postgres equality is case-sensitive; also tolerate accidental whitespace in stored usernames.
+            app_user = AppUser.query.filter(
+                func.lower(func.trim(AppUser.username)) == username_key
+            ).first()
         if app_user and app_user.check_password(password):
             if not app_user.is_active:
                 _record_login_attempt(username, success=False, failure_reason='inactive_account')
-                return jsonify({'success': False, 'message': 'هذا الحساب غير نشط'}), 403
+                return jsonify({'success': False, 'message': 'هذا الحساب غير نشط', 'error': 'inactive_account'}), 403
 
             # 2FA enforcement (optional)
             if getattr(app_user, 'two_factor_enabled', False):
@@ -264,6 +275,10 @@ def login():
 
         # 2) fallback: المستخدم القديم User
         user = User.query.filter_by(username=username).first()
+        if user is None:
+            user = User.query.filter(
+                func.lower(func.trim(User.username)) == username_key
+            ).first()
 
         if not user or not user.check_password(password):
             _record_login_attempt(username, success=False, failure_reason='invalid_credentials')
@@ -278,11 +293,11 @@ def login():
                 success=False,
                 error_message='invalid_credentials',
             )
-            return jsonify({'success': False, 'message': 'اسم المستخدم أو كلمة المرور غير صحيحة'}), 401
+            return jsonify({'success': False, 'message': 'اسم المستخدم أو كلمة المرور غير صحيحة', 'error': 'invalid_credentials'}), 401
 
         if not user.is_active:
             _record_login_attempt(username, success=False, failure_reason='inactive_account')
-            return jsonify({'success': False, 'message': 'هذا الحساب غير نشط'}), 403
+            return jsonify({'success': False, 'message': 'هذا الحساب غير نشط', 'error': 'inactive_account'}), 403
 
         user.last_login = datetime.utcnow()
         db.session.commit()
