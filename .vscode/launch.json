@@ -25,26 +25,6 @@
             "request": "launch",
             "type": "dart",
             "flutterMode": "release"
-        },
-        {
-            "name": "frontend",
-            "cwd": "gold-jewelry-pos/frontend",
-            "request": "launch",
-            "type": "dart"
-        },
-        {
-            "name": "frontend (profile mode)",
-            "cwd": "gold-jewelry-pos/frontend",
-            "request": "launch",
-            "type": "dart",
-            "flutterMode": "profile"
-        },
-        {
-            "name": "frontend (release mode)",
-            "cwd": "gold-jewelry-pos/frontend",
-            "request": "launch",
-            "type": "dart",
-            "flutterMode": "release"
         }
     ]
 }

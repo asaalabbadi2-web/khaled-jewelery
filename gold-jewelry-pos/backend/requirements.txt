@@ -1,6 +1,0 @@
-flask
-flask_sqlalchemy
-psycopg2-binary
-Flask
-Flask-SQLAlchemy
-Flask-Migrate

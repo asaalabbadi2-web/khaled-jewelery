@@ -35,6 +35,9 @@ frontend/.flutter-plugins
 frontend/.flutter-plugins-dependencies
 frontend/.metadata
 
+# Legacy nested copy (do not track)
+gold-jewelry-pos/
+
 # ===== Tooling =====
 .vscode/*.log
 
