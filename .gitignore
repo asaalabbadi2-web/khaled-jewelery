@@ -16,9 +16,14 @@ venv/
 backend/venv/
 
 # Local databases / runtime artifacts
+*.db
+*.sqlite
+*.sqlite3
 backend/*.db
 backend/*.sqlite
 backend/*.sqlite3
+backend/instance/
+frontend/backend/
 backend/*.pid
 backend/*.log
 backend/needs_reset.flag
