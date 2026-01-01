@@ -28,6 +28,10 @@ backend/*.pid
 backend/*.log
 backend/needs_reset.flag
 
+# Legacy snapshots (do not track)
+backend/*.current
+backend/*.backup*
+
 # ===== Flutter / Dart frontend =====
 frontend/.dart_tool/
 frontend/build/
