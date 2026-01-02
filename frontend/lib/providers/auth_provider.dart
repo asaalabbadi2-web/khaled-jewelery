@@ -111,6 +111,8 @@ class AuthProvider extends ChangeNotifier {
   }
 
   Future<bool> completeInitialSetup({
+    String adminUsername = 'admin',
+    bool keepNeedsSetup = true,
     required String companyName,
     required String adminFullName,
     required String adminPassword,
@@ -125,7 +127,7 @@ class AuthProvider extends ChangeNotifier {
     try {
       final api = ApiService();
       final response = await api.setupInitialSystem(
-        username: 'admin',
+  		username: adminUsername,
         password: adminPassword,
         fullName: adminFullName,
         companyName: companyName,
@@ -160,7 +162,7 @@ class AuthProvider extends ChangeNotifier {
         }
 
         _currentUser = parsedUser;
-        _needsSetup = false;
+        _needsSetup = keepNeedsSetup;
 
         await prefs.setString(
           _storageKey,
@@ -180,6 +182,11 @@ class AuthProvider extends ChangeNotifier {
       _loading = false;
       notifyListeners();
     }
+  }
+
+  void markSetupCompleted() {
+    _needsSetup = false;
+    notifyListeners();
   }
 
   Future<bool> login(String username, String password) async {

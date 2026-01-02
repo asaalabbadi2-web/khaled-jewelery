@@ -24,6 +24,8 @@ from auth_routes import auth_bp  # 🆕 استيراد auth routes
 print("DEBUG: Imported auth_bp blueprint")  # Debug log
 from permissions_routes import permissions_bp  # 🆕 استيراد permissions routes
 print("DEBUG: Imported permissions_bp blueprint")  # Debug log
+from setup_routes import setup_bp  # 🆕 Setup wizard routes
+print("DEBUG: Imported setup_bp blueprint")
 bonus_bp = None
 try:
 	from bonus_routes import bonus_bp  # 🆕 استيراد bonus routes
@@ -101,6 +103,7 @@ with app.app_context():
 # ⚠️ ترتيب التسجيل مهم: auth_bp يجب أن يُسجل قبل api لأن auth_bp.login له أولوية
 app.register_blueprint(auth_bp, url_prefix='/api')  # 🆕 تسجيل auth & permissions routes (أولاً!)
 app.register_blueprint(permissions_bp, url_prefix='/api')  # 🆕 تسجيل permissions routes
+app.register_blueprint(setup_bp, url_prefix='/api')  # 🆕 تسجيل setup wizard routes
 app.register_blueprint(posting_bp, url_prefix='/api')  # 🆕 تسجيل posting routes
 app.register_blueprint(payment_methods_api, url_prefix='/api')  # 🆕 تسجيل payment methods routes
 if bonus_bp:
@@ -141,6 +144,34 @@ def reset_database():
 		# حذف جميع الجداول ثم إعادة إنشائها
 		db.drop_all()
 		db.create_all()
+		db.session.commit()
+
+
+def reset_database_preserve_accounts():
+	"""إعادة تهيئة النظام بالكامل مع الحفاظ على شجرة الحسابات.
+
+	- يتم حذف/إعادة إنشاء جميع جداول النظام ما عدا جدول الحسابات (account).
+	- هذا يحقق طلب استثناء شجرة الحسابات من "إعادة تهيئة كاملة".
+	"""
+	with app.app_context():
+		db.session.remove()
+		engine = db.engine
+
+		# Drop all tables defined in metadata except the account table.
+		# This preserves the chart of accounts rows.
+		tables_to_drop = [
+			t
+			for t in db.metadata.sorted_tables
+			if t.name != 'account'
+		]
+		if tables_to_drop:
+			# Flask-SQLAlchemy's db.drop_all() doesn't support tables= in some versions.
+			# Use SQLAlchemy MetaData directly.
+			db.metadata.drop_all(bind=engine, tables=tables_to_drop)
+
+		# Recreate everything that was dropped (keep account as-is).
+		if tables_to_drop:
+			db.metadata.create_all(bind=engine, tables=tables_to_drop)
 		db.session.commit()
 
 if __name__ == "__main__":

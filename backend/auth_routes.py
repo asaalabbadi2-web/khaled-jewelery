@@ -45,6 +45,8 @@ from datetime import datetime, timedelta
 import hashlib
 import secrets
 
+from setup_utils import is_setup_locked
+
 try:
     import pyotp
 except Exception:  # pragma: no cover
@@ -835,6 +837,8 @@ def security_summary():
 def check_setup_status():
     """فحص ما إذا كان النظام بحاجة لإعداد مستخدم أولي"""
     try:
+        locked = bool(is_setup_locked())
+
         active_users = User.query.filter_by(is_active=True).count()
         active_app_users = AppUser.query.filter_by(is_active=True).count()
         needs_setup = (active_users + active_app_users) == 0
@@ -852,6 +856,11 @@ def check_setup_status():
             return jsonify({
                 'success': True,
                 'needs_setup': True,
+                'setup_locked': locked,
+                'message': (
+                    'النظام يحتاج إعداد مستخدم أولي. '
+                    + ('ملف .env.production موجود (تم قفل جزء إعداد البيئة). يمكنك إنشاء المدير ثم متابعة العمل.' if locked else '')
+                ).strip(),
                 # Backward compatibility for older Flutter flows
                 'default_user': {
                     'username': 'admin',
@@ -869,6 +878,8 @@ def check_setup_status():
         return jsonify({
             'success': True,
             'needs_setup': False,
+            'setup_locked': locked,
+            'message': ('واجهة التهيئة مقفلة. احذف ملف .env.production لإعادة التهيئة.' if locked else None),
         }), 200
 
     except Exception as e:
@@ -897,6 +908,12 @@ def setup_initial_admin():
         active_users = User.query.filter_by(is_active=True).count()
         active_app_users = AppUser.query.filter_by(is_active=True).count()
         if (active_users + active_app_users) > 0:
+            if is_setup_locked():
+                return jsonify({
+                    'success': False,
+                    'message': 'واجهة التهيئة مقفلة. احذف ملف .env.production لإعادة التهيئة.',
+                    'error': 'setup_locked',
+                }), 403
             return jsonify({
                 'success': False,
                 'message': 'تم إعداد النظام مسبقاً',

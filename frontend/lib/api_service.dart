@@ -2984,6 +2984,105 @@ class ApiService {
   }
 
   // ---------------------------------------------------------------------------
+  // Setup Wizard APIs
+  // ---------------------------------------------------------------------------
+
+  Future<Map<String, dynamic>> testDatabaseConnection({
+    String? token,
+    required String host,
+    int port = 5432,
+    required String dbName,
+    required String username,
+    required String password,
+  }) async {
+    final payload = {
+      'host': host,
+      'port': port,
+      'db_name': dbName,
+      'username': username,
+      'password': password,
+    };
+
+    final response = await http.post(
+      Uri.parse('$_baseUrl/setup/test-db'),
+      headers: _jsonHeaders(token: token),
+      body: json.encode(payload),
+    );
+
+    final decoded = json.decode(utf8.decode(response.bodyBytes));
+    if (decoded is Map<String, dynamic>) {
+      if (response.statusCode == 200) return decoded;
+      final msg = decoded['message']?.toString();
+      throw Exception(msg?.isNotEmpty == true ? msg : 'فشل اختبار الاتصال');
+    }
+    throw Exception('فشل اختبار الاتصال');
+  }
+
+  Future<Map<String, dynamic>> saveStoreSettings({
+    String? token,
+    required String companyName,
+    String? currencySymbol,
+    String? companyTaxNumber,
+    String? companyLogoBase64,
+  }) async {
+    final payload = <String, dynamic>{
+      'company_name': companyName,
+      if (currencySymbol != null) 'currency_symbol': currencySymbol,
+      if (companyTaxNumber != null) 'company_tax_number': companyTaxNumber,
+      if (companyLogoBase64 != null) 'company_logo_base64': companyLogoBase64,
+    };
+
+    final response = await http.post(
+      Uri.parse('$_baseUrl/setup/store-settings'),
+      headers: _jsonHeaders(token: token),
+      body: json.encode(payload),
+    );
+
+    final decoded = json.decode(utf8.decode(response.bodyBytes));
+    if (decoded is Map<String, dynamic>) {
+      if (response.statusCode == 200) return decoded;
+      final msg = decoded['message']?.toString();
+      throw Exception(msg?.isNotEmpty == true ? msg : 'فشل حفظ إعدادات المتجر');
+    }
+    throw Exception('فشل حفظ إعدادات المتجر');
+  }
+
+  Future<Map<String, dynamic>> writeEnvProduction({
+    required String token,
+    required String host,
+    int port = 5432,
+    required String dbName,
+    required String username,
+    required String password,
+    bool restartContainers = false,
+  }) async {
+    final payload = {
+      'db': {
+        'host': host,
+        'port': port,
+        'db_name': dbName,
+        'username': username,
+        'password': password,
+      },
+      'restart_containers': restartContainers,
+    };
+
+    final response = await http.post(
+      Uri.parse('$_baseUrl/setup/write-env-production'),
+      headers: _jsonHeaders(token: token),
+      body: json.encode(payload),
+    );
+
+    final decoded = json.decode(utf8.decode(response.bodyBytes));
+    if (decoded is Map<String, dynamic>) {
+      if (response.statusCode == 200) return decoded;
+      final msg = decoded['message']?.toString();
+      throw Exception(msg?.isNotEmpty == true ? msg : 'فشل إنشاء ملف الإعدادات');
+    }
+    throw Exception('فشل إنشاء ملف الإعدادات');
+  }
+
+  // ---------------------------------------------------------------------------
   // Payroll API
   // ---------------------------------------------------------------------------
 
@@ -4210,6 +4309,15 @@ class ApiService {
   Future<String?> getStoredRefreshToken() async {
     final prefs = await SharedPreferences.getInstance();
     final token = prefs.getString('refresh_token');
+    if (token != null && token.isNotEmpty) {
+      return token;
+    }
+    return null;
+  }
+
+  Future<String?> getStoredToken() async {
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('jwt_token') ?? prefs.getString('auth_token');
     if (token != null && token.isNotEmpty) {
       return token;
     }

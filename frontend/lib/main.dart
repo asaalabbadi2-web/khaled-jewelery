@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'dart:ui';
+import 'package:flutter_web_plugins/flutter_web_plugins.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:provider/provider.dart';
 import 'providers/settings_provider.dart';
@@ -16,6 +17,11 @@ import 'screens/initial_setup_screen.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Make Flutter web use clean paths like /setup instead of /#/setup.
+  if (kIsWeb) {
+    usePathUrlStrategy();
+  }
 
   final authProvider = AuthProvider();
   await authProvider.init();
@@ -159,6 +165,10 @@ class _MyAppState extends State<MyApp> {
       routes: {
         '/add_item': (context) => AddItemScreenEnhanced(api: ApiService()),
         '/items': (context) => ItemsScreenEnhanced(api: ApiService()),
+        '/setup': (context) => AuthGate(
+              onToggleLocale: _toggleLocale,
+              isArabic: _locale.languageCode == 'ar',
+            ),
       },
       onUnknownRoute: (settings) {
         // معالجة الصفحات غير الموجودة (404)
@@ -200,6 +210,14 @@ class AuthGate extends StatelessWidget {
         }
 
         if (auth.needsSetup) {
+          // Keep the URL in sync with the setup requirement (web-first).
+          final currentRoute = ModalRoute.of(context)?.settings.name;
+          if (currentRoute != '/setup') {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (!context.mounted) return;
+              Navigator.of(context).pushReplacementNamed('/setup');
+            });
+          }
           return const InitialSetupScreen();
         }
 

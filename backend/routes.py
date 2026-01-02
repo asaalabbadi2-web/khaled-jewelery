@@ -997,9 +997,9 @@ def system_reset():
             
         elif reset_type == 'all':
             # حذف كل شيء
-            from backend.app import reset_database
-            reset_database()
-            message = 'تم إعادة تهيئة النظام بالكامل بنجاح. تحتاج الآن إلى إعادة تحميل شجرة الحسابات.'
+            from backend.app import reset_database_preserve_accounts
+            reset_database_preserve_accounts()
+            message = 'تم إعادة تهيئة النظام بالكامل بنجاح مع الحفاظ على شجرة الحسابات.'
             
         else:
             return jsonify({

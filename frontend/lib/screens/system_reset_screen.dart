@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+
 import '../api_service.dart';
+import '../providers/auth_provider.dart';
 
 class SystemResetScreen extends StatefulWidget {
   @override
@@ -75,6 +78,18 @@ class _SystemResetScreenState extends State<SystemResetScreen> {
 
       if (response['status'] == 'success') {
         _showSuccessDialog(response['message']);
+
+        // If this was a full reset, the system has no users anymore.
+        // Clear local auth state and go straight to the setup wizard.
+        if (resetType == 'all') {
+          final auth = context.read<AuthProvider>();
+          await auth.logout();
+          await auth.init();
+          if (!mounted) return;
+          Navigator.of(context).pushNamedAndRemoveUntil('/setup', (route) => false);
+          return;
+        }
+
         _loadSystemInfo(); // Refresh info after reset
       } else {
         _showErrorDialog(response['message']);
@@ -598,7 +613,7 @@ class _SystemResetScreenState extends State<SystemResetScreen> {
                         onPressed: () => _performReset(
                           'all',
                           'إعادة تهيئة كاملة',
-                          'سيتم حذف كل شيء نهائياً من قاعدة البيانات.',
+                          'سيتم حذف كل شيء نهائياً من قاعدة البيانات (مع الحفاظ على شجرة الحسابات).',
                         ),
                       ),
                     ],
