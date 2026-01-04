@@ -2630,7 +2630,7 @@ class ApiService {
         json.decode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>,
       );
     } else {
-      throw Exception('Failed to create employee: ${response.body}');
+      throw Exception(_errorMessageFromResponse(response));
     }
   }
 

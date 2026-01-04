@@ -9786,7 +9786,11 @@ def list_employees():
 @api.route('/employees', methods=['POST'])
 def create_employee():
     """إنشاء موظف جديد مع حساب تلقائي"""
-    from employee_account_helpers import create_employee_account, get_employee_department_from_code
+    from employee_account_helpers import (
+        create_employee_account,
+        get_employee_department_from_code,
+        ensure_employee_group_accounts,
+    )
     
     data = request.get_json() or {}
 
@@ -9805,6 +9809,9 @@ def create_employee():
     
     if not account_id:
         try:
+            # Ensure required grouping accounts exist on fresh systems.
+            ensure_employee_group_accounts(created_by=data.get('created_by', 'system'))
+
             # تحديد القسم من البيانات المُدخلة أو استخدام الافتراضي
             department_input = data.get('department', '').lower()
             

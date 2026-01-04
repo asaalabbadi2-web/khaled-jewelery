@@ -8,6 +8,72 @@
 # استخدم نفس الوحدة التي يهيئها app.py لتفادي إنشاء نسخة SQLAlchemy ثانية
 from models import Account, db
 
+
+def ensure_employee_group_accounts(created_by: str = 'system'):
+    """Ensure required employee grouping accounts exist.
+
+    This makes employee creation robust on fresh databases where seed scripts
+    have not been executed yet.
+    """
+    # الحساب التجميعي الرئيسي
+    main_account = Account.query.filter_by(account_number='130').first()
+    if not main_account:
+        main_account = Account(
+            account_number='130',
+            name='حسابات الموظفين',
+            type='asset',
+            transaction_type='cash',
+            parent_id=None,
+        )
+        db.session.add(main_account)
+        db.session.flush()
+
+    # معالجة تعارض قديم: إذا كان 1300 مستخدمًا كـ "سلف موظفين" ننقله إلى 1400
+    old_advances_account = Account.query.filter_by(account_number='1300').first()
+    if old_advances_account and (old_advances_account.name or '').strip() == 'سلف موظفين':
+        new_advances_account = Account.query.filter_by(account_number='1400').first()
+        if not new_advances_account:
+            old_advances_account.account_number = '1400'
+            old_advances_account.parent_id = None
+
+    # الحسابات التجميعية الفرعية حسب الأقسام
+    departments = [
+        ('1300', 'موظفو الإدارة'),
+        ('1310', 'موظفو المبيعات'),
+        ('1320', 'موظفو الصيانة'),
+        ('1330', 'موظفو المحاسبة'),
+        ('1340', 'موظفو المستودعات'),
+    ]
+
+    for acc_num, name_ar in departments:
+        account = Account.query.filter_by(account_number=acc_num).first()
+        if not account:
+            account = Account(
+                account_number=acc_num,
+                name=name_ar,
+                type='asset',
+                transaction_type='cash',
+                parent_id=main_account.id,
+            )
+            db.session.add(account)
+
+    # حساب السلف التجميعي
+    advances_account = Account.query.filter_by(account_number='1400').first()
+    if not advances_account:
+        advances_account = Account(
+            account_number='1400',
+            name='سلف موظفين',
+            type='asset',
+            transaction_type='cash',
+            parent_id=None,
+        )
+        db.session.add(advances_account)
+
+    # Keep changes in the current transaction; caller will commit.
+    db.session.flush()
+
+    return main_account
+
 def get_next_employee_account_number(department_code='1300'):
     """
     توليد رقم الحساب التالي لموظف جديد ضمن قسم محدد
