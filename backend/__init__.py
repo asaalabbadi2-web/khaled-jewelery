@@ -1,3 +1,6 @@
-# Initialize backend package for Yasar
-from .models import db, Customer, Item, Invoice, InvoiceItem
-from .routes import api
+"""Backend package.
+
+Keep this module side-effect free so importing `backend.*` (e.g. via Gunicorn)
+does not eagerly import application modules that may depend on runtime
+configuration.
+"""

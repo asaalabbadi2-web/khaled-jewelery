@@ -41,7 +41,10 @@ from models import (
     Category,
 )
 from utils import normalize_number
-from config import WEIGHT_SUPPORT_ACCOUNTS, REQUIRE_AUTH_FOR_INVOICE_CREATE
+try:
+    from backend.config import WEIGHT_SUPPORT_ACCOUNTS, REQUIRE_AUTH_FOR_INVOICE_CREATE
+except ImportError:  # Local scripts running from backend/ directory
+    from config import WEIGHT_SUPPORT_ACCOUNTS, REQUIRE_AUTH_FOR_INVOICE_CREATE
 from office_supplier_service import ensure_office_supplier
 from office_account_service import ensure_office_account
 from code_generator import generate_item_code, generate_barcode_from_item_code, validate_item_code

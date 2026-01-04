@@ -1,4 +1,7 @@
-from config import MAIN_KARAT
+try:
+    from backend.config import MAIN_KARAT
+except ImportError:  # Local scripts running from backend/ directory
+    from config import MAIN_KARAT
 from models import Settings
 
 

@@ -1,5 +1,9 @@
 import sys
 import os
+# Ensure the backend package directory is importable as top-level for legacy
+# imports like `from models import ...` and `from config import ...`.
+sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
+# Also keep project root available for any scripts that rely on it.
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 # Flask app setup, database connection, and register routes

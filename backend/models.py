@@ -1,4 +1,8 @@
-from config import MAIN_KARAT
+try:
+    # When running via Docker/Gunicorn we import backend as a package.
+    from backend.config import MAIN_KARAT
+except ImportError:  # Local scripts running from backend/ directory
+    from config import MAIN_KARAT
 # SQLAlchemy models for Customer, Item, Invoice, InvoiceItem
 from datetime import datetime, date, time
 from flask_sqlalchemy import SQLAlchemy
