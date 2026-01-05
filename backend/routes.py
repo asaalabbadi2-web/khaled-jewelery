@@ -5353,6 +5353,175 @@ def get_accounts():
     return jsonify(result)
 
 
+@api.route('/accounts/export', methods=['GET'])
+@require_permission('accounts.view')
+def export_accounts():
+    """Export chart of accounts structure (no balances).
+
+    The export is keyed by account_number so it can be imported safely into
+    another environment without relying on database IDs.
+    """
+    accounts = Account.query.order_by(Account.account_number.asc()).all()
+    id_to_number = {acc.id: acc.account_number for acc in accounts}
+
+    exported = []
+    for acc in accounts:
+        exported.append({
+            'account_number': acc.account_number,
+            'name': acc.name,
+            'type': acc.type,
+            'transaction_type': acc.transaction_type,
+            'tracks_weight': bool(acc.tracks_weight),
+            'bank_name': acc.bank_name,
+            'account_number_external': acc.account_number_external,
+            'account_type': acc.account_type,
+            'parent_account_number': id_to_number.get(acc.parent_id) if acc.parent_id else None,
+            'memo_account_number': id_to_number.get(acc.memo_account_id) if acc.memo_account_id else None,
+        })
+
+    return jsonify({
+        'version': 1,
+        'exported_at': datetime.utcnow().isoformat(),
+        'count': len(exported),
+        'accounts': exported,
+    })
+
+
+@api.route('/accounts/import', methods=['POST'])
+@require_permission('accounts.edit')
+def import_accounts():
+    """Import (upsert) chart of accounts structure.
+
+    - Upserts by account_number
+    - Does NOT import balances
+    - Relinks parent/memo relationships in a second pass
+    """
+    payload = request.get_json(silent=True)
+    if payload is None:
+        return jsonify({'error': 'Invalid or missing JSON body'}), 400
+
+    accounts_data = payload
+    if isinstance(payload, dict):
+        accounts_data = payload.get('accounts', payload.get('data'))
+
+    if not isinstance(accounts_data, list):
+        return jsonify({'error': 'accounts must be a JSON array'}), 400
+
+    # Normalize & validate
+    normalized = []
+    for idx, row in enumerate(accounts_data, start=1):
+        if not isinstance(row, dict):
+            return jsonify({'error': f'Invalid account row at index {idx}'}), 400
+
+        account_number = (row.get('account_number') or '').strip()
+        name = (row.get('name') or '').strip()
+        acc_type = (row.get('type') or '').strip()
+        transaction_type = (row.get('transaction_type') or 'both').strip() or 'both'
+
+        if not account_number:
+            return jsonify({'error': f'account_number is required (index {idx})'}), 400
+        if not name:
+            return jsonify({'error': f'name is required (account {account_number})'}), 400
+        if not acc_type:
+            return jsonify({'error': f'type is required (account {account_number})'}), 400
+
+        normalized.append({
+            'account_number': account_number,
+            'name': name,
+            'type': acc_type,
+            'transaction_type': transaction_type,
+            'tracks_weight': bool(row.get('tracks_weight', False)),
+            'bank_name': row.get('bank_name'),
+            'account_number_external': row.get('account_number_external'),
+            'account_type': row.get('account_type'),
+            'parent_account_number': (row.get('parent_account_number') or None),
+            'memo_account_number': (row.get('memo_account_number') or None),
+        })
+
+    numbers = [r['account_number'] for r in normalized]
+    existing = Account.query.filter(Account.account_number.in_(numbers)).all()
+    existing_by_number = {acc.account_number: acc for acc in existing}
+
+    created = 0
+    updated = 0
+
+    # Pass 1: upsert core fields (no relationships)
+    for row in normalized:
+        acc = existing_by_number.get(row['account_number'])
+        if acc is None:
+            acc = Account(
+                account_number=row['account_number'],
+                name=row['name'],
+                type=row['type'],
+                transaction_type=row['transaction_type'],
+                tracks_weight=row['tracks_weight'],
+            )
+            created += 1
+        else:
+            acc.name = row['name']
+            acc.type = row['type']
+            acc.transaction_type = row['transaction_type']
+            acc.tracks_weight = row['tracks_weight']
+            updated += 1
+
+        acc.bank_name = row['bank_name']
+        acc.account_number_external = row['account_number_external']
+        acc.account_type = row['account_type']
+
+        db.session.add(acc)
+
+    db.session.flush()
+
+    # Build mapping after upserts
+    imported_accounts = Account.query.filter(Account.account_number.in_(numbers)).all()
+    number_to_id = {acc.account_number: acc.id for acc in imported_accounts}
+    accounts_by_number = {acc.account_number: acc for acc in imported_accounts}
+
+    # Validate referenced parents/memos exist in import set
+    missing_refs = []
+    for row in normalized:
+        p = row.get('parent_account_number')
+        m = row.get('memo_account_number')
+        if p and p not in number_to_id:
+            missing_refs.append({'account_number': row['account_number'], 'missing': 'parent_account_number', 'ref': p})
+        if m and m not in number_to_id:
+            missing_refs.append({'account_number': row['account_number'], 'missing': 'memo_account_number', 'ref': m})
+    if missing_refs:
+        db.session.rollback()
+        return jsonify({
+            'error': 'missing_references',
+            'message': 'Some parent/memo references are missing from the import payload',
+            'missing': missing_refs,
+        }), 400
+
+    # Pass 2: set relationships
+    relinked = 0
+    for row in normalized:
+        acc = accounts_by_number[row['account_number']]
+        parent_num = row.get('parent_account_number')
+        memo_num = row.get('memo_account_number')
+
+        new_parent_id = number_to_id.get(parent_num) if parent_num else None
+        new_memo_id = number_to_id.get(memo_num) if memo_num else None
+
+        if acc.parent_id != new_parent_id or acc.memo_account_id != new_memo_id:
+            relinked += 1
+
+        acc.parent_id = new_parent_id
+        acc.memo_account_id = new_memo_id
+        db.session.add(acc)
+
+    db.session.commit()
+
+    return jsonify({
+        'success': True,
+        'created': created,
+        'updated': updated,
+        'relinked': relinked,
+        'count': len(normalized),
+    }), 200
+
+
 @api.route('/accounts/balances', methods=['GET'])
 def get_accounts_balances():
     """
