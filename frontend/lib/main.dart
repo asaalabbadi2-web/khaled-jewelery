@@ -221,7 +221,9 @@ class AuthGate extends StatelessWidget {
           return const InitialSetupScreen();
         }
 
-        if (auth.isAuthenticated) {
+        // In development mode, allow quick access to the app without login
+        // unless initial setup is required.
+        if (auth.isAuthenticated || (kDebugMode && !auth.needsSetup)) {
           return HomeScreenEnhanced(
             onToggleLocale: onToggleLocale,
             isArabic: isArabic,
