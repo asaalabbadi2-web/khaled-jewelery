@@ -380,7 +380,21 @@ class _ChartOfAccountsScreenState extends State<ChartOfAccountsScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text('شجرة الحسابات')),
+      appBar: AppBar(
+        title: Text('شجرة الحسابات'),
+        actions: [
+          IconButton(
+            tooltip: 'تصدير شجرة الحسابات',
+            icon: Icon(Icons.download_outlined),
+            onPressed: _onExportAccounts,
+          ),
+          IconButton(
+            tooltip: 'استيراد شجرة الحسابات',
+            icon: Icon(Icons.upload_file),
+            onPressed: _onImportAccounts,
+          ),
+        ],
+      ),
       body: _isLoading
           ? Center(child: CircularProgressIndicator())
           : RefreshIndicator(
@@ -411,5 +425,118 @@ class _ChartOfAccountsScreenState extends State<ChartOfAccountsScreen> {
         tooltip: 'إضافة حساب رئيسي',
       ),
     );
+  }
+
+  Future<void> _onExportAccounts() async {
+    try {
+      final jsonStr = await ApiService().exportAccounts();
+      final controller = TextEditingController(text: jsonStr);
+
+      await showDialog<void>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: Text('تصدير شجرة الحسابات'),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text('يمكنك نسخ محتوى JSON أدناه وحفظه كملف accounts.json'),
+                SizedBox(height: 8),
+                Expanded(
+                  child: SingleChildScrollView(
+                    child: SelectableText(controller.text),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Clipboard.setData(ClipboardData(text: controller.text));
+                Navigator.of(context).pop();
+                ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('تم نسخ JSON إلى الحافظة')));
+              },
+              child: Text('نسخ'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: Text('إغلاق'),
+            ),
+          ],
+        ),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('تعذر التصدير: $e')));
+    }
+  }
+
+  Future<void> _onImportAccounts() async {
+    final TextEditingController importController = TextEditingController();
+
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('استيراد شجرة الحسابات'),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text('الصق هنا محتوى JSON المصدّر ثم اضغط استيراد'),
+              SizedBox(height: 8),
+              Expanded(
+                child: TextField(
+                  controller: importController,
+                  maxLines: null,
+                  keyboardType: TextInputType.multiline,
+                  decoration: InputDecoration(
+                    hintText: '{\"accounts\": [...] }',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: Text('إلغاء'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              final payload = importController.text.trim();
+              if (payload.isEmpty) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('الرجاء لصق محتوى JSON أولاً')));
+                return;
+              }
+
+              try {
+                final res = await ApiService()
+                    .importAccountsFromJsonString(payload);
+                Navigator.of(context).pop(true);
+                ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                    content: Text('تم الاستيراد: ${res['created'] ?? 0} إنشاء, ${res['updated'] ?? 0} تحديث')));
+                _fetchAccounts();
+              } catch (e) {
+                Navigator.of(context).pop(false);
+                ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('فشل الاستيراد: $e')));
+              }
+            },
+            child: Text('استيراد'),
+          ),
+        ],
+      ),
+    );
+
+    if (result == true) {
+      // already refreshed inside
+    }
   }
 }

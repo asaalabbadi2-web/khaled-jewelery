@@ -1159,6 +1159,35 @@ class ApiService {
     }
   }
 
+  /// Export chart of accounts as JSON (raw payload)
+  Future<String> exportAccounts() async {
+    final response = await _authedGet(Uri.parse('$_baseUrl/accounts/export'));
+    if (response.statusCode == 200) {
+      return utf8.decode(response.bodyBytes);
+    } else {
+      throw Exception('Failed to export accounts: ${response.statusCode} ${response.body}');
+    }
+  }
+
+  /// Import chart of accounts from raw JSON string payload
+  Future<Map<String, dynamic>> importAccountsFromJsonString(String jsonPayload) async {
+    final response = await _authedPost(
+      Uri.parse('$_baseUrl/accounts/import'),
+      headers: {'Content-Type': 'application/json; charset=UTF-8'},
+      body: jsonPayload,
+    );
+
+    if (response.statusCode == 200) {
+      return json.decode(utf8.decode(response.bodyBytes));
+    }
+
+    try {
+      return json.decode(utf8.decode(response.bodyBytes));
+    } catch (_) {
+      throw Exception('Failed to import accounts: ${response.statusCode}');
+    }
+  }
+
   Future<Map<String, dynamic>> addAccount(
     Map<String, dynamic> accountData,
   ) async {
