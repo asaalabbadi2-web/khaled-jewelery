@@ -2,6 +2,7 @@ services:
   db:
     image: postgres:16
     container_name: yasargold-db
+    env_file: .env.production
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-yasargold}
       POSTGRES_USER: ${POSTGRES_USER:-yasargold}
@@ -19,6 +20,7 @@ services:
       context: .
       dockerfile: backend/Dockerfile
     container_name: yasargold-backend
+    env_file: .env.production
     environment:
       DATABASE_URL: ${DATABASE_URL:-postgresql://yasargold:change_me@db:5432/yasargold}
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-}
@@ -34,6 +36,7 @@ services:
       args:
         API_BASE_URL: /api
     container_name: yasargold-nginx
+    env_file: .env.production
     ports:
       - "80:80"
     depends_on:

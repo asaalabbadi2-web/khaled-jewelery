@@ -11,6 +11,7 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-yasargold}
       POSTGRES_USER: ${POSTGRES_USER:-yasargold}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change_me}
+    env_file: .env.production
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -24,6 +25,7 @@ services:
     # Example: IMAGE_TAG=6cc139a docker compose -f docker-compose.prod.images.yml --env-file .env.production pull
     image: ghcr.io/${GITHUB_REPOSITORY:-owner/repo}/backend:${IMAGE_TAG:-latest}
     container_name: yasargold-backend
+    env_file: .env.production
     environment:
       DATABASE_URL: ${DATABASE_URL:-postgresql://yasargold:change_me@db:5432/yasargold}
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-}
@@ -35,6 +37,7 @@ services:
   nginx:
     image: ghcr.io/${GITHUB_REPOSITORY:-owner/repo}/web:${IMAGE_TAG:-latest}
     container_name: yasargold-nginx
+    env_file: .env.production
     ports:
       - "80:80"
     depends_on:
