@@ -82,7 +82,7 @@ def _ensure_columns(
     """
     added: list[str] = []
     with engine.connect() as connection:
-                dialect = _dialect_name(engine, connection)
+		dialect = _dialect_name(engine, connection)
         inspector = inspect(connection)
         existing = {column["name"] for column in inspector.get_columns(table)}
         for name, ddl_type, default in columns:
