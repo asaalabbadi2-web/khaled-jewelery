@@ -275,6 +275,15 @@ def _find_app_user_by_identifier(identifier: str) -> Optional[AppUser]:
     except Exception:
         pass
 
+    # Fallback: username (common UX expectation)
+    try:
+        if hasattr(AppUser, 'username'):
+            user = q.filter(func.lower(func.trim(AppUser.username)) == ident).first()
+            if user:
+                return user
+    except Exception:
+        pass
+
     return None
 
 

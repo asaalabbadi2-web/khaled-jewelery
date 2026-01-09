@@ -17,6 +17,48 @@ from sqlalchemy.exc import SQLAlchemyError
 LOGGER = logging.getLogger(__name__)
 
 
+def _dialect_name(engine: Engine, connection) -> str:
+    try:
+        return (connection.dialect.name or '').strip().lower()
+    except Exception:
+        try:
+            return (engine.dialect.name or '').strip().lower()
+        except Exception:
+            return ''
+
+
+def _normalize_column_ddl_for_dialect(
+    *,
+    dialect: str,
+    ddl_type: str,
+    default: str,
+) -> tuple[str, str]:
+    """Normalize DDL snippets for specific SQL dialect quirks.
+
+    This project historically used SQLite-friendly defaults like BOOLEAN DEFAULT 0.
+    PostgreSQL requires boolean defaults to be TRUE/FALSE.
+    """
+    d = (dialect or '').lower()
+    t = (ddl_type or '').strip()
+    default_norm = (default or '').strip()
+
+    if d in ('postgresql', 'postgres'):
+        # Postgres doesn't have DATETIME; use TIMESTAMP.
+        if t.upper() == 'DATETIME':
+            t = 'TIMESTAMP'
+
+        # Normalize boolean defaults.
+        if t.upper() == 'BOOLEAN':
+            if default_norm in ('0', '0.0'):
+                default_norm = 'FALSE'
+            elif default_norm in ('1', '1.0'):
+                default_norm = 'TRUE'
+            elif default_norm.lower() in ('true', 'false'):
+                default_norm = default_norm.upper()
+
+    return t, default_norm
+
+
 def _ensure_columns(
     engine: Engine,
     table: str,
@@ -40,6 +82,7 @@ def _ensure_columns(
     """
     added: list[str] = []
     with engine.connect() as connection:
+                dialect = _dialect_name(engine, connection)
         inspector = inspect(connection)
         existing = {column["name"] for column in inspector.get_columns(table)}
         for name, ddl_type, default in columns:
@@ -50,11 +93,23 @@ def _ensure_columns(
                 table,
                 name,
             )
-            ddl = text(
-                f"ALTER TABLE {table} ADD COLUMN {name} {ddl_type} DEFAULT {default}"
+            norm_type, norm_default = _normalize_column_ddl_for_dialect(
+                dialect=dialect,
+                ddl_type=ddl_type,
+                default=default,
             )
-            connection.execute(ddl)
-            added.append(f"{table}.{name}")
+            ddl = text(
+                f"ALTER TABLE {table} ADD COLUMN {name} {norm_type} DEFAULT {norm_default}"
+            )
+            # Execute each statement in its own transaction. This prevents a single
+            # failing ALTER from rolling back previously-added columns (notably on Postgres).
+            try:
+                with connection.begin():
+                    connection.execute(ddl)
+                added.append(f"{table}.{name}")
+            except SQLAlchemyError as exc:
+                LOGGER.error("Auto schema guard failed adding %s.%s: %s", table, name, exc)
+
     return added
 
 

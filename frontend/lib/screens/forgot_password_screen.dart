@@ -74,17 +74,18 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   const Text(
-                    'أدخل البريد الإلكتروني أو رقم الجوال المرتبط بالحساب، وسيتم إرسال رمز صالح لمدة 15 دقيقة.',
+                    'أدخل البريد الإلكتروني أو اسم المستخدم. سيتم إرسال رمز صالح لمدة 15 دقيقة إلى البريد المسجل بالحساب. (حالياً الإرسال عبر البريد فقط)',
                   ),
                   const SizedBox(height: 12),
                   TextFormField(
                     controller: _identifierController,
                     decoration: const InputDecoration(
-                      labelText: 'البريد الإلكتروني أو رقم الجوال',
+                      labelText: 'البريد الإلكتروني أو اسم المستخدم',
                       prefixIcon: Icon(Icons.alternate_email),
                     ),
                     validator: (v) {
-                      if (v == null || v.trim().isEmpty) return 'مطلوب';
+                      final value = (v ?? '').trim();
+                      if (value.isEmpty) return 'مطلوب';
                       return null;
                     },
                   ),

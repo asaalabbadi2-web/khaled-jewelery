@@ -3,9 +3,15 @@ import os
 # Load environment variables from project root if available (optional).
 try:
 	from dotenv import load_dotenv
-	_repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+	_backend_dir = os.path.abspath(os.path.dirname(__file__))
+	_repo_root = os.path.abspath(os.path.join(_backend_dir, '..'))
+	# Support both layouts:
+	# - repo root:   <repo>/.env
+	# - backend dir: <repo>/backend/.env
 	load_dotenv(os.path.join(_repo_root, '.env'), override=False)
 	load_dotenv(os.path.join(_repo_root, '.env.production'), override=False)
+	load_dotenv(os.path.join(_backend_dir, '.env'), override=False)
+	load_dotenv(os.path.join(_backend_dir, '.env.production'), override=False)
 except Exception:
 	pass
 # Ensure the backend package directory is importable as top-level for legacy
