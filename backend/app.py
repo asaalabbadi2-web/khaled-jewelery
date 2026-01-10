@@ -156,6 +156,17 @@ def create_tables():
 		ensure_journal_line_dimension_columns(db.engine)
 
 
+# In production Docker we run under Gunicorn (`backend.wsgi:app`).
+# In that mode `__main__` is not executed, so we must bootstrap DB tables here
+# to avoid 500s on first-load routes like `/api/auth/check-setup`.
+try:
+	create_tables()
+	with app.app_context():
+		ensure_weight_closing_support_accounts()
+except Exception as exc:
+	print(f"[WARNING] Startup DB bootstrap failed: {exc}")
+
+
 def reset_database():
 	"""إعادة تهيئة قاعدة البيانات بالكامل (حذف وإنشاء جميع الجداول من جديد)."""
 	with app.app_context():
