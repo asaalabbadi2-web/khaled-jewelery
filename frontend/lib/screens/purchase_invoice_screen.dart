@@ -15,6 +15,8 @@ import 'add_supplier_screen.dart';
 import 'invoice_print_screen.dart';
 import '../utils.dart';
 
+enum _PurchaseSettlementMode { credit, barter, partial }
+
 class PurchaseInvoiceScreen extends StatefulWidget {
   final int? supplierId;
 
@@ -25,11 +27,17 @@ class PurchaseInvoiceScreen extends StatefulWidget {
 }
 
 class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
+  static const _prefKeyPurchaseApplyVatOnGold =
+      'purchase_invoice.apply_vat_on_gold';
+  static const _prefKeyPurchaseWagePostingMode =
+      'purchase_invoice.wage_posting_mode';
+
   final ApiService _api = ApiService();
 
   bool _manualPricing = false;
-  bool _applyVatOnGold = true;
-  String _wagePostingMode = 'expense';
+  bool _applyVatOnGold = false;
+  String _wagePostingMode = 'inventory';
+  bool _wagePostingModeFromPrefs = false;
   bool _isLoadingSuppliers = false;
   bool _isSavingInvoice = false;
   bool _showAdvancedPaymentOptions = false;
@@ -50,6 +58,15 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
 
   List<SafeBoxModel> _safeBoxes = [];
   int? _selectedSafeBoxId;
+
+  // Settlement
+  _PurchaseSettlementMode _settlementMode = _PurchaseSettlementMode.credit;
+  final TextEditingController _cashPaidController = TextEditingController();
+  final TextEditingController _goldPaidWeightController =
+      TextEditingController();
+  List<SafeBoxModel> _goldSafeBoxes = [];
+  int? _selectedGoldSafeBoxId;
+  int _selectedGoldPaidKarat = 21;
 
   List<Category> _categories = [];
   bool _isLoadingCategories = false;
@@ -77,6 +94,12 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
       _selectedPaymentMethodId = null;
       _selectedSafeBoxId = null;
       _supplierError = null;
+
+      _settlementMode = _PurchaseSettlementMode.credit;
+      _cashPaidController.clear();
+      _goldPaidWeightController.clear();
+      _selectedGoldSafeBoxId = null;
+      _selectedGoldPaidKarat = _mainKaratFromSettings();
       _applyTotals(_KaratTotals.zero);
     });
   }
@@ -90,6 +113,17 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
     }
   }
 
+  int _mainKaratFromSettings() {
+    try {
+      final settings = context.read<SettingsProvider>();
+      final value = settings.mainKarat;
+      if (value <= 0) return 21;
+      return value;
+    } catch (_) {
+      return 21;
+    }
+  }
+
   Set<int> _vatExemptKaratsFromSettings() {
     try {
       final settings = context.read<SettingsProvider>();
@@ -99,17 +133,206 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
     }
   }
 
+  String _selectedSupplierDefaultWageType() {
+    final selectedId = _selectedSupplierId;
+    if (selectedId == null) return 'cash';
+    try {
+      final supplier = _suppliers.firstWhere(
+        (s) => _parseId(s['id']) == selectedId,
+        orElse: () => <String, dynamic>{},
+      );
+      final raw = supplier['default_wage_type'] ?? supplier['defaultWageType'];
+      final normalized = (raw ?? 'cash').toString().trim().toLowerCase();
+      return normalized == 'gold' ? 'gold' : 'cash';
+    } catch (_) {
+      return 'cash';
+    }
+  }
+
+  double _cashDueForSupplier() {
+    final wageType = _selectedSupplierDefaultWageType();
+    return _round(
+      (wageType == 'cash' ? _wageSubtotal : 0.0) +
+          _goldTaxTotal +
+          _wageTaxTotal,
+      2,
+    );
+  }
+
+  double _supplierMainEquivalentWeight() {
+    final weightSummary = _aggregateWeightByKarat();
+    final wageType = _selectedSupplierDefaultWageType();
+    final mainKarat = _mainKaratFromSettings().toDouble();
+    if (mainKarat <= 0) return 0.0;
+
+    double mainEquivalentWeight = 0.0;
+    for (final entry in weightSummary.entries) {
+      final karat = double.tryParse(entry.key) ?? 0.0;
+      final weight = entry.value;
+      if (karat <= 0 || weight <= 0) continue;
+      mainEquivalentWeight += weight * (karat / mainKarat);
+    }
+
+    // If supplier wages are settled in gold, convert wage cash value to gold weight (main karat)
+    // and include it in the main-equivalent view.
+    if (wageType == 'gold' && _wageSubtotal > 0) {
+      final priceMain = _resolveGoldPrice(mainKarat);
+      if (priceMain > 0) {
+        mainEquivalentWeight += (_wageSubtotal / priceMain);
+      }
+    }
+
+    return _round(mainEquivalentWeight, 3);
+  }
+
+  double _cashPaid() {
+    final normalized = normalizeNumber(_cashPaidController.text).trim();
+    return _round(_toDouble(normalized), 2);
+  }
+
+  double _goldPaidWeight() {
+    final normalized = normalizeNumber(_goldPaidWeightController.text).trim();
+    return _round(_toDouble(normalized), 3);
+  }
+
+  double _goldPaidMainEquivalent() {
+    final paidWeight = _goldPaidWeight();
+    if (paidWeight <= 0) return 0.0;
+    final karat = _selectedGoldPaidKarat;
+    final mainKarat = _mainKaratFromSettings();
+    if (karat <= 0 || mainKarat <= 0) return 0.0;
+    return _round(paidWeight * (karat / mainKarat), 3);
+  }
+
+  Future<void> _loadGoldSafeBoxes() async {
+    try {
+      final allBoxes = await _api.getSafeBoxes();
+      if (!mounted) return;
+
+      final goldBoxes = allBoxes
+          .where((box) => box.safeType == 'gold')
+          .toList();
+      setState(() {
+        _goldSafeBoxes = goldBoxes;
+
+        final mainKarat = _mainKaratFromSettings();
+        if (_selectedGoldPaidKarat <= 0) {
+          _selectedGoldPaidKarat = mainKarat;
+        }
+
+        if (_selectedGoldSafeBoxId == null && _goldSafeBoxes.isNotEmpty) {
+          final defaultBox = _goldSafeBoxes.firstWhere(
+            (box) => box.isDefault == true && box.id != null,
+            orElse: () => _goldSafeBoxes.first,
+          );
+          _selectedGoldSafeBoxId = defaultBox.id;
+        }
+      });
+    } catch (e) {
+      debugPrint('فشل تحميل خزائن الذهب: $e');
+    }
+  }
+
+  void _setSettlementMode(_PurchaseSettlementMode mode) {
+    if (mode == _settlementMode) return;
+
+    setState(() {
+      _settlementMode = mode;
+
+      final mainKarat = _mainKaratFromSettings();
+      _selectedGoldPaidKarat = mainKarat;
+
+      if (mode == _PurchaseSettlementMode.partial) {
+        final dueCash = _cashDueForSupplier();
+        _cashPaidController.text = dueCash > 0
+            ? dueCash.toStringAsFixed(2)
+            : '';
+        _goldPaidWeightController.text = '';
+      } else if (mode == _PurchaseSettlementMode.barter) {
+        _cashPaidController.text = '';
+        final dueGoldMain = _supplierMainEquivalentWeight();
+        _goldPaidWeightController.text = dueGoldMain > 0
+            ? dueGoldMain.toStringAsFixed(3)
+            : '';
+      } else {
+        _cashPaidController.text = '';
+        _goldPaidWeightController.text = '';
+      }
+    });
+
+    if (mode != _PurchaseSettlementMode.credit && _goldSafeBoxes.isEmpty) {
+      _loadGoldSafeBoxes();
+    }
+  }
+
   @override
   void initState() {
     super.initState();
     _selectedSupplierId = widget.supplierId;
+    _loadUiDefaultsFromPrefs();
     _loadBranches();
     _loadSuppliers();
     _loadCategories();
     _loadGoldPrice();
     _loadPaymentMethods();
+    _loadGoldSafeBoxes();
     _loadSettings();
     _applyTotals(_KaratTotals.zero);
+  }
+
+  Future<void> _loadUiDefaultsFromPrefs() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+
+      final applyVatPref = prefs.getBool(_prefKeyPurchaseApplyVatOnGold);
+      final wageModePref = prefs.getString(_prefKeyPurchaseWagePostingMode);
+
+      if (!mounted) return;
+      setState(() {
+        if (applyVatPref != null) {
+          _applyVatOnGold = applyVatPref;
+        }
+        if (wageModePref != null &&
+            (wageModePref == 'inventory' || wageModePref == 'expense')) {
+          _wagePostingMode = wageModePref;
+          _wagePostingModeFromPrefs = true;
+        } else {
+          // Keep the requested defaults for purchases and prevent server
+          // settings from overriding them unless the user explicitly changes.
+          _wagePostingModeFromPrefs = true;
+        }
+      });
+
+      if (!mounted) return;
+      _applyCombinedTotals();
+    } catch (_) {
+      // ignore preferences failures
+    }
+  }
+
+  Future<void> _persistApplyVatOnGold(bool value) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(_prefKeyPurchaseApplyVatOnGold, value);
+    } catch (_) {
+      // ignore
+    }
+  }
+
+  Future<void> _persistWagePostingMode(String mode) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_prefKeyPurchaseWagePostingMode, mode);
+    } catch (_) {
+      // ignore
+    }
+  }
+
+  @override
+  void dispose() {
+    _cashPaidController.dispose();
+    _goldPaidWeightController.dispose();
+    super.dispose();
   }
 
   Future<void> _loadBranches() async {
@@ -139,12 +362,12 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
       setState(() {
         _branchError = e.toString();
       });
-    } finally {
-      if (!mounted) return;
-      setState(() {
-        _isLoadingBranches = false;
-      });
     }
+
+    if (!mounted) return;
+    setState(() {
+      _isLoadingBranches = false;
+    });
   }
 
   Future<void> _loadSettings() async {
@@ -168,6 +391,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
 
     // 2) Fetch latest only if the user is allowed to read settings
     try {
+      if (!mounted) return;
       final auth = context.read<AuthProvider>();
       if (auth.hasPermission('system.settings')) {
         settings = await _api.getSettings();
@@ -190,6 +414,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
         : rawMode?.toString().toLowerCase().trim();
 
     if (normalized == 'inventory' || normalized == 'expense') {
+      if (_wagePostingModeFromPrefs) return;
       setState(() {
         _wagePostingMode = normalized!;
       });
@@ -267,11 +492,12 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
       final response = await _api.getCategories();
       if (!mounted) return;
 
-      final categories = response
-          .whereType<Map<String, dynamic>>()
-          .map(Category.fromJson)
-          .toList()
-        ..sort((a, b) => a.name.compareTo(b.name));
+      final categories =
+          response
+              .whereType<Map<String, dynamic>>()
+              .map(Category.fromJson)
+              .toList()
+            ..sort((a, b) => a.name.compareTo(b.name));
 
       setState(() {
         _categories = categories;
@@ -283,10 +509,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
         _categoriesError = message;
       });
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(message),
-          backgroundColor: Colors.red,
-        ),
+        SnackBar(content: Text(message), backgroundColor: Colors.red),
       );
     } finally {
       if (mounted) {
@@ -540,8 +763,8 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
         ? (line.wageCashOverride ?? autoWageCash)
         : autoWageCash;
     var goldTax = _manualPricing
-      ? (line.goldTaxOverride ?? autoGoldTax)
-      : autoGoldTax;
+        ? (line.goldTaxOverride ?? autoGoldTax)
+        : autoGoldTax;
     final wageTax = _manualPricing
         ? (line.wageTaxOverride ?? autoWageTax)
         : autoWageTax;
@@ -826,7 +1049,9 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
       _inlineItems.fold(0.0, (sum, item) => sum + item.weightGrams);
 
   double get _inlineTotalWage => _inlineItems.fold(
-      0.0, (sum, item) => sum + (item.weightGrams * item.wagePerGram));
+    0.0,
+    (sum, item) => sum + (item.weightGrams * item.wagePerGram),
+  );
 
   Map<double, _InlineKaratAggregate> _inlineKaratAggregates() {
     final Map<double, _InlineKaratAggregate> aggregates = {};
@@ -837,7 +1062,9 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
         wagePerGram: item.wagePerGram,
       );
       final snapshot = _snapshotFor(line);
-      aggregates.putIfAbsent(line.karat, () => _InlineKaratAggregate()).add(snapshot);
+      aggregates
+          .putIfAbsent(line.karat, () => _InlineKaratAggregate())
+          .add(snapshot);
     }
     return aggregates;
   }
@@ -897,11 +1124,61 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
       return false;
     }
 
-    if (_paymentMethods.isNotEmpty && _selectedPaymentMethodId == null) {
+    final paidCash = _cashPaid();
+    final paidGold = _goldPaidWeight();
+
+    // Partial cash should not exceed cash due (no supplier advance credit in this screen).
+    if (_settlementMode == _PurchaseSettlementMode.partial) {
+      final dueCash = _cashDueForSupplier();
+      if ((paidCash - dueCash) > 0.01) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'المدفوع النقدي لا يمكن أن يتجاوز النقد المستحق (${_formatCurrency(dueCash)})',
+            ),
+            backgroundColor: Colors.red,
+          ),
+        );
+        return false;
+      }
+    }
+
+    // Require payment method only if we are actually paying cash.
+    if (_settlementMode == _PurchaseSettlementMode.partial &&
+        paidCash > 0 &&
+        _paymentMethods.isNotEmpty &&
+        _selectedPaymentMethodId == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('اختر وسيلة الدفع قبل الحفظ')),
       );
       return false;
+    }
+
+    if ((_settlementMode == _PurchaseSettlementMode.partial ||
+            _settlementMode == _PurchaseSettlementMode.barter) &&
+        paidGold > 0 &&
+        _selectedGoldSafeBoxId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('اختر خزينة الذهب قبل الحفظ')),
+      );
+      return false;
+    }
+
+    // Cash partial payments require backend setting allow_partial_invoice_payments.
+    if (_settlementMode == _PurchaseSettlementMode.partial && paidCash > 0) {
+      final allowPartial = context
+          .read<SettingsProvider>()
+          .allowPartialInvoicePayments;
+      if (!allowPartial) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'لا يمكن تسجيل دفعة نقدية جزئية إلا بعد تفعيل السماح بالدفع الجزئي من الإعدادات',
+            ),
+          ),
+        );
+        return false;
+      }
     }
 
     return true;
@@ -935,8 +1212,9 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
       });
     });
 
-    final inlineItemsPayload =
-        _inlineItems.map((item) => item.toPayload()).toList();
+    final inlineItemsPayload = _inlineItems
+        .map((item) => item.toPayload())
+        .toList();
     final inlineWeights = _aggregateInlineWeightByKarat();
     final weightByKarat = _aggregateWeightByKarat();
     final supplierGoldLines = weightByKarat.entries
@@ -948,10 +1226,28 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
         )
         .toList();
 
-    return {
+    final paidCash = _settlementMode == _PurchaseSettlementMode.partial
+        ? _cashPaid()
+        : 0.0;
+    final paidGoldWeight =
+        (_settlementMode == _PurchaseSettlementMode.partial ||
+            _settlementMode == _PurchaseSettlementMode.barter)
+        ? _goldPaidWeight()
+        : 0.0;
+
+    String settlementMethod;
+    if (_settlementMode == _PurchaseSettlementMode.credit) {
+      settlementMethod = 'credit';
+    } else if (_settlementMode == _PurchaseSettlementMode.barter) {
+      settlementMethod = 'barter';
+    } else {
+      settlementMethod = 'partial';
+    }
+
+    final payload = <String, dynamic>{
       'branch_id': _selectedBranchId,
       'supplier_id': _selectedSupplierId,
-      'invoice_type': 'شراء من مورد',
+      'invoice_type': 'شراء',
       'date': DateTime.now().toIso8601String(),
       'total': _round(_grandTotal, 2),
       'total_cost': _round(_subtotal, 2),
@@ -975,6 +1271,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
       'gold_tax': _round(_goldTaxTotal, 2),
       'wage_tax': _round(_wageTaxTotal, 2),
       'wage_posting_mode': _wagePostingMode,
+      'settlement_method': settlementMethod,
       'valuation': {
         'cash_total': _round(_goldSubtotal, 2),
         'weight_by_karat': weightByKarat.map(
@@ -992,8 +1289,42 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
           (key, value) => MapEntry(key, _round(value, 3)),
         ),
       },
-      if (_selectedSafeBoxId != null) 'safe_box_id': _selectedSafeBoxId,
     };
+
+    // Cash settlement (جزئي): use payments[] so backend can support partial cash.
+    if (_settlementMode == _PurchaseSettlementMode.partial &&
+        paidCash > 0 &&
+        _selectedPaymentMethodId != null) {
+      payload['payments'] = [
+        {
+          'payment_method_id': _selectedPaymentMethodId,
+          'amount': _round(paidCash, 2),
+          if (_selectedSafeBoxId != null) 'safe_box_id': _selectedSafeBoxId,
+        },
+      ];
+      payload['amount_paid'] = _round(paidCash, 2);
+    } else {
+      payload['amount_paid'] = 0.0;
+    }
+
+    // Gold settlement (مقايضة/جزئي): backend will post SafeBoxTransaction in gold safe.
+    if (paidGoldWeight > 0) {
+      payload['settled_gold_weight'] = _round(paidGoldWeight, 3);
+      payload['settled_gold_karat'] = _selectedGoldPaidKarat;
+      if (_selectedGoldSafeBoxId != null) {
+        payload['settled_gold_safe_box_id'] = _selectedGoldSafeBoxId;
+      }
+    }
+
+    // Invoice-level cash SafeBox preference (fallback server-side).
+    // Only attach this when we're actually paying cash.
+    if (_settlementMode == _PurchaseSettlementMode.partial &&
+        paidCash > 0 &&
+        _selectedSafeBoxId != null) {
+      payload['safe_box_id'] = _selectedSafeBoxId;
+    }
+
+    return payload;
   }
 
   Future<void> _saveInvoice() async {
@@ -1052,10 +1383,8 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
       if (shouldPrint == true) {
         await Navigator.of(context).push(
           MaterialPageRoute(
-            builder: (_) => InvoicePrintScreen(
-              invoice: invoiceForPrint,
-              isArabic: true,
-            ),
+            builder: (_) =>
+                InvoicePrintScreen(invoice: invoiceForPrint, isArabic: true),
           ),
         );
       }
@@ -1104,6 +1433,8 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
       _buildWagePostingModeCard(),
       const SizedBox(height: 24),
       _buildSettlementCard(),
+      const SizedBox(height: 20),
+      _buildSaveInvoiceButton(),
     ];
 
     return Scaffold(
@@ -1176,8 +1507,8 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
                 Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    color: colorScheme.primary.withValues(alpha: 
-                      isDark ? 0.18 : 0.12,
+                    color: colorScheme.primary.withValues(
+                      alpha: isDark ? 0.18 : 0.12,
                     ),
                     borderRadius: BorderRadius.circular(12),
                   ),
@@ -1270,7 +1601,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
               ),
             const SizedBox(height: 16),
             DropdownButtonFormField<int>(
-                  initialValue: _selectedSupplierId,
+              initialValue: _selectedSupplierId,
               items: _suppliers
                   .map(
                     (supplier) => DropdownMenuItem<int>(
@@ -1297,40 +1628,102 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
                 });
               },
             ),
-            const SizedBox(height: 16),
-            // Payment Method Dropdown
-            if (_paymentMethods.isNotEmpty) ...[
-              DropdownButtonFormField<int>(
-                initialValue: _selectedPaymentMethodId,
-                decoration: InputDecoration(
-                  labelText: 'وسيلة الدفع',
-                  border: const OutlineInputBorder(),
-                  prefixIcon: Icon(
-                    Icons.payment,
-                    color: colorScheme.primary,
-                  ),
+            const Text(
+              'طريقة السداد',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 10),
+            ToggleButtons(
+              isSelected: [
+                _settlementMode == _PurchaseSettlementMode.credit,
+                _settlementMode == _PurchaseSettlementMode.barter,
+                _settlementMode == _PurchaseSettlementMode.partial,
+              ],
+              borderRadius: BorderRadius.circular(12),
+              onPressed: (index) {
+                if (index == 0) {
+                  _setSettlementMode(_PurchaseSettlementMode.credit);
+                } else if (index == 1) {
+                  _setSettlementMode(_PurchaseSettlementMode.barter);
+                } else {
+                  _setSettlementMode(_PurchaseSettlementMode.partial);
+                }
+              },
+              children: const [
+                Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 16),
+                  child: Text('آجل'),
                 ),
-                dropdownColor: theme.cardColor,
-                icon: Icon(Icons.arrow_drop_down, color: colorScheme.primary),
-                items: _paymentMethods
-                    .map(
-                      (method) => DropdownMenuItem<int>(
-                        value: method['id'] as int,
-                        child: Text(method['name']?.toString() ?? 'بدون اسم'),
-                      ),
-                    )
-                    .toList(),
-                onChanged: (value) {
-                  setState(() {
-                    _selectedPaymentMethodId = value;
-                  });
-                  if (value != null) {
-                    _loadSafeBoxesForPaymentMethod(value);
-                  }
-                },
-              ),
+                Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 16),
+                  child: Text('مقايضة'),
+                ),
+                Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 16),
+                  child: Text('جزئي'),
+                ),
+              ],
+            ),
+
+            if (_settlementMode == _PurchaseSettlementMode.partial) ...[
               const SizedBox(height: 16),
+              // In جزئي: show cash payment method (and optionally cash safebox).
+              if (_paymentMethods.isNotEmpty) ...[
+                Builder(
+                  builder: (context) {
+                    final cashControlsEnabled = _cashPaid() > 0;
+
+                    return Opacity(
+                      opacity: cashControlsEnabled ? 1.0 : 0.55,
+                      child: DropdownButtonFormField<int>(
+                        initialValue: _selectedPaymentMethodId,
+                        decoration: InputDecoration(
+                          labelText: 'وسيلة الدفع',
+                          border: const OutlineInputBorder(),
+                          prefixIcon: Icon(
+                            Icons.payment,
+                            color: colorScheme.primary,
+                          ),
+                        ),
+                        dropdownColor: theme.cardColor,
+                        icon: Icon(
+                          Icons.arrow_drop_down,
+                          color: colorScheme.primary,
+                        ),
+                        items: _paymentMethods
+                            .map(
+                              (method) => DropdownMenuItem<int>(
+                                value: method['id'] as int,
+                                child: Text(
+                                  method['name']?.toString() ?? 'بدون اسم',
+                                ),
+                              ),
+                            )
+                            .toList(),
+                        onChanged: cashControlsEnabled
+                            ? (value) {
+                                setState(() {
+                                  _selectedPaymentMethodId = value;
+                                });
+                                if (value != null) {
+                                  _loadSafeBoxesForPaymentMethod(value);
+                                }
+                              }
+                            : null,
+                      ),
+                    );
+                  },
+                ),
+                const SizedBox(height: 16),
+              ],
+              _buildPartialSettlementMiniTable(),
             ],
+
+            if (_settlementMode == _PurchaseSettlementMode.barter) ...[
+              const SizedBox(height: 16),
+              _buildBarterSettlementInputs(),
+            ],
+
             Row(
               children: [
                 OutlinedButton.icon(
@@ -1345,14 +1738,54 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
                   ),
                 ),
                 const Spacer(),
-                if (_safeBoxes.isNotEmpty)
+                if (_settlementMode == _PurchaseSettlementMode.partial &&
+                    _safeBoxes.isNotEmpty)
                   OutlinedButton.icon(
-                    onPressed: () {
-                      setState(() {
-                        _showAdvancedPaymentOptions =
-                            !_showAdvancedPaymentOptions;
-                      });
-                    },
+                    onPressed: (_cashPaid() > 0)
+                        ? () {
+                            setState(() {
+                              _showAdvancedPaymentOptions =
+                                  !_showAdvancedPaymentOptions;
+
+                              // Ensure the selected safebox exists in the list before
+                              // rendering the dropdown; otherwise Flutter will throw
+                              // repeatedly (appearing like an infinite loop).
+                              if (_showAdvancedPaymentOptions &&
+                                  _safeBoxes.isNotEmpty) {
+                                final safeBoxesWithIds = _safeBoxes
+                                    .where((box) => box.id != null)
+                                    .toList();
+                                final uniqueSafeBoxesWithIds = <SafeBoxModel>[];
+                                final seenSafeBoxIds = <int>{};
+                                for (final box in safeBoxesWithIds) {
+                                  final id = box.id;
+                                  if (id != null && seenSafeBoxIds.add(id)) {
+                                    uniqueSafeBoxesWithIds.add(box);
+                                  }
+                                }
+
+                                final hasSelected =
+                                    _selectedSafeBoxId != null &&
+                                    uniqueSafeBoxesWithIds.any(
+                                      (box) => box.id == _selectedSafeBoxId,
+                                    );
+                                if (!hasSelected) {
+                                  final defaultBox = uniqueSafeBoxesWithIds
+                                      .firstWhere(
+                                        (box) =>
+                                            box.isDefault == true &&
+                                            box.id != null,
+                                        orElse: () => _safeBoxes.firstWhere(
+                                          (box) => box.id != null,
+                                          orElse: () => _safeBoxes.first,
+                                        ),
+                                      );
+                                  _selectedSafeBoxId = defaultBox.id;
+                                }
+                              }
+                            });
+                          }
+                        : null,
                     icon: Icon(
                       _showAdvancedPaymentOptions
                           ? Icons.settings
@@ -1375,54 +1808,73 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
                   ),
               ],
             ),
-            if (_safeBoxes.isNotEmpty && _showAdvancedPaymentOptions) ...[
+            if (_settlementMode == _PurchaseSettlementMode.partial &&
+                _safeBoxes.isNotEmpty &&
+                _showAdvancedPaymentOptions &&
+                _cashPaid() > 0) ...[
               const SizedBox(height: 20),
-              DropdownButtonFormField<int>(
-                initialValue: _selectedSafeBoxId,
-                decoration: const InputDecoration(
-                  labelText: 'الخزينة المستخدمة للدفع',
-                  border: OutlineInputBorder(),
-                ),
-                items: _safeBoxes
-                    .map(
-                      (box) => DropdownMenuItem<int>(
-                        value: box.id,
-                        child: Row(
-                          children: [
-                            Icon(box.icon, color: box.typeColor, size: 18),
-                            const SizedBox(width: 8),
-                            Expanded(child: Text(box.name)),
-                            if (box.isDefault)
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 6,
-                                  vertical: 2,
-                                ),
-                                margin: const EdgeInsetsDirectional.only(
-                                  start: 8,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: Colors.green.withValues(alpha: 0.15),
-                                  borderRadius: BorderRadius.circular(4),
-                                ),
-                                child: const Text(
-                                  'افتراضي',
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    color: Colors.green,
-                                    fontWeight: FontWeight.bold,
+              Builder(
+                builder: (context) {
+                  final safeBoxesWithIds = _safeBoxes
+                      .where((box) => box.id != null)
+                      .toList();
+                  final uniqueSafeBoxesWithIds = <SafeBoxModel>[];
+                  final seenSafeBoxIds = <int>{};
+                  for (final box in safeBoxesWithIds) {
+                    final id = box.id;
+                    if (id != null && seenSafeBoxIds.add(id)) {
+                      uniqueSafeBoxesWithIds.add(box);
+                    }
+                  }
+
+                  final maxSafeBoxNameWidth =
+                      (MediaQuery.sizeOf(context).width * 0.45).clamp(
+                        160.0,
+                        420.0,
+                      );
+
+                  final safeBoxValue =
+                      (_selectedSafeBoxId != null &&
+                          uniqueSafeBoxesWithIds.any(
+                            (box) => box.id == _selectedSafeBoxId,
+                          ))
+                      ? _selectedSafeBoxId
+                      : null;
+
+                  return DropdownButtonFormField<int>(
+                    initialValue: safeBoxValue,
+                    decoration: const InputDecoration(
+                      labelText: 'الخزينة المستخدمة للدفع',
+                      border: OutlineInputBorder(),
+                    ),
+                    items: uniqueSafeBoxesWithIds
+                        .map(
+                          (box) => DropdownMenuItem<int>(
+                            value: box.id!,
+                            child: Row(
+                              children: [
+                                Icon(box.icon, color: box.typeColor, size: 18),
+                                const SizedBox(width: 8),
+                                ConstrainedBox(
+                                  constraints: BoxConstraints(
+                                    maxWidth: maxSafeBoxNameWidth,
+                                  ),
+                                  child: Text(
+                                    box.name,
+                                    overflow: TextOverflow.ellipsis,
                                   ),
                                 ),
-                              ),
-                          ],
-                        ),
-                      ),
-                    )
-                    .toList(),
-                onChanged: (value) {
-                  setState(() {
-                    _selectedSafeBoxId = value;
-                  });
+                              ],
+                            ),
+                          ),
+                        )
+                        .toList(),
+                    onChanged: (value) {
+                      setState(() {
+                        _selectedSafeBoxId = value;
+                      });
+                    },
+                  );
                 },
               ),
             ],
@@ -1432,12 +1884,293 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
     );
   }
 
+  Widget _buildPartialSettlementMiniTable() {
+    final dueCash = _cashDueForSupplier();
+    final dueGoldMain = _supplierMainEquivalentWeight();
+    final paidCash = _cashPaid();
+    final paidGoldMain = _goldPaidMainEquivalent();
+
+    final remainingCash = _round(math.max(0.0, dueCash - paidCash), 2);
+    final remainingGold = _round(math.max(0.0, dueGoldMain - paidGoldMain), 3);
+
+    final theme = Theme.of(context);
+    final paidColor = theme.colorScheme.tertiary;
+    final remainingColor = theme.colorScheme.error;
+
+    Widget headerCell(String text) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 6),
+        child: Text(
+          text,
+          style: theme.textTheme.bodyMedium?.copyWith(
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+      );
+    }
+
+    Widget valueCell(String text, {Color? color, FontWeight? fontWeight}) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 6),
+        child: Text(
+          text,
+          style: theme.textTheme.bodyMedium?.copyWith(
+            color: color,
+            fontWeight: fontWeight,
+          ),
+        ),
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'تفاصيل السداد (جزئي)',
+          style: TextStyle(fontWeight: FontWeight.bold),
+        ),
+        const SizedBox(height: 10),
+        Table(
+          columnWidths: const {
+            0: FlexColumnWidth(1.2),
+            1: FlexColumnWidth(1.0),
+            2: FlexColumnWidth(1.6),
+            3: FlexColumnWidth(1.0),
+          },
+          defaultVerticalAlignment: TableCellVerticalAlignment.middle,
+          border: TableBorder.all(
+            color: theme.dividerColor.withValues(alpha: 0.6),
+          ),
+          children: [
+            TableRow(
+              children: [
+                headerCell('البند'),
+                headerCell('المستحق'),
+                headerCell('المدفوع'),
+                headerCell('المتبقي'),
+              ],
+            ),
+            TableRow(
+              children: [
+                valueCell('نقد'),
+                valueCell(_formatCurrency(dueCash)),
+                Padding(
+                  padding: const EdgeInsets.symmetric(
+                    vertical: 6,
+                    horizontal: 6,
+                  ),
+                  child: TextFormField(
+                    controller: _cashPaidController,
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
+                    inputFormatters: [
+                      NormalizeNumberFormatter(),
+                      FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
+                    ],
+                    style: TextStyle(
+                      color: paidCash > 0 ? paidColor : null,
+                      fontWeight: paidCash > 0 ? FontWeight.w700 : null,
+                    ),
+                    decoration: const InputDecoration(
+                      isDense: true,
+                      border: OutlineInputBorder(),
+                      hintText: '0.00',
+                    ),
+                    onChanged: (_) => setState(() {}),
+                  ),
+                ),
+                valueCell(
+                  _formatCurrency(remainingCash),
+                  color: remainingCash > 0.01 ? remainingColor : null,
+                  fontWeight: remainingCash > 0.01 ? FontWeight.w800 : null,
+                ),
+              ],
+            ),
+            TableRow(
+              children: [
+                valueCell('ذهب (مكافئ)'),
+                valueCell(_formatWeight(dueGoldMain)),
+                Padding(
+                  padding: const EdgeInsets.symmetric(
+                    vertical: 6,
+                    horizontal: 6,
+                  ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: TextFormField(
+                          controller: _goldPaidWeightController,
+                          keyboardType: const TextInputType.numberWithOptions(
+                            decimal: true,
+                          ),
+                          inputFormatters: [
+                            NormalizeNumberFormatter(),
+                            FilteringTextInputFormatter.allow(
+                              RegExp(r'[0-9.]'),
+                            ),
+                          ],
+                          style: TextStyle(
+                            color: _goldPaidWeight() > 0 ? paidColor : null,
+                            fontWeight: _goldPaidWeight() > 0
+                                ? FontWeight.w700
+                                : null,
+                          ),
+                          decoration: const InputDecoration(
+                            isDense: true,
+                            border: OutlineInputBorder(),
+                            hintText: '0.000',
+                          ),
+                          onChanged: (_) => setState(() {}),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      DropdownButton<int>(
+                        value: _selectedGoldPaidKarat,
+                        items: const [24, 22, 21, 18]
+                            .map(
+                              (k) => DropdownMenuItem<int>(
+                                value: k,
+                                child: Text('عيار $k'),
+                              ),
+                            )
+                            .toList(),
+                        onChanged: (value) {
+                          if (value == null) return;
+                          setState(() {
+                            _selectedGoldPaidKarat = value;
+                          });
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+                valueCell(
+                  _formatWeight(remainingGold),
+                  color: remainingGold > 0.0005 ? remainingColor : null,
+                  fontWeight: remainingGold > 0.0005 ? FontWeight.w800 : null,
+                ),
+              ],
+            ),
+          ],
+        ),
+        if (_goldPaidWeight() > 0) ...[
+          const SizedBox(height: 12),
+          DropdownButtonFormField<int>(
+            initialValue: _selectedGoldSafeBoxId,
+            decoration: const InputDecoration(
+              labelText: 'خزينة الذهب (مصدر المقايضة/السداد)',
+              border: OutlineInputBorder(),
+            ),
+            items: _goldSafeBoxes
+                .where((b) => b.id != null)
+                .map(
+                  (box) => DropdownMenuItem<int>(
+                    value: box.id!,
+                    child: Text(box.name),
+                  ),
+                )
+                .toList(),
+            onChanged: (value) {
+              setState(() {
+                _selectedGoldSafeBoxId = value;
+              });
+            },
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildBarterSettlementInputs() {
+    final dueGoldMain = _supplierMainEquivalentWeight();
+    final paidGoldMain = _goldPaidMainEquivalent();
+    final remainingGold = _round(math.max(0.0, dueGoldMain - paidGoldMain), 3);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'تفاصيل المقايضة (ذهب)',
+          style: TextStyle(fontWeight: FontWeight.bold),
+        ),
+        const SizedBox(height: 10),
+        DropdownButtonFormField<int>(
+          initialValue: _selectedGoldSafeBoxId,
+          decoration: const InputDecoration(
+            labelText: 'خزينة الذهب (المصدر)',
+            border: OutlineInputBorder(),
+          ),
+          items: _goldSafeBoxes
+              .where((b) => b.id != null)
+              .map(
+                (box) => DropdownMenuItem<int>(
+                  value: box.id!,
+                  child: Text(box.name),
+                ),
+              )
+              .toList(),
+          onChanged: (value) {
+            setState(() {
+              _selectedGoldSafeBoxId = value;
+            });
+          },
+        ),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            Expanded(
+              child: TextFormField(
+                controller: _goldPaidWeightController,
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
+                inputFormatters: [
+                  NormalizeNumberFormatter(),
+                  FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
+                ],
+                decoration: const InputDecoration(
+                  labelText: 'وزن الذهب المدفوع',
+                  border: OutlineInputBorder(),
+                  hintText: '0.000',
+                ),
+                onChanged: (_) => setState(() {}),
+              ),
+            ),
+            const SizedBox(width: 12),
+            DropdownButton<int>(
+              value: _selectedGoldPaidKarat,
+              items: const [24, 22, 21, 18]
+                  .map(
+                    (k) =>
+                        DropdownMenuItem<int>(value: k, child: Text('عيار $k')),
+                  )
+                  .toList(),
+              onChanged: (value) {
+                if (value == null) return;
+                setState(() {
+                  _selectedGoldPaidKarat = value;
+                });
+              },
+            ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        Text(
+          'المستحق (مكافئ): ${_formatWeight(dueGoldMain)} | المدفوع (مكافئ): ${_formatWeight(paidGoldMain)} | المتبقي: ${_formatWeight(remainingGold)}',
+          style: const TextStyle(color: Colors.black54),
+        ),
+      ],
+    );
+  }
+
   Widget _buildGoldPriceCard() {
+    final theme = Theme.of(context);
     if (_goldPrice == null) {
       return Card(
-        color: const Color(0xFFFFF3CD),
+        color: theme.colorScheme.surfaceContainerHighest,
         child: Padding(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.all(12),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: const [
@@ -1455,42 +2188,87 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
       );
     }
 
-    final chips = <Widget>[
-      _buildPriceChip('عيار 24', _goldPrice!['price_24k']),
-      _buildPriceChip('عيار 22', _goldPrice!['price_22k']),
-      _buildPriceChip('عيار 21', _goldPrice!['price_21k']),
-      _buildPriceChip('عيار 18', _goldPrice!['price_18k']),
-    ];
+    final mainKarat = _mainKaratFromSettings();
+    final supportedKarats = <int>[24, 22, 21, 18];
+    final karatsToDisplay = <int>{...supportedKarats, mainKarat}.toList()
+      ..sort((a, b) => b.compareTo(a));
 
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final chips = <Widget>[];
+    for (final karat in karatsToDisplay) {
+      dynamic priceValue;
+      switch (karat) {
+        case 24:
+          priceValue = _goldPrice!['price_24k'];
+          break;
+        case 22:
+          priceValue = _goldPrice!['price_22k'];
+          break;
+        case 21:
+          priceValue = _goldPrice!['price_21k'];
+          break;
+        case 18:
+          priceValue = _goldPrice!['price_18k'];
+          break;
+        default:
+          priceValue = _resolveGoldPrice(karat.toDouble());
+      }
+      chips.add(
+        _buildPriceChip('عيار $karat', priceValue, isMain: karat == mainKarat),
+      );
+    }
 
     return Card(
-      color: const Color(0xFFFAF5E4),
-      elevation: isDark ? 1 : 2,
+      elevation: theme.brightness == Brightness.dark ? 1 : 2,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              'سعر الذهب',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            Row(
+              children: [
+                const Text(
+                  'سعر الذهب',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                ),
+                const Spacer(),
+                Icon(Icons.circle, size: 10, color: theme.colorScheme.primary),
+              ],
             ),
-            const SizedBox(height: 8),
-            Wrap(spacing: 12, runSpacing: 8, children: chips),
+            const SizedBox(height: 10),
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: chips
+                    .map(
+                      (w) => Padding(
+                        padding: const EdgeInsetsDirectional.only(end: 10),
+                        child: w,
+                      ),
+                    )
+                    .toList(),
+              ),
+            ),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildPriceChip(String label, dynamic value) {
+  Widget _buildPriceChip(String label, dynamic value, {bool isMain = false}) {
+    final theme = Theme.of(context);
     final price = _toDouble(value);
     final display = price > 0 ? price.toStringAsFixed(2) : '-';
     return Chip(
-      label: Text('$label: $display ر.س'),
-      backgroundColor: const Color(0xFFFFD700).withValues(alpha: 0.18),
+      label: Text(
+        isMain ? '$label (الرئيسي): $display ر.س' : '$label: $display ر.س',
+        style: isMain ? const TextStyle(fontWeight: FontWeight.bold) : null,
+      ),
+      backgroundColor:
+          (isMain
+                  ? theme.colorScheme.primaryContainer
+                  : theme.colorScheme.surfaceContainerHighest)
+              .withValues(alpha: isMain ? 0.65 : 1.0),
     );
   }
 
@@ -1546,10 +2324,11 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
   }
 
   Widget _buildTotalsCard() {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
 
     return Card(
-      color: const Color(0xFFFFFAF0),
+      color: theme.colorScheme.surface,
       elevation: isDark ? 1 : 3,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: Padding(
@@ -1576,6 +2355,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
                   _applyVatOnGold = value;
                   _applyCombinedTotals();
                 });
+                _persistApplyVatOnGold(value);
               },
             ),
             const SizedBox(height: 12),
@@ -1636,7 +2416,9 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
                 }
                 setState(() {
                   _wagePostingMode = mode;
+                  _wagePostingModeFromPrefs = true;
                 });
+                _persistWagePostingMode(mode);
               },
               children: const [
                 Padding(
@@ -1664,10 +2446,38 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
 
   Widget _buildSettlementCard() {
     final weightSummary = _aggregateWeightByKarat();
-    final cashDue = _round(_wageSubtotal + _goldTaxTotal + _wageTaxTotal, 2);
+    final wageType = _selectedSupplierDefaultWageType();
+    final cashDue = _round(
+      (wageType == 'cash' ? _wageSubtotal : 0.0) +
+          _goldTaxTotal +
+          _wageTaxTotal,
+      2,
+    );
+
+    final mainKarat = _mainKaratFromSettings().toDouble();
+    double mainEquivalentWeight = 0.0;
+    if (mainKarat > 0) {
+      for (final entry in weightSummary.entries) {
+        final karat = double.tryParse(entry.key) ?? 0.0;
+        final weight = entry.value;
+        if (karat <= 0 || weight <= 0) continue;
+        mainEquivalentWeight += weight * (karat / mainKarat);
+      }
+    }
+
+    // If supplier wages are settled in gold, convert wage cash value to gold weight (main karat)
+    // and include it in the main-equivalent view.
+    if (wageType == 'gold' && _wageSubtotal > 0) {
+      final priceMain = _resolveGoldPrice(mainKarat);
+      if (priceMain > 0) {
+        mainEquivalentWeight += (_wageSubtotal / priceMain);
+      }
+    }
+    mainEquivalentWeight = _round(mainEquivalentWeight, 3);
 
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
+    final theme = Theme.of(context);
     return Card(
       elevation: isDark ? 1 : 2,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -1691,17 +2501,27 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
                   value: _totalWeight > 0
                       ? _formatWeight(_totalWeight)
                       : '0.000 جم',
-                  iconColor: const Color(0xFFDAA520),
+                  iconColor: theme.colorScheme.primary,
+                ),
+                _buildMetricTile(
+                  icon: Icons.balance,
+                  label: 'ذهب مكافئ (عيار ${mainKarat.toStringAsFixed(0)})',
+                  value: mainEquivalentWeight > 0
+                      ? _formatWeight(mainEquivalentWeight)
+                      : '0.000 جم',
+                  iconColor: theme.colorScheme.primary,
                 ),
                 _buildMetricTile(
                   icon: Icons.payments_outlined,
                   label: 'نقد مستحق',
                   value: _formatCurrency(cashDue),
-                  iconColor: Colors.green.shade700,
+                  iconColor: theme.colorScheme.tertiary,
                 ),
                 _buildMetricTile(
                   icon: Icons.design_services,
-                  label: 'أجور مصنعية',
+                  label: wageType == 'gold'
+                      ? 'أجور مصنعية (ذهب)'
+                      : 'أجور مصنعية',
                   value: _formatCurrency(_wageSubtotal),
                 ),
                 _buildMetricTile(
@@ -1727,9 +2547,13 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
                   final karatLabel = entry.key;
                   final weightValue = entry.value;
                   return Chip(
-                    backgroundColor: const Color(0xFFFFD700).withValues(alpha: 0.12),
+                    backgroundColor: theme.colorScheme.surfaceContainerHighest
+                        .withValues(alpha: 0.75),
                     label: Text(
                       'عيار $karatLabel: ${_formatWeight(weightValue)}',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
                   );
                 }).toList(),
@@ -1747,23 +2571,26 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
     required String value,
     Color? iconColor,
   }) {
-    final Color resolvedIconColor = iconColor ?? Colors.blueGrey.shade600;
+    final theme = Theme.of(context);
+    final Color resolvedIconColor =
+        iconColor ?? theme.colorScheme.onSurface.withValues(alpha: 0.65);
+
     return Container(
-      constraints: const BoxConstraints(minWidth: 160),
-      padding: const EdgeInsets.all(12),
+      constraints: const BoxConstraints(minWidth: 140),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
       decoration: BoxDecoration(
-        color: Colors.grey.shade100,
+        color: theme.colorScheme.surfaceContainerHighest,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.grey.shade300),
+        border: Border.all(color: theme.dividerColor.withValues(alpha: 0.7)),
       ),
       child: Row(
         children: [
           CircleAvatar(
-            radius: 16,
+            radius: 15,
             backgroundColor: resolvedIconColor.withValues(alpha: 0.12),
             child: Icon(icon, color: resolvedIconColor, size: 18),
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: 10),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -1771,12 +2598,19 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
               children: [
                 Text(
                   label,
-                  style: const TextStyle(fontSize: 12, color: Colors.black54),
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.textTheme.bodySmall?.color?.withValues(
+                      alpha: 0.75,
+                    ),
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
                 const SizedBox(height: 2),
                 Text(
                   value,
-                  style: const TextStyle(fontWeight: FontWeight.bold),
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    fontWeight: FontWeight.w800,
+                  ),
                 ),
               ],
             ),
@@ -1792,7 +2626,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
     bool highlight = false,
   }) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    
+
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Row(
@@ -1809,7 +2643,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
             value,
             style: TextStyle(
               fontWeight: highlight ? FontWeight.bold : FontWeight.normal,
-              color: highlight 
+              color: highlight
                   ? (isDark ? Colors.green[300] : Colors.green[700])
                   : (isDark ? Colors.white : Colors.black87),
             ),
@@ -1839,7 +2673,10 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
                     children: const [
                       Text(
                         'الأصناف داخل الفاتورة',
-                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
                       SizedBox(height: 4),
                       Text(
@@ -1870,7 +2707,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
             ),
             const SizedBox(height: 12),
             if (_inlineItems.isEmpty)
-                  _buildInlineItemsEmptyState()
+              _buildInlineItemsEmptyState()
             else ...[
               _buildInlineItemsMetrics(),
               const SizedBox(height: 12),
@@ -1878,8 +2715,6 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
               const SizedBox(height: 12),
               _buildInlineItemsTable(),
             ],
-            const SizedBox(height: 16),
-            _buildSaveInvoiceButton(),
           ],
         ),
       ),
@@ -1888,32 +2723,33 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
 
   Widget _buildSaveInvoiceButton() {
     final theme = Theme.of(context);
-    return Align(
-      alignment: AlignmentDirectional.centerEnd,
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 420),
-        child: FilledButton.icon(
-          onPressed: _isSavingInvoice ? null : _saveInvoice,
-          icon: _isSavingInvoice
-              ? SizedBox(
-                  width: 20,
-                  height: 20,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    color: theme.colorScheme.onPrimary,
-                  ),
-                )
-              : const Icon(Icons.save_alt),
-          label: Text(
-            _isSavingInvoice ? 'جارٍ الحفظ...' : 'حفظ الفاتورة',
-          ),
-          style: FilledButton.styleFrom(
-            padding: const EdgeInsets.symmetric(
-              horizontal: 24,
-              vertical: 16,
-            ),
-            textStyle: theme.textTheme.titleMedium?.copyWith(
-              fontWeight: FontWeight.w700,
+    return Card(
+      elevation: theme.brightness == Brightness.dark ? 1 : 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: SizedBox(
+          width: double.infinity,
+          child: FilledButton.icon(
+            onPressed: _isSavingInvoice ? null : _saveInvoice,
+            icon: _isSavingInvoice
+                ? SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: theme.colorScheme.onSecondary,
+                    ),
+                  )
+                : const Icon(Icons.save_alt),
+            label: Text(_isSavingInvoice ? 'جارٍ الحفظ...' : 'حفظ الفاتورة'),
+            style: FilledButton.styleFrom(
+              backgroundColor: theme.colorScheme.secondary,
+              foregroundColor: theme.colorScheme.onSecondary,
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 18),
+              textStyle: theme.textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.w800,
+              ),
             ),
           ),
         ),
@@ -1925,19 +2761,21 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
     final entries = <Widget>[
       _buildInlineMetricChip('عدد الأصناف', _inlineItems.length.toString()),
       _buildInlineMetricChip('إجمالي الوزن', _formatWeight(_inlineTotalWeight)),
-      _buildInlineMetricChip('أجور المصنعية', _formatCurrency(_inlineTotalWage)),
+      _buildInlineMetricChip(
+        'أجور المصنعية',
+        _formatCurrency(_inlineTotalWage),
+      ),
     ];
 
-    return Wrap(
-      spacing: 8,
-      runSpacing: 8,
-      children: entries,
-    );
+    return Wrap(spacing: 8, runSpacing: 8, children: entries);
   }
 
   Widget _buildInlineMetricChip(String label, String value) {
+    final theme = Theme.of(context);
     return Chip(
-      backgroundColor: const Color(0xFFFFD700).withValues(alpha: 0.14),
+      backgroundColor: theme.colorScheme.primaryContainer.withValues(
+        alpha: 0.35,
+      ),
       label: Text('$label: $value'),
     );
   }
@@ -1975,7 +2813,9 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
         SizedBox(height: 16),
         Icon(Icons.inventory_outlined, size: 64, color: Colors.grey),
         SizedBox(height: 12),
-        Text('لا توجد أصناف بعد. استخدم زر "إضافة وزن واحد" أو "إضافة عدة أوزان".'),
+        Text(
+          'لا توجد أصناف بعد. استخدم زر "إضافة وزن واحد" أو "إضافة عدة أوزان".',
+        ),
       ],
     );
   }
@@ -2013,10 +2853,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
 
   List<DropdownMenuItem<String?>> _buildCategoryDropdownItems() {
     final items = <DropdownMenuItem<String?>>[
-      const DropdownMenuItem<String?>(
-        value: null,
-        child: Text('بدون تصنيف'),
-      ),
+      const DropdownMenuItem<String?>(value: null, child: Text('بدون تصنيف')),
     ];
 
     for (final category in _categories) {
@@ -2038,7 +2875,8 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
       labelText: labelText,
       border: const OutlineInputBorder(),
       prefixIcon: const Icon(Icons.category_outlined),
-      helperText: _categoriesError ??
+      helperText:
+          _categoriesError ??
           (_categories.isEmpty ? 'لا توجد تصنيفات متاحة حالياً.' : null),
     );
   }
@@ -2046,23 +2884,39 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
   DataRow _buildInlineItemRow(PurchaseInlineItem item, int index) {
     return DataRow(
       cells: [
-        DataCell(Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Text(item.name, style: const TextStyle(fontWeight: FontWeight.bold)),
-            if (item.category?.isNotEmpty ?? false)
-              Text('تصنيف: ${item.category}', style: const TextStyle(fontSize: 12)),
-            if (item.itemCode?.isNotEmpty ?? false)
-              Text('كود: ${item.itemCode}', style: const TextStyle(fontSize: 12)),
-            if (item.barcode?.isNotEmpty ?? false)
-              Text('باركود: ${item.barcode}', style: const TextStyle(fontSize: 12)),
-          ],
-        )),
+        DataCell(
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(
+                item.name,
+                style: const TextStyle(fontWeight: FontWeight.bold),
+              ),
+              if (item.category?.isNotEmpty ?? false)
+                Text(
+                  'تصنيف: ${item.category}',
+                  style: const TextStyle(fontSize: 12),
+                ),
+              if (item.itemCode?.isNotEmpty ?? false)
+                Text(
+                  'كود: ${item.itemCode}',
+                  style: const TextStyle(fontSize: 12),
+                ),
+              if (item.barcode?.isNotEmpty ?? false)
+                Text(
+                  'باركود: ${item.barcode}',
+                  style: const TextStyle(fontSize: 12),
+                ),
+            ],
+          ),
+        ),
         DataCell(Text(item.karat.toStringAsFixed(0))),
         DataCell(Text(item.weightGrams.toStringAsFixed(3))),
         DataCell(Text(item.wagePerGram.toStringAsFixed(2))),
-        DataCell(Text((item.weightGrams * item.wagePerGram).toStringAsFixed(2))),
+        DataCell(
+          Text((item.weightGrams * item.wagePerGram).toStringAsFixed(2)),
+        ),
         DataCell(Text(item.hasStones ? 'نعم' : '-')),
         DataCell(
           item.description == null || item.description!.isEmpty
@@ -2076,21 +2930,23 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
                   ),
                 ),
         ),
-        DataCell(Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            IconButton(
-              icon: const Icon(Icons.edit),
-              tooltip: 'تعديل',
-              onPressed: () => _editInlineItem(index),
-            ),
-            IconButton(
-              icon: const Icon(Icons.delete, color: Colors.red),
-              tooltip: 'حذف',
-              onPressed: () => _removeInlineItem(index),
-            ),
-          ],
-        )),
+        DataCell(
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              IconButton(
+                icon: const Icon(Icons.edit),
+                tooltip: 'تعديل',
+                onPressed: () => _editInlineItem(index),
+              ),
+              IconButton(
+                icon: const Icon(Icons.delete, color: Colors.red),
+                tooltip: 'حذف',
+                onPressed: () => _removeInlineItem(index),
+              ),
+            ],
+          ),
+        ),
       ],
     );
   }
@@ -2105,12 +2961,20 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
     final wageController = TextEditingController(
       text: existing != null ? existing.wagePerGram.toStringAsFixed(2) : '0',
     );
-    final descriptionController =
-        TextEditingController(text: existing?.description ?? '');
-    final itemCodeController =
-        TextEditingController(text: existing?.itemCode ?? '');
-    final barcodeController =
-        TextEditingController(text: existing?.barcode ?? '');
+    final wageTotalController = TextEditingController(
+      text: existing != null
+          ? (existing.weightGrams * existing.wagePerGram).toStringAsFixed(2)
+          : '0',
+    );
+    final descriptionController = TextEditingController(
+      text: existing?.description ?? '',
+    );
+    final itemCodeController = TextEditingController(
+      text: existing?.itemCode ?? '',
+    );
+    final barcodeController = TextEditingController(
+      text: existing?.barcode ?? '',
+    );
     final stonesWeightController = TextEditingController(
       text: existing != null && existing.stonesWeight > 0
           ? existing.stonesWeight.toStringAsFixed(3)
@@ -2134,6 +2998,10 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
       baseOffset: 0,
       extentOffset: wageController.text.length,
     );
+    wageTotalController.selection = TextSelection(
+      baseOffset: 0,
+      extentOffset: wageTotalController.text.length,
+    );
     descriptionController.selection = TextSelection(
       baseOffset: 0,
       extentOffset: descriptionController.text.length,
@@ -2156,11 +3024,18 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
     );
 
     double karat = existing?.karat ?? 21;
+    const allowedKarats = [18.0, 21.0, 22.0, 24.0];
+    final normalizedInitialKarat = allowedKarats.contains(karat)
+        ? karat
+        : (allowedKarats.contains(karat.roundToDouble())
+              ? karat.roundToDouble()
+              : 21.0);
+    karat = normalizedInitialKarat;
     bool hasStones = existing?.hasStones ?? false;
-  String? selectedCategoryName =
-    (existing?.category?.isNotEmpty ?? false) ? existing!.category : null;
-  int? selectedCategoryId =
-    existing?.categoryId ?? _categoryIdForName(selectedCategoryName);
+    bool wageInputIsTotal = false;
+    String? selectedCategoryName = (existing?.category?.isNotEmpty ?? false)
+        ? existing!.category
+        : null;
 
     final result = await showDialog<PurchaseInlineItem>(
       context: context,
@@ -2169,221 +3044,343 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
         return StatefulBuilder(
           builder: (context, setDialogState) {
             final weight = double.tryParse(weightController.text) ?? 0;
-            final wagePerGram = double.tryParse(wageController.text) ?? 0;
+            final wagePerGramInput = double.tryParse(wageController.text) ?? 0;
+            final wageTotalInput =
+                double.tryParse(wageTotalController.text) ?? 0;
+            final effectiveWagePerGram = wageInputIsTotal
+                ? (weight > 0 ? (wageTotalInput / weight) : 0.0)
+                : wagePerGramInput;
+            final effectiveWageTotal = weight * effectiveWagePerGram;
             final stonesWeight =
                 double.tryParse(stonesWeightController.text) ?? 0;
             final stonesValue =
                 double.tryParse(stonesValueController.text) ?? 0;
+            final resolvedStonesWeight = hasStones ? stonesWeight : 0.0;
+            final netWeight = math.max(0.0, weight - resolvedStonesWeight);
             final categoryItems = _buildCategoryDropdownItems();
-            final hasCategoryValue = categoryItems
-                .any((item) => item.value == selectedCategoryName);
-            final dropdownCategoryValue =
-                hasCategoryValue ? selectedCategoryName : null;
-            if (!hasCategoryValue && selectedCategoryName != null) {
-              selectedCategoryName = null;
-              selectedCategoryId = null;
-            }
+            final hasCategoryValue = categoryItems.any(
+              (item) => item.value == selectedCategoryName,
+            );
+            final dropdownCategoryValue = hasCategoryValue
+                ? selectedCategoryName
+                : null;
 
             return AlertDialog(
-              title: Text(
-                existing == null ? 'إضافة صنف' : 'تعديل الصنف',
-              ),
-              content: SingleChildScrollView(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    TextField(
-                      controller: nameController,
-                      decoration: const InputDecoration(
-                        labelText: 'اسم الصنف',
-                        border: OutlineInputBorder(),
-                        prefixIcon: Icon(Icons.title),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    DropdownButtonFormField<double>(
-                      initialValue: karat,
-                      decoration: const InputDecoration(
-                        labelText: 'العيار',
-                        border: OutlineInputBorder(),
-                      ),
-                      items: const [18.0, 21.0, 22.0, 24.0]
-                          .map(
-                            (value) => DropdownMenuItem<double>(
-                              value: value,
-                              child: Text(value.toStringAsFixed(0)),
+              title: Text(existing == null ? 'إضافة صنف' : 'تعديل الصنف'),
+              content: DefaultTabController(
+                length: 2,
+                child: Builder(
+                  builder: (context) {
+                    final theme = Theme.of(context);
+                    final mediaSize = MediaQuery.sizeOf(context);
+
+                    final maxWidth = mediaSize.width * 0.95;
+                    final maxHeight = mediaSize.height * 0.80;
+
+                    final contentWidth = math.max(
+                      280.0,
+                      math.min(520.0, maxWidth),
+                    );
+                    final contentHeight = math.max(
+                      420.0,
+                      math.min(560.0, maxHeight),
+                    );
+
+                    final normalizedKarat = karat;
+
+                    return SizedBox(
+                      width: contentWidth,
+                      height: contentHeight,
+                      child: Column(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(4),
+                            decoration: BoxDecoration(
+                              color: theme.colorScheme.surfaceContainerHighest,
+                              borderRadius: BorderRadius.circular(14),
                             ),
-                          )
-                          .toList(),
-                      onChanged: (value) {
-                        if (value == null) return;
-                        setDialogState(() {
-                          karat = value;
-                        });
-                      },
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: weightController,
-                      keyboardType: const TextInputType.numberWithOptions(
-                        decimal: true,
-                      ),
-                      inputFormatters: [
-                        NormalizeNumberFormatter(),
-                        FilteringTextInputFormatter.allow(
-                          RegExp(r'^[0-9]*\.?[0-9]*$'),
-                        ),
-                      ],
-                      decoration: const InputDecoration(
-                        labelText: 'الوزن (جرام)',
-                        border: OutlineInputBorder(),
-                        prefixIcon: Icon(Icons.scale),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: wageController,
-                      keyboardType: const TextInputType.numberWithOptions(
-                        decimal: true,
-                      ),
-                      inputFormatters: [
-                        NormalizeNumberFormatter(),
-                        FilteringTextInputFormatter.allow(
-                          RegExp(r'^[0-9]*\.?[0-9]*$'),
-                        ),
-                      ],
-                      decoration: const InputDecoration(
-                        labelText: 'أجور المصنعية (ريال/جرام)',
-                        border: OutlineInputBorder(),
-                        prefixIcon: Icon(Icons.design_services),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: descriptionController,
-                      maxLines: 2,
-                      decoration: const InputDecoration(
-                        labelText: 'ملاحظات (اختياري)',
-                        border: OutlineInputBorder(),
-                        prefixIcon: Icon(Icons.sticky_note_2_outlined),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: itemCodeController,
-                      decoration: const InputDecoration(
-                        labelText: 'كود الصنف (اختياري)',
-                        border: OutlineInputBorder(),
-                        prefixIcon: Icon(Icons.tag),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    DropdownButtonFormField<String?>(
-                      initialValue: dropdownCategoryValue,
-                      items: categoryItems,
-                      isExpanded: true,
-            onChanged: _isLoadingCategories
-              ? null
-              : (value) => setDialogState(() {
-                selectedCategoryName = value;
-                selectedCategoryId =
-                  _categoryIdForName(value);
-                }),
-                      decoration: _categoryDropdownDecoration(),
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: barcodeController,
-                      decoration: const InputDecoration(
-                        labelText: 'الباركود (اختياري)',
-                        border: OutlineInputBorder(),
-                        prefixIcon: Icon(Icons.qr_code_2),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    SwitchListTile(
-                      title: const Text('يتضمن أحجاراً أو إضافات'),
-                      contentPadding: EdgeInsets.zero,
-                      value: hasStones,
-                      onChanged: (value) => setDialogState(() {
-                        hasStones = value;
-                      }),
-                    ),
-                    if (hasStones) ...[
-                      TextField(
-                        controller: stonesWeightController,
-                        keyboardType: const TextInputType.numberWithOptions(
-                          decimal: true,
-                        ),
-                        inputFormatters: [
-                          NormalizeNumberFormatter(),
-                          FilteringTextInputFormatter.allow(
-                            RegExp(r'^[0-9]*\.?[0-9]*$'),
+                            child: const TabBar(
+                              tabs: [
+                                Tab(text: 'بيانات الأساسية'),
+                                Tab(text: 'الأحجار والإضافات'),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          Expanded(
+                            child: TabBarView(
+                              children: [
+                                ListView(
+                                  padding: EdgeInsets.zero,
+                                  children: [
+                                    TextField(
+                                      controller: nameController,
+                                      decoration: const InputDecoration(
+                                        labelText: 'اسم الصنف',
+                                        border: OutlineInputBorder(),
+                                        prefixIcon: Icon(Icons.title),
+                                      ),
+                                    ),
+                                    const SizedBox(height: 12),
+                                    DropdownButtonFormField<double>(
+                                      initialValue: normalizedKarat,
+                                      decoration: const InputDecoration(
+                                        labelText: 'العيار',
+                                        border: OutlineInputBorder(),
+                                      ),
+                                      items: allowedKarats
+                                          .map(
+                                            (value) => DropdownMenuItem<double>(
+                                              value: value,
+                                              child: Text(
+                                                value.toStringAsFixed(0),
+                                              ),
+                                            ),
+                                          )
+                                          .toList(),
+                                      onChanged: (value) {
+                                        if (value == null) return;
+                                        setDialogState(() {
+                                          karat = value;
+                                        });
+                                      },
+                                    ),
+                                    const SizedBox(height: 12),
+                                    TextField(
+                                      controller: weightController,
+                                      keyboardType:
+                                          const TextInputType.numberWithOptions(
+                                            decimal: true,
+                                          ),
+                                      inputFormatters: [
+                                        NormalizeNumberFormatter(),
+                                        FilteringTextInputFormatter.allow(
+                                          RegExp(r'^[0-9]*\.?[0-9]*$'),
+                                        ),
+                                      ],
+                                      decoration: const InputDecoration(
+                                        labelText: 'الوزن (جرام)',
+                                        border: OutlineInputBorder(),
+                                        prefixIcon: Icon(Icons.scale),
+                                      ),
+                                      onChanged: (_) => setDialogState(() {}),
+                                    ),
+                                    const SizedBox(height: 12),
+                                    ToggleButtons(
+                                      isSelected: [
+                                        !wageInputIsTotal,
+                                        wageInputIsTotal,
+                                      ],
+                                      borderRadius: BorderRadius.circular(12),
+                                      onPressed: (index) {
+                                        final nextIsTotal = index == 1;
+                                        if (nextIsTotal == wageInputIsTotal) {
+                                          return;
+                                        }
+                                        setDialogState(() {
+                                          wageInputIsTotal = nextIsTotal;
+                                          if (wageInputIsTotal) {
+                                            wageTotalController.text =
+                                                effectiveWageTotal
+                                                    .toStringAsFixed(2);
+                                          } else {
+                                            wageController.text =
+                                                effectiveWagePerGram
+                                                    .toStringAsFixed(2);
+                                          }
+                                        });
+                                      },
+                                      children: const [
+                                        Padding(
+                                          padding: EdgeInsets.symmetric(
+                                            horizontal: 16,
+                                          ),
+                                          child: Text('ريال/جرام'),
+                                        ),
+                                        Padding(
+                                          padding: EdgeInsets.symmetric(
+                                            horizontal: 16,
+                                          ),
+                                          child: Text('إجمالي الأجور'),
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 12),
+                                    TextField(
+                                      controller: wageInputIsTotal
+                                          ? wageTotalController
+                                          : wageController,
+                                      keyboardType:
+                                          const TextInputType.numberWithOptions(
+                                            decimal: true,
+                                          ),
+                                      inputFormatters: [
+                                        NormalizeNumberFormatter(),
+                                        FilteringTextInputFormatter.allow(
+                                          RegExp(r'^[0-9]*\.?[0-9]*$'),
+                                        ),
+                                      ],
+                                      decoration: InputDecoration(
+                                        labelText: wageInputIsTotal
+                                            ? 'إجمالي أجور المصنعية (ريال)'
+                                            : 'أجور المصنعية (ريال/جرام)',
+                                        border: const OutlineInputBorder(),
+                                        prefixIcon: const Icon(
+                                          Icons.design_services,
+                                        ),
+                                      ),
+                                      onChanged: (_) => setDialogState(() {}),
+                                    ),
+                                    const SizedBox(height: 12),
+                                    TextField(
+                                      controller: descriptionController,
+                                      maxLines: 2,
+                                      decoration: const InputDecoration(
+                                        labelText: 'ملاحظات (اختياري)',
+                                        border: OutlineInputBorder(),
+                                        prefixIcon: Icon(
+                                          Icons.sticky_note_2_outlined,
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(height: 12),
+                                    TextField(
+                                      controller: itemCodeController,
+                                      decoration: const InputDecoration(
+                                        labelText: 'كود الصنف (اختياري)',
+                                        border: OutlineInputBorder(),
+                                        prefixIcon: Icon(Icons.tag),
+                                      ),
+                                    ),
+                                    const SizedBox(height: 12),
+                                    DropdownButtonFormField<String?>(
+                                      initialValue: dropdownCategoryValue,
+                                      items: categoryItems,
+                                      isExpanded: true,
+                                      onChanged: _isLoadingCategories
+                                          ? null
+                                          : (value) => setDialogState(() {
+                                              selectedCategoryName = value;
+                                            }),
+                                      decoration: _categoryDropdownDecoration(),
+                                    ),
+                                    const SizedBox(height: 12),
+                                    TextField(
+                                      controller: barcodeController,
+                                      decoration: const InputDecoration(
+                                        labelText: 'الباركود (اختياري)',
+                                        border: OutlineInputBorder(),
+                                        prefixIcon: Icon(Icons.qr_code_2),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                ListView(
+                                  padding: EdgeInsets.zero,
+                                  children: [
+                                    SwitchListTile(
+                                      title: const Text(
+                                        'يتضمن أحجاراً أو إضافات',
+                                      ),
+                                      contentPadding: EdgeInsets.zero,
+                                      value: hasStones,
+                                      onChanged: (value) => setDialogState(() {
+                                        hasStones = value;
+                                      }),
+                                    ),
+                                    if (hasStones) ...[
+                                      TextField(
+                                        controller: stonesWeightController,
+                                        keyboardType:
+                                            const TextInputType.numberWithOptions(
+                                              decimal: true,
+                                            ),
+                                        inputFormatters: [
+                                          NormalizeNumberFormatter(),
+                                          FilteringTextInputFormatter.allow(
+                                            RegExp(r'^[0-9]*\.?[0-9]*$'),
+                                          ),
+                                        ],
+                                        decoration: const InputDecoration(
+                                          labelText: 'وزن الأحجار (جم)',
+                                          border: OutlineInputBorder(),
+                                          prefixIcon: Icon(Icons.diamond),
+                                        ),
+                                        onChanged: (_) => setDialogState(() {}),
+                                      ),
+                                      const SizedBox(height: 12),
+                                      TextField(
+                                        controller: stonesValueController,
+                                        keyboardType:
+                                            const TextInputType.numberWithOptions(
+                                              decimal: true,
+                                            ),
+                                        inputFormatters: [
+                                          NormalizeNumberFormatter(),
+                                          FilteringTextInputFormatter.allow(
+                                            RegExp(r'^[0-9]*\.?[0-9]*$'),
+                                          ),
+                                        ],
+                                        decoration: const InputDecoration(
+                                          labelText: 'قيمة الأحجار (ريال)',
+                                          border: OutlineInputBorder(),
+                                          prefixIcon: Icon(Icons.attach_money),
+                                        ),
+                                        onChanged: (_) => setDialogState(() {}),
+                                      ),
+                                    ],
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: theme.colorScheme.surfaceContainerHighest,
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'معاينة سريعة',
+                                  style: theme.textTheme.titleSmall?.copyWith(
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                                _previewRow('الوزن', _formatWeight(weight)),
+                                _previewRow(
+                                  'الوزن الصافي (بعد خصم الأحجار)',
+                                  _formatWeight(netWeight),
+                                ),
+                                _previewRow(
+                                  'أجور المصنعية',
+                                  _formatCurrency(effectiveWageTotal),
+                                ),
+                                _previewRow(
+                                  'الأجور/جرام',
+                                  effectiveWagePerGram.toStringAsFixed(2),
+                                ),
+                                if (hasStones)
+                                  _previewRow(
+                                    'وزن الأحجار',
+                                    _formatWeight(stonesWeight),
+                                  ),
+                                if (hasStones)
+                                  _previewRow(
+                                    'قيمة الأحجار',
+                                    _formatCurrency(stonesValue),
+                                  ),
+                              ],
+                            ),
                           ),
                         ],
-                        decoration: const InputDecoration(
-                          labelText: 'وزن الأحجار (جم)',
-                          border: OutlineInputBorder(),
-                          prefixIcon: Icon(Icons.diamond),
-                        ),
                       ),
-                      const SizedBox(height: 12),
-                      TextField(
-                        controller: stonesValueController,
-                        keyboardType: const TextInputType.numberWithOptions(
-                          decimal: true,
-                        ),
-                        inputFormatters: [
-                          NormalizeNumberFormatter(),
-                          FilteringTextInputFormatter.allow(
-                            RegExp(r'^[0-9]*\.?[0-9]*$'),
-                          ),
-                        ],
-                        decoration: const InputDecoration(
-                          labelText: 'قيمة الأحجار (ريال)',
-                          border: OutlineInputBorder(),
-                          prefixIcon: Icon(Icons.attach_money),
-                        ),
-                      ),
-                    ],
-                    const SizedBox(height: 16),
-                    Card(
-                      color: const Color(0xFFFAF5E4),
-                      margin: EdgeInsets.zero,
-                      child: Padding(
-                        padding: const EdgeInsets.all(12),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text(
-                              'معاينة سريعة',
-                              style: TextStyle(fontWeight: FontWeight.bold),
-                            ),
-                            const SizedBox(height: 8),
-                            _previewRow(
-                              'الوزن',
-                              _formatWeight(weight),
-                            ),
-                            _previewRow(
-                              'أجور المصنعية',
-                              _formatCurrency(weight * wagePerGram),
-                            ),
-                            if (hasStones)
-                              _previewRow(
-                                'وزن الأحجار',
-                                _formatWeight(stonesWeight),
-                              ),
-                            if (hasStones)
-                              _previewRow(
-                                'قيمة الأحجار',
-                                _formatCurrency(stonesValue),
-                              ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ],
+                    );
+                  },
                 ),
               ),
               actions: [
@@ -2396,14 +3393,26 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
                     final name = nameController.text.trim();
                     final parsedWeight =
                         double.tryParse(weightController.text) ?? 0;
-                    final parsedWage =
+                    final parsedWagePerGram =
                         double.tryParse(wageController.text) ?? 0;
+                    final parsedWageTotal =
+                        double.tryParse(wageTotalController.text) ?? 0;
+
+                    final effectiveCategoryName = dropdownCategoryValue;
+                    final effectiveCategoryId = _categoryIdForName(
+                      effectiveCategoryName,
+                    );
+
+                    final resolvedWagePerGram = wageInputIsTotal
+                        ? (parsedWeight > 0
+                              ? (parsedWageTotal / parsedWeight)
+                              : 0.0)
+                        : parsedWagePerGram;
 
                     if (name.isEmpty || parsedWeight <= 0) {
                       ScaffoldMessenger.of(context).showSnackBar(
                         const SnackBar(
-                          content:
-                              Text('الاسم والوزن مطلوبان لإضافة الصنف'),
+                          content: Text('الاسم والوزن مطلوبان لإضافة الصنف'),
                         ),
                       );
                       return;
@@ -2414,19 +3423,18 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
                         name: name,
                         karat: karat,
                         weightGrams: parsedWeight,
-                        wagePerGram: parsedWage,
-                        description:
-                            descriptionController.text.trim().isEmpty
-                                ? null
-                                : descriptionController.text.trim(),
+                        wagePerGram: resolvedWagePerGram,
+                        description: descriptionController.text.trim().isEmpty
+                            ? null
+                            : descriptionController.text.trim(),
                         itemCode: itemCodeController.text.trim().isEmpty
                             ? null
                             : itemCodeController.text.trim(),
                         barcode: barcodeController.text.trim().isEmpty
                             ? null
                             : barcodeController.text.trim(),
-                        category: selectedCategoryName,
-                        categoryId: selectedCategoryId,
+                        category: effectiveCategoryName,
+                        categoryId: effectiveCategoryId,
                         hasStones: hasStones,
                         stonesWeight: hasStones ? stonesWeight : 0,
                         stonesValue: hasStones ? stonesValue : 0,
@@ -2446,6 +3454,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
     nameController.dispose();
     weightController.dispose();
     wageController.dispose();
+    wageTotalController.dispose();
     descriptionController.dispose();
     itemCodeController.dispose();
     barcodeController.dispose();
@@ -2459,17 +3468,24 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
     final nameController = TextEditingController();
     final weightsController = TextEditingController();
     final wageController = TextEditingController(text: '0');
+    final wageTotalController = TextEditingController(text: '0');
     final descriptionController = TextEditingController();
-  final itemCodeController = TextEditingController();
-  final barcodeController = TextEditingController();
-  double karat = 21;
+    final itemCodeController = TextEditingController();
+    final barcodeController = TextEditingController();
+    double karat = 21;
+    const allowedKarats = [18.0, 21.0, 22.0, 24.0];
     String? selectedCategoryName;
-  int? selectedCategoryId;
-  final weightsFocusNode = FocusNode();
+    final weightsFocusNode = FocusNode();
+    int wageModeIndex = 0; // 0: per-gram, 1: total
 
     wageController.selection = TextSelection(
       baseOffset: 0,
       extentOffset: wageController.text.length,
+    );
+
+    wageTotalController.selection = TextSelection(
+      baseOffset: 0,
+      extentOffset: wageTotalController.text.length,
     );
 
     List<double> parseWeights(String input) {
@@ -2503,25 +3519,30 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
               0,
               (sum, value) => sum + value,
             );
+
+            final wageIsTotal = wageModeIndex == 1;
+            final wagePerGramInput = double.tryParse(wageController.text) ?? 0;
+            final wageTotalInput =
+                double.tryParse(wageTotalController.text) ?? 0;
+            final effectiveWagePerGram = wageIsTotal
+                ? (totalWeight > 0 ? wageTotalInput / totalWeight : 0.0)
+                : wagePerGramInput;
+            final computedWageTotal = wageIsTotal
+                ? wageTotalInput
+                : (wagePerGramInput * totalWeight);
             final categoryItems = _buildCategoryDropdownItems();
-            final hasCategoryValue = categoryItems
-                .any((item) => item.value == selectedCategoryName);
-            final dropdownCategoryValue =
-                hasCategoryValue ? selectedCategoryName : null;
-            if (!hasCategoryValue && selectedCategoryName != null) {
-              selectedCategoryName = null;
-              selectedCategoryId = null;
-            }
+            final hasCategoryValue = categoryItems.any(
+              (item) => item.value == selectedCategoryName,
+            );
+            final dropdownCategoryValue = hasCategoryValue
+                ? selectedCategoryName
+                : null;
 
             void handleInsertNewline() {
               final selection = weightsController.selection;
               final text = weightsController.text;
-              final start = selection.isValid
-                  ? selection.start
-                  : text.length;
-              final end = selection.isValid
-                  ? selection.end
-                  : text.length;
+              final start = selection.isValid ? selection.start : text.length;
+              final end = selection.isValid ? selection.end : text.length;
 
               final updatedText = text.replaceRange(start, end, '\n');
               final caretOffset = start + 1;
@@ -2537,161 +3558,318 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
 
             return AlertDialog(
               title: const Text('إضافة عدة أوزان لنفس الصنف'),
-              content: SingleChildScrollView(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    TextField(
-                      controller: nameController,
-                      decoration: const InputDecoration(
-                        labelText: 'اسم الصنف',
-                        border: OutlineInputBorder(),
-                        prefixIcon: Icon(Icons.inventory_2_outlined),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    DropdownButtonFormField<double>(
-                      initialValue: karat,
-                      decoration: const InputDecoration(
-                        labelText: 'العيار',
-                        border: OutlineInputBorder(),
-                      ),
-                      items: const [18.0, 21.0, 22.0, 24.0]
-                          .map(
-                            (value) => DropdownMenuItem<double>(
-                              value: value,
-                              child: Text(value.toStringAsFixed(0)),
+              content: DefaultTabController(
+                length: 2,
+                child: Builder(
+                  builder: (context) {
+                    final theme = Theme.of(context);
+                    final mediaSize = MediaQuery.sizeOf(context);
+
+                    final maxWidth = mediaSize.width * 0.95;
+                    final maxHeight = mediaSize.height * 0.80;
+
+                    final contentWidth = math.max(
+                      280.0,
+                      math.min(520.0, maxWidth),
+                    );
+                    final contentHeight = math.max(
+                      420.0,
+                      math.min(620.0, maxHeight),
+                    );
+
+                    final normalizedKarat = allowedKarats.contains(karat)
+                        ? karat
+                        : 21.0;
+
+                    return SizedBox(
+                      width: contentWidth,
+                      height: contentHeight,
+                      child: Column(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(4),
+                            decoration: BoxDecoration(
+                              color: theme.colorScheme.surfaceContainerHighest,
+                              borderRadius: BorderRadius.circular(14),
                             ),
-                          )
-                          .toList(),
-                      onChanged: (value) {
-                        if (value == null) return;
-                        setDialogState(() {
-                          karat = value;
-                        });
-                      },
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: wageController,
-                      keyboardType: const TextInputType.numberWithOptions(
-                        decimal: true,
-                      ),
-                      inputFormatters: [
-                        NormalizeNumberFormatter(),
-                        FilteringTextInputFormatter.allow(
-                          RegExp(r'^[0-9]*\.?[0-9]*$'),
-                        ),
-                      ],
-                      decoration: const InputDecoration(
-                        labelText: 'أجرة المصنعية (ريال/جرام)',
-                        border: OutlineInputBorder(),
-                        prefixIcon: Icon(Icons.design_services),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    Shortcuts(
-                      shortcuts: const <ShortcutActivator, Intent>{
-                        SingleActivator(LogicalKeyboardKey.enter):
-                            _InsertNewlineIntent(),
-                        SingleActivator(LogicalKeyboardKey.numpadEnter):
-                            _InsertNewlineIntent(),
-                      },
-                      child: Actions(
-                        actions: <Type, Action<Intent>>{
-                          _InsertNewlineIntent:
-                              CallbackAction<_InsertNewlineIntent>(
-                            onInvoke: (intent) {
-                              handleInsertNewline();
-                              return null;
-                            },
-                          ),
-                        },
-                        child: TextField(
-                          focusNode: weightsFocusNode,
-                          controller: weightsController,
-                          keyboardType:
-                              const TextInputType.numberWithOptions(
-                            decimal: true,
-                          ),
-                          inputFormatters: [
-                            NormalizeNumberFormatter(),
-                            FilteringTextInputFormatter.allow(
-                              RegExp('[0-9\u0660-\u0669\u06F0-\u06F9.,،؛;\\s]'),
+                            child: const TabBar(
+                              tabs: [
+                                Tab(text: 'بيانات الأساسية'),
+                                Tab(text: 'تفاصيل إضافية'),
+                              ],
                             ),
-                          ],
-                          textInputAction: TextInputAction.newline,
-                          minLines: 3,
-                          maxLines: 6,
-                          decoration: const InputDecoration(
-                            labelText: 'الأوزان المراد إضافتها',
-                            hintText: 'مثال:\n10.500\n9.350\n8.125',
-                            helperText:
-                                'افصل بين الأوزان بسطر جديد أو فاصلة أو مسافة.',
-                            alignLabelWithHint: true,
-                            border: OutlineInputBorder(),
                           ),
-                          onChanged: (_) => setDialogState(() {}),
-                          onEditingComplete: handleInsertNewline,
-                        ),
+                          const SizedBox(height: 12),
+                          Expanded(
+                            child: TabBarView(
+                              children: [
+                                ListView(
+                                  padding: EdgeInsets.zero,
+                                  children: [
+                                    TextField(
+                                      controller: nameController,
+                                      decoration: const InputDecoration(
+                                        labelText: 'اسم الصنف',
+                                        border: OutlineInputBorder(),
+                                        prefixIcon: Icon(
+                                          Icons.inventory_2_outlined,
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(height: 12),
+                                    DropdownButtonFormField<double>(
+                                      initialValue: normalizedKarat,
+                                      decoration: const InputDecoration(
+                                        labelText: 'العيار',
+                                        border: OutlineInputBorder(),
+                                      ),
+                                      items: allowedKarats
+                                          .map(
+                                            (value) => DropdownMenuItem<double>(
+                                              value: value,
+                                              child: Text(
+                                                value.toStringAsFixed(0),
+                                              ),
+                                            ),
+                                          )
+                                          .toList(),
+                                      onChanged: (value) {
+                                        if (value == null) return;
+                                        setDialogState(() {
+                                          karat = value;
+                                        });
+                                      },
+                                    ),
+                                    const SizedBox(height: 12),
+                                    ToggleButtons(
+                                      isSelected: [
+                                        wageModeIndex == 0,
+                                        wageModeIndex == 1,
+                                      ],
+                                      borderRadius: BorderRadius.circular(12),
+                                      onPressed: (index) {
+                                        setDialogState(() {
+                                          wageModeIndex = index;
+                                          if (wageModeIndex == 1) {
+                                            wageTotalController.text =
+                                                computedWageTotal
+                                                    .toStringAsFixed(2);
+                                          } else {
+                                            wageController.text =
+                                                effectiveWagePerGram
+                                                    .toStringAsFixed(2);
+                                          }
+                                        });
+                                      },
+                                      children: const [
+                                        Padding(
+                                          padding: EdgeInsets.symmetric(
+                                            horizontal: 16,
+                                          ),
+                                          child: Text('ريال/جرام'),
+                                        ),
+                                        Padding(
+                                          padding: EdgeInsets.symmetric(
+                                            horizontal: 16,
+                                          ),
+                                          child: Text('إجمالي الأجور'),
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 12),
+                                    TextField(
+                                      controller: wageIsTotal
+                                          ? wageTotalController
+                                          : wageController,
+                                      keyboardType:
+                                          const TextInputType.numberWithOptions(
+                                            decimal: true,
+                                          ),
+                                      inputFormatters: [
+                                        NormalizeNumberFormatter(),
+                                        FilteringTextInputFormatter.allow(
+                                          RegExp(r'^[0-9]*\.?[0-9]*$'),
+                                        ),
+                                      ],
+                                      decoration: InputDecoration(
+                                        labelText: wageIsTotal
+                                            ? 'إجمالي الأجور (ريال)'
+                                            : 'أجرة المصنعية (ريال/جرام)',
+                                        helperText: wageIsTotal
+                                            ? (totalWeight > 0
+                                                  ? 'سيتم تحويلها إلى ${effectiveWagePerGram.toStringAsFixed(2)} ريال/جرام'
+                                                  : 'أدخل الأوزان أولاً لحساب ريال/جرام')
+                                            : (parsedWeights.isEmpty
+                                                  ? null
+                                                  : 'إجمالي الأجور: ${computedWageTotal.toStringAsFixed(2)} ريال'),
+                                        border: const OutlineInputBorder(),
+                                        prefixIcon: const Icon(
+                                          Icons.design_services,
+                                        ),
+                                      ),
+                                      onChanged: (_) => setDialogState(() {}),
+                                    ),
+                                    const SizedBox(height: 12),
+                                    Shortcuts(
+                                      shortcuts:
+                                          const <ShortcutActivator, Intent>{
+                                            SingleActivator(
+                                              LogicalKeyboardKey.enter,
+                                            ): _InsertNewlineIntent(),
+                                            SingleActivator(
+                                              LogicalKeyboardKey.numpadEnter,
+                                            ): _InsertNewlineIntent(),
+                                          },
+                                      child: Actions(
+                                        actions: <Type, Action<Intent>>{
+                                          _InsertNewlineIntent:
+                                              CallbackAction<
+                                                _InsertNewlineIntent
+                                              >(
+                                                onInvoke: (intent) {
+                                                  handleInsertNewline();
+                                                  return null;
+                                                },
+                                              ),
+                                        },
+                                        child: TextField(
+                                          focusNode: weightsFocusNode,
+                                          controller: weightsController,
+                                          keyboardType:
+                                              const TextInputType.numberWithOptions(
+                                                decimal: true,
+                                              ),
+                                          inputFormatters: [
+                                            NormalizeNumberFormatter(),
+                                            FilteringTextInputFormatter.allow(
+                                              RegExp(
+                                                '[0-9\u0660-\u0669\u06F0-\u06F9.,،؛;\\s]',
+                                              ),
+                                            ),
+                                          ],
+                                          textInputAction:
+                                              TextInputAction.newline,
+                                          minLines: 4,
+                                          maxLines: 8,
+                                          decoration: const InputDecoration(
+                                            labelText: 'الأوزان المراد إضافتها',
+                                            hintText:
+                                                'مثال:\n10.500\n9.350\n8.125',
+                                            helperText:
+                                                'افصل بين الأوزان بسطر جديد أو فاصلة أو مسافة.',
+                                            alignLabelWithHint: true,
+                                            border: OutlineInputBorder(),
+                                          ),
+                                          onChanged: (_) =>
+                                              setDialogState(() {}),
+                                          onEditingComplete:
+                                              handleInsertNewline,
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(height: 8),
+                                    Text(
+                                      parsedWeights.isEmpty
+                                          ? 'لم يتم التعرف على أي وزن بعد.'
+                                          : 'سيتم إضافة ${parsedWeights.length} وزنًا بإجمالي ${_formatWeight(totalWeight)}',
+                                      style: TextStyle(
+                                        color: parsedWeights.isEmpty
+                                            ? Colors.redAccent
+                                            : Colors.green.shade700,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                ListView(
+                                  padding: EdgeInsets.zero,
+                                  children: [
+                                    TextField(
+                                      controller: descriptionController,
+                                      maxLines: 2,
+                                      decoration: const InputDecoration(
+                                        labelText: 'ملاحظات (اختياري)',
+                                        border: OutlineInputBorder(),
+                                        prefixIcon: Icon(
+                                          Icons.note_alt_outlined,
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(height: 12),
+                                    TextField(
+                                      controller: itemCodeController,
+                                      decoration: const InputDecoration(
+                                        labelText: 'كود الصنف (اختياري)',
+                                        border: OutlineInputBorder(),
+                                        prefixIcon: Icon(Icons.tag),
+                                      ),
+                                    ),
+                                    const SizedBox(height: 12),
+                                    DropdownButtonFormField<String?>(
+                                      initialValue: dropdownCategoryValue,
+                                      items: categoryItems,
+                                      isExpanded: true,
+                                      onChanged: _isLoadingCategories
+                                          ? null
+                                          : (value) => setDialogState(() {
+                                              selectedCategoryName = value;
+                                            }),
+                                      decoration: _categoryDropdownDecoration(),
+                                    ),
+                                    const SizedBox(height: 12),
+                                    TextField(
+                                      controller: barcodeController,
+                                      decoration: const InputDecoration(
+                                        labelText: 'الباركود (اختياري)',
+                                        border: OutlineInputBorder(),
+                                        prefixIcon: Icon(Icons.qr_code_2),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: theme.colorScheme.surfaceContainerHighest,
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'معاينة سريعة',
+                                  style: theme.textTheme.titleSmall?.copyWith(
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                                _previewRow(
+                                  'عدد الأوزان',
+                                  parsedWeights.length.toString(),
+                                ),
+                                _previewRow(
+                                  'إجمالي الوزن',
+                                  _formatWeight(totalWeight),
+                                ),
+                                _previewRow(
+                                  'إجمالي الأجور',
+                                  _formatCurrency(computedWageTotal),
+                                ),
+                                _previewRow(
+                                  'الأجور/جرام',
+                                  effectiveWagePerGram.toStringAsFixed(2),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
                       ),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      parsedWeights.isEmpty
-                          ? 'لم يتم التعرف على أي وزن بعد.'
-                          : 'سيتم إضافة ${parsedWeights.length} وزنًا بإجمالي ${_formatWeight(totalWeight)}',
-                      style: TextStyle(
-                        color: parsedWeights.isEmpty
-                            ? Colors.redAccent
-                            : Colors.green.shade700,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: descriptionController,
-                      maxLines: 2,
-                      decoration: const InputDecoration(
-                        labelText: 'ملاحظات (اختياري)',
-                        border: OutlineInputBorder(),
-                        prefixIcon: Icon(Icons.note_alt_outlined),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: itemCodeController,
-                      decoration: const InputDecoration(
-                        labelText: 'كود الصنف (اختياري)',
-                        border: OutlineInputBorder(),
-                        prefixIcon: Icon(Icons.tag),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    DropdownButtonFormField<String?>(
-                      initialValue: dropdownCategoryValue,
-                      items: categoryItems,
-                      isExpanded: true,
-                      onChanged: _isLoadingCategories
-                          ? null
-                          : (value) => setDialogState(() {
-                                selectedCategoryName = value;
-                                selectedCategoryId =
-                                    _categoryIdForName(value);
-                              }),
-                      decoration: _categoryDropdownDecoration(),
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: barcodeController,
-                      decoration: const InputDecoration(
-                        labelText: 'الباركود (اختياري)',
-                        border: OutlineInputBorder(),
-                        prefixIcon: Icon(Icons.qr_code_2),
-                      ),
-                    ),
-                  ],
+                    );
+                  },
                 ),
               ),
               actions: [
@@ -2703,13 +3881,17 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
                   onPressed: () {
                     final name = nameController.text.trim();
                     final weights = parseWeights(weightsController.text);
-                    final wage = double.tryParse(wageController.text) ?? 0;
+                    final wagePerGram = effectiveWagePerGram;
+                    final wageTotal = computedWageTotal;
+
+                    final effectiveCategoryName = dropdownCategoryValue;
+                    final effectiveCategoryId = _categoryIdForName(
+                      effectiveCategoryName,
+                    );
 
                     if (name.isEmpty) {
                       ScaffoldMessenger.of(parentContext).showSnackBar(
-                        const SnackBar(
-                          content: Text('اسم الصنف مطلوب'),
-                        ),
+                        const SnackBar(content: Text('اسم الصنف مطلوب')),
                       );
                       return;
                     }
@@ -2723,11 +3905,10 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
                       return;
                     }
 
-                    if (wage < 0) {
+                    if (wageTotal < 0 || wagePerGram < 0) {
                       ScaffoldMessenger.of(parentContext).showSnackBar(
                         const SnackBar(
-                          content:
-                              Text('لا يمكن أن تكون أجرة المصنعية سالبة'),
+                          content: Text('لا يمكن أن تكون أجرة المصنعية سالبة'),
                         ),
                       );
                       return;
@@ -2737,7 +3918,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
                       _InlineBulkResult(
                         name: name,
                         karat: karat,
-                        wagePerGram: wage,
+                        wagePerGram: wagePerGram,
                         weights: weights,
                         description: descriptionController.text.trim().isEmpty
                             ? null
@@ -2748,8 +3929,8 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
                         barcode: barcodeController.text.trim().isEmpty
                             ? null
                             : barcodeController.text.trim(),
-                        category: selectedCategoryName,
-                        categoryId: selectedCategoryId,
+                        category: effectiveCategoryName,
+                        categoryId: effectiveCategoryId,
                       ),
                     );
                   },
@@ -2766,6 +3947,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
     nameController.dispose();
     weightsController.dispose();
     wageController.dispose();
+    wageTotalController.dispose();
     descriptionController.dispose();
     itemCodeController.dispose();
     barcodeController.dispose();
@@ -2986,8 +4168,8 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
             final karatInt = karat.round();
             final isGoldVatExempt = exemptKarats.contains(karatInt);
             final autoGoldTax = (_applyVatOnGold && !isGoldVatExempt)
-              ? autoGoldValue * vatRate
-              : 0.0;
+                ? autoGoldValue * vatRate
+                : 0.0;
             final autoWageTax = autoWageCash * vatRate;
 
             final manualGoldValue = double.tryParse(goldValueController.text);
@@ -3286,12 +4468,19 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
   Future<_BulkWeightEntry?> _showBulkWeightsDialog() async {
     final weightsController = TextEditingController();
     final wageController = TextEditingController(text: '0');
+    final wageTotalController = TextEditingController(text: '0');
     final notesController = TextEditingController();
     double karat = 21;
+    int wageModeIndex = 0; // 0: per-gram, 1: total
 
     wageController.selection = TextSelection(
       baseOffset: 0,
       extentOffset: wageController.text.length,
+    );
+
+    wageTotalController.selection = TextSelection(
+      baseOffset: 0,
+      extentOffset: wageTotalController.text.length,
     );
 
     List<double> parseWeights(String input) {
@@ -3324,6 +4513,16 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
               0,
               (sum, value) => sum + value,
             );
+            final wageIsTotal = wageModeIndex == 1;
+            final wagePerGramInput = double.tryParse(wageController.text) ?? 0;
+            final wageTotalInput =
+                double.tryParse(wageTotalController.text) ?? 0;
+            final effectiveWagePerGram = wageIsTotal
+                ? (totalWeight > 0 ? wageTotalInput / totalWeight : 0.0)
+                : wagePerGramInput;
+            final computedWageTotal = wageIsTotal
+                ? wageTotalInput
+                : (wagePerGramInput * totalWeight);
             final statusText = parsedWeights.isEmpty
                 ? 'أدخل الأوزان المطلوب إضافتها (سطر لكل وزن).'
                 : 'سيتم إضافة ${parsedWeights.length} وزنًا بإجمالي ${_formatWeight(totalWeight)}';
@@ -3357,8 +4556,37 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
                       },
                     ),
                     const SizedBox(height: 12),
+                    ToggleButtons(
+                      isSelected: [wageModeIndex == 0, wageModeIndex == 1],
+                      onPressed: (index) {
+                        setDialogState(() {
+                          wageModeIndex = index;
+                          if (wageModeIndex == 1) {
+                            wageTotalController.text =
+                                (wagePerGramInput * totalWeight)
+                                    .toStringAsFixed(2);
+                          } else {
+                            wageController.text = effectiveWagePerGram
+                                .toStringAsFixed(2);
+                          }
+                        });
+                      },
+                      children: const [
+                        Padding(
+                          padding: EdgeInsets.symmetric(horizontal: 12),
+                          child: Text('ريال/جرام'),
+                        ),
+                        Padding(
+                          padding: EdgeInsets.symmetric(horizontal: 12),
+                          child: Text('إجمالي الأجور'),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
                     TextField(
-                      controller: wageController,
+                      controller: wageIsTotal
+                          ? wageTotalController
+                          : wageController,
                       keyboardType: const TextInputType.numberWithOptions(
                         decimal: true,
                       ),
@@ -3368,10 +4596,19 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
                           RegExp(r'^[0-9]*\.?[0-9]*$'),
                         ),
                       ],
-                      decoration: const InputDecoration(
-                        labelText: 'أجرة المصنعية (ريال/جرام)',
+                      decoration: InputDecoration(
+                        labelText: wageIsTotal
+                            ? 'إجمالي الأجور (ريال)'
+                            : 'أجرة المصنعية (ريال/جرام)',
+                        helperText: wageIsTotal
+                            ? (totalWeight > 0
+                                  ? 'سيتم تحويلها إلى ${effectiveWagePerGram.toStringAsFixed(2)} ريال/جرام'
+                                  : 'أدخل الأوزان أولاً لحساب ريال/جرام')
+                            : (parsedWeights.isEmpty
+                                  ? null
+                                  : 'إجمالي الأجور: ${computedWageTotal.toStringAsFixed(2)} ريال'),
                         border: OutlineInputBorder(),
-                        prefixIcon: Icon(Icons.design_services),
+                        prefixIcon: const Icon(Icons.design_services),
                       ),
                     ),
                     const SizedBox(height: 12),
@@ -3391,7 +4628,8 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
                       decoration: const InputDecoration(
                         labelText: 'الأوزان المراد إضافتها',
                         hintText: 'مثال:\n2.350\n1.780\n0.955',
-                        helperText: 'افصل بين الأوزان بسطر جديد أو مسافة أو فاصلة.',
+                        helperText:
+                            'افصل بين الأوزان بسطر جديد أو مسافة أو فاصلة.',
                         alignLabelWithHint: true,
                         border: OutlineInputBorder(),
                       ),
@@ -3437,9 +4675,9 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
                       return;
                     }
 
-                    final wagePerGram =
-                        double.tryParse(wageController.text) ?? 0;
-                    if (wagePerGram < 0) {
+                    final wagePerGram = effectiveWagePerGram;
+                    final wageTotal = computedWageTotal;
+                    if (wageTotal < 0 || wagePerGram < 0) {
                       ScaffoldMessenger.of(parentContext).showSnackBar(
                         const SnackBar(
                           content: Text('لا يمكن أن تكون أجرة المصنعية سالبة'),
@@ -3471,6 +4709,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
 
     weightsController.dispose();
     wageController.dispose();
+    wageTotalController.dispose();
     notesController.dispose();
 
     return result;
@@ -3684,7 +4923,9 @@ class PurchaseInlineItem {
       'name': name,
       'karat': karat,
       'weight': weightGrams,
-      'wage': wagePerGram,
+      'manufacturing_wage_per_gram': wagePerGram,
+      'wage_per_gram': wagePerGram,
+      'wage_total': weightGrams * wagePerGram,
       'description': description,
       'item_code': itemCode,
       'barcode': barcode,

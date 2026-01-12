@@ -37,11 +37,7 @@ void main() {
       tester.view.resetPhysicalSize();
     });
 
-    await tester.pumpWidget(
-      const MaterialApp(
-        home: TemplateDesignerScreen(),
-      ),
-    );
+    await tester.pumpWidget(const MaterialApp(home: TemplateDesignerScreen()));
 
     // دع initState/post-frame callbacks تنفّذ بدون انتظار لا نهائي.
     await tester.pump(const Duration(milliseconds: 200));

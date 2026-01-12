@@ -149,15 +149,21 @@ class _EmployeesScreenState extends State<EmployeesScreen> {
                         controller: usernameController,
                         decoration: InputDecoration(
                           labelText: isAr ? 'اسم المستخدم' : 'Username',
-                          hintText: isAr ? 'مثال: ${employee.name.split(' ').first}' : 'e.g., ${employee.name.split(' ').first}',
+                          hintText: isAr
+                              ? 'مثال: ${employee.name.split(' ').first}'
+                              : 'e.g., ${employee.name.split(' ').first}',
                           border: const OutlineInputBorder(),
                         ),
                         validator: (value) {
                           if (value == null || value.trim().isEmpty) {
-                            return isAr ? 'يجب إدخال اسم المستخدم' : 'Username is required';
+                            return isAr
+                                ? 'يجب إدخال اسم المستخدم'
+                                : 'Username is required';
                           }
                           if (value.length < 3) {
-                            return isAr ? 'اسم المستخدم قصير جداً' : 'Username too short';
+                            return isAr
+                                ? 'اسم المستخدم قصير جداً'
+                                : 'Username too short';
                           }
                           return null;
                         },
@@ -211,17 +217,21 @@ class _EmployeesScreenState extends State<EmployeesScreen> {
                         ),
                         validator: (value) {
                           if (value == null || value.isEmpty) {
-                            return isAr ? 'يجب إدخال كلمة المرور' : 'Password is required';
+                            return isAr
+                                ? 'يجب إدخال كلمة المرور'
+                                : 'Password is required';
                           }
                           if (value.length < 6) {
-                            return isAr ? 'كلمة المرور قصيرة جداً (6 أحرف على الأقل)' : 'Password too short (min 6 characters)';
+                            return isAr
+                                ? 'كلمة المرور قصيرة جداً (6 أحرف على الأقل)'
+                                : 'Password too short (min 6 characters)';
                           }
                           return null;
                         },
                       ),
                       const SizedBox(height: 16),
                       DropdownButtonFormField<String>(
-                        value: selectedRole,
+                        initialValue: selectedRole,
                         decoration: InputDecoration(
                           labelText: isAr ? 'الدور' : 'Role',
                           border: const OutlineInputBorder(),
@@ -233,15 +243,17 @@ class _EmployeesScreenState extends State<EmployeesScreen> {
                                 child: Text(
                                   isAr
                                       ? {
-                                            'employee': 'بائع',
-                                            'accountant': 'محاسب',
-                                            'manager': 'مدير فرع',
-                                          }[r] ?? r
+                                              'employee': 'بائع',
+                                              'accountant': 'محاسب',
+                                              'manager': 'مدير فرع',
+                                            }[r] ??
+                                            r
                                       : {
-                                            'employee': 'Seller',
-                                            'accountant': 'Accountant',
-                                            'manager': 'Branch Manager',
-                                          }[r] ?? r,
+                                              'employee': 'Seller',
+                                              'accountant': 'Accountant',
+                                              'manager': 'Branch Manager',
+                                            }[r] ??
+                                            r,
                                 ),
                               ),
                             )
@@ -289,9 +301,11 @@ class _EmployeesScreenState extends State<EmployeesScreen> {
         phone: phoneController.text.trim(),
         role: selectedRole,
       );
-      
+
       _showSnack(
-        isAr ? 'تم إنشاء حساب المستخدم بنجاح' : 'User account created successfully',
+        isAr
+            ? 'تم إنشاء حساب المستخدم بنجاح'
+            : 'User account created successfully',
       );
       await _loadEmployees();
     } catch (e) {
@@ -418,244 +432,250 @@ class _EmployeesScreenState extends State<EmployeesScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                Row(
-                  children: [
-                    Icon(Icons.badge, color: colorScheme.primary),
-                    const SizedBox(width: 8),
-                    Text(
-                      employee.name,
-                      style: textTheme.titleLarge?.copyWith(
-                        fontWeight: FontWeight.bold,
-                      ),
+                    Row(
+                      children: [
+                        Icon(Icons.badge, color: colorScheme.primary),
+                        const SizedBox(width: 8),
+                        Text(
+                          employee.name,
+                          style: textTheme.titleLarge?.copyWith(
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const Spacer(),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 4,
+                          ),
+                          decoration: BoxDecoration(
+                            color: employee.isActive
+                                ? Colors.green.withValues(alpha: 0.1)
+                                : Colors.red.withValues(alpha: 0.1),
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: Text(
+                            employee.isActive
+                                ? (isAr ? 'نشط' : 'Active')
+                                : (isAr ? 'غير نشط' : 'Inactive'),
+                            style: textTheme.bodyMedium?.copyWith(
+                              color: employee.isActive
+                                  ? Colors.green
+                                  : Colors.red,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
-                    const Spacer(),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 4,
+                    const SizedBox(height: 16),
+                    _InfoRow(
+                      label: isAr ? 'الرقم الوظيفي' : 'Employee Code',
+                      value: employee.employeeCode,
+                    ),
+                    _InfoRow(
+                      label: isAr ? 'القسم' : 'Department',
+                      value: employee.department ?? '-',
+                    ),
+                    _InfoRow(
+                      label: isAr ? 'المسمى' : 'Job Title',
+                      value: employee.jobTitle ?? '-',
+                    ),
+                    _InfoRow(
+                      label: isAr ? 'الراتب' : 'Salary',
+                      value: employee.salary.toStringAsFixed(2),
+                    ),
+                    _InfoRow(
+                      label: isAr ? 'الهاتف' : 'Phone',
+                      value: employee.phone ?? '-',
+                    ),
+                    _InfoRow(
+                      label: isAr ? 'البريد' : 'Email',
+                      value: employee.email ?? '-',
+                    ),
+                    _InfoRow(
+                      label: isAr ? 'ملاحظات' : 'Notes',
+                      value: employee.notes ?? '-',
+                    ),
+                    if (employee.account != null)
+                      _InfoRow(
+                        label: isAr ? 'الحساب المحاسبي' : 'Account',
+                        value:
+                            '${employee.account!.accountNumber} - ${employee.account!.name}',
                       ),
-                      decoration: BoxDecoration(
-                        color: employee.isActive
-                            ? Colors.green.withValues(alpha: 0.1)
-                            : Colors.red.withValues(alpha: 0.1),
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: Text(
-                        employee.isActive
-                            ? (isAr ? 'نشط' : 'Active')
-                            : (isAr ? 'غير نشط' : 'Inactive'),
-                        style: textTheme.bodyMedium?.copyWith(
-                          color: employee.isActive ? Colors.green : Colors.red,
+                    const SizedBox(height: 16),
+                    Wrap(
+                      spacing: 12,
+                      runSpacing: 12,
+                      children: [
+                        _StatChip(
+                          icon: Icons.payments_outlined,
+                          label: isAr ? 'سجلات الرواتب' : 'Payroll Entries',
+                          value: employee.payrollCount.toString(),
+                        ),
+                        _StatChip(
+                          icon: Icons.timer_outlined,
+                          label: isAr ? 'سجلات الحضور' : 'Attendance Records',
+                          value: employee.attendanceCount.toString(),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    if (canManageAccounts && employee.id != null) ...[
+                      Text(
+                        isAr ? 'حساب الدخول' : 'Login Account',
+                        style: textTheme.titleMedium?.copyWith(
                           fontWeight: FontWeight.w600,
                         ),
                       ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-                _InfoRow(
-                  label: isAr ? 'الرقم الوظيفي' : 'Employee Code',
-                  value: employee.employeeCode,
-                ),
-                _InfoRow(
-                  label: isAr ? 'القسم' : 'Department',
-                  value: employee.department ?? '-',
-                ),
-                _InfoRow(
-                  label: isAr ? 'المسمى' : 'Job Title',
-                  value: employee.jobTitle ?? '-',
-                ),
-                _InfoRow(
-                  label: isAr ? 'الراتب' : 'Salary',
-                  value: employee.salary.toStringAsFixed(2),
-                ),
-                _InfoRow(
-                  label: isAr ? 'الهاتف' : 'Phone',
-                  value: employee.phone ?? '-',
-                ),
-                _InfoRow(
-                  label: isAr ? 'البريد' : 'Email',
-                  value: employee.email ?? '-',
-                ),
-                _InfoRow(
-                  label: isAr ? 'ملاحظات' : 'Notes',
-                  value: employee.notes ?? '-',
-                ),
-                if (employee.account != null)
-                  _InfoRow(
-                    label: isAr ? 'الحساب المحاسبي' : 'Account',
-                    value:
-                        '${employee.account!.accountNumber} - ${employee.account!.name}',
-                  ),
-                const SizedBox(height: 16),
-                Wrap(
-                  spacing: 12,
-                  runSpacing: 12,
-                  children: [
-                    _StatChip(
-                      icon: Icons.payments_outlined,
-                      label: isAr ? 'سجلات الرواتب' : 'Payroll Entries',
-                      value: employee.payrollCount.toString(),
-                    ),
-                    _StatChip(
-                      icon: Icons.timer_outlined,
-                      label: isAr ? 'سجلات الحضور' : 'Attendance Records',
-                      value: employee.attendanceCount.toString(),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-                if (canManageAccounts && employee.id != null) ...[
-                  Text(
-                    isAr ? 'حساب الدخول' : 'Login Account',
-                    style: textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  FutureBuilder<AppUserModel?>(
-                    future: widget.api.getUserByEmployeeId(employee.id!),
-                    builder: (context, snap) {
-                      if (snap.connectionState == ConnectionState.waiting) {
-                        return const Padding(
-                          padding: EdgeInsets.symmetric(vertical: 8),
-                          child: Center(child: CircularProgressIndicator()),
-                        );
-                      }
+                      const SizedBox(height: 8),
+                      FutureBuilder<AppUserModel?>(
+                        future: widget.api.getUserByEmployeeId(employee.id!),
+                        builder: (context, snap) {
+                          if (snap.connectionState == ConnectionState.waiting) {
+                            return const Padding(
+                              padding: EdgeInsets.symmetric(vertical: 8),
+                              child: Center(child: CircularProgressIndicator()),
+                            );
+                          }
 
-                      if (snap.hasError) {
-                        return Text(
-                          isAr
-                              ? 'تعذر تحميل حساب الدخول'
-                              : 'Failed to load login account',
-                          style: textTheme.bodyMedium,
-                        );
-                      }
+                          if (snap.hasError) {
+                            return Text(
+                              isAr
+                                  ? 'تعذر تحميل حساب الدخول'
+                                  : 'Failed to load login account',
+                              style: textTheme.bodyMedium,
+                            );
+                          }
 
-                      final linked = snap.data;
-                      if (linked == null) {
-                        return Text(
-                          isAr
-                              ? 'لا يوجد حساب دخول مرتبط'
-                              : 'No linked login account',
-                          style: textTheme.bodyMedium,
-                        );
-                      }
+                          final linked = snap.data;
+                          if (linked == null) {
+                            return Text(
+                              isAr
+                                  ? 'لا يوجد حساب دخول مرتبط'
+                                  : 'No linked login account',
+                              style: textTheme.bodyMedium,
+                            );
+                          }
 
-                      final roleLabelAr = {
-                        'employee': 'بائع',
-                        'accountant': 'محاسب',
-                        'manager': 'مدير فرع',
-                        'system_admin': 'مسؤول النظام',
-                      }[linked.role];
-                      final roleLabelEn = {
-                        'employee': 'Seller',
-                        'accountant': 'Accountant',
-                        'manager': 'Branch Manager',
-                        'system_admin': 'System Admin',
-                      }[linked.role];
+                          final roleLabelAr = {
+                            'employee': 'بائع',
+                            'accountant': 'محاسب',
+                            'manager': 'مدير فرع',
+                            'system_admin': 'مسؤول النظام',
+                          }[linked.role];
+                          final roleLabelEn = {
+                            'employee': 'Seller',
+                            'accountant': 'Accountant',
+                            'manager': 'Branch Manager',
+                            'system_admin': 'System Admin',
+                          }[linked.role];
 
-                      return Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          _InfoRow(
-                            label: isAr ? 'اسم المستخدم' : 'Username',
-                            value: linked.username,
-                          ),
-                          _InfoRow(
-                            label: isAr ? 'الدور' : 'Role',
-                            value: isAr
-                                ? (roleLabelAr ?? linked.role)
-                                : (roleLabelEn ?? linked.role),
-                          ),
-                          _InfoRow(
-                            label: isAr ? 'الحالة' : 'Status',
-                            value: linked.isActive
-                                ? (isAr ? 'مفعل' : 'Enabled')
-                                : (isAr ? 'معطل' : 'Disabled'),
-                          ),
-                          const SizedBox(height: 8),
-                          Wrap(
-                            spacing: 12,
-                            runSpacing: 12,
+                          return Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              TextButton.icon(
-                                icon: Icon(
-                                  linked.isActive
-                                      ? Icons.lock_outline
-                                      : Icons.lock_open,
-                                ),
-                                label: Text(
-                                  linked.isActive
-                                      ? (isAr
-                                          ? 'تعطيل الحساب'
-                                          : 'Disable account')
-                                      : (isAr
-                                          ? 'تفعيل الحساب'
-                                          : 'Enable account'),
-                                ),
-                                onPressed: () async {
-                                  try {
-                                    final isActive = await widget.api
-                                        .toggleUserActive(linked.id ?? 0);
-                                    _showSnack(
-                                      isActive
-                                          ? (isAr
-                                              ? 'تم تفعيل الحساب'
-                                              : 'Account enabled')
-                                          : (isAr
-                                              ? 'تم تعطيل الحساب'
-                                              : 'Account disabled'),
-                                    );
-                                    // Reopen to refresh linked account snapshot.
-                                    Navigator.of(context).pop();
-                                    _showEmployeeDetails(employee);
-                                  } catch (e) {
-                                    _showSnack(e.toString(), isError: true);
-                                  }
-                                },
+                              _InfoRow(
+                                label: isAr ? 'اسم المستخدم' : 'Username',
+                                value: linked.username,
                               ),
-                              TextButton.icon(
-                                icon: const Icon(Icons.key_outlined),
-                                label: Text(
-                                  isAr
-                                      ? 'إعادة التعيين الإداري'
-                                      : 'Admin password reset',
-                                ),
-                                onPressed: () {
-                                  Navigator.of(context).pop();
-                                  _promptResetAppUserPassword(linked);
-                                },
+                              _InfoRow(
+                                label: isAr ? 'الدور' : 'Role',
+                                value: isAr
+                                    ? (roleLabelAr ?? linked.role)
+                                    : (roleLabelEn ?? linked.role),
+                              ),
+                              _InfoRow(
+                                label: isAr ? 'الحالة' : 'Status',
+                                value: linked.isActive
+                                    ? (isAr ? 'مفعل' : 'Enabled')
+                                    : (isAr ? 'معطل' : 'Disabled'),
+                              ),
+                              const SizedBox(height: 8),
+                              Wrap(
+                                spacing: 12,
+                                runSpacing: 12,
+                                children: [
+                                  TextButton.icon(
+                                    icon: Icon(
+                                      linked.isActive
+                                          ? Icons.lock_outline
+                                          : Icons.lock_open,
+                                    ),
+                                    label: Text(
+                                      linked.isActive
+                                          ? (isAr
+                                                ? 'تعطيل الحساب'
+                                                : 'Disable account')
+                                          : (isAr
+                                                ? 'تفعيل الحساب'
+                                                : 'Enable account'),
+                                    ),
+                                    onPressed: () async {
+                                      try {
+                                        final isActive = await widget.api
+                                            .toggleUserActive(linked.id ?? 0);
+                                        _showSnack(
+                                          isActive
+                                              ? (isAr
+                                                    ? 'تم تفعيل الحساب'
+                                                    : 'Account enabled')
+                                              : (isAr
+                                                    ? 'تم تعطيل الحساب'
+                                                    : 'Account disabled'),
+                                        );
+                                        // Reopen to refresh linked account snapshot.
+                                        Navigator.of(context).pop();
+                                        _showEmployeeDetails(employee);
+                                      } catch (e) {
+                                        _showSnack(e.toString(), isError: true);
+                                      }
+                                    },
+                                  ),
+                                  TextButton.icon(
+                                    icon: const Icon(Icons.key_outlined),
+                                    label: Text(
+                                      isAr
+                                          ? 'إعادة التعيين الإداري'
+                                          : 'Admin password reset',
+                                    ),
+                                    onPressed: () {
+                                      Navigator.of(context).pop();
+                                      _promptResetAppUserPassword(linked);
+                                    },
+                                  ),
+                                ],
                               ),
                             ],
+                          );
+                        },
+                      ),
+                      const SizedBox(height: 16),
+                    ],
+                    Row(
+                      children: [
+                        TextButton.icon(
+                          icon: const Icon(Icons.edit),
+                          label: Text(
+                            isAr ? 'تعديل البيانات' : 'Edit Employee',
                           ),
-                        ],
-                      );
-                    },
-                  ),
-                  const SizedBox(height: 16),
-                ],
-                Row(
-                  children: [
-                    TextButton.icon(
-                      icon: const Icon(Icons.edit),
-                      label: Text(isAr ? 'تعديل البيانات' : 'Edit Employee'),
-                      onPressed: () {
-                        Navigator.of(context).pop();
-                        _openEmployeeForm(employee: employee);
-                      },
+                          onPressed: () {
+                            Navigator.of(context).pop();
+                            _openEmployeeForm(employee: employee);
+                          },
+                        ),
+                        const SizedBox(width: 12),
+                        FilledButton.icon(
+                          icon: const Icon(Icons.person_add),
+                          label: Text(
+                            isAr ? 'إنشاء حساب مستخدم' : 'Create User Account',
+                          ),
+                          onPressed: () {
+                            Navigator.of(context).pop();
+                            _showCreateUserDialog(employee);
+                          },
+                        ),
+                      ],
                     ),
-                    const SizedBox(width: 12),
-                    FilledButton.icon(
-                      icon: const Icon(Icons.person_add),
-                      label: Text(isAr ? 'إنشاء حساب مستخدم' : 'Create User Account'),
-                      onPressed: () {
-                        Navigator.of(context).pop();
-                        _showCreateUserDialog(employee);
-                      },
-                    ),
-                  ],
-                ),
                   ],
                 ),
               ),

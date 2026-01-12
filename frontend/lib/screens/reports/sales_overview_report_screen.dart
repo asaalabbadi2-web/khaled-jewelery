@@ -21,7 +21,8 @@ class SalesOverviewReportScreen extends StatefulWidget {
   });
 
   @override
-  State<SalesOverviewReportScreen> createState() => _SalesOverviewReportScreenState();
+  State<SalesOverviewReportScreen> createState() =>
+      _SalesOverviewReportScreenState();
 }
 
 class _SalesOverviewReportScreenState extends State<SalesOverviewReportScreen> {
@@ -68,7 +69,9 @@ class _SalesOverviewReportScreenState extends State<SalesOverviewReportScreen> {
     final decimals = settings.decimalPlaces;
     final mainKarat = settings.mainKarat;
 
-    if (symbol != _currencySymbol || decimals != _currencyDecimals || mainKarat != _mainKarat) {
+    if (symbol != _currencySymbol ||
+        decimals != _currencyDecimals ||
+        mainKarat != _mainKarat) {
       setState(() {
         _currencySymbol = symbol;
         _currencyDecimals = decimals;
@@ -116,11 +119,9 @@ class _SalesOverviewReportScreenState extends State<SalesOverviewReportScreen> {
 
   Future<void> _pickDateRange() async {
     final now = DateTime.now();
-    final initialRange = _selectedRange ??
-        DateTimeRange(
-          start: now.subtract(const Duration(days: 29)),
-          end: now,
-        );
+    final initialRange =
+        _selectedRange ??
+        DateTimeRange(start: now.subtract(const Duration(days: 29)), end: now);
 
     final picked = await showDateRangePicker(
       context: context,
@@ -162,7 +163,9 @@ class _SalesOverviewReportScreenState extends State<SalesOverviewReportScreen> {
       textDirection: isArabic ? TextDirection.rtl : TextDirection.ltr,
       child: Scaffold(
         appBar: AppBar(
-          title: Text(isArabic ? 'تقرير ملخص المبيعات' : 'Sales Overview Report'),
+          title: Text(
+            isArabic ? 'تقرير ملخص المبيعات' : 'Sales Overview Report',
+          ),
           actions: [
             IconButton(
               icon: const Icon(Icons.refresh),
@@ -175,8 +178,8 @@ class _SalesOverviewReportScreenState extends State<SalesOverviewReportScreen> {
           child: _isLoading
               ? const Center(child: CircularProgressIndicator())
               : _error != null
-                  ? _buildErrorState()
-                  : _buildContent(),
+              ? _buildErrorState()
+              : _buildContent(),
         ),
       ),
     );
@@ -237,9 +240,9 @@ class _SalesOverviewReportScreenState extends State<SalesOverviewReportScreen> {
   }
 
   Widget _buildFiltersCard(bool isArabic) {
-  final rangeText = _selectedRange == null
-    ? (isArabic ? 'كل الفترات' : 'All time')
-    : '${DateFormat('yyyy-MM-dd').format(_selectedRange!.start)} - ${DateFormat('yyyy-MM-dd').format(_selectedRange!.end)}';
+    final rangeText = _selectedRange == null
+        ? (isArabic ? 'كل الفترات' : 'All time')
+        : '${DateFormat('yyyy-MM-dd').format(_selectedRange!.start)} - ${DateFormat('yyyy-MM-dd').format(_selectedRange!.end)}';
 
     final chipLabels = <String, String>{
       'day': isArabic ? 'يومي' : 'Daily',
@@ -253,7 +256,9 @@ class _SalesOverviewReportScreenState extends State<SalesOverviewReportScreen> {
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
-          crossAxisAlignment: isArabic ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+          crossAxisAlignment: isArabic
+              ? CrossAxisAlignment.end
+              : CrossAxisAlignment.start,
           children: [
             Text(
               isArabic ? 'خيارات التقرير' : 'Report Options',
@@ -292,7 +297,9 @@ class _SalesOverviewReportScreenState extends State<SalesOverviewReportScreen> {
                   }).toList(),
                 ),
                 FilterChip(
-                  label: Text(isArabic ? 'تضمين غير المرحلة' : 'Include Unposted'),
+                  label: Text(
+                    isArabic ? 'تضمين غير المرحلة' : 'Include Unposted',
+                  ),
                   selected: _includeUnposted,
                   onSelected: (value) {
                     setState(() => _includeUnposted = value);
@@ -337,7 +344,8 @@ class _SalesOverviewReportScreenState extends State<SalesOverviewReportScreen> {
       ),
       _SummaryMetric(
         label: isArabic ? 'صافي الوزن' : 'Net Weight',
-        value: '${_formatWeight(_asDouble(summary['net_gold_weight']))} (عيار $_mainKarat)',
+        value:
+            '${_formatWeight(_asDouble(summary['net_gold_weight']))} (عيار $_mainKarat)',
         icon: Icons.scale,
         color: Colors.purple,
       ),
@@ -396,7 +404,9 @@ class _SalesOverviewReportScreenState extends State<SalesOverviewReportScreen> {
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
-          crossAxisAlignment: isArabic ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+          crossAxisAlignment: isArabic
+              ? CrossAxisAlignment.end
+              : CrossAxisAlignment.start,
           children: [
             Text(
               isArabic ? 'حسب نوع الذهب' : 'By Gold Type',
@@ -416,16 +426,24 @@ class _SalesOverviewReportScreenState extends State<SalesOverviewReportScreen> {
                     borderRadius: BorderRadius.circular(14),
                   ),
                   child: Column(
-                    crossAxisAlignment: isArabic ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+                    crossAxisAlignment: isArabic
+                        ? CrossAxisAlignment.end
+                        : CrossAxisAlignment.start,
                     children: [
                       Text(
                         goldTypeLabel(entry.key),
                         style: const TextStyle(fontWeight: FontWeight.bold),
                       ),
                       const SizedBox(height: 8),
-                      Text('${isArabic ? 'عدد المستندات:' : 'Documents:'} ${data['count']}'),
-                      Text('${isArabic ? 'صافي المبيعات:' : 'Net Sales:'} ${_formatCurrency(_asDouble(data['net_value']))}'),
-                      Text('${isArabic ? 'صافي الوزن:' : 'Net Weight:'} ${_formatWeight(_asDouble(data['net_weight']))}'),
+                      Text(
+                        '${isArabic ? 'عدد المستندات:' : 'Documents:'} ${data['count']}',
+                      ),
+                      Text(
+                        '${isArabic ? 'صافي المبيعات:' : 'Net Sales:'} ${_formatCurrency(_asDouble(data['net_value']))}',
+                      ),
+                      Text(
+                        '${isArabic ? 'صافي الوزن:' : 'Net Weight:'} ${_formatWeight(_asDouble(data['net_weight']))}',
+                      ),
                     ],
                   ),
                 );
@@ -460,7 +478,9 @@ class _SalesOverviewReportScreenState extends State<SalesOverviewReportScreen> {
       );
     }
 
-    final hasNonZeroValues = series.any((row) => _asDouble(row['net_value']).abs() > 0);
+    final hasNonZeroValues = series.any(
+      (row) => _asDouble(row['net_value']).abs() > 0,
+    );
 
     return Card(
       elevation: 2,
@@ -468,7 +488,9 @@ class _SalesOverviewReportScreenState extends State<SalesOverviewReportScreen> {
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
-          crossAxisAlignment: isArabic ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+          crossAxisAlignment: isArabic
+              ? CrossAxisAlignment.end
+              : CrossAxisAlignment.start,
           children: [
             Text(
               isArabic ? 'الأداء الزمني' : 'Time Series',
@@ -487,7 +509,9 @@ class _SalesOverviewReportScreenState extends State<SalesOverviewReportScreen> {
                     selected: selected,
                     visualDensity: VisualDensity.compact,
                     labelPadding: const EdgeInsets.all(6),
-                    selectedColor: Theme.of(context).colorScheme.primary.withValues(alpha: 0.14),
+                    selectedColor: Theme.of(
+                      context,
+                    ).colorScheme.primary.withValues(alpha: 0.14),
                     onSelected: (value) {
                       if (!value || _chartType == entry.key) return;
                       setState(() => _chartType = entry.key);
@@ -510,7 +534,9 @@ class _SalesOverviewReportScreenState extends State<SalesOverviewReportScreen> {
             else
               _buildEmptyState(
                 icon: Icons.show_chart,
-                message: isArabic ? 'جميع القيم صفرية خلال الفترة.' : 'All values are zero in the selected period.',
+                message: isArabic
+                    ? 'جميع القيم صفرية خلال الفترة.'
+                    : 'All values are zero in the selected period.',
               ),
             const SizedBox(height: 16),
             SingleChildScrollView(
@@ -518,19 +544,31 @@ class _SalesOverviewReportScreenState extends State<SalesOverviewReportScreen> {
               child: DataTable(
                 columns: [
                   DataColumn(label: Text(isArabic ? 'الفترة' : 'Period')),
-                  DataColumn(label: Text(isArabic ? 'صافي المبيعات' : 'Net Sales')),
+                  DataColumn(
+                    label: Text(isArabic ? 'صافي المبيعات' : 'Net Sales'),
+                  ),
                   DataColumn(label: Text(isArabic ? 'المبيعات' : 'Sales')),
                   DataColumn(label: Text(isArabic ? 'المرتجعات' : 'Returns')),
-                  DataColumn(label: Text(isArabic ? 'صافي الوزن' : 'Net Weight')),
+                  DataColumn(
+                    label: Text(isArabic ? 'صافي الوزن' : 'Net Weight'),
+                  ),
                 ],
                 rows: series.map((row) {
                   return DataRow(
                     cells: [
                       DataCell(Text(row['period'].toString())),
-                      DataCell(Text(_formatCurrency(_asDouble(row['net_value'])))),
-                      DataCell(Text(_formatCurrency(_asDouble(row['sales_value'])))),
-                      DataCell(Text(_formatCurrency(_asDouble(row['returns_value'])))),
-                      DataCell(Text(_formatWeight(_asDouble(row['net_weight'])))),
+                      DataCell(
+                        Text(_formatCurrency(_asDouble(row['net_value']))),
+                      ),
+                      DataCell(
+                        Text(_formatCurrency(_asDouble(row['sales_value']))),
+                      ),
+                      DataCell(
+                        Text(_formatCurrency(_asDouble(row['returns_value']))),
+                      ),
+                      DataCell(
+                        Text(_formatWeight(_asDouble(row['net_weight']))),
+                      ),
                     ],
                   );
                 }).toList(),
@@ -557,7 +595,9 @@ class _SalesOverviewReportScreenState extends State<SalesOverviewReportScreen> {
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
-          crossAxisAlignment: isArabic ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+          crossAxisAlignment: isArabic
+              ? CrossAxisAlignment.end
+              : CrossAxisAlignment.start,
           children: [
             Text(
               isArabic ? 'أفضل العملاء' : 'Top Customers',
@@ -677,7 +717,7 @@ class _SalesTrendChart extends StatelessWidget {
       Colors.orange.shade400,
     ];
 
-  final bottomStep = math.max(1, (data.length / 6).ceil());
+    final bottomStep = math.max(1, (data.length / 6).ceil());
     final horizontalInterval = range <= 0 ? 1.0 : range / 5;
 
     Widget buildBottomTitle(double value, TitleMeta meta) {
@@ -686,7 +726,9 @@ class _SalesTrendChart extends StatelessWidget {
         return const SizedBox.shrink();
       }
       final label = labels[index] ?? '';
-      final angle = isArabic ? 0.6 : -0.6; // rotate labels slightly to avoid overlap
+      final angle = isArabic
+          ? 0.6
+          : -0.6; // rotate labels slightly to avoid overlap
       return Padding(
         padding: const EdgeInsets.only(top: 12),
         child: Transform.rotate(
@@ -725,10 +767,8 @@ class _SalesTrendChart extends StatelessWidget {
       show: true,
       drawVerticalLine: false,
       horizontalInterval: horizontalInterval,
-      getDrawingHorizontalLine: (value) => FlLine(
-        color: Colors.grey.withValues(alpha: 0.2),
-        strokeWidth: 1,
-      ),
+      getDrawingHorizontalLine: (value) =>
+          FlLine(color: Colors.grey.withValues(alpha: 0.2), strokeWidth: 1),
     );
 
     switch (chartType) {
@@ -772,14 +812,21 @@ class _SalesTrendChart extends StatelessWidget {
                   final value = formatCurrency(rod.toY);
                   return BarTooltipItem(
                     '$period\n$label: $value',
-                    const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                    const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                    ),
                   );
                 },
               ),
             ),
             titlesData: FlTitlesData(
-              topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-              rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+              topTitles: const AxisTitles(
+                sideTitles: SideTitles(showTitles: false),
+              ),
+              rightTitles: const AxisTitles(
+                sideTitles: SideTitles(showTitles: false),
+              ),
               bottomTitles: AxisTitles(
                 sideTitles: SideTitles(
                   showTitles: true,
@@ -808,8 +855,12 @@ class _SalesTrendChart extends StatelessWidget {
             gridData: grid,
             borderData: border,
             titlesData: FlTitlesData(
-              topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-              rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+              topTitles: const AxisTitles(
+                sideTitles: SideTitles(showTitles: false),
+              ),
+              rightTitles: const AxisTitles(
+                sideTitles: SideTitles(showTitles: false),
+              ),
               bottomTitles: AxisTitles(
                 sideTitles: SideTitles(
                   showTitles: true,
@@ -834,12 +885,13 @@ class _SalesTrendChart extends StatelessWidget {
                 gradient: LinearGradient(colors: gradientColors),
                 dotData: FlDotData(
                   show: true,
-                  getDotPainter: (spot, percent, barData, index) => FlDotCirclePainter(
-                    radius: 4,
-                    color: Colors.white,
-                    strokeColor: gradientColors.last,
-                    strokeWidth: 2,
-                  ),
+                  getDotPainter: (spot, percent, barData, index) =>
+                      FlDotCirclePainter(
+                        radius: 4,
+                        color: Colors.white,
+                        strokeColor: gradientColors.last,
+                        strokeWidth: 2,
+                      ),
                 ),
                 belowBarData: BarAreaData(
                   show: true,
@@ -856,19 +908,25 @@ class _SalesTrendChart extends StatelessWidget {
             lineTouchData: LineTouchData(
               touchTooltipData: LineTouchTooltipData(
                 getTooltipItems: (touchedSpots) {
-                  return touchedSpots.map((spot) {
-                    final index = spot.x.round();
-                    if (index < 0 || index >= data.length) {
-                      return null;
-                    }
-                    final period = data[index]['period'].toString();
-                    final label = isArabic ? 'صافي المبيعات' : 'Net Sales';
-                    final value = formatCurrency(spot.y);
-                    return LineTooltipItem(
-                      '$period\n$label: $value',
-                      const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-                    );
-                  }).whereType<LineTooltipItem>().toList();
+                  return touchedSpots
+                      .map((spot) {
+                        final index = spot.x.round();
+                        if (index < 0 || index >= data.length) {
+                          return null;
+                        }
+                        final period = data[index]['period'].toString();
+                        final label = isArabic ? 'صافي المبيعات' : 'Net Sales';
+                        final value = formatCurrency(spot.y);
+                        return LineTooltipItem(
+                          '$period\n$label: $value',
+                          const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        );
+                      })
+                      .whereType<LineTooltipItem>()
+                      .toList();
                 },
               ),
             ),
@@ -893,7 +951,9 @@ class _SummaryTile extends StatelessWidget {
         borderRadius: BorderRadius.circular(16),
       ),
       child: Column(
-        crossAxisAlignment: isArabic ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+        crossAxisAlignment: isArabic
+            ? CrossAxisAlignment.end
+            : CrossAxisAlignment.start,
         children: [
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,

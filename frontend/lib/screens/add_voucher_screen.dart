@@ -152,11 +152,11 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
         final String partyLineType = widget.voucherType == 'receipt'
             ? 'credit'
             : 'debit';
-        final Map<String, dynamic>? partyLine = rawLines.firstWhere(
+        final Map<String, dynamic> partyLine = rawLines.firstWhere(
           (line) => line['line_type'] == partyLineType,
           orElse: () => <String, dynamic>{},
         );
-        final candidateId = _coerceAccountId(partyLine?['account_id']);
+        final candidateId = _coerceAccountId(partyLine['account_id']);
         if (candidateId != null) {
           _selectedOtherAccountId = candidateId;
         }
@@ -197,12 +197,12 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
         final String partyLineType = widget.voucherType == 'receipt'
             ? 'credit'
             : 'debit';
-        final Map<String, dynamic>? partyLine = _incomingAccountLinesRaw!
+        final Map<String, dynamic> partyLine = _incomingAccountLinesRaw!
             .firstWhere(
               (line) => line['line_type'] == partyLineType,
               orElse: () => <String, dynamic>{},
             );
-        final candidateId = _coerceAccountId(partyLine?['account_id']);
+        final candidateId = _coerceAccountId(partyLine['account_id']);
         if (candidateId != null) {
           partyAccountId = candidateId;
           _selectedOtherAccountId = candidateId;
@@ -860,8 +860,9 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
           icon: partyReady ? Icons.verified_user : Icons.person_search,
           color: partyReady ? successColor : warningColor,
           label: partyReady ? 'الطرف جاهز' : 'الطرف غير محدد',
-          subtitle:
-              partyReady ? 'يمكنك متابعة تعبئة السند.' : 'حدد الطرف المناسب قبل المتابعة.',
+          subtitle: partyReady
+              ? 'يمكنك متابعة تعبئة السند.'
+              : 'حدد الطرف المناسب قبل المتابعة.',
         ),
         _buildStatusChip(
           icon: accountsReady ? Icons.check_circle : Icons.list_alt,
@@ -874,8 +875,9 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
         _buildStatusChip(
           icon: Icons.account_balance_wallet,
           color: hasAmounts ? infoColor : neutralColor,
-          label:
-              hasAmounts ? 'إجمالي النقد: ${_formatCash(_totalCash)}' : 'لا يوجد مبلغ مُدخل',
+          label: hasAmounts
+              ? 'إجمالي النقد: ${_formatCash(_totalCash)}'
+              : 'لا يوجد مبلغ مُدخل',
           subtitle: totalGoldText.isNotEmpty ? 'الذهب: $totalGoldText' : null,
         ),
         if (hasSafeOverdraft)
@@ -2559,7 +2561,8 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
                 final safe = (acc['safe_model'] is SafeBoxModel)
                     ? acc['safe_model'] as SafeBoxModel
                     : _findSafeByAccountId(_coerceAccountId(acc['id']));
-                if (safe != null && (safe.safeType == 'cash' || safe.safeType == 'bank')) {
+                if (safe != null &&
+                    (safe.safeType == 'cash' || safe.safeType == 'bank')) {
                   _ensureSafeLedgerBalanceLoaded(safe);
                 }
               },
@@ -2576,8 +2579,9 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
                 }
 
                 final safeId = safe.id!;
-                final isLoading =
-                    _safeLedgerCashBalanceLoading.contains(safeId);
+                final isLoading = _safeLedgerCashBalanceLoading.contains(
+                  safeId,
+                );
                 final bal = _safeLedgerCashBalance[safeId];
                 final amount = _parseLineAmount(line.amount);
 
@@ -2585,7 +2589,8 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
                     widget.voucherType == 'payment' &&
                     line.lineType == 'credit' &&
                     line.amountType == 'cash';
-                final insufficient = isOutflowFromSafe && bal != null && amount > bal + 0.01;
+                final insufficient =
+                    isOutflowFromSafe && bal != null && amount > bal + 0.01;
 
                 return Padding(
                   padding: const EdgeInsets.only(bottom: 12),
@@ -2599,8 +2604,12 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
                                   ? 'رصيد الخزينة غير متاح'
                                   : 'رصيد الخزينة الحالي: ${bal.toStringAsFixed(2)} ر.س'),
                         style: TextStyle(
-                          color: insufficient ? AppColors.error : Colors.grey.shade700,
-                          fontWeight: insufficient ? FontWeight.w600 : FontWeight.normal,
+                          color: insufficient
+                              ? AppColors.error
+                              : Colors.grey.shade700,
+                          fontWeight: insufficient
+                              ? FontWeight.w600
+                              : FontWeight.normal,
                         ),
                       ),
                       if (insufficient)

@@ -15,7 +15,8 @@ class GoldPositionReportScreen extends StatefulWidget {
   });
 
   @override
-  State<GoldPositionReportScreen> createState() => _GoldPositionReportScreenState();
+  State<GoldPositionReportScreen> createState() =>
+      _GoldPositionReportScreenState();
 }
 
 class _GoldPositionReportScreenState extends State<GoldPositionReportScreen> {
@@ -86,8 +87,12 @@ class _GoldPositionReportScreenState extends State<GoldPositionReportScreen> {
         includeZero: _includeZero,
         minVariance: _minVariance,
         karats: _selectedKarats.isEmpty ? null : _selectedKarats.toList(),
-        safeTypes: _selectedSafeTypes.isEmpty ? null : _selectedSafeTypes.toList(),
-        officeIds: _selectedOfficeIds.isEmpty ? null : _selectedOfficeIds.toList(),
+        safeTypes: _selectedSafeTypes.isEmpty
+            ? null
+            : _selectedSafeTypes.toList(),
+        officeIds: _selectedOfficeIds.isEmpty
+            ? null
+            : _selectedOfficeIds.toList(),
       );
       if (!mounted) return;
       setState(() => _data = result);
@@ -106,7 +111,8 @@ class _GoldPositionReportScreenState extends State<GoldPositionReportScreen> {
     return 0;
   }
 
-  String _weightLabel(dynamic value) => _weightFormat.format(_weightValue(value));
+  String _weightLabel(dynamic value) =>
+      _weightFormat.format(_weightValue(value));
 
   String _asString(dynamic value) {
     if (value == null) return '';
@@ -120,7 +126,9 @@ class _GoldPositionReportScreenState extends State<GoldPositionReportScreen> {
   }
 
   void _applyVariance() {
-    final parsed = double.tryParse(_varianceController.text.replaceAll(',', '.'));
+    final parsed = double.tryParse(
+      _varianceController.text.replaceAll(',', '.'),
+    );
     if (parsed == null) return;
     setState(() => _minVariance = parsed.clamp(0.0, 1000.0));
     _loadReport();
@@ -137,9 +145,11 @@ class _GoldPositionReportScreenState extends State<GoldPositionReportScreen> {
         if (parsed != null) ids.add(parsed);
       }
     }
-    setState(() => _selectedOfficeIds
-      ..clear()
-      ..addAll(ids));
+    setState(
+      () => _selectedOfficeIds
+        ..clear()
+        ..addAll(ids),
+    );
     _loadReport();
   }
 
@@ -191,29 +201,29 @@ class _GoldPositionReportScreenState extends State<GoldPositionReportScreen> {
           child: _isLoading
               ? const Center(child: CircularProgressIndicator())
               : _error != null
-                  ? _buildError(isArabic)
-                  : RefreshIndicator(
-                      onRefresh: _loadReport,
-                      child: ListView(
-                        padding: const EdgeInsets.all(16),
-                        physics: const AlwaysScrollableScrollPhysics(),
-                        children: [
-                          _buildFiltersCard(isArabic),
-                          const SizedBox(height: 16),
-                          _buildSummaryCard(isArabic),
-                          const SizedBox(height: 16),
-                          _buildDistributionCard(isArabic),
-                          const SizedBox(height: 16),
-                          _buildTopPositionsCard(isArabic),
-                          const SizedBox(height: 16),
-                          _buildAccountsTable(isArabic),
-                          const SizedBox(height: 16),
-                          _buildSafeBoxesTable(isArabic),
-                          const SizedBox(height: 16),
-                          _buildOfficesTable(isArabic),
-                        ],
-                      ),
-                    ),
+              ? _buildError(isArabic)
+              : RefreshIndicator(
+                  onRefresh: _loadReport,
+                  child: ListView(
+                    padding: const EdgeInsets.all(16),
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    children: [
+                      _buildFiltersCard(isArabic),
+                      const SizedBox(height: 16),
+                      _buildSummaryCard(isArabic),
+                      const SizedBox(height: 16),
+                      _buildDistributionCard(isArabic),
+                      const SizedBox(height: 16),
+                      _buildTopPositionsCard(isArabic),
+                      const SizedBox(height: 16),
+                      _buildAccountsTable(isArabic),
+                      const SizedBox(height: 16),
+                      _buildSafeBoxesTable(isArabic),
+                      const SizedBox(height: 16),
+                      _buildOfficesTable(isArabic),
+                    ],
+                  ),
+                ),
         ),
       ),
     );
@@ -226,8 +236,9 @@ class _GoldPositionReportScreenState extends State<GoldPositionReportScreen> {
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
-          crossAxisAlignment:
-              isArabic ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+          crossAxisAlignment: isArabic
+              ? CrossAxisAlignment.end
+              : CrossAxisAlignment.start,
           children: [
             Text(
               isArabic ? 'خيارات التقرير' : 'Report filters',
@@ -240,7 +251,9 @@ class _GoldPositionReportScreenState extends State<GoldPositionReportScreen> {
               crossAxisAlignment: WrapCrossAlignment.center,
               children: [
                 FilterChip(
-                  label: Text(isArabic ? 'إظهار الأرصدة الصفرية' : 'Show zero balances'),
+                  label: Text(
+                    isArabic ? 'إظهار الأرصدة الصفرية' : 'Show zero balances',
+                  ),
                   selected: _includeZero,
                   onSelected: (value) {
                     setState(() => _includeZero = value);
@@ -251,7 +264,9 @@ class _GoldPositionReportScreenState extends State<GoldPositionReportScreen> {
                   width: 140,
                   child: TextField(
                     controller: _varianceController,
-                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
                     textDirection: TextDirection.ltr,
                     decoration: InputDecoration(
                       labelText: isArabic ? 'حد التباين (جم)' : 'Variance (g)',
@@ -267,7 +282,9 @@ class _GoldPositionReportScreenState extends State<GoldPositionReportScreen> {
                     textDirection: TextDirection.ltr,
                     decoration: InputDecoration(
                       labelText: isArabic ? 'مكاتب (IDs)' : 'Office IDs',
-                      helperText: isArabic ? 'مفصولة بفواصل' : 'Comma separated',
+                      helperText: isArabic
+                          ? 'مفصولة بفواصل'
+                          : 'Comma separated',
                     ),
                     onSubmitted: (_) => _applyOfficeFilter(),
                   ),
@@ -359,7 +376,9 @@ class _GoldPositionReportScreenState extends State<GoldPositionReportScreen> {
 
     final tiles = [
       _SummaryTileData(
-        title: isArabic ? 'إجمالي الذهب (عيار رئيسي)' : 'Total Gold (Main Karat)',
+        title: isArabic
+            ? 'إجمالي الذهب (عيار رئيسي)'
+            : 'Total Gold (Main Karat)',
         value: _weightLabel(_summary['total_main_karat']),
         icon: Icons.balance,
         color: Colors.amber.shade700,
@@ -400,10 +419,12 @@ class _GoldPositionReportScreenState extends State<GoldPositionReportScreen> {
           spacing: 16,
           runSpacing: 16,
           children: tiles
-              .map((tile) => SizedBox(
-                    width: 210,
-                    child: _SummaryTile(data: tile, isArabic: isArabic),
-                  ))
+              .map(
+                (tile) => SizedBox(
+                  width: 210,
+                  child: _SummaryTile(data: tile, isArabic: isArabic),
+                ),
+              )
               .toList(),
         ),
       ),
@@ -415,7 +436,9 @@ class _GoldPositionReportScreenState extends State<GoldPositionReportScreen> {
     if (distribution is! List || distribution.isEmpty) {
       return _buildEmptyStateCard(
         icon: Icons.pie_chart_outline,
-        message: isArabic ? 'لا يمكن رسم التوزيع حالياً' : 'No distribution data yet',
+        message: isArabic
+            ? 'لا يمكن رسم التوزيع حالياً'
+            : 'No distribution data yet',
       );
     }
 
@@ -427,7 +450,9 @@ class _GoldPositionReportScreenState extends State<GoldPositionReportScreen> {
     if (total == 0) {
       return _buildEmptyStateCard(
         icon: Icons.pie_chart_outline,
-        message: isArabic ? 'لا يمكن رسم التوزيع حالياً' : 'No distribution data yet',
+        message: isArabic
+            ? 'لا يمكن رسم التوزيع حالياً'
+            : 'No distribution data yet',
       );
     }
 
@@ -463,8 +488,9 @@ class _GoldPositionReportScreenState extends State<GoldPositionReportScreen> {
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
-          crossAxisAlignment:
-              isArabic ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+          crossAxisAlignment: isArabic
+              ? CrossAxisAlignment.end
+              : CrossAxisAlignment.start,
           children: [
             Text(
               isArabic ? 'توزيع الذهب حسب العيار' : 'Distribution by Karat',
@@ -486,11 +512,13 @@ class _GoldPositionReportScreenState extends State<GoldPositionReportScreen> {
                   ),
                   const SizedBox(width: 16),
                   Column(
-                    crossAxisAlignment:
-                        isArabic ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+                    crossAxisAlignment: isArabic
+                        ? CrossAxisAlignment.end
+                        : CrossAxisAlignment.start,
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: distribution.map<Widget>((item) {
-                      final color = colors[distribution.indexOf(item) % colors.length];
+                      final color =
+                          colors[distribution.indexOf(item) % colors.length];
                       return Padding(
                         padding: const EdgeInsets.symmetric(vertical: 4),
                         child: Row(
@@ -522,31 +550,37 @@ class _GoldPositionReportScreenState extends State<GoldPositionReportScreen> {
     if (long.isEmpty && short.isEmpty) {
       return _buildEmptyStateCard(
         icon: Icons.swap_vert,
-        message: isArabic ? 'لا توجد مراكز مميزة بعد' : 'No highlighted positions yet',
+        message: isArabic
+            ? 'لا توجد مراكز مميزة بعد'
+            : 'No highlighted positions yet',
       );
     }
 
-    Widget buildList(String title, List<Map<String, dynamic>> data, Color color) {
+    Widget buildList(
+      String title,
+      List<Map<String, dynamic>> data,
+      Color color,
+    ) {
       return Expanded(
         child: Column(
-          crossAxisAlignment:
-              isArabic ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+          crossAxisAlignment: isArabic
+              ? CrossAxisAlignment.end
+              : CrossAxisAlignment.start,
           children: [
             Text(
               title,
-              style: TextStyle(
-                fontWeight: FontWeight.bold,
-                color: color,
-              ),
+              style: TextStyle(fontWeight: FontWeight.bold, color: color),
             ),
             const SizedBox(height: 8),
-            ...data.map((item) => ListTile(
-                  dense: true,
-                  leading: Icon(Icons.account_balance, color: color),
-                  title: Text(item['name'] ?? ''),
-                  subtitle: Text(item['account_number'] ?? ''),
-                  trailing: Text(_weightLabel(item['total_main_karat'])),
-                )),
+            ...data.map(
+              (item) => ListTile(
+                dense: true,
+                leading: Icon(Icons.account_balance, color: color),
+                title: Text(item['name'] ?? ''),
+                subtitle: Text(item['account_number'] ?? ''),
+                trailing: Text(_weightLabel(item['total_main_karat'])),
+              ),
+            ),
           ],
         ),
       );
@@ -582,7 +616,9 @@ class _GoldPositionReportScreenState extends State<GoldPositionReportScreen> {
     if (accounts.isEmpty) {
       return _buildEmptyStateCard(
         icon: Icons.account_balance,
-        message: isArabic ? 'لا توجد حسابات مطابقة' : 'No accounts match filters',
+        message: isArabic
+            ? 'لا توجد حسابات مطابقة'
+            : 'No accounts match filters',
       );
     }
 
@@ -618,7 +654,9 @@ class _GoldPositionReportScreenState extends State<GoldPositionReportScreen> {
     if (safeBoxes.isEmpty) {
       return _buildEmptyStateCard(
         icon: Icons.safety_check,
-        message: isArabic ? 'لا توجد خزائن مطابقة' : 'No safe boxes match filters',
+        message: isArabic
+            ? 'لا توجد خزائن مطابقة'
+            : 'No safe boxes match filters',
       );
     }
 
@@ -698,8 +736,9 @@ class _GoldPositionReportScreenState extends State<GoldPositionReportScreen> {
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
-          crossAxisAlignment:
-              isArabic ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+          crossAxisAlignment: isArabic
+              ? CrossAxisAlignment.end
+              : CrossAxisAlignment.start,
           children: [
             Text(
               title,
@@ -771,10 +810,7 @@ class _SummaryTile extends StatelessWidget {
   final _SummaryTileData data;
   final bool isArabic;
 
-  const _SummaryTile({
-    required this.data,
-    required this.isArabic,
-  });
+  const _SummaryTile({required this.data, required this.isArabic});
 
   @override
   Widget build(BuildContext context) {
@@ -785,8 +821,9 @@ class _SummaryTile extends StatelessWidget {
         borderRadius: BorderRadius.circular(16),
       ),
       child: Column(
-        crossAxisAlignment:
-            isArabic ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+        crossAxisAlignment: isArabic
+            ? CrossAxisAlignment.end
+            : CrossAxisAlignment.start,
         children: [
           Row(
             mainAxisSize: MainAxisSize.min,

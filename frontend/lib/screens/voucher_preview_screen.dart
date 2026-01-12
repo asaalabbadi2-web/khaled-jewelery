@@ -13,10 +13,10 @@ class VoucherPreviewScreen extends StatefulWidget {
   final String voucherType; // 'receipt' or 'payment'
 
   const VoucherPreviewScreen({
-    Key? key,
+    super.key,
     required this.voucherData,
     required this.voucherType,
-  }) : super(key: key);
+  });
 
   @override
   State<VoucherPreviewScreen> createState() => _VoucherPreviewScreenState();
@@ -396,7 +396,7 @@ class _VoucherPreviewScreenState extends State<VoucherPreviewScreen> {
                   ),
                 ],
               );
-            }).toList(),
+            }),
           ],
         ),
       ],
@@ -729,7 +729,7 @@ class _VoucherPreviewScreenState extends State<VoucherPreviewScreen> {
               ],
 
               // Account Lines Table
-              pw.Table.fromTextArray(
+              pw.TableHelper.fromTextArray(
                 headerStyle: pw.TextStyle(fontWeight: pw.FontWeight.bold),
                 headers: ['#', 'الحساب', 'المبلغ/الوزن', 'النوع'],
                 data: accountLines.asMap().entries.map((entry) {

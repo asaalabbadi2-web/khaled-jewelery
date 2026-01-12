@@ -51,13 +51,13 @@ DEFAULT_MAPPINGS = {
         'purchase_returns': '50',
         'suppliers': '210',
     },
-    'شراء من مورد': {
+    'شراء': {
         'inventory_21k': '1310',
         'cash': '1100',
         'suppliers': '210',
         'vat_receivable': '1500',
     },
-    'مرتجع شراء من مورد': {
+    'مرتجع شراء (مورد)': {
         'inventory_21k': '1310',
         'cash': '1100',
         'suppliers': '210',

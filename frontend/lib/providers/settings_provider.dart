@@ -73,13 +73,14 @@ class SettingsProvider with ChangeNotifier {
     if (isVatExemptKarat(karat)) return 0.0;
     return taxRate;
   }
+
   bool get allowDiscount =>
       _safeBool(_settings['allow_discount'], fallback: true);
   bool get allowManualInvoiceItems =>
-    _safeBool(_settings['allow_manual_invoice_items'], fallback: true);
+      _safeBool(_settings['allow_manual_invoice_items'], fallback: true);
 
   bool get allowPartialInvoicePayments =>
-    _safeBool(_settings['allow_partial_invoice_payments'], fallback: false);
+      _safeBool(_settings['allow_partial_invoice_payments'], fallback: false);
 
   bool get idleTimeoutEnabled =>
       _safeBool(_settings['idle_timeout_enabled'], fallback: true);
@@ -105,6 +106,7 @@ class SettingsProvider with ChangeNotifier {
     if (minutes > 10080) minutes = 10080;
     return minutes;
   }
+
   double get defaultDiscountRate =>
       _safeDouble(_settings['default_discount_rate'], fallback: 0.0);
   double get defaultDiscountPercent => defaultDiscountRate * 100;
@@ -122,18 +124,16 @@ class SettingsProvider with ChangeNotifier {
       _safeBool(_settings['voucher_auto_post'], fallback: false);
 
   Map<String, dynamic> get weightClosingSettings =>
-    _normalizeWeightClosingSettings(_settings['weight_closing_settings']);
+      _normalizeWeightClosingSettings(_settings['weight_closing_settings']);
 
   bool get weightClosingEnabled =>
-    _safeBool(weightClosingSettings['enabled'], fallback: true);
+      _safeBool(weightClosingSettings['enabled'], fallback: true);
 
   String get weightClosingPriceSource =>
-    (weightClosingSettings['price_source']?.toString() ?? 'live');
+      (weightClosingSettings['price_source']?.toString() ?? 'live');
 
-  bool get weightClosingAllowOverride => _safeBool(
-    weightClosingSettings['allow_override'],
-    fallback: true,
-    );
+  bool get weightClosingAllowOverride =>
+      _safeBool(weightClosingSettings['allow_override'], fallback: true);
 
   double get shiftCloseCashDeficitThreshold => _safeDouble(
     weightClosingSettings['shift_close_cash_deficit_threshold'],
@@ -216,10 +216,12 @@ class SettingsProvider with ChangeNotifier {
 
       final cashThreshold = _safeDouble(
         parsed['shift_close_cash_deficit_threshold'],
-        fallback: (normalized['shift_close_cash_deficit_threshold'] as num).toDouble(),
+        fallback: (normalized['shift_close_cash_deficit_threshold'] as num)
+            .toDouble(),
       );
-      normalized['shift_close_cash_deficit_threshold'] =
-          cashThreshold < 0 ? 0.0 : cashThreshold;
+      normalized['shift_close_cash_deficit_threshold'] = cashThreshold < 0
+          ? 0.0
+          : cashThreshold;
 
       final goldThreshold = _safeDouble(
         parsed['shift_close_gold_pure_deficit_threshold_grams'],
@@ -340,10 +342,7 @@ class SettingsProvider with ChangeNotifier {
   Future<void> _applyWeightClosingSettings(
     Map<String, dynamic> settings,
   ) async {
-    _settings = {
-      ..._settings,
-      'weight_closing_settings': settings,
-    };
+    _settings = {..._settings, 'weight_closing_settings': settings};
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('app_settings', json.encode(_settings));
     notifyListeners();

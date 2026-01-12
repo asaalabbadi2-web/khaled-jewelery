@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart' hide TextDirection;
+import 'package:provider/provider.dart';
 
 import '../api_service.dart';
+import '../providers/settings_provider.dart';
 import '../theme/app_theme.dart';
 
 /// شاشة سجل حجوزات الذهب للمكاتب
@@ -23,6 +25,8 @@ class GoldReservationsListScreen extends StatefulWidget {
 class _GoldReservationsListScreenState
     extends State<GoldReservationsListScreen> {
   final DateFormat _dateFormatter = DateFormat('yyyy-MM-dd HH:mm');
+
+  int _mainKarat = 21;
 
   bool _isLoading = false;
   List<Map<String, dynamic>> _reservations = [];
@@ -50,21 +54,29 @@ class _GoldReservationsListScreenState
     _loadInitialData();
   }
 
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final settings = context.watch<SettingsProvider>();
+    final nextMainKarat = settings.mainKarat;
+    if (nextMainKarat != _mainKarat) {
+      setState(() => _mainKarat = nextMainKarat);
+    }
+  }
+
   Future<void> _loadInitialData() async {
     setState(() => _isLoading = true);
     try {
-  final officesResponse = await widget.api.getOffices();
-  setState(() {
-    _offices = officesResponse
-    .map((office) => Map<String, dynamic>.from(office as Map))
-    .toList();
-  });
+      final officesResponse = await widget.api.getOffices();
+      setState(() {
+        _offices = officesResponse
+            .map((office) => Map<String, dynamic>.from(office as Map))
+            .toList();
+      });
       await _fetchReservations(page: 1, showLoader: false);
     } catch (e) {
       _showSnack(
-        widget.isArabic
-            ? 'تعذر تحميل البيانات: $e'
-            : 'Failed to load data: $e',
+        widget.isArabic ? 'تعذر تحميل البيانات: $e' : 'Failed to load data: $e',
         isError: true,
       );
     } finally {
@@ -96,9 +108,9 @@ class _GoldReservationsListScreenState
         orderDirection: 'desc',
       );
 
-    final data = (response['data'] as List<dynamic>? ?? [])
-      .map((entry) => Map<String, dynamic>.from(entry as Map))
-      .toList();
+      final data = (response['data'] as List<dynamic>? ?? [])
+          .map((entry) => Map<String, dynamic>.from(entry as Map))
+          .toList();
       final pagination = Map<String, dynamic>.from(
         response['pagination'] ?? <String, dynamic>{},
       );
@@ -154,11 +166,9 @@ class _GoldReservationsListScreenState
 
   Future<void> _selectDateRange() async {
     final now = DateTime.now();
-    final initialRange = _selectedDateRange ??
-        DateTimeRange(
-          start: now.subtract(const Duration(days: 7)),
-          end: now,
-        );
+    final initialRange =
+        _selectedDateRange ??
+        DateTimeRange(start: now.subtract(const Duration(days: 7)), end: now);
 
     final result = await showDateRangePicker(
       context: context,
@@ -167,8 +177,9 @@ class _GoldReservationsListScreenState
       initialDateRange: initialRange,
       builder: (context, child) {
         return Directionality(
-          textDirection:
-              widget.isArabic ? TextDirection.rtl : TextDirection.ltr,
+          textDirection: widget.isArabic
+              ? TextDirection.rtl
+              : TextDirection.ltr,
           child: child ?? const SizedBox.shrink(),
         );
       },
@@ -259,8 +270,12 @@ class _GoldReservationsListScreenState
       elevation: 2,
       child: ExpansionTile(
         initiallyExpanded: _filtersExpanded,
-        onExpansionChanged: (expanded) => setState(() => _filtersExpanded = expanded),
-        leading: const Icon(Icons.filter_alt_outlined, color: AppColors.darkGold),
+        onExpansionChanged: (expanded) =>
+            setState(() => _filtersExpanded = expanded),
+        leading: const Icon(
+          Icons.filter_alt_outlined,
+          color: AppColors.darkGold,
+        ),
         tilePadding: const EdgeInsets.symmetric(horizontal: 16),
         childrenPadding: const EdgeInsets.all(16),
         title: Text(
@@ -295,9 +310,11 @@ class _GoldReservationsListScreenState
                           ..._offices.map((office) {
                             return DropdownMenuItem<int?>(
                               value: office['id'] as int,
-                              child: Text(office['name'] ?? office['office_code'] ?? '-'),
+                              child: Text(
+                                office['name'] ?? office['office_code'] ?? '-',
+                              ),
                             );
-                          })
+                          }),
                         ],
                         onChanged: (value) {
                           setState(() => _selectedOfficeId = value);
@@ -321,8 +338,12 @@ class _GoldReservationsListScreenState
                             value: null,
                             child: Text(isAr ? 'كل الحالات' : 'All Statuses'),
                           ),
-                          ...['reserved', 'partial', 'completed', 'cancelled']
-                              .map(
+                          ...[
+                            'reserved',
+                            'partial',
+                            'completed',
+                            'cancelled',
+                          ].map(
                             (status) => DropdownMenuItem<String?>(
                               value: status,
                               child: Text(_statusLabel(status)),
@@ -349,7 +370,9 @@ class _GoldReservationsListScreenState
                         items: [
                           DropdownMenuItem<String?>(
                             value: null,
-                            child: Text(isAr ? 'كل حالات الدفع' : 'All payment states'),
+                            child: Text(
+                              isAr ? 'كل حالات الدفع' : 'All payment states',
+                            ),
                           ),
                           ...['pending', 'partial', 'paid'].map(
                             (status) => DropdownMenuItem<String?>(
@@ -377,7 +400,9 @@ class _GoldReservationsListScreenState
                         icon: const Icon(Icons.date_range),
                         label: Text(
                           _selectedDateRange == null
-                              ? (isAr ? 'تحديد الفترة الزمنية' : 'Select date range')
+                              ? (isAr
+                                    ? 'تحديد الفترة الزمنية'
+                                    : 'Select date range')
                               : '${DateFormat('yyyy-MM-dd').format(_selectedDateRange!.start)} → ${DateFormat('yyyy-MM-dd').format(_selectedDateRange!.end)}',
                           overflow: TextOverflow.ellipsis,
                         ),
@@ -415,7 +440,9 @@ class _GoldReservationsListScreenState
             ),
             _buildSummaryTile(
               icon: Icons.scale,
-              title: isAr ? 'الوزن (عيار 21)' : 'Weight (21K eq.)',
+              title: isAr
+                  ? 'الوزن (مكافئ $_mainKarat)'
+                  : 'Weight (${_mainKarat}K eq.)',
               value: _totalWeightMainKarat.toStringAsFixed(2),
             ),
             _buildSummaryTile(
@@ -447,13 +474,10 @@ class _GoldReservationsListScreenState
         Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              title,
-              style: const TextStyle(fontWeight: FontWeight.bold),
-            ),
+            Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
             Text(value, style: const TextStyle(fontSize: 16)),
           ],
-        )
+        ),
       ],
     );
   }
@@ -510,7 +534,7 @@ class _GoldReservationsListScreenState
                       style: const TextStyle(fontWeight: FontWeight.bold),
                     ),
                   ],
-                )
+                ),
               ],
             ),
             const Divider(height: 24),
@@ -525,18 +549,24 @@ class _GoldReservationsListScreenState
                 ),
                 _buildChip(
                   icon: Icons.payments,
-                  color: _paymentColor(reservation['payment_status'] as String?),
-                  label: _paymentLabel(reservation['payment_status'] as String?),
+                  color: _paymentColor(
+                    reservation['payment_status'] as String?,
+                  ),
+                  label: _paymentLabel(
+                    reservation['payment_status'] as String?,
+                  ),
                 ),
                 _buildChip(
                   icon: Icons.water_drop,
                   color: AppColors.primaryGold,
-                  label: '${isAr ? 'العيار' : 'Karat'} ${reservation['karat'] ?? 24}',
+                  label:
+                      '${isAr ? 'العيار' : 'Karat'} ${reservation['karat'] ?? 24}',
                 ),
                 _buildChip(
                   icon: Icons.inventory,
                   color: AppColors.mediumGold,
-                  label: '${isAr ? 'تنفيذات' : 'Executions'} ${reservation['executions_created'] ?? 0}',
+                  label:
+                      '${isAr ? 'تنفيذات' : 'Executions'} ${reservation['executions_created'] ?? 0}',
                 ),
               ],
             ),
@@ -647,9 +677,7 @@ class _GoldReservationsListScreenState
       child: Scaffold(
         appBar: AppBar(
           title: Text(
-            isAr
-                ? 'سجل التسكير - حجوزات الذهب'
-                : 'Gold Reservation History',
+            isAr ? 'سجل التسكير - حجوزات الذهب' : 'Gold Reservation History',
           ),
         ),
         body: Column(
@@ -669,9 +697,10 @@ class _GoldReservationsListScreenState
                     if (_reservations.isEmpty)
                       _EmptyState(isArabic: isAr)
                     else
-                      ..._reservations
-              .map((reservation) =>
-                _buildReservationCard(reservation, isAr)),
+                      ..._reservations.map(
+                        (reservation) =>
+                            _buildReservationCard(reservation, isAr),
+                      ),
                     const SizedBox(height: 8),
                     _buildPagination(isAr),
                   ],

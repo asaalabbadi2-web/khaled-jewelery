@@ -120,9 +120,7 @@ class _UserProfileScreenState extends State<UserProfileScreen>
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(
-          widget.isArabic ? 'ملف المستخدم' : 'User Profile',
-        ),
+        title: Text(widget.isArabic ? 'ملف المستخدم' : 'User Profile'),
         backgroundColor: const Color(0xFFFFD700),
         foregroundColor: Colors.black87,
         elevation: 0,
@@ -150,21 +148,21 @@ class _UserProfileScreenState extends State<UserProfileScreen>
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _user == null
-              ? Center(
-                  child: Text(
-                    widget.isArabic
-                        ? 'فشل تحميل بيانات المستخدم'
-                        : 'Failed to load user data',
-                  ),
-                )
-              : TabBarView(
-                  controller: _tabController,
-                  children: [
-                    _buildInfoTab(),
-                    _buildActivityTab(),
-                    _buildSecurityTab(),
-                  ],
-                ),
+          ? Center(
+              child: Text(
+                widget.isArabic
+                    ? 'فشل تحميل بيانات المستخدم'
+                    : 'Failed to load user data',
+              ),
+            )
+          : TabBarView(
+              controller: _tabController,
+              children: [
+                _buildInfoTab(),
+                _buildActivityTab(),
+                _buildSecurityTab(),
+              ],
+            ),
     );
   }
 
@@ -183,7 +181,9 @@ class _UserProfileScreenState extends State<UserProfileScreen>
                 children: [
                   CircleAvatar(
                     radius: 40,
-                    backgroundColor: const Color(0xFFFFD700).withValues(alpha: 0.3),
+                    backgroundColor: const Color(
+                      0xFFFFD700,
+                    ).withValues(alpha: 0.3),
                     child: Icon(
                       _user!['is_admin'] == true
                           ? Icons.admin_panel_settings
@@ -199,16 +199,14 @@ class _UserProfileScreenState extends State<UserProfileScreen>
                       children: [
                         Text(
                           _user!['full_name'] ?? _user!['username'],
-                          style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                                fontWeight: FontWeight.bold,
-                              ),
+                          style: Theme.of(context).textTheme.headlineSmall
+                              ?.copyWith(fontWeight: FontWeight.bold),
                         ),
                         const SizedBox(height: 4),
                         Text(
                           '@${_user!['username']}',
-                          style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                                color: Colors.grey[600],
-                              ),
+                          style: Theme.of(context).textTheme.bodyLarge
+                              ?.copyWith(color: Colors.grey[600]),
                         ),
                         const SizedBox(height: 8),
                         Row(
@@ -299,7 +297,8 @@ class _UserProfileScreenState extends State<UserProfileScreen>
                     style: const TextStyle(fontWeight: FontWeight.bold),
                   ),
                   const SizedBox(height: 8),
-                  if (_user!['roles'] != null && (_user!['roles'] as List).isNotEmpty)
+                  if (_user!['roles'] != null &&
+                      (_user!['roles'] as List).isNotEmpty)
                     Wrap(
                       spacing: 8,
                       runSpacing: 8,
@@ -311,8 +310,9 @@ class _UserProfileScreenState extends State<UserProfileScreen>
                                 ? (role['name_ar'] ?? role['name'])
                                 : role['name'],
                           ),
-                          backgroundColor:
-                              const Color(0xFFFFD700).withValues(alpha: 0.2),
+                          backgroundColor: const Color(
+                            0xFFFFD700,
+                          ).withValues(alpha: 0.2),
                         );
                       }).toList(),
                     )
@@ -413,7 +413,10 @@ class _UserProfileScreenState extends State<UserProfileScreen>
                         const SizedBox(height: 2),
                         Text(
                           'IP: ${log['ip_address']}',
-                          style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey[600],
+                          ),
                         ),
                       ],
                     ],
@@ -462,9 +465,14 @@ class _UserProfileScreenState extends State<UserProfileScreen>
                       children: [
                         Text(
                           isLocked
-                              ? (widget.isArabic ? 'الحساب مقفول' : 'Account Locked')
-                              : (widget.isArabic ? 'الحساب آمن' : 'Account Secure'),
-                          style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                              ? (widget.isArabic
+                                    ? 'الحساب مقفول'
+                                    : 'Account Locked')
+                              : (widget.isArabic
+                                    ? 'الحساب آمن'
+                                    : 'Account Secure'),
+                          style: Theme.of(context).textTheme.titleLarge
+                              ?.copyWith(
                                 fontWeight: FontWeight.bold,
                                 color: isLocked ? Colors.red : Colors.green,
                               ),
@@ -503,14 +511,19 @@ class _UserProfileScreenState extends State<UserProfileScreen>
                         Icon(
                           Icons.warning_amber,
                           size: 32,
-                          color: failedAttempts > 0 ? Colors.orange : Colors.green,
+                          color: failedAttempts > 0
+                              ? Colors.orange
+                              : Colors.green,
                         ),
                         const SizedBox(height: 8),
                         Text(
                           '$failedAttempts',
-                          style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                          style: Theme.of(context).textTheme.headlineMedium
+                              ?.copyWith(
                                 fontWeight: FontWeight.bold,
-                                color: failedAttempts > 0 ? Colors.orange : Colors.green,
+                                color: failedAttempts > 0
+                                    ? Colors.orange
+                                    : Colors.green,
                               ),
                         ),
                         Text(
@@ -539,9 +552,8 @@ class _UserProfileScreenState extends State<UserProfileScreen>
                         const SizedBox(height: 8),
                         Text(
                           _user!['password_changed_at'] != null ? '✓' : '?',
-                          style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-                                fontWeight: FontWeight.bold,
-                              ),
+                          style: Theme.of(context).textTheme.headlineMedium
+                              ?.copyWith(fontWeight: FontWeight.bold),
                         ),
                         Text(
                           widget.isArabic ? 'كلمة المرور' : 'Password',
@@ -570,14 +582,18 @@ class _UserProfileScreenState extends State<UserProfileScreen>
               child: Column(
                 children: [
                   _buildInfoRow(
-                    widget.isArabic ? 'آخر فشل تسجيل دخول' : 'Last Failed Login',
+                    widget.isArabic
+                        ? 'آخر فشل تسجيل دخول'
+                        : 'Last Failed Login',
                     _formatDateTime(_user!['last_failed_login']),
                     Icons.error_outline,
                   ),
                   if (_user!['password_changed_at'] != null) ...[
                     const Divider(),
                     _buildInfoRow(
-                      widget.isArabic ? 'آخر تغيير كلمة مرور' : 'Password Last Changed',
+                      widget.isArabic
+                          ? 'آخر تغيير كلمة مرور'
+                          : 'Password Last Changed',
                       _formatDateTime(_user!['password_changed_at']),
                       Icons.vpn_key_outlined,
                     ),
@@ -598,9 +614,9 @@ class _UserProfileScreenState extends State<UserProfileScreen>
         const SizedBox(width: 8),
         Text(
           title,
-          style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.bold,
-              ),
+          style: Theme.of(
+            context,
+          ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
         ),
       ],
     );
@@ -619,10 +635,7 @@ class _UserProfileScreenState extends State<UserProfileScreen>
               children: [
                 Text(
                   label,
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Colors.grey[600],
-                  ),
+                  style: TextStyle(fontSize: 12, color: Colors.grey[600]),
                 ),
                 const SizedBox(height: 2),
                 Text(
@@ -661,7 +674,7 @@ class _UserProfileScreenState extends State<UserProfileScreen>
 
   IconData _getActionIcon(String? action) {
     if (action == null) return Icons.circle;
-    
+
     if (action.contains('login')) return Icons.login;
     if (action.contains('logout')) return Icons.logout;
     if (action.contains('create')) return Icons.add_circle_outline;
@@ -669,7 +682,7 @@ class _UserProfileScreenState extends State<UserProfileScreen>
     if (action.contains('delete')) return Icons.delete_outline;
     if (action.contains('post')) return Icons.publish;
     if (action.contains('unpost')) return Icons.unpublished;
-    
+
     return Icons.circle;
   }
 }

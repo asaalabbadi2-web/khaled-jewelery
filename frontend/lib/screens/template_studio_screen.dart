@@ -7,10 +7,7 @@ import 'template_positioning_screen.dart';
 class TemplateStudioScreen extends StatelessWidget {
   final bool isArabic;
 
-  const TemplateStudioScreen({
-    super.key,
-    required this.isArabic,
-  });
+  const TemplateStudioScreen({super.key, required this.isArabic});
 
   static const double _mmPerInch = 25.4;
   static const double _pointsPerInch = 72.0;
@@ -86,11 +83,9 @@ class TemplateStudioScreen extends StatelessWidget {
   }
 
   void _openBlankDesigner(BuildContext context) {
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => const TemplateDesignerScreen(),
-      ),
-    );
+    Navigator.of(
+      context,
+    ).push(MaterialPageRoute(builder: (_) => const TemplateDesignerScreen()));
   }
 
   @override
@@ -160,19 +155,26 @@ class TemplateStudioScreen extends StatelessWidget {
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
                                     Text(
-                                      isArabic ? preset.titleAr : preset.titleEn,
-                                      style: theme.textTheme.titleSmall?.copyWith(
-                                        fontWeight: FontWeight.w700,
-                                      ),
+                                      isArabic
+                                          ? preset.titleAr
+                                          : preset.titleEn,
+                                      style: theme.textTheme.titleSmall
+                                          ?.copyWith(
+                                            fontWeight: FontWeight.w700,
+                                          ),
                                     ),
                                     const SizedBox(height: 10),
                                     Row(
                                       children: [
                                         Expanded(
                                           child: ElevatedButton.icon(
-                                            onPressed: () =>
-                                                _openPositioning(context, preset),
-                                            icon: const Icon(Icons.grid_view_outlined),
+                                            onPressed: () => _openPositioning(
+                                              context,
+                                              preset,
+                                            ),
+                                            icon: const Icon(
+                                              Icons.grid_view_outlined,
+                                            ),
                                             label: Text(
                                               isArabic
                                                   ? 'توزيع العناصر'
@@ -183,8 +185,11 @@ class TemplateStudioScreen extends StatelessWidget {
                                         const SizedBox(width: 10),
                                         Expanded(
                                           child: OutlinedButton.icon(
-                                            onPressed: () => _openDesigner(context, preset),
-                                            icon: const Icon(Icons.design_services_outlined),
+                                            onPressed: () =>
+                                                _openDesigner(context, preset),
+                                            icon: const Icon(
+                                              Icons.design_services_outlined,
+                                            ),
                                             label: Text(
                                               isArabic ? 'المصمم' : 'Designer',
                                             ),

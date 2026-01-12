@@ -9,12 +9,12 @@ from datetime import datetime
 BASE_URL = "http://localhost:8001/api"
 
 def test_purchase_with_wage():
-    """اختبار شراء من مورد مع مصنعية"""
-    print("\n🔵 Test 1: شراء من مورد (100g + 500 ريال مصنعية)")
+    """اختبار شراء (مورد) مع مصنعية"""
+    print("\n🔵 Test 1: شراء (مورد) (100g + 500 ريال مصنعية)")
     print("="*60)
     
     payload = {
-        "invoice_type": "شراء من مورد",
+        "invoice_type": "شراء",
         "date": datetime.now().isoformat(),
         "supplier_id": 1,
         "gold_type": "new",

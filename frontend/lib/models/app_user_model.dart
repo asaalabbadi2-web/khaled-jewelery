@@ -200,10 +200,6 @@ class EmployeeSummary {
   }
 
   Map<String, dynamic> toMap() {
-    return {
-      'id': id,
-      'name': name,
-      'employee_code': employeeCode,
-    };
+    return {'id': id, 'name': name, 'employee_code': employeeCode};
   }
 }

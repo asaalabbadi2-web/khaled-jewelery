@@ -1,13 +1,13 @@
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart'
-  show
-    TargetPlatform,
-    ValueNotifier,
-    debugPrint,
-    defaultTargetPlatform,
-    kDebugMode,
-    kIsWeb;
+    show
+        TargetPlatform,
+        ValueNotifier,
+        debugPrint,
+        defaultTargetPlatform,
+        kDebugMode,
+        kIsWeb;
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -160,7 +160,8 @@ class ApiService {
       } on ApiAuthException catch (e) {
         // Break infinite refresh loops: if refresh is rejected, clear stored session.
         final code = (e.code ?? '').toLowerCase();
-        final fatal = code == 'session_expired' ||
+        final fatal =
+            code == 'session_expired' ||
             code == 'invalid_refresh' ||
             code == 'refresh_expired' ||
             code == 'authentication_required';
@@ -361,7 +362,7 @@ class ApiService {
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
-      throw Exception('Failed to load suppliers');
+      throw Exception(_errorMessageFromResponse(response));
     }
   }
 
@@ -376,7 +377,7 @@ class ApiService {
     if (response.statusCode == 201) {
       return json.decode(response.body);
     } else {
-      throw Exception('Failed to add supplier: ${response.body}');
+      throw Exception(_errorMessageFromResponse(response));
     }
   }
 
@@ -387,15 +388,22 @@ class ApiService {
       body: json.encode(supplierData),
     );
     if (response.statusCode != 200) {
-      throw Exception('Failed to update supplier');
+      throw Exception(_errorMessageFromResponse(response));
     }
   }
 
-  Future<void> deleteSupplier(int id) async {
+  Future<Map<String, dynamic>> deleteSupplier(int id) async {
     final response = await _authedDelete(Uri.parse('$_baseUrl/suppliers/$id'));
     if (response.statusCode != 200) {
-      throw Exception('Failed to delete supplier');
+      throw Exception(_errorMessageFromResponse(response));
     }
+    try {
+      final decoded = json.decode(utf8.decode(response.bodyBytes));
+      if (decoded is Map<String, dynamic>) return decoded;
+    } catch (_) {
+      // ignore
+    }
+    return const {'result': 'success'};
   }
 
   // Office Methods (مكاتب تسكير الذهب)
@@ -610,8 +618,9 @@ class ApiService {
     }
     if (page != null) queryParams['page'] = page.toString();
     if (perPage != null) queryParams['per_page'] = perPage.toString();
-    if (orderBy != null && orderBy.isNotEmpty)
+    if (orderBy != null && orderBy.isNotEmpty) {
       queryParams['order_by'] = orderBy;
+    }
     if (orderDirection != null && orderDirection.isNotEmpty) {
       queryParams['order_direction'] = orderDirection;
     }
@@ -1511,12 +1520,14 @@ class ApiService {
     final uri = Uri.parse(
       '$_baseUrl/account_ledger/$accountId',
     ).replace(queryParameters: queryParams);
-    final response = await http.get(uri);
+    final response = await _authedGet(uri);
 
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
-      throw Exception('Failed to load account ledger');
+      throw Exception(
+        'Failed to load account ledger: ${response.statusCode} ${utf8.decode(response.bodyBytes)}',
+      );
     }
   }
 
@@ -4150,7 +4161,9 @@ class ApiService {
 
   /// Username recovery (public). Returns a generic success message.
   /// In development, backend may return `debug_username` when enabled.
-  Future<Map<String, dynamic>> forgotUsername({required String identifier}) async {
+  Future<Map<String, dynamic>> forgotUsername({
+    required String identifier,
+  }) async {
     final response = await http.post(
       Uri.parse('$_baseUrl/auth/forgot-username'),
       headers: {'Content-Type': 'application/json; charset=UTF-8'},
@@ -4168,7 +4181,9 @@ class ApiService {
 
   /// Password reset request (public). Returns a generic success message.
   /// In development, backend may return `debug_otp` when enabled.
-  Future<Map<String, dynamic>> forgotPassword({required String identifier}) async {
+  Future<Map<String, dynamic>> forgotPassword({
+    required String identifier,
+  }) async {
     final response = await http.post(
       Uri.parse('$_baseUrl/auth/forgot-password'),
       headers: {'Content-Type': 'application/json; charset=UTF-8'},
@@ -4181,7 +4196,9 @@ class ApiService {
       return {'message': decoded.toString()};
     }
 
-    throw Exception(_readApiErrorMessage(response, 'فشل إرسال رمز إعادة التعيين'));
+    throw Exception(
+      _readApiErrorMessage(response, 'فشل إرسال رمز إعادة التعيين'),
+    );
   }
 
   /// Confirm password reset with OTP/token (public).
@@ -4956,7 +4973,7 @@ class ApiService {
   }
 
   Future<List<dynamic>> getInvoiceTypes() async {
-    // ✅ Prefer backend list (includes 'شراء من عميل'/'شراء من مورد')
+    // ✅ Prefer backend list (includes 'شراء من عميل'/'شراء')
     // Fallback to a safe static list for older servers.
     try {
       final token = await _requireAuthToken();
@@ -4981,8 +4998,8 @@ class ApiService {
       'شراء من عميل',
       'مرتجع بيع',
       'مرتجع شراء',
-      'شراء من مورد',
-      'مرتجع شراء من مورد',
+      'شراء',
+      'مرتجع شراء (مورد)',
     ];
   }
 

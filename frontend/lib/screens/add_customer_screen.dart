@@ -225,15 +225,12 @@ class _AddCustomerScreenState extends State<AddCustomerScreen> {
       return true;
     }
 
-  final message = widget.isArabic
-    ? 'الحقول التالية مطلوبة:\n${missingFields.join('، ')}'
-    : 'Please fill the following fields:\n${missingFields.join(', ')}';
+    final message = widget.isArabic
+        ? 'الحقول التالية مطلوبة:\n${missingFields.join('، ')}'
+        : 'Please fill the following fields:\n${missingFields.join(', ')}';
 
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: Colors.orange,
-      ),
+      SnackBar(content: Text(message), backgroundColor: Colors.orange),
     );
     return false;
   }
@@ -317,11 +314,11 @@ class _AddCustomerScreenState extends State<AddCustomerScreen> {
         : (isAr ? 'عميل جديد جاهز' : 'New customer ready');
     final subtitle = _isEditMode
         ? (isAr
-            ? 'يمكنك تعديل أي معلومة وسيتم حفظ التغييرات فوراً بعد التحديث.'
-            : 'Adjust any detail and we will save it right away after you submit.')
+              ? 'يمكنك تعديل أي معلومة وسيتم حفظ التغييرات فوراً بعد التحديث.'
+              : 'Adjust any detail and we will save it right away after you submit.')
         : (isAr
-            ? 'أدخل بيانات العميل بدقة لربط المعاملات والحسابات بشكل صحيح.'
-            : 'Fill the customer profile carefully to link future transactions.');
+              ? 'أدخل بيانات العميل بدقة لربط المعاملات والحسابات بشكل صحيح.'
+              : 'Fill the customer profile carefully to link future transactions.');
 
     return Container(
       padding: const EdgeInsets.all(20),
@@ -351,11 +348,7 @@ class _AddCustomerScreenState extends State<AddCustomerScreen> {
           const SizedBox(height: 8),
           Text(
             subtitle,
-            style: TextStyle(
-              color: Colors.white70,
-              fontSize: 14,
-              height: 1.5,
-            ),
+            style: TextStyle(color: Colors.white70, fontSize: 14, height: 1.5),
           ),
           const SizedBox(height: 14),
           Wrap(
@@ -419,7 +412,9 @@ class _AddCustomerScreenState extends State<AddCustomerScreen> {
               children: [
                 CircleAvatar(
                   radius: 20,
-                  backgroundColor: primary.withValues(alpha: palette.isDark ? 0.2 : 0.15),
+                  backgroundColor: primary.withValues(
+                    alpha: palette.isDark ? 0.2 : 0.15,
+                  ),
                   child: Icon(Icons.tag, color: palette.primaryText),
                 ),
                 const SizedBox(width: 12),
@@ -536,7 +531,11 @@ class _AddCustomerScreenState extends State<AddCustomerScreen> {
     );
   }
 
-  Widget _buildActionRow(Color primary, bool isAr, _AddCustomerPalette palette) {
+  Widget _buildActionRow(
+    Color primary,
+    bool isAr,
+    _AddCustomerPalette palette,
+  ) {
     return Row(
       children: [
         Expanded(
@@ -545,7 +544,9 @@ class _AddCustomerScreenState extends State<AddCustomerScreen> {
               foregroundColor: palette.primaryText,
               side: BorderSide(color: palette.actionOutline, width: 1.2),
               padding: const EdgeInsets.symmetric(vertical: 16),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(14),
+              ),
             ),
             onPressed: () => Navigator.pop(context),
             child: Text(isAr ? 'إلغاء' : 'Cancel'),
@@ -559,7 +560,9 @@ class _AddCustomerScreenState extends State<AddCustomerScreen> {
               backgroundColor: primary,
               foregroundColor: Colors.black,
               padding: const EdgeInsets.symmetric(vertical: 16),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(14),
+              ),
             ),
             onPressed: _submitForm,
             icon: const Icon(Icons.check_circle_outline),
@@ -671,8 +674,10 @@ class _AddCustomerScreenState extends State<AddCustomerScreen> {
                                 label: isAr ? 'تاريخ الميلاد' : 'Birth Date',
                                 readOnly: true,
                                 onTap: _selectDate,
-                                suffixIcon:
-                                    Icon(Icons.calendar_today, color: primary),
+                                suffixIcon: Icon(
+                                  Icons.calendar_today,
+                                  color: primary,
+                                ),
                                 margin: EdgeInsets.zero,
                               ),
                             ),
@@ -813,7 +818,10 @@ class _AddCustomerScreenState extends State<AddCustomerScreen> {
           suffixIcon: suffixIcon,
           filled: true,
           fillColor: _palette.fieldFill,
-          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 16,
+            vertical: 14,
+          ),
           border: baseBorder,
           enabledBorder: baseBorder,
           focusedBorder: baseBorder.copyWith(

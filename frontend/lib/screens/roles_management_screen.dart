@@ -119,7 +119,7 @@ class _RolesManagementScreenState extends State<RolesManagementScreen> {
             child: Row(
               children: [
                 CircleAvatar(
-                  backgroundColor: color.withOpacity(0.15),
+                  backgroundColor: color.withValues(alpha: 0.15),
                   child: Icon(icon, color: color, size: 22),
                 ),
                 const SizedBox(width: 12),
@@ -197,7 +197,7 @@ class _RolesManagementScreenState extends State<RolesManagementScreen> {
         leading: CircleAvatar(
           backgroundColor: isSystem
               ? Colors.blue.shade100
-              : const Color(0xFFFFD700).withOpacity(0.3),
+              : const Color(0xFFFFD700).withValues(alpha: 0.3),
           child: Icon(
             isSystem ? Icons.shield_outlined : Icons.person_pin_outlined,
             color: isSystem ? Colors.blue.shade700 : const Color(0xFFB8860B),
@@ -282,7 +282,9 @@ class _RolesManagementScreenState extends State<RolesManagementScreen> {
                       children: [
                         const Icon(Icons.vpn_key_outlined, size: 20),
                         const SizedBox(width: 12),
-                        Text(widget.isArabic ? 'إدارة الصلاحيات' : 'Permissions'),
+                        Text(
+                          widget.isArabic ? 'إدارة الصلاحيات' : 'Permissions',
+                        ),
                       ],
                     ),
                   ),
@@ -291,8 +293,11 @@ class _RolesManagementScreenState extends State<RolesManagementScreen> {
                     value: 'delete',
                     child: Row(
                       children: [
-                        const Icon(Icons.delete_outline,
-                            color: Colors.red, size: 20),
+                        const Icon(
+                          Icons.delete_outline,
+                          color: Colors.red,
+                          size: 20,
+                        ),
                         const SizedBox(width: 12),
                         Text(
                           widget.isArabic ? 'حذف' : 'Delete',
@@ -329,8 +334,9 @@ class _RolesManagementScreenState extends State<RolesManagementScreen> {
                           permName,
                           style: const TextStyle(fontSize: 11),
                         ),
-                        backgroundColor:
-                            const Color(0xFFFFD700).withOpacity(0.15),
+                        backgroundColor: const Color(
+                          0xFFFFD700,
+                        ).withValues(alpha: 0.15),
                         materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                       );
                     }).toList(),
@@ -388,8 +394,9 @@ class _RolesManagementScreenState extends State<RolesManagementScreen> {
     final isEdit = role != null;
     final nameController = TextEditingController(text: role?['name']);
     final nameArController = TextEditingController(text: role?['name_ar']);
-    final descriptionController =
-        TextEditingController(text: role?['description']);
+    final descriptionController = TextEditingController(
+      text: role?['description'],
+    );
 
     final result = await showDialog<bool>(
       context: context,
@@ -406,7 +413,9 @@ class _RolesManagementScreenState extends State<RolesManagementScreen> {
               TextField(
                 controller: nameController,
                 decoration: InputDecoration(
-                  labelText: widget.isArabic ? 'الاسم (English)' : 'Name (English)',
+                  labelText: widget.isArabic
+                      ? 'الاسم (English)'
+                      : 'Name (English)',
                   prefixIcon: const Icon(Icons.label_outline),
                   border: const OutlineInputBorder(),
                 ),
@@ -415,7 +424,9 @@ class _RolesManagementScreenState extends State<RolesManagementScreen> {
               TextField(
                 controller: nameArController,
                 decoration: InputDecoration(
-                  labelText: widget.isArabic ? 'الاسم (العربي)' : 'Name (Arabic)',
+                  labelText: widget.isArabic
+                      ? 'الاسم (العربي)'
+                      : 'Name (Arabic)',
                   prefixIcon: const Icon(Icons.label_outline),
                   border: const OutlineInputBorder(),
                 ),
@@ -455,15 +466,11 @@ class _RolesManagementScreenState extends State<RolesManagementScreen> {
 
               try {
                 if (isEdit) {
-                  await widget.api.updateRole(
-                    _token!,
-                    role['id'],
-                    {
-                      'name': name,
-                      'name_ar': nameAr,
-                      'description': descriptionController.text.trim(),
-                    },
-                  );
+                  await widget.api.updateRole(_token!, role['id'], {
+                    'name': name,
+                    'name_ar': nameAr,
+                    'description': descriptionController.text.trim(),
+                  });
                 } else {
                   await widget.api.createRole(
                     _token!,
@@ -491,9 +498,8 @@ class _RolesManagementScreenState extends State<RolesManagementScreen> {
   }
 
   Future<void> _showPermissionsDialog(Map<String, dynamic> role) async {
-    final rolePermissions = (role['permissions'] as List?)
-            ?.map((p) => p['id'] as int)
-            .toList() ??
+    final rolePermissions =
+        (role['permissions'] as List?)?.map((p) => p['id'] as int).toList() ??
         [];
     final selectedPermissions = Set<int>.from(rolePermissions);
 
@@ -508,7 +514,9 @@ class _RolesManagementScreenState extends State<RolesManagementScreen> {
       context: context,
       builder: (context) => StatefulBuilder(
         builder: (context, setState) => AlertDialog(
-          title: Text(widget.isArabic ? 'إدارة الصلاحيات' : 'Manage Permissions'),
+          title: Text(
+            widget.isArabic ? 'إدارة الصلاحيات' : 'Manage Permissions',
+          ),
           content: SizedBox(
             width: double.maxFinite,
             child: _permissions.isEmpty
@@ -572,7 +580,9 @@ class _RolesManagementScreenState extends State<RolesManagementScreen> {
         'permission_ids': result.toList(),
       });
 
-      _showSnack(widget.isArabic ? 'تم تحديث الصلاحيات' : 'Permissions updated');
+      _showSnack(
+        widget.isArabic ? 'تم تحديث الصلاحيات' : 'Permissions updated',
+      );
       _loadRoles();
     } catch (e) {
       _showSnack(e.toString(), isError: true);
@@ -630,34 +640,34 @@ class _RolesManagementScreenState extends State<RolesManagementScreen> {
             child: _loading
                 ? const Center(child: CircularProgressIndicator())
                 : _roles.isEmpty
-                    ? Center(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(
-                              Icons.group_work_outlined,
-                              size: 80,
-                              color: Colors.grey[400],
-                            ),
-                            const SizedBox(height: 16),
-                            Text(
-                              widget.isArabic ? 'لا يوجد أدوار' : 'No roles found',
-                              style: theme.textTheme.titleLarge?.copyWith(
-                                color: Colors.grey[600],
-                              ),
-                            ),
-                          ],
+                ? Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          Icons.group_work_outlined,
+                          size: 80,
+                          color: Colors.grey[400],
                         ),
-                      )
-                    : RefreshIndicator(
-                        onRefresh: _loadRoles,
-                        child: ListView.builder(
-                          itemCount: _roles.length,
-                          itemBuilder: (context, index) {
-                            return _buildRoleCard(_roles[index], theme);
-                          },
+                        const SizedBox(height: 16),
+                        Text(
+                          widget.isArabic ? 'لا يوجد أدوار' : 'No roles found',
+                          style: theme.textTheme.titleLarge?.copyWith(
+                            color: Colors.grey[600],
+                          ),
                         ),
-                      ),
+                      ],
+                    ),
+                  )
+                : RefreshIndicator(
+                    onRefresh: _loadRoles,
+                    child: ListView.builder(
+                      itemCount: _roles.length,
+                      itemBuilder: (context, index) {
+                        return _buildRoleCard(_roles[index], theme);
+                      },
+                    ),
+                  ),
           ),
         ],
       ),

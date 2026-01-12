@@ -26,11 +26,7 @@ class ReportsMainScreen extends StatefulWidget {
   final ApiService api;
   final bool isArabic;
 
-  const ReportsMainScreen({
-    super.key,
-    required this.api,
-    this.isArabic = true,
-  });
+  const ReportsMainScreen({super.key, required this.api, this.isArabic = true});
 
   @override
   State<ReportsMainScreen> createState() => _ReportsMainScreenState();
@@ -70,17 +66,26 @@ class _ReportsMainScreenState extends State<ReportsMainScreen> {
   Iterable<ReportCategory> get _filteredCategories sync* {
     for (final category in _allCategories) {
       final filteredReports = category.reports.where((report) {
-        final matchesType = _selectedType == null || report.type == _selectedType;
+        final matchesType =
+            _selectedType == null || report.type == _selectedType;
         final query = _searchQuery.toLowerCase();
         if (query.isEmpty && matchesType) return true;
 
-        final titleMatches = report.localizedTitle(widget.isArabic).toLowerCase().contains(query);
-        final descriptionMatches =
-            report.localizedDescription(widget.isArabic).toLowerCase().contains(query);
-        final categoryMatches =
-            category.localizedName(widget.isArabic).toLowerCase().contains(query);
+        final titleMatches = report
+            .localizedTitle(widget.isArabic)
+            .toLowerCase()
+            .contains(query);
+        final descriptionMatches = report
+            .localizedDescription(widget.isArabic)
+            .toLowerCase()
+            .contains(query);
+        final categoryMatches = category
+            .localizedName(widget.isArabic)
+            .toLowerCase()
+            .contains(query);
 
-        return matchesType && (titleMatches || descriptionMatches || categoryMatches);
+        return matchesType &&
+            (titleMatches || descriptionMatches || categoryMatches);
       }).toList();
 
       if (filteredReports.isEmpty) continue;
@@ -116,7 +121,9 @@ class _ReportsMainScreenState extends State<ReportsMainScreen> {
         body: SafeArea(
           child: LayoutBuilder(
             builder: (context, constraints) {
-              final horizontalPadding = constraints.maxWidth > 1024 ? 48.0 : 16.0;
+              final horizontalPadding = constraints.maxWidth > 1024
+                  ? 48.0
+                  : 16.0;
               final filtered = _filteredCategories.toList();
 
               return ListView(
@@ -131,7 +138,9 @@ class _ReportsMainScreenState extends State<ReportsMainScreen> {
                   const SizedBox(height: 16),
                   _buildTypeFilters(context, isArabic),
                   const SizedBox(height: 24),
-                  if (filtered.isEmpty) _buildEmptyState(context, isArabic) else ...[
+                  if (filtered.isEmpty)
+                    _buildEmptyState(context, isArabic)
+                  else ...[
                     for (final category in filtered) ...[
                       ReportCategorySection(
                         category: category,
@@ -161,12 +170,15 @@ class _ReportsMainScreenState extends State<ReportsMainScreen> {
       child: Padding(
         padding: const EdgeInsets.all(24),
         child: Column(
-          crossAxisAlignment:
-              isArabic ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+          crossAxisAlignment: isArabic
+              ? CrossAxisAlignment.end
+              : CrossAxisAlignment.start,
           children: [
             Text(
               isArabic ? 'كل تقاريرك في مكان واحد' : 'All reports in one place',
-              style: textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
+              style: textTheme.headlineSmall?.copyWith(
+                fontWeight: FontWeight.bold,
+              ),
             ),
             const SizedBox(height: 12),
             Text(
@@ -185,7 +197,9 @@ class _ReportsMainScreenState extends State<ReportsMainScreen> {
   }
 
   Widget _buildSearchBar(BuildContext context, bool isArabic) {
-    final hint = isArabic ? 'ابحث عن تقرير أو فئة...' : 'Search for a report...';
+    final hint = isArabic
+        ? 'ابحث عن تقرير أو فئة...'
+        : 'Search for a report...';
 
     return TextField(
       controller: _searchController,
@@ -284,10 +298,9 @@ class _ReportsMainScreenState extends State<ReportsMainScreen> {
         const SizedBox(height: 8),
         Text(
           subtitle,
-          style: Theme.of(context)
-              .textTheme
-              .bodyMedium
-              ?.copyWith(color: Colors.grey.shade600),
+          style: Theme.of(
+            context,
+          ).textTheme.bodyMedium?.copyWith(color: Colors.grey.shade600),
           textAlign: TextAlign.center,
         ),
         const SizedBox(height: 48),
@@ -404,17 +417,17 @@ class _ReportsMainScreenState extends State<ReportsMainScreen> {
           : 'This report is not available yet.';
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(message)),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(message)));
       }
       return;
     }
 
     if (!mounted) return;
 
-    await Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => destination!),
-    );
+    await Navigator.of(
+      context,
+    ).push(MaterialPageRoute(builder: (_) => destination!));
   }
 }

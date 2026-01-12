@@ -15,7 +15,7 @@ class EmployeeBonusModel {
   final String? paymentReference;
   final DateTime? createdAt;
   final String? createdBy;
-  
+
   // معلومات إضافية من العلاقات
   final EmployeeSummary? employee;
   final BonusRuleSummary? bonusRule;
@@ -69,7 +69,9 @@ class EmployeeBonusModel {
           ? EmployeeSummary.fromJson(json['employee'] as Map<String, dynamic>)
           : null,
       bonusRule: json['bonus_rule'] != null
-          ? BonusRuleSummary.fromJson(json['bonus_rule'] as Map<String, dynamic>)
+          ? BonusRuleSummary.fromJson(
+              json['bonus_rule'] as Map<String, dynamic>,
+            )
           : null,
     );
   }
@@ -133,10 +135,10 @@ class EmployeeBonusModel {
 
   /// حالات المكافأة
   static const List<String> statuses = [
-    'pending',   // معلقة
-    'approved',  // معتمدة
-    'paid',      // مدفوعة
-    'rejected',  // مرفوضة
+    'pending', // معلقة
+    'approved', // معتمدة
+    'paid', // مدفوعة
+    'rejected', // مرفوضة
   ];
 
   /// أسماء الحالات بالعربية
@@ -197,7 +199,8 @@ class EmployeeSummary {
 
   factory EmployeeSummary.fromJson(Map<String, dynamic> json) {
     // بعض الواجهات الخلفية تُرجع name بدلاً من full_name، أو قد تكون الحقول فارغة
-    final code = (json['employee_code'] ?? json['employeeCode'] ?? '') as String;
+    final code =
+        (json['employee_code'] ?? json['employeeCode'] ?? '') as String;
     final name = (json['full_name'] ?? json['name'] ?? '') as String;
     return EmployeeSummary(
       employeeCode: code,
@@ -222,10 +225,7 @@ class BonusRuleSummary {
   final String name;
   final String ruleType;
 
-  const BonusRuleSummary({
-    required this.name,
-    required this.ruleType,
-  });
+  const BonusRuleSummary({required this.name, required this.ruleType});
 
   factory BonusRuleSummary.fromJson(Map<String, dynamic> json) {
     return BonusRuleSummary(
@@ -235,9 +235,6 @@ class BonusRuleSummary {
   }
 
   Map<String, dynamic> toJson() {
-    return {
-      'name': name,
-      'rule_type': ruleType,
-    };
+    return {'name': name, 'rule_type': ruleType};
   }
 }

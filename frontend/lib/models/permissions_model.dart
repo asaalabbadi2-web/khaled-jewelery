@@ -19,11 +19,7 @@ class Role {
   }
 
   Map<String, dynamic> toJson() {
-    return {
-      'code': code,
-      'name': name,
-      'permissions_count': permissionsCount,
-    };
+    return {'code': code, 'name': name, 'permissions_count': permissionsCount};
   }
 
   /// الأدوار المعرّفة
@@ -54,10 +50,7 @@ class Permission {
   final String code;
   final String name;
 
-  const Permission({
-    required this.code,
-    required this.name,
-  });
+  const Permission({required this.code, required this.name});
 
   factory Permission.fromJson(Map<String, dynamic> json) {
     return Permission(
@@ -67,10 +60,7 @@ class Permission {
   }
 
   Map<String, dynamic> toJson() {
-    return {
-      'code': code,
-      'name': name,
-    };
+    return {'code': code, 'name': name};
   }
 }
 
@@ -79,15 +69,13 @@ class PermissionCategory {
   final String category;
   final List<Permission> permissions;
 
-  const PermissionCategory({
-    required this.category,
-    required this.permissions,
-  });
+  const PermissionCategory({required this.category, required this.permissions});
 
   factory PermissionCategory.fromJson(Map<String, dynamic> json) {
     return PermissionCategory(
       category: json['category'] as String,
-      permissions: (json['permissions'] as List<dynamic>?)
+      permissions:
+          (json['permissions'] as List<dynamic>?)
               ?.map((p) => Permission.fromJson(p as Map<String, dynamic>))
               .toList() ??
           [],

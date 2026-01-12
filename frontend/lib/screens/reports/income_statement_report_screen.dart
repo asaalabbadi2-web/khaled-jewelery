@@ -20,10 +20,12 @@ class IncomeStatementReportScreen extends StatefulWidget {
   });
 
   @override
-  State<IncomeStatementReportScreen> createState() => _IncomeStatementReportScreenState();
+  State<IncomeStatementReportScreen> createState() =>
+      _IncomeStatementReportScreenState();
 }
 
-class _IncomeStatementReportScreenState extends State<IncomeStatementReportScreen> {
+class _IncomeStatementReportScreenState
+    extends State<IncomeStatementReportScreen> {
   Map<String, dynamic>? _report;
   bool _isLoading = false;
   String? _error;
@@ -48,7 +50,11 @@ class _IncomeStatementReportScreenState extends State<IncomeStatementReportScree
   void initState() {
     super.initState();
     final today = DateTime.now();
-    final start = DateTime(today.year, today.month, today.day).subtract(const Duration(days: 89));
+    final start = DateTime(
+      today.year,
+      today.month,
+      today.day,
+    ).subtract(const Duration(days: 89));
     final end = DateTime(today.year, today.month, today.day);
     _selectedRange = DateTimeRange(start: start, end: end);
 
@@ -134,18 +140,18 @@ class _IncomeStatementReportScreenState extends State<IncomeStatementReportScree
 
   Future<void> _pickDateRange() async {
     final now = DateTime.now();
-    final initialRange = _selectedRange ??
-        DateTimeRange(
-          start: now.subtract(const Duration(days: 89)),
-          end: now,
-        );
+    final initialRange =
+        _selectedRange ??
+        DateTimeRange(start: now.subtract(const Duration(days: 89)), end: now);
 
     final picked = await showDateRangePicker(
       context: context,
       firstDate: DateTime(now.year - 5),
       lastDate: DateTime(now.year + 1),
       initialDateRange: initialRange,
-      locale: _isCurrentLocaleArabic(context) ? const Locale('ar') : const Locale('en'),
+      locale: _isCurrentLocaleArabic(context)
+          ? const Locale('ar')
+          : const Locale('en'),
     );
 
     if (picked != null) {
@@ -167,7 +173,8 @@ class _IncomeStatementReportScreenState extends State<IncomeStatementReportScree
 
   String _formatCurrency(num value) => _currencyFormat.format(value);
 
-  String _formatWeight(num value) => '${_weightFormat.format(value)} جم (عيار $_mainKarat)';
+  String _formatWeight(num value) =>
+      '${_weightFormat.format(value)} جم (عيار $_mainKarat)';
 
   @override
   Widget build(BuildContext context) {
@@ -187,8 +194,8 @@ class _IncomeStatementReportScreenState extends State<IncomeStatementReportScree
         child: _isLoading
             ? const Center(child: CircularProgressIndicator())
             : _error != null
-                ? _buildErrorState(isArabic)
-                : _buildContent(isArabic),
+            ? _buildErrorState(isArabic)
+            : _buildContent(isArabic),
       ),
     );
   }
@@ -301,7 +308,9 @@ class _IncomeStatementReportScreenState extends State<IncomeStatementReportScree
                   }).toList(),
                 ),
                 FilterChip(
-                  label: Text(isArabic ? 'تضمين غير المرحلة' : 'Include unposted'),
+                  label: Text(
+                    isArabic ? 'تضمين غير المرحلة' : 'Include unposted',
+                  ),
                   selected: _includeUnposted,
                   onSelected: (value) {
                     setState(() => _includeUnposted = value);
@@ -321,15 +330,19 @@ class _IncomeStatementReportScreenState extends State<IncomeStatementReportScree
     if (summary.isEmpty) {
       return _buildEmptyState(
         icon: Icons.receipt_long,
-        message: isArabic ? 'لا توجد بيانات لهذه الفترة.' : 'No data for this range.',
+        message: isArabic
+            ? 'لا توجد بيانات لهذه الفترة.'
+            : 'No data for this range.',
       );
     }
 
     final netMarginPct = _asDouble(summary['net_margin_pct']);
     final weightNetMarginPct = _asDouble(summary['weight_net_margin_pct']);
-  final manufacturingWage = _asDouble(summary['manufacturing_wage_expense']);
-  final operatingExclWage = _asDouble(summary['operating_expenses_excl_wage']);
-  final operatingTotal = _asDouble(summary['operating_expenses']);
+    final manufacturingWage = _asDouble(summary['manufacturing_wage_expense']);
+    final operatingExclWage = _asDouble(
+      summary['operating_expenses_excl_wage'],
+    );
+    final operatingTotal = _asDouble(summary['operating_expenses']);
 
     final financialMetrics = [
       _SummaryMetric(
@@ -345,13 +358,17 @@ class _IncomeStatementReportScreenState extends State<IncomeStatementReportScree
         color: Colors.blue,
       ),
       _SummaryMetric(
-        label: isArabic ? 'مصروفات أجور المصنعية' : 'Manufacturing Wages Expense',
+        label: isArabic
+            ? 'مصروفات أجور المصنعية'
+            : 'Manufacturing Wages Expense',
         value: _formatCurrency(manufacturingWage),
         icon: Icons.home_repair_service,
         color: Colors.brown,
       ),
       _SummaryMetric(
-        label: isArabic ? 'المصاريف التشغيلية الأخرى' : 'Other Operating Expenses',
+        label: isArabic
+            ? 'المصاريف التشغيلية الأخرى'
+            : 'Other Operating Expenses',
         value: _formatCurrency(operatingExclWage),
         icon: Icons.money_off,
         color: Colors.orange,
@@ -396,7 +413,9 @@ class _IncomeStatementReportScreenState extends State<IncomeStatementReportScree
         color: Colors.blue.shade700,
       ),
       _SummaryMetric(
-        label: isArabic ? 'أجور المصنعية (وزني)' : 'Manufacturing Wages (Weight)',
+        label: isArabic
+            ? 'أجور المصنعية (وزني)'
+            : 'Manufacturing Wages (Weight)',
         value: _formatWeight(_asDouble(summary['weight_manufacturing_wage'])),
         icon: Icons.home_repair_service,
         color: Colors.brown.shade400,
@@ -431,27 +450,45 @@ class _IncomeStatementReportScreenState extends State<IncomeStatementReportScree
           children: [
             Text(
               isArabic ? 'المؤشرات المالية' : 'Financial Metrics',
-              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.blueGrey),
+              style: const TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+                color: Colors.blueGrey,
+              ),
             ),
             const SizedBox(height: 12),
             Wrap(
               spacing: 16,
               runSpacing: 16,
               children: financialMetrics
-                  .map((metric) => SizedBox(width: 200, child: _SummaryTile(metric: metric, isArabic: isArabic)))
+                  .map(
+                    (metric) => SizedBox(
+                      width: 200,
+                      child: _SummaryTile(metric: metric, isArabic: isArabic),
+                    ),
+                  )
                   .toList(),
             ),
             const Divider(height: 32),
             Text(
               isArabic ? 'المؤشرات الوزنية (ذهب)' : 'Weight Metrics (Gold)',
-              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.amber),
+              style: const TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+                color: Colors.amber,
+              ),
             ),
             const SizedBox(height: 12),
             Wrap(
               spacing: 16,
               runSpacing: 16,
               children: weightMetrics
-                  .map((metric) => SizedBox(width: 200, child: _SummaryTile(metric: metric, isArabic: isArabic)))
+                  .map(
+                    (metric) => SizedBox(
+                      width: 200,
+                      child: _SummaryTile(metric: metric, isArabic: isArabic),
+                    ),
+                  )
                   .toList(),
             ),
             const SizedBox(height: 24),
@@ -462,7 +499,10 @@ class _IncomeStatementReportScreenState extends State<IncomeStatementReportScree
     );
   }
 
-  Widget _buildWeightExpenseBreakdown(bool isArabic, Map<String, dynamic> summary) {
+  Widget _buildWeightExpenseBreakdown(
+    bool isArabic,
+    Map<String, dynamic> summary,
+  ) {
     final postedWeight = _asDouble(summary['weight_expenses_posted']);
     final pendingWeight = _asDouble(summary['weight_expenses_pending']);
     final pendingCash = _asDouble(summary['weight_expenses_pending_cash']);
@@ -486,7 +526,9 @@ class _IncomeStatementReportScreenState extends State<IncomeStatementReportScree
               width: 220,
               child: _InsightPill(
                 icon: Icons.scale,
-                label: isArabic ? 'إجمالي المصاريف الوزنية' : 'Total Weight Expenses',
+                label: isArabic
+                    ? 'إجمالي المصاريف الوزنية'
+                    : 'Total Weight Expenses',
                 value: _formatWeight(totalWeight),
                 color: Colors.amber.shade800,
               ),
@@ -495,7 +537,9 @@ class _IncomeStatementReportScreenState extends State<IncomeStatementReportScree
               width: 220,
               child: _InsightPill(
                 icon: Icons.verified_outlined,
-                label: isArabic ? 'مصاريف وزنية مرحلة' : 'Posted Weight Expenses',
+                label: isArabic
+                    ? 'مصاريف وزنية مرحلة'
+                    : 'Posted Weight Expenses',
                 value: _formatWeight(postedWeight),
                 color: Colors.teal.shade600,
               ),
@@ -504,7 +548,9 @@ class _IncomeStatementReportScreenState extends State<IncomeStatementReportScree
               width: 220,
               child: _InsightPill(
                 icon: Icons.pending_actions_outlined,
-                label: isArabic ? 'مصاريف وزنية معلقة' : 'Pending Weight Expenses',
+                label: isArabic
+                    ? 'مصاريف وزنية معلقة'
+                    : 'Pending Weight Expenses',
                 value: _formatWeight(pendingWeight),
                 color: Colors.deepOrange.shade400,
               ),
@@ -513,7 +559,9 @@ class _IncomeStatementReportScreenState extends State<IncomeStatementReportScree
               width: 220,
               child: _InsightPill(
                 icon: Icons.currency_exchange,
-                label: isArabic ? 'المكافئ النقدي للمعلقة' : 'Pending Cash Equivalent',
+                label: isArabic
+                    ? 'المكافئ النقدي للمعلقة'
+                    : 'Pending Cash Equivalent',
                 value: _formatCurrency(pendingCash),
                 color: Colors.blueGrey.shade600,
               ),
@@ -525,19 +573,25 @@ class _IncomeStatementReportScreenState extends State<IncomeStatementReportScree
             margin: const EdgeInsets.only(top: 12),
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: Colors.orange.withOpacity(0.08),
+              color: Colors.orange.withValues(alpha: 0.08),
               borderRadius: BorderRadius.circular(12),
             ),
             child: Row(
               children: [
-                Icon(Icons.warning_amber_rounded, color: Colors.orange.shade700),
+                Icon(
+                  Icons.warning_amber_rounded,
+                  color: Colors.orange.shade700,
+                ),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
                     isArabic
                         ? 'لا تزال هناك تسويات وزنية قيد التنفيذ. نفّذ التسويات لإغلاق الفترة بأمان.'
                         : 'Pending weight settlements need execution before closing the period.',
-                    style: TextStyle(color: Colors.orange.shade900, fontWeight: FontWeight.w600),
+                    style: TextStyle(
+                      color: Colors.orange.shade900,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                 ),
               ],
@@ -572,10 +626,7 @@ class _IncomeStatementReportScreenState extends State<IncomeStatementReportScree
       spotsNet.add(FlSpot(i.toDouble(), netProfit));
       maxValue = math.max(
         maxValue,
-        math.max(
-          netRevenue.abs(),
-          math.max(expenses.abs(), netProfit.abs()),
-        ),
+        math.max(netRevenue.abs(), math.max(expenses.abs(), netProfit.abs())),
       );
     }
 
@@ -603,8 +654,12 @@ class _IncomeStatementReportScreenState extends State<IncomeStatementReportScree
                   minY: -maxValue,
                   maxY: maxValue,
                   titlesData: FlTitlesData(
-                    topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                    rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                    topTitles: const AxisTitles(
+                      sideTitles: SideTitles(showTitles: false),
+                    ),
+                    rightTitles: const AxisTitles(
+                      sideTitles: SideTitles(showTitles: false),
+                    ),
                     leftTitles: AxisTitles(
                       sideTitles: SideTitles(
                         showTitles: true,
@@ -620,8 +675,11 @@ class _IncomeStatementReportScreenState extends State<IncomeStatementReportScree
                         showTitles: true,
                         getTitlesWidget: (value, meta) {
                           final index = value.toInt();
-                          if (index < 0 || index >= limited.length) return const SizedBox.shrink();
-                          final label = limited[index]['label']?.toString() ?? '';
+                          if (index < 0 || index >= limited.length) {
+                            return const SizedBox.shrink();
+                          }
+                          final label =
+                              limited[index]['label']?.toString() ?? '';
                           return Padding(
                             padding: const EdgeInsets.only(top: 6),
                             child: Text(
@@ -667,7 +725,10 @@ class _IncomeStatementReportScreenState extends State<IncomeStatementReportScree
                         return spots.map((spot) {
                           final label = limited[spot.x.toInt()]['label'];
                           final value = _formatCurrency(spot.y);
-                          return LineTooltipItem('$label\n$value', const TextStyle(color: Colors.white));
+                          return LineTooltipItem(
+                            '$label\n$value',
+                            const TextStyle(color: Colors.white),
+                          );
                         }).toList();
                       },
                     ),
@@ -679,11 +740,20 @@ class _IncomeStatementReportScreenState extends State<IncomeStatementReportScree
             Wrap(
               spacing: 12,
               children: [
-                _LegendChip(color: Colors.blue, label: isArabic ? 'صافي المبيعات' : 'Net Revenue'),
-                _LegendChip(color: Colors.orange, label: isArabic ? 'المصاريف' : 'Expenses'),
-                _LegendChip(color: Colors.green, label: isArabic ? 'صافي الربح' : 'Net Profit'),
+                _LegendChip(
+                  color: Colors.blue,
+                  label: isArabic ? 'صافي المبيعات' : 'Net Revenue',
+                ),
+                _LegendChip(
+                  color: Colors.orange,
+                  label: isArabic ? 'المصاريف' : 'Expenses',
+                ),
+                _LegendChip(
+                  color: Colors.green,
+                  label: isArabic ? 'صافي الربح' : 'Net Profit',
+                ),
               ],
-            )
+            ),
           ],
         ),
       ),
@@ -712,10 +782,7 @@ class _IncomeStatementReportScreenState extends State<IncomeStatementReportScree
       spotsNet.add(FlSpot(i.toDouble(), netProfit));
       maxValue = math.max(
         maxValue,
-        math.max(
-          netRevenue.abs(),
-          math.max(expenses.abs(), netProfit.abs()),
-        ),
+        math.max(netRevenue.abs(), math.max(expenses.abs(), netProfit.abs())),
       );
     }
 
@@ -743,8 +810,12 @@ class _IncomeStatementReportScreenState extends State<IncomeStatementReportScree
                   minY: -maxValue,
                   maxY: maxValue,
                   titlesData: FlTitlesData(
-                    topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                    rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                    topTitles: const AxisTitles(
+                      sideTitles: SideTitles(showTitles: false),
+                    ),
+                    rightTitles: const AxisTitles(
+                      sideTitles: SideTitles(showTitles: false),
+                    ),
                     leftTitles: AxisTitles(
                       sideTitles: SideTitles(
                         showTitles: true,
@@ -760,8 +831,11 @@ class _IncomeStatementReportScreenState extends State<IncomeStatementReportScree
                         showTitles: true,
                         getTitlesWidget: (value, meta) {
                           final index = value.toInt();
-                          if (index < 0 || index >= limited.length) return const SizedBox.shrink();
-                          final label = limited[index]['label']?.toString() ?? '';
+                          if (index < 0 || index >= limited.length) {
+                            return const SizedBox.shrink();
+                          }
+                          final label =
+                              limited[index]['label']?.toString() ?? '';
                           return Padding(
                             padding: const EdgeInsets.only(top: 6),
                             child: Text(
@@ -807,7 +881,10 @@ class _IncomeStatementReportScreenState extends State<IncomeStatementReportScree
                         return spots.map((spot) {
                           final label = limited[spot.x.toInt()]['label'];
                           final value = _formatWeight(spot.y);
-                          return LineTooltipItem('$label\n$value', const TextStyle(color: Colors.white));
+                          return LineTooltipItem(
+                            '$label\n$value',
+                            const TextStyle(color: Colors.white),
+                          );
                         }).toList();
                       },
                     ),
@@ -819,11 +896,20 @@ class _IncomeStatementReportScreenState extends State<IncomeStatementReportScree
             Wrap(
               spacing: 12,
               children: [
-                _LegendChip(color: Colors.amber.shade700, label: isArabic ? 'صافي المبيعات' : 'Net Revenue'),
-                _LegendChip(color: Colors.deepOrange, label: isArabic ? 'المصاريف' : 'Expenses'),
-                _LegendChip(color: Colors.teal.shade700, label: isArabic ? 'صافي الربح' : 'Net Profit'),
+                _LegendChip(
+                  color: Colors.amber.shade700,
+                  label: isArabic ? 'صافي المبيعات' : 'Net Revenue',
+                ),
+                _LegendChip(
+                  color: Colors.deepOrange,
+                  label: isArabic ? 'المصاريف' : 'Expenses',
+                ),
+                _LegendChip(
+                  color: Colors.teal.shade700,
+                  label: isArabic ? 'صافي الربح' : 'Net Profit',
+                ),
               ],
-            )
+            ),
           ],
         ),
       ),
@@ -854,28 +940,104 @@ class _IncomeStatementReportScreenState extends State<IncomeStatementReportScree
               child: DataTable(
                 columns: [
                   DataColumn(label: Text(isArabic ? 'الفترة' : 'Period')),
-                  DataColumn(label: Text(isArabic ? 'صافي المبيعات (نقدي)' : 'Net Revenue (Cash)')),
-                  DataColumn(label: Text(isArabic ? 'صافي الربح (نقدي)' : 'Net Profit (Cash)')),
-                  DataColumn(label: Text(isArabic ? 'صافي المبيعات (وزني)' : 'Net Revenue (Weight)')),
-                  DataColumn(label: Text(isArabic ? 'الوزن المباع الفعلي' : 'Actual Sold Weight')),
-                  DataColumn(label: Text(isArabic ? 'أجور مصنعية (وزني)' : 'Mfg Wages (Weight)')),
-                  DataColumn(label: Text(isArabic ? 'مصاريف (مرحلة)' : 'Expenses (Posted)')),
-                  DataColumn(label: Text(isArabic ? 'مصاريف (معلقة)' : 'Expenses (Pending)')),
-                  DataColumn(label: Text(isArabic ? 'صافي الربح (وزني)' : 'Net Profit (Weight)')),
+                  DataColumn(
+                    label: Text(
+                      isArabic ? 'صافي المبيعات (نقدي)' : 'Net Revenue (Cash)',
+                    ),
+                  ),
+                  DataColumn(
+                    label: Text(
+                      isArabic ? 'صافي الربح (نقدي)' : 'Net Profit (Cash)',
+                    ),
+                  ),
+                  DataColumn(
+                    label: Text(
+                      isArabic
+                          ? 'صافي المبيعات (وزني)'
+                          : 'Net Revenue (Weight)',
+                    ),
+                  ),
+                  DataColumn(
+                    label: Text(
+                      isArabic ? 'الوزن المباع الفعلي' : 'Actual Sold Weight',
+                    ),
+                  ),
+                  DataColumn(
+                    label: Text(
+                      isArabic ? 'أجور مصنعية (وزني)' : 'Mfg Wages (Weight)',
+                    ),
+                  ),
+                  DataColumn(
+                    label: Text(
+                      isArabic ? 'مصاريف (مرحلة)' : 'Expenses (Posted)',
+                    ),
+                  ),
+                  DataColumn(
+                    label: Text(
+                      isArabic ? 'مصاريف (معلقة)' : 'Expenses (Pending)',
+                    ),
+                  ),
+                  DataColumn(
+                    label: Text(
+                      isArabic ? 'صافي الربح (وزني)' : 'Net Profit (Weight)',
+                    ),
+                  ),
                 ],
                 rows: series
                     .map(
                       (row) => DataRow(
                         cells: [
-                          DataCell(Text(row['label']?.toString() ?? row['period']?.toString() ?? '-')),
-                          DataCell(Text(_formatCurrency(_asDouble(row['net_revenue'])))),
-                          DataCell(Text(_formatCurrency(_asDouble(row['net_profit'])))),
-                          DataCell(Text(_formatWeight(_asDouble(row['weight_revenue'])))),
-                          DataCell(Text(_formatWeight(_asDouble(row['weight_cogs'])))),
-                          DataCell(Text(_formatWeight(_asDouble(row['weight_manufacturing_wage'])))),
-                          DataCell(Text(_formatWeight(_asDouble(row['weight_expenses_posted'])))),
-                          DataCell(Text(_formatWeight(_asDouble(row['weight_expenses_pending'])))),
-                          DataCell(Text(_formatWeight(_asDouble(row['weight_net_profit'])))),
+                          DataCell(
+                            Text(
+                              row['label']?.toString() ??
+                                  row['period']?.toString() ??
+                                  '-',
+                            ),
+                          ),
+                          DataCell(
+                            Text(
+                              _formatCurrency(_asDouble(row['net_revenue'])),
+                            ),
+                          ),
+                          DataCell(
+                            Text(_formatCurrency(_asDouble(row['net_profit']))),
+                          ),
+                          DataCell(
+                            Text(
+                              _formatWeight(_asDouble(row['weight_revenue'])),
+                            ),
+                          ),
+                          DataCell(
+                            Text(_formatWeight(_asDouble(row['weight_cogs']))),
+                          ),
+                          DataCell(
+                            Text(
+                              _formatWeight(
+                                _asDouble(row['weight_manufacturing_wage']),
+                              ),
+                            ),
+                          ),
+                          DataCell(
+                            Text(
+                              _formatWeight(
+                                _asDouble(row['weight_expenses_posted']),
+                              ),
+                            ),
+                          ),
+                          DataCell(
+                            Text(
+                              _formatWeight(
+                                _asDouble(row['weight_expenses_pending']),
+                              ),
+                            ),
+                          ),
+                          DataCell(
+                            Text(
+                              _formatWeight(
+                                _asDouble(row['weight_net_profit']),
+                              ),
+                            ),
+                          ),
                         ],
                       ),
                     )
@@ -889,7 +1051,9 @@ class _IncomeStatementReportScreenState extends State<IncomeStatementReportScree
   }
 
   Widget _buildExpensesCard(bool isArabic) {
-    final expenses = List<Map<String, dynamic>>.from(_report?['expense_breakdown'] ?? []);
+    final expenses = List<Map<String, dynamic>>.from(
+      _report?['expense_breakdown'] ?? [],
+    );
     if (expenses.isEmpty) {
       return _buildEmptyState(
         icon: Icons.money_off,
@@ -955,12 +1119,11 @@ class _InsightPill extends StatelessWidget {
   final Color color;
 
   const _InsightPill({
-    Key? key,
     required this.icon,
     required this.label,
     required this.value,
     required this.color,
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -968,8 +1131,8 @@ class _InsightPill extends StatelessWidget {
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: color.withOpacity(0.4)),
-        color: color.withOpacity(0.07),
+        border: Border.all(color: color.withValues(alpha: 0.4)),
+        color: color.withValues(alpha: 0.07),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,

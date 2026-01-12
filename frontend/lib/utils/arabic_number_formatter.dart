@@ -16,14 +16,14 @@ class ArabicNumberTextInputFormatter extends TextInputFormatter {
     TextEditingValue newValue,
   ) {
     final newText = convertToWesternNumbers(newValue.text);
-    
+
     // بناء regex بناءً على الخيارات
     String pattern = '';
     if (allowNegative) pattern += r'-?';
     pattern += r'\d*';
     if (allowDecimal) pattern += r'\.?\d*';
-    pattern = '^' + pattern + r'$';
-    
+    pattern = '^$pattern\$';
+
     final regExp = RegExp(pattern, unicode: true);
 
     if (regExp.hasMatch(newText)) {
@@ -42,17 +42,17 @@ class ArabicNumberTextInputFormatter extends TextInputFormatter {
     const westernNumbers = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'];
 
     var output = input;
-    
+
     // تحويل الأرقام العربية
     for (var i = 0; i < arabicNumbers.length; i++) {
       output = output.replaceAll(arabicNumbers[i], westernNumbers[i]);
     }
-    
+
     // تحويل الأرقام الفارسية/الهندية
     for (var i = 0; i < persianNumbers.length; i++) {
       output = output.replaceAll(persianNumbers[i], westernNumbers[i]);
     }
-    
+
     return output;
   }
 }
@@ -66,8 +66,10 @@ class UniversalNumberTextInputFormatter extends TextInputFormatter {
     TextEditingValue oldValue,
     TextEditingValue newValue,
   ) {
-    final newText = ArabicNumberTextInputFormatter.convertToWesternNumbers(newValue.text);
-    
+    final newText = ArabicNumberTextInputFormatter.convertToWesternNumbers(
+      newValue.text,
+    );
+
     return TextEditingValue(
       text: newText,
       selection: TextSelection.collapsed(offset: newText.length),

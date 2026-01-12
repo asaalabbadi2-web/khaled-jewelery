@@ -10,8 +10,7 @@ import '../theme/app_theme.dart';
 class JournalEntriesListScreen extends StatefulWidget {
   final bool isArabic;
 
-  const JournalEntriesListScreen({Key? key, this.isArabic = true})
-    : super(key: key);
+  const JournalEntriesListScreen({super.key, this.isArabic = true});
 
   @override
   State<JournalEntriesListScreen> createState() =>
@@ -354,24 +353,32 @@ class _JournalEntriesListScreenState extends State<JournalEntriesListScreen> {
                 maxLines: 3,
                 style: dialogTheme.textTheme.bodyMedium,
                 decoration: InputDecoration(
-                  hintText:
-                      isAr ? 'مثال: خطأ في الإدخال' : 'e.g: Input error',
+                  hintText: isAr ? 'مثال: خطأ في الإدخال' : 'e.g: Input error',
                   hintStyle: dialogTheme.textTheme.bodyMedium?.copyWith(
                     color: hintColor,
                   ),
                   filled: true,
-                  fillColor: colorScheme.surfaceVariant.withValues(alpha: 0.35),
+                  fillColor: colorScheme.surfaceContainerHighest.withValues(
+                    alpha: 0.35,
+                  ),
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide(color: colorScheme.primary.withValues(alpha: 0.4)),
+                    borderSide: BorderSide(
+                      color: colorScheme.primary.withValues(alpha: 0.4),
+                    ),
                   ),
                   enabledBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide(color: colorScheme.primary.withValues(alpha: 0.4)),
+                    borderSide: BorderSide(
+                      color: colorScheme.primary.withValues(alpha: 0.4),
+                    ),
                   ),
                   focusedBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide(color: colorScheme.primary, width: 2),
+                    borderSide: BorderSide(
+                      color: colorScheme.primary,
+                      width: 2,
+                    ),
                   ),
                 ),
               ),
@@ -461,21 +468,24 @@ class _JournalEntriesListScreenState extends State<JournalEntriesListScreen> {
                       fontWeight: FontWeight.w600,
                     ),
                   ),
-                  Text(
-                    reason,
-                    style: dialogTheme.textTheme.bodyMedium,
-                  ),
+                  Text(reason, style: dialogTheme.textTheme.bodyMedium),
                   SizedBox(height: 16),
                   Container(
                     padding: EdgeInsets.all(12),
                     decoration: BoxDecoration(
                       color: AppColors.info.withValues(alpha: 0.1),
                       borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: AppColors.info.withValues(alpha: 0.2)),
+                      border: Border.all(
+                        color: AppColors.info.withValues(alpha: 0.2),
+                      ),
                     ),
                     child: Row(
                       children: [
-                        Icon(Icons.info_outline, color: AppColors.info, size: 20),
+                        Icon(
+                          Icons.info_outline,
+                          color: AppColors.info,
+                          size: 20,
+                        ),
                         SizedBox(width: 8),
                         Expanded(
                           child: Text(
@@ -599,16 +609,25 @@ class _JournalEntriesListScreenState extends State<JournalEntriesListScreen> {
               fontWeight: FontWeight.bold,
             ),
           ),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              _buildSortOption('التاريخ (الأحدث أولاً)', 'date_desc'),
-              _buildSortOption('التاريخ (الأقدم أولاً)', 'date_asc'),
-              _buildSortOption('المبلغ (الأعلى أولاً)', 'amount_desc'),
-              _buildSortOption('المبلغ (الأقل أولاً)', 'amount_asc'),
-              _buildSortOption('الرقم (الأعلى أولاً)', 'id_desc'),
-              _buildSortOption('الرقم (الأقل أولاً)', 'id_asc'),
-            ],
+          content: RadioGroup<String>(
+            groupValue: _sortBy,
+            onChanged: (newValue) {
+              if (newValue == null) return;
+              setState(() => _sortBy = newValue);
+              _applyFilters();
+              Navigator.pop(context);
+            },
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _buildSortOption('التاريخ (الأحدث أولاً)', 'date_desc'),
+                _buildSortOption('التاريخ (الأقدم أولاً)', 'date_asc'),
+                _buildSortOption('المبلغ (الأعلى أولاً)', 'amount_desc'),
+                _buildSortOption('المبلغ (الأقل أولاً)', 'amount_asc'),
+                _buildSortOption('الرقم (الأعلى أولاً)', 'id_desc'),
+                _buildSortOption('الرقم (الأقل أولاً)', 'id_asc'),
+              ],
+            ),
           ),
         );
       },
@@ -619,13 +638,7 @@ class _JournalEntriesListScreenState extends State<JournalEntriesListScreen> {
     return RadioListTile<String>(
       title: Text(label),
       value: value,
-      groupValue: _sortBy,
       activeColor: AppColors.primaryGold,
-      onChanged: (newValue) {
-        setState(() => _sortBy = newValue!);
-        _applyFilters();
-        Navigator.pop(context);
-      },
     );
   }
 
@@ -651,7 +664,9 @@ class _JournalEntriesListScreenState extends State<JournalEntriesListScreen> {
                 decoration: InputDecoration(
                   hintText: 'بحث بالوصف، التاريخ، أو الرقم...',
                   border: InputBorder.none,
-                  hintStyle: TextStyle(color: appBarForeground.withValues(alpha: 0.6)),
+                  hintStyle: TextStyle(
+                    color: appBarForeground.withValues(alpha: 0.6),
+                  ),
                 ),
                 style: TextStyle(color: appBarForeground),
               )
@@ -705,8 +720,7 @@ class _JournalEntriesListScreenState extends State<JournalEntriesListScreen> {
                 _buildStatisticsCard(theme, isAr),
 
                 // Active Filters Chips
-                if (_hasActiveFilters())
-                  _buildActiveFiltersChips(theme, gold),
+                if (_hasActiveFilters()) _buildActiveFiltersChips(theme, gold),
 
                 // Entries List
                 Expanded(
@@ -723,10 +737,7 @@ class _JournalEntriesListScreenState extends State<JournalEntriesListScreen> {
     );
   }
 
-  Widget _buildStatisticsCard(
-    ThemeData theme,
-    bool isAr,
-  ) {
+  Widget _buildStatisticsCard(ThemeData theme, bool isAr) {
     final colorScheme = theme.colorScheme;
     final onSurface = colorScheme.onSurface;
 
@@ -743,7 +754,10 @@ class _JournalEntriesListScreenState extends State<JournalEntriesListScreen> {
           ],
         ),
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: colorScheme.primary.withValues(alpha: 0.25), width: 1),
+        border: Border.all(
+          color: colorScheme.primary.withValues(alpha: 0.25),
+          width: 1,
+        ),
       ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceAround,
@@ -1055,7 +1069,8 @@ class _JournalEntriesListScreenState extends State<JournalEntriesListScreen> {
                             ),
                           ),
                         ),
-                        if (entry['entry_type'] != null && entry['entry_type'] != 'عادي') ...[
+                        if (entry['entry_type'] != null &&
+                            entry['entry_type'] != 'عادي') ...[
                           SizedBox(width: 8),
                           Container(
                             padding: EdgeInsets.symmetric(
@@ -1063,7 +1078,9 @@ class _JournalEntriesListScreenState extends State<JournalEntriesListScreen> {
                               vertical: 4,
                             ),
                             decoration: BoxDecoration(
-                              color: _getEntryTypeColor(entry['entry_type']).withValues(alpha: 0.15),
+                              color: _getEntryTypeColor(
+                                entry['entry_type'],
+                              ).withValues(alpha: 0.15),
                               borderRadius: BorderRadius.circular(16),
                               border: Border.all(
                                 color: _getEntryTypeColor(entry['entry_type']),
@@ -1084,11 +1101,7 @@ class _JournalEntriesListScreenState extends State<JournalEntriesListScreen> {
                     // Date
                     Row(
                       children: [
-                        Icon(
-                          Icons.calendar_today,
-                          size: 14,
-                          color: mutedText,
-                        ),
+                        Icon(Icons.calendar_today, size: 14, color: mutedText),
                         SizedBox(width: 4),
                         Text(
                           dateStr,
@@ -1187,8 +1200,8 @@ class _FilterDialog extends StatefulWidget {
 class _FilterDialogState extends State<_FilterDialog> {
   DateTimeRange? _dateRange;
   int? _selectedAccountId;
-  TextEditingController _minAmountController = TextEditingController();
-  TextEditingController _maxAmountController = TextEditingController();
+  final TextEditingController _minAmountController = TextEditingController();
+  final TextEditingController _maxAmountController = TextEditingController();
 
   @override
   void initState() {
@@ -1228,9 +1241,7 @@ class _FilterDialogState extends State<_FilterDialog> {
               onSurface: colorScheme.onSurface,
             ),
             textButtonTheme: TextButtonThemeData(
-              style: TextButton.styleFrom(
-                foregroundColor: colorScheme.primary,
-              ),
+              style: TextButton.styleFrom(foregroundColor: colorScheme.primary),
             ),
           ),
           child: child ?? SizedBox.shrink(),
@@ -1287,9 +1298,7 @@ class _FilterDialogState extends State<_FilterDialog> {
                 _dateRange == null
                     ? (isAr ? 'اختر الفترة' : 'Select Period')
                     : '${DateFormat('yyyy-MM-dd').format(_dateRange!.start)} - ${DateFormat('yyyy-MM-dd').format(_dateRange!.end)}',
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  color: onSurface,
-                ),
+                style: theme.textTheme.bodyMedium?.copyWith(color: onSurface),
               ),
               style: OutlinedButton.styleFrom(
                 side: BorderSide(color: gold),
@@ -1308,11 +1317,13 @@ class _FilterDialogState extends State<_FilterDialog> {
             ),
             SizedBox(height: 8),
             DropdownButtonFormField<int>(
-              value: _selectedAccountId,
+              initialValue: _selectedAccountId,
               dropdownColor: colorScheme.surface,
               style: theme.textTheme.bodyMedium,
               decoration: InputDecoration(
-                hintText: isAr ? 'جميع الحسابات (اكتب رقم الحساب للبحث السريع)' : 'All Accounts (Type account number for quick search)',
+                hintText: isAr
+                    ? 'جميع الحسابات (اكتب رقم الحساب للبحث السريع)'
+                    : 'All Accounts (Type account number for quick search)',
                 hintStyle: theme.textTheme.bodySmall?.copyWith(
                   color: hintColor,
                 ),
@@ -1351,9 +1362,9 @@ class _FilterDialogState extends State<_FilterDialog> {
                             overflow: TextOverflow.ellipsis,
                           ),
                           Text(
-                            account['transaction_type'] == 'cash' 
-                              ? (isAr ? 'حساب نقدي' : 'Cash Account')
-                              : account['transaction_type'] == 'gold'
+                            account['transaction_type'] == 'cash'
+                                ? (isAr ? 'حساب نقدي' : 'Cash Account')
+                                : account['transaction_type'] == 'gold'
                                 ? (isAr ? 'حساب ذهبي' : 'Gold Account')
                                 : (isAr ? 'حساب مختلط' : 'Mixed Account'),
                             style: theme.textTheme.bodySmall?.copyWith(
@@ -1365,7 +1376,7 @@ class _FilterDialogState extends State<_FilterDialog> {
                       ),
                     ),
                   );
-                }).toList(),
+                }),
               ],
               onChanged: (value) {
                 setState(() => _selectedAccountId = value);
@@ -1441,9 +1452,7 @@ class _FilterDialogState extends State<_FilterDialog> {
           },
           child: Text(
             isAr ? 'مسح الكل' : 'Clear All',
-            style: theme.textTheme.bodyMedium?.copyWith(
-              color: AppColors.error,
-            ),
+            style: theme.textTheme.bodyMedium?.copyWith(color: AppColors.error),
           ),
         ),
         TextButton(

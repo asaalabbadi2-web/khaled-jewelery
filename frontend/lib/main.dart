@@ -4,7 +4,8 @@ import 'dart:async';
 import 'dart:ui';
 import 'package:flutter/services.dart';
 import 'src/url_strategy_stub.dart'
-  if (dart.library.html) 'src/url_strategy_web.dart' as url_strategy;
+    if (dart.library.html) 'src/url_strategy_web.dart'
+    as url_strategy;
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:provider/provider.dart';
 import 'providers/settings_provider.dart';
@@ -56,7 +57,9 @@ Future<void> main() async {
           create: (context) {
             final provider = SettingsProvider();
             final auth = context.read<AuthProvider>();
-            provider.loadSettings(fetchRemote: auth.hasPermission('system.settings'));
+            provider.loadSettings(
+              fetchRemote: auth.hasPermission('system.settings'),
+            );
             return provider;
           },
         ),
@@ -97,112 +100,112 @@ class _MyAppState extends State<MyApp> {
 
     return IdleLogoutWrapper(
       child: MaterialApp(
-      title: 'مجوهرات خالد',
-      builder: (context, widget) {
-        // تخصيص widget الخطأ
-        ErrorWidget.builder = (FlutterErrorDetails errorDetails) {
-          return Scaffold(
-            backgroundColor: const Color(0xFF222222),
-            body: Center(
-              child: Container(
-                padding: const EdgeInsets.all(24),
-                margin: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: Colors.red.withValues(alpha: 0.1),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.red, width: 2),
-                ),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Icon(
-                      Icons.error_outline,
-                      color: Colors.red,
-                      size: 64,
-                    ),
-                    const SizedBox(height: 16),
-                    Text(
-                      kDebugMode ? 'خطأ في العرض' : 'حدث خطأ',
-                      style: const TextStyle(
+        title: 'مجوهرات خالد',
+        builder: (context, widget) {
+          // تخصيص widget الخطأ
+          ErrorWidget.builder = (FlutterErrorDetails errorDetails) {
+            return Scaffold(
+              backgroundColor: const Color(0xFF222222),
+              body: Center(
+                child: Container(
+                  padding: const EdgeInsets.all(24),
+                  margin: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: Colors.red.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: Colors.red, width: 2),
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(
+                        Icons.error_outline,
                         color: Colors.red,
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
+                        size: 64,
                       ),
-                      textAlign: TextAlign.center,
-                    ),
-                    if (kDebugMode) ...[
-                      const SizedBox(height: 12),
+                      const SizedBox(height: 16),
                       Text(
-                        errorDetails.exception.toString(),
+                        kDebugMode ? 'خطأ في العرض' : 'حدث خطأ',
                         style: const TextStyle(
-                          color: Colors.white70,
-                          fontSize: 14,
+                          color: Colors.red,
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
                         ),
                         textAlign: TextAlign.center,
-                        maxLines: 5,
-                        overflow: TextOverflow.ellipsis,
                       ),
+                      if (kDebugMode) ...[
+                        const SizedBox(height: 12),
+                        Text(
+                          errorDetails.exception.toString(),
+                          style: const TextStyle(
+                            color: Colors.white70,
+                            fontSize: 14,
+                          ),
+                          textAlign: TextAlign.center,
+                          maxLines: 5,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
                     ],
-                  ],
+                  ),
                 ),
               ),
-            ),
-          );
-        };
+            );
+          };
 
-        if (widget != null) return widget;
-        throw StateError('widget is null');
-      },
+          if (widget != null) return widget;
+          throw StateError('widget is null');
+        },
 
-      // 🎨 نظام الثيم الموحد
-      theme: LightTheme.theme, // الوضع الفاتح
-      darkTheme: DarkTheme.theme, // الوضع الداكن
-      themeMode: themeProvider.themeMode, // الوضع الحالي
+        // 🎨 نظام الثيم الموحد
+        theme: LightTheme.theme, // الوضع الفاتح
+        darkTheme: DarkTheme.theme, // الوضع الداكن
+        themeMode: themeProvider.themeMode, // الوضع الحالي
 
-      locale: _locale,
-      supportedLocales: const [Locale('ar'), Locale('en')],
-      localizationsDelegates: [
-        GlobalMaterialLocalizations.delegate,
-        GlobalWidgetsLocalizations.delegate,
-        GlobalCupertinoLocalizations.delegate,
-      ],
-      routes: {
-        '/add_item': (context) => Consumer<AuthProvider>(
-              builder: (context, auth, _) {
-                if (auth.isAuthenticated) {
-                  return AddItemScreenEnhanced(api: ApiService());
-                }
-                return const LoginScreen();
-              },
-            ),
-        '/items': (context) => Consumer<AuthProvider>(
-              builder: (context, auth, _) {
-                if (auth.isAuthenticated) {
-                  return ItemsScreenEnhanced(api: ApiService());
-                }
-                return const LoginScreen();
-              },
-            ),
-        '/setup': (context) => AuthGate(
-              onToggleLocale: _toggleLocale,
-              isArabic: _locale.languageCode == 'ar',
-            ),
-      },
-      onUnknownRoute: (settings) {
-        // معالجة الصفحات غير الموجودة (404)
-        // إعادة التوجيه للصفحة الرئيسية تلقائياً
-        return MaterialPageRoute(
-          builder: (context) => AuthGate(
+        locale: _locale,
+        supportedLocales: const [Locale('ar'), Locale('en')],
+        localizationsDelegates: [
+          GlobalMaterialLocalizations.delegate,
+          GlobalWidgetsLocalizations.delegate,
+          GlobalCupertinoLocalizations.delegate,
+        ],
+        routes: {
+          '/add_item': (context) => Consumer<AuthProvider>(
+            builder: (context, auth, _) {
+              if (auth.isAuthenticated) {
+                return AddItemScreenEnhanced(api: ApiService());
+              }
+              return const LoginScreen();
+            },
+          ),
+          '/items': (context) => Consumer<AuthProvider>(
+            builder: (context, auth, _) {
+              if (auth.isAuthenticated) {
+                return ItemsScreenEnhanced(api: ApiService());
+              }
+              return const LoginScreen();
+            },
+          ),
+          '/setup': (context) => AuthGate(
             onToggleLocale: _toggleLocale,
             isArabic: _locale.languageCode == 'ar',
           ),
-        );
-      },
-      home: AuthGate(
-        onToggleLocale: _toggleLocale,
-        isArabic: _locale.languageCode == 'ar',
-      ),
-      debugShowCheckedModeBanner: false,
+        },
+        onUnknownRoute: (settings) {
+          // معالجة الصفحات غير الموجودة (404)
+          // إعادة التوجيه للصفحة الرئيسية تلقائياً
+          return MaterialPageRoute(
+            builder: (context) => AuthGate(
+              onToggleLocale: _toggleLocale,
+              isArabic: _locale.languageCode == 'ar',
+            ),
+          );
+        },
+        home: AuthGate(
+          onToggleLocale: _toggleLocale,
+          isArabic: _locale.languageCode == 'ar',
+        ),
+        debugShowCheckedModeBanner: false,
       ),
     );
   }
@@ -211,10 +214,7 @@ class _MyAppState extends State<MyApp> {
 class IdleLogoutWrapper extends StatefulWidget {
   final Widget child;
 
-  const IdleLogoutWrapper({
-    super.key,
-    required this.child,
-  });
+  const IdleLogoutWrapper({super.key, required this.child});
 
   @override
   State<IdleLogoutWrapper> createState() => _IdleLogoutWrapperState();
@@ -236,8 +236,9 @@ class _IdleLogoutWrapperState extends State<IdleLogoutWrapper>
     }
   }
 
-  void _onRawKey(RawKeyEvent event) {
+  bool _onKeyEvent(KeyEvent event) {
     _recordActivity();
+    return false;
   }
 
   Duration _idleTimeoutFor(SettingsProvider settings) {
@@ -308,7 +309,7 @@ class _IdleLogoutWrapperState extends State<IdleLogoutWrapper>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    RawKeyboard.instance.addListener(_onRawKey);
+    HardwareKeyboard.instance.addHandler(_onKeyEvent);
     ApiService.authInvalidation.addListener(_onAuthInvalidation);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _restartTimerIfNeeded();
@@ -325,7 +326,7 @@ class _IdleLogoutWrapperState extends State<IdleLogoutWrapper>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    RawKeyboard.instance.removeListener(_onRawKey);
+    HardwareKeyboard.instance.removeHandler(_onKeyEvent);
     ApiService.authInvalidation.removeListener(_onAuthInvalidation);
     _timer?.cancel();
     super.dispose();
@@ -391,7 +392,8 @@ class AuthGate extends StatelessWidget {
           defaultValue: false,
         );
 
-        if (auth.isAuthenticated || (kDebugMode && bypassFlag && !auth.needsSetup)) {
+        if (auth.isAuthenticated ||
+            (kDebugMode && bypassFlag && !auth.needsSetup)) {
           if (auth.isAuthenticated && auth.mustChangePassword) {
             return const ChangePasswordScreen(force: true);
           }

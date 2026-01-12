@@ -131,21 +131,21 @@ Widget _accountingScreen() {
         onTap: () => Navigator.push(SuppliersScreen(...)),
       ),
       
-      // 2. شراء من مورد (جديد) ⭐
+      // 2. شراء (جديد) ⭐
       ListTile(
         leading: Icon(Icons.shopping_cart, color: const Color(0xFFF7C873)),
-        title: Text(isAr ? 'شراء من مورد' : 'Purchase from Supplier'),
+        title: Text(isAr ? 'شراء' : 'Purchase from Supplier'),
         onTap: () => Navigator.push(
-          AddInvoiceScreen(..., invoiceType: 'شراء من مورد'),
+          AddInvoiceScreen(..., invoiceType: 'شراء'),
         ),
       ),
       
-      // 3. مرتجع شراء من مورد (جديد) ⭐
+      // 3. مرتجع شراء (مورد) (جديد) ⭐
       ListTile(
         leading: Icon(Icons.assignment_return, color: Colors.red.shade300),
-        title: Text(isAr ? 'مرتجع شراء من مورد' : 'Supplier Purchase Return'),
+        title: Text(isAr ? 'مرتجع شراء (مورد)' : 'Supplier Purchase Return'),
         onTap: () => Navigator.push(
-          AddReturnInvoiceScreen(..., returnType: 'مرتجع شراء من مورد'),
+          AddReturnInvoiceScreen(..., returnType: 'مرتجع شراء (مورد)'),
         ),
       ),
       
@@ -196,7 +196,7 @@ Widget _accountingScreen() {
 | **شراء كسر** | `Icons.shopping_basket` | ذهبي |
 | **مرتجع بيع** | `Icons.keyboard_return` | أحمر |
 | **مرتجع شراء** | `Icons.undo` | أحمر |
-| **شراء من مورد** | `Icons.shopping_cart` | ذهبي |
+| **شراء** | `Icons.shopping_cart` | ذهبي |
 | **مرتجع شراء مورد** | `Icons.assignment_return` | أحمر |
 | **الموردين** | `Icons.business` | ذهبي |
 
@@ -229,8 +229,8 @@ Tab: المحاسبة
   │
   ├─ المشتريات (قسم جديد)
   │  ├─ الموردين → SuppliersScreen
-  │  ├─ شراء من مورد → AddInvoiceScreen('شراء من مورد')
-  │  └─ مرتجع شراء من مورد → AddReturnInvoiceScreen('مرتجع شراء من مورد')
+  │  ├─ شراء → AddInvoiceScreen('شراء')
+  │  └─ مرتجع شراء (مورد) → AddReturnInvoiceScreen('مرتجع شراء (مورد)')
   │
   └─ المحاسبة
      ├─ كشوفات الحسابات
@@ -260,7 +260,7 @@ Tab: المحاسبة
 | الميزة | قبل | بعد |
 |--------|-----|-----|
 | **عدد العناصر** | 8 | 9 |
-| **فواتير الموردين** | فاتورة شراء قديمة | شراء من مورد + مرتجع |
+| **فواتير الموردين** | فاتورة شراء قديمة | شراء + مرتجع |
 | **التصنيف** | قائمة واحدة | قسمين (مشتريات + محاسبة) |
 | **عناوين الأقسام** | لا يوجد | عناوين بالذهبي |
 | **Divider** | بسيط | سميك بين الأقسام |
@@ -314,24 +314,24 @@ Tab: المحاسبة
    - 6 عناصر محاسبية
 ```
 
-### السيناريو 5: شراء من مورد ✅
+### السيناريو 5: شراء ✅
 ```
 1. في قسم المحاسبة
-2. الضغط على "شراء من مورد"
+2. الضغط على "شراء"
 3. **المتوقع:**
    - AddInvoiceScreen يفتح
-   - invoiceType = 'شراء من مورد'
+   - invoiceType = 'شراء'
    - يطلب اسم مورد
    - dropdown نوع الذهب يظهر
 ```
 
-### السيناريو 6: مرتجع شراء من مورد ✅
+### السيناريو 6: مرتجع شراء (مورد) ✅
 ```
 1. في قسم المحاسبة
-2. الضغط على "مرتجع شراء من مورد" (أحمر)
+2. الضغط على "مرتجع شراء (مورد)" (أحمر)
 3. **المتوقع:**
    - AddReturnInvoiceScreen يفتح
-   - returnType = 'مرتجع شراء من مورد'
+   - returnType = 'مرتجع شراء (مورد)'
    - يطلب اختيار فاتورة شراء مورد أصلية
 ```
 
@@ -367,8 +367,8 @@ frontend/lib/screens/
 - شراء من عميل → AddInvoiceScreen ✅
 - مرتجع بيع → AddReturnInvoiceScreen ✅
 - مرتجع شراء → AddReturnInvoiceScreen ✅
-- شراء من مورد → AddInvoiceScreen ✅
-- مرتجع شراء من مورد → AddReturnInvoiceScreen ✅
+- شراء → AddInvoiceScreen ✅
+- مرتجع شراء (مورد) → AddReturnInvoiceScreen ✅
 
 ---
 

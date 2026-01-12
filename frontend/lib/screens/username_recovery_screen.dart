@@ -34,8 +34,9 @@ class _UsernameRecoveryScreenState extends State<UsernameRecoveryScreen> {
 
       if (!mounted) return;
 
-      final msg = (res['message'] ?? 'تم إرسال اسم المستخدم إذا كانت البيانات صحيحة')
-          .toString();
+      final msg =
+          (res['message'] ?? 'تم إرسال اسم المستخدم إذا كانت البيانات صحيحة')
+              .toString();
 
       // In dev mode, backend may return debug_username.
       final debugUsername = (res['debug_username'] ?? '').toString().trim();
@@ -43,18 +44,18 @@ class _UsernameRecoveryScreenState extends State<UsernameRecoveryScreen> {
           ? 'اسم المستخدم الخاص بك هو: $debugUsername'
           : msg;
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(display)),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(display)));
 
       if (debugUsername.isNotEmpty) {
         Navigator.of(context).pop();
       }
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(e.toString())),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(e.toString())));
     } finally {
       if (mounted) setState(() => _submitting = false);
     }

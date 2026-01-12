@@ -7,7 +7,7 @@ import '../providers/settings_provider.dart';
 /// شاشة دفتر الأستاذ المطورة - النسخة 2
 /// تدعم: التصفية، الأرصدة التراكمية، تفاصيل الأعيرة
 class GeneralLedgerScreenV2 extends StatefulWidget {
-  const GeneralLedgerScreenV2({Key? key}) : super(key: key);
+  const GeneralLedgerScreenV2({super.key});
 
   @override
   State<GeneralLedgerScreenV2> createState() => _GeneralLedgerScreenV2State();
@@ -834,7 +834,7 @@ class _GeneralLedgerScreenV2State extends State<GeneralLedgerScreenV2> {
               ),
             ],
           );
-        }).toList(),
+        }),
       ],
     );
   }

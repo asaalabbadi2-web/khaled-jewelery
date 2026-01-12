@@ -54,7 +54,7 @@ wage_tax_total = _to_float(data.get('wage_tax_total', 0), 0.0)
 
 ---
 
-### 2️⃣ فواتير الشراء من مورد
+### 2️⃣ فواتير الشراء
 
 #### أ) ضريبة على قيمة الذهب (تُضاف لتكلفة المخزون)
 ```
@@ -82,7 +82,7 @@ wage_tax_total = _to_float(data.get('wage_tax_total', 0), 0.0)
 
 **الحساب في الكود:**
 ```python
-# backend/routes.py - فواتير الشراء من مورد (lines 3460-3475)
+# backend/routes.py - فواتير الشراء (lines 3460-3475)
 if gold_tax_total > 0 and vat_receivable_acc_id:
     create_dual_journal_entry(
         journal_entry_id=journal_entry.id,
@@ -106,7 +106,7 @@ if wage_tax_total > 0 and vat_receivable_acc_id:
 
 ### مثال عملي:
 
-#### الشراء من مورد:
+#### الشراء:
 - قيمة الذهب: 10,000 ريال
 - ضريبة الذهب (15%): 1,500 ريال
 - أجور مصنعية: 2,000 ريال
@@ -164,7 +164,7 @@ INSERT INTO accounts (account_number, name, type, transaction_type) VALUES
 ```sql
 INSERT INTO accounting_mappings (transaction_type, mapping_key, account_id) VALUES
 ('بيع', 'vat_payable', <account_id_2150>),
-('شراء من مورد', 'vat_receivable', <account_id_1150>);
+('شراء', 'vat_receivable', <account_id_1150>);
 ```
 
 ---

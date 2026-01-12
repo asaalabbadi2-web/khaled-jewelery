@@ -8,10 +8,10 @@ import '../widgets/account_tree_view.dart';
 import 'account_statement_screen.dart';
 
 class ChartOfAccountsScreen extends StatefulWidget {
-  const ChartOfAccountsScreen({Key? key}) : super(key: key);
+  const ChartOfAccountsScreen({super.key});
 
   @override
-  _ChartOfAccountsScreenState createState() => _ChartOfAccountsScreenState();
+  State<ChartOfAccountsScreen> createState() => _ChartOfAccountsScreenState();
 }
 
 class _ChartOfAccountsScreenState extends State<ChartOfAccountsScreen> {
@@ -90,8 +90,8 @@ class _ChartOfAccountsScreenState extends State<ChartOfAccountsScreen> {
                 );
               }
             },
-            child: Text('حذف'),
             style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            child: Text('حذف'),
           ),
         ],
       ),
@@ -102,7 +102,7 @@ class _ChartOfAccountsScreenState extends State<ChartOfAccountsScreen> {
     Map<String, dynamic>? editingAccount,
     Map<String, dynamic>? parentAccount,
   }) {
-    final _formKey = GlobalKey<FormState>();
+    final formKey = GlobalKey<FormState>();
     final bool isEditing = editingAccount != null;
 
     String name = isEditing ? editingAccount['name'] : '';
@@ -210,13 +210,13 @@ class _ChartOfAccountsScreenState extends State<ChartOfAccountsScreen> {
                 updateAccountFields(parentId, setState);
               }
               return Form(
-                key: _formKey,
+                key: formKey,
                 child: SingleChildScrollView(
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       DropdownButtonFormField<int?>(
-                        value: parentId,
+                        initialValue: parentId,
                         decoration: InputDecoration(
                           labelText: 'الحساب الأصلي (اختياري)',
                         ),
@@ -238,8 +238,7 @@ class _ChartOfAccountsScreenState extends State<ChartOfAccountsScreen> {
                                     '${account['account_number']} - ${account['name']}',
                                   ),
                                 );
-                              })
-                              .toList(),
+                              }),
                         ],
                         onChanged: (value) {
                           // ignore: discarded_futures
@@ -284,7 +283,7 @@ class _ChartOfAccountsScreenState extends State<ChartOfAccountsScreen> {
                       SizedBox(height: 8),
                       if (parentId == null)
                         DropdownButtonFormField<String>(
-                          value: type,
+                          initialValue: type,
                           decoration: InputDecoration(labelText: 'نوع الحساب'),
                           items: accountTypeTranslations.keys.map((String key) {
                             return DropdownMenuItem<String>(
@@ -311,8 +310,8 @@ class _ChartOfAccountsScreenState extends State<ChartOfAccountsScreen> {
             ),
             ElevatedButton(
               onPressed: () async {
-                if (_formKey.currentState!.validate()) {
-                  _formKey.currentState!.save();
+                if (formKey.currentState!.validate()) {
+                  formKey.currentState!.save();
                   try {
                     final finalAccountNumber = normalizeNumber(
                       accountNumberController.text,
@@ -421,10 +420,9 @@ class _ChartOfAccountsScreenState extends State<ChartOfAccountsScreen> {
               ),
             ),
       floatingActionButton: FloatingActionButton(
-        onPressed: () =>
-            _showAddAccountDialog(), // No parent, adds a root account
+        onPressed: () => _showAddAccountDialog(),
+        tooltip: 'إضافة حساب رئيسي', // No parent, adds a root account
         child: Icon(Icons.add),
-        tooltip: 'إضافة حساب رئيسي',
       ),
     );
   }
@@ -459,7 +457,8 @@ class _ChartOfAccountsScreenState extends State<ChartOfAccountsScreen> {
                 Clipboard.setData(ClipboardData(text: controller.text));
                 Navigator.of(context).pop();
                 ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('تم نسخ JSON إلى الحافظة')));
+                  SnackBar(content: Text('تم نسخ JSON إلى الحافظة')),
+                );
               },
               child: Text('نسخ'),
             ),
@@ -468,11 +467,13 @@ class _ChartOfAccountsScreenState extends State<ChartOfAccountsScreen> {
                 onPressed: () {
                   try {
                     web_io.downloadString('accounts.json', controller.text);
-                    ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(content: Text('تم تنزيل الملف')));
+                    ScaffoldMessenger.of(
+                      context,
+                    ).showSnackBar(SnackBar(content: Text('تم تنزيل الملف')));
                   } catch (e) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(content: Text('فشل التنزيل: $e')));
+                    ScaffoldMessenger.of(
+                      context,
+                    ).showSnackBar(SnackBar(content: Text('فشل التنزيل: $e')));
                   }
                 },
                 child: Text('تحميل'),
@@ -485,8 +486,9 @@ class _ChartOfAccountsScreenState extends State<ChartOfAccountsScreen> {
         ),
       );
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('تعذر التصدير: $e')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('تعذر التصدير: $e')));
     }
   }
 
@@ -510,7 +512,7 @@ class _ChartOfAccountsScreenState extends State<ChartOfAccountsScreen> {
                   maxLines: null,
                   keyboardType: TextInputType.multiline,
                   decoration: InputDecoration(
-                    hintText: '{\"accounts\": [...] }',
+                    hintText: '{"accounts": [...] }',
                     border: OutlineInputBorder(),
                   ),
                 ),
@@ -518,7 +520,7 @@ class _ChartOfAccountsScreenState extends State<ChartOfAccountsScreen> {
             ],
           ),
         ),
-          actions: [
+        actions: [
           TextButton(
             onPressed: () async {
               // Web-only: open file picker and fill the text field
@@ -528,18 +530,26 @@ class _ChartOfAccountsScreenState extends State<ChartOfAccountsScreen> {
                   if (content != null) {
                     importController.text = content;
                     ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(content: Text('تم تحميل الملف. يمكنك الآن الضغط على استيراد')));
+                      SnackBar(
+                        content: Text(
+                          'تم تحميل الملف. يمكنك الآن الضغط على استيراد',
+                        ),
+                      ),
+                    );
                   } else {
                     ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(content: Text('لم يتم اختيار ملف')));
+                      SnackBar(content: Text('لم يتم اختيار ملف')),
+                    );
                   }
                 } catch (e) {
                   ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('فشل تحميل الملف: $e')));
+                    SnackBar(content: Text('فشل تحميل الملف: $e')),
+                  );
                 }
               } else {
                 ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('اختر ملف مدعوم فقط على الويب')));
+                  SnackBar(content: Text('اختر ملف مدعوم فقط على الويب')),
+                );
               }
             },
             child: Text('اختر ملف'),
@@ -553,21 +563,29 @@ class _ChartOfAccountsScreenState extends State<ChartOfAccountsScreen> {
               final payload = importController.text.trim();
               if (payload.isEmpty) {
                 ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('الرجاء لصق محتوى JSON أولاً')));
+                  SnackBar(content: Text('الرجاء لصق محتوى JSON أولاً')),
+                );
                 return;
               }
 
               try {
-                final res = await ApiService()
-                    .importAccountsFromJsonString(payload);
+                final res = await ApiService().importAccountsFromJsonString(
+                  payload,
+                );
                 Navigator.of(context).pop(true);
-                ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                    content: Text('تم الاستيراد: ${res['created'] ?? 0} إنشاء, ${res['updated'] ?? 0} تحديث')));
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      'تم الاستيراد: ${res['created'] ?? 0} إنشاء, ${res['updated'] ?? 0} تحديث',
+                    ),
+                  ),
+                );
                 _fetchAccounts();
               } catch (e) {
                 Navigator.of(context).pop(false);
-                ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('فشل الاستيراد: $e')));
+                ScaffoldMessenger.of(
+                  context,
+                ).showSnackBar(SnackBar(content: Text('فشل الاستيراد: $e')));
               }
             },
             child: Text('استيراد'),

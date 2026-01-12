@@ -5,7 +5,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 /// نظام تخطيط العناصر على القوالب الجاهزة
-/// 
+///
 /// يسمح بـ:
 /// - سحب وإفلات العناصر
 /// - ضبط الموقع بالإحداثيات (X, Y)
@@ -42,13 +42,13 @@ class _TemplatePositioningScreenState extends State<TemplatePositioningScreen> {
 
   Uint8List? _backgroundImageBytes;
   bool _includeBackgroundInPrint = true;
-  
+
   String? _selectedElement;
   double _zoom = 1.0;
   bool _showGrid = true;
   bool _snapToGrid = true;
   final int _gridSize = 10;
-  
+
   // أبعاد الصفحة (A4 بالبيكسل عند 72 DPI)
   late final double _pageWidth;
   late final double _pageHeight;
@@ -74,10 +74,14 @@ class _TemplatePositioningScreenState extends State<TemplatePositioningScreen> {
   @override
   void initState() {
     super.initState();
-    _pageWidth = (widget.pageWidthPoints ?? _referencePageWidth)
-        .clamp(150.0, 2000.0);
-    _pageHeight = (widget.pageHeightPoints ?? _referencePageHeight)
-        .clamp(150.0, 4000.0);
+    _pageWidth = (widget.pageWidthPoints ?? _referencePageWidth).clamp(
+      150.0,
+      2000.0,
+    );
+    _pageHeight = (widget.pageHeightPoints ?? _referencePageHeight).clamp(
+      150.0,
+      4000.0,
+    );
     _initializeElements();
     _loadBackgroundImage();
     _loadIncludeBackgroundInPrint();
@@ -209,9 +213,7 @@ class _TemplatePositioningScreenState extends State<TemplatePositioningScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
-          widget.isArabic
-              ? 'تم حذف صورة القالب'
-              : 'Template image cleared',
+          widget.isArabic ? 'تم حذف صورة القالب' : 'Template image cleared',
         ),
       ),
     );
@@ -451,11 +453,13 @@ class _TemplatePositioningScreenState extends State<TemplatePositioningScreen> {
             ),
             IconButton(
               icon: const Icon(Icons.zoom_in),
-              onPressed: () => setState(() => _zoom = (_zoom + 0.1).clamp(0.5, 2.0)),
+              onPressed: () =>
+                  setState(() => _zoom = (_zoom + 0.1).clamp(0.5, 2.0)),
             ),
             IconButton(
               icon: const Icon(Icons.zoom_out),
-              onPressed: () => setState(() => _zoom = (_zoom - 0.1).clamp(0.5, 2.0)),
+              onPressed: () =>
+                  setState(() => _zoom = (_zoom - 0.1).clamp(0.5, 2.0)),
             ),
             IconButton(
               icon: const Icon(Icons.save),
@@ -476,9 +480,7 @@ class _TemplatePositioningScreenState extends State<TemplatePositioningScreen> {
               width: 280,
               decoration: BoxDecoration(
                 color: Colors.grey.shade100,
-                border: Border(
-                  left: BorderSide(color: Colors.grey.shade300),
-                ),
+                border: Border(left: BorderSide(color: Colors.grey.shade300)),
               ),
               child: Column(
                 children: [
@@ -521,7 +523,9 @@ class _TemplatePositioningScreenState extends State<TemplatePositioningScreen> {
                           style: const TextStyle(fontSize: 11),
                         ),
                         dense: true,
-                        contentPadding: const EdgeInsets.symmetric(horizontal: 6),
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 6,
+                        ),
                       ),
                     ),
                   Expanded(
@@ -544,10 +548,7 @@ class _TemplatePositioningScreenState extends State<TemplatePositioningScreen> {
                   minScale: 0.5,
                   maxScale: 2.0,
                   child: Center(
-                    child: Transform.scale(
-                      scale: _zoom,
-                      child: _buildCanvas(),
-                    ),
+                    child: Transform.scale(scale: _zoom, child: _buildCanvas()),
                   ),
                 ),
               ),
@@ -560,7 +561,7 @@ class _TemplatePositioningScreenState extends State<TemplatePositioningScreen> {
 
   Widget _buildElementListItem(String id, ElementPosition element) {
     final isSelected = _selectedElement == id;
-    
+
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       color: isSelected ? const Color(0xFFD4AF37).withValues(alpha: 0.2) : null,
@@ -599,7 +600,7 @@ class _TemplatePositioningScreenState extends State<TemplatePositioningScreen> {
 
   Widget _buildElementProperties() {
     final element = _elements[_selectedElement]!;
-    
+
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -612,13 +613,10 @@ class _TemplatePositioningScreenState extends State<TemplatePositioningScreen> {
         children: [
           Text(
             widget.isArabic ? 'خصائص العنصر' : 'Element Properties',
-            style: const TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.bold,
-            ),
+            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 12),
-          
+
           Row(
             children: [
               Expanded(
@@ -639,7 +637,7 @@ class _TemplatePositioningScreenState extends State<TemplatePositioningScreen> {
             ],
           ),
           const SizedBox(height: 8),
-          
+
           Row(
             children: [
               Expanded(
@@ -659,7 +657,7 @@ class _TemplatePositioningScreenState extends State<TemplatePositioningScreen> {
               ),
             ],
           ),
-          
+
           if (element.fontSize != null) ...[
             const SizedBox(height: 8),
             _buildPropertyField(
@@ -715,15 +713,12 @@ class _TemplatePositioningScreenState extends State<TemplatePositioningScreen> {
           if (_backgroundImageBytes != null)
             Positioned.fill(
               child: IgnorePointer(
-                child: Image.memory(
-                  _backgroundImageBytes!,
-                  fit: BoxFit.fill,
-                ),
+                child: Image.memory(_backgroundImageBytes!, fit: BoxFit.fill),
               ),
             ),
           // الشبكة
           if (_showGrid) _buildGrid(),
-          
+
           // العناصر
           ..._elements.entries.where((e) => e.value.visible).map((entry) {
             return _buildDraggableElement(entry.key, entry.value);
@@ -742,7 +737,7 @@ class _TemplatePositioningScreenState extends State<TemplatePositioningScreen> {
 
   Widget _buildDraggableElement(String id, ElementPosition element) {
     final isSelected = _selectedElement == id;
-    
+
     return Positioned(
       left: element.x,
       top: element.y,
@@ -751,12 +746,12 @@ class _TemplatePositioningScreenState extends State<TemplatePositioningScreen> {
           setState(() {
             double newX = element.x + details.delta.dx;
             double newY = element.y + details.delta.dy;
-            
+
             if (_snapToGrid) {
               newX = (newX / _gridSize).round() * _gridSize.toDouble();
               newY = (newY / _gridSize).round() * _gridSize.toDouble();
             }
-            
+
             element.x = newX.clamp(0, _pageWidth - element.width);
             element.y = newY.clamp(0, _pageHeight - element.height);
             _selectedElement = id;
@@ -767,7 +762,9 @@ class _TemplatePositioningScreenState extends State<TemplatePositioningScreen> {
           height: element.height,
           decoration: BoxDecoration(
             border: Border.all(
-              color: isSelected ? const Color(0xFFD4AF37) : Colors.blue.withValues(alpha: 0.5),
+              color: isSelected
+                  ? const Color(0xFFD4AF37)
+                  : Colors.blue.withValues(alpha: 0.5),
               width: isSelected ? 2 : 1,
             ),
             color: isSelected
@@ -799,18 +796,21 @@ class _TemplatePositioningScreenState extends State<TemplatePositioningScreen> {
                   ],
                 ),
               ),
-              
+
               // مقابض تغيير الحجم
               if (isSelected) ...[
-                _buildResizeHandle(
-                  Alignment.bottomRight,
-                  (details) {
-                    setState(() {
-                      element.width = (element.width + details.delta.dx).clamp(50, 500);
-                      element.height = (element.height + details.delta.dy).clamp(20, 400);
-                    });
-                  },
-                ),
+                _buildResizeHandle(Alignment.bottomRight, (details) {
+                  setState(() {
+                    element.width = (element.width + details.delta.dx).clamp(
+                      50,
+                      500,
+                    );
+                    element.height = (element.height + details.delta.dy).clamp(
+                      20,
+                      400,
+                    );
+                  });
+                }),
               ],
             ],
           ),
@@ -819,7 +819,10 @@ class _TemplatePositioningScreenState extends State<TemplatePositioningScreen> {
     );
   }
 
-  Widget _buildResizeHandle(Alignment alignment, Function(DragUpdateDetails) onDrag) {
+  Widget _buildResizeHandle(
+    Alignment alignment,
+    Function(DragUpdateDetails) onDrag,
+  ) {
     return Align(
       alignment: alignment,
       child: GestureDetector(
@@ -966,20 +969,12 @@ class GridPainter extends CustomPainter {
 
     // خطوط عمودية
     for (double x = 0; x < size.width; x += gridSize) {
-      canvas.drawLine(
-        Offset(x, 0),
-        Offset(x, size.height),
-        paint,
-      );
+      canvas.drawLine(Offset(x, 0), Offset(x, size.height), paint);
     }
 
     // خطوط أفقية
     for (double y = 0; y < size.height; y += gridSize) {
-      canvas.drawLine(
-        Offset(0, y),
-        Offset(size.width, y),
-        paint,
-      );
+      canvas.drawLine(Offset(0, y), Offset(size.width, y), paint);
     }
   }
 

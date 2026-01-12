@@ -102,6 +102,8 @@ class _AddSupplierScreenState extends State<AddSupplierScreen> {
   late TextEditingController _nameController;
   late TextEditingController _phoneController;
   late TextEditingController _emailController;
+  late TextEditingController _taxNumberController;
+  late TextEditingController _classificationController;
   late TextEditingController _addressLine1Controller;
   late TextEditingController _addressLine2Controller;
   late TextEditingController _cityController;
@@ -112,6 +114,8 @@ class _AddSupplierScreenState extends State<AddSupplierScreen> {
 
   bool _isSaving = false;
 
+  String _defaultWageType = 'cash';
+
   bool get _isEditMode => widget.supplier != null;
 
   String? _nextSupplierCode;
@@ -120,19 +124,43 @@ class _AddSupplierScreenState extends State<AddSupplierScreen> {
   @override
   void initState() {
     super.initState();
-    _nameController = TextEditingController(text: widget.supplier?['name'] ?? '');
-    _phoneController = TextEditingController(text: widget.supplier?['phone'] ?? '');
-    _emailController = TextEditingController(text: widget.supplier?['email'] ?? '');
-    _addressLine1Controller =
-        TextEditingController(text: widget.supplier?['address_line_1'] ?? '');
-    _addressLine2Controller =
-        TextEditingController(text: widget.supplier?['address_line_2'] ?? '');
-    _cityController = TextEditingController(text: widget.supplier?['city'] ?? '');
-    _stateController = TextEditingController(text: widget.supplier?['state'] ?? '');
-    _postalCodeController =
-        TextEditingController(text: widget.supplier?['postal_code'] ?? '');
-    _countryController =
-        TextEditingController(text: widget.supplier?['country'] ?? '');
+    _nameController = TextEditingController(
+      text: widget.supplier?['name'] ?? '',
+    );
+    _phoneController = TextEditingController(
+      text: widget.supplier?['phone'] ?? '',
+    );
+    _emailController = TextEditingController(
+      text: widget.supplier?['email'] ?? '',
+    );
+    _taxNumberController = TextEditingController(
+      text: (widget.supplier?['tax_number'] ?? '').toString(),
+    );
+    _classificationController = TextEditingController(
+      text: (widget.supplier?['classification'] ?? '').toString(),
+    );
+    _addressLine1Controller = TextEditingController(
+      text: widget.supplier?['address_line_1'] ?? '',
+    );
+    _addressLine2Controller = TextEditingController(
+      text: widget.supplier?['address_line_2'] ?? '',
+    );
+    _cityController = TextEditingController(
+      text: widget.supplier?['city'] ?? '',
+    );
+    _stateController = TextEditingController(
+      text: widget.supplier?['state'] ?? '',
+    );
+    _postalCodeController = TextEditingController(
+      text: widget.supplier?['postal_code'] ?? '',
+    );
+    _countryController = TextEditingController(
+      text: widget.supplier?['country'] ?? '',
+    );
+
+    final rawWageType = widget.supplier?['default_wage_type'];
+    final normalized = (rawWageType ?? 'cash').toString().trim().toLowerCase();
+    _defaultWageType = normalized == 'gold' ? 'gold' : 'cash';
 
     if (!_isEditMode) {
       _loadNextSupplierCode();
@@ -157,6 +185,8 @@ class _AddSupplierScreenState extends State<AddSupplierScreen> {
     _nameController.dispose();
     _phoneController.dispose();
     _emailController.dispose();
+    _taxNumberController.dispose();
+    _classificationController.dispose();
     _addressLine1Controller.dispose();
     _addressLine2Controller.dispose();
     _cityController.dispose();
@@ -177,12 +207,19 @@ class _AddSupplierScreenState extends State<AddSupplierScreen> {
       'name': _nameController.text.trim(),
       'phone': normalizeNumber(_phoneController.text),
       'email': _emailController.text.trim(),
+      'tax_number': _taxNumberController.text.trim().isEmpty
+          ? null
+          : _taxNumberController.text.trim(),
+      'classification': _classificationController.text.trim().isEmpty
+          ? null
+          : _classificationController.text.trim(),
       'address_line_1': _addressLine1Controller.text.trim(),
       'address_line_2': _addressLine2Controller.text.trim(),
       'city': _cityController.text.trim(),
       'state': _stateController.text.trim(),
       'postal_code': _postalCodeController.text.trim(),
       'country': _countryController.text.trim(),
+      'default_wage_type': _defaultWageType,
     };
 
     try {
@@ -205,7 +242,9 @@ class _AddSupplierScreenState extends State<AddSupplierScreen> {
         SnackBar(
           content: Text(
             _isEditMode
-                ? (widget.isArabic ? 'تم تحديث بيانات المورد' : 'Supplier updated')
+                ? (widget.isArabic
+                      ? 'تم تحديث بيانات المورد'
+                      : 'Supplier updated')
                 : (widget.isArabic ? 'تم إضافة المورد' : 'Supplier added'),
           ),
           backgroundColor: Colors.green,
@@ -232,17 +271,17 @@ class _AddSupplierScreenState extends State<AddSupplierScreen> {
   }
 
   Widget _buildHeroBanner(Color primary, _AddSupplierPalette palette) {
-  final isAr = widget.isArabic;
-  final title = _isEditMode
-    ? (isAr ? 'تحديث ملف المورد' : 'Update supplier profile')
-    : (isAr ? 'مورد جديد جاهز' : 'New supplier ready');
-  final subtitle = _isEditMode
-    ? (isAr
-      ? 'يمكنك تعديل بيانات المورد وسيتم حفظها بعد التحديث.'
-      : 'Adjust any supplier detail and it will be saved once you confirm.')
-    : (isAr
-      ? 'أدخل بيانات المورد بدقة لربط الفواتير والحركات لاحقاً.'
-      : 'Fill the supplier profile carefully to link future purchases.');
+    final isAr = widget.isArabic;
+    final title = _isEditMode
+        ? (isAr ? 'تحديث ملف المورد' : 'Update supplier profile')
+        : (isAr ? 'مورد جديد جاهز' : 'New supplier ready');
+    final subtitle = _isEditMode
+        ? (isAr
+              ? 'يمكنك تعديل بيانات المورد وسيتم حفظها بعد التحديث.'
+              : 'Adjust any supplier detail and it will be saved once you confirm.')
+        : (isAr
+              ? 'أدخل بيانات المورد بدقة لربط الفواتير والحركات لاحقاً.'
+              : 'Fill the supplier profile carefully to link future purchases.');
 
     return Container(
       padding: const EdgeInsets.all(20),
@@ -284,7 +323,11 @@ class _AddSupplierScreenState extends State<AddSupplierScreen> {
             runSpacing: 8,
             children: [
               Chip(
-                avatar: Icon(Icons.verified, color: palette.primaryText, size: 18),
+                avatar: Icon(
+                  Icons.verified,
+                  color: palette.primaryText,
+                  size: 18,
+                ),
                 label: Text(
                   _isEditMode
                       ? (isAr ? 'وضع التعديل' : 'Edit mode')
@@ -294,7 +337,11 @@ class _AddSupplierScreenState extends State<AddSupplierScreen> {
                 backgroundColor: palette.chipOverlay,
               ),
               Chip(
-                avatar: Icon(Icons.schedule, color: palette.primaryText, size: 18),
+                avatar: Icon(
+                  Icons.schedule,
+                  color: palette.primaryText,
+                  size: 18,
+                ),
                 label: Text(
                   isAr
                       ? 'آخر تحديث ${TimeOfDay.now().format(context)}'
@@ -365,12 +412,16 @@ class _AddSupplierScreenState extends State<AddSupplierScreen> {
               const SizedBox(height: 16),
               Row(
                 children: [
-                  Icon(Icons.storage_rounded, color: palette.secondaryText, size: 18),
+                  Icon(
+                    Icons.storage_rounded,
+                    color: palette.secondaryText,
+                    size: 18,
+                  ),
                   const SizedBox(width: 6),
-                    Text(
-                      isAr
-                          ? 'السعة المتبقية: ${_remainingCapacity!.toStringAsFixed(0)} ملف'
-                          : 'Remaining capacity: ${_remainingCapacity!.toStringAsFixed(0)} profiles',
+                  Text(
+                    isAr
+                        ? 'السعة المتبقية: ${_remainingCapacity!.toStringAsFixed(0)} ملف'
+                        : 'Remaining capacity: ${_remainingCapacity!.toStringAsFixed(0)} profiles',
                     style: TextStyle(color: palette.secondaryText),
                   ),
                 ],
@@ -461,10 +512,7 @@ class _AddSupplierScreenState extends State<AddSupplierScreen> {
       keyboardType: isNumeric ? TextInputType.number : keyboardType,
       autofillHints: hint != null ? [hint] : null,
       inputFormatters: isNumeric
-          ? [
-              NormalizeNumberFormatter(),
-              FilteringTextInputFormatter.digitsOnly,
-            ]
+          ? [NormalizeNumberFormatter(), FilteringTextInputFormatter.digitsOnly]
           : [NormalizeNumberFormatter()],
       validator: (value) {
         if (controller == _nameController && (value == null || value.isEmpty)) {
@@ -484,7 +532,10 @@ class _AddSupplierScreenState extends State<AddSupplierScreen> {
         ),
         filled: true,
         fillColor: _palette.fieldFill,
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 16,
+          vertical: 14,
+        ),
         border: baseBorder,
         enabledBorder: baseBorder,
         focusedBorder: baseBorder.copyWith(
@@ -510,7 +561,9 @@ class _AddSupplierScreenState extends State<AddSupplierScreen> {
               foregroundColor: palette.primaryText,
               side: BorderSide(color: palette.actionOutline, width: 1.2),
               padding: const EdgeInsets.symmetric(vertical: 16),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(14),
+              ),
             ),
             onPressed: _isSaving ? null : () => Navigator.pop(context),
             child: Text(widget.isArabic ? 'إلغاء' : 'Cancel'),
@@ -524,7 +577,9 @@ class _AddSupplierScreenState extends State<AddSupplierScreen> {
               backgroundColor: primary,
               foregroundColor: Colors.black,
               padding: const EdgeInsets.symmetric(vertical: 16),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(14),
+              ),
             ),
             onPressed: _isSaving ? null : _submit,
             icon: _isSaving
@@ -536,7 +591,9 @@ class _AddSupplierScreenState extends State<AddSupplierScreen> {
                 : const Icon(Icons.save_alt),
             label: Text(
               _isEditMode
-                  ? (widget.isArabic ? 'تحديث بيانات المورد' : 'Update supplier')
+                  ? (widget.isArabic
+                        ? 'تحديث بيانات المورد'
+                        : 'Update supplier')
                   : (widget.isArabic ? 'حفظ بيانات المورد' : 'Save supplier'),
             ),
           ),
@@ -575,8 +632,8 @@ class _AddSupplierScreenState extends State<AddSupplierScreen> {
           ),
         ),
         body: SafeArea(
-      child: _isSaving && !_isEditMode
-        ? Center(child: CircularProgressIndicator(color: primary))
+          child: _isSaving && !_isEditMode
+              ? Center(child: CircularProgressIndicator(color: primary))
               : Form(
                   key: _formKey,
                   child: SingleChildScrollView(
@@ -592,19 +649,25 @@ class _AddSupplierScreenState extends State<AddSupplierScreen> {
                           const SizedBox(height: 16),
                         _buildSectionCard(
                           icon: Icons.storefront_outlined,
-                          title: widget.isArabic ? 'البيانات الأساسية' : 'Basic info',
+                          title: widget.isArabic
+                              ? 'البيانات الأساسية'
+                              : 'Basic info',
                           fields: [
                             _ResponsiveField(
                               child: _buildTextFormField(
                                 controller: _nameController,
-                                label: widget.isArabic ? 'اسم المورد' : 'Supplier name',
+                                label: widget.isArabic
+                                    ? 'اسم المورد'
+                                    : 'Supplier name',
                                 hint: AutofillHints.name,
                               ),
                             ),
                             _ResponsiveField(
                               child: _buildTextFormField(
                                 controller: _phoneController,
-                                label: widget.isArabic ? 'رقم الهاتف' : 'Phone number',
+                                label: widget.isArabic
+                                    ? 'رقم الهاتف'
+                                    : 'Phone number',
                                 hint: AutofillHints.telephoneNumber,
                                 isNumeric: true,
                               ),
@@ -612,9 +675,56 @@ class _AddSupplierScreenState extends State<AddSupplierScreen> {
                             _ResponsiveField(
                               child: _buildTextFormField(
                                 controller: _emailController,
-                                label: widget.isArabic ? 'البريد الإلكتروني' : 'Email',
+                                label: widget.isArabic
+                                    ? 'البريد الإلكتروني'
+                                    : 'Email',
                                 hint: AutofillHints.email,
                                 keyboardType: TextInputType.emailAddress,
+                              ),
+                            ),
+                            _ResponsiveField(
+                              child: _buildTextFormField(
+                                controller: _taxNumberController,
+                                label: widget.isArabic
+                                    ? 'الرقم الضريبي'
+                                    : 'Tax number',
+                              ),
+                            ),
+                            _ResponsiveField(
+                              child: _buildTextFormField(
+                                controller: _classificationController,
+                                label: widget.isArabic
+                                    ? 'التصنيف'
+                                    : 'Classification',
+                              ),
+                            ),
+                            _ResponsiveField(
+                              child: DropdownButtonFormField<String>(
+                                initialValue: _defaultWageType,
+                                decoration: InputDecoration(
+                                  labelText: widget.isArabic
+                                      ? 'نوع أجور المصنعية الافتراضي'
+                                      : 'Default wage type',
+                                  border: const OutlineInputBorder(),
+                                ),
+                                items: [
+                                  DropdownMenuItem<String>(
+                                    value: 'cash',
+                                    child: Text(
+                                      widget.isArabic ? 'نقد (ريال)' : 'Cash',
+                                    ),
+                                  ),
+                                  DropdownMenuItem<String>(
+                                    value: 'gold',
+                                    child: Text(
+                                      widget.isArabic ? 'ذهب (وزن)' : 'Gold',
+                                    ),
+                                  ),
+                                ],
+                                onChanged: (value) {
+                                  if (value == null) return;
+                                  setState(() => _defaultWageType = value);
+                                },
                               ),
                             ),
                           ],
@@ -664,7 +774,9 @@ class _AddSupplierScreenState extends State<AddSupplierScreen> {
                             _ResponsiveField(
                               child: _buildTextFormField(
                                 controller: _postalCodeController,
-                                label: widget.isArabic ? 'الرمز البريدي' : 'Postal code',
+                                label: widget.isArabic
+                                    ? 'الرمز البريدي'
+                                    : 'Postal code',
                                 hint: AutofillHints.postalCode,
                                 isNumeric: true,
                               ),

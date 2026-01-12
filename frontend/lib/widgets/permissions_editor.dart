@@ -61,7 +61,10 @@ class _PermissionsEditorState extends State<PermissionsEditor> {
     // Bonuses
     'bonuses': {'ar': 'المكافآت', 'en': 'Bonuses'},
     'bonus.calculate': {'ar': 'حساب المكافآت', 'en': 'Calculate Bonuses'},
-    'bonus.approve': {'ar': 'اعتماد/رفض المكافآت', 'en': 'Approve/Reject Bonuses'},
+    'bonus.approve': {
+      'ar': 'اعتماد/رفض المكافآت',
+      'en': 'Approve/Reject Bonuses',
+    },
     'bonus.pay': {'ar': 'صرف المكافآت', 'en': 'Pay Bonuses'},
   };
 

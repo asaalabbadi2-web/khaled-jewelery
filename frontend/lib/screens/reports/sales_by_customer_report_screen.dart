@@ -19,10 +19,12 @@ class SalesByCustomerReportScreen extends StatefulWidget {
   });
 
   @override
-  State<SalesByCustomerReportScreen> createState() => _SalesByCustomerReportScreenState();
+  State<SalesByCustomerReportScreen> createState() =>
+      _SalesByCustomerReportScreenState();
 }
 
-class _SalesByCustomerReportScreenState extends State<SalesByCustomerReportScreen> {
+class _SalesByCustomerReportScreenState
+    extends State<SalesByCustomerReportScreen> {
   Map<String, dynamic>? _report;
   bool _isLoading = false;
   String? _error;
@@ -54,7 +56,11 @@ class _SalesByCustomerReportScreenState extends State<SalesByCustomerReportScree
   void initState() {
     super.initState();
     final today = DateTime.now();
-    final start = DateTime(today.year, today.month, today.day).subtract(const Duration(days: 29));
+    final start = DateTime(
+      today.year,
+      today.month,
+      today.day,
+    ).subtract(const Duration(days: 29));
     final end = DateTime(today.year, today.month, today.day);
     _selectedRange = DateTimeRange(start: start, end: end);
     _currencyFormat = NumberFormat.currency(
@@ -122,11 +128,9 @@ class _SalesByCustomerReportScreenState extends State<SalesByCustomerReportScree
 
   Future<void> _pickDateRange() async {
     final now = DateTime.now();
-    final initialRange = _selectedRange ??
-        DateTimeRange(
-          start: now.subtract(const Duration(days: 29)),
-          end: now,
-        );
+    final initialRange =
+        _selectedRange ??
+        DateTimeRange(start: now.subtract(const Duration(days: 29)), end: now);
 
     final picked = await showDateRangePicker(
       context: context,
@@ -188,7 +192,9 @@ class _SalesByCustomerReportScreenState extends State<SalesByCustomerReportScree
       textDirection: isArabic ? TextDirection.rtl : TextDirection.ltr,
       child: Scaffold(
         appBar: AppBar(
-          title: Text(isArabic ? 'تقرير المبيعات حسب العميل' : 'Sales by Customer'),
+          title: Text(
+            isArabic ? 'تقرير المبيعات حسب العميل' : 'Sales by Customer',
+          ),
           actions: [
             IconButton(
               icon: const Icon(Icons.refresh),
@@ -201,8 +207,8 @@ class _SalesByCustomerReportScreenState extends State<SalesByCustomerReportScree
           child: _isLoading
               ? const Center(child: CircularProgressIndicator())
               : _error != null
-                  ? _buildErrorState()
-                  : _buildContent(),
+              ? _buildErrorState()
+              : _buildContent(),
         ),
       ),
     );
@@ -271,7 +277,9 @@ class _SalesByCustomerReportScreenState extends State<SalesByCustomerReportScree
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
-          crossAxisAlignment: isArabic ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+          crossAxisAlignment: isArabic
+              ? CrossAxisAlignment.end
+              : CrossAxisAlignment.start,
           children: [
             Text(
               isArabic ? 'خيارات التقرير' : 'Report Options',
@@ -295,7 +303,9 @@ class _SalesByCustomerReportScreenState extends State<SalesByCustomerReportScree
                     label: Text(isArabic ? 'إلغاء التحديد' : 'Clear'),
                   ),
                 FilterChip(
-                  label: Text(isArabic ? 'تضمين غير المرحلة' : 'Include Unposted'),
+                  label: Text(
+                    isArabic ? 'تضمين غير المرحلة' : 'Include Unposted',
+                  ),
                   selected: _includeUnposted,
                   onSelected: (value) {
                     setState(() => _includeUnposted = value);
@@ -338,7 +348,9 @@ class _SalesByCustomerReportScreenState extends State<SalesByCustomerReportScree
                     ),
                     IconButton(
                       tooltip: isArabic ? 'تغيير الترتيب' : 'Toggle order',
-                      icon: Icon(_ascending ? Icons.arrow_upward : Icons.arrow_downward),
+                      icon: Icon(
+                        _ascending ? Icons.arrow_upward : Icons.arrow_downward,
+                      ),
                       onPressed: () {
                         setState(() => _ascending = !_ascending);
                         _loadReport();
@@ -390,7 +402,8 @@ class _SalesByCustomerReportScreenState extends State<SalesByCustomerReportScree
       ),
       _SummaryMetric(
         label: isArabic ? 'صافي الوزن' : 'Net Weight',
-        value: '${_formatWeight(_asDouble(summary['net_weight']))} (عيار $_mainKarat)',
+        value:
+            '${_formatWeight(_asDouble(summary['net_weight']))} (عيار $_mainKarat)',
         icon: Icons.scale,
         color: Colors.purple,
       ),
@@ -435,7 +448,9 @@ class _SalesByCustomerReportScreenState extends State<SalesByCustomerReportScree
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
-          crossAxisAlignment: isArabic ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+          crossAxisAlignment: isArabic
+              ? CrossAxisAlignment.end
+              : CrossAxisAlignment.start,
           children: [
             Text(
               isArabic ? 'أعلى العملاء (قيمة)' : 'Top Customers by Net Sales',
@@ -454,7 +469,9 @@ class _SalesByCustomerReportScreenState extends State<SalesByCustomerReportScree
             else
               _buildEmptyState(
                 icon: Icons.bar_chart,
-                message: isArabic ? 'لا توجد قيم موجبة للعرض.' : 'No positive values to show.',
+                message: isArabic
+                    ? 'لا توجد قيم موجبة للعرض.'
+                    : 'No positive values to show.',
               ),
           ],
         ),
@@ -470,7 +487,9 @@ class _SalesByCustomerReportScreenState extends State<SalesByCustomerReportScree
     if (customers.isEmpty) {
       return _buildEmptyState(
         icon: Icons.group_outlined,
-        message: isArabic ? 'لا توجد بيانات عملاء.' : 'No customer data available.',
+        message: isArabic
+            ? 'لا توجد بيانات عملاء.'
+            : 'No customer data available.',
       );
     }
 
@@ -482,7 +501,9 @@ class _SalesByCustomerReportScreenState extends State<SalesByCustomerReportScree
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
-          crossAxisAlignment: isArabic ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+          crossAxisAlignment: isArabic
+              ? CrossAxisAlignment.end
+              : CrossAxisAlignment.start,
           children: [
             Text(
               isArabic ? 'قائمة العملاء' : 'Customers List',
@@ -496,14 +517,28 @@ class _SalesByCustomerReportScreenState extends State<SalesByCustomerReportScree
                   DataColumn(label: Text(isArabic ? 'الترتيب' : '#')),
                   DataColumn(label: Text(isArabic ? 'العميل' : 'Customer')),
                   DataColumn(label: Text(isArabic ? 'المستندات' : 'Documents')),
-                  DataColumn(label: Text(isArabic ? 'إجمالي المبيعات' : 'Sales')),
+                  DataColumn(
+                    label: Text(isArabic ? 'إجمالي المبيعات' : 'Sales'),
+                  ),
                   DataColumn(label: Text(isArabic ? 'المرتجعات' : 'Returns')),
-                  DataColumn(label: Text(isArabic ? 'صافي المبيعات' : 'Net Sales')),
-                  DataColumn(label: Text(isArabic ? 'صافي الوزن' : 'Net Weight')),
-                  DataColumn(label: Text(isArabic ? 'متوسط الفاتورة' : 'Avg Invoice')),
-                  DataColumn(label: Text(isArabic ? 'رصيد نقدي' : 'Cash Balance')),
-                  DataColumn(label: Text(isArabic ? 'رصيد ذهب' : 'Gold Balance')),
-                  DataColumn(label: Text(isArabic ? 'آخر حركة' : 'Last Activity')),
+                  DataColumn(
+                    label: Text(isArabic ? 'صافي المبيعات' : 'Net Sales'),
+                  ),
+                  DataColumn(
+                    label: Text(isArabic ? 'صافي الوزن' : 'Net Weight'),
+                  ),
+                  DataColumn(
+                    label: Text(isArabic ? 'متوسط الفاتورة' : 'Avg Invoice'),
+                  ),
+                  DataColumn(
+                    label: Text(isArabic ? 'رصيد نقدي' : 'Cash Balance'),
+                  ),
+                  DataColumn(
+                    label: Text(isArabic ? 'رصيد ذهب' : 'Gold Balance'),
+                  ),
+                  DataColumn(
+                    label: Text(isArabic ? 'آخر حركة' : 'Last Activity'),
+                  ),
                 ],
                 rows: customers.map((customer) {
                   final lastDate = customer['last_invoice_date'];
@@ -513,19 +548,49 @@ class _SalesByCustomerReportScreenState extends State<SalesByCustomerReportScree
                   return DataRow(
                     cells: [
                       DataCell(Text('${customer['rank']}')),
-                      DataCell(Text(
-                        customer['customer_code'] != null
-                            ? '${customer['customer_name']} (${customer['customer_code']})'
-                            : customer['customer_name']?.toString() ?? '-',
-                      )),
+                      DataCell(
+                        Text(
+                          customer['customer_code'] != null
+                              ? '${customer['customer_name']} (${customer['customer_code']})'
+                              : customer['customer_name']?.toString() ?? '-',
+                        ),
+                      ),
                       DataCell(Text('${customer['documents'] ?? 0}')),
-                      DataCell(Text(_formatCurrency(_asDouble(customer['sales_value'])))),
-                      DataCell(Text(_formatCurrency(_asDouble(customer['returns_value'])))),
-                      DataCell(Text(_formatCurrency(_asDouble(customer['net_value'])))),
-                      DataCell(Text(_formatWeight(_asDouble(customer['net_weight'])))),
-                      DataCell(Text(_formatCurrency(_asDouble(customer['average_invoice_value'])))),
-                      DataCell(Text(_formatCurrency(_asDouble(customer['balance_cash'])))),
-                      DataCell(Text(_formatWeight(_asDouble(customer['balance_gold_main_karat'])))),
+                      DataCell(
+                        Text(
+                          _formatCurrency(_asDouble(customer['sales_value'])),
+                        ),
+                      ),
+                      DataCell(
+                        Text(
+                          _formatCurrency(_asDouble(customer['returns_value'])),
+                        ),
+                      ),
+                      DataCell(
+                        Text(_formatCurrency(_asDouble(customer['net_value']))),
+                      ),
+                      DataCell(
+                        Text(_formatWeight(_asDouble(customer['net_weight']))),
+                      ),
+                      DataCell(
+                        Text(
+                          _formatCurrency(
+                            _asDouble(customer['average_invoice_value']),
+                          ),
+                        ),
+                      ),
+                      DataCell(
+                        Text(
+                          _formatCurrency(_asDouble(customer['balance_cash'])),
+                        ),
+                      ),
+                      DataCell(
+                        Text(
+                          _formatWeight(
+                            _asDouble(customer['balance_gold_main_karat']),
+                          ),
+                        ),
+                      ),
                       DataCell(Text(formattedDate)),
                     ],
                   );
@@ -586,7 +651,9 @@ class _SummaryTile extends StatelessWidget {
         borderRadius: BorderRadius.circular(16),
       ),
       child: Column(
-        crossAxisAlignment: isArabic ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+        crossAxisAlignment: isArabic
+            ? CrossAxisAlignment.end
+            : CrossAxisAlignment.start,
         children: [
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -647,7 +714,10 @@ class _TopCustomersChart extends StatelessWidget {
       return _ChartPoint(index: index, label: label, value: value);
     }).toList();
 
-    final maxY = data.fold<double>(0, (prev, point) => math.max(prev, point.value.abs()));
+    final maxY = data.fold<double>(
+      0,
+      (prev, point) => math.max(prev, point.value.abs()),
+    );
     final interval = maxY <= 0 ? 1.0 : maxY / 4;
 
     return BarChart(
@@ -659,10 +729,8 @@ class _TopCustomersChart extends StatelessWidget {
           show: true,
           drawVerticalLine: false,
           horizontalInterval: interval <= 0 ? 1.0 : interval,
-          getDrawingHorizontalLine: (value) => FlLine(
-            color: Colors.grey.withValues(alpha: 0.2),
-            strokeWidth: 1,
-          ),
+          getDrawingHorizontalLine: (value) =>
+              FlLine(color: Colors.grey.withValues(alpha: 0.2), strokeWidth: 1),
         ),
         borderData: FlBorderData(
           show: true,
@@ -674,8 +742,12 @@ class _TopCustomersChart extends StatelessWidget {
           ),
         ),
         titlesData: FlTitlesData(
-          topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-          rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          topTitles: const AxisTitles(
+            sideTitles: SideTitles(showTitles: false),
+          ),
+          rightTitles: const AxisTitles(
+            sideTitles: SideTitles(showTitles: false),
+          ),
           leftTitles: AxisTitles(
             sideTitles: SideTitles(
               showTitles: true,
@@ -728,10 +800,7 @@ class _TopCustomersChart extends StatelessWidget {
                   BarChartRodData(
                     toY: point.value,
                     gradient: LinearGradient(
-                      colors: [
-                        Colors.amber.shade600,
-                        Colors.orange.shade400,
-                      ],
+                      colors: [Colors.amber.shade600, Colors.orange.shade400],
                     ),
                     width: 20,
                     borderRadius: const BorderRadius.all(Radius.circular(8)),
@@ -749,7 +818,10 @@ class _TopCustomersChart extends StatelessWidget {
               final label = isArabic ? 'صافي المبيعات' : 'Net Sales';
               return BarTooltipItem(
                 '${point.label}\n$label: ${formatCurrency(rod.toY)}',
-                const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                ),
               );
             },
           ),

@@ -123,7 +123,9 @@ class _InvoicePrintScreenState extends State<InvoicePrintScreen> {
       debugPrint('[PrintDiag] PDF generation successful for format: $key');
       return pdf;
     } catch (e, s) {
-      debugPrint('[PrintDiag] PDF generation FAILED for format: $key. Error: $e\n$s');
+      debugPrint(
+        '[PrintDiag] PDF generation FAILED for format: $key. Error: $e\n$s',
+      );
       // Always return a valid PDF to prevent PdfPreview/printing loops.
       return await _buildErrorPdf(format, e.toString());
     }
@@ -148,8 +150,13 @@ class _InvoicePrintScreenState extends State<InvoicePrintScreen> {
               crossAxisAlignment: pw.CrossAxisAlignment.start,
               children: [
                 pw.Text(
-                  widget.isArabic ? 'تعذر إنشاء ملف الطباعة' : 'Failed to generate print file',
-                  style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold),
+                  widget.isArabic
+                      ? 'تعذر إنشاء ملف الطباعة'
+                      : 'Failed to generate print file',
+                  style: pw.TextStyle(
+                    fontSize: 18,
+                    fontWeight: pw.FontWeight.bold,
+                  ),
                 ),
                 pw.SizedBox(height: 12),
                 pw.Text(message, style: const pw.TextStyle(fontSize: 10)),
@@ -185,11 +192,13 @@ class _InvoicePrintScreenState extends State<InvoicePrintScreen> {
       await Printing.layoutPdf(
         name: printName,
         onLayout: (format) async {
-          debugPrint('[PrintDiag] onLayout started for format: ${format.width}x${format.height}');
+          debugPrint(
+            '[PrintDiag] onLayout started for format: ${format.width}x${format.height}',
+          );
           try {
-            final pdfBytes = await _buildPdfForFormat(format).timeout(
-              const Duration(seconds: 30),
-            );
+            final pdfBytes = await _buildPdfForFormat(
+              format,
+            ).timeout(const Duration(seconds: 30));
             debugPrint('[PrintDiag] onLayout completed successfully.');
             return pdfBytes;
           } catch (e, s) {
@@ -246,7 +255,9 @@ class _InvoicePrintScreenState extends State<InvoicePrintScreen> {
 
     // Start a single shared load.
     final future = () async {
-      final regularData = await rootBundle.load('assets/fonts/Cairo-Regular.ttf');
+      final regularData = await rootBundle.load(
+        'assets/fonts/Cairo-Regular.ttf',
+      );
       final boldData = await rootBundle.load('assets/fonts/Cairo-Bold.ttf');
       _pdfFontBase = pw.Font.ttf(regularData);
       _pdfFontBold = pw.Font.ttf(boldData);
@@ -280,9 +291,9 @@ class _InvoicePrintScreenState extends State<InvoicePrintScreen> {
           await _loadTemplateBackgroundBytesForPreset(presetKey);
       _cachedTemplateBackgroundImage =
           (_cachedTemplateBackgroundBytes != null &&
-                  _cachedTemplateBackgroundBytes!.isNotEmpty)
-              ? pw.MemoryImage(_cachedTemplateBackgroundBytes!)
-              : null;
+              _cachedTemplateBackgroundBytes!.isNotEmpty)
+          ? pw.MemoryImage(_cachedTemplateBackgroundBytes!)
+          : null;
       _templateAssetsReady = true;
     }();
 
@@ -312,7 +323,9 @@ class _InvoicePrintScreenState extends State<InvoicePrintScreen> {
     return d.toStringAsFixed(3);
   }
 
-  Future<Uint8List?> _loadTemplateBackgroundBytesForPreset(String? presetKey) async {
+  Future<Uint8List?> _loadTemplateBackgroundBytesForPreset(
+    String? presetKey,
+  ) async {
     final key = (presetKey ?? '').trim();
     if (key.isEmpty) return null;
 
@@ -338,7 +351,9 @@ class _InvoicePrintScreenState extends State<InvoicePrintScreen> {
     }
   }
 
-  Future<bool> _loadTemplateBackgroundIncludeInPrintForPreset(String presetKey) async {
+  Future<bool> _loadTemplateBackgroundIncludeInPrintForPreset(
+    String presetKey,
+  ) async {
     final key = presetKey.trim();
     if (key.isEmpty) return true;
     try {
@@ -385,7 +400,6 @@ class _InvoicePrintScreenState extends State<InvoicePrintScreen> {
     }
   }
 
-
   Future<void> _downloadPdf() async {
     if (_isGenerating) {
       return;
@@ -398,9 +412,9 @@ class _InvoicePrintScreenState extends State<InvoicePrintScreen> {
       await _ensureTemplateAssetsLoaded();
 
       final format = PdfPageFormat.a4;
-      final pdfBytes = await _buildPdfForFormat(format).timeout(
-        const Duration(seconds: 30),
-      );
+      final pdfBytes = await _buildPdfForFormat(
+        format,
+      ).timeout(const Duration(seconds: 30));
 
       final rawNumber = (widget.invoice['invoice_number'] ?? '').toString();
       final safeNumber = rawNumber.trim().isNotEmpty
@@ -453,6 +467,7 @@ class _InvoicePrintScreenState extends State<InvoicePrintScreen> {
       }
     }
   }
+
   Future<void> _sharePdf() async {
     if (_isGenerating) {
       return;
@@ -466,9 +481,9 @@ class _InvoicePrintScreenState extends State<InvoicePrintScreen> {
       await _ensureTemplateAssetsLoaded();
 
       final format = PdfPageFormat.a4;
-      final pdfBytes = await _buildPdfForFormat(format).timeout(
-        const Duration(seconds: 30),
-      );
+      final pdfBytes = await _buildPdfForFormat(
+        format,
+      ).timeout(const Duration(seconds: 30));
 
       final rawNumber = (widget.invoice['invoice_number'] ?? '').toString();
       final safeNumber = rawNumber.trim().isNotEmpty
@@ -521,32 +536,36 @@ class _InvoicePrintScreenState extends State<InvoicePrintScreen> {
     // Preload fonts on the main isolate so printing on macOS doesn't hang
     // when onLayout tries to access rootBundle.
     _pdfFontsLoadFuture = _ensurePdfFontsLoaded();
-    _pdfFontsLoadFuture!.then((_) {
-      if (!mounted) return;
-      setState(() {
-        _pdfFontsReady = true;
-      });
-    }).catchError((_) {
-      if (!mounted) return;
-      setState(() {
-        _pdfFontsReady = false;
-      });
-    });
+    _pdfFontsLoadFuture!
+        .then((_) {
+          if (!mounted) return;
+          setState(() {
+            _pdfFontsReady = true;
+          });
+        })
+        .catchError((_) {
+          if (!mounted) return;
+          setState(() {
+            _pdfFontsReady = false;
+          });
+        });
   }
 
   void _preloadTemplateAssets() {
     _templateAssetsLoadFuture = _ensureTemplateAssetsLoaded();
-    _templateAssetsLoadFuture!.then((_) {
-      if (!mounted) return;
-      setState(() {
-        _templateAssetsReady = true;
-      });
-    }).catchError((_) {
-      if (!mounted) return;
-      setState(() {
-        _templateAssetsReady = false;
-      });
-    });
+    _templateAssetsLoadFuture!
+        .then((_) {
+          if (!mounted) return;
+          setState(() {
+            _templateAssetsReady = true;
+          });
+        })
+        .catchError((_) {
+          if (!mounted) return;
+          setState(() {
+            _templateAssetsReady = false;
+          });
+        });
   }
 
   void _loadPrintSettings() {
@@ -565,7 +584,9 @@ class _InvoicePrintScreenState extends State<InvoicePrintScreen> {
 
     bool canFetchRemote = false;
     try {
-      canFetchRemote = context.read<AuthProvider>().hasPermission('system.settings');
+      canFetchRemote = context.read<AuthProvider>().hasPermission(
+        'system.settings',
+      );
     } catch (_) {
       // If provider is not available for any reason, default to no remote fetch.
       canFetchRemote = false;
@@ -610,10 +631,13 @@ class _InvoicePrintScreenState extends State<InvoicePrintScreen> {
       try {
         final raw = settings['print_template_by_invoice_type'];
         if (raw is Map<String, dynamic>) {
-          templateByType = raw.map((k, v) => MapEntry(k.toString(), v.toString()));
+          templateByType = raw.map(
+            (k, v) => MapEntry(k.toString(), v.toString()),
+          );
         } else if (raw is Map) {
-          templateByType = Map<String, dynamic>.from(raw)
-              .map((k, v) => MapEntry(k.toString(), v.toString()));
+          templateByType = Map<String, dynamic>.from(
+            raw,
+          ).map((k, v) => MapEntry(k.toString(), v.toString()));
         }
       } catch (_) {
         templateByType = const {};
@@ -658,7 +682,9 @@ class _InvoicePrintScreenState extends State<InvoicePrintScreen> {
           actions: [
             IconButton(
               icon: const Icon(Icons.print),
-              onPressed: (_pdfFontsReady && _templateAssetsReady) ? _printPdf : null,
+              onPressed: (_pdfFontsReady && _templateAssetsReady)
+                  ? _printPdf
+                  : null,
               tooltip: _isArabic ? 'طباعة' : 'Print',
             ),
             IconButton(
@@ -668,7 +694,9 @@ class _InvoicePrintScreenState extends State<InvoicePrintScreen> {
             ),
             IconButton(
               icon: const Icon(Icons.download),
-              onPressed: (_pdfFontsReady && _templateAssetsReady) ? _downloadPdf : null,
+              onPressed: (_pdfFontsReady && _templateAssetsReady)
+                  ? _downloadPdf
+                  : null,
               tooltip: _isArabic ? 'تحميل PDF' : 'Download PDF',
             ),
           ],
@@ -699,7 +727,10 @@ class _InvoicePrintScreenState extends State<InvoicePrintScreen> {
         return PdfPageFormat.letter;
       case 'Thermal':
         // Default thermal size in this app is 80x200mm to match positioning preset.
-        return const PdfPageFormat(80 * PdfPageFormat.mm, 200 * PdfPageFormat.mm);
+        return const PdfPageFormat(
+          80 * PdfPageFormat.mm,
+          200 * PdfPageFormat.mm,
+        );
       default:
         return PdfPageFormat.a4;
     }
@@ -745,7 +776,9 @@ class _InvoicePrintScreenState extends State<InvoicePrintScreen> {
     }
   }
 
-  Future<Map<String, _TemplateRect>?> _loadTemplateLayoutForPreset(String? presetKey) async {
+  Future<Map<String, _TemplateRect>?> _loadTemplateLayoutForPreset(
+    String? presetKey,
+  ) async {
     final key = (presetKey ?? '').trim();
     if (key.isEmpty) return null;
 
@@ -777,7 +810,9 @@ class _InvoicePrintScreenState extends State<InvoicePrintScreen> {
     // Printing.onLayout can be invoked while a platform channel call is active.
     // Any rootBundle/SharedPreferences call here may deadlock.
     if (_pdfFontBase == null || _pdfFontBold == null) {
-      debugPrint('[PrintDiag|Gen] Fonts not ready in _generatePdf; returning error PDF.');
+      debugPrint(
+        '[PrintDiag|Gen] Fonts not ready in _generatePdf; returning error PDF.',
+      );
       return await _buildErrorPdf(format, 'PDF fonts not ready');
     }
 
@@ -788,10 +823,7 @@ class _InvoicePrintScreenState extends State<InvoicePrintScreen> {
       pw.Page(
         pageFormat: format,
         textDirection: _isArabic ? pw.TextDirection.rtl : pw.TextDirection.ltr,
-        theme: pw.ThemeData.withFont(
-          base: _pdfFontBase!,
-          bold: _pdfFontBold!,
-        ),
+        theme: pw.ThemeData.withFont(base: _pdfFontBase!, bold: _pdfFontBold!),
         build: (context) {
           debugPrint('[PrintDiag|Gen] Starting page build...');
           if (templateLayout != null) {
@@ -806,8 +838,9 @@ class _InvoicePrintScreenState extends State<InvoicePrintScreen> {
           }
           debugPrint('[PrintDiag|Gen] Building standard page...');
           final page = pw.Column(
-            crossAxisAlignment:
-                _isArabic ? pw.CrossAxisAlignment.end : pw.CrossAxisAlignment.start,
+            crossAxisAlignment: _isArabic
+                ? pw.CrossAxisAlignment.end
+                : pw.CrossAxisAlignment.start,
             children: [
               // رأس الصفحة
               _buildHeader(context),
@@ -848,7 +881,8 @@ class _InvoicePrintScreenState extends State<InvoicePrintScreen> {
   }
 
   pw.Widget _buildHeader(pw.Context context) {
-    final companyName = (_companyName != null && _companyName!.trim().isNotEmpty)
+    final companyName =
+        (_companyName != null && _companyName!.trim().isNotEmpty)
         ? _companyName!.trim()
         : (_isArabic ? 'مجوهرات خالد' : 'Khaled Jewelry');
 
@@ -859,8 +893,9 @@ class _InvoicePrintScreenState extends State<InvoicePrintScreen> {
     final shouldShowLogo = _showLogo && _settingsShowCompanyLogo;
 
     final companyBlock = pw.Column(
-      crossAxisAlignment:
-          _isArabic ? pw.CrossAxisAlignment.end : pw.CrossAxisAlignment.start,
+      crossAxisAlignment: _isArabic
+          ? pw.CrossAxisAlignment.end
+          : pw.CrossAxisAlignment.start,
       children: [
         if (shouldShowLogo)
           pw.Row(
@@ -925,7 +960,9 @@ class _InvoicePrintScreenState extends State<InvoicePrintScreen> {
     final invoiceTypeBlock = pw.Container(
       padding: const pw.EdgeInsets.all(10),
       decoration: pw.BoxDecoration(
-        color: _printInColor ? const PdfColor.fromInt(0xFFD4AF37) : PdfColors.grey300,
+        color: _printInColor
+            ? const PdfColor.fromInt(0xFFD4AF37)
+            : PdfColors.grey300,
         borderRadius: pw.BorderRadius.circular(8),
       ),
       child: pw.Column(
@@ -967,12 +1004,14 @@ class _InvoicePrintScreenState extends State<InvoicePrintScreen> {
 
   pw.Widget _buildInvoiceInfo(pw.Context context) {
     final dateFormat = DateFormat('yyyy-MM-dd');
-    final invoiceDate = DateTime.tryParse(widget.invoice['date']?.toString() ?? '') ??
+    final invoiceDate =
+        DateTime.tryParse(widget.invoice['date']?.toString() ?? '') ??
         DateTime.now();
 
     final infoColumn = pw.Column(
-      crossAxisAlignment:
-          _isArabic ? pw.CrossAxisAlignment.end : pw.CrossAxisAlignment.start,
+      crossAxisAlignment: _isArabic
+          ? pw.CrossAxisAlignment.end
+          : pw.CrossAxisAlignment.start,
       children: [
         _buildInfoRow(
           _isArabic ? 'رقم الفاتورة:' : 'Invoice No:',
@@ -1027,7 +1066,9 @@ class _InvoicePrintScreenState extends State<InvoicePrintScreen> {
     return pw.Padding(
       padding: const pw.EdgeInsets.only(bottom: 4),
       child: pw.Align(
-        alignment: _isArabic ? pw.Alignment.centerRight : pw.Alignment.centerLeft,
+        alignment: _isArabic
+            ? pw.Alignment.centerRight
+            : pw.Alignment.centerLeft,
         child: pw.RichText(
           textAlign: _isArabic ? pw.TextAlign.right : pw.TextAlign.left,
           text: pw.TextSpan(
@@ -1087,20 +1128,28 @@ class _InvoicePrintScreenState extends State<InvoicePrintScreen> {
         // رأس الجدول
         pw.TableRow(
           decoration: pw.BoxDecoration(
-            color: _printInColor
-                ? PdfColors.yellow100
-                : PdfColors.grey300,
+            color: _printInColor ? PdfColors.yellow100 : PdfColors.grey300,
           ),
           children: () {
             final headerCells = <pw.Widget>[
               _buildTableCell(widget.isArabic ? '#' : 'No', isHeader: true),
-              _buildTableCell(widget.isArabic ? 'اسم الصنف' : 'Item Name',
-                  isHeader: true),
-              _buildTableCell(widget.isArabic ? 'العيار' : 'Karat', isHeader: true),
-              _buildTableCell(widget.isArabic ? 'الوزن (جم)' : 'Weight (g)',
-                  isHeader: true),
+              _buildTableCell(
+                widget.isArabic ? 'اسم الصنف' : 'Item Name',
+                isHeader: true,
+              ),
+              _buildTableCell(
+                widget.isArabic ? 'العيار' : 'Karat',
+                isHeader: true,
+              ),
+              _buildTableCell(
+                widget.isArabic ? 'الوزن (جم)' : 'Weight (g)',
+                isHeader: true,
+              ),
               if (_showPrices)
-                _buildTableCell(widget.isArabic ? 'الكمية' : 'Qty', isHeader: true),
+                _buildTableCell(
+                  widget.isArabic ? 'الكمية' : 'Qty',
+                  isHeader: true,
+                ),
               if (_showPrices)
                 _buildTableCell(
                   widget.isArabic ? 'تفاصيل المبلغ' : 'Amount Details',
@@ -1115,7 +1164,7 @@ class _InvoicePrintScreenState extends State<InvoicePrintScreen> {
         ...itemsToRender.asMap().entries.map((entry) {
           final index = entry.key;
           final raw = entry.value;
-            final item = (raw is Map)
+          final item = (raw is Map)
               ? Map<String, dynamic>.from(raw)
               : <String, dynamic>{};
 
@@ -1154,7 +1203,9 @@ class _InvoicePrintScreenState extends State<InvoicePrintScreen> {
                 wageTotal: wageTotal,
               ),
           ];
-          return pw.TableRow(children: _isArabic ? cells.reversed.toList() : cells);
+          return pw.TableRow(
+            children: _isArabic ? cells.reversed.toList() : cells,
+          );
         }),
         if (truncated)
           pw.TableRow(
@@ -1162,7 +1213,8 @@ class _InvoicePrintScreenState extends State<InvoicePrintScreen> {
               final truncatedCells = <pw.Widget>[
                 _buildTableCell('...'),
                 _buildTableCell(
-                    widget.isArabic ? 'تم اختصار العناصر' : 'Items truncated'),
+                  widget.isArabic ? 'تم اختصار العناصر' : 'Items truncated',
+                ),
                 _buildTableCell(''),
                 _buildTableCell(''),
                 if (_showPrices) _buildTableCell(''),
@@ -1237,11 +1289,10 @@ class _InvoicePrintScreenState extends State<InvoicePrintScreen> {
     );
     rows.add(
       pw.Text(
-        widget.isArabic ? 'إجمالي: ${_money(total)}' : 'Total: ${_money(total)}',
-        style: pw.TextStyle(
-          fontSize: 9,
-          fontWeight: pw.FontWeight.bold,
-        ),
+        widget.isArabic
+            ? 'إجمالي: ${_money(total)}'
+            : 'Total: ${_money(total)}',
+        style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold),
         textAlign: pw.TextAlign.center,
       ),
     );
@@ -1327,7 +1378,9 @@ class _InvoicePrintScreenState extends State<InvoicePrintScreen> {
       ),
     );
 
-    final children = _isArabic ? <pw.Widget>[valueW, labelW] : <pw.Widget>[labelW, valueW];
+    final children = _isArabic
+        ? <pw.Widget>[valueW, labelW]
+        : <pw.Widget>[labelW, valueW];
 
     return pw.Row(
       mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
@@ -1362,9 +1415,7 @@ class _InvoicePrintScreenState extends State<InvoicePrintScreen> {
   pw.Widget _buildFooter(pw.Context context) {
     return pw.Container(
       decoration: const pw.BoxDecoration(
-        border: pw.Border(
-          top: pw.BorderSide(color: PdfColors.grey400),
-        ),
+        border: pw.Border(top: pw.BorderSide(color: PdfColors.grey400)),
       ),
       padding: const pw.EdgeInsets.only(top: 10),
       child: pw.Row(
@@ -1457,9 +1508,9 @@ class _InvoicePrintScreenState extends State<InvoicePrintScreen> {
 
   pw.Widget _buildTemplatedInvoicePage(
     pw.Context context,
-    Map<String, _TemplateRect> layout,
-    {pw.ImageProvider? backgroundImage}
-  ) {
+    Map<String, _TemplateRect> layout, {
+    pw.ImageProvider? backgroundImage,
+  }) {
     pw.Widget? positioned(String id, pw.Widget child) {
       final rect = layout[id];
       if (rect == null) return null;
@@ -1476,38 +1527,35 @@ class _InvoicePrintScreenState extends State<InvoicePrintScreen> {
     }
 
     final dateFormat = DateFormat('yyyy-MM-dd');
-    final invoiceDate = DateTime.tryParse(
-          widget.invoice['date']?.toString() ?? '',
-        ) ??
+    final invoiceDate =
+        DateTime.tryParse(widget.invoice['date']?.toString() ?? '') ??
         DateTime.now();
 
     final invoiceNumber =
         (widget.invoice['invoice_type_id'] ?? widget.invoice['id'] ?? '')
             .toString();
 
-    final customerName = (widget.invoice['customer_name'] ??
-            widget.invoice['supplier_name'] ??
-            '')
-        .toString();
+    final customerName =
+        (widget.invoice['customer_name'] ??
+                widget.invoice['supplier_name'] ??
+                '')
+            .toString();
 
-    final customerPhone = (widget.invoice['customer_phone'] ??
-            widget.invoice['phone'] ??
-            '')
-        .toString();
+    final customerPhone =
+        (widget.invoice['customer_phone'] ?? widget.invoice['phone'] ?? '')
+            .toString();
 
-    final companyName = (_companyName != null && _companyName!.trim().isNotEmpty)
-      ? _companyName!.trim()
-      : (widget.isArabic ? 'مجوهرات خالد' : 'Khaled Jewelry');
+    final companyName =
+        (_companyName != null && _companyName!.trim().isNotEmpty)
+        ? _companyName!.trim()
+        : (widget.isArabic ? 'مجوهرات خالد' : 'Khaled Jewelry');
 
     final widgets = <pw.Widget>[];
 
     if (backgroundImage != null) {
       widgets.add(
         pw.Positioned.fill(
-          child: pw.Image(
-            backgroundImage,
-            fit: pw.BoxFit.fill,
-          ),
+          child: pw.Image(backgroundImage, fit: pw.BoxFit.fill),
         ),
       );
     }
@@ -1515,7 +1563,9 @@ class _InvoicePrintScreenState extends State<InvoicePrintScreen> {
     final company = positioned(
       'company_name',
       pw.Align(
-        alignment: widget.isArabic ? pw.Alignment.centerRight : pw.Alignment.centerLeft,
+        alignment: widget.isArabic
+            ? pw.Alignment.centerRight
+            : pw.Alignment.centerLeft,
         child: pw.Text(
           companyName,
           style: pw.TextStyle(
@@ -1535,26 +1585,26 @@ class _InvoicePrintScreenState extends State<InvoicePrintScreen> {
       'logo',
       (_showLogo && _settingsShowCompanyLogo)
           ? (_companyLogoBytes != null
-              ? pw.Container(
-                  alignment: pw.Alignment.center,
-                  child: pw.Image(
-                    pw.MemoryImage(_companyLogoBytes!),
-                    fit: pw.BoxFit.contain,
-                  ),
-                )
-              : pw.Container(
-                  decoration: pw.BoxDecoration(
-                    border: pw.Border.all(color: PdfColors.grey400),
-                  ),
-                  alignment: pw.Alignment.center,
-                  child: pw.Text(
-                    widget.isArabic ? 'شعار' : 'Logo',
-                    style: const pw.TextStyle(
-                      fontSize: 10,
-                      color: PdfColors.grey700,
+                ? pw.Container(
+                    alignment: pw.Alignment.center,
+                    child: pw.Image(
+                      pw.MemoryImage(_companyLogoBytes!),
+                      fit: pw.BoxFit.contain,
                     ),
-                  ),
-                ))
+                  )
+                : pw.Container(
+                    decoration: pw.BoxDecoration(
+                      border: pw.Border.all(color: PdfColors.grey400),
+                    ),
+                    alignment: pw.Alignment.center,
+                    child: pw.Text(
+                      widget.isArabic ? 'شعار' : 'Logo',
+                      style: const pw.TextStyle(
+                        fontSize: 10,
+                        color: PdfColors.grey700,
+                      ),
+                    ),
+                  ))
           : pw.SizedBox(),
     );
     if (logo != null) widgets.add(logo);
@@ -1637,8 +1687,9 @@ class _InvoicePrintScreenState extends State<InvoicePrintScreen> {
     if (_showPrices) {
       final total = (widget.invoice['total'] ?? 0).toString();
       final tax = (widget.invoice['total_tax'] ?? 0).toString();
-      final subtotal = ((widget.invoice['total'] ?? 0) - (widget.invoice['total_tax'] ?? 0))
-          .toString();
+      final subtotal =
+          ((widget.invoice['total'] ?? 0) - (widget.invoice['total_tax'] ?? 0))
+              .toString();
 
       final subtotalW = positioned(
         'subtotal',
@@ -1746,8 +1797,8 @@ class _TemplateRect {
       fontSize: json['fontSize'] is num
           ? (json['fontSize'] as num).toDouble()
           : (json['fontSize'] is String
-              ? double.tryParse(json['fontSize'] as String)
-              : null),
+                ? double.tryParse(json['fontSize'] as String)
+                : null),
       visible: json['visible'] is bool ? json['visible'] as bool : null,
     );
   }

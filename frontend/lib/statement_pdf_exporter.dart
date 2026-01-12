@@ -213,7 +213,7 @@ class StatementPdfExporter {
       ];
     }).toList();
 
-    return pw.Table.fromTextArray(
+    return pw.TableHelper.fromTextArray(
       headers: headers,
       data: data,
       headerStyle: pw.TextStyle(font: _boldFont),

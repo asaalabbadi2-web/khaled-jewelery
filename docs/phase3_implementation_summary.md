@@ -112,7 +112,7 @@ CR: Inventory (removing returned goods)
 **Changes Made**:
 - Both entries use dual system with weight tracking
 
-##### 5. شراء من مورد (Purchase from Supplier)
+##### 5. شراء (Purchase from Supplier)
 **Accounting Logic**:
 ```
 DR: Inventory (cash + weight)
@@ -124,7 +124,7 @@ CR: Supplier/Cash
 - Inventory purchase includes weight
 - VAT entry uses dual system
 
-##### 6. مرتجع شراء من مورد (Supplier Purchase Return)
+##### 6. مرتجع شراء (مورد) (Supplier Purchase Return)
 **Accounting Logic**:
 ```
 DR: Supplier/Cash

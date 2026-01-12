@@ -12,10 +12,14 @@ class RecurringTemplateFormScreen extends StatefulWidget {
   final dynamic template;
   final bool isEditMode;
 
-  RecurringTemplateFormScreen({this.template, this.isEditMode = false});
+  const RecurringTemplateFormScreen({
+    super.key,
+    this.template,
+    this.isEditMode = false,
+  });
 
   @override
-  _RecurringTemplateFormScreenState createState() =>
+  State<RecurringTemplateFormScreen> createState() =>
       _RecurringTemplateFormScreenState();
 }
 
@@ -51,7 +55,8 @@ class _RecurringTemplateFormScreenState
       text: widget.template?['description'] ?? '',
     );
     _startDateController = TextEditingController(
-      text: widget.template?['start_date']?.split('T').first ??
+      text:
+          widget.template?['start_date']?.split('T').first ??
           DateTime.now().toIso8601String().split('T').first,
     );
     _endDateController = TextEditingController(
@@ -136,9 +141,7 @@ class _RecurringTemplateFormScreenState
       builder: (context, child) {
         return Theme(
           data: Theme.of(context).copyWith(
-            colorScheme: ColorScheme.light(
-              primary: AppColors.primaryGold,
-            ),
+            colorScheme: ColorScheme.light(primary: AppColors.primaryGold),
           ),
           child: child!,
         );
@@ -181,14 +184,16 @@ class _RecurringTemplateFormScreenState
         'is_active': _isActive,
         'auto_create': _autoCreate,
         'lines': validLines
-            .map((line) => {
-                  'account_id': line.accountId,
-                  'cash_debit': line.cashDebit,
-                  'cash_credit': line.cashCredit,
-                  'debit_21k': line.goldDebit,
-                  'credit_21k': line.goldCredit,
-                  'description': line.description,
-                })
+            .map(
+              (line) => {
+                'account_id': line.accountId,
+                'cash_debit': line.cashDebit,
+                'cash_credit': line.cashCredit,
+                'debit_21k': line.goldDebit,
+                'credit_21k': line.goldCredit,
+                'description': line.description,
+              },
+            )
             .toList(),
       };
 
@@ -230,7 +235,7 @@ class _RecurringTemplateFormScreenState
     final textTheme = theme.textTheme;
 
     return Directionality(
-  textDirection: ui.TextDirection.rtl,
+      textDirection: ui.TextDirection.rtl,
       child: Scaffold(
         appBar: AppBar(
           title: Text(
@@ -368,19 +373,25 @@ class _RecurringTemplateFormScreenState
                 Expanded(
                   flex: 2,
                   child: DropdownButtonFormField<String>(
-                    value: _selectedFrequency,
+                    initialValue: _selectedFrequency,
                     decoration: InputDecoration(
                       labelText: 'نوع التكرار *',
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(8),
                       ),
-                      prefixIcon: Icon(Icons.repeat, color: colorScheme.primary),
+                      prefixIcon: Icon(
+                        Icons.repeat,
+                        color: colorScheme.primary,
+                      ),
                     ),
                     items: const [
                       DropdownMenuItem(value: 'daily', child: Text('يومي')),
                       DropdownMenuItem(value: 'weekly', child: Text('أسبوعي')),
                       DropdownMenuItem(value: 'monthly', child: Text('شهري')),
-                      DropdownMenuItem(value: 'quarterly', child: Text('ربع سنوي')),
+                      DropdownMenuItem(
+                        value: 'quarterly',
+                        child: Text('ربع سنوي'),
+                      ),
                       DropdownMenuItem(value: 'yearly', child: Text('سنوي')),
                     ],
                     onChanged: (value) {
@@ -427,7 +438,10 @@ class _RecurringTemplateFormScreenState
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(8),
                   ),
-                  prefixIcon: Icon(Icons.calendar_today, color: colorScheme.primary),
+                  prefixIcon: Icon(
+                    Icons.calendar_today,
+                    color: colorScheme.primary,
+                  ),
                   helperText: 'اليوم من الشهر (1 = أول يوم)',
                 ),
                 keyboardType: TextInputType.number,
@@ -476,7 +490,10 @@ class _RecurringTemplateFormScreenState
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(8),
                 ),
-                prefixIcon: Icon(Icons.calendar_today, color: colorScheme.primary),
+                prefixIcon: Icon(
+                  Icons.calendar_today,
+                  color: colorScheme.primary,
+                ),
                 suffixIcon: IconButton(
                   icon: const Icon(Icons.edit_calendar),
                   onPressed: () => _selectDate(_startDateController),
@@ -557,16 +574,10 @@ class _RecurringTemplateFormScreenState
             const SizedBox(height: 12),
             SwitchListTile.adaptive(
               contentPadding: EdgeInsets.zero,
-              title: Text(
-                'القالب نشط',
-                style: textTheme.titleMedium,
-              ),
-              subtitle: Text(
-                'تفعيل/إيقاف القالب',
-                style: subtitleStyle,
-              ),
+              title: Text('القالب نشط', style: textTheme.titleMedium),
+              subtitle: Text('تفعيل/إيقاف القالب', style: subtitleStyle),
               value: _isActive,
-              activeColor: colorScheme.primary,
+              activeThumbColor: colorScheme.primary,
               onChanged: (value) {
                 setState(() {
                   _isActive = value;
@@ -576,16 +587,13 @@ class _RecurringTemplateFormScreenState
             const Divider(),
             SwitchListTile.adaptive(
               contentPadding: EdgeInsets.zero,
-              title: Text(
-                'إنشاء تلقائي',
-                style: textTheme.titleMedium,
-              ),
+              title: Text('إنشاء تلقائي', style: textTheme.titleMedium),
               subtitle: Text(
                 'إنشاء القيود تلقائياً في المواعيد المحددة',
                 style: subtitleStyle,
               ),
               value: _autoCreate,
-              activeColor: colorScheme.primary,
+              activeThumbColor: colorScheme.primary,
               onChanged: (value) {
                 setState(() {
                   _autoCreate = value;
@@ -633,7 +641,7 @@ class _RecurringTemplateFormScreenState
               final index = entry.key;
               final line = entry.value;
               return _buildLineCard(index, line);
-            }).toList(),
+            }),
           ],
         ),
       ),
@@ -666,7 +674,7 @@ class _RecurringTemplateFormScreenState
             ),
             SizedBox(height: 8),
             DropdownButtonFormField<int>(
-              value: line.accountId,
+              initialValue: line.accountId,
               decoration: InputDecoration(
                 labelText: 'الحساب *',
                 border: OutlineInputBorder(
@@ -678,13 +686,15 @@ class _RecurringTemplateFormScreenState
                 ),
               ),
               items: _accounts
-                  .map((acc) => DropdownMenuItem<int>(
-                        value: acc['id'],
-                        child: Text(
-                          '${acc['number']} - ${acc['name']}',
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ))
+                  .map(
+                    (acc) => DropdownMenuItem<int>(
+                      value: acc['id'],
+                      child: Text(
+                        '${acc['number']} - ${acc['name']}',
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  )
                   .toList(),
               onChanged: (value) {
                 setState(() {
@@ -802,24 +812,20 @@ class _RecurringTemplateFormScreenState
             ? const SizedBox(
                 width: 20,
                 height: 20,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                ),
+                child: CircularProgressIndicator(strokeWidth: 2),
               )
             : const Icon(Icons.save),
         label: Text(
           _isLoading ? 'جاري الحفظ...' : 'حفظ القالب',
           style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                fontWeight: FontWeight.bold,
-                color: Theme.of(context).colorScheme.onPrimary,
-              ),
+            fontWeight: FontWeight.bold,
+            color: Theme.of(context).colorScheme.onPrimary,
+          ),
         ),
         style: ElevatedButton.styleFrom(
           backgroundColor: Theme.of(context).colorScheme.primary,
           foregroundColor: Theme.of(context).colorScheme.onPrimary,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(8),
-          ),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
         ),
       ),
     );

@@ -117,7 +117,10 @@ class _ShiftClosingScreenState extends State<ShiftClosingScreen> {
   Future<void> _loadGoldSummary() async {
     setState(() => _goldLoading = true);
     try {
-      final data = await widget.api.getShiftClosingGoldSummary(from: _from, to: _to);
+      final data = await widget.api.getShiftClosingGoldSummary(
+        from: _from,
+        to: _to,
+      );
       final totals = (data['totals'] as Map?)?.cast<String, dynamic>();
       if (!mounted) return;
       setState(() {
@@ -309,7 +312,9 @@ class _ShiftClosingScreenState extends State<ShiftClosingScreen> {
         final expected = (_goldTotals![k] as num?)?.toDouble() ?? 0.0;
         final actual = _parseAmount(_goldActualControllers[k]?.text ?? '');
         final diff = actual - expected;
-        goldDiffAbsMax = goldDiffAbsMax < diff.abs() ? diff.abs() : goldDiffAbsMax;
+        goldDiffAbsMax = goldDiffAbsMax < diff.abs()
+            ? diff.abs()
+            : goldDiffAbsMax;
       }
     }
 
@@ -505,7 +510,8 @@ class _ShiftClosingScreenState extends State<ShiftClosingScreen> {
                   rows: _rows.map((row) {
                     final pmId = row['payment_method_id'] as int;
                     final name = (row['payment_method_name'] ?? '').toString();
-                    final expected = (row['expected_amount'] as num?)?.toDouble() ?? 0.0;
+                    final expected =
+                        (row['expected_amount'] as num?)?.toDouble() ?? 0.0;
                     final ctrl = _actualControllers[pmId]!;
 
                     final actual = _parseAmount(ctrl.text);
@@ -518,12 +524,16 @@ class _ShiftClosingScreenState extends State<ShiftClosingScreen> {
                         DataCell(
                           Text(
                             name.isEmpty
-                                ? (widget.isArabic ? 'وسيلة #$pmId' : 'Method #$pmId')
+                                ? (widget.isArabic
+                                      ? 'وسيلة #$pmId'
+                                      : 'Method #$pmId')
                                 : name,
                           ),
                         ),
                         DataCell(
-                          Text('${expected.toStringAsFixed(2)} $currencySymbol'),
+                          Text(
+                            '${expected.toStringAsFixed(2)} $currencySymbol',
+                          ),
                         ),
                         DataCell(
                           SizedBox(
@@ -540,15 +550,24 @@ class _ShiftClosingScreenState extends State<ShiftClosingScreen> {
                                             FocusScope.of(context).unfocus();
                                             _openCashDenominationsDialog(
                                               paymentMethodId: pmId,
-                                              paymentMethodName: name.isEmpty ? '#$pmId' : name,
+                                              paymentMethodName: name.isEmpty
+                                                  ? '#$pmId'
+                                                  : name,
                                             );
                                           }
                                         : null,
-                                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                                    keyboardType:
+                                        const TextInputType.numberWithOptions(
+                                          decimal: true,
+                                        ),
                                     decoration: InputDecoration(
                                       hintText: widget.isArabic
-                                          ? (isCash ? 'اضغط للتفتيت' : 'أدخل الفعلي')
-                                          : (isCash ? 'Tap to count' : 'Enter actual'),
+                                          ? (isCash
+                                                ? 'اضغط للتفتيت'
+                                                : 'أدخل الفعلي')
+                                          : (isCash
+                                                ? 'Tap to count'
+                                                : 'Enter actual'),
                                       isDense: true,
                                     ),
                                   ),
@@ -560,7 +579,8 @@ class _ShiftClosingScreenState extends State<ShiftClosingScreen> {
                                         : (editable ? 'Lock' : 'Edit'),
                                     onPressed: () {
                                       setState(() {
-                                        _actualEditable[pmId] = !(_actualEditable[pmId] ?? false);
+                                        _actualEditable[pmId] =
+                                            !(_actualEditable[pmId] ?? false);
                                       });
                                     },
                                     icon: Icon(
@@ -570,11 +590,15 @@ class _ShiftClosingScreenState extends State<ShiftClosingScreen> {
                                   ),
                                 if (isCash)
                                   IconButton(
-                                    tooltip: widget.isArabic ? 'تفتيت' : 'Denominations',
+                                    tooltip: widget.isArabic
+                                        ? 'تفتيت'
+                                        : 'Denominations',
                                     onPressed: () {
                                       _openCashDenominationsDialog(
                                         paymentMethodId: pmId,
-                                        paymentMethodName: name.isEmpty ? '#$pmId' : name,
+                                        paymentMethodName: name.isEmpty
+                                            ? '#$pmId'
+                                            : name,
                                       );
                                     },
                                     icon: const Icon(Icons.calculate, size: 18),
@@ -611,7 +635,9 @@ class _ShiftClosingScreenState extends State<ShiftClosingScreen> {
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Text(widget.isArabic ? 'إجمالي المتوقع' : 'Total expected'),
+                        Text(
+                          widget.isArabic ? 'إجمالي المتوقع' : 'Total expected',
+                        ),
                         Text(
                           '${totalExpected.toStringAsFixed(2)} $currencySymbol',
                           style: const TextStyle(fontWeight: FontWeight.bold),
@@ -622,7 +648,9 @@ class _ShiftClosingScreenState extends State<ShiftClosingScreen> {
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Text(widget.isArabic ? 'إجمالي الفعلي' : 'Total actual'),
+                        Text(
+                          widget.isArabic ? 'إجمالي الفعلي' : 'Total actual',
+                        ),
                         Text(
                           '${totalActual.toStringAsFixed(2)} $currencySymbol',
                           style: const TextStyle(fontWeight: FontWeight.bold),
@@ -685,7 +713,9 @@ class _ShiftClosingScreenState extends State<ShiftClosingScreen> {
                         width: 20,
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
-                    : Text(widget.isArabic ? 'تأكيد الإغلاق' : 'Confirm Closing'),
+                    : Text(
+                        widget.isArabic ? 'تأكيد الإغلاق' : 'Confirm Closing',
+                      ),
               ),
             ),
           ),
@@ -717,9 +747,9 @@ class _ShiftClosingScreenState extends State<ShiftClosingScreen> {
 
       double toPure24(double w18, double w21, double w22, double w24) {
         return (w18 * (18.0 / 24.0)) +
-        (w21 * (21.0 / 24.0)) +
-        (w22 * (22.0 / 24.0)) +
-        (w24 * 1.0);
+            (w21 * (21.0 / 24.0)) +
+            (w22 * (22.0 / 24.0)) +
+            (w24 * 1.0);
       }
 
       Widget buildRow(String label, String key, double expected) {
@@ -731,16 +761,15 @@ class _ShiftClosingScreenState extends State<ShiftClosingScreen> {
         final diff = actual - expected;
         final diffColor = diff.abs() < 0.001
             ? Colors.grey
-            : (diff < 0 ? Theme.of(context).colorScheme.error : AppColors.success);
+            : (diff < 0
+                  ? Theme.of(context).colorScheme.error
+                  : AppColors.success);
 
         return Padding(
           padding: const EdgeInsets.symmetric(vertical: 8),
           child: Row(
             children: [
-              Expanded(
-                flex: 3,
-                child: Text(label),
-              ),
+              Expanded(flex: 3, child: Text(label)),
               Expanded(
                 flex: 3,
                 child: Text(
@@ -771,7 +800,10 @@ class _ShiftClosingScreenState extends State<ShiftClosingScreen> {
                       ? '+${diff.toStringAsFixed(3)}'
                       : diff.toStringAsFixed(3),
                   textAlign: TextAlign.end,
-                  style: TextStyle(fontWeight: FontWeight.bold, color: diffColor),
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: diffColor,
+                  ),
                 ),
               ),
             ],
@@ -796,10 +828,18 @@ class _ShiftClosingScreenState extends State<ShiftClosingScreen> {
                 const Divider(),
                 Builder(
                   builder: (ctx) {
-                    final a18 = _parseAmount(_goldActualControllers['18k']?.text ?? '');
-                    final a21 = _parseAmount(_goldActualControllers['21k']?.text ?? '');
-                    final a22 = _parseAmount(_goldActualControllers['22k']?.text ?? '');
-                    final a24 = _parseAmount(_goldActualControllers['24k']?.text ?? '');
+                    final a18 = _parseAmount(
+                      _goldActualControllers['18k']?.text ?? '',
+                    );
+                    final a21 = _parseAmount(
+                      _goldActualControllers['21k']?.text ?? '',
+                    );
+                    final a22 = _parseAmount(
+                      _goldActualControllers['22k']?.text ?? '',
+                    );
+                    final a24 = _parseAmount(
+                      _goldActualControllers['24k']?.text ?? '',
+                    );
 
                     final expectedPure = toPure24(w18, w21, w22, w24);
                     final actualPure = toPure24(a18, a21, a22, a24);
@@ -807,8 +847,8 @@ class _ShiftClosingScreenState extends State<ShiftClosingScreen> {
                     final diffColor = diffPure.abs() < 0.001
                         ? Colors.grey
                         : (diffPure < 0
-                            ? Theme.of(context).colorScheme.error
-                            : AppColors.success);
+                              ? Theme.of(context).colorScheme.error
+                              : AppColors.success);
 
                     return Padding(
                       padding: const EdgeInsets.symmetric(vertical: 8),
@@ -820,7 +860,9 @@ class _ShiftClosingScreenState extends State<ShiftClosingScreen> {
                               widget.isArabic
                                   ? 'إجمالي الذهب الصافي (24)'
                                   : 'Total Pure Gold (24k)',
-                              style: const TextStyle(fontWeight: FontWeight.bold),
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                              ),
                             ),
                           ),
                           Expanded(
@@ -829,7 +871,9 @@ class _ShiftClosingScreenState extends State<ShiftClosingScreen> {
                               widget.isArabic
                                   ? 'المتوقع: ${expectedPure.toStringAsFixed(3)} جم'
                                   : 'Expected: ${expectedPure.toStringAsFixed(3)} g',
-                              style: const TextStyle(fontWeight: FontWeight.bold),
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                              ),
                             ),
                           ),
                           Expanded(
@@ -838,7 +882,9 @@ class _ShiftClosingScreenState extends State<ShiftClosingScreen> {
                               widget.isArabic
                                   ? 'الفعلي: ${actualPure.toStringAsFixed(3)} جم'
                                   : 'Actual: ${actualPure.toStringAsFixed(3)} g',
-                              style: const TextStyle(fontWeight: FontWeight.bold),
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                              ),
                             ),
                           ),
                           const SizedBox(width: 8),
@@ -893,12 +939,7 @@ class _ShiftClosingScreenState extends State<ShiftClosingScreen> {
               ),
             ],
           ),
-          body: TabBarView(
-            children: [
-              buildCashTab(),
-              buildGoldTab(),
-            ],
-          ),
+          body: TabBarView(children: [buildCashTab(), buildGoldTab()]),
         ),
       ),
     );

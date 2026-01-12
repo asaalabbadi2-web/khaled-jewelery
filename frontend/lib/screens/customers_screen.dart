@@ -74,7 +74,9 @@ class _CustomersScreenState extends State<CustomersScreen> {
     final gold = colorScheme.primary;
     final scaffoldBackgroundColor = theme.scaffoldBackgroundColor;
     final cardColor = theme.cardTheme.color ?? colorScheme.surface;
-    final subtitleColor = colorScheme.onSurface.withValues(alpha: isDark ? 0.7 : 0.6);
+    final subtitleColor = colorScheme.onSurface.withValues(
+      alpha: isDark ? 0.7 : 0.6,
+    );
 
     return Scaffold(
       appBar: AppBar(

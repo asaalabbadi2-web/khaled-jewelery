@@ -6,9 +6,8 @@ class SafeBoxesScreen extends StatefulWidget {
   final ApiService api;
   final bool isArabic;
 
-  SafeBoxesScreen({Key? key, ApiService? api, this.isArabic = true})
-    : api = api ?? ApiService(),
-      super(key: key);
+  SafeBoxesScreen({super.key, ApiService? api, this.isArabic = true})
+    : api = api ?? ApiService();
 
   @override
   State<SafeBoxesScreen> createState() => _SafeBoxesScreenState();
@@ -144,7 +143,7 @@ class _SafeBoxesScreenState extends State<SafeBoxesScreen> {
 
                   // نوع الخزينة
                   DropdownButtonFormField<String>(
-                    value: selectedType,
+                    initialValue: selectedType,
                     decoration: InputDecoration(
                       labelText: isAr ? 'نوع الخزينة *' : 'Safe Type *',
                       border: const OutlineInputBorder(),
@@ -247,7 +246,7 @@ class _SafeBoxesScreenState extends State<SafeBoxesScreen> {
                   // العيار (للذهب فقط)
                   if (selectedType == 'gold')
                     DropdownButtonFormField<int>(
-                      value: selectedKarat,
+                      initialValue: selectedKarat,
                       decoration: InputDecoration(
                         labelText: isAr ? 'العيار *' : 'Karat *',
                         border: const OutlineInputBorder(),

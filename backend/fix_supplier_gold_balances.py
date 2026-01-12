@@ -35,7 +35,8 @@ def fix_supplier_gold_entries():
         print(f"\n✓ حساب الموردين: {supplier_account.name} (ID: {supplier_account.id})")
         
         # 2. جلب فواتير الموردين
-        supplier_invoices = Invoice.query.filter_by(invoice_type='شراء من مورد').all()
+        legacy_supplier_purchase = 'شراء' + ' من ' + 'مورد'
+        supplier_invoices = Invoice.query.filter(Invoice.invoice_type.in_(['شراء', legacy_supplier_purchase])).all()
         print(f"✓ عدد الفواتير: {len(supplier_invoices)}")
         
         fixed_count = 0

@@ -11,10 +11,10 @@ class AccountLedgerScreen extends StatefulWidget {
   final String accountName;
 
   const AccountLedgerScreen({
-    Key? key,
+    super.key,
     required this.accountId,
     required this.accountName,
-  }) : super(key: key);
+  });
 
   @override
   State<AccountLedgerScreen> createState() => _AccountLedgerScreenState();
@@ -22,21 +22,30 @@ class AccountLedgerScreen extends StatefulWidget {
 
 class _AccountLedgerScreenState extends State<AccountLedgerScreen> {
   final ApiService _apiService = ApiService();
+  final TextEditingController _searchController = TextEditingController();
 
   DateTime? _startDate;
   DateTime? _endDate;
   bool _karatDetail = true;
+  String _searchQuery = '';
 
   Map<String, dynamic>? _ledgerData;
   bool _isLoading = false;
   String? _errorMessage;
   String currencySymbol = 'ر.س';
   int currencyDecimalPlaces = 2;
+  int mainKarat = 21;
 
   @override
   void initState() {
     super.initState();
     _loadLedger();
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
   }
 
   @override
@@ -46,11 +55,15 @@ class _AccountLedgerScreenState extends State<AccountLedgerScreen> {
 
     final newSymbol = settings.currencySymbol;
     final newDecimals = settings.decimalPlaces;
+    final newMainKarat = settings.mainKarat;
 
-    if (newSymbol != currencySymbol || newDecimals != currencyDecimalPlaces) {
+    if (newSymbol != currencySymbol ||
+        newDecimals != currencyDecimalPlaces ||
+        newMainKarat != mainKarat) {
       setState(() {
         currencySymbol = newSymbol;
         currencyDecimalPlaces = newDecimals;
+        mainKarat = newMainKarat;
       });
     }
   }
@@ -250,6 +263,8 @@ class _AccountLedgerScreenState extends State<AccountLedgerScreen> {
     );
     final totalEntries = _ledgerData!['total_entries'] ?? 0;
 
+    final filteredEntries = _filterEntries(entries);
+
     return Column(
       children: [
         // Date Range Indicator
@@ -296,6 +311,68 @@ class _AccountLedgerScreenState extends State<AccountLedgerScreen> {
         // Opening Balance
         _buildBalanceCard('الرصيد الافتتاحي', openingBalance, Colors.blue),
 
+        // Search + quick filters
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 6, 12, 0),
+          child: Column(
+            children: [
+              TextField(
+                controller: _searchController,
+                decoration: InputDecoration(
+                  hintText: 'بحث (وصف/رقم القيد/المبلغ)...',
+                  prefixIcon: const Icon(Icons.search),
+                  suffixIcon: _searchQuery.isEmpty
+                      ? null
+                      : IconButton(
+                          tooltip: 'مسح البحث',
+                          icon: const Icon(Icons.close),
+                          onPressed: () {
+                            _searchController.clear();
+                            setState(() => _searchQuery = '');
+                          },
+                        ),
+                  border: const OutlineInputBorder(),
+                  isDense: true,
+                ),
+                onChanged: (value) => setState(() {
+                  _searchQuery = value;
+                }),
+              ),
+              const SizedBox(height: 6),
+              Row(
+                children: [
+                  Text(
+                    'المعروض: ${filteredEntries.length}',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Colors.grey.shade700,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const Spacer(),
+                  TextButton.icon(
+                    onPressed: (_startDate != null ||
+                            _endDate != null ||
+                            _searchQuery.isNotEmpty)
+                        ? () {
+                            setState(() {
+                              _startDate = null;
+                              _endDate = null;
+                              _searchQuery = '';
+                            });
+                            _searchController.clear();
+                            _loadLedger();
+                          }
+                        : null,
+                    icon: const Icon(Icons.filter_alt_off),
+                    label: const Text('مسح الكل'),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+
         // Entries Count
         Padding(
           padding: const EdgeInsets.all(8.0),
@@ -311,21 +388,21 @@ class _AccountLedgerScreenState extends State<AccountLedgerScreen> {
 
         // Entries List
         Expanded(
-          child: entries.isEmpty
+          child: filteredEntries.isEmpty
               ? const Center(
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       Icon(Icons.inbox, size: 64, color: Colors.grey),
                       SizedBox(height: 16),
-                      Text('لا توجد حركات في هذه الفترة'),
+                      Text('لا توجد نتائج مطابقة'),
                     ],
                   ),
                 )
               : ListView.builder(
-                  itemCount: entries.length,
+                  itemCount: filteredEntries.length,
                   itemBuilder: (context, index) {
-                    return _buildEntryCard(entries[index]);
+                    return _buildEntryCard(filteredEntries[index]);
                   },
                 ),
         ),
@@ -393,7 +470,7 @@ class _AccountLedgerScreenState extends State<AccountLedgerScreen> {
                   _buildBalanceItem('نقد', cashBalance, currencySymbol, color),
                   Container(width: 2, height: 50, color: Colors.grey.shade300),
                   _buildBalanceItem(
-                    'ذهب (21k)',
+                    'ذهب (مكافئ $mainKarat)',
                     goldBalance,
                     'جم',
                     Colors.amber.shade700,
@@ -487,7 +564,7 @@ class _AccountLedgerScreenState extends State<AccountLedgerScreen> {
                                 ),
                               ],
                             );
-                          }).toList(),
+                          }),
                         ],
                       ),
                     ],
@@ -540,6 +617,9 @@ class _AccountLedgerScreenState extends State<AccountLedgerScreen> {
     final goldDebit = (entry['gold_debit'] ?? 0).toDouble();
     final goldCredit = (entry['gold_credit'] ?? 0).toDouble();
 
+    final hasCash = cashDebit > 0 || cashCredit > 0;
+    final hasGold = goldDebit > 0 || goldCredit > 0;
+
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       child: ListTile(
@@ -548,41 +628,28 @@ class _AccountLedgerScreenState extends State<AccountLedgerScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(dateStr),
-            const SizedBox(height: 4),
-            Row(
-              children: [
-                if (cashDebit > 0)
-                  Chip(
-                    label: Text('نقد مدين: ${_formatCash(cashDebit)}'),
-                    backgroundColor: Colors.blue.shade100,
-                    labelStyle: const TextStyle(fontSize: 11),
-                  ),
-                if (cashCredit > 0)
-                  Chip(
-                    label: Text('نقد دائن: ${_formatCash(cashCredit)}'),
-                    backgroundColor: Colors.red.shade100,
-                    labelStyle: const TextStyle(fontSize: 11),
-                  ),
-              ],
-            ),
-            Row(
-              children: [
-                if (goldDebit > 0)
-                  Chip(
-                    label: Text('ذهب مدين: ${goldDebit.toStringAsFixed(3)} جم'),
-                    backgroundColor: Colors.amber.shade100,
-                    labelStyle: const TextStyle(fontSize: 11),
-                  ),
-                if (goldCredit > 0)
-                  Chip(
-                    label: Text(
-                      'ذهب دائن: ${goldCredit.toStringAsFixed(3)} جم',
-                    ),
-                    backgroundColor: Colors.orange.shade100,
-                    labelStyle: const TextStyle(fontSize: 11),
-                  ),
-              ],
-            ),
+            const SizedBox(height: 6),
+            if (hasCash)
+              _buildEntryAmountsRow(
+                icon: Icons.payments,
+                label: 'نقد',
+                debitText: cashDebit > 0 ? _formatCash(cashDebit) : null,
+                creditText: cashCredit > 0 ? _formatCash(cashCredit) : null,
+              ),
+            if (hasGold)
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: _buildEntryAmountsRow(
+                  icon: Icons.scale,
+                  label: 'ذهب (مكافئ $mainKarat)',
+                  debitText: goldDebit > 0
+                      ? '${goldDebit.toStringAsFixed(3)} جم'
+                      : null,
+                  creditText: goldCredit > 0
+                      ? '${goldCredit.toStringAsFixed(3)} جم'
+                      : null,
+                ),
+              ),
           ],
         ),
         trailing: entry['running_balance'] != null
@@ -610,95 +677,284 @@ class _AccountLedgerScreenState extends State<AccountLedgerScreen> {
                 ],
               )
             : null,
-        onTap: _karatDetail && entry['karat_details'] != null
-            ? () => _showKaratDetails(entry)
-            : null,
+        onTap: () => _showEntryQuickView(entry),
       ),
     );
   }
 
-  void _showKaratDetails(Map<String, dynamic> entry) {
-    final karatDetails = entry['karat_details'];
-
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('تفاصيل الأعيرة'),
-        content: Table(
-          border: TableBorder.all(color: Colors.grey.shade300),
-          children: [
-            TableRow(
-              decoration: BoxDecoration(color: Colors.grey.shade100),
-              children: const [
-                Padding(
-                  padding: EdgeInsets.all(8.0),
-                  child: Text(
-                    'العيار',
-                    style: TextStyle(fontWeight: FontWeight.bold),
-                  ),
-                ),
-                Padding(
-                  padding: EdgeInsets.all(8.0),
-                  child: Text(
-                    'مدين',
-                    style: TextStyle(fontWeight: FontWeight.bold),
-                  ),
-                ),
-                Padding(
-                  padding: EdgeInsets.all(8.0),
-                  child: Text(
-                    'دائن',
-                    style: TextStyle(fontWeight: FontWeight.bold),
-                  ),
-                ),
-              ],
-            ),
-            ...['18k', '21k', '22k', '24k'].map((karat) {
-              final debit = (karatDetails[karat]?['debit'] ?? 0).toDouble();
-              final credit = (karatDetails[karat]?['credit'] ?? 0).toDouble();
-
-              return TableRow(
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.all(8.0),
-                    child: Text(karat),
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.all(8.0),
-                    child: Text(
-                      debit.toStringAsFixed(3),
-                      style: TextStyle(
-                        color: debit > 0 ? Colors.blue : Colors.grey,
-                        fontWeight: debit > 0
-                            ? FontWeight.bold
-                            : FontWeight.normal,
-                      ),
-                    ),
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.all(8.0),
-                    child: Text(
-                      credit.toStringAsFixed(3),
-                      style: TextStyle(
-                        color: credit > 0 ? Colors.red : Colors.grey,
-                        fontWeight: credit > 0
-                            ? FontWeight.bold
-                            : FontWeight.normal,
-                      ),
-                    ),
-                  ),
-                ],
-              );
-            }).toList(),
-          ],
+  Widget _buildEntryAmountsRow({
+    required IconData icon,
+    required String label,
+    required String? debitText,
+    required String? creditText,
+  }) {
+    return Row(
+      children: [
+        Icon(icon, size: 16, color: Colors.grey.shade700),
+        const SizedBox(width: 6),
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 12,
+            color: Colors.grey.shade700,
+            fontWeight: FontWeight.w600,
+          ),
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('إغلاق'),
+        const SizedBox(width: 10),
+        if (debitText != null)
+          Expanded(
+            child: Text(
+              'مدين: $debitText',
+              style: TextStyle(
+                fontSize: 12,
+                color: Colors.blue.shade800,
+                fontWeight: FontWeight.w600,
+              ),
+              overflow: TextOverflow.ellipsis,
+            ),
+          )
+        else
+          const Spacer(),
+        if (creditText != null)
+          Expanded(
+            child: Text(
+              'دائن: $creditText',
+              style: TextStyle(
+                fontSize: 12,
+                color: Colors.red.shade800,
+                fontWeight: FontWeight.w600,
+              ),
+              textAlign: TextAlign.end,
+              overflow: TextOverflow.ellipsis,
+            ),
+          )
+        else
+          const SizedBox.shrink(),
+      ],
+    );
+  }
+
+  List<Map<String, dynamic>> _filterEntries(List<Map<String, dynamic>> entries) {
+    final q = _searchQuery.trim().toLowerCase();
+    if (q.isEmpty) return entries;
+
+    bool matchesAmount(Map<String, dynamic> entry) {
+      final normalized = q.replaceAll(',', '.');
+      final parsed = double.tryParse(normalized);
+      if (parsed == null) return false;
+      final values = <double>[
+        (entry['cash_debit'] ?? 0).toDouble(),
+        (entry['cash_credit'] ?? 0).toDouble(),
+        (entry['gold_debit'] ?? 0).toDouble(),
+        (entry['gold_credit'] ?? 0).toDouble(),
+      ];
+      return values.any((v) => (v - parsed).abs() < 0.0001);
+    }
+
+    return entries.where((entry) {
+      final description = (entry['description'] ?? '').toString().toLowerCase();
+      final id = (entry['id'] ?? '').toString();
+      final journalId = (entry['journal_entry_id'] ?? '').toString();
+      final date = (entry['date'] ?? '').toString().toLowerCase();
+
+      return description.contains(q) ||
+          id.contains(q) ||
+          journalId.contains(q) ||
+          date.contains(q) ||
+          matchesAmount(entry);
+    }).toList();
+  }
+
+  void _showEntryQuickView(Map<String, dynamic> entry) {
+    final date = DateTime.tryParse(entry['date'] ?? '') ?? DateTime.now();
+    final dateStr = DateFormat('yyyy-MM-dd HH:mm').format(date);
+    final description = (entry['description'] ?? 'بدون وصف').toString();
+
+    final cashDebit = (entry['cash_debit'] ?? 0).toDouble();
+    final cashCredit = (entry['cash_credit'] ?? 0).toDouble();
+    final goldDebit = (entry['gold_debit'] ?? 0).toDouble();
+    final goldCredit = (entry['gold_credit'] ?? 0).toDouble();
+    final running = entry['running_balance'] as Map<String, dynamic>?;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) {
+        return SafeArea(
+          child: Padding(
+            padding: EdgeInsets.only(
+              left: 16,
+              right: 16,
+              top: 16,
+              bottom: 16 + MediaQuery.of(context).viewInsets.bottom,
+            ),
+            child: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Row(
+                    children: [
+                      Text(
+                        'تفاصيل الحركة',
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                      const Spacer(),
+                      IconButton(
+                        tooltip: 'إغلاق',
+                        icon: const Icon(Icons.close),
+                        onPressed: () => Navigator.pop(context),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  _buildKvRow('التاريخ', dateStr),
+                  _buildKvRow('الوصف', description),
+                  _buildKvRow(
+                    'رقم القيد',
+                    (entry['journal_entry_id'] ?? '-').toString(),
+                  ),
+                  const Divider(height: 24),
+                  _buildKvRow('نقد مدين', cashDebit > 0 ? _formatCash(cashDebit) : '-'),
+                  _buildKvRow(
+                    'نقد دائن',
+                    cashCredit > 0 ? _formatCash(cashCredit) : '-',
+                  ),
+                  _buildKvRow(
+                    'ذهب مدين (مكافئ $mainKarat)',
+                    goldDebit > 0 ? '${goldDebit.toStringAsFixed(3)} جم' : '-',
+                  ),
+                  _buildKvRow(
+                    'ذهب دائن (مكافئ $mainKarat)',
+                    goldCredit > 0
+                        ? '${goldCredit.toStringAsFixed(3)} جم'
+                        : '-',
+                  ),
+                  if (running != null) ...[
+                    const Divider(height: 24),
+                    _buildKvRow(
+                      'الرصيد (نقد)',
+                      _formatCash((running['cash'] ?? 0).toDouble()),
+                    ),
+                    _buildKvRow(
+                      'الرصيد (ذهب مكافئ $mainKarat)',
+                      '${(running['gold_normalized'] ?? 0).toStringAsFixed(3)} جم',
+                    ),
+                  ],
+                  if (_karatDetail && entry['karat_details'] != null) ...[
+                    const Divider(height: 24),
+                    Text(
+                      'تفاصيل الأعيرة',
+                      style: Theme.of(context).textTheme.titleSmall,
+                    ),
+                    const SizedBox(height: 8),
+                    _buildKaratDetailsTable(entry['karat_details']),
+                  ],
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildKvRow(String k, String v) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 110,
+            child: Text(
+              k,
+              style: TextStyle(
+                color: Colors.grey.shade700,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              v,
+              style: const TextStyle(fontWeight: FontWeight.w500),
+            ),
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildKaratDetailsTable(dynamic karatDetails) {
+    return Table(
+      border: TableBorder.all(color: Colors.grey.shade300),
+      children: [
+        TableRow(
+          decoration: BoxDecoration(color: Colors.grey.shade100),
+          children: const [
+            Padding(
+              padding: EdgeInsets.all(8.0),
+              child: Text(
+                'العيار',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
+            ),
+            Padding(
+              padding: EdgeInsets.all(8.0),
+              child: Text(
+                'مدين',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
+            ),
+            Padding(
+              padding: EdgeInsets.all(8.0),
+              child: Text(
+                'دائن',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
+            ),
+          ],
+        ),
+        ...['18k', '21k', '22k', '24k'].map((karat) {
+          final debit = (karatDetails[karat]?['debit'] ?? 0).toDouble();
+          final credit = (karatDetails[karat]?['credit'] ?? 0).toDouble();
+
+          return TableRow(
+            children: [
+              Padding(
+                padding: const EdgeInsets.all(8.0),
+                child: Text(karat),
+              ),
+              Padding(
+                padding: const EdgeInsets.all(8.0),
+                child: Text(
+                  debit.toStringAsFixed(3),
+                  style: TextStyle(
+                    color: debit > 0 ? Colors.blue : Colors.grey,
+                    fontWeight: debit > 0
+                        ? FontWeight.bold
+                        : FontWeight.normal,
+                  ),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.all(8.0),
+                child: Text(
+                  credit.toStringAsFixed(3),
+                  style: TextStyle(
+                    color: credit > 0 ? Colors.red : Colors.grey,
+                    fontWeight: credit > 0
+                        ? FontWeight.bold
+                        : FontWeight.normal,
+                  ),
+                ),
+              ),
+            ],
+          );
+        }),
+      ],
     );
   }
 

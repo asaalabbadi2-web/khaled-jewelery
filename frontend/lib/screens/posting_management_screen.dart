@@ -32,13 +32,13 @@ class _PostingManagementScreenState extends State<PostingManagementScreen>
   List<dynamic> _unpostedInvoices = [];
   List<dynamic> _postedInvoices = [];
   bool _isLoadingInvoices = false;
-  Set<int> _selectedInvoiceIds = {};
+  final Set<int> _selectedInvoiceIds = {};
 
   // Journal Entries
   List<dynamic> _unpostedEntries = [];
   List<dynamic> _postedEntries = [];
   bool _isLoadingEntries = false;
-  Set<int> _selectedEntryIds = {};
+  final Set<int> _selectedEntryIds = {};
   bool _userInfoInitialized = false;
 
   // User name for posting
@@ -73,7 +73,7 @@ class _PostingManagementScreenState extends State<PostingManagementScreen>
   bool _autoPostOnSchedule = true;
 
   // Refresh indicator
-  bool _isSyncing = false;
+  final bool _isSyncing = false;
 
   @override
   void initState() {
@@ -219,36 +219,38 @@ class _PostingManagementScreenState extends State<PostingManagementScreen>
   Future<void> _loadSettings() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      
+
       setState(() {
         _autoPostInvoices = prefs.getBool('posting_auto_invoices') ?? false;
         _autoPostEntries = prefs.getBool('posting_auto_entries') ?? false;
         _requireApproval = prefs.getBool('posting_require_approval') ?? true;
         _allowUnposting = prefs.getBool('posting_allow_unpost') ?? true;
         _validateBalance = prefs.getBool('posting_validate_balance') ?? true;
-    _canPostInvoices = prefs.getBool('posting_perm_post_invoices') ?? true;
-    _canPostEntries = prefs.getBool('posting_perm_post_entries') ?? true;
-    _canBatchPostInvoices =
-      prefs.getBool('posting_perm_batch_invoices') ?? true;
-    _canBatchPostEntries =
-      prefs.getBool('posting_perm_batch_entries') ?? true;
-    _canUnpostInvoices =
-      prefs.getBool('posting_perm_unpost_invoices') ?? true;
-    _canUnpostEntries =
-      prefs.getBool('posting_perm_unpost_entries') ?? true;
-    _canSchedulePosting =
-      prefs.getBool('posting_perm_schedule') ?? true;
-        _enableScheduledPosting = prefs.getBool('posting_schedule_enabled') ?? false;
+        _canPostInvoices = prefs.getBool('posting_perm_post_invoices') ?? true;
+        _canPostEntries = prefs.getBool('posting_perm_post_entries') ?? true;
+        _canBatchPostInvoices =
+            prefs.getBool('posting_perm_batch_invoices') ?? true;
+        _canBatchPostEntries =
+            prefs.getBool('posting_perm_batch_entries') ?? true;
+        _canUnpostInvoices =
+            prefs.getBool('posting_perm_unpost_invoices') ?? true;
+        _canUnpostEntries =
+            prefs.getBool('posting_perm_unpost_entries') ?? true;
+        _canSchedulePosting = prefs.getBool('posting_perm_schedule') ?? true;
+        _enableScheduledPosting =
+            prefs.getBool('posting_schedule_enabled') ?? false;
         _autoPostOnSchedule = prefs.getBool('posting_auto_on_schedule') ?? true;
-        _scheduleFrequency = prefs.getString('posting_schedule_freq') ?? 'daily';
-        _defaultUserController.text = prefs.getString('posting_default_user') ?? '';
-        
+        _scheduleFrequency =
+            prefs.getString('posting_schedule_freq') ?? 'daily';
+        _defaultUserController.text =
+            prefs.getString('posting_default_user') ?? '';
+
         // Load scheduled time
         final hour = prefs.getInt('posting_schedule_hour') ?? 17;
         final minute = prefs.getInt('posting_schedule_minute') ?? 0;
         _scheduledTime = TimeOfDay(hour: hour, minute: minute);
       });
-      
+
       // Restart scheduled posting if enabled
       if (_enableScheduledPosting) {
         _checkScheduledPosting();
@@ -261,26 +263,29 @@ class _PostingManagementScreenState extends State<PostingManagementScreen>
   Future<void> _saveSettings() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      
+
       await prefs.setBool('posting_auto_invoices', _autoPostInvoices);
       await prefs.setBool('posting_auto_entries', _autoPostEntries);
       await prefs.setBool('posting_require_approval', _requireApproval);
       await prefs.setBool('posting_allow_unpost', _allowUnposting);
       await prefs.setBool('posting_validate_balance', _validateBalance);
-  await prefs.setBool('posting_perm_post_invoices', _canPostInvoices);
-  await prefs.setBool('posting_perm_post_entries', _canPostEntries);
-  await prefs.setBool('posting_perm_batch_invoices', _canBatchPostInvoices);
-  await prefs.setBool('posting_perm_batch_entries', _canBatchPostEntries);
-  await prefs.setBool('posting_perm_unpost_invoices', _canUnpostInvoices);
-  await prefs.setBool('posting_perm_unpost_entries', _canUnpostEntries);
-  await prefs.setBool('posting_perm_schedule', _canSchedulePosting);
+      await prefs.setBool('posting_perm_post_invoices', _canPostInvoices);
+      await prefs.setBool('posting_perm_post_entries', _canPostEntries);
+      await prefs.setBool('posting_perm_batch_invoices', _canBatchPostInvoices);
+      await prefs.setBool('posting_perm_batch_entries', _canBatchPostEntries);
+      await prefs.setBool('posting_perm_unpost_invoices', _canUnpostInvoices);
+      await prefs.setBool('posting_perm_unpost_entries', _canUnpostEntries);
+      await prefs.setBool('posting_perm_schedule', _canSchedulePosting);
       await prefs.setBool('posting_schedule_enabled', _enableScheduledPosting);
       await prefs.setBool('posting_auto_on_schedule', _autoPostOnSchedule);
       await prefs.setString('posting_schedule_freq', _scheduleFrequency);
-      await prefs.setString('posting_default_user', _defaultUserController.text);
+      await prefs.setString(
+        'posting_default_user',
+        _defaultUserController.text,
+      );
       await prefs.setInt('posting_schedule_hour', _scheduledTime.hour);
       await prefs.setInt('posting_schedule_minute', _scheduledTime.minute);
-      
+
       _showSuccess('تم حفظ الإعدادات بنجاح');
     } catch (e) {
       _showError('خطأ في حفظ الإعدادات: ${e.toString()}');
@@ -308,11 +313,10 @@ class _PostingManagementScreenState extends State<PostingManagementScreen>
 
     final now = DateTime.now();
     final currentTime = TimeOfDay(hour: now.hour, minute: now.minute);
-    
+
     // Check if current time matches scheduled time
     if (currentTime.hour == _scheduledTime.hour &&
         currentTime.minute == _scheduledTime.minute) {
-      
       // Check frequency
       bool shouldPost = false;
       switch (_scheduleFrequency) {
@@ -339,9 +343,9 @@ class _PostingManagementScreenState extends State<PostingManagementScreen>
       return;
     }
     try {
-      final userName = _defaultUserController.text.isEmpty 
-        ? 'النظام الآلي' 
-        : _defaultUserController.text;
+      final userName = _defaultUserController.text.isEmpty
+          ? 'النظام الآلي'
+          : _defaultUserController.text;
 
       int postedInvoices = 0;
       int postedEntries = 0;
@@ -363,16 +367,19 @@ class _PostingManagementScreenState extends State<PostingManagementScreen>
         final entries = data['entries'] ?? [];
         if (entries.isNotEmpty) {
           final ids = entries.map((e) => e['id'] as int).toList();
-          final result = await _apiService.postJournalEntriesBatch(ids, userName);
+          final result = await _apiService.postJournalEntriesBatch(
+            ids,
+            userName,
+          );
           postedEntries = result['posted_count'] ?? 0;
         }
       }
 
       // Reload data
       await _loadStatistics();
-      
+
       _showSuccess(
-        'الترحيل التلقائي: $postedInvoices فاتورة، $postedEntries قيد'
+        'الترحيل التلقائي: $postedInvoices فاتورة، $postedEntries قيد',
       );
     } catch (e) {
       debugPrint('Scheduled posting error: $e');
@@ -384,10 +391,7 @@ class _PostingManagementScreenState extends State<PostingManagementScreen>
       context: context,
       initialTime: _scheduledTime,
       builder: (context, child) {
-        return Directionality(
-          textDirection: TextDirection.rtl,
-          child: child!,
-        );
+        return Directionality(textDirection: TextDirection.rtl, child: child!);
       },
     );
 
@@ -714,8 +718,10 @@ class _PostingManagementScreenState extends State<PostingManagementScreen>
         final type = (invoice['invoice_type'] ?? '').toString().toLowerCase();
         final total = invoice['total'].toString();
         final query = _searchQuery.toLowerCase();
-        
-        return id.contains(query) || type.contains(query) || total.contains(query);
+
+        return id.contains(query) ||
+            type.contains(query) ||
+            total.contains(query);
       }).toList();
     }
 
@@ -726,14 +732,14 @@ class _PostingManagementScreenState extends State<PostingManagementScreen>
         try {
           final dateStr = invoice['date'] as String?;
           if (dateStr == null || dateStr.isEmpty) return false;
-          
+
           final invoiceDate = DateTime.parse(dateStr);
-          
+
           switch (_dateFilter) {
             case 'today':
               return invoiceDate.year == now.year &&
-                     invoiceDate.month == now.month &&
-                     invoiceDate.day == now.day;
+                  invoiceDate.month == now.month &&
+                  invoiceDate.day == now.day;
             case 'week':
               final weekAgo = now.subtract(const Duration(days: 7));
               return invoiceDate.isAfter(weekAgo);
@@ -763,11 +769,11 @@ class _PostingManagementScreenState extends State<PostingManagementScreen>
         final desc = (entry['description'] ?? '').toString().toLowerCase();
         final type = (entry['entry_type'] ?? '').toString().toLowerCase();
         final query = _searchQuery.toLowerCase();
-        
-        return id.contains(query) || 
-               number.contains(query) || 
-               desc.contains(query) || 
-               type.contains(query);
+
+        return id.contains(query) ||
+            number.contains(query) ||
+            desc.contains(query) ||
+            type.contains(query);
       }).toList();
     }
 
@@ -778,14 +784,14 @@ class _PostingManagementScreenState extends State<PostingManagementScreen>
         try {
           final dateStr = entry['date'] as String?;
           if (dateStr == null || dateStr.isEmpty) return false;
-          
+
           final entryDate = DateTime.parse(dateStr);
-          
+
           switch (_dateFilter) {
             case 'today':
               return entryDate.year == now.year &&
-                     entryDate.month == now.month &&
-                     entryDate.day == now.day;
+                  entryDate.month == now.month &&
+                  entryDate.day == now.day;
             case 'week':
               final weekAgo = now.subtract(const Duration(days: 7));
               return entryDate.isAfter(weekAgo);
@@ -830,7 +836,10 @@ class _PostingManagementScreenState extends State<PostingManagementScreen>
             controller: _searchController,
             decoration: InputDecoration(
               hintText: 'البحث برقم الفاتورة، النوع، أو المبلغ...',
-              prefixIcon: const Icon(Icons.search, color: theme.AppColors.primaryGold),
+              prefixIcon: const Icon(
+                Icons.search,
+                color: theme.AppColors.primaryGold,
+              ),
               suffixIcon: _searchQuery.isNotEmpty
                   ? IconButton(
                       icon: const Icon(Icons.clear),
@@ -845,7 +854,10 @@ class _PostingManagementScreenState extends State<PostingManagementScreen>
                 borderRadius: BorderRadius.circular(12),
                 borderSide: BorderSide.none,
               ),
-              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 16,
+                vertical: 12,
+              ),
             ),
           ),
           const SizedBox(height: 12),
@@ -854,7 +866,11 @@ class _PostingManagementScreenState extends State<PostingManagementScreen>
             scrollDirection: Axis.horizontal,
             child: Row(
               children: [
-                Icon(Icons.calendar_today, size: 20, color: theme.AppColors.darkGold),
+                Icon(
+                  Icons.calendar_today,
+                  size: 20,
+                  color: theme.AppColors.darkGold,
+                ),
                 const SizedBox(width: 8),
                 _buildFilterChip('الكل', 'all'),
                 const SizedBox(width: 8),
@@ -924,7 +940,10 @@ class _PostingManagementScreenState extends State<PostingManagementScreen>
             controller: _searchController,
             decoration: InputDecoration(
               hintText: 'البحث برقم القيد، الوصف، أو النوع...',
-              prefixIcon: const Icon(Icons.search, color: theme.AppColors.primaryGold),
+              prefixIcon: const Icon(
+                Icons.search,
+                color: theme.AppColors.primaryGold,
+              ),
               suffixIcon: _searchQuery.isNotEmpty
                   ? IconButton(
                       icon: const Icon(Icons.clear),
@@ -939,7 +958,10 @@ class _PostingManagementScreenState extends State<PostingManagementScreen>
                 borderRadius: BorderRadius.circular(12),
                 borderSide: BorderSide.none,
               ),
-              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 16,
+                vertical: 12,
+              ),
             ),
           ),
           const SizedBox(height: 12),
@@ -948,7 +970,11 @@ class _PostingManagementScreenState extends State<PostingManagementScreen>
             scrollDirection: Axis.horizontal,
             child: Row(
               children: [
-                Icon(Icons.calendar_today, size: 20, color: theme.AppColors.darkGold),
+                Icon(
+                  Icons.calendar_today,
+                  size: 20,
+                  color: theme.AppColors.darkGold,
+                ),
                 const SizedBox(width: 8),
                 _buildFilterChip('الكل', 'all'),
                 const SizedBox(width: 8),
@@ -980,11 +1006,7 @@ class _PostingManagementScreenState extends State<PostingManagementScreen>
               const Text('إدارة الترحيل'),
               if (_enableScheduledPosting) ...[
                 const SizedBox(width: 8),
-                const Icon(
-                  Icons.schedule,
-                  size: 16,
-                  color: Colors.green,
-                ),
+                const Icon(Icons.schedule, size: 16, color: Colors.green),
                 const SizedBox(width: 4),
                 Text(
                   _formatTimeOfDay(_scheduledTime),
@@ -1010,23 +1032,25 @@ class _PostingManagementScreenState extends State<PostingManagementScreen>
             IconButton(
               icon: const Icon(Icons.refresh),
               tooltip: 'تحديث يدوي',
-              onPressed: _isSyncing ? null : () {
-                _loadStatistics();
-                switch (_tabController.index) {
-                  case 0:
-                    _loadUnpostedInvoices();
-                    break;
-                  case 1:
-                    _loadPostedInvoices();
-                    break;
-                  case 2:
-                    _loadUnpostedEntries();
-                    break;
-                  case 3:
-                    _loadPostedEntries();
-                    break;
-                }
-              },
+              onPressed: _isSyncing
+                  ? null
+                  : () {
+                      _loadStatistics();
+                      switch (_tabController.index) {
+                        case 0:
+                          _loadUnpostedInvoices();
+                          break;
+                        case 1:
+                          _loadPostedInvoices();
+                          break;
+                        case 2:
+                          _loadUnpostedEntries();
+                          break;
+                        case 3:
+                          _loadPostedEntries();
+                          break;
+                      }
+                    },
             ),
           ],
           bottom: TabBar(
@@ -1038,7 +1062,9 @@ class _PostingManagementScreenState extends State<PostingManagementScreen>
                   children: [
                     const Icon(Icons.pending_actions),
                     const SizedBox(width: 8),
-                    Text('فواتير غير مرحلة (${_stats['invoices']?['unposted'] ?? 0})'),
+                    Text(
+                      'فواتير غير مرحلة (${_stats['invoices']?['unposted'] ?? 0})',
+                    ),
                   ],
                 ),
               ),
@@ -1047,7 +1073,9 @@ class _PostingManagementScreenState extends State<PostingManagementScreen>
                   children: [
                     const Icon(Icons.check_circle),
                     const SizedBox(width: 8),
-                    Text('فواتير مرحلة (${_stats['invoices']?['posted'] ?? 0})'),
+                    Text(
+                      'فواتير مرحلة (${_stats['invoices']?['posted'] ?? 0})',
+                    ),
                   ],
                 ),
               ),
@@ -1056,7 +1084,9 @@ class _PostingManagementScreenState extends State<PostingManagementScreen>
                   children: [
                     const Icon(Icons.pending_actions),
                     const SizedBox(width: 8),
-                    Text('قيود غير مرحلة (${_stats['journal_entries']?['unposted'] ?? 0})'),
+                    Text(
+                      'قيود غير مرحلة (${_stats['journal_entries']?['unposted'] ?? 0})',
+                    ),
                   ],
                 ),
               ),
@@ -1065,7 +1095,9 @@ class _PostingManagementScreenState extends State<PostingManagementScreen>
                   children: [
                     const Icon(Icons.check_circle),
                     const SizedBox(width: 8),
-                    Text('قيود مرحلة (${_stats['journal_entries']?['posted'] ?? 0})'),
+                    Text(
+                      'قيود مرحلة (${_stats['journal_entries']?['posted'] ?? 0})',
+                    ),
                   ],
                 ),
               ),
@@ -1182,9 +1214,9 @@ class _PostingManagementScreenState extends State<PostingManagementScreen>
     int unposted,
     IconData icon,
   ) {
-    final titleStyle = Theme.of(context).textTheme.titleLarge?.copyWith(
-          fontWeight: FontWeight.bold,
-        );
+    final titleStyle = Theme.of(
+      context,
+    ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold);
 
     return Column(
       children: [
@@ -1201,12 +1233,7 @@ class _PostingManagementScreenState extends State<PostingManagementScreen>
               total,
               theme.AppColors.darkGold,
             ),
-            _buildStatValue(
-              context,
-              'مرحلة',
-              posted,
-              theme.AppColors.success,
-            ),
+            _buildStatValue(context, 'مرحلة', posted, theme.AppColors.success),
             _buildStatValue(
               context,
               'غير مرحلة',
@@ -1225,9 +1252,9 @@ class _PostingManagementScreenState extends State<PostingManagementScreen>
     int value,
     Color color,
   ) {
-    final valueStyle = Theme.of(context).textTheme.headlineSmall?.copyWith(
-          color: color,
-        );
+    final valueStyle = Theme.of(
+      context,
+    ).textTheme.headlineSmall?.copyWith(color: color);
     final labelStyle = Theme.of(context).textTheme.bodySmall;
 
     return Column(
@@ -1321,9 +1348,7 @@ class _PostingManagementScreenState extends State<PostingManagementScreen>
     }
 
     if (_postedInvoices.isEmpty) {
-      return const Center(
-        child: Text('لا توجد فواتير مرحلة'),
-      );
+      return const Center(child: Text('لا توجد فواتير مرحلة'));
     }
 
     return ListView.builder(
@@ -1336,7 +1361,10 @@ class _PostingManagementScreenState extends State<PostingManagementScreen>
     );
   }
 
-  Widget _buildInvoiceCard(Map<String, dynamic> invoice, {required bool isPosted}) {
+  Widget _buildInvoiceCard(
+    Map<String, dynamic> invoice, {
+    required bool isPosted,
+  }) {
     final id = invoice['id'];
     final invoiceType = invoice['invoice_type'] ?? '';
     final total = invoice['total'] ?? 0.0;
@@ -1397,7 +1425,10 @@ class _PostingManagementScreenState extends State<PostingManagementScreen>
                 tooltip: 'إلغاء الترحيل',
               )
             : IconButton(
-                icon: const Icon(Icons.check_circle, color: theme.AppColors.success),
+                icon: const Icon(
+                  Icons.check_circle,
+                  color: theme.AppColors.success,
+                ),
                 onPressed: () => _postInvoice(id),
                 tooltip: 'ترحيل',
               ),
@@ -1487,9 +1518,7 @@ class _PostingManagementScreenState extends State<PostingManagementScreen>
     }
 
     if (_postedEntries.isEmpty) {
-      return const Center(
-        child: Text('لا توجد قيود مرحلة'),
-      );
+      return const Center(child: Text('لا توجد قيود مرحلة'));
     }
 
     return ListView.builder(
@@ -1564,7 +1593,10 @@ class _PostingManagementScreenState extends State<PostingManagementScreen>
                 tooltip: 'إلغاء الترحيل',
               )
             : IconButton(
-                icon: const Icon(Icons.check_circle, color: theme.AppColors.success),
+                icon: const Icon(
+                  Icons.check_circle,
+                  color: theme.AppColors.success,
+                ),
                 onPressed: () => _postEntry(id),
                 tooltip: 'ترحيل',
               ),
@@ -1616,7 +1648,8 @@ class _PostingManagementScreenState extends State<PostingManagementScreen>
                         children: [
                           Text(
                             'إعدادات نظام الترحيل',
-                            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                            style: Theme.of(context).textTheme.headlineSmall
+                                ?.copyWith(
                                   color: Colors.white,
                                   fontWeight: FontWeight.bold,
                                 ),
@@ -1624,9 +1657,8 @@ class _PostingManagementScreenState extends State<PostingManagementScreen>
                           const SizedBox(height: 6),
                           Text(
                             'تحكم في سلوك الترحيل والصلاحيات والأتمتة من مكان واحد',
-                            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                                  color: Colors.white70,
-                                ),
+                            style: Theme.of(context).textTheme.bodyMedium
+                                ?.copyWith(color: Colors.white70),
                           ),
                         ],
                       ),
@@ -1650,7 +1682,7 @@ class _PostingManagementScreenState extends State<PostingManagementScreen>
                   onChanged: (value) {
                     setState(() => _autoPostInvoices = value);
                   },
-                  activeColor: theme.AppColors.primaryGold,
+                  activeThumbColor: theme.AppColors.primaryGold,
                   secondary: Icon(
                     Icons.receipt_long,
                     color: theme.AppColors.darkGold,
@@ -1664,11 +1696,8 @@ class _PostingManagementScreenState extends State<PostingManagementScreen>
                   onChanged: (value) {
                     setState(() => _autoPostEntries = value);
                   },
-                  activeColor: theme.AppColors.primaryGold,
-                  secondary: Icon(
-                    Icons.book,
-                    color: theme.AppColors.darkGold,
-                  ),
+                  activeThumbColor: theme.AppColors.primaryGold,
+                  secondary: Icon(Icons.book, color: theme.AppColors.darkGold),
                 ),
               ],
             ),
@@ -1682,12 +1711,14 @@ class _PostingManagementScreenState extends State<PostingManagementScreen>
               children: [
                 SwitchListTile(
                   title: const Text('طلب موافقة قبل الترحيل'),
-                  subtitle: const Text('يجب الموافقة على الفاتورة/القيد قبل الترحيل'),
+                  subtitle: const Text(
+                    'يجب الموافقة على الفاتورة/القيد قبل الترحيل',
+                  ),
                   value: _requireApproval,
                   onChanged: (value) {
                     setState(() => _requireApproval = value);
                   },
-                  activeColor: theme.AppColors.primaryGold,
+                  activeThumbColor: theme.AppColors.primaryGold,
                   secondary: Icon(
                     Icons.verified_user,
                     color: theme.AppColors.darkGold,
@@ -1696,16 +1727,15 @@ class _PostingManagementScreenState extends State<PostingManagementScreen>
                 const Divider(height: 1),
                 SwitchListTile(
                   title: const Text('السماح بإلغاء الترحيل'),
-                  subtitle: const Text('يمكن إلغاء ترحيل الفواتير والقيود المرحلة'),
+                  subtitle: const Text(
+                    'يمكن إلغاء ترحيل الفواتير والقيود المرحلة',
+                  ),
                   value: _allowUnposting,
                   onChanged: (value) {
                     setState(() => _allowUnposting = value);
                   },
-                  activeColor: theme.AppColors.primaryGold,
-                  secondary: Icon(
-                    Icons.undo,
-                    color: theme.AppColors.darkGold,
-                  ),
+                  activeThumbColor: theme.AppColors.primaryGold,
+                  secondary: Icon(Icons.undo, color: theme.AppColors.darkGold),
                 ),
               ],
             ),
@@ -1724,7 +1754,7 @@ class _PostingManagementScreenState extends State<PostingManagementScreen>
                   onChanged: (value) {
                     setState(() => _canPostInvoices = value);
                   },
-                  activeColor: theme.AppColors.primaryGold,
+                  activeThumbColor: theme.AppColors.primaryGold,
                   secondary: Icon(
                     Icons.receipt_long,
                     color: theme.AppColors.darkGold,
@@ -1738,7 +1768,7 @@ class _PostingManagementScreenState extends State<PostingManagementScreen>
                   onChanged: (value) {
                     setState(() => _canPostEntries = value);
                   },
-                  activeColor: theme.AppColors.primaryGold,
+                  activeThumbColor: theme.AppColors.primaryGold,
                   secondary: Icon(
                     Icons.auto_stories,
                     color: theme.AppColors.darkGold,
@@ -1752,7 +1782,7 @@ class _PostingManagementScreenState extends State<PostingManagementScreen>
                   onChanged: (value) {
                     setState(() => _canBatchPostInvoices = value);
                   },
-                  activeColor: theme.AppColors.primaryGold,
+                  activeThumbColor: theme.AppColors.primaryGold,
                   secondary: Icon(
                     Icons.done_all,
                     color: theme.AppColors.darkGold,
@@ -1766,7 +1796,7 @@ class _PostingManagementScreenState extends State<PostingManagementScreen>
                   onChanged: (value) {
                     setState(() => _canBatchPostEntries = value);
                   },
-                  activeColor: theme.AppColors.primaryGold,
+                  activeThumbColor: theme.AppColors.primaryGold,
                   secondary: Icon(
                     Icons.library_books,
                     color: theme.AppColors.darkGold,
@@ -1775,12 +1805,14 @@ class _PostingManagementScreenState extends State<PostingManagementScreen>
                 const Divider(height: 1),
                 SwitchListTile(
                   title: const Text('إلغاء ترحيل الفواتير'),
-                  subtitle: const Text('السماح بإلغاء الترحيل للفواتير المرحلة'),
+                  subtitle: const Text(
+                    'السماح بإلغاء الترحيل للفواتير المرحلة',
+                  ),
                   value: _canUnpostInvoices,
                   onChanged: (value) {
                     setState(() => _canUnpostInvoices = value);
                   },
-                  activeColor: theme.AppColors.primaryGold,
+                  activeThumbColor: theme.AppColors.primaryGold,
                   secondary: Icon(
                     Icons.cancel,
                     color: theme.AppColors.darkGold,
@@ -1794,7 +1826,7 @@ class _PostingManagementScreenState extends State<PostingManagementScreen>
                   onChanged: (value) {
                     setState(() => _canUnpostEntries = value);
                   },
-                  activeColor: theme.AppColors.primaryGold,
+                  activeThumbColor: theme.AppColors.primaryGold,
                   secondary: Icon(
                     Icons.remove_circle,
                     color: theme.AppColors.darkGold,
@@ -1811,7 +1843,7 @@ class _PostingManagementScreenState extends State<PostingManagementScreen>
                       _enableScheduledPosting = false;
                     }
                   },
-                  activeColor: theme.AppColors.primaryGold,
+                  activeThumbColor: theme.AppColors.primaryGold,
                   secondary: Icon(
                     Icons.schedule,
                     color: theme.AppColors.darkGold,
@@ -1832,11 +1864,8 @@ class _PostingManagementScreenState extends State<PostingManagementScreen>
               onChanged: (value) {
                 setState(() => _validateBalance = value);
               },
-              activeColor: theme.AppColors.primaryGold,
-              secondary: Icon(
-                Icons.balance,
-                color: theme.AppColors.darkGold,
-              ),
+              activeThumbColor: theme.AppColors.primaryGold,
+              secondary: Icon(Icons.balance, color: theme.AppColors.darkGold),
             ),
           ),
           const SizedBox(height: 24),
@@ -1850,29 +1879,31 @@ class _PostingManagementScreenState extends State<PostingManagementScreen>
                   title: Text(
                     'تفعيل الترحيل المجدول',
                     style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.w600,
-                          color: !_canSchedulePosting
-                              ? Colors.grey
-                              : theme.AppColors.darkGold,
-                        ),
+                      fontWeight: FontWeight.w600,
+                      color: !_canSchedulePosting
+                          ? Colors.grey
+                          : theme.AppColors.darkGold,
+                    ),
                   ),
                   subtitle: Text(
                     !_canSchedulePosting
                         ? 'الصلاحية غير مفعلة، الرجاء التواصل مع المسؤول'
                         : _enableScheduledPosting
-                            ? 'سيتم الترحيل تلقائياً في ${_formatTimeOfDay(_scheduledTime)}'
-                            : 'الترحيل المجدول متوقف',
+                        ? 'سيتم الترحيل تلقائياً في ${_formatTimeOfDay(_scheduledTime)}'
+                        : 'الترحيل المجدول متوقف',
                     style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          color: !_canSchedulePosting
-                              ? Colors.grey
-                              : _enableScheduledPosting
-                                  ? theme.AppColors.darkGold
-                                  : Colors.grey[600],
-                        ),
+                      color: !_canSchedulePosting
+                          ? Colors.grey
+                          : _enableScheduledPosting
+                          ? theme.AppColors.darkGold
+                          : Colors.grey[600],
+                    ),
                   ),
                   value: _enableScheduledPosting,
-                  activeColor: theme.AppColors.primaryGold,
-                  activeTrackColor: theme.AppColors.lightGold.withValues(alpha: 0.6),
+                  activeThumbColor: theme.AppColors.primaryGold,
+                  activeTrackColor: theme.AppColors.lightGold.withValues(
+                    alpha: 0.6,
+                  ),
                   inactiveThumbColor: Colors.grey[400],
                   inactiveTrackColor: Colors.grey[300],
                   onChanged: !_canSchedulePosting
@@ -1893,8 +1924,8 @@ class _PostingManagementScreenState extends State<PostingManagementScreen>
                       color: !_canSchedulePosting
                           ? Colors.grey.shade200
                           : _enableScheduledPosting
-                              ? theme.AppColors.lightGold.withValues(alpha: 0.45)
-                              : theme.AppColors.lightGold.withValues(alpha: 0.2),
+                          ? theme.AppColors.lightGold.withValues(alpha: 0.45)
+                          : theme.AppColors.lightGold.withValues(alpha: 0.2),
                       border: Border.all(
                         color: !_canSchedulePosting
                             ? Colors.grey.shade400
@@ -1906,8 +1937,8 @@ class _PostingManagementScreenState extends State<PostingManagementScreen>
                       color: !_canSchedulePosting
                           ? Colors.grey
                           : _enableScheduledPosting
-                              ? theme.AppColors.primaryGold
-                              : theme.AppColors.darkGold,
+                          ? theme.AppColors.primaryGold
+                          : theme.AppColors.darkGold,
                     ),
                   ),
                 ),
@@ -1941,7 +1972,10 @@ class _PostingManagementScreenState extends State<PostingManagementScreen>
                               children: [
                                 Row(
                                   children: [
-                                    const Icon(Icons.access_time, color: Color(0xFF2E7D32)),
+                                    const Icon(
+                                      Icons.access_time,
+                                      color: Color(0xFF2E7D32),
+                                    ),
                                     const SizedBox(width: 12),
                                     Text(
                                       _formatTimeOfDay(_scheduledTime),
@@ -1959,7 +1993,7 @@ class _PostingManagementScreenState extends State<PostingManagementScreen>
                           ),
                         ),
                         const SizedBox(height: 20),
-                        
+
                         // Frequency Selection
                         const Text(
                           'التكرار:',
@@ -1995,18 +2029,20 @@ class _PostingManagementScreenState extends State<PostingManagementScreen>
                           },
                         ),
                         const SizedBox(height: 20),
-                        
+
                         // Auto-post options
                         SwitchListTile(
                           title: const Text('ترحيل تلقائي في الموعد'),
-                          subtitle: const Text('سيتم الترحيل تلقائياً دون تأكيد'),
+                          subtitle: const Text(
+                            'سيتم الترحيل تلقائياً دون تأكيد',
+                          ),
                           value: _autoPostOnSchedule,
                           dense: true,
                           onChanged: (value) {
                             setState(() => _autoPostOnSchedule = value);
                           },
                         ),
-                        
+
                         const SizedBox(height: 12),
                         // Info card
                         Container(
@@ -2018,7 +2054,11 @@ class _PostingManagementScreenState extends State<PostingManagementScreen>
                           ),
                           child: Row(
                             children: [
-                              Icon(Icons.info_outline, color: Colors.blue[700], size: 20),
+                              Icon(
+                                Icons.info_outline,
+                                color: Colors.blue[700],
+                                size: 20,
+                              ),
                               const SizedBox(width: 12),
                               Expanded(
                                 child: Text(
@@ -2110,7 +2150,10 @@ class _PostingManagementScreenState extends State<PostingManagementScreen>
                 backgroundColor: const Color(0xFFFFD700),
                 foregroundColor: Colors.black,
                 padding: const EdgeInsets.symmetric(vertical: 16),
-                textStyle: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                textStyle: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
             ),
           ),
@@ -2162,9 +2205,9 @@ class _PostingManagementScreenState extends State<PostingManagementScreen>
       child: Text(
         title,
         style: Theme.of(context).textTheme.titleLarge?.copyWith(
-              fontWeight: FontWeight.bold,
-              color: theme.AppColors.darkGold,
-            ),
+          fontWeight: FontWeight.bold,
+          color: theme.AppColors.darkGold,
+        ),
       ),
     );
   }
@@ -2175,16 +2218,13 @@ class _PostingManagementScreenState extends State<PostingManagementScreen>
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(
-            label,
-            style: Theme.of(context).textTheme.bodyLarge,
-          ),
+          Text(label, style: Theme.of(context).textTheme.bodyLarge),
           Text(
             value,
             style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.bold,
-                  color: theme.AppColors.darkGold,
-                ),
+              fontWeight: FontWeight.bold,
+              color: theme.AppColors.darkGold,
+            ),
           ),
         ],
       ),
@@ -2237,7 +2277,9 @@ class _PostingManagementScreenState extends State<PostingManagementScreen>
     final hour = time.hour.toString().padLeft(2, '0');
     final minute = time.minute.toString().padLeft(2, '0');
     final period = time.hour >= 12 ? 'مساءً' : 'صباحاً';
-    final hour12 = time.hour > 12 ? time.hour - 12 : (time.hour == 0 ? 12 : time.hour);
+    final hour12 = time.hour > 12
+        ? time.hour - 12
+        : (time.hour == 0 ? 12 : time.hour);
     return '$hour12:${minute.padLeft(2, '0')} $period ($hour:$minute)';
   }
 
@@ -2254,12 +2296,12 @@ class _PostingManagementScreenState extends State<PostingManagementScreen>
         freq = 'أول كل شهر';
         break;
     }
-    
+
     final whatToPost = [];
     if (_autoPostInvoices) whatToPost.add('الفواتير');
     if (_autoPostEntries) whatToPost.add('القيود');
     final items = whatToPost.isEmpty ? 'لا شيء' : whatToPost.join(' و ');
-    
+
     return 'سيتم ترحيل $items $freq في ${_formatTimeOfDay(_scheduledTime)}';
   }
 }

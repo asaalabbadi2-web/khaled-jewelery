@@ -10,11 +10,7 @@ class BonusesScreen extends StatefulWidget {
   final ApiService api;
   final bool isArabic;
 
-  const BonusesScreen({
-    super.key,
-    required this.api,
-    this.isArabic = true,
-  });
+  const BonusesScreen({super.key, required this.api, this.isArabic = true});
 
   @override
   State<BonusesScreen> createState() => _BonusesScreenState();
@@ -59,8 +55,9 @@ class _BonusesScreenState extends State<BonusesScreen> {
         dateTo: _periodEnd?.toIso8601String().split('T').first,
       );
       final bonuses = data
-          .map((json) =>
-              EmployeeBonusModel.fromJson(json as Map<String, dynamic>))
+          .map(
+            (json) => EmployeeBonusModel.fromJson(json as Map<String, dynamic>),
+          )
           .toList();
       setState(() => _bonuses = bonuses);
     } catch (e) {
@@ -87,9 +84,11 @@ class _BonusesScreenState extends State<BonusesScreen> {
 
     if (_departmentFilter != null && _departmentFilter!.isNotEmpty) {
       final dept = _departmentFilter!.toLowerCase();
-      list = list.where((b) =>
-          b.employee?.department != null &&
-          b.employee!.department!.toLowerCase() == dept);
+      list = list.where(
+        (b) =>
+            b.employee?.department != null &&
+            b.employee!.department!.toLowerCase() == dept,
+      );
     }
 
     if (_minAmount != null) {
@@ -112,8 +111,7 @@ class _BonusesScreenState extends State<BonusesScreen> {
           b.bonusType,
           b.notes,
         ];
-        return fields.any((f) =>
-            f != null && f.toLowerCase().contains(q));
+        return fields.any((f) => f != null && f.toLowerCase().contains(q));
       });
     }
 
@@ -177,8 +175,9 @@ class _BonusesScreenState extends State<BonusesScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(message),
-        backgroundColor:
-            isError ? Colors.red : Theme.of(context).colorScheme.primary,
+        backgroundColor: isError
+            ? Colors.red
+            : Theme.of(context).colorScheme.primary,
         behavior: SnackBarBehavior.floating,
         duration: const Duration(seconds: 3),
         action: SnackBarAction(
@@ -272,17 +271,26 @@ class _BonusesScreenState extends State<BonusesScreen> {
         includeBalance: true,
         includeAccount: false,
       );
-      safeBoxes = all.where((sb) => sb.safeType == 'cash' || sb.safeType == 'bank').toList();
+      safeBoxes = all
+          .where((sb) => sb.safeType == 'cash' || sb.safeType == 'bank')
+          .toList();
     } catch (e) {
       _showSnack(
-        isAr ? 'فشل تحميل الخزائن: ${e.toString()}' : 'Failed to load safe boxes: ${e.toString()}',
+        isAr
+            ? 'فشل تحميل الخزائن: ${e.toString()}'
+            : 'Failed to load safe boxes: ${e.toString()}',
         isError: true,
       );
       return;
     }
 
     if (safeBoxes.isEmpty) {
-      _showSnack(isAr ? 'لا توجد خزائن نقدية/بنكية متاحة' : 'No cash/bank safe boxes available', isError: true);
+      _showSnack(
+        isAr
+            ? 'لا توجد خزائن نقدية/بنكية متاحة'
+            : 'No cash/bank safe boxes available',
+        isError: true,
+      );
       return;
     }
 
@@ -311,11 +319,14 @@ class _BonusesScreenState extends State<BonusesScreen> {
                 ),
                 const SizedBox(height: 8),
                 DropdownButtonFormField<SafeBoxModel>(
-                  value: selected,
+                  initialValue: selected,
                   isExpanded: true,
                   decoration: const InputDecoration(
                     border: OutlineInputBorder(),
-                    contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    contentPadding: EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 8,
+                    ),
                   ),
                   items: safeBoxes.map((sb) {
                     final balance = sb.balance?.cash ?? 0.0;
@@ -367,13 +378,17 @@ class _BonusesScreenState extends State<BonusesScreen> {
 
     if (selectedSafeBox?.id != null && bonus.id != null) {
       try {
-        final method = selectedSafeBox!.safeType == 'bank' ? 'transfer' : 'cash';
+        final method = selectedSafeBox!.safeType == 'bank'
+            ? 'transfer'
+            : 'cash';
         await widget.api.payBonus(
           bonus.id!,
           safeBoxId: selectedSafeBox.id!,
           paymentMethod: method,
         );
-        _showSnack(isAr ? 'تم تسجيل الدفع بنجاح' : 'Payment recorded successfully');
+        _showSnack(
+          isAr ? 'تم تسجيل الدفع بنجاح' : 'Payment recorded successfully',
+        );
         _loadBonuses();
       } catch (e) {
         _showSnack(e.toString(), isError: true);
@@ -384,11 +399,18 @@ class _BonusesScreenState extends State<BonusesScreen> {
   Future<void> _editBonus(EmployeeBonusModel bonus) async {
     final isAr = widget.isArabic;
     if (bonus.status != 'pending') {
-      _showSnack(isAr ? 'لا يمكن تعديل مكافأة غير معلقة' : 'Only pending bonuses can be edited', isError: true);
+      _showSnack(
+        isAr
+            ? 'لا يمكن تعديل مكافأة غير معلقة'
+            : 'Only pending bonuses can be edited',
+        isError: true,
+      );
       return;
     }
 
-    final amountController = TextEditingController(text: bonus.amount.toString());
+    final amountController = TextEditingController(
+      text: bonus.amount.toString(),
+    );
     final notesController = TextEditingController(text: bonus.notes ?? '');
     DateTime start = bonus.periodStart;
     DateTime end = bonus.periodEnd;
@@ -496,13 +518,18 @@ class _BonusesScreenState extends State<BonusesScreen> {
       try {
         final amount = double.tryParse(amountController.text.trim());
         if (amount == null) {
-          _showSnack(isAr ? 'الرجاء إدخال مبلغ صحيح' : 'Enter valid amount', isError: true);
+          _showSnack(
+            isAr ? 'الرجاء إدخال مبلغ صحيح' : 'Enter valid amount',
+            isError: true,
+          );
           return;
         }
 
         await widget.api.updateBonus(bonus.id!, {
           'amount': amount,
-          'notes': notesController.text.trim().isEmpty ? null : notesController.text.trim(),
+          'notes': notesController.text.trim().isEmpty
+              ? null
+              : notesController.text.trim(),
           'period_start': dateFormat.format(start),
           'period_end': dateFormat.format(end),
         });
@@ -517,20 +544,22 @@ class _BonusesScreenState extends State<BonusesScreen> {
   void _showFilterDialog() {
     final isAr = widget.isArabic;
     final dateFormat = DateFormat('yyyy-MM-dd');
-    final ruleTypes = _bonuses
-        .map((b) => b.bonusRule?.ruleType)
-        .whereType<String>()
-        .toSet()
-        .toList()
-      ..sort();
+    final ruleTypes =
+        _bonuses
+            .map((b) => b.bonusRule?.ruleType)
+            .whereType<String>()
+            .toSet()
+            .toList()
+          ..sort();
     final bonusTypes = _bonuses.map((b) => b.bonusType).toSet().toList()
       ..sort();
-    final departments = _bonuses
-        .map((b) => b.employee?.department)
-        .whereType<String>()
-        .toSet()
-        .toList()
-      ..sort();
+    final departments =
+        _bonuses
+            .map((b) => b.employee?.department)
+            .whereType<String>()
+            .toSet()
+            .toList()
+          ..sort();
 
     showDialog(
       context: context,
@@ -553,7 +582,7 @@ class _BonusesScreenState extends State<BonusesScreen> {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   DropdownButtonFormField<String?>(
-                    value: tempStatus,
+                    initialValue: tempStatus,
                     decoration: InputDecoration(
                       labelText: isAr ? 'الحالة' : 'Status',
                       border: const OutlineInputBorder(),
@@ -574,13 +603,16 @@ class _BonusesScreenState extends State<BonusesScreen> {
                   ),
                   const SizedBox(height: 12),
                   DropdownButtonFormField<String?>(
-                    value: tempRuleType,
+                    initialValue: tempRuleType,
                     decoration: InputDecoration(
                       labelText: isAr ? 'نوع القاعدة' : 'Rule type',
                       border: const OutlineInputBorder(),
                     ),
                     items: [
-                      DropdownMenuItem(value: null, child: Text(isAr ? 'الكل' : 'All')),
+                      DropdownMenuItem(
+                        value: null,
+                        child: Text(isAr ? 'الكل' : 'All'),
+                      ),
                       ...ruleTypes.map(
                         (r) => DropdownMenuItem(value: r, child: Text(r)),
                       ),
@@ -589,13 +621,16 @@ class _BonusesScreenState extends State<BonusesScreen> {
                   ),
                   const SizedBox(height: 12),
                   DropdownButtonFormField<String?>(
-                    value: tempBonusType,
+                    initialValue: tempBonusType,
                     decoration: InputDecoration(
                       labelText: isAr ? 'نوع المكافأة' : 'Bonus type',
                       border: const OutlineInputBorder(),
                     ),
                     items: [
-                      DropdownMenuItem(value: null, child: Text(isAr ? 'الكل' : 'All')),
+                      DropdownMenuItem(
+                        value: null,
+                        child: Text(isAr ? 'الكل' : 'All'),
+                      ),
                       ...bonusTypes.map(
                         (t) => DropdownMenuItem(value: t, child: Text(t)),
                       ),
@@ -604,13 +639,16 @@ class _BonusesScreenState extends State<BonusesScreen> {
                   ),
                   const SizedBox(height: 12),
                   DropdownButtonFormField<String?>(
-                    value: tempDept,
+                    initialValue: tempDept,
                     decoration: InputDecoration(
                       labelText: isAr ? 'القسم' : 'Department',
                       border: const OutlineInputBorder(),
                     ),
                     items: [
-                      DropdownMenuItem(value: null, child: Text(isAr ? 'الكل' : 'All')),
+                      DropdownMenuItem(
+                        value: null,
+                        child: Text(isAr ? 'الكل' : 'All'),
+                      ),
                       ...departments.map(
                         (d) => DropdownMenuItem(value: d, child: Text(d)),
                       ),
@@ -628,7 +666,8 @@ class _BonusesScreenState extends State<BonusesScreen> {
                             labelText: isAr ? 'أدنى مبلغ' : 'Min amount',
                             border: const OutlineInputBorder(),
                           ),
-                          onChanged: (v) => setDialogState(() => tempMinAmount = v),
+                          onChanged: (v) =>
+                              setDialogState(() => tempMinAmount = v),
                         ),
                       ),
                       const SizedBox(width: 12),
@@ -640,7 +679,8 @@ class _BonusesScreenState extends State<BonusesScreen> {
                             labelText: isAr ? 'أقصى مبلغ' : 'Max amount',
                             border: const OutlineInputBorder(),
                           ),
-                          onChanged: (v) => setDialogState(() => tempMaxAmount = v),
+                          onChanged: (v) =>
+                              setDialogState(() => tempMaxAmount = v),
                         ),
                       ),
                     ],
@@ -762,10 +802,7 @@ class _BonusesScreenState extends State<BonusesScreen> {
         title: Text(isAr ? 'المكافآت' : 'Bonuses'),
         centerTitle: true,
         actions: [
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: _loadBonuses,
-          ),
+          IconButton(icon: const Icon(Icons.refresh), onPressed: _loadBonuses),
           IconButton(
             icon: const Icon(Icons.filter_list),
             onPressed: _showFilterDialog,
@@ -829,8 +866,9 @@ class _BonusesScreenState extends State<BonusesScreen> {
     final pendingCount = _bonuses.where((b) => b.status == 'pending').length;
     final approvedCount = _bonuses.where((b) => b.status == 'approved').length;
     final paidCount = _bonuses.where((b) => b.status == 'paid').length;
-    final actionableCount =
-        _bonuses.where((b) => b.canApprove() || b.canPay()).length;
+    final actionableCount = _bonuses
+        .where((b) => b.canApprove() || b.canPay())
+        .length;
 
     return Wrap(
       spacing: 12,
@@ -929,12 +967,14 @@ class _BonusesScreenState extends State<BonusesScreen> {
             SizedBox(
               width: 170,
               child: DropdownButtonFormField<String>(
-                value: _sortOption,
+                initialValue: _sortOption,
                 decoration: InputDecoration(
                   labelText: isAr ? 'ترتيب' : 'Sort',
                   border: const OutlineInputBorder(),
-                  contentPadding:
-                      const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 8,
+                  ),
                 ),
                 items: [
                   DropdownMenuItem(
@@ -1035,7 +1075,7 @@ class _BonusesScreenState extends State<BonusesScreen> {
                     vertical: 6,
                   ),
                   decoration: BoxDecoration(
-                    color: statusColor.withOpacity(0.2),
+                    color: statusColor.withValues(alpha: 0.2),
                     borderRadius: BorderRadius.circular(12),
                     border: Border.all(color: statusColor),
                   ),
@@ -1229,10 +1269,7 @@ class _BonusesScreenState extends State<BonusesScreen> {
             children: [
               Text(
                 label,
-                style: const TextStyle(
-                  fontSize: 12,
-                  color: Colors.grey,
-                ),
+                style: const TextStyle(fontSize: 12, color: Colors.grey),
               ),
               Text(
                 value,
@@ -1249,8 +1286,10 @@ class _BonusesScreenState extends State<BonusesScreen> {
   }
 
   Widget _buildBulkActions(bool isAr, List<EmployeeBonusModel> filtered) {
-    final pendingIds =
-        filtered.where((b) => b.status == 'pending' && b.id != null).map((b) => b.id!).toList();
+    final pendingIds = filtered
+        .where((b) => b.status == 'pending' && b.id != null)
+        .map((b) => b.id!)
+        .toList();
 
     return Row(
       children: [
@@ -1261,7 +1300,10 @@ class _BonusesScreenState extends State<BonusesScreen> {
                 ? const SizedBox(
                     width: 16,
                     height: 16,
-                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.white,
+                    ),
                   )
                 : const Icon(Icons.check_circle),
             label: Text(isAr ? 'اعتماد الكل (معلق)' : 'Approve all pending'),
@@ -1283,7 +1325,10 @@ class _BonusesScreenState extends State<BonusesScreen> {
   Future<void> _bulkApprove(List<int> ids) async {
     final isAr = widget.isArabic;
     if (ids.isEmpty) {
-      _showSnack(isAr ? 'لا توجد مكافآت معلقة' : 'No pending bonuses', isError: true);
+      _showSnack(
+        isAr ? 'لا توجد مكافآت معلقة' : 'No pending bonuses',
+        isError: true,
+      );
       return;
     }
 
@@ -1291,12 +1336,20 @@ class _BonusesScreenState extends State<BonusesScreen> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: Text(isAr ? 'اعتماد جميع المعلّقة' : 'Approve all pending'),
-        content: Text(isAr
-            ? 'سيتم اعتماد ${ids.length} مكافأة معلقة.'
-            : 'This will approve ${ids.length} pending bonuses.'),
+        content: Text(
+          isAr
+              ? 'سيتم اعتماد ${ids.length} مكافأة معلقة.'
+              : 'This will approve ${ids.length} pending bonuses.',
+        ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(isAr ? 'إلغاء' : 'Cancel')),
-          ElevatedButton(onPressed: () => Navigator.pop(ctx, true), child: Text(isAr ? 'اعتماد' : 'Approve')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text(isAr ? 'إلغاء' : 'Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text(isAr ? 'اعتماد' : 'Approve'),
+          ),
         ],
       ),
     );
@@ -1319,7 +1372,10 @@ class _BonusesScreenState extends State<BonusesScreen> {
   Future<void> _bulkReject(List<int> ids) async {
     final isAr = widget.isArabic;
     if (ids.isEmpty) {
-      _showSnack(isAr ? 'لا توجد مكافآت معلقة' : 'No pending bonuses', isError: true);
+      _showSnack(
+        isAr ? 'لا توجد مكافآت معلقة' : 'No pending bonuses',
+        isError: true,
+      );
       return;
     }
 
@@ -1333,9 +1389,11 @@ class _BonusesScreenState extends State<BonusesScreen> {
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text(isAr
-                  ? 'سيتم رفض ${ids.length} مكافأة معلقة.'
-                  : 'This will reject ${ids.length} pending bonuses.'),
+              Text(
+                isAr
+                    ? 'سيتم رفض ${ids.length} مكافأة معلقة.'
+                    : 'This will reject ${ids.length} pending bonuses.',
+              ),
               const SizedBox(height: 12),
               TextField(
                 controller: controller,
@@ -1348,10 +1406,15 @@ class _BonusesScreenState extends State<BonusesScreen> {
             ],
           ),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text(isAr ? 'إلغاء' : 'Cancel')),
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: Text(isAr ? 'إلغاء' : 'Cancel'),
+            ),
             ElevatedButton(
               onPressed: () {
-                reason = controller.text.trim().isEmpty ? null : controller.text.trim();
+                reason = controller.text.trim().isEmpty
+                    ? null
+                    : controller.text.trim();
                 Navigator.pop(ctx, true);
               },
               child: Text(isAr ? 'رفض' : 'Reject'),
@@ -1375,7 +1438,6 @@ class _BonusesScreenState extends State<BonusesScreen> {
       if (mounted) setState(() => _bulkLoading = false);
     }
   }
-
 }
 
 class _SummaryCard extends StatelessWidget {
@@ -1415,10 +1477,7 @@ class _SummaryCard extends StatelessWidget {
               children: [
                 Text(
                   label,
-                  style: const TextStyle(
-                    fontSize: 12,
-                    color: Colors.black54,
-                  ),
+                  style: const TextStyle(fontSize: 12, color: Colors.black54),
                 ),
                 Text(
                   value,

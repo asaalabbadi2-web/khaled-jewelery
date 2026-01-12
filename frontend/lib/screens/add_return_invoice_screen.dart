@@ -9,10 +9,10 @@ import '../utils.dart';
 import 'invoice_print_screen.dart';
 
 /// Screen for creating return invoices (مرتجعات)
-/// Supports: مرتجع بيع, مرتجع شراء, مرتجع شراء من مورد
+/// Supports: مرتجع بيع, مرتجع شراء, مرتجع شراء (مورد)
 class AddReturnInvoiceScreen extends StatefulWidget {
   final ApiService api;
-  final String returnType; // 'مرتجع بيع', 'مرتجع شراء', 'مرتجع شراء من مورد'
+  final String returnType; // 'مرتجع بيع', 'مرتجع شراء', 'مرتجع شراء (مورد)'
   final Map<String, dynamic>? prefilledOriginalInvoice;
 
   const AddReturnInvoiceScreen({
@@ -60,13 +60,13 @@ class ReturnItemRow {
     required this.originalTax,
     required this.originalTotal,
     this.isSelected = true,
-  })  : weight = originalWeight,
-        quantity = originalQuantity,
-        wage = originalWage,
-        net = originalNet,
-        tax = originalTax,
-        total = originalTotal,
-        cost = originalNet;
+  }) : weight = originalWeight,
+       quantity = originalQuantity,
+       wage = originalWage,
+       net = originalNet,
+       tax = originalTax,
+       total = originalTotal,
+       cost = originalNet;
 
   void updateWeight(double newWeight) {
     weight = newWeight.clamp(0, originalWeight);
@@ -163,18 +163,20 @@ class _AddReturnInvoiceScreenState extends State<AddReturnInvoiceScreen> {
   }
 
   List<ReturnItemRow> get _selectedItems => _returnItems
-    .where((item) => item.isSelected && (item.weight > 0 || item.quantity > 0))
-    .toList();
+      .where(
+        (item) => item.isSelected && (item.weight > 0 || item.quantity > 0),
+      )
+      .toList();
 
   // Computed totals based on currently selected items
   double get totalWeight =>
-    _selectedItems.fold(0.0, (sum, item) => sum + item.weight);
+      _selectedItems.fold(0.0, (sum, item) => sum + item.weight);
   double get totalCost =>
-    _selectedItems.fold(0.0, (sum, item) => sum + item.cost);
+      _selectedItems.fold(0.0, (sum, item) => sum + item.cost);
   double get totalTax =>
-    _selectedItems.fold(0.0, (sum, item) => sum + item.tax);
+      _selectedItems.fold(0.0, (sum, item) => sum + item.tax);
   double get grandTotal =>
-    _selectedItems.fold(0.0, (sum, item) => sum + item.total);
+      _selectedItems.fold(0.0, (sum, item) => sum + item.total);
   double get amountDue => (grandTotal - amountPaid).clamp(0, double.infinity);
 
   double _parseDouble(dynamic value, [double fallback = 0]) {
@@ -225,7 +227,9 @@ class _AddReturnInvoiceScreenState extends State<AddReturnInvoiceScreen> {
       originalWage: _parseDouble(item['wage']),
       originalNet: originalNet,
       originalTax: originalTax,
-      originalTotal: originalTotal > 0 ? originalTotal : originalNet + originalTax,
+      originalTotal: originalTotal > 0
+          ? originalTotal
+          : originalNet + originalTax,
     );
   }
 
@@ -261,20 +265,20 @@ class _AddReturnInvoiceScreenState extends State<AddReturnInvoiceScreen> {
         return 'مرتجع فاتورة بيع';
       case 'مرتجع شراء':
         return 'مرتجع فاتورة شراء من عميل';
-      case 'مرتجع شراء من مورد':
-        return 'مرتجع فاتورة شراء من مورد';
+      case 'مرتجع شراء (مورد)':
+        return 'مرتجع فاتورة شراء';
       default:
         return widget.returnType;
     }
   }
-  
+
   String _getReturnTypeDescription() {
     switch (widget.returnType) {
       case 'مرتجع بيع':
         return 'استرجاع ذهب تم بيعه للعميل مع تحديث المخزون والدفعات.';
       case 'مرتجع شراء':
         return 'عكس عملية شراء من عميل وإرجاع الوزن إلى المخزون.';
-      case 'مرتجع شراء من مورد':
+      case 'مرتجع شراء (مورد)':
         return 'إرجاع ذهب للمورد مع تسوية حسابات المورد والخزينة.';
       default:
         return 'إدارة عمليات الاسترجاع المحاسبية للذهب.';
@@ -287,8 +291,8 @@ class _AddReturnInvoiceScreenState extends State<AddReturnInvoiceScreen> {
         return 'بيع';
       case 'مرتجع شراء':
         return 'شراء من عميل';
-      case 'مرتجع شراء من مورد':
-        return 'شراء من مورد';
+      case 'مرتجع شراء (مورد)':
+        return 'شراء';
       default:
         return '';
     }
@@ -345,9 +349,9 @@ class _AddReturnInvoiceScreenState extends State<AddReturnInvoiceScreen> {
           final message = _isLoadingInvoiceDetails
               ? 'جاري تحميل أصناف الفاتورة الأصلية...'
               : 'الرجاء اختيار صنف واحد على الأقل للإرجاع';
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(message)),
-          );
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text(message)));
           isStepValid = false;
         } else {
           isStepValid = true;
@@ -406,10 +410,7 @@ class _AddReturnInvoiceScreenState extends State<AddReturnInvoiceScreen> {
 
       if (!mounted) return;
 
-      final mergedInvoice = {
-        ...?selectedOriginalInvoice,
-        ...invoiceDetails,
-      };
+      final mergedInvoice = {...?selectedOriginalInvoice, ...invoiceDetails};
 
       final items = (invoiceDetails['items'] as List<dynamic>? ?? [])
           .whereType<Map<String, dynamic>>()
@@ -446,7 +447,9 @@ class _AddReturnInvoiceScreenState extends State<AddReturnInvoiceScreen> {
     final selectedItems = _selectedItems;
     if (selectedItems.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('الرجاء اختيار صنف واحد على الأقل قبل الحفظ')),
+        const SnackBar(
+          content: Text('الرجاء اختيار صنف واحد على الأقل قبل الحفظ'),
+        ),
       );
       return;
     }
@@ -454,7 +457,11 @@ class _AddReturnInvoiceScreenState extends State<AddReturnInvoiceScreen> {
     final originalBranchId = selectedOriginalInvoice?['branch_id'];
     if (originalBranchId == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('الفاتورة الأصلية لا تحتوي على فرع. لا يمكن حفظ المرتجع بدون فرع.')),
+        const SnackBar(
+          content: Text(
+            'الفاتورة الأصلية لا تحتوي على فرع. لا يمكن حفظ المرتجع بدون فرع.',
+          ),
+        ),
       );
       return;
     }
@@ -462,10 +469,10 @@ class _AddReturnInvoiceScreenState extends State<AddReturnInvoiceScreen> {
     final returnItems = selectedItems.map((item) => item.toPayload()).toList();
 
     final payload = {
-      'customer_id': widget.returnType != 'مرتجع شراء من مورد'
+      'customer_id': widget.returnType != 'مرتجع شراء (مورد)'
           ? selectedOriginalInvoice!['customer_id']
           : null,
-      'supplier_id': widget.returnType == 'مرتجع شراء من مورد'
+      'supplier_id': widget.returnType == 'مرتجع شراء (مورد)'
           ? selectedOriginalInvoice!['supplier_id']
           : null,
       'branch_id': originalBranchId,
@@ -474,9 +481,9 @@ class _AddReturnInvoiceScreenState extends State<AddReturnInvoiceScreen> {
       'original_invoice_id': selectedOriginalInvoice!['id'],
       'return_reason': returnReason,
       'total': grandTotal,
-  'total_weight': totalWeight,
-  'total_tax': totalTax,
-  'total_cost': totalCost,
+      'total_weight': totalWeight,
+      'total_tax': totalTax,
+      'total_cost': totalCost,
       'payment_method': paymentMethod,
       'amount_paid': amountPaid,
       'items': returnItems,
@@ -525,10 +532,8 @@ class _AddReturnInvoiceScreenState extends State<AddReturnInvoiceScreen> {
       if (shouldPrint == true) {
         await Navigator.of(context).push(
           MaterialPageRoute(
-            builder: (_) => InvoicePrintScreen(
-              invoice: invoiceForPrint,
-              isArabic: true,
-            ),
+            builder: (_) =>
+                InvoicePrintScreen(invoice: invoiceForPrint, isArabic: true),
           ),
         );
       }
@@ -556,12 +561,17 @@ class _AddReturnInvoiceScreenState extends State<AddReturnInvoiceScreen> {
     String originalParty = '';
 
     if (original != null) {
-      originalTotal = _parseDouble(original['total'] ?? original['total_amount']);
+      originalTotal = _parseDouble(
+        original['total'] ?? original['total_amount'],
+      );
       originalTax = _parseDouble(original['total_tax']);
       originalWeight = _parseDouble(original['total_weight']);
       originalDate = (original['date'] ?? '').toString();
-      originalNumber = (original['invoice_number'] ?? original['id'] ?? '').toString();
-      originalParty = (original['customer_name'] ?? original['supplier_name'] ?? '').toString();
+      originalNumber = (original['invoice_number'] ?? original['id'] ?? '')
+          .toString();
+      originalParty =
+          (original['customer_name'] ?? original['supplier_name'] ?? '')
+              .toString();
     }
 
     final returnTotal = grandTotal;
@@ -589,9 +599,7 @@ class _AddReturnInvoiceScreenState extends State<AddReturnInvoiceScreen> {
                 children: [
                   Text(
                     _getReturnTypeDisplayName(),
-                    style: Theme.of(dialogContext)
-                        .textTheme
-                        .titleMedium
+                    style: Theme.of(dialogContext).textTheme.titleMedium
                         ?.copyWith(fontWeight: FontWeight.bold),
                   ),
                   const SizedBox(height: 12),
@@ -600,17 +608,26 @@ class _AddReturnInvoiceScreenState extends State<AddReturnInvoiceScreen> {
                   if (original != null) ...[
                     Text(
                       'الفاتورة الأصلية',
-                      style: Theme.of(dialogContext)
-                          .textTheme
-                          .titleSmall
+                      style: Theme.of(dialogContext).textTheme.titleSmall
                           ?.copyWith(fontWeight: FontWeight.bold),
                     ),
                     const SizedBox(height: 6),
-                    _buildInfoRow('الرقم/المعرف', originalNumber.isEmpty ? '-' : originalNumber),
-                    if (originalDate.isNotEmpty) _buildInfoRow('التاريخ', originalDate),
-                    if (originalParty.isNotEmpty) _buildInfoRow('العميل/المورد', originalParty),
-                    _buildInfoRow('إجمالي الأصل', '${fmt2(originalTotal)} $currencySymbol'),
-                    _buildInfoRow('ضريبة الأصل', '${fmt2(originalTax)} $currencySymbol'),
+                    _buildInfoRow(
+                      'الرقم/المعرف',
+                      originalNumber.isEmpty ? '-' : originalNumber,
+                    ),
+                    if (originalDate.isNotEmpty)
+                      _buildInfoRow('التاريخ', originalDate),
+                    if (originalParty.isNotEmpty)
+                      _buildInfoRow('العميل/المورد', originalParty),
+                    _buildInfoRow(
+                      'إجمالي الأصل',
+                      '${fmt2(originalTotal)} $currencySymbol',
+                    ),
+                    _buildInfoRow(
+                      'ضريبة الأصل',
+                      '${fmt2(originalTax)} $currencySymbol',
+                    ),
                     _buildInfoRow('وزن الأصل', '${fmt3(originalWeight)} جم'),
                     const SizedBox(height: 12),
                   ],
@@ -618,15 +635,19 @@ class _AddReturnInvoiceScreenState extends State<AddReturnInvoiceScreen> {
                   // Return summary
                   Text(
                     'المرتجع (سيتم حفظه)',
-                    style: Theme.of(dialogContext)
-                        .textTheme
-                        .titleSmall
+                    style: Theme.of(dialogContext).textTheme.titleSmall
                         ?.copyWith(fontWeight: FontWeight.bold),
                   ),
                   const SizedBox(height: 6),
                   _buildInfoRow('عدد الأصناف', selected.length.toString()),
-                  _buildInfoRow('إجمالي المرتجع', '${fmt2(returnTotal)} $currencySymbol'),
-                  _buildInfoRow('ضريبة المرتجع', '${fmt2(returnTax)} $currencySymbol'),
+                  _buildInfoRow(
+                    'إجمالي المرتجع',
+                    '${fmt2(returnTotal)} $currencySymbol',
+                  ),
+                  _buildInfoRow(
+                    'ضريبة المرتجع',
+                    '${fmt2(returnTax)} $currencySymbol',
+                  ),
                   _buildInfoRow('وزن المرتجع', '${fmt3(returnWeight)} جم'),
 
                   const SizedBox(height: 12),
@@ -634,14 +655,18 @@ class _AddReturnInvoiceScreenState extends State<AddReturnInvoiceScreen> {
                   // Deltas
                   Text(
                     'الأثر (Delta)',
-                    style: Theme.of(dialogContext)
-                        .textTheme
-                        .titleSmall
+                    style: Theme.of(dialogContext).textTheme.titleSmall
                         ?.copyWith(fontWeight: FontWeight.bold),
                   ),
                   const SizedBox(height: 6),
-                  _buildInfoRow('تغيير الإجمالي', '${fmt2(deltaTotal)} $currencySymbol'),
-                  _buildInfoRow('تغيير الضريبة', '${fmt2(deltaTax)} $currencySymbol'),
+                  _buildInfoRow(
+                    'تغيير الإجمالي',
+                    '${fmt2(deltaTotal)} $currencySymbol',
+                  ),
+                  _buildInfoRow(
+                    'تغيير الضريبة',
+                    '${fmt2(deltaTax)} $currencySymbol',
+                  ),
                   _buildInfoRow('تغيير الوزن', '${fmt3(deltaWeight)} جم'),
 
                   const SizedBox(height: 12),
@@ -649,9 +674,7 @@ class _AddReturnInvoiceScreenState extends State<AddReturnInvoiceScreen> {
                   // Per-item diff
                   Text(
                     'تفاصيل الأصناف (قبل → بعد)',
-                    style: Theme.of(dialogContext)
-                        .textTheme
-                        .titleSmall
+                    style: Theme.of(dialogContext).textTheme.titleSmall
                         ?.copyWith(fontWeight: FontWeight.bold),
                   ),
                   const SizedBox(height: 8),
@@ -659,8 +682,10 @@ class _AddReturnInvoiceScreenState extends State<AddReturnInvoiceScreen> {
                     const Text('لا توجد أصناف محددة')
                   else
                     ...selected.map((it) {
-                      final weightChanged = (it.weight - it.originalWeight).abs() > 0.0009;
-                      final qtyChanged = (it.quantity - it.originalQuantity).abs() > 0;
+                      final weightChanged =
+                          (it.weight - it.originalWeight).abs() > 0.0009;
+                      final qtyChanged =
+                          (it.quantity - it.originalQuantity).abs() > 0;
                       final changed = weightChanged || qtyChanged;
 
                       return Container(
@@ -670,7 +695,9 @@ class _AddReturnInvoiceScreenState extends State<AddReturnInvoiceScreen> {
                           color: Colors.grey.shade50,
                           borderRadius: BorderRadius.circular(10),
                           border: Border.all(
-                            color: changed ? Colors.orange.shade300 : Colors.grey.shade300,
+                            color: changed
+                                ? Colors.orange.shade300
+                                : Colors.grey.shade300,
                             width: changed ? 1.5 : 1,
                           ),
                         ),
@@ -687,20 +714,23 @@ class _AddReturnInvoiceScreenState extends State<AddReturnInvoiceScreen> {
                             const SizedBox(height: 6),
                             Text('العيار: ${it.karat.toStringAsFixed(0)}'),
                             const SizedBox(height: 4),
-                            Text('الوزن: ${fmt3(it.originalWeight)} → ${fmt3(it.weight)} جم'),
-                            Text('الكمية: ${it.originalQuantity} → ${it.quantity}'),
+                            Text(
+                              'الوزن: ${fmt3(it.originalWeight)} → ${fmt3(it.weight)} جم',
+                            ),
+                            Text(
+                              'الكمية: ${it.originalQuantity} → ${it.quantity}',
+                            ),
                           ],
                         ),
                       );
-                    }).toList(),
+                    }),
 
                   const SizedBox(height: 4),
                   Text(
                     'ملاحظة: يوصى بالمرتجع بدلاً من تعديل الفاتورة الأصلية للحفاظ على دقة المخزون والحسابات.',
-                    style: Theme.of(dialogContext)
-                        .textTheme
-                        .bodySmall
-                        ?.copyWith(color: Colors.black54),
+                    style: Theme.of(
+                      dialogContext,
+                    ).textTheme.bodySmall?.copyWith(color: Colors.black54),
                   ),
                 ],
               ),
@@ -860,7 +890,7 @@ class _AddReturnInvoiceScreenState extends State<AddReturnInvoiceScreen> {
         height: 320,
         child: ListView.separated(
           itemCount: _returnItems.length,
-          separatorBuilder: (_, __) => const SizedBox(height: 12),
+          separatorBuilder: (context, index) => const SizedBox(height: 12),
           itemBuilder: (context, index) {
             final item = _returnItems[index];
             return Card(
@@ -890,7 +920,9 @@ class _AddReturnInvoiceScreenState extends State<AddReturnInvoiceScreen> {
                         children: [
                           Expanded(
                             child: TextFormField(
-                              key: ValueKey('weight-${item.originalItemId}-$index'),
+                              key: ValueKey(
+                                'weight-${item.originalItemId}-$index',
+                              ),
                               initialValue: item.weight.toStringAsFixed(3),
                               decoration: InputDecoration(
                                 labelText: 'الوزن المرتجع (جم)',
@@ -898,12 +930,17 @@ class _AddReturnInvoiceScreenState extends State<AddReturnInvoiceScreen> {
                                     'الأقصى ${item.originalWeight.toStringAsFixed(3)} جم',
                                 border: const OutlineInputBorder(),
                               ),
-                              keyboardType: const TextInputType.numberWithOptions(
-                                decimal: true,
-                              ),
+                              keyboardType:
+                                  const TextInputType.numberWithOptions(
+                                    decimal: true,
+                                  ),
                               inputFormatters: [NormalizeNumberFormatter()],
                               onChanged: (value) {
-                                final newWeight = double.tryParse(value.replaceAll(',', '.')) ?? item.weight;
+                                final newWeight =
+                                    double.tryParse(
+                                      value.replaceAll(',', '.'),
+                                    ) ??
+                                    item.weight;
                                 setState(() {
                                   item.updateWeight(newWeight);
                                 });
@@ -914,7 +951,9 @@ class _AddReturnInvoiceScreenState extends State<AddReturnInvoiceScreen> {
                           if (item.originalQuantity > 1)
                             Expanded(
                               child: TextFormField(
-                                key: ValueKey('qty-${item.originalItemId}-$index'),
+                                key: ValueKey(
+                                  'qty-${item.originalItemId}-$index',
+                                ),
                                 initialValue: item.quantity.toString(),
                                 decoration: InputDecoration(
                                   labelText: 'الكمية المرتجعة',
@@ -924,7 +963,8 @@ class _AddReturnInvoiceScreenState extends State<AddReturnInvoiceScreen> {
                                 keyboardType: TextInputType.number,
                                 inputFormatters: [NormalizeNumberFormatter()],
                                 onChanged: (value) {
-                                  final newQty = int.tryParse(value) ?? item.quantity;
+                                  final newQty =
+                                      int.tryParse(value) ?? item.quantity;
                                   setState(() {
                                     item.updateQuantity(newQty);
                                   });
@@ -1095,7 +1135,7 @@ class _AddReturnInvoiceScreenState extends State<AddReturnInvoiceScreen> {
       );
     }
 
-  final invoiceDisplayNumber = _getInvoiceDisplayNumber(invoice);
+    final invoiceDisplayNumber = _getInvoiceDisplayNumber(invoice);
     final invoiceDate = invoice['date'] ?? 'غير متوفر';
     final invoiceTotalRaw = invoice['total_amount'] ?? invoice['total'] ?? 0;
     final invoiceTotal = invoiceTotalRaw is num
@@ -1174,7 +1214,9 @@ class _AddReturnInvoiceScreenState extends State<AddReturnInvoiceScreen> {
                             Expanded(
                               child: Text(
                                 item.itemName,
-                                style: const TextStyle(fontWeight: FontWeight.w600),
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                ),
                               ),
                             ),
                             const SizedBox(width: 8),
@@ -1185,7 +1227,9 @@ class _AddReturnInvoiceScreenState extends State<AddReturnInvoiceScreen> {
                             const SizedBox(width: 8),
                             Text(
                               '${item.total.toStringAsFixed(2)} $currencySymbol',
-                              style: const TextStyle(fontWeight: FontWeight.bold),
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                              ),
                             ),
                           ],
                         ),
@@ -1323,10 +1367,7 @@ class _AddReturnInvoiceScreenState extends State<AddReturnInvoiceScreen> {
               subtitle: subtitle,
               color: AppColors.invoiceReturn,
               icon: Icons.undo_rounded,
-              trailing: Text(
-                'نوع الفاتورة',
-                style: theme.textTheme.labelLarge,
-              ),
+              trailing: Text('نوع الفاتورة', style: theme.textTheme.labelLarge),
             ),
           ),
           const SizedBox(height: 8),
@@ -1359,29 +1400,33 @@ class _AddReturnInvoiceScreenState extends State<AddReturnInvoiceScreen> {
                   title: const Text('اختيار الفاتورة'),
                   content: _buildSelectInvoiceStep(),
                   isActive: _currentStep >= 0,
-                  state:
-                      _currentStep > 0 ? StepState.complete : StepState.indexed,
+                  state: _currentStep > 0
+                      ? StepState.complete
+                      : StepState.indexed,
                 ),
                 Step(
                   title: const Text('الأصناف المرتجعة'),
                   content: _buildSelectItemsStep(),
                   isActive: _currentStep >= 1,
-                  state:
-                      _currentStep > 1 ? StepState.complete : StepState.indexed,
+                  state: _currentStep > 1
+                      ? StepState.complete
+                      : StepState.indexed,
                 ),
                 Step(
                   title: const Text('سبب الإرجاع'),
                   content: _buildReturnReasonStep(),
                   isActive: _currentStep >= 2,
-                  state:
-                      _currentStep > 2 ? StepState.complete : StepState.indexed,
+                  state: _currentStep > 2
+                      ? StepState.complete
+                      : StepState.indexed,
                 ),
                 Step(
                   title: const Text('الدفع'),
                   content: _buildPaymentStep(),
                   isActive: _currentStep >= 3,
-                  state:
-                      _currentStep > 3 ? StepState.complete : StepState.indexed,
+                  state: _currentStep > 3
+                      ? StepState.complete
+                      : StepState.indexed,
                 ),
                 Step(
                   title: const Text('مراجعة'),

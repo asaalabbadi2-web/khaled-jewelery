@@ -203,14 +203,8 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
         value: 'auto',
         label: 'تلقائي (حسب الورق/آخر اختيار)',
       ),
-      DropdownMenuEntry<String>(
-        value: 'a4_portrait',
-        label: 'A4 (عمودي)',
-      ),
-      DropdownMenuEntry<String>(
-        value: 'a5_portrait',
-        label: 'A5 (عمودي)',
-      ),
+      DropdownMenuEntry<String>(value: 'a4_portrait', label: 'A4 (عمودي)'),
+      DropdownMenuEntry<String>(value: 'a5_portrait', label: 'A5 (عمودي)'),
       DropdownMenuEntry<String>(
         value: 'thermal_80x200',
         label: 'حراري 80×200 مم',
@@ -239,13 +233,11 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
 
       if (!mounted) return;
 
-        final printerAutoConnect = prefs.getBool(_printerAutoConnectKey) ?? true;
-        final printerShowPreview =
-          prefs.getBool(_printerShowPreviewKey) ?? false;
-        final printerAutoCut = prefs.getBool(_printerAutoCutKey) ?? true;
-        final printerPaperSize =
-          prefs.getString(_printerPaperSizeKey) ?? '80 مم';
-        final preferredPrinterName = prefs.getString(_printerPreferredNameKey);
+      final printerAutoConnect = prefs.getBool(_printerAutoConnectKey) ?? true;
+      final printerShowPreview = prefs.getBool(_printerShowPreviewKey) ?? false;
+      final printerAutoCut = prefs.getBool(_printerAutoCutKey) ?? true;
+      final printerPaperSize = prefs.getString(_printerPaperSizeKey) ?? '80 مم';
+      final preferredPrinterName = prefs.getString(_printerPreferredNameKey);
 
       _currencyController.text =
           settings['currency_symbol']?.toString() ?? 'ر.س';
@@ -263,10 +255,13 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
       try {
         final raw = settings['print_template_by_invoice_type'];
         if (raw is Map<String, dynamic>) {
-          templateByType = raw.map((k, v) => MapEntry(k.toString(), v.toString()));
+          templateByType = raw.map(
+            (k, v) => MapEntry(k.toString(), v.toString()),
+          );
         } else if (raw is Map) {
-          templateByType = Map<String, dynamic>.from(raw)
-              .map((k, v) => MapEntry(k.toString(), v.toString()));
+          templateByType = Map<String, dynamic>.from(
+            raw,
+          ).map((k, v) => MapEntry(k.toString(), v.toString()));
         }
       } catch (_) {
         templateByType = const {};
@@ -368,10 +363,9 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
         _printerAutoConnect = printerAutoConnect;
         _printerShowPreview = printerShowPreview;
         _printerAutoCut = printerAutoCut;
-        _printerPaperSize =
-            _printerPaperOptions.contains(printerPaperSize)
-                ? printerPaperSize
-                : '80 مم';
+        _printerPaperSize = _printerPaperOptions.contains(printerPaperSize)
+            ? printerPaperSize
+            : '80 مم';
         _preferredPrinterName = preferredPrinterName;
 
         _invoiceTypesForTemplates = invoiceTypes;
@@ -889,7 +883,10 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
                     ),
                   ),
                   const SizedBox(height: 16),
-                  Text('إعفاء العيارات من ضريبة الذهب', style: _fieldLabelStyle()),
+                  Text(
+                    'إعفاء العيارات من ضريبة الذهب',
+                    style: _fieldLabelStyle(),
+                  ),
                   const SizedBox(height: 10),
                   Wrap(
                     spacing: 8,
@@ -1128,54 +1125,58 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
                         'شراء من عميل',
                         'مرتجع بيع',
                         'مرتجع شراء',
-                        'شراء من مورد',
-                        'مرتجع شراء من مورد',
+                        'شراء',
+                        'مرتجع شراء (مورد)',
                       ])
                 .map((type) {
-              final selected = (_printTemplateByInvoiceType[type] ?? 'auto');
-              return Padding(
-                padding: const EdgeInsets.only(bottom: 12),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        type,
-                        style: Theme.of(context).textTheme.bodyLarge,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    SizedBox(
-                      width: 240,
-                      child: Directionality(
-                        textDirection: TextDirection.rtl,
-                        child: DropdownMenu<String>(
-                          initialSelection: selected,
-                          onSelected: (value) {
-                            if (value == null) return;
-                            setState(() {
-                              final next = Map<String, String>.from(
-                                _printTemplateByInvoiceType,
-                              );
-                              next[type] = value;
-                              _printTemplateByInvoiceType = next;
-                            });
-                          },
-                          enableSearch: false,
-                          leadingIcon: Icon(
-                            Icons.layers_outlined,
-                            color: _primaryColor,
+                  final selected =
+                      (_printTemplateByInvoiceType[type] ?? 'auto');
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            type,
+                            style: Theme.of(context).textTheme.bodyLarge,
                           ),
-                          trailingIcon: const Icon(Icons.keyboard_arrow_down),
-                          inputDecorationTheme:
-                              _dropdownDecoration(accentColor: _primaryColor),
-                          dropdownMenuEntries: _templatePresetEntries(),
                         ),
-                      ),
+                        const SizedBox(width: 12),
+                        SizedBox(
+                          width: 240,
+                          child: Directionality(
+                            textDirection: TextDirection.rtl,
+                            child: DropdownMenu<String>(
+                              initialSelection: selected,
+                              onSelected: (value) {
+                                if (value == null) return;
+                                setState(() {
+                                  final next = Map<String, String>.from(
+                                    _printTemplateByInvoiceType,
+                                  );
+                                  next[type] = value;
+                                  _printTemplateByInvoiceType = next;
+                                });
+                              },
+                              enableSearch: false,
+                              leadingIcon: Icon(
+                                Icons.layers_outlined,
+                                color: _primaryColor,
+                              ),
+                              trailingIcon: const Icon(
+                                Icons.keyboard_arrow_down,
+                              ),
+                              inputDecorationTheme: _dropdownDecoration(
+                                accentColor: _primaryColor,
+                              ),
+                              dropdownMenuEntries: _templatePresetEntries(),
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
-                  ],
-                ),
-              );
-            }),
+                  );
+                }),
           ],
         ),
         const SizedBox(height: 20),
@@ -1206,15 +1207,20 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
   Widget _buildSystemTab() {
     final settingsProvider = Provider.of<SettingsProvider>(context);
     final bool goldAutoEnabled =
-      (settingsProvider.settings['gold_price_auto_update_enabled'] == true);
+        (settingsProvider.settings['gold_price_auto_update_enabled'] == true);
     final int goldAutoIntervalMinutes =
-      (settingsProvider.settings['gold_price_auto_update_interval_minutes'] is num)
-        ? (settingsProvider.settings['gold_price_auto_update_interval_minutes'] as num).toInt()
+        (settingsProvider.settings['gold_price_auto_update_interval_minutes']
+            is num)
+        ? (settingsProvider.settings['gold_price_auto_update_interval_minutes']
+                  as num)
+              .toInt()
         : int.tryParse(
-            settingsProvider.settings['gold_price_auto_update_interval_minutes']?.toString() ??
-              '',
-          ) ??
-          60;
+                settingsProvider
+                        .settings['gold_price_auto_update_interval_minutes']
+                        ?.toString() ??
+                    '',
+              ) ??
+              60;
     final weightConfig = settingsProvider.weightClosingSettings;
     final bool weightEnabled = weightConfig['enabled'] == true;
     final String weightPriceSource =
@@ -1457,7 +1463,9 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
                 SwitchListTile(
                   contentPadding: EdgeInsets.zero,
                   title: const Text('تسجيل الخروج عند عدم النشاط'),
-                  subtitle: const Text('عند التعطيل لن يتم إنهاء الجلسة تلقائياً بسبب الخمول'),
+                  subtitle: const Text(
+                    'عند التعطيل لن يتم إنهاء الجلسة تلقائياً بسبب الخمول',
+                  ),
                   value: _idleTimeoutEnabled,
                   onChanged: (val) {
                     setState(() => _idleTimeoutEnabled = val);
@@ -1474,7 +1482,9 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
                   ),
                   trailing: Icon(
                     Icons.edit,
-                    color: _idleTimeoutEnabled ? _primaryColor : _mutedTextColor,
+                    color: _idleTimeoutEnabled
+                        ? _primaryColor
+                        : _mutedTextColor,
                   ),
                   enabled: _idleTimeoutEnabled,
                   onTap: !_idleTimeoutEnabled
@@ -1498,7 +1508,8 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
                                 ),
                                 actions: [
                                   TextButton(
-                                    onPressed: () => Navigator.of(context).pop(),
+                                    onPressed: () =>
+                                        Navigator.of(context).pop(),
                                     child: const Text('إلغاء'),
                                   ),
                                   ElevatedButton(
@@ -1664,47 +1675,50 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
                     )
                   else
                     Flexible(
-                      child: ListView.separated(
-                        shrinkWrap: true,
-                        itemCount: _availablePrinters.length,
-                        separatorBuilder: (_, __) => const Divider(height: 1),
-                        itemBuilder: (context, index) {
-                          final printer = _availablePrinters[index];
-                          final name = printer.name;
-                          final selected = (_preferredPrinterName ?? '').trim() ==
-                              name.trim();
-                          return RadioListTile<String>(
-                            value: name,
-                            groupValue: _preferredPrinterName,
-                            onChanged: (value) async {
-                              final next = value?.trim();
-                              setState(() {
-                                _preferredPrinterName = next;
-                              });
-                              setSheetState(() {
-                                _preferredPrinterName = next;
-                              });
-                              try {
-                                final prefs =
-                                    await SharedPreferences.getInstance();
-                                if (next == null || next.isEmpty) {
-                                  await prefs.remove(_printerPreferredNameKey);
-                                } else {
-                                  await prefs.setString(
-                                    _printerPreferredNameKey,
-                                    next,
-                                  );
-                                }
-                              } catch (_) {
-                                // ignore
-                              }
-                            },
-                            title: Text(name),
-                            subtitle: selected
-                                ? const Text('الطابعة المفضلة')
-                                : null,
-                          );
+                      child: RadioGroup<String>(
+                        groupValue: _preferredPrinterName,
+                        onChanged: (value) async {
+                          final next = value?.trim();
+                          setState(() {
+                            _preferredPrinterName = next;
+                          });
+                          setSheetState(() {
+                            _preferredPrinterName = next;
+                          });
+                          try {
+                            final prefs = await SharedPreferences.getInstance();
+                            if (next == null || next.isEmpty) {
+                              await prefs.remove(_printerPreferredNameKey);
+                            } else {
+                              await prefs.setString(
+                                _printerPreferredNameKey,
+                                next,
+                              );
+                            }
+                          } catch (_) {
+                            // ignore
+                          }
                         },
+                        child: ListView.separated(
+                          shrinkWrap: true,
+                          itemCount: _availablePrinters.length,
+                          separatorBuilder: (context, index) =>
+                              const Divider(height: 1),
+                          itemBuilder: (context, index) {
+                            final printer = _availablePrinters[index];
+                            final name = printer.name;
+                            final selected =
+                                (_preferredPrinterName ?? '').trim() ==
+                                name.trim();
+                            return RadioListTile<String>(
+                              value: name,
+                              title: Text(name),
+                              subtitle: selected
+                                  ? const Text('الطابعة المفضلة')
+                                  : null,
+                            );
+                          },
+                        ),
                       ),
                     ),
                   const SizedBox(height: 12),
@@ -1995,7 +2009,9 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
 
   WidgetStateProperty<Color?> _trackColorFor(Color color) {
     return WidgetStateProperty.resolveWith((states) {
-      if (states.contains(WidgetState.selected)) return color.withValues(alpha: 0.5);
+      if (states.contains(WidgetState.selected)) {
+        return color.withValues(alpha: 0.5);
+      }
       return null;
     });
   }
@@ -2004,6 +2020,9 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
       color.withValues(alpha: opacity.clamp(0.0, 1.0));
 
   Color _blendOnSurface(Color color, double opacity) {
-    return Color.alphaBlend(color.withValues(alpha: opacity.clamp(0.0, 1.0)), _surfaceColor);
+    return Color.alphaBlend(
+      color.withValues(alpha: opacity.clamp(0.0, 1.0)),
+      _surfaceColor,
+    );
   }
 }

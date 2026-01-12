@@ -92,8 +92,10 @@ class _SalesVsPurchasesTrendReportScreenState
 
       if (!mounted) return;
       setState(() {
-  _summary = Map<String, dynamic>.from(result['summary'] ?? {});
-        final timeline = List<Map<String, dynamic>>.from(result['timeline'] ?? []);
+        _summary = Map<String, dynamic>.from(result['summary'] ?? {});
+        final timeline = List<Map<String, dynamic>>.from(
+          result['timeline'] ?? [],
+        );
         _timeline = timeline;
       });
     } catch (e) {
@@ -112,11 +114,9 @@ class _SalesVsPurchasesTrendReportScreenState
 
   Future<void> _pickDateRange() async {
     final now = DateTime.now();
-    final initialRange = _selectedRange ??
-        DateTimeRange(
-          start: now.subtract(const Duration(days: 29)),
-          end: now,
-        );
+    final initialRange =
+        _selectedRange ??
+        DateTimeRange(start: now.subtract(const Duration(days: 29)), end: now);
 
     final picked = await showDateRangePicker(
       context: context,
@@ -154,9 +154,11 @@ class _SalesVsPurchasesTrendReportScreenState
       textDirection: isArabic ? TextDirection.rtl : TextDirection.ltr,
       child: Scaffold(
         appBar: AppBar(
-          title: Text(isArabic
-              ? 'تقرير اتجاه المبيعات والمشتريات'
-              : 'Sales vs Purchases Trend'),
+          title: Text(
+            isArabic
+                ? 'تقرير اتجاه المبيعات والمشتريات'
+                : 'Sales vs Purchases Trend',
+          ),
           actions: [
             IconButton(
               icon: const Icon(Icons.refresh),
@@ -169,8 +171,8 @@ class _SalesVsPurchasesTrendReportScreenState
           child: _isLoading
               ? const Center(child: CircularProgressIndicator())
               : _error != null
-                  ? _buildErrorState()
-                  : _buildContent(),
+              ? _buildErrorState()
+              : _buildContent(),
         ),
       ),
     );
@@ -251,7 +253,9 @@ class _SalesVsPurchasesTrendReportScreenState
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
-          crossAxisAlignment: isArabic ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+          crossAxisAlignment: isArabic
+              ? CrossAxisAlignment.end
+              : CrossAxisAlignment.start,
           children: [
             Text(
               isArabic ? 'خيارات التقرير' : 'Report Filters',
@@ -290,7 +294,9 @@ class _SalesVsPurchasesTrendReportScreenState
                   }).toList(),
                 ),
                 FilterChip(
-                  label: Text(isArabic ? 'تضمين غير المرحلة' : 'Include Unposted'),
+                  label: Text(
+                    isArabic ? 'تضمين غير المرحلة' : 'Include Unposted',
+                  ),
                   selected: _includeUnposted,
                   onSelected: (value) {
                     setState(() => _includeUnposted = value);
@@ -367,7 +373,9 @@ class _SalesVsPurchasesTrendReportScreenState
       ),
       _SummaryMetric(
         label: isArabic ? 'هامش المشتريات (ر.س)' : 'Purchases Margin (Cash)',
-        value: _formatCurrency(_asDouble(summary['purchases_margin_cash'] ?? 0)),
+        value: _formatCurrency(
+          _asDouble(summary['purchases_margin_cash'] ?? 0),
+        ),
         icon: Icons.insights,
         color: Colors.indigo,
       ),
@@ -418,7 +426,9 @@ class _SalesVsPurchasesTrendReportScreenState
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
-          crossAxisAlignment: isArabic ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+          crossAxisAlignment: isArabic
+              ? CrossAxisAlignment.end
+              : CrossAxisAlignment.start,
           children: [
             Text(
               isArabic ? 'الاتجاه الزمني للقيمة' : 'Value Trend Over Time',
@@ -433,7 +443,10 @@ class _SalesVsPurchasesTrendReportScreenState
                   maxX: (_timeline.length - 1).toDouble(),
                   minY: 0,
                   maxY: maxY == 0 ? 1 : maxY * 1.15,
-                  gridData: const FlGridData(show: true, drawVerticalLine: false),
+                  gridData: const FlGridData(
+                    show: true,
+                    drawVerticalLine: false,
+                  ),
                   titlesData: FlTitlesData(
                     bottomTitles: AxisTitles(
                       sideTitles: SideTitles(
@@ -465,8 +478,12 @@ class _SalesVsPurchasesTrendReportScreenState
                         ),
                       ),
                     ),
-                    rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                    topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                    rightTitles: const AxisTitles(
+                      sideTitles: SideTitles(showTitles: false),
+                    ),
+                    topTitles: const AxisTitles(
+                      sideTitles: SideTitles(showTitles: false),
+                    ),
                   ),
                   lineTouchData: LineTouchData(
                     touchTooltipData: LineTouchTooltipData(
@@ -535,7 +552,9 @@ class _SalesVsPurchasesTrendReportScreenState
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
-          crossAxisAlignment: isArabic ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+          crossAxisAlignment: isArabic
+              ? CrossAxisAlignment.end
+              : CrossAxisAlignment.start,
           children: [
             Text(
               isArabic ? 'تفاصيل الفترة' : 'Period Details',
@@ -550,23 +569,36 @@ class _SalesVsPurchasesTrendReportScreenState
                   DataColumn(label: Text(isArabic ? 'المبيعات' : 'Sales')),
                   DataColumn(label: Text(isArabic ? 'المشتريات' : 'Purchases')),
                   DataColumn(label: Text(isArabic ? 'الصافي' : 'Net')),
-                  DataColumn(label: Text(isArabic ? 'الوزن الصافي' : 'Net Weight')),
-                  DataColumn(label: Text(isArabic ? 'عدد المستندات' : 'Documents')),
+                  DataColumn(
+                    label: Text(isArabic ? 'الوزن الصافي' : 'Net Weight'),
+                  ),
+                  DataColumn(
+                    label: Text(isArabic ? 'عدد المستندات' : 'Documents'),
+                  ),
                 ],
                 rows: _timeline.map((row) {
-                  final sales = _formatCurrency(_asDouble(row['sales_total'] ?? 0));
-                  final purchases = _formatCurrency(_asDouble(row['purchases_total'] ?? 0));
+                  final sales = _formatCurrency(
+                    _asDouble(row['sales_total'] ?? 0),
+                  );
+                  final purchases = _formatCurrency(
+                    _asDouble(row['purchases_total'] ?? 0),
+                  );
                   final net = _formatCurrency(_asDouble(row['net_total'] ?? 0));
-                  final netWeight = _formatWeight(_asDouble(row['net_weight'] ?? 0));
-                  final docCount = (row['sales_count'] ?? 0) + (row['purchases_count'] ?? 0);
-                  return DataRow(cells: [
-                    DataCell(Text(row['label'] ?? '')),
-                    DataCell(Text(sales)),
-                    DataCell(Text(purchases)),
-                    DataCell(Text(net)),
-                    DataCell(Text(netWeight)),
-                    DataCell(Text('$docCount')),
-                  ]);
+                  final netWeight = _formatWeight(
+                    _asDouble(row['net_weight'] ?? 0),
+                  );
+                  final docCount =
+                      (row['sales_count'] ?? 0) + (row['purchases_count'] ?? 0);
+                  return DataRow(
+                    cells: [
+                      DataCell(Text(row['label'] ?? '')),
+                      DataCell(Text(sales)),
+                      DataCell(Text(purchases)),
+                      DataCell(Text(net)),
+                      DataCell(Text(netWeight)),
+                      DataCell(Text('$docCount')),
+                    ],
+                  );
                 }).toList(),
               ),
             ),
@@ -664,8 +696,9 @@ class _SummaryTile extends StatelessWidget {
           const SizedBox(width: 12),
           Expanded(
             child: Column(
-              crossAxisAlignment:
-                  isArabic ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+              crossAxisAlignment: isArabic
+                  ? CrossAxisAlignment.end
+                  : CrossAxisAlignment.start,
               children: [
                 Text(
                   metric.label,

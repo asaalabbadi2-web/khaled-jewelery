@@ -14,12 +14,12 @@
 ✅ شاشة واحدة للفواتير العادية (add_invoice_screen.dart)
   ├─ بيع
   ├─ شراء من عميل
-  └─ شراء من مورد
+  └─ شراء
 
 ✅ شاشة منفصلة للمرتجعات (add_return_invoice_screen.dart)
   ├─ مرتجع بيع
   ├─ مرتجع شراء
-  └─ مرتجع شراء من مورد
+  └─ مرتجع شراء (مورد)
 ```
 
 ---
@@ -74,7 +74,7 @@ if (currentType.contains('شراء'))
   )
 
 // اختيار المورد
-if (currentType == 'شراء من مورد')
+if (currentType == 'شراء')
   TextFormField(
     decoration: InputDecoration(labelText: 'اسم المورد'),
   )
@@ -83,8 +83,8 @@ if (currentType == 'شراء من مورد')
 #### Payload المحدث:
 ```dart
 {
-  'customer_id': currentType != 'شراء من مورد' ? selectedCustomer : null,
-  'supplier_id': currentType == 'شراء من مورد' ? selectedSupplier : null,
+  'customer_id': currentType != 'شراء' ? selectedCustomer : null,
+  'supplier_id': currentType == 'شراء' ? selectedSupplier : null,
   'gold_type': goldType,  // ⭐ جديد
   // ... باقي الحقول
 }
@@ -272,8 +272,8 @@ docs/
 5. حفظ
 6. **النتيجة:** gold_type = 'scrap' + قيد صحيح ✅
 
-### ✅ شراء من مورد
-1. فتح `AddInvoiceScreen(invoiceType: 'شراء من مورد')`
+### ✅ شراء
+1. فتح `AddInvoiceScreen(invoiceType: 'شراء')`
 2. إدخال اسم مورد
 3. اختيار نوع الذهب: new
 4. حفظ

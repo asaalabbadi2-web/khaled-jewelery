@@ -147,8 +147,8 @@ class _InitialSetupScreenState extends State<InitialSetupScreen> {
     final mime = ext == 'jpg' || ext == 'jpeg'
         ? 'image/jpeg'
         : ext == 'png'
-            ? 'image/png'
-            : 'application/octet-stream';
+        ? 'image/png'
+        : 'application/octet-stream';
     final base64 = base64Encode(bytes);
     setState(() {
       _logoDataUrl = 'data:$mime;base64,$base64';
@@ -210,8 +210,10 @@ class _InitialSetupScreenState extends State<InitialSetupScreen> {
     if (!mounted) return;
     if (!ok) {
       setState(() => _busy = false);
-      _snack('فشل إنشاء حساب المسؤول. تأكد من البيانات وحاول مرة أخرى.',
-          error: true);
+      _snack(
+        'فشل إنشاء حساب المسؤول. تأكد من البيانات وحاول مرة أخرى.',
+        error: true,
+      );
       return;
     }
 
@@ -239,7 +241,7 @@ class _InitialSetupScreenState extends State<InitialSetupScreen> {
         dbName: _dbNameController.text.trim(),
         username: _dbUserController.text.trim(),
         password: _dbPasswordController.text,
-  		restartContainers: true,
+        restartContainers: true,
       );
 
       // Now that env is written, allow the app to exit setup mode.
@@ -342,7 +344,10 @@ class _InitialSetupScreenState extends State<InitialSetupScreen> {
                                   if (_storeSaved) {
                                     setState(() => _step = 2);
                                   } else {
-                                    _snack('احفظ إعدادات المتجر أولاً', error: true);
+                                    _snack(
+                                      'احفظ إعدادات المتجر أولاً',
+                                      error: true,
+                                    );
                                   }
                                   return;
                                 }
@@ -370,7 +375,9 @@ class _InitialSetupScreenState extends State<InitialSetupScreen> {
                                             color: Colors.white,
                                           ),
                                         )
-                                      : Text(isLast ? 'إنهاء التهيئة' : 'التالي'),
+                                      : Text(
+                                          isLast ? 'إنهاء التهيئة' : 'التالي',
+                                        ),
                                 ),
                               ),
                               const SizedBox(width: 12),
@@ -387,7 +394,11 @@ class _InitialSetupScreenState extends State<InitialSetupScreen> {
                         steps: [
                           Step(
                             title: const Text('اتصال قاعدة البيانات'),
-                            subtitle: Text(_setupLocked ? 'غير مطلوب' : (_dbTestOk ? 'تم التحقق' : 'مطلوب')),
+                            subtitle: Text(
+                              _setupLocked
+                                  ? 'غير مطلوب'
+                                  : (_dbTestOk ? 'تم التحقق' : 'مطلوب'),
+                            ),
                             isActive: _step >= 0,
                             content: Form(
                               key: _dbFormKey,
@@ -399,9 +410,12 @@ class _InitialSetupScreenState extends State<InitialSetupScreen> {
                                       labelText: 'اسم السيرفر (Host)',
                                       prefixIcon: Icon(Icons.dns_outlined),
                                     ),
-                                    onChanged: (_) => setState(() => _dbTestOk = false),
+                                    onChanged: (_) =>
+                                        setState(() => _dbTestOk = false),
                                     validator: (v) =>
-                                        (v == null || v.trim().isEmpty) ? 'مطلوب' : null,
+                                        (v == null || v.trim().isEmpty)
+                                        ? 'مطلوب'
+                                        : null,
                                   ),
                                   const SizedBox(height: 12),
                                   TextFormField(
@@ -411,7 +425,8 @@ class _InitialSetupScreenState extends State<InitialSetupScreen> {
                                       labelText: 'المنفذ (Port)',
                                       prefixIcon: Icon(Icons.numbers_outlined),
                                     ),
-                                    onChanged: (_) => setState(() => _dbTestOk = false),
+                                    onChanged: (_) =>
+                                        setState(() => _dbTestOk = false),
                                     validator: (v) {
                                       final raw = (v ?? '').trim();
                                       final p = int.tryParse(raw);
@@ -428,9 +443,12 @@ class _InitialSetupScreenState extends State<InitialSetupScreen> {
                                       labelText: 'اسم قاعدة البيانات',
                                       prefixIcon: Icon(Icons.storage_outlined),
                                     ),
-                                    onChanged: (_) => setState(() => _dbTestOk = false),
+                                    onChanged: (_) =>
+                                        setState(() => _dbTestOk = false),
                                     validator: (v) =>
-                                        (v == null || v.trim().isEmpty) ? 'مطلوب' : null,
+                                        (v == null || v.trim().isEmpty)
+                                        ? 'مطلوب'
+                                        : null,
                                   ),
                                   const SizedBox(height: 12),
                                   TextFormField(
@@ -439,9 +457,12 @@ class _InitialSetupScreenState extends State<InitialSetupScreen> {
                                       labelText: 'اسم المستخدم',
                                       prefixIcon: Icon(Icons.person_outline),
                                     ),
-                                    onChanged: (_) => setState(() => _dbTestOk = false),
+                                    onChanged: (_) =>
+                                        setState(() => _dbTestOk = false),
                                     validator: (v) =>
-                                        (v == null || v.trim().isEmpty) ? 'مطلوب' : null,
+                                        (v == null || v.trim().isEmpty)
+                                        ? 'مطلوب'
+                                        : null,
                                   ),
                                   const SizedBox(height: 12),
                                   TextFormField(
@@ -451,16 +472,22 @@ class _InitialSetupScreenState extends State<InitialSetupScreen> {
                                       labelText: 'كلمة المرور',
                                       prefixIcon: Icon(Icons.lock_outline),
                                     ),
-                                    onChanged: (_) => setState(() => _dbTestOk = false),
-                                    validator: (v) =>
-                                        (v == null || v.isEmpty) ? 'مطلوب' : null,
+                                    onChanged: (_) =>
+                                        setState(() => _dbTestOk = false),
+                                    validator: (v) => (v == null || v.isEmpty)
+                                        ? 'مطلوب'
+                                        : null,
                                   ),
                                   const SizedBox(height: 14),
                                   SizedBox(
                                     width: double.infinity,
                                     child: OutlinedButton.icon(
-                                      onPressed: (_setupLocked || isLoading) ? null : _testDb,
-                                      icon: const Icon(Icons.check_circle_outline),
+                                      onPressed: (_setupLocked || isLoading)
+                                          ? null
+                                          : _testDb,
+                                      icon: const Icon(
+                                        Icons.check_circle_outline,
+                                      ),
                                       label: const Text('اختبار الاتصال'),
                                     ),
                                   ),
@@ -470,7 +497,11 @@ class _InitialSetupScreenState extends State<InitialSetupScreen> {
                           ),
                           Step(
                             title: const Text('إعدادات المتجر'),
-                            subtitle: Text(_setupLocked ? 'غير مطلوب' : (_storeSaved ? 'تم الحفظ' : 'مطلوب')),
+                            subtitle: Text(
+                              _setupLocked
+                                  ? 'غير مطلوب'
+                                  : (_storeSaved ? 'تم الحفظ' : 'مطلوب'),
+                            ),
                             isActive: _step >= 1,
                             content: Form(
                               key: _storeFormKey,
@@ -480,17 +511,23 @@ class _InitialSetupScreenState extends State<InitialSetupScreen> {
                                     controller: _companyNameController,
                                     decoration: const InputDecoration(
                                       labelText: 'اسم المحل',
-                                      prefixIcon: Icon(Icons.storefront_outlined),
+                                      prefixIcon: Icon(
+                                        Icons.storefront_outlined,
+                                      ),
                                     ),
                                     validator: (v) =>
-                                        (v == null || v.trim().isEmpty) ? 'مطلوب' : null,
+                                        (v == null || v.trim().isEmpty)
+                                        ? 'مطلوب'
+                                        : null,
                                   ),
                                   const SizedBox(height: 12),
                                   TextFormField(
                                     controller: _currencySymbolController,
                                     decoration: const InputDecoration(
                                       labelText: 'العملة الافتراضية',
-                                      prefixIcon: Icon(Icons.attach_money_outlined),
+                                      prefixIcon: Icon(
+                                        Icons.attach_money_outlined,
+                                      ),
                                     ),
                                   ),
                                   const SizedBox(height: 12),
@@ -498,7 +535,9 @@ class _InitialSetupScreenState extends State<InitialSetupScreen> {
                                     controller: _taxNumberController,
                                     decoration: const InputDecoration(
                                       labelText: 'الرقم الضريبي',
-                                      prefixIcon: Icon(Icons.receipt_long_outlined),
+                                      prefixIcon: Icon(
+                                        Icons.receipt_long_outlined,
+                                      ),
                                     ),
                                   ),
                                   const SizedBox(height: 12),
@@ -506,8 +545,12 @@ class _InitialSetupScreenState extends State<InitialSetupScreen> {
                                     children: [
                                       Expanded(
                                         child: OutlinedButton.icon(
-                                          onPressed: isLoading ? null : _pickLogo,
-                                          icon: const Icon(Icons.upload_file_outlined),
+                                          onPressed: isLoading
+                                              ? null
+                                              : _pickLogo,
+                                          icon: const Icon(
+                                            Icons.upload_file_outlined,
+                                          ),
                                           label: const Text('رفع شعار'),
                                         ),
                                       ),
@@ -517,7 +560,9 @@ class _InitialSetupScreenState extends State<InitialSetupScreen> {
                                           width: 48,
                                           height: 48,
                                           child: ClipRRect(
-                                            borderRadius: BorderRadius.circular(8),
+                                            borderRadius: BorderRadius.circular(
+                                              8,
+                                            ),
                                             child: Image.memory(
                                               base64Decode(
                                                 _logoDataUrl!.split(',').last,
@@ -532,7 +577,9 @@ class _InitialSetupScreenState extends State<InitialSetupScreen> {
                                   SizedBox(
                                     width: double.infinity,
                                     child: FilledButton.icon(
-                                      onPressed: (_setupLocked || isLoading) ? null : _saveStore,
+                                      onPressed: (_setupLocked || isLoading)
+                                          ? null
+                                          : _saveStore,
                                       icon: const Icon(Icons.save_outlined),
                                       label: const Text('حفظ إعدادات المتجر'),
                                     ),
@@ -552,11 +599,14 @@ class _InitialSetupScreenState extends State<InitialSetupScreen> {
                                     controller: _adminUsernameController,
                                     textInputAction: TextInputAction.next,
                                     decoration: const InputDecoration(
-                                      labelText: 'البريد الإلكتروني / اسم المستخدم',
+                                      labelText:
+                                          'البريد الإلكتروني / اسم المستخدم',
                                       prefixIcon: Icon(Icons.alternate_email),
                                     ),
                                     validator: (v) =>
-                                        (v == null || v.trim().isEmpty) ? 'مطلوب' : null,
+                                        (v == null || v.trim().isEmpty)
+                                        ? 'مطلوب'
+                                        : null,
                                   ),
                                   const SizedBox(height: 12),
                                   TextFormField(
@@ -567,7 +617,9 @@ class _InitialSetupScreenState extends State<InitialSetupScreen> {
                                       prefixIcon: Icon(Icons.person_outline),
                                     ),
                                     validator: (v) =>
-                                        (v == null || v.trim().isEmpty) ? 'مطلوب' : null,
+                                        (v == null || v.trim().isEmpty)
+                                        ? 'مطلوب'
+                                        : null,
                                   ),
                                   const SizedBox(height: 12),
                                   TextFormField(
@@ -576,7 +628,9 @@ class _InitialSetupScreenState extends State<InitialSetupScreen> {
                                     textInputAction: TextInputAction.next,
                                     decoration: InputDecoration(
                                       labelText: 'كلمة المرور',
-                                      prefixIcon: const Icon(Icons.lock_outline),
+                                      prefixIcon: const Icon(
+                                        Icons.lock_outline,
+                                      ),
                                       suffixIcon: IconButton(
                                         icon: Icon(
                                           _obscurePassword
@@ -584,7 +638,8 @@ class _InitialSetupScreenState extends State<InitialSetupScreen> {
                                               : Icons.visibility,
                                         ),
                                         onPressed: () => setState(
-                                          () => _obscurePassword = !_obscurePassword,
+                                          () => _obscurePassword =
+                                              !_obscurePassword,
                                         ),
                                       ),
                                     ),

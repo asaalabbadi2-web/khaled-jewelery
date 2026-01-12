@@ -140,7 +140,8 @@ class QuickActionItem {
     Icons.keyboard_return.codePoint: Icons.keyboard_return,
     Icons.undo.codePoint: Icons.undo,
     Icons.assignment_return.codePoint: Icons.assignment_return,
-    Icons.assignment_return_outlined.codePoint: Icons.assignment_return_outlined,
+    Icons.assignment_return_outlined.codePoint:
+        Icons.assignment_return_outlined,
     Icons.person_add.codePoint: Icons.person_add,
     Icons.people.codePoint: Icons.people,
     Icons.store.codePoint: Icons.store,
@@ -307,7 +308,7 @@ class DefaultQuickActions {
     QuickActionItem(
       id: 'return_purchase_supplier',
       icon: Icons.assignment_return,
-      label: 'مرتجع شراء من مورد',
+      label: 'مرتجع شراء (مورد)',
       route: 'return_purchase_supplier',
       colorHex: '#FF7043',
       isActive: false,

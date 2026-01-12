@@ -6,7 +6,9 @@ import 'package:frontend/providers/settings_provider.dart';
 import 'package:frontend/screens/sales_invoice_screen_v2.dart';
 
 void main() {
-  testWidgets('SalesInvoiceScreenV2 builds with manual item button', (tester) async {
+  testWidgets('SalesInvoiceScreenV2 builds with manual item button', (
+    tester,
+  ) async {
     final settingsProvider = SettingsProvider();
 
     await tester.pumpWidget(
@@ -14,10 +16,7 @@ void main() {
         value: settingsProvider,
         child: const MaterialApp(
           home: Scaffold(
-            body: SalesInvoiceScreenV2(
-              items: [],
-              customers: [],
-            ),
+            body: SalesInvoiceScreenV2(items: [], customers: []),
           ),
         ),
       ),
@@ -36,10 +35,7 @@ void main() {
         value: settingsProvider,
         child: const MaterialApp(
           home: Scaffold(
-            body: SalesInvoiceScreenV2(
-              items: [],
-              customers: [],
-            ),
+            body: SalesInvoiceScreenV2(items: [], customers: []),
           ),
         ),
       ),

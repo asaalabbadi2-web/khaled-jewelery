@@ -31,6 +31,7 @@ class AuthProvider extends ChangeNotifier {
     }
     return _currentUser?.username ?? '';
   }
+
   String get role => _currentUser?.role ?? '';
   String get roleDisplayName {
     switch (role) {
@@ -140,7 +141,7 @@ class AuthProvider extends ChangeNotifier {
     try {
       final api = ApiService();
       final response = await api.setupInitialSystem(
-  		username: adminUsername,
+        username: adminUsername,
         password: adminPassword,
         fullName: adminFullName,
         companyName: companyName,
@@ -170,7 +171,8 @@ class AuthProvider extends ChangeNotifier {
         if (isAdmin && parsedUser.role.isEmpty) {
           parsedUser = parsedUser.copyWith(role: 'system_admin');
         }
-        final serverRole = (userData['role'] ?? userData['role_code'])?.toString();
+        final serverRole = (userData['role'] ?? userData['role_code'])
+            ?.toString();
         if (serverRole != null && serverRole.isNotEmpty) {
           parsedUser = parsedUser.copyWith(role: serverRole);
         } else if (isAdmin) {

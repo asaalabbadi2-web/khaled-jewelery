@@ -7,7 +7,7 @@ class AddSupplierDialog extends StatefulWidget {
   const AddSupplierDialog({super.key, required this.api});
 
   @override
-  _AddSupplierDialogState createState() => _AddSupplierDialogState();
+  State<AddSupplierDialog> createState() => _AddSupplierDialogState();
 }
 
 class _AddSupplierDialogState extends State<AddSupplierDialog> {
@@ -75,7 +75,7 @@ class _AddSupplierDialogState extends State<AddSupplierDialog> {
             Navigator.of(context).pop();
           },
         ),
-        ElevatedButton(child: const Text('إضافة'), onPressed: _submit),
+        ElevatedButton(onPressed: _submit, child: const Text('إضافة')),
       ],
     );
   }

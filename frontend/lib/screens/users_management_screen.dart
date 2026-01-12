@@ -247,11 +247,10 @@ class _UsersManagementScreenState extends State<UsersManagementScreen> {
                       ? (role['name_ar'] ?? role['name'] ?? '')
                       : (role['name'] ?? '');
                   return Chip(
-                    label: Text(
-                      roleName,
-                      style: const TextStyle(fontSize: 11),
-                    ),
-                    backgroundColor: const Color(0xFFFFD700).withValues(alpha: 0.2),
+                    label: Text(roleName, style: const TextStyle(fontSize: 11)),
+                    backgroundColor: const Color(
+                      0xFFFFD700,
+                    ).withValues(alpha: 0.2),
                     padding: const EdgeInsets.symmetric(horizontal: 4),
                     materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                   );
@@ -362,7 +361,11 @@ class _UsersManagementScreenState extends State<UsersManagementScreen> {
                   value: 'delete',
                   child: Row(
                     children: [
-                      const Icon(Icons.delete_outline, color: Colors.red, size: 20),
+                      const Icon(
+                        Icons.delete_outline,
+                        color: Colors.red,
+                        size: 20,
+                      ),
                       const SizedBox(width: 12),
                       Text(
                         widget.isArabic ? 'حذف' : 'Delete',
@@ -430,9 +433,7 @@ class _UsersManagementScreenState extends State<UsersManagementScreen> {
           ),
           FilledButton(
             onPressed: () => Navigator.of(context).pop(true),
-            style: FilledButton.styleFrom(
-              backgroundColor: Colors.red,
-            ),
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
             child: Text(widget.isArabic ? 'حذف' : 'Delete'),
           ),
         ],
@@ -499,8 +500,8 @@ class _UsersManagementScreenState extends State<UsersManagementScreen> {
                   decoration: InputDecoration(
                     labelText: isEdit
                         ? (widget.isArabic
-                            ? 'كلمة مرور جديدة (اختياري)'
-                            : 'New Password (optional)')
+                              ? 'كلمة مرور جديدة (اختياري)'
+                              : 'New Password (optional)')
                         : (widget.isArabic ? 'كلمة المرور' : 'Password'),
                     prefixIcon: const Icon(Icons.lock_outline),
                     border: const OutlineInputBorder(),
@@ -594,7 +595,8 @@ class _UsersManagementScreenState extends State<UsersManagementScreen> {
   }
 
   Future<void> _showRolesDialog(Map<String, dynamic> user) async {
-    final userRoles = (user['roles'] as List?)?.map((r) => r['id'] as int).toList() ?? [];
+    final userRoles =
+        (user['roles'] as List?)?.map((r) => r['id'] as int).toList() ?? [];
     final selectedRoles = Set<int>.from(userRoles);
 
     final result = await showDialog<Set<int>>(
@@ -662,7 +664,12 @@ class _UsersManagementScreenState extends State<UsersManagementScreen> {
       }
 
       if (toRemove.isNotEmpty) {
-        await widget.api.manageUserRoles(_token!, user['id'], 'remove', toRemove);
+        await widget.api.manageUserRoles(
+          _token!,
+          user['id'],
+          'remove',
+          toRemove,
+        );
       }
 
       _showSnack(widget.isArabic ? 'تم تحديث الأدوار' : 'Roles updated');
@@ -748,36 +755,36 @@ class _UsersManagementScreenState extends State<UsersManagementScreen> {
             child: _loading
                 ? const Center(child: CircularProgressIndicator())
                 : _users.isEmpty
-                    ? Center(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(
-                              Icons.people_outline,
-                              size: 80,
-                              color: Colors.grey[400],
-                            ),
-                            const SizedBox(height: 16),
-                            Text(
-                              widget.isArabic
-                                  ? 'لا يوجد مستخدمين'
-                                  : 'No users found',
-                              style: theme.textTheme.titleLarge?.copyWith(
-                                color: Colors.grey[600],
-                              ),
-                            ),
-                          ],
+                ? Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          Icons.people_outline,
+                          size: 80,
+                          color: Colors.grey[400],
                         ),
-                      )
-                    : RefreshIndicator(
-                        onRefresh: _loadUsers,
-                        child: ListView.builder(
-                          itemCount: _users.length,
-                          itemBuilder: (context, index) {
-                            return _buildUserCard(_users[index], theme);
-                          },
+                        const SizedBox(height: 16),
+                        Text(
+                          widget.isArabic
+                              ? 'لا يوجد مستخدمين'
+                              : 'No users found',
+                          style: theme.textTheme.titleLarge?.copyWith(
+                            color: Colors.grey[600],
+                          ),
                         ),
-                      ),
+                      ],
+                    ),
+                  )
+                : RefreshIndicator(
+                    onRefresh: _loadUsers,
+                    child: ListView.builder(
+                      itemCount: _users.length,
+                      itemBuilder: (context, index) {
+                        return _buildUserCard(_users[index], theme);
+                      },
+                    ),
+                  ),
           ),
         ],
       ),

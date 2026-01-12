@@ -22,7 +22,7 @@ class GoldReservationScreen extends StatefulWidget {
 
 class _GoldReservationScreenState extends State<GoldReservationScreen> {
   final _formKey = GlobalKey<FormState>();
-  
+
   // بيانات الحجز
   DateTime _reservationDate = DateTime.now();
   int? _selectedOfficeId; // معرف المكتب المحجوز منه
@@ -75,7 +75,8 @@ class _GoldReservationScreenState extends State<GoldReservationScreen> {
       // تحميل سعر الذهب الحالي
       final goldPriceResponse = await widget.api.getGoldPrice();
       if (goldPriceResponse['price_usd_per_oz'] != null) {
-        final pricePerOz = (goldPriceResponse['price_usd_per_oz'] as num).toDouble();
+        final pricePerOz = (goldPriceResponse['price_usd_per_oz'] as num)
+            .toDouble();
         // تحويل من أونصة إلى جرام (1 أونصة = 31.1035 جرام)
         // وتحويل من دولار إلى ريال (افترض سعر صرف 3.75)
         setState(() {
@@ -159,19 +160,24 @@ class _GoldReservationScreenState extends State<GoldReservationScreen> {
         'contact_phone': _contactPhoneController.text.trim().isEmpty
             ? null
             : _contactPhoneController.text.trim(),
-        'notes': _notesController.text.trim().isEmpty ? null : _notesController.text.trim(),
+        'notes': _notesController.text.trim().isEmpty
+            ? null
+            : _notesController.text.trim(),
         'delivery_date': _deliveryDate?.toIso8601String(),
-  'status': 'reserved',
-  'created_by': 'flutter_app',
-  if (_selectedSupplierId != null) 'supplier_id': _selectedSupplierId,
+        'status': 'reserved',
+        'created_by': 'flutter_app',
+        if (_selectedSupplierId != null) 'supplier_id': _selectedSupplierId,
       };
 
-      final response = await widget.api.createOfficeReservation(reservationData);
+      final response = await widget.api.createOfficeReservation(
+        reservationData,
+      );
 
       if (!mounted) return;
 
       final code = response['reservation_code'] ?? '';
-      final invoiceId = response['purchase_invoice_id'] ?? response['invoice_id'];
+      final invoiceId =
+          response['purchase_invoice_id'] ?? response['invoice_id'];
       String successMessage;
       if (invoiceId != null) {
         successMessage = code is String && code.isNotEmpty
@@ -198,37 +204,49 @@ class _GoldReservationScreenState extends State<GoldReservationScreen> {
   Future<bool> _showConfirmDialog() async {
     final isAr = widget.isArabic;
     return await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text(isAr ? 'تأكيد الحجز' : 'Confirm Reservation'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('${isAr ? "المكتب" : "Office"}: ${_selectedOfficeName ?? ""}'),
-            Text('${isAr ? "الوزن" : "Weight"}: ${_weight.toStringAsFixed(3)} ${isAr ? "جرام" : "grams"}'),
-            Text('${isAr ? "العيار" : "Karat"}: $_selectedKarat'),
-            Text('${isAr ? "المبلغ الإجمالي" : "Total"}: ${_totalAmount.toStringAsFixed(2)} ر.س'),
-            Text('${isAr ? "المبلغ المدفوع" : "Paid"}: ${_paidAmount.toStringAsFixed(2)} ر.س'),
-            if (_totalAmount - _paidAmount > 0)
-              Text(
-                '${isAr ? "المتبقي" : "Remaining"}: ${(_totalAmount - _paidAmount).toStringAsFixed(2)} ر.س',
-                style: const TextStyle(color: AppColors.error, fontWeight: FontWeight.bold),
+          context: context,
+          builder: (context) => AlertDialog(
+            title: Text(isAr ? 'تأكيد الحجز' : 'Confirm Reservation'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '${isAr ? "المكتب" : "Office"}: ${_selectedOfficeName ?? ""}',
+                ),
+                Text(
+                  '${isAr ? "الوزن" : "Weight"}: ${_weight.toStringAsFixed(3)} ${isAr ? "جرام" : "grams"}',
+                ),
+                Text('${isAr ? "العيار" : "Karat"}: $_selectedKarat'),
+                Text(
+                  '${isAr ? "المبلغ الإجمالي" : "Total"}: ${_totalAmount.toStringAsFixed(2)} ر.س',
+                ),
+                Text(
+                  '${isAr ? "المبلغ المدفوع" : "Paid"}: ${_paidAmount.toStringAsFixed(2)} ر.س',
+                ),
+                if (_totalAmount - _paidAmount > 0)
+                  Text(
+                    '${isAr ? "المتبقي" : "Remaining"}: ${(_totalAmount - _paidAmount).toStringAsFixed(2)} ر.س',
+                    style: const TextStyle(
+                      color: AppColors.error,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: Text(isAr ? 'إلغاء' : 'Cancel'),
               ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: Text(isAr ? 'إلغاء' : 'Cancel'),
+              ElevatedButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: Text(isAr ? 'تأكيد' : 'Confirm'),
+              ),
+            ],
           ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: Text(isAr ? 'تأكيد' : 'Confirm'),
-          ),
-        ],
-      ),
-    ) ?? false;
+        ) ??
+        false;
   }
 
   void _showMessage(String message, {required bool isError}) {
@@ -286,13 +304,18 @@ class _GoldReservationScreenState extends State<GoldReservationScreen> {
                         padding: const EdgeInsets.all(16),
                         child: Row(
                           children: [
-                            const Icon(Icons.monetization_on, color: AppColors.mediumGold),
+                            const Icon(
+                              Icons.monetization_on,
+                              color: AppColors.mediumGold,
+                            ),
                             const SizedBox(width: 12),
                             Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(
-                                  isAr ? 'سعر الذهب الحالي' : 'Current Gold Price',
+                                  isAr
+                                      ? 'سعر الذهب الحالي'
+                                      : 'Current Gold Price',
                                   style: theme.textTheme.labelSmall,
                                 ),
                                 Text(
@@ -315,7 +338,9 @@ class _GoldReservationScreenState extends State<GoldReservationScreen> {
                       child: ListTile(
                         leading: const Icon(Icons.calendar_today),
                         title: Text(isAr ? 'تاريخ الحجز' : 'Reservation Date'),
-                        subtitle: Text(DateFormat('yyyy-MM-dd').format(_reservationDate)),
+                        subtitle: Text(
+                          DateFormat('yyyy-MM-dd').format(_reservationDate),
+                        ),
                         trailing: const Icon(Icons.edit),
                         onTap: () async {
                           final picked = await showDatePicker(
@@ -345,15 +370,21 @@ class _GoldReservationScreenState extends State<GoldReservationScreen> {
                             ),
                             const SizedBox(height: 8),
                             DropdownButtonFormField<int>(
-                              key: ValueKey('office-${_selectedOfficeId ?? 'none'}'),
+                              key: ValueKey(
+                                'office-${_selectedOfficeId ?? 'none'}',
+                              ),
                               initialValue: _selectedOfficeId,
                               decoration: InputDecoration(
-                                labelText: isAr ? 'اختر المكتب' : 'Select Office',
+                                labelText: isAr
+                                    ? 'اختر المكتب'
+                                    : 'Select Office',
                                 border: const OutlineInputBorder(),
                                 prefixIcon: const Icon(Icons.store),
                               ),
                               isExpanded: true,
-                              icon: const Icon(Icons.arrow_drop_down_circle_outlined),
+                              icon: const Icon(
+                                Icons.arrow_drop_down_circle_outlined,
+                              ),
                               items: _offices.map((office) {
                                 return DropdownMenuItem<int>(
                                   value: office['id'],
@@ -368,14 +399,19 @@ class _GoldReservationScreenState extends State<GoldReservationScreen> {
                                     orElse: () => {},
                                   );
                                   _selectedOfficeName = selectedOffice['name'];
-                                  _contactPersonController.text = selectedOffice['contact_person'] ?? '';
-                                  _contactPhoneController.text = selectedOffice['phone'] ?? '';
-                                  _selectedSupplierId = selectedOffice['supplier_id'] as int?;
+                                  _contactPersonController.text =
+                                      selectedOffice['contact_person'] ?? '';
+                                  _contactPhoneController.text =
+                                      selectedOffice['phone'] ?? '';
+                                  _selectedSupplierId =
+                                      selectedOffice['supplier_id'] as int?;
                                 });
                               },
                               validator: (value) {
                                 if (value == null) {
-                                  return isAr ? 'الرجاء اختيار المكتب' : 'Please select office';
+                                  return isAr
+                                      ? 'الرجاء اختيار المكتب'
+                                      : 'Please select office';
                                 }
                                 return null;
                               },
@@ -401,7 +437,9 @@ class _GoldReservationScreenState extends State<GoldReservationScreen> {
                             TextFormField(
                               controller: _contactPersonController,
                               decoration: InputDecoration(
-                                labelText: isAr ? 'اسم المسؤول' : 'Contact Person',
+                                labelText: isAr
+                                    ? 'اسم المسؤول'
+                                    : 'Contact Person',
                                 border: const OutlineInputBorder(),
                                 prefixIcon: const Icon(Icons.person),
                               ),
@@ -445,7 +483,9 @@ class _GoldReservationScreenState extends State<GoldReservationScreen> {
                               items: [24, 22, 21, 18].map((karat) {
                                 return DropdownMenuItem(
                                   value: karat,
-                                  child: Text('${isAr ? "عيار" : "Karat"} $karat'),
+                                  child: Text(
+                                    '${isAr ? "عيار" : "Karat"} $karat',
+                                  ),
                                 );
                               }).toList(),
                               onChanged: (value) {
@@ -457,20 +497,29 @@ class _GoldReservationScreenState extends State<GoldReservationScreen> {
                             TextFormField(
                               controller: _weightController,
                               decoration: InputDecoration(
-                                labelText: isAr ? 'الوزن (جرام)' : 'Weight (grams)',
+                                labelText: isAr
+                                    ? 'الوزن (جرام)'
+                                    : 'Weight (grams)',
                                 border: const OutlineInputBorder(),
                                 prefixIcon: const Icon(Icons.scale),
                                 suffixText: isAr ? 'جم' : 'g',
                               ),
-                              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                              keyboardType:
+                                  const TextInputType.numberWithOptions(
+                                    decimal: true,
+                                  ),
                               inputFormatters: [NormalizeNumberFormatter()],
                               validator: (value) {
                                 if (value == null || value.isEmpty) {
-                                  return isAr ? 'الرجاء إدخال الوزن' : 'Please enter weight';
+                                  return isAr
+                                      ? 'الرجاء إدخال الوزن'
+                                      : 'Please enter weight';
                                 }
                                 final weight = double.tryParse(value);
                                 if (weight == null || weight <= 0) {
-                                  return isAr ? 'الرجاء إدخال وزن صحيح' : 'Please enter valid weight';
+                                  return isAr
+                                      ? 'الرجاء إدخال وزن صحيح'
+                                      : 'Please enter valid weight';
                                 }
                                 return null;
                               },
@@ -480,20 +529,29 @@ class _GoldReservationScreenState extends State<GoldReservationScreen> {
                             TextFormField(
                               controller: _priceController,
                               decoration: InputDecoration(
-                                labelText: isAr ? 'السعر للجرام (ر.س)' : 'Price per gram (SAR)',
+                                labelText: isAr
+                                    ? 'السعر للجرام (ر.س)'
+                                    : 'Price per gram (SAR)',
                                 border: const OutlineInputBorder(),
                                 prefixIcon: const Icon(Icons.attach_money),
                                 suffixText: isAr ? 'ر.س' : 'SAR',
                               ),
-                              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                              keyboardType:
+                                  const TextInputType.numberWithOptions(
+                                    decimal: true,
+                                  ),
                               inputFormatters: [NormalizeNumberFormatter()],
                               validator: (value) {
                                 if (value == null || value.isEmpty) {
-                                  return isAr ? 'الرجاء إدخال السعر' : 'Please enter price';
+                                  return isAr
+                                      ? 'الرجاء إدخال السعر'
+                                      : 'Please enter price';
                                 }
                                 final price = double.tryParse(value);
                                 if (price == null || price <= 0) {
-                                  return isAr ? 'الرجاء إدخال سعر صحيح' : 'Please enter valid price';
+                                  return isAr
+                                      ? 'الرجاء إدخال سعر صحيح'
+                                      : 'Please enter valid price';
                                 }
                                 return null;
                               },
@@ -520,12 +578,19 @@ class _GoldReservationScreenState extends State<GoldReservationScreen> {
                             Container(
                               padding: const EdgeInsets.all(16),
                               decoration: BoxDecoration(
-                                color: AppColors.lightGold.withValues(alpha: 0.35),
+                                color: AppColors.lightGold.withValues(
+                                  alpha: 0.35,
+                                ),
                                 borderRadius: BorderRadius.circular(8),
-                                border: Border.all(color: AppColors.mediumGold.withValues(alpha: 0.5)),
+                                border: Border.all(
+                                  color: AppColors.mediumGold.withValues(
+                                    alpha: 0.5,
+                                  ),
+                                ),
                               ),
                               child: Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceBetween,
                                 children: [
                                   Text(
                                     isAr ? 'المبلغ الإجمالي' : 'Total Amount',
@@ -546,12 +611,17 @@ class _GoldReservationScreenState extends State<GoldReservationScreen> {
                             TextFormField(
                               controller: _paidAmountController,
                               decoration: InputDecoration(
-                                labelText: isAr ? 'المبلغ المدفوع' : 'Paid Amount',
+                                labelText: isAr
+                                    ? 'المبلغ المدفوع'
+                                    : 'Paid Amount',
                                 border: const OutlineInputBorder(),
                                 prefixIcon: const Icon(Icons.payments),
                                 suffixText: isAr ? 'ر.س' : 'SAR',
                               ),
-                              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                              keyboardType:
+                                  const TextInputType.numberWithOptions(
+                                    decimal: true,
+                                  ),
                               inputFormatters: [NormalizeNumberFormatter()],
                             ),
                             const SizedBox(height: 12),
@@ -560,12 +630,19 @@ class _GoldReservationScreenState extends State<GoldReservationScreen> {
                               Container(
                                 padding: const EdgeInsets.all(12),
                                 decoration: BoxDecoration(
-                                  color: AppColors.error.withValues(alpha: 0.08),
+                                  color: AppColors.error.withValues(
+                                    alpha: 0.08,
+                                  ),
                                   borderRadius: BorderRadius.circular(8),
-                                  border: Border.all(color: AppColors.error.withValues(alpha: 0.35)),
+                                  border: Border.all(
+                                    color: AppColors.error.withValues(
+                                      alpha: 0.35,
+                                    ),
+                                  ),
                                 ),
                                 child: Row(
-                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  mainAxisAlignment:
+                                      MainAxisAlignment.spaceBetween,
                                   children: [
                                     Text(
                                       isAr ? 'المبلغ المتبقي' : 'Remaining',
@@ -573,10 +650,11 @@ class _GoldReservationScreenState extends State<GoldReservationScreen> {
                                     ),
                                     Text(
                                       '${(_totalAmount - _paidAmount).toStringAsFixed(2)} ${isAr ? "ر.س" : "SAR"}',
-                                      style: theme.textTheme.titleMedium?.copyWith(
-                                        fontWeight: FontWeight.bold,
-                                        color: AppColors.error,
-                                      ),
+                                      style: theme.textTheme.titleMedium
+                                          ?.copyWith(
+                                            fontWeight: FontWeight.bold,
+                                            color: AppColors.error,
+                                          ),
                                     ),
                                   ],
                                 ),
@@ -591,7 +669,11 @@ class _GoldReservationScreenState extends State<GoldReservationScreen> {
                     Card(
                       child: ListTile(
                         leading: const Icon(Icons.event),
-                        title: Text(isAr ? 'تاريخ الاستلام المتوقع' : 'Expected Delivery Date'),
+                        title: Text(
+                          isAr
+                              ? 'تاريخ الاستلام المتوقع'
+                              : 'Expected Delivery Date',
+                        ),
                         subtitle: Text(
                           _deliveryDate != null
                               ? DateFormat('yyyy-MM-dd').format(_deliveryDate!)
@@ -601,9 +683,13 @@ class _GoldReservationScreenState extends State<GoldReservationScreen> {
                         onTap: () async {
                           final picked = await showDatePicker(
                             context: context,
-                            initialDate: DateTime.now().add(const Duration(days: 7)),
+                            initialDate: DateTime.now().add(
+                              const Duration(days: 7),
+                            ),
                             firstDate: DateTime.now(),
-                            lastDate: DateTime.now().add(const Duration(days: 365)),
+                            lastDate: DateTime.now().add(
+                              const Duration(days: 365),
+                            ),
                           );
                           if (picked != null) {
                             setState(() => _deliveryDate = picked);
@@ -670,10 +756,24 @@ class _GoldReservationScreenState extends State<GoldReservationScreen> {
               ),
               const SizedBox(height: 12),
               Text(isAr ? 'الاستخدامات:' : 'Uses:'),
-              Text(isAr ? '• حجز ذهب لتصنيعه لاحقاً' : '• Reserve gold for later manufacturing'),
-              Text(isAr ? '• التعامل مع مكاتب الذهب الخام' : '• Deal with raw gold offices'),
-              Text(isAr ? '• تسجيل الدفعات والمبالغ المتبقية' : '• Record payments and remaining amounts'),
-              Text(isAr ? '• متابعة تواريخ الاستلام' : '• Track delivery dates'),
+              Text(
+                isAr
+                    ? '• حجز ذهب لتصنيعه لاحقاً'
+                    : '• Reserve gold for later manufacturing',
+              ),
+              Text(
+                isAr
+                    ? '• التعامل مع مكاتب الذهب الخام'
+                    : '• Deal with raw gold offices',
+              ),
+              Text(
+                isAr
+                    ? '• تسجيل الدفعات والمبالغ المتبقية'
+                    : '• Record payments and remaining amounts',
+              ),
+              Text(
+                isAr ? '• متابعة تواريخ الاستلام' : '• Track delivery dates',
+              ),
             ],
           ),
         ),

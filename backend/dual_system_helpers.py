@@ -75,6 +75,7 @@ def create_dual_journal_entry(journal_entry_id, account_id, cash_debit=0, cash_c
                                debit_22k=0, credit_22k=0,
                                debit_24k=0, credit_24k=0,
                                apply_golden_rule=True,  # 🆕 تطبيق القاعدة الذهبية تلقائياً
+                               exclude_from_ledger=False,  # 🆕 لا تربط السطر بالعميل/المورد تلقائياً
                                **kwargs):
     """
     Create dual journal entry with cash and weight.
@@ -116,7 +117,9 @@ def create_dual_journal_entry(journal_entry_id, account_id, cash_debit=0, cash_c
     is_memo_account = account_code.startswith('7') if account_code else False
     memo_main_karat = _get_main_karat_value(db.session) if is_memo_account else None
 
-    # Resolve customer/supplier context automatically when not provided explicitly
+    # Resolve customer/supplier context automatically when not provided explicitly.
+    # When exclude_from_ledger=True we *don't* auto-tag the line with customer/supplier
+    # from the related invoice/voucher to avoid mixing valuation/inventory lines into entity statements.
     resolved_customer_id = customer_id
     resolved_supplier_id = supplier_id
 
@@ -131,14 +134,14 @@ def create_dual_journal_entry(journal_entry_id, account_id, cash_debit=0, cash_c
     if journal_entry:
         if journal_entry.reference_type == 'invoice':
             related_invoice = db.session.query(Invoice).get(journal_entry.reference_id)
-            if related_invoice:
+            if related_invoice and not exclude_from_ledger:
                 if not resolved_customer_id and related_invoice.customer_id:
                     resolved_customer_id = related_invoice.customer_id
                 if not resolved_supplier_id and related_invoice.supplier_id:
                     resolved_supplier_id = related_invoice.supplier_id
         elif journal_entry.reference_type == 'voucher':
             related_voucher = db.session.query(Voucher).get(journal_entry.reference_id)
-            if related_voucher:
+            if related_voucher and not exclude_from_ledger:
                 if not resolved_customer_id and related_voucher.customer_id:
                     resolved_customer_id = related_voucher.customer_id
                 if not resolved_supplier_id and related_voucher.supplier_id:
@@ -256,7 +259,7 @@ def create_dual_journal_entry(journal_entry_id, account_id, cash_debit=0, cash_c
                 with open('/tmp/golden_rule.log', 'a', encoding='utf-8') as f:
                     f.write(f"⏭️ [{account.account_number}] تخطي: apply_golden_rule=False\\n")
     
-    # Create the journal entry line (description is ignored - not in model)
+    # Create the journal entry line
     line = JournalEntryLine(
         journal_entry_id=journal_entry_id,
         account_id=account_id,
@@ -264,6 +267,10 @@ def create_dual_journal_entry(journal_entry_id, account_id, cash_debit=0, cash_c
         supplier_id=resolved_supplier_id,  # 🆕 ربط بالمورد
         dimension_set_id=dimension_set_id,
     )
+
+    # Persist line-level description when provided.
+    if description:
+        line.description = description
     
     # Set cash amounts
     if cash_debit > 0:

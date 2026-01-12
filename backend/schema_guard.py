@@ -265,6 +265,28 @@ def ensure_invoice_tax_columns(engine: Engine) -> None:
     _log_added(columns_added)
 
 
+def ensure_supplier_columns(engine: Engine) -> None:
+    """Ensure newer supplier metadata columns exist for legacy databases."""
+    columns_added: list[str] = []
+    try:
+        columns_added.extend(
+            _ensure_columns(
+                engine,
+                "supplier",
+                [
+                    ("tax_number", "VARCHAR(50)", "NULL"),
+                    ("classification", "VARCHAR(50)", "NULL"),
+                    ("default_wage_type", "VARCHAR(10)", "'cash'"),
+                ],
+            )
+        )
+    except SQLAlchemyError as exc:
+        LOGGER.error("Auto schema guard failed: %s", exc)
+        return
+
+    _log_added(columns_added)
+
+
 def ensure_invoice_branch_columns(engine: Engine) -> None:
     """Ensure invoice branch_id column exists for legacy databases."""
     columns_added: list[str] = []

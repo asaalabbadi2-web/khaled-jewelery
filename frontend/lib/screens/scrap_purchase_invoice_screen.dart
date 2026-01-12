@@ -20,10 +20,7 @@ const double kScrapPurchasePriceDiscount = 0.98;
 class ScrapPurchaseInvoiceScreen extends StatefulWidget {
   final List<Map<String, dynamic>> customers;
 
-  const ScrapPurchaseInvoiceScreen({
-    super.key,
-    required this.customers,
-  });
+  const ScrapPurchaseInvoiceScreen({super.key, required this.customers});
 
   @override
   State<ScrapPurchaseInvoiceScreen> createState() =>
@@ -227,7 +224,9 @@ class _ScrapPurchaseInvoiceScreenState
 
   double _fallbackPurchasePriceFromMarket(double marketPrice) {
     if (marketPrice <= 0) return 0.0;
-    return double.parse((marketPrice * kScrapPurchasePriceDiscount).toStringAsFixed(2));
+    return double.parse(
+      (marketPrice * kScrapPurchasePriceDiscount).toStringAsFixed(2),
+    );
   }
 
   double get _effectivePurchasePrice24k {
@@ -540,7 +539,9 @@ class _ScrapPurchaseInvoiceScreenState
         }
         debugPrint('💰 سعر الذهب المحدث: $_goldPrice24k ر.س/جم');
       } else {
-        debugPrint('⚠️ سعر الذهب غير صالح في الاستجابة: ${priceData['price_24k']}');
+        debugPrint(
+          '⚠️ سعر الذهب غير صالح في الاستجابة: ${priceData['price_24k']}',
+        );
       }
     } catch (e) {
       debugPrint('⚠️ فشل تحديث سعر الذهب: $e');
@@ -619,8 +620,12 @@ class _ScrapPurchaseInvoiceScreenState
     final targetTotal = item._targetTotal!;
     item.applyTargetTotalCalculations(targetTotal);
 
-    debugPrint('🔄 إعادة حساب شراء كسر للوصول للإجمالي ${targetTotal.toStringAsFixed(2)}:');
-    debugPrint('   تكلفة الشراء/جرام: ${item.calculateDirectPurchaseCostPerGram().toStringAsFixed(2)}');
+    debugPrint(
+      '🔄 إعادة حساب شراء كسر للوصول للإجمالي ${targetTotal.toStringAsFixed(2)}:',
+    );
+    debugPrint(
+      '   تكلفة الشراء/جرام: ${item.calculateDirectPurchaseCostPerGram().toStringAsFixed(2)}',
+    );
     debugPrint('   الوزن المحسوب: ${item.weight.toStringAsFixed(2)}');
   }
 
@@ -865,13 +870,17 @@ class _ScrapPurchaseInvoiceScreenState
       if (_selectedCustomerId == null) {
         final proceedWithCash = await _confirmUseCashCustomer();
         if (!proceedWithCash) {
-          _showError('يرجى اختيار عميل لإكمال الفاتورة أو الاستمرار مع العميل النقدي.');
+          _showError(
+            'يرجى اختيار عميل لإكمال الفاتورة أو الاستمرار مع العميل النقدي.',
+          );
           return;
         }
 
-  cashCustomer ??= await _getOrCreateCashCustomer(promptIfMissing: false);
+        cashCustomer ??= await _getOrCreateCashCustomer(promptIfMissing: false);
         if (cashCustomer == null || cashCustomer['id'] == null) {
-          _showError('لا يوجد عميل نقدي متاح. يرجى إنشاء عميل نقدي أو اختيار عميل محدد للمتابعة.');
+          _showError(
+            'لا يوجد عميل نقدي متاح. يرجى إنشاء عميل نقدي أو اختيار عميل محدد للمتابعة.',
+          );
           return;
         }
 
@@ -882,7 +891,9 @@ class _ScrapPurchaseInvoiceScreenState
           });
         }
 
-        debugPrint('💵 لم يتم اختيار عميل - تم تأكيد التقييد للعميل النقدي (ID: $customerId)');
+        debugPrint(
+          '💵 لم يتم اختيار عميل - تم تأكيد التقييد للعميل النقدي (ID: $customerId)',
+        );
       }
 
       // ================= Identity fields enforcement for scrap purchase =================
@@ -899,17 +910,22 @@ class _ScrapPurchaseInvoiceScreenState
       }
 
       // Only enforce identity for real customers (not the special 'نقدي' cash customer)
-    final isCashCustomer = (selectedCustomer == null)
-      ? (cashCustomer != null && _isCashCustomerEntry(cashCustomer))
-      : _isCashCustomerEntry(selectedCustomer);
+      final isCashCustomer = (selectedCustomer == null)
+          ? (cashCustomer != null && _isCashCustomerEntry(cashCustomer))
+          : _isCashCustomerEntry(selectedCustomer);
 
       if (!isCashCustomer) {
-        final idNumber = selectedCustomer?['id_number']?.toString().trim() ?? '';
-        final idVersion = selectedCustomer?['id_version_number']?.toString().trim() ?? '';
-        final birthDate = selectedCustomer?['birth_date']?.toString().trim() ?? '';
+        final idNumber =
+            selectedCustomer?['id_number']?.toString().trim() ?? '';
+        final idVersion =
+            selectedCustomer?['id_version_number']?.toString().trim() ?? '';
+        final birthDate =
+            selectedCustomer?['birth_date']?.toString().trim() ?? '';
 
         if (idNumber.isEmpty || idVersion.isEmpty || birthDate.isEmpty) {
-          _showError('يجب أن يحتوي العميل المختار على رقم الهوية، رقم نسخة الهوية وتاريخ الميلاد قبل حفظ فاتورة شراء الكسر.\nيرجى تعديل بيانات العميل أو إضافة عميل جديد مع معلومات الهوية.');
+          _showError(
+            'يجب أن يحتوي العميل المختار على رقم الهوية، رقم نسخة الهوية وتاريخ الميلاد قبل حفظ فاتورة شراء الكسر.\nيرجى تعديل بيانات العميل أو إضافة عميل جديد مع معلومات الهوية.',
+          );
           return;
         }
       }
@@ -960,8 +976,10 @@ class _ScrapPurchaseInvoiceScreenState
         final match = widget.customers.firstWhere(
           (c) => c['id'].toString() == customerId.toString(),
         );
-        invoiceForPrint['customer_name'] ??= match['name'] ?? match['customer_name'];
-        invoiceForPrint['customer_phone'] ??= match['phone'] ?? match['customer_phone'];
+        invoiceForPrint['customer_name'] ??=
+            match['name'] ?? match['customer_name'];
+        invoiceForPrint['customer_phone'] ??=
+            match['phone'] ?? match['customer_phone'];
       } catch (_) {
         // ignore
       }
@@ -972,7 +990,9 @@ class _ScrapPurchaseInvoiceScreenState
         builder: (dialogContext) {
           return AlertDialog(
             title: const Text('تم حفظ الفاتورة'),
-            content: Text('✅ تم حفظ الفاتورة #${invoiceForPrint['id'] ?? ''}\nهل تريد طباعتها الآن؟'),
+            content: Text(
+              '✅ تم حفظ الفاتورة #${invoiceForPrint['id'] ?? ''}\nهل تريد طباعتها الآن؟',
+            ),
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(dialogContext, false),
@@ -992,10 +1012,8 @@ class _ScrapPurchaseInvoiceScreenState
       if (shouldPrint == true) {
         await Navigator.of(context).push(
           MaterialPageRoute(
-            builder: (_) => InvoicePrintScreen(
-              invoice: invoiceForPrint,
-              isArabic: true,
-            ),
+            builder: (_) =>
+                InvoicePrintScreen(invoice: invoiceForPrint, isArabic: true),
           ),
         );
       }
@@ -1032,10 +1050,7 @@ class _ScrapPurchaseInvoiceScreenState
       if (id == null) continue;
 
       if (_isCashCustomerEntry(customer)) {
-        return {
-          ...customer,
-          'id': id,
-        };
+        return {...customer, 'id': id};
       }
     }
     return null;
@@ -1050,10 +1065,14 @@ class _ScrapPurchaseInvoiceScreenState
 
   bool _containsCashKeyword(String value) {
     if (value.isEmpty) return false;
-    return value.contains('نقد') || value.contains('كاش') || value.contains('cash');
+    return value.contains('نقد') ||
+        value.contains('كاش') ||
+        value.contains('cash');
   }
 
-  Future<Map<String, dynamic>?> _getOrCreateCashCustomer({bool promptIfMissing = true}) async {
+  Future<Map<String, dynamic>?> _getOrCreateCashCustomer({
+    bool promptIfMissing = true,
+  }) async {
     final existing = _findCashCustomer();
     if (existing != null) return existing;
 
@@ -1064,7 +1083,8 @@ class _ScrapPurchaseInvoiceScreenState
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
 
-    final shouldCreate = await showDialog<bool>(
+    final shouldCreate =
+        await showDialog<bool>(
           context: context,
           builder: (dialogContext) {
             return AlertDialog(
@@ -1145,7 +1165,10 @@ class _ScrapPurchaseInvoiceScreenState
                       color: AppColors.warning.withValues(alpha: 0.15),
                       borderRadius: BorderRadius.circular(12),
                     ),
-                    child: const Icon(Icons.warning_amber, color: AppColors.warning),
+                    child: const Icon(
+                      Icons.warning_amber,
+                      color: AppColors.warning,
+                    ),
                   ),
                   const SizedBox(width: 12),
                   Expanded(
@@ -1176,7 +1199,10 @@ class _ScrapPurchaseInvoiceScreenState
                   style: FilledButton.styleFrom(
                     backgroundColor: AppColors.success,
                     foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 18,
+                      vertical: 12,
+                    ),
                   ),
                   onPressed: () => Navigator.pop(dialogContext, true),
                   child: const Text('استمرار مع عميل نقدي'),
@@ -1240,7 +1266,9 @@ class _ScrapPurchaseInvoiceScreenState
             setState(() {
               widget.customers.add(saved);
               final rawId = saved['id'];
-              _selectedCustomerId = rawId is int ? rawId : int.tryParse(rawId.toString());
+              _selectedCustomerId = rawId is int
+                  ? rawId
+                  : int.tryParse(rawId.toString());
             });
           },
         ),
@@ -1347,7 +1375,7 @@ class _ScrapPurchaseInvoiceScreenState
               ),
               const SizedBox(height: 12),
               DropdownButtonFormField<String>(
-                value: selectedKarat,
+                initialValue: selectedKarat,
                 decoration: const InputDecoration(
                   labelText: 'العيار',
                   border: OutlineInputBorder(),
@@ -1443,13 +1471,11 @@ class _ScrapPurchaseInvoiceScreenState
           children: [
             InvoiceTypeBanner(
               title: 'فاتورة شراء ذهب كسر',
-              subtitle: 'خاصة بشراء الذهب المستعمل أو الكسر مع توصيف القطعة والصور',
+              subtitle:
+                  'خاصة بشراء الذهب المستعمل أو الكسر مع توصيف القطعة والصور',
               color: AppColors.invoicePurchaseScrap,
               icon: Icons.shopping_bag_outlined,
-              trailing: Text(
-                'نوع الفاتورة',
-                style: theme.textTheme.labelLarge,
-              ),
+              trailing: Text('نوع الفاتورة', style: theme.textTheme.labelLarge),
             ),
             _buildCustomerSection(theme),
             const SizedBox(height: 24),
@@ -1591,8 +1617,8 @@ class _ScrapPurchaseInvoiceScreenState
                 Container(
                   padding: const EdgeInsets.all(10),
                   decoration: BoxDecoration(
-                    color: colorScheme.primary.withValues(alpha: 
-                      isDark ? 0.18 : 0.12,
+                    color: colorScheme.primary.withValues(
+                      alpha: isDark ? 0.18 : 0.12,
                     ),
                     borderRadius: BorderRadius.circular(12),
                   ),
@@ -1762,7 +1788,11 @@ class _ScrapPurchaseInvoiceScreenState
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            Icon(Icons.account_tree, color: colorScheme.primary, size: 20),
+                            Icon(
+                              Icons.account_tree,
+                              color: colorScheme.primary,
+                              size: 20,
+                            ),
                             const SizedBox(width: 10),
                             Flexible(
                               child: Text(
@@ -1786,7 +1816,10 @@ class _ScrapPurchaseInvoiceScreenState
                 },
                 decoration: InputDecoration(
                   labelText: 'اختر الفرع',
-                  prefixIcon: Icon(Icons.account_tree, color: colorScheme.primary),
+                  prefixIcon: Icon(
+                    Icons.account_tree,
+                    color: colorScheme.primary,
+                  ),
                 ),
                 dropdownColor: theme.cardColor,
                 icon: Icon(Icons.arrow_drop_down, color: colorScheme.primary),
@@ -2059,8 +2092,8 @@ class _ScrapPurchaseInvoiceScreenState
         border: Border.all(color: dividerColor.withValues(alpha: 0.6)),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 
-              theme.brightness == Brightness.dark ? 0.3 : 0.06,
+            color: Colors.black.withValues(
+              alpha: theme.brightness == Brightness.dark ? 0.3 : 0.06,
             ),
             blurRadius: 8,
             offset: const Offset(0, 2),
@@ -2278,10 +2311,7 @@ class _ScrapPurchaseInvoiceScreenState
                         color: AppColors.warning.withValues(alpha: 0.3),
                       ),
                     ),
-                    child: Text(
-                      item.quantity.toString(),
-                      style: cellStyle,
-                    ),
+                    child: Text(item.quantity.toString(), style: cellStyle),
                   ),
                 ),
               ),
@@ -2311,18 +2341,14 @@ class _ScrapPurchaseInvoiceScreenState
                   ),
                 ),
               ),
-              DataCell(
-                Text(item.weight.toStringAsFixed(2), style: cellStyle),
-              ),
+              DataCell(Text(item.weight.toStringAsFixed(2), style: cellStyle)),
               DataCell(
                 Text(
                   item.calculateDirectPurchaseCostPerGram().toStringAsFixed(2),
                   style: cellStyle,
                 ),
               ),
-              DataCell(
-                Text(item.net.toStringAsFixed(2), style: cellStyle),
-              ),
+              DataCell(Text(item.net.toStringAsFixed(2), style: cellStyle)),
               DataCell(
                 InkWell(
                   onTap: () =>
@@ -2480,10 +2506,13 @@ class _ScrapPurchaseInvoiceScreenState
               ),
               style: ElevatedButton.styleFrom(
                 minimumSize: const Size(0, 56),
-                backgroundColor:
-                    isDark ? AppColors.karat24 : AppColors.primaryGold,
+                backgroundColor: isDark
+                    ? AppColors.karat24
+                    : AppColors.primaryGold,
                 foregroundColor: isDark ? Colors.white : Colors.black,
-                disabledBackgroundColor: theme.disabledColor.withValues(alpha: 0.2),
+                disabledBackgroundColor: theme.disabledColor.withValues(
+                  alpha: 0.2,
+                ),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(12),
                 ),
@@ -2503,7 +2532,9 @@ class _ScrapPurchaseInvoiceScreenState
               borderRadius: BorderRadius.circular(12),
               boxShadow: [
                 BoxShadow(
-                  color: colorScheme.primary.withValues(alpha: isDark ? 0.35 : 0.4),
+                  color: colorScheme.primary.withValues(
+                    alpha: isDark ? 0.35 : 0.4,
+                  ),
                   blurRadius: 12,
                   offset: const Offset(0, 4),
                 ),
@@ -2520,25 +2551,31 @@ class _ScrapPurchaseInvoiceScreenState
                       style: theme.textTheme.titleMedium?.copyWith(
                         fontWeight: FontWeight.w600,
                         color: isDark ? Colors.white : Colors.black87,
-                        shadows: !isDark ? [
-                          Shadow(
-                            color: Colors.white.withValues(alpha: 0.8),
-                            blurRadius: 2,
-                          ),
-                        ] : null,
+                        shadows: !isDark
+                            ? [
+                                Shadow(
+                                  color: Colors.white.withValues(alpha: 0.8),
+                                  blurRadius: 2,
+                                ),
+                              ]
+                            : null,
                       ),
                     ),
                     Text(
                       '${_items.length} صنف',
                       style: theme.textTheme.bodySmall?.copyWith(
-                        color: isDark ? Colors.white.withValues(alpha: 0.9) : Colors.black87,
+                        color: isDark
+                            ? Colors.white.withValues(alpha: 0.9)
+                            : Colors.black87,
                         fontWeight: FontWeight.w500,
-                        shadows: !isDark ? [
-                          Shadow(
-                            color: Colors.white.withValues(alpha: 0.8),
-                            blurRadius: 2,
-                          ),
-                        ] : null,
+                        shadows: !isDark
+                            ? [
+                                Shadow(
+                                  color: Colors.white.withValues(alpha: 0.8),
+                                  blurRadius: 2,
+                                ),
+                              ]
+                            : null,
                       ),
                     ),
                   ],
@@ -2548,12 +2585,14 @@ class _ScrapPurchaseInvoiceScreenState
                   style: theme.textTheme.headlineMedium?.copyWith(
                     fontWeight: FontWeight.bold,
                     color: isDark ? Colors.white : Colors.black87,
-                    shadows: !isDark ? [
-                      Shadow(
-                        color: Colors.white.withValues(alpha: 0.9),
-                        blurRadius: 3,
-                      ),
-                    ] : null,
+                    shadows: !isDark
+                        ? [
+                            Shadow(
+                              color: Colors.white.withValues(alpha: 0.9),
+                              blurRadius: 3,
+                            ),
+                          ]
+                        : null,
                   ),
                 ),
               ],
@@ -2706,7 +2745,9 @@ class _ScrapPurchaseInvoiceScreenState
                   borderRadius: BorderRadius.circular(12),
                 ),
                 filled: true,
-                fillColor: colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
+                fillColor: colorScheme.surfaceContainerHighest.withValues(
+                  alpha: 0.3,
+                ),
               ),
               items: _goldConditionOptions
                   .map(
@@ -2735,7 +2776,9 @@ class _ScrapPurchaseInvoiceScreenState
                   borderRadius: BorderRadius.circular(12),
                 ),
                 filled: true,
-                fillColor: colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
+                fillColor: colorScheme.surfaceContainerHighest.withValues(
+                  alpha: 0.3,
+                ),
               ),
             ),
           ],
@@ -2782,7 +2825,9 @@ class _ScrapPurchaseInvoiceScreenState
                     vertical: 6,
                   ),
                   decoration: BoxDecoration(
-                    color: AppColors.success.withValues(alpha: isDark ? 0.2 : 0.12),
+                    color: AppColors.success.withValues(
+                      alpha: isDark ? 0.2 : 0.12,
+                    ),
                     borderRadius: BorderRadius.circular(20),
                     border: Border.all(
                       color: AppColors.success.withValues(alpha: 0.4),
@@ -2819,11 +2864,11 @@ class _ScrapPurchaseInvoiceScreenState
                       decoration: BoxDecoration(
                         gradient: LinearGradient(
                           colors: [
-                            colorScheme.primary.withValues(alpha: 
-                              isDark ? 0.25 : 0.3,
+                            colorScheme.primary.withValues(
+                              alpha: isDark ? 0.25 : 0.3,
                             ),
-                            AppColors.lightGold.withValues(alpha: 
-                              isDark ? 0.2 : 0.35,
+                            AppColors.lightGold.withValues(
+                              alpha: isDark ? 0.2 : 0.35,
                             ),
                           ],
                         ),
@@ -2841,12 +2886,16 @@ class _ScrapPurchaseInvoiceScreenState
                               style: theme.textTheme.titleSmall?.copyWith(
                                 fontWeight: FontWeight.bold,
                                 color: isDark ? Colors.white : Colors.black87,
-                                shadows: !isDark ? [
-                                  Shadow(
-                                    color: Colors.white.withValues(alpha: 0.8),
-                                    blurRadius: 2,
-                                  ),
-                                ] : null,
+                                shadows: !isDark
+                                    ? [
+                                        Shadow(
+                                          color: Colors.white.withValues(
+                                            alpha: 0.8,
+                                          ),
+                                          blurRadius: 2,
+                                        ),
+                                      ]
+                                    : null,
                               ),
                             ),
                           ),
@@ -2857,12 +2906,16 @@ class _ScrapPurchaseInvoiceScreenState
                               style: theme.textTheme.titleSmall?.copyWith(
                                 fontWeight: FontWeight.bold,
                                 color: isDark ? Colors.white : Colors.black87,
-                                shadows: !isDark ? [
-                                  Shadow(
-                                    color: Colors.white.withValues(alpha: 0.8),
-                                    blurRadius: 2,
-                                  ),
-                                ] : null,
+                                shadows: !isDark
+                                    ? [
+                                        Shadow(
+                                          color: Colors.white.withValues(
+                                            alpha: 0.8,
+                                          ),
+                                          blurRadius: 2,
+                                        ),
+                                      ]
+                                    : null,
                               ),
                               textAlign: TextAlign.center,
                             ),
@@ -2874,12 +2927,16 @@ class _ScrapPurchaseInvoiceScreenState
                               style: theme.textTheme.titleSmall?.copyWith(
                                 fontWeight: FontWeight.bold,
                                 color: isDark ? Colors.white : Colors.black87,
-                                shadows: !isDark ? [
-                                  Shadow(
-                                    color: Colors.white.withValues(alpha: 0.8),
-                                    blurRadius: 2,
-                                  ),
-                                ] : null,
+                                shadows: !isDark
+                                    ? [
+                                        Shadow(
+                                          color: Colors.white.withValues(
+                                            alpha: 0.8,
+                                          ),
+                                          blurRadius: 2,
+                                        ),
+                                      ]
+                                    : null,
                               ),
                               textAlign: TextAlign.center,
                             ),
@@ -2891,12 +2948,16 @@ class _ScrapPurchaseInvoiceScreenState
                               style: theme.textTheme.titleSmall?.copyWith(
                                 fontWeight: FontWeight.bold,
                                 color: isDark ? Colors.white : Colors.black87,
-                                shadows: !isDark ? [
-                                  Shadow(
-                                    color: Colors.white.withValues(alpha: 0.8),
-                                    blurRadius: 2,
-                                  ),
-                                ] : null,
+                                shadows: !isDark
+                                    ? [
+                                        Shadow(
+                                          color: Colors.white.withValues(
+                                            alpha: 0.8,
+                                          ),
+                                          blurRadius: 2,
+                                        ),
+                                      ]
+                                    : null,
                               ),
                               textAlign: TextAlign.center,
                             ),
@@ -2908,12 +2969,16 @@ class _ScrapPurchaseInvoiceScreenState
                               style: theme.textTheme.titleSmall?.copyWith(
                                 fontWeight: FontWeight.bold,
                                 color: isDark ? Colors.white : Colors.black87,
-                                shadows: !isDark ? [
-                                  Shadow(
-                                    color: Colors.white.withValues(alpha: 0.8),
-                                    blurRadius: 2,
-                                  ),
-                                ] : null,
+                                shadows: !isDark
+                                    ? [
+                                        Shadow(
+                                          color: Colors.white.withValues(
+                                            alpha: 0.8,
+                                          ),
+                                          blurRadius: 2,
+                                        ),
+                                      ]
+                                    : null,
                               ),
                               textAlign: TextAlign.center,
                             ),
@@ -2930,7 +2995,7 @@ class _ScrapPurchaseInvoiceScreenState
                           color: index % 2 == 0
                               ? theme.colorScheme.surface
                               : theme.colorScheme.surfaceContainerHighest
-                                  .withValues(alpha: isDark ? 0.3 : 0.5),
+                                    .withValues(alpha: isDark ? 0.3 : 0.5),
                           border: Border(
                             bottom: BorderSide(color: dividerColor, width: 1),
                           ),
@@ -2956,8 +3021,8 @@ class _ScrapPurchaseInvoiceScreenState
                                         vertical: 3,
                                       ),
                                       decoration: BoxDecoration(
-                                        color: AppColors.warning.withValues(alpha: 
-                                          isDark ? 0.2 : 0.25,
+                                        color: AppColors.warning.withValues(
+                                          alpha: isDark ? 0.2 : 0.25,
                                         ),
                                         borderRadius: BorderRadius.circular(6),
                                       ),
@@ -3039,7 +3104,9 @@ class _ScrapPurchaseInvoiceScreenState
             Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
-                color: colorScheme.primary.withValues(alpha: isDark ? 0.15 : 0.12),
+                color: colorScheme.primary.withValues(
+                  alpha: isDark ? 0.15 : 0.12,
+                ),
                 borderRadius: BorderRadius.circular(12),
                 border: Border.all(
                   color: colorScheme.primary.withValues(alpha: 0.4),
@@ -3076,7 +3143,9 @@ class _ScrapPurchaseInvoiceScreenState
                             ),
                             boxShadow: [
                               BoxShadow(
-                                color: colorScheme.primary.withValues(alpha: 0.16),
+                                color: colorScheme.primary.withValues(
+                                  alpha: 0.16,
+                                ),
                                 blurRadius: 4,
                                 offset: const Offset(0, 2),
                               ),
@@ -3228,8 +3297,8 @@ class _ScrapPurchaseInvoiceScreenState
                             boxShadow: _remainingAmount > 0
                                 ? [
                                     BoxShadow(
-                                      color: colorScheme.primary.withValues(alpha: 
-                                        0.25,
+                                      color: colorScheme.primary.withValues(
+                                        alpha: 0.25,
                                       ),
                                       blurRadius: 4,
                                       offset: const Offset(0, 2),
@@ -3277,8 +3346,8 @@ class _ScrapPurchaseInvoiceScreenState
                                   decoration: BoxDecoration(
                                     border: Border(
                                       right: BorderSide(
-                                        color: colorScheme.primary.withValues(alpha: 
-                                          0.4,
+                                        color: colorScheme.primary.withValues(
+                                          alpha: 0.4,
                                         ),
                                       ),
                                     ),
@@ -3330,7 +3399,9 @@ class _ScrapPurchaseInvoiceScreenState
                           backgroundColor: colorScheme.primary,
                           foregroundColor: colorScheme.onPrimary,
                           elevation: 3,
-                          shadowColor: colorScheme.primary.withValues(alpha: 0.4),
+                          shadowColor: colorScheme.primary.withValues(
+                            alpha: 0.4,
+                          ),
                         ),
                       ),
                     ],
@@ -3339,8 +3410,8 @@ class _ScrapPurchaseInvoiceScreenState
                   Container(
                     padding: const EdgeInsets.all(8),
                     decoration: BoxDecoration(
-                      color: AppColors.warning.withValues(alpha: 
-                        isDark ? 0.18 : 0.12,
+                      color: AppColors.warning.withValues(
+                        alpha: isDark ? 0.18 : 0.12,
                       ),
                       borderRadius: BorderRadius.circular(6),
                       border: Border.all(
@@ -3378,12 +3449,20 @@ class _ScrapPurchaseInvoiceScreenState
                 gradient: LinearGradient(
                   colors: _remainingAmount > 0
                       ? [
-                          colorScheme.error.withValues(alpha: isDark ? 0.16 : 0.12),
-                          colorScheme.error.withValues(alpha: isDark ? 0.28 : 0.2),
+                          colorScheme.error.withValues(
+                            alpha: isDark ? 0.16 : 0.12,
+                          ),
+                          colorScheme.error.withValues(
+                            alpha: isDark ? 0.28 : 0.2,
+                          ),
                         ]
                       : [
-                          AppColors.success.withValues(alpha: isDark ? 0.16 : 0.12),
-                          AppColors.success.withValues(alpha: isDark ? 0.28 : 0.2),
+                          AppColors.success.withValues(
+                            alpha: isDark ? 0.16 : 0.12,
+                          ),
+                          AppColors.success.withValues(
+                            alpha: isDark ? 0.28 : 0.2,
+                          ),
                         ],
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,

@@ -114,10 +114,12 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
     if (_statement == null) return;
 
     setState(() {
+      final mainKarat = (_statement?.mainKarat ?? 21).toDouble();
+      final query = _searchController.text.trim().toLowerCase();
+
       var filtered = _statement!.lines.where((line) {
         final date = line.date;
         final description = line.description.toLowerCase();
-        final query = _searchController.text.toLowerCase();
 
         final isAfterStartDate =
             _dateRange?.start == null ||
@@ -125,7 +127,10 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
         final isBeforeEndDate =
             _dateRange?.end == null ||
             date.isBefore(_dateRange!.end.add(const Duration(days: 1)));
-        final matchesSearch = description.contains(query);
+        final matchesSearch = query.isEmpty
+          ? true
+          : description.contains(query) ||
+              _matchesSearch(line: line, query: query, mainKarat: mainKarat);
 
         bool matchesFilterType = true;
         if (_filterType == 'credit') {
@@ -165,6 +170,59 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
         );
       }
     });
+  }
+
+  bool _matchesSearch({
+    required StatementLine line,
+    required String query,
+    required double mainKarat,
+  }) {
+    final normalizedQuery = query.replaceAll(',', '.');
+
+    final ref = (line.referenceNumber ?? '').toLowerCase();
+    if (ref.isNotEmpty && ref.contains(query)) return true;
+
+    final entryNum = (line.entryNumber ?? '').toLowerCase();
+    if (entryNum.isNotEmpty && entryNum.contains(query)) return true;
+
+    if (line.id.toString().contains(normalizedQuery)) return true;
+
+    final invoiceId = _tryExtractInvoiceId(line);
+    if (invoiceId != null && invoiceId.toString().contains(normalizedQuery)) {
+      return true;
+    }
+
+    final debitMain =
+        _convertToMainKarat(line.debit18k, 18, mainKarat) +
+        _convertToMainKarat(line.debit21k, 21, mainKarat) +
+        _convertToMainKarat(line.debit22k, 22, mainKarat) +
+        _convertToMainKarat(line.debit24k, 24, mainKarat);
+    final creditMain =
+        _convertToMainKarat(line.credit18k, 18, mainKarat) +
+        _convertToMainKarat(line.credit21k, 21, mainKarat) +
+        _convertToMainKarat(line.credit22k, 22, mainKarat) +
+        _convertToMainKarat(line.credit24k, 24, mainKarat);
+
+    final netGold = debitMain - creditMain;
+    final netCash = line.cashDebit - line.cashCredit;
+
+    final candidates = <String>{
+      debitMain.toStringAsFixed(3),
+      creditMain.toStringAsFixed(3),
+      netGold.toStringAsFixed(3),
+      (line.runningGoldBalance ?? 0).toStringAsFixed(3),
+      line.cashDebit.toStringAsFixed(2),
+      line.cashCredit.toStringAsFixed(2),
+      netCash.toStringAsFixed(2),
+      (line.runningCashBalance ?? 0).toStringAsFixed(2),
+      DateFormat('yyyy-MM-dd').format(line.date).toLowerCase(),
+    };
+
+    for (final c in candidates) {
+      if (c.toLowerCase().contains(normalizedQuery)) return true;
+    }
+
+    return false;
   }
 
   Future<void> _pickDateRange() async {
@@ -222,6 +280,12 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
                   ),
                 ),
                 const SizedBox(height: 16),
+                ListTile(
+                  leading: const Icon(Icons.print),
+                  title: const Text('طباعة'),
+                  subtitle: const Text('فتح نافذة الطباعة مباشرة'),
+                  onTap: () => _handleExport(_printPdf),
+                ),
                 ListTile(
                   leading: const Icon(Icons.picture_as_pdf),
                   title: const Text('تصدير إلى PDF'),
@@ -330,79 +394,212 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
   Future<void> _exportToPdf() async {
     if (_statement == null) return;
 
-    final doc = pw.Document();
-    final headers = <String>['التاريخ', 'الوصف'];
-    if (_viewMode != 2) {
-      headers.addAll(['ذهب مدين', 'ذهب دائن', 'رصيد الذهب']);
-    }
-    if (_viewMode != 1) {
-      headers.addAll(['نقد مدين', 'نقد دائن', 'رصيد النقد']);
-    }
-
-    final tableData = _filteredLines.map((line) {
-      final row = <String>[
-        DateFormat('yyyy-MM-dd').format(line.date),
-        line.description,
-      ];
-
-      if (_viewMode != 2) {
-        final mainKarat = (_statement?.mainKarat ?? 21).toDouble();
-        final debitMain = _convertToMainKarat(
-          line.debit18k + line.debit21k + line.debit22k + line.debit24k,
-          21,
-          mainKarat,
-        );
-        final creditMain = _convertToMainKarat(
-          line.credit18k + line.credit21k + line.credit22k + line.credit24k,
-          21,
-          mainKarat,
-        );
-        row
-          ..add(debitMain.toStringAsFixed(3))
-          ..add(creditMain.toStringAsFixed(3))
-          ..add((line.runningGoldBalance ?? 0).toStringAsFixed(3));
-      }
-
-      if (_viewMode != 1) {
-        row
-          ..add(line.cashDebit.toStringAsFixed(2))
-          ..add(line.cashCredit.toStringAsFixed(2))
-          ..add((line.runningCashBalance ?? 0).toStringAsFixed(2));
-      }
-
-      return row;
-    }).toList();
-
-    doc.addPage(
-      pw.MultiPage(
-        pageFormat: pdf.PdfPageFormat.a4,
-        build: (context) => [
-          pw.Header(level: 0, text: 'كشف حساب ${widget.accountName}'),
-          pw.Text(
-            'تاريخ التوليد: ${DateFormat('yyyy-MM-dd HH:mm').format(DateTime.now())}',
-          ),
-          pw.SizedBox(height: 12),
-          pw.TableHelper.fromTextArray(
-            headers: headers,
-            data: tableData,
-            cellAlignment: pw.Alignment.centerRight,
-            headerStyle: pw.TextStyle(fontWeight: pw.FontWeight.bold),
-            cellStyle: const pw.TextStyle(fontSize: 10),
-            columnWidths: {
-              0: const pw.FixedColumnWidth(70),
-              1: const pw.FlexColumnWidth(2),
-            },
-          ),
-        ],
-      ),
-    );
-
-    final bytes = await doc.save();
+    final bytes = await _buildStatementPdfBytes(pdf.PdfPageFormat.a4);
     await Printing.sharePdf(
       bytes: bytes,
       filename:
           'account_statement_${widget.accountId}_${DateFormat('yyyyMMdd_HHmm').format(DateTime.now())}.pdf',
     );
+  }
+
+  Future<void> _printPdf() async {
+    if (_statement == null) return;
+    final filename =
+        'account_statement_${widget.accountId}_${DateFormat('yyyyMMdd_HHmm').format(DateTime.now())}.pdf';
+    await Printing.layoutPdf(
+      name: filename,
+      onLayout: (format) async => _buildStatementPdfBytes(format),
+    );
+  }
+
+  Future<Uint8List> _buildStatementPdfBytes(
+    pdf.PdfPageFormat pageFormat,
+  ) async {
+    if (_statement == null) return Uint8List(0);
+
+    // Ensure Arabic renders correctly and RTL layout is respected.
+    final fontData = await rootBundle.load('assets/fonts/Cairo-Regular.ttf');
+    final boldFontData = await rootBundle.load('assets/fonts/Cairo-Bold.ttf');
+    final baseFont = pw.Font.ttf(fontData);
+    final boldFont = pw.Font.ttf(boldFontData);
+    final theme = pw.ThemeData.withFont(base: baseFont, bold: boldFont);
+
+    // We want the printed table to read naturally in Arabic:
+    // rightmost: التاريخ, then البيان, then القيم to the left.
+    // Some table layouts still behave as LTR, so we build a physical
+    // column order that guarantees the desired visual ordering.
+    const dateKey = 'date';
+    const descKey = 'desc';
+    const goldDebitKey = 'gold_debit';
+    const goldCreditKey = 'gold_credit';
+    const goldBalKey = 'gold_balance';
+    const cashDebitKey = 'cash_debit';
+    const cashCreditKey = 'cash_credit';
+    const cashBalKey = 'cash_balance';
+
+    final valueColumns = <({String key, String header})>[];
+    if (_viewMode != 2) {
+      valueColumns.addAll([
+        (key: goldDebitKey, header: 'ذهب مدين'),
+        (key: goldCreditKey, header: 'ذهب دائن'),
+        (key: goldBalKey, header: 'رصيد الذهب'),
+      ]);
+    }
+    if (_viewMode != 1) {
+      valueColumns.addAll([
+        (key: cashDebitKey, header: 'نقد مدين'),
+        (key: cashCreditKey, header: 'نقد دائن'),
+        (key: cashBalKey, header: 'رصيد النقد'),
+      ]);
+    }
+
+    // Physical order (left -> right) to achieve (right -> left): date, desc, values.
+    final columns = <({String key, String header})>[
+      ...valueColumns,
+      (key: descKey, header: 'البيان'),
+      (key: dateKey, header: 'التاريخ'),
+    ];
+
+    pw.Widget dataCellFor({
+      required String key,
+      required String text,
+      pw.Font? font,
+      double fontSize = 9,
+      pw.Alignment alignment = pw.Alignment.center,
+    }) {
+      final isRtlText = key == descKey;
+      return pw.Align(
+        alignment: alignment,
+        child: pw.Text(
+          text,
+          textDirection: isRtlText
+              ? pw.TextDirection.rtl
+              : pw.TextDirection.ltr,
+          style: pw.TextStyle(font: font ?? baseFont, fontSize: fontSize),
+        ),
+      );
+    }
+
+    pw.Widget headerCellFor({
+      required String text,
+      required pw.Alignment alignment,
+    }) {
+      return pw.Align(
+        alignment: alignment,
+        child: pw.Text(
+          text,
+          textDirection: pw.TextDirection.rtl,
+          style: pw.TextStyle(font: boldFont, fontSize: 10),
+        ),
+      );
+    }
+
+    final headerWidgets = columns
+        .map(
+          (c) => headerCellFor(
+            text: c.header,
+            alignment: c.key == descKey
+                ? pw.Alignment.centerRight
+                : pw.Alignment.center,
+          ),
+        )
+        .toList();
+
+    final rowWidgets = _filteredLines.map((line) {
+      final mainKarat = (_statement?.mainKarat ?? 21).toDouble();
+
+      final goldDebitMain = _convertToMainKarat(
+        line.debit18k + line.debit21k + line.debit22k + line.debit24k,
+        21,
+        mainKarat,
+      );
+      final goldCreditMain = _convertToMainKarat(
+        line.credit18k + line.credit21k + line.credit22k + line.credit24k,
+        21,
+        mainKarat,
+      );
+
+      final values = <String, String>{
+        dateKey: DateFormat('yyyy-MM-dd').format(line.date),
+        descKey: line.description,
+        goldDebitKey: goldDebitMain.toStringAsFixed(3),
+        goldCreditKey: goldCreditMain.toStringAsFixed(3),
+        goldBalKey: (line.runningGoldBalance ?? 0).toStringAsFixed(3),
+        cashDebitKey: line.cashDebit.toStringAsFixed(2),
+        cashCreditKey: line.cashCredit.toStringAsFixed(2),
+        cashBalKey: (line.runningCashBalance ?? 0).toStringAsFixed(2),
+      };
+
+      return columns.map((c) {
+        final alignment = c.key == descKey
+            ? pw.Alignment.centerRight
+            : pw.Alignment.center;
+        return dataCellFor(
+          key: c.key,
+          text: values[c.key] ?? '',
+          alignment: alignment,
+        );
+      }).toList();
+    }).toList();
+
+    final doc = pw.Document();
+    doc.addPage(
+      pw.MultiPage(
+        pageFormat: pageFormat,
+        theme: theme,
+        build: (context) {
+          return [
+            pw.Directionality(
+              textDirection: pw.TextDirection.rtl,
+              child: pw.Column(
+                crossAxisAlignment: pw.CrossAxisAlignment.end,
+                children: [
+                  pw.Text(
+                    'كشف حساب ${widget.accountName}',
+                    style: pw.TextStyle(font: boldFont, fontSize: 18),
+                  ),
+                  pw.SizedBox(height: 4),
+                  pw.Text(
+                    'تاريخ التوليد: ${DateFormat('yyyy-MM-dd HH:mm').format(DateTime.now())}',
+                    style: const pw.TextStyle(fontSize: 10),
+                  ),
+                  pw.SizedBox(height: 12),
+                  pw.TableHelper.fromTextArray(
+                    headers: headerWidgets,
+                    data: rowWidgets,
+                    border: pw.TableBorder.all(color: pdf.PdfColors.grey300),
+                    headerDecoration: pw.BoxDecoration(
+                      color: pdf.PdfColors.grey200,
+                    ),
+                    cellPadding: const pw.EdgeInsets.symmetric(
+                      horizontal: 4,
+                      vertical: 3,
+                    ),
+                    cellAlignment: pw.Alignment.center,
+                    cellAlignments: {
+                      for (var i = 0; i < columns.length; i++)
+                        i: columns[i].key == descKey
+                            ? pw.Alignment.centerRight
+                            : pw.Alignment.center,
+                    },
+                    columnWidths: {
+                      for (var i = 0; i < columns.length; i++)
+                        i: columns[i].key == descKey
+                            ? const pw.FlexColumnWidth(3.2)
+                            : (columns[i].key == dateKey
+                                  ? const pw.FixedColumnWidth(72)
+                                  : const pw.FixedColumnWidth(56)),
+                    },
+                  ),
+                ],
+              ),
+            ),
+          ];
+        },
+      ),
+    );
+
+    return doc.save();
   }
 
   Future<void> _copySummaryToClipboard() async {
@@ -531,17 +728,17 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
       chips.addAll([
         Chip(
           label: Text('ذهب مدين: ${goldDebit.toStringAsFixed(3)}'),
-          backgroundColor: Colors.green.shade50,
+          backgroundColor: theme.colorScheme.surfaceContainerHighest,
         ),
         Chip(
           label: Text('ذهب دائن: ${goldCredit.toStringAsFixed(3)}'),
-          backgroundColor: Colors.red.shade50,
+          backgroundColor: theme.colorScheme.surfaceContainerHighest,
         ),
         Chip(
           label: Text(
             'صافي ذهب: ${(goldDebit - goldCredit).toStringAsFixed(3)}',
           ),
-          backgroundColor: Colors.blueGrey.shade50,
+          backgroundColor: theme.colorScheme.surfaceContainerHighest,
         ),
       ]);
     }
@@ -550,17 +747,17 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
       chips.addAll([
         Chip(
           label: Text('نقد مدين: ${cashDebit.toStringAsFixed(2)}'),
-          backgroundColor: Colors.green.shade50,
+          backgroundColor: theme.colorScheme.surfaceContainerHighest,
         ),
         Chip(
           label: Text('نقد دائن: ${cashCredit.toStringAsFixed(2)}'),
-          backgroundColor: Colors.red.shade50,
+          backgroundColor: theme.colorScheme.surfaceContainerHighest,
         ),
         Chip(
           label: Text(
             'صافي نقد: ${(cashDebit - cashCredit).toStringAsFixed(2)}',
           ),
-          backgroundColor: Colors.blueGrey.shade50,
+          backgroundColor: theme.colorScheme.surfaceContainerHighest,
         ),
       ]);
     }
@@ -615,6 +812,7 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
         cashValue: statement.openingBalanceCash,
         color: theme.colorScheme.primary,
         icon: Icons.lock_clock,
+        mainKarat: statement.mainKarat,
       ),
       _SummaryCard(
         title: 'إجمالي الحركة',
@@ -622,6 +820,7 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
         cashValue: statement.totalDebitCash - statement.totalCreditCash,
         color: theme.colorScheme.secondary,
         icon: Icons.sync_alt,
+        mainKarat: statement.mainKarat,
       ),
       _SummaryCard(
         title: closingTitle,
@@ -629,6 +828,7 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
         cashValue: statement.effectiveClosingCash,
         color: theme.colorScheme.tertiary,
         icon: Icons.summarize,
+        mainKarat: statement.mainKarat,
       ),
     ];
 
@@ -726,7 +926,7 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
                             _filterLines();
                           },
                         ),
-                  hintText: 'ابحث في البيان',
+                  hintText: 'ابحث بالبيان / رقم المرجع / المبلغ',
                   border: const OutlineInputBorder(),
                 ),
               ),
@@ -768,60 +968,33 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
   }
 
   Widget _buildStatementTable() {
+    final theme = Theme.of(context);
     final mainKarat = (_statement?.mainKarat ?? 21).toDouble();
 
+    final positiveColor = theme.colorScheme.primary;
+    final negativeColor = theme.colorScheme.error;
+    final balanceColor = theme.colorScheme.onSurfaceVariant;
+
+    Text heading(String text) {
+      return Text(text, style: const TextStyle(fontWeight: FontWeight.bold));
+    }
+
     final List<DataColumn> columns = [
-      const DataColumn(
-        label: Text('التاريخ', style: TextStyle(fontWeight: FontWeight.bold)),
-      ),
-      const DataColumn(
-        label: Text('البيان', style: TextStyle(fontWeight: FontWeight.bold)),
-      ),
+      DataColumn(label: heading('التاريخ')),
+      DataColumn(label: heading('البيان')),
     ];
 
     if (_viewMode != 2) {
-      columns.addAll(const [
-        DataColumn(
-          label: Text(
-            'ذهب مدين',
-            style: TextStyle(fontWeight: FontWeight.bold),
-          ),
-        ),
-        DataColumn(
-          label: Text(
-            'ذهب دائن',
-            style: TextStyle(fontWeight: FontWeight.bold),
-          ),
-        ),
-        DataColumn(
-          label: Text(
-            'رصيد الذهب',
-            style: TextStyle(fontWeight: FontWeight.bold),
-          ),
-        ),
+      columns.addAll([
+        DataColumn(label: heading('حركة الذهب (+/-)')),
+        DataColumn(label: heading('رصيد الذهب')),
       ]);
     }
 
     if (_viewMode != 1) {
-      columns.addAll(const [
-        DataColumn(
-          label: Text(
-            'نقد مدين',
-            style: TextStyle(fontWeight: FontWeight.bold),
-          ),
-        ),
-        DataColumn(
-          label: Text(
-            'نقد دائن',
-            style: TextStyle(fontWeight: FontWeight.bold),
-          ),
-        ),
-        DataColumn(
-          label: Text(
-            'رصيد النقد',
-            style: TextStyle(fontWeight: FontWeight.bold),
-          ),
-        ),
+      columns.addAll([
+        DataColumn(label: heading('حركة النقد (+/-)')),
+        DataColumn(label: heading('رصيد النقد')),
       ]);
     }
 
@@ -849,6 +1022,9 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
           _convertToMainKarat(line.credit22k, 22, mainKarat) +
           _convertToMainKarat(line.credit24k, 24, mainKarat);
 
+        final goldMovement = debitMain - creditMain;
+        final cashMovement = line.cashDebit - line.cashCredit;
+
       final cells = <DataCell>[
         DataCell(Text(DateFormat('yyyy-MM-dd').format(line.date))),
         DataCell(_buildDescriptionCell(line)),
@@ -857,19 +1033,17 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
       if (_viewMode != 2) {
         cells.addAll([
           DataCell(
-            _numCell(
-              debitMain,
-              color: Colors.green.shade600,
+            _signedNumCell(
+              goldMovement,
+              positiveColor: positiveColor,
+              negativeColor: negativeColor,
               fractionDigits: 3,
             ),
           ),
           DataCell(
-            _numCell(creditMain, color: Colors.red.shade600, fractionDigits: 3),
-          ),
-          DataCell(
             _numCell(
               line.runningGoldBalance,
-              color: Colors.blueGrey.shade700,
+              color: balanceColor,
               fractionDigits: 3,
             ),
           ),
@@ -879,23 +1053,17 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
       if (_viewMode != 1) {
         cells.addAll([
           DataCell(
-            _numCell(
-              line.cashDebit,
-              color: Colors.green.shade600,
-              fractionDigits: 2,
-            ),
-          ),
-          DataCell(
-            _numCell(
-              line.cashCredit,
-              color: Colors.red.shade600,
+            _signedNumCell(
+              cashMovement,
+              positiveColor: positiveColor,
+              negativeColor: negativeColor,
               fractionDigits: 2,
             ),
           ),
           DataCell(
             _numCell(
               line.runningCashBalance,
-              color: Colors.blueGrey.shade700,
+              color: balanceColor,
               fractionDigits: 2,
             ),
           ),
@@ -928,7 +1096,7 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
                 ).colorScheme.surfaceContainerHighest.withValues(alpha: 0.35);
         }),
         cells: cells,
-        onSelectChanged: (_) => _showLineDetails(line, mainKarat),
+        onSelectChanged: (_) => _handleRowTap(line, mainKarat),
       );
     });
 
@@ -956,9 +1124,10 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
                       Theme.of(context).colorScheme.surfaceContainerHighest
                           .withValues(alpha: 0.5),
                     ),
-                    columnSpacing: 24,
-                    dataRowMinHeight: 48,
-                    dataRowMaxHeight: 68,
+                    headingRowHeight: 48,
+                    columnSpacing: 18,
+                    dataRowMinHeight: 56,
+                    dataRowMaxHeight: 84,
                     columns: columns,
                     rows: rows,
                   ),
@@ -1021,33 +1190,281 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
       value.toStringAsFixed(fractionDigits),
       textAlign: TextAlign.end,
       style: TextStyle(
-        color: color ?? Colors.blueGrey.shade800,
-        fontWeight: FontWeight.w600,
+        color: color ?? Theme.of(context).colorScheme.onSurface,
+        fontWeight: FontWeight.w500,
+        fontFeatures: const [ui.FontFeature.tabularFigures()],
+      ),
+    );
+  }
+
+  Widget _signedNumCell(
+    double value, {
+    required Color positiveColor,
+    required Color negativeColor,
+    int fractionDigits = 3,
+  }) {
+    if (value.abs() < 0.0001) {
+      return const Text('', textAlign: TextAlign.end);
+    }
+    final isPositive = value > 0;
+    final sign = isPositive ? '+' : '-';
+    final absText = value.abs().toStringAsFixed(fractionDigits);
+    return Text(
+      '$sign$absText',
+      textAlign: TextAlign.end,
+      style: TextStyle(
+        color: isPositive ? positiveColor : negativeColor,
+        fontWeight: FontWeight.w500,
+        fontFeatures: const [ui.FontFeature.tabularFigures()],
       ),
     );
   }
 
   Widget _buildDescriptionCell(StatementLine line) {
+    final theme = Theme.of(context);
+    final icon = _iconForLine(line);
+    final subtitle = _subtitleForLine(line);
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
-        Text(
-          line.description,
-          style: const TextStyle(fontWeight: FontWeight.w600),
+        Row(
+          children: [
+            Icon(icon, size: 18, color: theme.colorScheme.onSurfaceVariant),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Text(
+                line.description,
+                style: const TextStyle(fontWeight: FontWeight.w600),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
         ),
         const SizedBox(height: 4),
         Row(
           children: [
-            Icon(Icons.key, size: 14, color: Colors.grey.shade600),
+            Icon(Icons.tag, size: 14, color: theme.colorScheme.onSurfaceVariant),
             const SizedBox(width: 4),
             Text(
-              'ID: ${line.id}',
-              style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+              subtitle,
+              style: TextStyle(
+                fontSize: 11,
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
             ),
           ],
         ),
       ],
+    );
+  }
+
+  IconData _iconForLine(StatementLine line) {
+    final refType = (line.referenceType ?? '').toLowerCase().trim();
+    if (refType == 'invoice') return Icons.receipt_long;
+    if (refType == 'voucher') return Icons.payments;
+    if (refType == 'journal_entry') return Icons.library_books;
+    if (refType == 'manual') return Icons.edit_note;
+
+    final desc = line.description.toLowerCase();
+    if (desc.contains('مقايضة')) return Icons.compare_arrows;
+    if (desc.contains('سداد') || desc.contains('قبض') || desc.contains('صرف')) {
+      return Icons.payments;
+    }
+    if (desc.contains('فاتورة') || desc.contains('invoice')) {
+      return Icons.receipt_long;
+    }
+    return Icons.notes;
+  }
+
+  String _subtitleForLine(StatementLine line) {
+    final parts = <String>[];
+    if ((line.referenceNumber ?? '').trim().isNotEmpty) {
+      parts.add('مرجع: ${line.referenceNumber}');
+    } else if ((line.entryNumber ?? '').trim().isNotEmpty) {
+      parts.add('قيد: ${line.entryNumber}');
+    }
+    parts.add('ID: ${line.id}');
+    return parts.join(' • ');
+  }
+
+  int? _tryExtractInvoiceId(StatementLine line) {
+    if ((line.referenceType ?? '').toLowerCase().trim() == 'invoice') {
+      return line.referenceId;
+    }
+
+    final match = RegExp(
+      r'(?:فاتورة|invoice)\s*#?\s*(\d+)',
+      caseSensitive: false,
+    ).firstMatch(line.description);
+    if (match != null) {
+      return int.tryParse(match.group(1) ?? '');
+    }
+    return null;
+  }
+
+  Future<void> _handleRowTap(StatementLine line, double mainKarat) async {
+    final invoiceId = _tryExtractInvoiceId(line);
+    if (invoiceId != null) {
+      await _showInvoiceQuickView(invoiceId);
+      return;
+    }
+    _showLineDetails(line, mainKarat);
+  }
+
+  Future<void> _showInvoiceQuickView(int invoiceId) async {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
+      ),
+      builder: (_) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: FutureBuilder<Map<String, dynamic>>(
+              future: ApiService().getInvoiceById(invoiceId),
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const SizedBox(
+                    height: 240,
+                    child: Center(child: CircularProgressIndicator()),
+                  );
+                }
+
+                if (snapshot.hasError || !snapshot.hasData) {
+                  return SizedBox(
+                    height: 240,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            const Icon(Icons.error_outline),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                'تعذر تحميل تفاصيل الفاتورة (#$invoiceId)',
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 16,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        Text(snapshot.error.toString()),
+                      ],
+                    ),
+                  );
+                }
+
+                final invoice = snapshot.data!;
+                final items = (invoice['items'] as List?) ?? const [];
+                final invoiceType = (invoice['invoice_type'] ?? '').toString();
+                final customerName = (invoice['customer_name'] ?? '').toString();
+                final supplierName = (invoice['supplier_name'] ?? '').toString();
+
+                return ConstrainedBox(
+                  constraints: BoxConstraints(
+                    maxHeight: MediaQuery.of(context).size.height * 0.85,
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          const Icon(Icons.receipt_long),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'عرض سريع للفاتورة #$invoiceId',
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 16,
+                              ),
+                            ),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.close),
+                            onPressed: () => Navigator.of(context).pop(),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          if (invoiceType.isNotEmpty)
+                            Chip(label: Text('النوع: $invoiceType')),
+                          if (customerName.isNotEmpty && customerName != 'N/A')
+                            Chip(label: Text('العميل: $customerName')),
+                          if (supplierName.isNotEmpty && supplierName != 'N/A')
+                            Chip(label: Text('المورد: $supplierName')),
+                          Chip(label: Text('الأصناف: ${items.length}')),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      const Divider(height: 1),
+                      const SizedBox(height: 12),
+                      Expanded(
+                        child: items.isEmpty
+                            ? const Center(child: Text('لا توجد أصناف'))
+                            : ListView.separated(
+                                itemCount: items.length,
+                                separatorBuilder: (context, index) =>
+                                    const Divider(height: 1),
+                                itemBuilder: (context, index) {
+                                  final item = items[index];
+                                  if (item is! Map) {
+                                    return ListTile(
+                                      title: Text(item.toString()),
+                                    );
+                                  }
+
+                                  final description =
+                                      (item['description'] ?? item['item_name'] ?? '')
+                                          .toString();
+                                  final karat = (item['karat'] ?? '').toString();
+                                  final weight = item['weight_grams'];
+                                  final weightText = (weight is num)
+                                      ? weight.toDouble().toStringAsFixed(3)
+                                      : (weight?.toString() ?? '');
+
+                                  return ListTile(
+                                    dense: true,
+                                    title: Text(
+                                      description.isEmpty
+                                          ? 'صنف #${index + 1}'
+                                          : description,
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                    subtitle: karat.isEmpty
+                                        ? null
+                                        : Text('عيار: $karat'),
+                                    trailing: weightText.isEmpty
+                                        ? null
+                                        : Text('$weightText جم'),
+                                  );
+                                },
+                              ),
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
+          ),
+        );
+      },
     );
   }
 
@@ -1170,7 +1587,7 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
 
   Widget _buildKaratChip(String label, double debit, double credit) {
     return Chip(
-      backgroundColor: Colors.blueGrey.shade50,
+      backgroundColor: Theme.of(context).colorScheme.surfaceContainerHighest,
       label: Text(
         '$label • مدين ${debit.toStringAsFixed(3)} / دائن ${credit.toStringAsFixed(3)}',
       ),
@@ -1209,6 +1626,7 @@ class _SummaryCard extends StatelessWidget {
   final double cashValue;
   final Color color;
   final IconData icon;
+  final int mainKarat;
 
   const _SummaryCard({
     required this.title,
@@ -1216,16 +1634,21 @@ class _SummaryCard extends StatelessWidget {
     required this.cashValue,
     required this.color,
     required this.icon,
+    required this.mainKarat,
   });
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final textTheme = theme.textTheme;
+    final borderColor = theme.colorScheme.outlineVariant;
 
     return Card(
-      elevation: 3,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(color: borderColor),
+      ),
       child: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Column(
@@ -1260,7 +1683,8 @@ class _SummaryCard extends StatelessWidget {
                   child: _SummaryMetric(
                     label: 'ذهب (جم)',
                     value: goldValue.toStringAsFixed(3),
-                    color: Colors.amber.shade800,
+                    subtitle: 'مكافئ عيار $mainKarat',
+                    color: theme.colorScheme.primary,
                     icon: Icons.scale,
                   ),
                 ),
@@ -1269,7 +1693,7 @@ class _SummaryCard extends StatelessWidget {
                   child: _SummaryMetric(
                     label: 'نقد (ر.س)',
                     value: cashValue.toStringAsFixed(2),
-                    color: Colors.green.shade700,
+                    color: theme.colorScheme.tertiary,
                     icon: Icons.payments,
                   ),
                 ),
@@ -1287,16 +1711,19 @@ class _SummaryMetric extends StatelessWidget {
   final String value;
   final Color color;
   final IconData icon;
+  final String? subtitle;
 
   const _SummaryMetric({
     required this.label,
     required this.value,
     required this.color,
     required this.icon,
+    this.subtitle,
   });
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
@@ -1329,12 +1756,24 @@ class _SummaryMetric extends StatelessWidget {
                   child: Text(
                     value,
                     style: TextStyle(
-                      fontWeight: FontWeight.bold,
+                      fontWeight: FontWeight.w700,
                       color: color,
                       fontSize: 15,
+                      fontFeatures: const [ui.FontFeature.tabularFigures()],
                     ),
                   ),
                 ),
+                if (subtitle != null) ...[
+                  const SizedBox(height: 2),
+                  Text(
+                    subtitle!,
+                    style: theme.textTheme.labelSmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
               ],
             ),
           ),

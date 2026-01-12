@@ -5,10 +5,10 @@ import '../api_service.dart';
 
 /// شاشة إدارة وسائل الدفع المحسّنة بتصميم احترافي
 class PaymentMethodsScreenEnhanced extends StatefulWidget {
-  const PaymentMethodsScreenEnhanced({Key? key}) : super(key: key);
+  const PaymentMethodsScreenEnhanced({super.key});
 
   @override
-  _PaymentMethodsScreenEnhancedState createState() =>
+  State<PaymentMethodsScreenEnhanced> createState() =>
       _PaymentMethodsScreenEnhancedState();
 }
 
@@ -97,14 +97,14 @@ class _PaymentMethodsScreenEnhancedState
           'description': 'استرجاع مشتريات الكسر من العميل',
         },
         {
-          'value': 'شراء من مورد',
-          'name_ar': 'شراء من مورد',
+          'value': 'شراء',
+          'name_ar': 'شراء',
           'category': 'accounting',
           'description': 'شراء ذهب جديد من المورد',
         },
         {
-          'value': 'مرتجع شراء من مورد',
-          'name_ar': 'مرتجع شراء من مورد',
+          'value': 'مرتجع شراء (مورد)',
+          'name_ar': 'مرتجع شراء (مورد)',
           'category': 'accounting',
           'description': 'استرجاع مشتريات من المورد',
         },
@@ -381,7 +381,9 @@ class _PaymentMethodsScreenEnhancedState
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(16),
             side: BorderSide(
-              color: isActive ? color.withValues(alpha: 0.3) : Colors.grey.shade300,
+              color: isActive
+                  ? color.withValues(alpha: 0.3)
+                  : Colors.grey.shade300,
               width: 2,
             ),
           ),
@@ -390,7 +392,9 @@ class _PaymentMethodsScreenEnhancedState
               borderRadius: BorderRadius.circular(16),
               gradient: LinearGradient(
                 colors: [
-                  isActive ? color.withValues(alpha: 0.05) : Colors.grey.shade100,
+                  isActive
+                      ? color.withValues(alpha: 0.05)
+                      : Colors.grey.shade100,
                   Colors.white,
                 ],
                 begin: Alignment.topLeft,
@@ -710,14 +714,14 @@ class _PaymentMethodsScreenEnhancedState
   }
 
   void _showPaymentMethodDialog({Map<String, dynamic>? editingMethod}) async {
-    final _formKey = GlobalKey<FormState>();
-    final _nameController = TextEditingController(
+    final formKey = GlobalKey<FormState>();
+    final nameController = TextEditingController(
       text: editingMethod?['name'] ?? '',
     );
-    final _commissionController = TextEditingController(
+    final commissionController = TextEditingController(
       text: (editingMethod?['commission_rate']?.toDouble() ?? 0.0).toString(),
     );
-    final _settlementDaysController = TextEditingController(
+    final settlementDaysController = TextEditingController(
       text: (editingMethod?['settlement_days'] ?? 0).toString(),
     );
 
@@ -780,13 +784,13 @@ class _PaymentMethodsScreenEnhancedState
           ),
           content: SingleChildScrollView(
             child: Form(
-              key: _formKey,
+              key: formKey,
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   // نوع وسيلة الدفع
                   DropdownButtonFormField<String>(
-                    value: selectedType,
+                    initialValue: selectedType,
                     decoration: InputDecoration(
                       labelText: 'نوع وسيلة الدفع *',
                       prefixIcon: Icon(Icons.category, color: _accentColor),
@@ -822,7 +826,7 @@ class _PaymentMethodsScreenEnhancedState
 
                   // اسم وسيلة الدفع
                   TextFormField(
-                    controller: _nameController,
+                    controller: nameController,
                     decoration: InputDecoration(
                       labelText: 'اسم وسيلة الدفع *',
                       hintText: 'مثال: مدى - بنك الراجحي',
@@ -841,7 +845,7 @@ class _PaymentMethodsScreenEnhancedState
 
                   // نسبة العمولة
                   TextFormField(
-                    controller: _commissionController,
+                    controller: commissionController,
                     decoration: InputDecoration(
                       labelText: 'نسبة العمولة (%)',
                       hintText: '2.5',
@@ -859,7 +863,7 @@ class _PaymentMethodsScreenEnhancedState
 
                   // أيام التسوية
                   TextFormField(
-                    controller: _settlementDaysController,
+                    controller: settlementDaysController,
                     decoration: InputDecoration(
                       labelText: 'أيام التسوية',
                       hintText: '0',
@@ -966,7 +970,9 @@ class _PaymentMethodsScreenEnhancedState
                                           : Colors.grey.shade300,
                                     ),
                                   ),
-                                  selectedColor: _accentColor.withValues(alpha: 0.15),
+                                  selectedColor: _accentColor.withValues(
+                                    alpha: 0.15,
+                                  ),
                                 );
                               })
                               .where((chip) => chip is! SizedBox)
@@ -1024,7 +1030,7 @@ class _PaymentMethodsScreenEnhancedState
                         style: TextStyle(fontSize: 12),
                       ),
                       value: isActive,
-                      activeColor: _successColor,
+                      activeThumbColor: _successColor,
                       onChanged: (value) {
                         setDialogState(() => isActive = value);
                       },
@@ -1041,13 +1047,13 @@ class _PaymentMethodsScreenEnhancedState
             ),
             ElevatedButton.icon(
               onPressed: () async {
-                if (_formKey.currentState!.validate()) {
+                if (formKey.currentState!.validate()) {
                   try {
-                    final name = _nameController.text.trim();
+                    final name = nameController.text.trim();
                     final commissionRate =
-                        double.tryParse(_commissionController.text) ?? 0.0;
+                        double.tryParse(commissionController.text) ?? 0.0;
                     final settlementDays =
-                        int.tryParse(_settlementDaysController.text) ?? 0; // 🆕
+                        int.tryParse(settlementDaysController.text) ?? 0; // 🆕
                     final invoiceTypeList = selectedInvoiceTypes.toList();
 
                     if (invoiceTypeList.isEmpty) {

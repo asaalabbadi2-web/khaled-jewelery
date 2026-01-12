@@ -18,11 +18,7 @@ class InvoiceTypeModel {
   }
 
   Map<String, dynamic> toJson() {
-    return {
-      'value': value,
-      'label': label,
-      'description': description,
-    };
+    return {'value': value, 'label': label, 'description': description};
   }
 
   @override

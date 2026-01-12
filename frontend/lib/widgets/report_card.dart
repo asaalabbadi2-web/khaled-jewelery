@@ -40,12 +40,12 @@ class ReportCard extends StatelessWidget {
         ),
         padding: const EdgeInsets.all(16),
         child: Column(
-          crossAxisAlignment:
-              isArabic ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+          crossAxisAlignment: isArabic
+              ? CrossAxisAlignment.end
+              : CrossAxisAlignment.start,
           children: [
             Row(
-              textDirection:
-                  isArabic ? TextDirection.rtl : TextDirection.ltr,
+              textDirection: isArabic ? TextDirection.rtl : TextDirection.ltr,
               children: [
                 Container(
                   width: 44,
@@ -54,8 +54,11 @@ class ReportCard extends StatelessWidget {
                     color: theme.colorScheme.primary.withValues(alpha: 0.08),
                     borderRadius: BorderRadius.circular(12),
                   ),
-                  child: Icon(report.icon,
-                      color: theme.colorScheme.primary, size: 26),
+                  child: Icon(
+                    report.icon,
+                    color: theme.colorScheme.primary,
+                    size: 26,
+                  ),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
@@ -74,7 +77,9 @@ class ReportCard extends StatelessWidget {
                       Text(
                         description,
                         style: theme.textTheme.bodyMedium?.copyWith(
-                          color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
+                          color: theme.colorScheme.onSurface.withValues(
+                            alpha: 0.7,
+                          ),
                         ),
                       ),
                     ],
@@ -84,16 +89,18 @@ class ReportCard extends StatelessWidget {
             ),
             const SizedBox(height: 16),
             Align(
-              alignment:
-                  isArabic ? Alignment.centerLeft : Alignment.centerRight,
+              alignment: isArabic
+                  ? Alignment.centerLeft
+                  : Alignment.centerRight,
               child: Wrap(
                 spacing: 8,
                 crossAxisAlignment: WrapCrossAlignment.center,
-                textDirection:
-                    isArabic ? TextDirection.rtl : TextDirection.ltr,
+                textDirection: isArabic ? TextDirection.rtl : TextDirection.ltr,
                 children: [
-                  _buildTag(context,
-                      report.requiresFilters ? 'فلترة مطلوبة' : 'بدون فلترة'),
+                  _buildTag(
+                    context,
+                    report.requiresFilters ? 'فلترة مطلوبة' : 'بدون فلترة',
+                  ),
                   if (!report.available)
                     _buildTag(context, 'قريباً', isWarning: true),
                 ],
@@ -105,7 +112,11 @@ class ReportCard extends StatelessWidget {
     );
   }
 
-  Widget _buildTag(BuildContext context, String label, {bool isWarning = false}) {
+  Widget _buildTag(
+    BuildContext context,
+    String label, {
+    bool isWarning = false,
+  }) {
     final theme = Theme.of(context);
     final bg = isWarning
         ? theme.colorScheme.secondary.withValues(alpha: 0.12)

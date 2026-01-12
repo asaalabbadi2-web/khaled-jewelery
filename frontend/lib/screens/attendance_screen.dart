@@ -487,7 +487,7 @@ class _AttendanceFormDialogState extends State<AttendanceFormDialog> {
                   ),
                 ),
                 DropdownButtonFormField<String>(
-                  value: _status,
+                  initialValue: _status,
                   items: const [
                     DropdownMenuItem(value: 'present', child: Text('Present')),
                     DropdownMenuItem(value: 'absent', child: Text('Absent')),

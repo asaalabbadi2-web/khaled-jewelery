@@ -68,16 +68,16 @@ class _InvoicesListScreenState extends State<InvoicesListScreen> {
     'sell': 'SELL',
     'sale': 'SELL',
     'شراء من عميل': 'BUY',
-    'شراء': 'BUY',
+    // Supplier purchase (worked gold)
+    'شراء': 'SUPP',
     'buy': 'BUY',
     'purchase': 'BUY',
     'مرتجع بيع': 'RETSELL',
     'sales return': 'RETSELL',
     'مرتجع شراء': 'RETBUY',
     'purchase return': 'RETBUY',
-    'شراء من مورد': 'SUPP',
     'supplier purchase': 'SUPP',
-    'مرتجع شراء من مورد': 'RETSUPP',
+    'مرتجع شراء (مورد)': 'RETSUPP',
     'supplier purchase return': 'RETSUPP',
   };
 
@@ -1288,7 +1288,6 @@ class _InvoicesListScreenState extends State<InvoicesListScreen> {
   List<Map<String, String>> _buildInvoiceTypeItems(bool isArabic) {
     const defaultOrder = [
       'شراء',
-      'شراء من مورد',
       'شراء من عميل',
       'شراء خردة',
       'شراء مستعمل',
@@ -1296,7 +1295,7 @@ class _InvoicesListScreenState extends State<InvoicesListScreen> {
       'بيع جديد',
       'بيع مستعمل',
       'مرتجع شراء',
-      'مرتجع شراء من مورد',
+      'مرتجع شراء (مورد)',
       'مرتجع شراء من عميل',
       'مرتجع بيع',
       'مرتجع بيع خردة',
@@ -1305,7 +1304,6 @@ class _InvoicesListScreenState extends State<InvoicesListScreen> {
 
     const englishLabels = {
       'شراء': 'Purchase',
-      'شراء من مورد': 'Purchase (Supplier)',
       'شراء من عميل': 'Purchase (Customer)',
       'شراء خردة': 'Scrap Purchase',
       'شراء مستعمل': 'Used Gold Purchase',
@@ -1313,7 +1311,7 @@ class _InvoicesListScreenState extends State<InvoicesListScreen> {
       'بيع جديد': 'New Sale',
       'بيع مستعمل': 'Used Sale',
       'مرتجع شراء': 'Purchase Return',
-      'مرتجع شراء من مورد': 'Supplier Purchase Return',
+      'مرتجع شراء (مورد)': 'Supplier Purchase Return',
       'مرتجع شراء من عميل': 'Customer Purchase Return',
       'مرتجع بيع': 'Sales Return',
       'مرتجع بيع خردة': 'Scrap Sales Return',
@@ -2211,7 +2209,7 @@ class _InvoicesListScreenState extends State<InvoicesListScreen> {
                             ),
                           ),
                         );
-                      }).toList(),
+                      }),
 
                     const SizedBox(height: 12),
 
@@ -2446,7 +2444,7 @@ class _InvoicesListScreenState extends State<InvoicesListScreen> {
     if (t.contains('مرتجع')) return null;
     if (t == 'بيع' || t.toLowerCase() == 'sell') return 'مرتجع بيع';
     if (t == 'شراء من عميل') return 'مرتجع شراء';
-    if (t == 'شراء من مورد') return 'مرتجع شراء من مورد';
+    if (t == 'شراء') return 'مرتجع شراء (مورد)';
     return null;
   }
 
@@ -2555,7 +2553,7 @@ class _InvoicesListScreenState extends State<InvoicesListScreen> {
                 ),
                 const SizedBox(height: 12),
                 DropdownButtonFormField<int>(
-                  value: selectedMethodId,
+                  initialValue: selectedMethodId,
                   decoration: InputDecoration(
                     labelText: isAr ? 'وسيلة الدفع' : 'Payment Method',
                   ),
@@ -2819,7 +2817,7 @@ class _InvoicesListScreenState extends State<InvoicesListScreen> {
             'target': _InvoiceCreationTarget.supplierPurchase,
             'icon': Icons.business_center,
             'color': Colors.purple,
-            'title': isAr ? 'شراء من مورد' : 'Supplier Purchase',
+            'title': isAr ? 'شراء' : 'Supplier Purchase',
             'subtitle': isAr ? 'توريدات من التجار' : 'Bulk supplier orders',
           },
           {
@@ -2840,7 +2838,7 @@ class _InvoicesListScreenState extends State<InvoicesListScreen> {
             'target': _InvoiceCreationTarget.supplierReturn,
             'icon': Icons.assignment_return,
             'color': Colors.teal,
-            'title': isAr ? 'مرتجع شراء من مورد' : 'Supplier Purchase Return',
+            'title': isAr ? 'مرتجع شراء (مورد)' : 'Supplier Purchase Return',
             'subtitle': isAr ? 'إرجاع مورد' : 'Supplier returns',
           },
         ];
@@ -2964,7 +2962,7 @@ class _InvoicesListScreenState extends State<InvoicesListScreen> {
           MaterialPageRoute(
             builder: (_) => AddReturnInvoiceScreen(
               api: _apiService,
-              returnType: 'مرتجع شراء من مورد',
+              returnType: 'مرتجع شراء (مورد)',
             ),
           ),
         );

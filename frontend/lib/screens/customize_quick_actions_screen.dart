@@ -13,7 +13,7 @@ class _AddActionResult {
 
 /// شاشة تخصيص أزرار الوصول السريع في الشاشة الرئيسية
 class CustomizeQuickActionsScreen extends StatefulWidget {
-  const CustomizeQuickActionsScreen({Key? key}) : super(key: key);
+  const CustomizeQuickActionsScreen({super.key});
 
   @override
   State<CustomizeQuickActionsScreen> createState() =>
@@ -287,7 +287,9 @@ class _CustomizeQuickActionsScreenState
         leading: Container(
           padding: const EdgeInsets.all(8),
           decoration: BoxDecoration(
-            color: action.getColor().withValues(alpha: action.isActive ? 0.15 : 0.05),
+            color: action.getColor().withValues(
+              alpha: action.isActive ? 0.15 : 0.05,
+            ),
             borderRadius: BorderRadius.circular(8),
           ),
           child: Icon(
@@ -310,7 +312,7 @@ class _CustomizeQuickActionsScreenState
         ),
         trailing: Switch(
           value: action.isActive,
-          activeColor: AppColors.success,
+          activeThumbColor: AppColors.success,
           onChanged: (value) async {
             final success = await provider.toggleAction(action.id);
             if (success && mounted) {
@@ -344,7 +346,7 @@ class _CustomizeQuickActionsScreenState
       builder: (context) => Directionality(
         textDirection: TextDirection.rtl,
         child: AlertDialog(
-          backgroundColor: theme.dialogBackgroundColor,
+          backgroundColor: theme.dialogTheme.backgroundColor ?? theme.colorScheme.surface,
           title: Row(
             children: [
               Icon(Icons.warning_amber_rounded, color: AppColors.warning),
@@ -411,7 +413,7 @@ class _CustomizeQuickActionsScreenState
     final result = await showModalBottomSheet<_AddActionResult>(
       context: context,
       isScrollControlled: true,
-      backgroundColor: Theme.of(context).dialogBackgroundColor,
+      backgroundColor: Theme.of(context).dialogTheme.backgroundColor ?? Theme.of(context).colorScheme.surface,
       builder: (sheetContext) {
         final sheetTheme = Theme.of(sheetContext);
 
@@ -482,7 +484,7 @@ class _CustomizeQuickActionsScreenState
                                   16,
                                 ),
                                 itemCount: filteredItems.length,
-                                separatorBuilder: (_, __) =>
+                                separatorBuilder: (context, index) =>
                                     const SizedBox(height: 12),
                                 itemBuilder: (_, index) {
                                   final action = filteredItems[index];
@@ -512,7 +514,9 @@ class _CustomizeQuickActionsScreenState
                                       leading: Container(
                                         padding: const EdgeInsets.all(8),
                                         decoration: BoxDecoration(
-                                          color: actionColor.withValues(alpha: 0.12),
+                                          color: actionColor.withValues(
+                                            alpha: 0.12,
+                                          ),
                                           borderRadius: BorderRadius.circular(
                                             8,
                                           ),

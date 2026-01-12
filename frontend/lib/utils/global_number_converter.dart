@@ -5,14 +5,17 @@ import 'arabic_number_formatter.dart';
 /// Mixin يمكن إضافته لأي Widget لتطبيق تحويل الأرقام تلقائياً
 mixin AutoNumberConversion {
   /// يضيف formatter لتحويل الأرقام إلى قائمة formatters موجودة
-  List<TextInputFormatter> addNumberConversion(List<TextInputFormatter>? existingFormatters) {
+  List<TextInputFormatter> addNumberConversion(
+    List<TextInputFormatter>? existingFormatters,
+  ) {
     final formatters = existingFormatters ?? [];
     // تحقق من عدم وجود formatter مشابه بالفعل
-    final hasNumberFormatter = formatters.any((f) => 
-      f is UniversalNumberTextInputFormatter || 
-      f is ArabicNumberTextInputFormatter
+    final hasNumberFormatter = formatters.any(
+      (f) =>
+          f is UniversalNumberTextInputFormatter ||
+          f is ArabicNumberTextInputFormatter,
     );
-    
+
     if (!hasNumberFormatter) {
       return [const UniversalNumberTextInputFormatter(), ...formatters];
     }
@@ -67,11 +70,12 @@ class UniversalTextField extends StatelessWidget {
 
   List<TextInputFormatter> _buildFormatters() {
     final formatters = inputFormatters ?? [];
-    final hasNumberFormatter = formatters.any((f) => 
-      f is UniversalNumberTextInputFormatter || 
-      f is ArabicNumberTextInputFormatter
+    final hasNumberFormatter = formatters.any(
+      (f) =>
+          f is UniversalNumberTextInputFormatter ||
+          f is ArabicNumberTextInputFormatter,
     );
-    
+
     if (!hasNumberFormatter) {
       return [const UniversalNumberTextInputFormatter(), ...formatters];
     }
@@ -117,13 +121,16 @@ class UniversalTextField extends StatelessWidget {
 }
 
 /// Helper function لإضافة تحويل الأرقام لأي TextField أو TextFormField
-List<TextInputFormatter> withNumberConversion([List<TextInputFormatter>? formatters]) {
+List<TextInputFormatter> withNumberConversion([
+  List<TextInputFormatter>? formatters,
+]) {
   final list = formatters ?? [];
-  final hasNumberFormatter = list.any((f) => 
-    f is UniversalNumberTextInputFormatter || 
-    f is ArabicNumberTextInputFormatter
+  final hasNumberFormatter = list.any(
+    (f) =>
+        f is UniversalNumberTextInputFormatter ||
+        f is ArabicNumberTextInputFormatter,
   );
-  
+
   if (!hasNumberFormatter) {
     return [const UniversalNumberTextInputFormatter(), ...list];
   }

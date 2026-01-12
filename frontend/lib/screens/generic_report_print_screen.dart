@@ -69,16 +69,16 @@ class _GenericReportPrintScreenState extends State<GenericReportPrintScreen> {
       body: _isGenerating
           ? const Center(child: CircularProgressIndicator())
           : kIsWeb
-              ? _buildWebPreview()
-              : PdfPreview(
-                  build: (format) => _generatePdf(format),
-                  canChangePageFormat: true,
-                  allowPrinting: true,
-                  allowSharing: true,
-                  initialPageFormat: _getPdfPageFormat(),
-                  pdfFileName:
-                      '${widget.reportType}_${DateFormat('yyyyMMdd').format(DateTime.now())}.pdf',
-                ),
+          ? _buildWebPreview()
+          : PdfPreview(
+              build: (format) => _generatePdf(format),
+              canChangePageFormat: true,
+              allowPrinting: true,
+              allowSharing: true,
+              initialPageFormat: _getPdfPageFormat(),
+              pdfFileName:
+                  '${widget.reportType}_${DateFormat('yyyyMMdd').format(DateTime.now())}.pdf',
+            ),
     );
   }
 
@@ -89,28 +89,18 @@ class _GenericReportPrintScreenState extends State<GenericReportPrintScreen> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Icon(
-              Icons.assessment,
-              size: 80,
-              color: Color(0xFFD4AF37),
-            ),
+            const Icon(Icons.assessment, size: 80, color: Color(0xFFD4AF37)),
             const SizedBox(height: 24),
             Text(
               widget.reportTitle,
-              style: const TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.bold,
-              ),
+              style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 12),
             Text(
               widget.isArabic
                   ? 'اضغط على زر التحميل أعلاه لحفظ التقرير كـ PDF'
                   : 'Click the download button above to save the report as PDF',
-              style: TextStyle(
-                fontSize: 16,
-                color: Colors.grey.shade600,
-              ),
+              style: TextStyle(fontSize: 16, color: Colors.grey.shade600),
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 32),
@@ -151,10 +141,7 @@ class _GenericReportPrintScreenState extends State<GenericReportPrintScreen> {
           children: [
             Row(
               children: [
-                const Icon(
-                  Icons.assessment,
-                  color: Color(0xFFD4AF37),
-                ),
+                const Icon(Icons.assessment, color: Color(0xFFD4AF37)),
                 const SizedBox(width: 12),
                 Text(
                   widget.isArabic ? 'ملخص التقرير' : 'Report Summary',
@@ -199,10 +186,7 @@ class _GenericReportPrintScreenState extends State<GenericReportPrintScreen> {
         children: [
           Text(
             label,
-            style: TextStyle(
-              color: Colors.grey.shade700,
-              fontSize: 14,
-            ),
+            style: TextStyle(color: Colors.grey.shade700, fontSize: 14),
           ),
           Text(
             value,
@@ -287,8 +271,9 @@ class _GenericReportPrintScreenState extends State<GenericReportPrintScreen> {
     pdf.addPage(
       pw.Page(
         pageFormat: format,
-        textDirection:
-            widget.isArabic ? pw.TextDirection.rtl : pw.TextDirection.ltr,
+        textDirection: widget.isArabic
+            ? pw.TextDirection.rtl
+            : pw.TextDirection.ltr,
         theme: pw.ThemeData.withFont(
           base: await PdfGoogleFonts.cairoRegular(),
           bold: await PdfGoogleFonts.cairoBold(),
@@ -317,10 +302,7 @@ class _GenericReportPrintScreenState extends State<GenericReportPrintScreen> {
               pw.Center(
                 child: pw.Text(
                   '${widget.isArabic ? 'تاريخ الطباعة' : 'Printed on'}: ${DateFormat('yyyy-MM-dd HH:mm').format(DateTime.now())}',
-                  style: pw.TextStyle(
-                    fontSize: 10,
-                    color: PdfColors.grey600,
-                  ),
+                  style: pw.TextStyle(fontSize: 10, color: PdfColors.grey600),
                 ),
               ),
             ],
@@ -420,16 +402,10 @@ class _GenericReportPrintScreenState extends State<GenericReportPrintScreen> {
       child: pw.Row(
         mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
         children: [
-          pw.Text(
-            label,
-            style: const pw.TextStyle(fontSize: 11),
-          ),
+          pw.Text(label, style: const pw.TextStyle(fontSize: 11)),
           pw.Text(
             value,
-            style: pw.TextStyle(
-              fontSize: 11,
-              fontWeight: pw.FontWeight.bold,
-            ),
+            style: pw.TextStyle(fontSize: 11, fontWeight: pw.FontWeight.bold),
           ),
         ],
       ),

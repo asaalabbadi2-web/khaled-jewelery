@@ -17,7 +17,8 @@ class AnalyticsDashboardScreen extends StatefulWidget {
   });
 
   @override
-  State<AnalyticsDashboardScreen> createState() => _AnalyticsDashboardScreenState();
+  State<AnalyticsDashboardScreen> createState() =>
+      _AnalyticsDashboardScreenState();
 }
 
 class _AnalyticsDashboardScreenState extends State<AnalyticsDashboardScreen> {
@@ -114,7 +115,9 @@ class _AnalyticsDashboardScreenState extends State<AnalyticsDashboardScreen> {
 
       final results = await Future.wait(futures);
       final result = results[0];
-      final transactionResult = _groupBy == 'transaction_type' ? result : results[1];
+      final transactionResult = _groupBy == 'transaction_type'
+          ? result
+          : results[1];
 
       if (!mounted) return;
       setState(() {
@@ -146,11 +149,9 @@ class _AnalyticsDashboardScreenState extends State<AnalyticsDashboardScreen> {
 
   Future<void> _pickDateRange() async {
     final now = DateTime.now();
-    final initialRange = _selectedRange ??
-        DateTimeRange(
-          start: now.subtract(const Duration(days: 29)),
-          end: now,
-        );
+    final initialRange =
+        _selectedRange ??
+        DateTimeRange(start: now.subtract(const Duration(days: 29)), end: now);
 
     final picked = await showDateRangePicker(
       context: context,
@@ -198,8 +199,8 @@ class _AnalyticsDashboardScreenState extends State<AnalyticsDashboardScreen> {
           child: _isLoading
               ? const Center(child: CircularProgressIndicator())
               : _error != null
-                  ? _buildErrorState()
-                  : _buildContent(),
+              ? _buildErrorState()
+              : _buildContent(),
         ),
       ),
     );
@@ -276,8 +277,9 @@ class _AnalyticsDashboardScreenState extends State<AnalyticsDashboardScreen> {
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
-          crossAxisAlignment:
-              isArabic ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+          crossAxisAlignment: isArabic
+              ? CrossAxisAlignment.end
+              : CrossAxisAlignment.start,
           children: [
             Text(
               isArabic ? 'خيارات التحليل' : 'Analytics Options',
@@ -289,8 +291,9 @@ class _AnalyticsDashboardScreenState extends State<AnalyticsDashboardScreen> {
               children: [
                 Expanded(
                   child: Column(
-                    crossAxisAlignment:
-                        isArabic ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+                    crossAxisAlignment: isArabic
+                        ? CrossAxisAlignment.end
+                        : CrossAxisAlignment.start,
                     children: [
                       Text(
                         isArabic ? 'الفترة الزمنية' : 'Date range',
@@ -393,13 +396,13 @@ class _AnalyticsDashboardScreenState extends State<AnalyticsDashboardScreen> {
         totalWeightMain += _asDouble(raw['weight_main']);
         totalWeightOutMain += _asDouble(raw['weight_out_main']);
         totalWeightInMain += _asDouble(raw['weight_in_main']);
-
       }
     }
 
     for (final raw in txItems) {
       if (raw is Map<String, dynamic>) {
-        final category = (raw['transaction_category'] ?? raw['group'] ?? '').toString();
+        final category = (raw['transaction_category'] ?? raw['group'] ?? '')
+            .toString();
         if (category == 'بيع') {
           // مبيعات الذهب = وزن خارج من المخزون لمعاملات البيع
           totalGoldSalesMain += _asDouble(raw['weight_out_main']);
@@ -416,8 +419,9 @@ class _AnalyticsDashboardScreenState extends State<AnalyticsDashboardScreen> {
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
-          crossAxisAlignment:
-              isArabic ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+          crossAxisAlignment: isArabic
+              ? CrossAxisAlignment.end
+              : CrossAxisAlignment.start,
           children: [
             Text(
               isArabic ? 'ملخص الفترة' : 'Period Summary',
@@ -428,8 +432,9 @@ class _AnalyticsDashboardScreenState extends State<AnalyticsDashboardScreen> {
               children: [
                 Expanded(
                   child: _buildSummaryTile(
-                    title:
-                        isArabic ? 'إجمالي الوزن بالعيار الرئيسي' : 'Total Main-Karat Weight',
+                    title: isArabic
+                        ? 'إجمالي الوزن بالعيار الرئيسي'
+                        : 'Total Main-Karat Weight',
                     value: _formatWeight(totalWeightMain),
                     icon: Icons.balance,
                     color: Colors.blue.shade600,
@@ -447,7 +452,9 @@ class _AnalyticsDashboardScreenState extends State<AnalyticsDashboardScreen> {
                 const SizedBox(width: 12),
                 Expanded(
                   child: _buildSummaryTile(
-                    title: isArabic ? 'إجمالي التدفق النقدي' : 'Total Cash Flow',
+                    title: isArabic
+                        ? 'إجمالي التدفق النقدي'
+                        : 'Total Cash Flow',
                     value: _formatCurrency(totalCash),
                     icon: Icons.payments,
                     color: Colors.green.shade600,
@@ -645,18 +652,18 @@ class _AnalyticsDashboardScreenState extends State<AnalyticsDashboardScreen> {
           x: i,
           barRods: [
             BarChartRodData(
-                toY: value,
-                color: _chartMetric == 'amount_cash'
-                    ? Colors.teal.shade600
-                    : _chartMetric == 'cash_in'
-                        ? Colors.green.shade600
-                        : _chartMetric == 'cash_out'
-                            ? Colors.red.shade600
-                            : _chartMetric == 'weight_out_main'
-                                ? Colors.red.shade600
-                                : _chartMetric == 'weight_in_main'
-                                    ? Colors.green.shade700
-                                    : Colors.amber.shade700,
+              toY: value,
+              color: _chartMetric == 'amount_cash'
+                  ? Colors.teal.shade600
+                  : _chartMetric == 'cash_in'
+                  ? Colors.green.shade600
+                  : _chartMetric == 'cash_out'
+                  ? Colors.red.shade600
+                  : _chartMetric == 'weight_out_main'
+                  ? Colors.red.shade600
+                  : _chartMetric == 'weight_in_main'
+                  ? Colors.green.shade700
+                  : Colors.amber.shade700,
               width: 14,
               borderRadius: BorderRadius.circular(4),
             ),
@@ -689,8 +696,9 @@ class _AnalyticsDashboardScreenState extends State<AnalyticsDashboardScreen> {
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
-          crossAxisAlignment:
-              isArabic ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+          crossAxisAlignment: isArabic
+              ? CrossAxisAlignment.end
+              : CrossAxisAlignment.start,
           children: [
             Row(
               children: [
@@ -759,25 +767,15 @@ class _AnalyticsDashboardScreenState extends State<AnalyticsDashboardScreen> {
                     ),
                     Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 12),
-                      child: Text(
-                        isArabic
-                            ? 'الكاش الداخل'
-                            : 'Cash In',
-                      ),
+                      child: Text(isArabic ? 'الكاش الداخل' : 'Cash In'),
                     ),
                     Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 12),
-                      child: Text(
-                        isArabic
-                            ? 'الكاش الخارج'
-                            : 'Cash Out',
-                      ),
+                      child: Text(isArabic ? 'الكاش الخارج' : 'Cash Out'),
                     ),
                     Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 12),
-                      child: Text(
-                        isArabic ? 'صافي الكاش' : 'Net Cash',
-                      ),
+                      child: Text(isArabic ? 'صافي الكاش' : 'Net Cash'),
                     ),
                   ],
                 ),
@@ -792,13 +790,17 @@ class _AnalyticsDashboardScreenState extends State<AnalyticsDashboardScreen> {
                   borderData: FlBorderData(show: false),
                   titlesData: FlTitlesData(
                     leftTitles: AxisTitles(
-                      sideTitles:
-                          SideTitles(showTitles: true, reservedSize: 40),
+                      sideTitles: SideTitles(
+                        showTitles: true,
+                        reservedSize: 40,
+                      ),
                     ),
                     rightTitles: const AxisTitles(
-                        sideTitles: SideTitles(showTitles: false)),
+                      sideTitles: SideTitles(showTitles: false),
+                    ),
                     topTitles: const AxisTitles(
-                        sideTitles: SideTitles(showTitles: false)),
+                      sideTitles: SideTitles(showTitles: false),
+                    ),
                     bottomTitles: AxisTitles(
                       sideTitles: SideTitles(
                         showTitles: true,
@@ -855,7 +857,8 @@ class _AnalyticsDashboardScreenState extends State<AnalyticsDashboardScreen> {
 
     for (final raw in items) {
       if (raw is! Map<String, dynamic>) continue;
-      final category = (raw['transaction_category'] ?? raw['group'] ?? '').toString();
+      final category = (raw['transaction_category'] ?? raw['group'] ?? '')
+          .toString();
       if (category == 'بيع') {
         totalGoldSalesMain += _asDouble(raw['weight_out_main']);
       } else if (category == 'شراء من عميل') {
@@ -918,8 +921,9 @@ class _AnalyticsDashboardScreenState extends State<AnalyticsDashboardScreen> {
         ],
       ),
     );
-    labels[1] =
-        isArabic ? 'ذهب مشتَرى من العملاء' : 'Gold Bought from Customers';
+    labels[1] = isArabic
+        ? 'ذهب مشتَرى من العملاء'
+        : 'Gold Bought from Customers';
 
     if (maxValue == 0) {
       return Card(
@@ -944,17 +948,15 @@ class _AnalyticsDashboardScreenState extends State<AnalyticsDashboardScreen> {
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
-          crossAxisAlignment:
-              isArabic ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+          crossAxisAlignment: isArabic
+              ? CrossAxisAlignment.end
+              : CrossAxisAlignment.start,
           children: [
             Text(
               isArabic
                   ? 'مقارنة الذهب المشتَرى من العملاء مقابل الذهب المباع'
                   : 'Customer Scrap vs Gold Sales Comparison',
-              style: const TextStyle(
-                fontWeight: FontWeight.bold,
-                fontSize: 16,
-              ),
+              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
             ),
             const SizedBox(height: 16),
             SizedBox(
@@ -965,13 +967,17 @@ class _AnalyticsDashboardScreenState extends State<AnalyticsDashboardScreen> {
                   borderData: FlBorderData(show: false),
                   titlesData: FlTitlesData(
                     leftTitles: AxisTitles(
-                      sideTitles:
-                          SideTitles(showTitles: true, reservedSize: 40),
+                      sideTitles: SideTitles(
+                        showTitles: true,
+                        reservedSize: 40,
+                      ),
                     ),
                     rightTitles: const AxisTitles(
-                        sideTitles: SideTitles(showTitles: false)),
+                      sideTitles: SideTitles(showTitles: false),
+                    ),
                     topTitles: const AxisTitles(
-                        sideTitles: SideTitles(showTitles: false)),
+                      sideTitles: SideTitles(showTitles: false),
+                    ),
                     bottomTitles: AxisTitles(
                       sideTitles: SideTitles(
                         showTitles: true,
@@ -1009,8 +1015,9 @@ class _AnalyticsDashboardScreenState extends State<AnalyticsDashboardScreen> {
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
-          crossAxisAlignment:
-              isArabic ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+          crossAxisAlignment: isArabic
+              ? CrossAxisAlignment.end
+              : CrossAxisAlignment.start,
           children: [
             Text(
               isArabic ? 'التفاصيل التحليلية' : 'Analytical Breakdown',
@@ -1021,12 +1028,9 @@ class _AnalyticsDashboardScreenState extends State<AnalyticsDashboardScreen> {
               scrollDirection: Axis.horizontal,
               child: DataTable(
                 columns: [
+                  DataColumn(label: Text(isArabic ? 'المجموعة' : 'Group')),
                   DataColumn(
-                    label: Text(isArabic ? 'المجموعة' : 'Group'),
-                  ),
-                  DataColumn(
-                    label:
-                        Text(isArabic ? 'الوزن 24k' : '24k Weight (grams)'),
+                    label: Text(isArabic ? 'الوزن 24k' : '24k Weight (grams)'),
                   ),
                   DataColumn(
                     label: Text(
@@ -1034,31 +1038,19 @@ class _AnalyticsDashboardScreenState extends State<AnalyticsDashboardScreen> {
                     ),
                   ),
                   DataColumn(
-                    label: Text(
-                      isArabic
-                          ? 'الخارج 24k'
-                          : 'Outbound 24k',
-                    ),
+                    label: Text(isArabic ? 'الخارج 24k' : 'Outbound 24k'),
                   ),
                   DataColumn(
                     label: Text(
-                      isArabic
-                          ? 'الخارج (عيار رئيسي)'
-                          : 'Outbound (Main)',
+                      isArabic ? 'الخارج (عيار رئيسي)' : 'Outbound (Main)',
                     ),
                   ),
                   DataColumn(
-                    label: Text(
-                      isArabic
-                          ? 'الداخل 24k'
-                          : 'Inbound 24k',
-                    ),
+                    label: Text(isArabic ? 'الداخل 24k' : 'Inbound 24k'),
                   ),
                   DataColumn(
                     label: Text(
-                      isArabic
-                          ? 'الداخل (عيار رئيسي)'
-                          : 'Inbound (Main)',
+                      isArabic ? 'الداخل (عيار رئيسي)' : 'Inbound (Main)',
                     ),
                   ),
                   DataColumn(
@@ -1068,7 +1060,9 @@ class _AnalyticsDashboardScreenState extends State<AnalyticsDashboardScreen> {
                     label: Text(isArabic ? 'الكاش الخارج' : 'Cash Out'),
                   ),
                   DataColumn(
-                    label: Text(isArabic ? 'صافي التدفق النقدي' : 'Net Cash Flow'),
+                    label: Text(
+                      isArabic ? 'صافي التدفق النقدي' : 'Net Cash Flow',
+                    ),
                   ),
                   DataColumn(
                     numeric: true,
@@ -1081,24 +1075,32 @@ class _AnalyticsDashboardScreenState extends State<AnalyticsDashboardScreen> {
                       DataRow(
                         cells: [
                           DataCell(Text((raw['group'] ?? '').toString())),
-                          DataCell(Text(
-                            _formatWeight(_asDouble(raw['weight_24k'])),
-                          )),
-                          DataCell(Text(
-                            _formatWeight(_asDouble(raw['weight_main'])),
-                          )),
-                          DataCell(Text(
-                            _formatWeight(_asDouble(raw['weight_out_24k'])),
-                          )),
-                          DataCell(Text(
-                            _formatWeight(_asDouble(raw['weight_out_main'])),
-                          )),
-                          DataCell(Text(
-                            _formatWeight(_asDouble(raw['weight_in_24k'])),
-                          )),
-                          DataCell(Text(
-                            _formatWeight(_asDouble(raw['weight_in_main'])),
-                          )),
+                          DataCell(
+                            Text(_formatWeight(_asDouble(raw['weight_24k']))),
+                          ),
+                          DataCell(
+                            Text(_formatWeight(_asDouble(raw['weight_main']))),
+                          ),
+                          DataCell(
+                            Text(
+                              _formatWeight(_asDouble(raw['weight_out_24k'])),
+                            ),
+                          ),
+                          DataCell(
+                            Text(
+                              _formatWeight(_asDouble(raw['weight_out_main'])),
+                            ),
+                          ),
+                          DataCell(
+                            Text(
+                              _formatWeight(_asDouble(raw['weight_in_24k'])),
+                            ),
+                          ),
+                          DataCell(
+                            Text(
+                              _formatWeight(_asDouble(raw['weight_in_main'])),
+                            ),
+                          ),
                           DataCell(
                             Text(
                               _formatCurrency(_asDouble(raw['cash_in'])),
@@ -1133,9 +1135,7 @@ class _AnalyticsDashboardScreenState extends State<AnalyticsDashboardScreen> {
                               },
                             ),
                           ),
-                          DataCell(Text(
-                            (raw['line_count'] ?? 0).toString(),
-                          )),
+                          DataCell(Text((raw['line_count'] ?? 0).toString())),
                         ],
                       ),
                 ],

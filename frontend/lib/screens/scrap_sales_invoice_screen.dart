@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:provider/provider.dart';
 import '../api_service.dart';
@@ -16,10 +15,10 @@ class ScrapSalesInvoiceScreen extends StatefulWidget {
   final List<Map<String, dynamic>> customers;
 
   const ScrapSalesInvoiceScreen({
-    Key? key,
+    super.key,
     required this.items,
     required this.customers,
-  }) : super(key: key);
+  });
 
   @override
   State<ScrapSalesInvoiceScreen> createState() =>
@@ -50,7 +49,7 @@ class _ScrapSalesInvoiceScreenState extends State<ScrapSalesInvoiceScreen> {
 
   // Payment - 🆕 وسائل دفع متعددة
   List<Map<String, dynamic>> _paymentMethods = [];
-  List<PaymentEntry> _payments = []; // 🆕 قائمة الدفعات المضافة
+  final List<PaymentEntry> _payments = []; // 🆕 قائمة الدفعات المضافة
   int? _selectedPaymentMethodId; // للـ Dropdown
 
   // 🆕 الخزائن
@@ -417,7 +416,9 @@ class _ScrapSalesInvoiceScreenState extends State<ScrapSalesInvoiceScreen> {
         }
         debugPrint('💰 سعر الذهب المحدث: $_goldPrice24k ر.س/جم');
       } else {
-        debugPrint('⚠️ سعر الذهب غير صالح في الاستجابة: ${priceData['price_24k']}');
+        debugPrint(
+          '⚠️ سعر الذهب غير صالح في الاستجابة: ${priceData['price_24k']}',
+        );
       }
     } catch (e) {
       debugPrint('⚠️ فشل تحديث سعر الذهب: $e');
@@ -505,7 +506,9 @@ class _ScrapSalesInvoiceScreenState extends State<ScrapSalesInvoiceScreen> {
     // تحديث الربح
     item.profit = requiredProfit;
 
-    debugPrint('🔄 إعادة حساب للوصول للإجمالي ${targetTotal.toStringAsFixed(2)}:');
+    debugPrint(
+      '🔄 إعادة حساب للوصول للإجمالي ${targetTotal.toStringAsFixed(2)}:',
+    );
     debugPrint('   التكلفة: ${currentCost.toStringAsFixed(2)}');
     debugPrint('   الربح: ${requiredProfit.toStringAsFixed(2)}');
     debugPrint('   الصافي: ${targetNet.toStringAsFixed(2)}');
@@ -714,7 +717,9 @@ class _ScrapSalesInvoiceScreenState extends State<ScrapSalesInvoiceScreen> {
 
       if (_selectedCustomerId == null) {
         customerId = cashCustomer['id'] ?? 1;
-        debugPrint('💵 لم يتم اختيار عميل - تقييد للعميل النقدي (ID: $customerId)');
+        debugPrint(
+          '💵 لم يتم اختيار عميل - تقييد للعميل النقدي (ID: $customerId)',
+        );
       }
 
       // حساب الإجماليات
@@ -791,10 +796,8 @@ class _ScrapSalesInvoiceScreenState extends State<ScrapSalesInvoiceScreen> {
         if (shouldPrint == true) {
           await Navigator.of(context).push(
             MaterialPageRoute(
-              builder: (_) => InvoicePrintScreen(
-                invoice: invoiceForPrint,
-                isArabic: true,
-              ),
+              builder: (_) =>
+                  InvoicePrintScreen(invoice: invoiceForPrint, isArabic: true),
             ),
           );
         }
@@ -1091,13 +1094,11 @@ class _ScrapSalesInvoiceScreenState extends State<ScrapSalesInvoiceScreen> {
           children: [
             InvoiceTypeBanner(
               title: 'فاتورة بيع ذهب كسر',
-              subtitle: 'مخصصة لبيع الذهب المستعمل بعد إعادة تقييم الوزن والسعر',
+              subtitle:
+                  'مخصصة لبيع الذهب المستعمل بعد إعادة تقييم الوزن والسعر',
               color: AppColors.invoiceSaleScrap,
               icon: Icons.handshake_outlined,
-              trailing: Text(
-                'نوع الفاتورة',
-                style: theme.textTheme.labelLarge,
-              ),
+              trailing: Text('نوع الفاتورة', style: theme.textTheme.labelLarge),
             ),
             _buildCustomerSection(theme),
             const SizedBox(height: 24),
@@ -1231,8 +1232,8 @@ class _ScrapSalesInvoiceScreenState extends State<ScrapSalesInvoiceScreen> {
                 Container(
                   padding: const EdgeInsets.all(10),
                   decoration: BoxDecoration(
-                    color: colorScheme.primary.withValues(alpha: 
-                      isDark ? 0.18 : 0.12,
+                    color: colorScheme.primary.withValues(
+                      alpha: isDark ? 0.18 : 0.12,
                     ),
                     borderRadius: BorderRadius.circular(12),
                   ),
@@ -1281,8 +1282,8 @@ class _ScrapSalesInvoiceScreenState extends State<ScrapSalesInvoiceScreen> {
                 width: double.infinity,
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                  color: colorScheme.surfaceVariant.withValues(alpha: 
-                    isDark ? 0.25 : 0.5,
+                  color: colorScheme.surfaceContainerHighest.withValues(
+                    alpha: isDark ? 0.25 : 0.5,
                   ),
                   borderRadius: BorderRadius.circular(12),
                 ),
@@ -1293,7 +1294,7 @@ class _ScrapSalesInvoiceScreenState extends State<ScrapSalesInvoiceScreen> {
               )
             else
               DropdownButtonFormField<int>(
-                value: _selectedCustomerId,
+                initialValue: _selectedCustomerId,
                 items: widget.customers
                     .map((customer) {
                       final rawId = customer['id'];
@@ -1402,7 +1403,11 @@ class _ScrapSalesInvoiceScreenState extends State<ScrapSalesInvoiceScreen> {
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            Icon(Icons.account_tree, color: colorScheme.primary, size: 20),
+                            Icon(
+                              Icons.account_tree,
+                              color: colorScheme.primary,
+                              size: 20,
+                            ),
                             const SizedBox(width: 10),
                             Flexible(
                               child: Text(
@@ -1426,7 +1431,10 @@ class _ScrapSalesInvoiceScreenState extends State<ScrapSalesInvoiceScreen> {
                 },
                 decoration: InputDecoration(
                   labelText: 'اختر الفرع',
-                  prefixIcon: Icon(Icons.account_tree, color: colorScheme.primary),
+                  prefixIcon: Icon(
+                    Icons.account_tree,
+                    color: colorScheme.primary,
+                  ),
                 ),
                 dropdownColor: theme.cardColor,
                 icon: Icon(Icons.arrow_drop_down, color: colorScheme.primary),
@@ -1699,8 +1707,8 @@ class _ScrapSalesInvoiceScreenState extends State<ScrapSalesInvoiceScreen> {
         border: Border.all(color: dividerColor.withValues(alpha: 0.6)),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 
-              theme.brightness == Brightness.dark ? 0.3 : 0.06,
+            color: Colors.black.withValues(
+              alpha: theme.brightness == Brightness.dark ? 0.3 : 0.06,
             ),
             blurRadius: 8,
             offset: const Offset(0, 2),
@@ -1765,7 +1773,10 @@ class _ScrapSalesInvoiceScreenState extends State<ScrapSalesInvoiceScreen> {
       decoration: BoxDecoration(
         gradient: LinearGradient(
           colors: theme.brightness == Brightness.dark
-              ? [colorScheme.surfaceVariant, theme.scaffoldBackgroundColor]
+              ? [
+                  colorScheme.surfaceContainerHighest,
+                  theme.scaffoldBackgroundColor,
+                ]
               : [colorScheme.surface, theme.scaffoldBackgroundColor],
         ),
         borderRadius: BorderRadius.circular(12),
@@ -1822,7 +1833,7 @@ class _ScrapSalesInvoiceScreenState extends State<ScrapSalesInvoiceScreen> {
           colorScheme.primary.withValues(alpha: 0.15),
         ),
         dataRowColor: WidgetStateProperty.resolveWith((states) {
-          if (states.contains(MaterialState.selected)) {
+          if (states.contains(WidgetState.selected)) {
             return colorScheme.primary.withValues(alpha: 0.1);
           }
           return theme.cardColor;
@@ -1864,7 +1875,7 @@ class _ScrapSalesInvoiceScreenState extends State<ScrapSalesInvoiceScreen> {
                       ),
                     ),
                     child: Text(
-                      '${item.karat.toStringAsFixed(0)}',
+                      item.karat.toStringAsFixed(0),
                       style: cellStyle,
                     ),
                   ),
@@ -1886,7 +1897,7 @@ class _ScrapSalesInvoiceScreenState extends State<ScrapSalesInvoiceScreen> {
                       ),
                     ),
                     child: Text(
-                      '${item.weight.toStringAsFixed(2)}',
+                      item.weight.toStringAsFixed(2),
                       style: cellStyle,
                     ),
                   ),
@@ -1907,28 +1918,19 @@ class _ScrapSalesInvoiceScreenState extends State<ScrapSalesInvoiceScreen> {
                         color: AppColors.warning.withValues(alpha: 0.3),
                       ),
                     ),
-                    child: Text(
-                      '${item.wage.toStringAsFixed(2)}',
-                      style: cellStyle,
-                    ),
+                    child: Text(item.wage.toStringAsFixed(2), style: cellStyle),
                   ),
                 ),
               ),
               DataCell(
                 Text(
-                  '${item.calculateSellingPricePerGram().toStringAsFixed(2)}',
+                  item.calculateSellingPricePerGram().toStringAsFixed(2),
                   style: cellStyle,
                 ),
               ),
-              DataCell(
-                Text('${item.cost.toStringAsFixed(2)}', style: cellStyle),
-              ),
-              DataCell(
-                Text('${item.net.toStringAsFixed(2)}', style: cellStyle),
-              ),
-              DataCell(
-                Text('${item.tax.toStringAsFixed(2)}', style: cellStyle),
-              ),
+              DataCell(Text(item.cost.toStringAsFixed(2), style: cellStyle)),
+              DataCell(Text(item.net.toStringAsFixed(2), style: cellStyle)),
+              DataCell(Text(item.tax.toStringAsFixed(2), style: cellStyle)),
               DataCell(
                 InkWell(
                   onTap: () =>
@@ -2032,11 +2034,11 @@ class _ScrapSalesInvoiceScreenState extends State<ScrapSalesInvoiceScreen> {
                 Navigator.pop(context);
               }
             },
-            child: const Text('حفظ'),
             style: ElevatedButton.styleFrom(
               backgroundColor: colorScheme.primary,
               foregroundColor: colorScheme.onPrimary,
             ),
+            child: const Text('حفظ'),
           ),
         ],
       ),
@@ -2054,7 +2056,10 @@ class _ScrapSalesInvoiceScreenState extends State<ScrapSalesInvoiceScreen> {
       decoration: BoxDecoration(
         gradient: LinearGradient(
           colors: isDark
-              ? [colorScheme.surfaceVariant, theme.scaffoldBackgroundColor]
+              ? [
+                  colorScheme.surfaceContainerHighest,
+                  theme.scaffoldBackgroundColor,
+                ]
               : [colorScheme.surface, theme.scaffoldBackgroundColor],
         ),
         borderRadius: BorderRadius.circular(12),
@@ -2079,7 +2084,9 @@ class _ScrapSalesInvoiceScreenState extends State<ScrapSalesInvoiceScreen> {
                 minimumSize: const Size(0, 56),
                 backgroundColor: AppColors.karat24,
                 foregroundColor: Colors.white,
-                disabledBackgroundColor: theme.disabledColor.withValues(alpha: 0.2),
+                disabledBackgroundColor: theme.disabledColor.withValues(
+                  alpha: 0.2,
+                ),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(12),
                 ),
@@ -2099,7 +2106,9 @@ class _ScrapSalesInvoiceScreenState extends State<ScrapSalesInvoiceScreen> {
               borderRadius: BorderRadius.circular(12),
               boxShadow: [
                 BoxShadow(
-                  color: colorScheme.primary.withValues(alpha: isDark ? 0.35 : 0.4),
+                  color: colorScheme.primary.withValues(
+                    alpha: isDark ? 0.35 : 0.4,
+                  ),
                   blurRadius: 12,
                   offset: const Offset(0, 4),
                 ),
@@ -2116,25 +2125,31 @@ class _ScrapSalesInvoiceScreenState extends State<ScrapSalesInvoiceScreen> {
                       style: theme.textTheme.titleMedium?.copyWith(
                         fontWeight: FontWeight.w600,
                         color: isDark ? Colors.white : Colors.black87,
-                        shadows: !isDark ? [
-                          Shadow(
-                            color: Colors.white.withValues(alpha: 0.8),
-                            blurRadius: 2,
-                          ),
-                        ] : null,
+                        shadows: !isDark
+                            ? [
+                                Shadow(
+                                  color: Colors.white.withValues(alpha: 0.8),
+                                  blurRadius: 2,
+                                ),
+                              ]
+                            : null,
                       ),
                     ),
                     Text(
                       '${_items.length} صنف',
                       style: theme.textTheme.bodySmall?.copyWith(
-                        color: isDark ? Colors.white.withValues(alpha: 0.9) : Colors.black87,
+                        color: isDark
+                            ? Colors.white.withValues(alpha: 0.9)
+                            : Colors.black87,
                         fontWeight: FontWeight.w500,
-                        shadows: !isDark ? [
-                          Shadow(
-                            color: Colors.white.withValues(alpha: 0.8),
-                            blurRadius: 2,
-                          ),
-                        ] : null,
+                        shadows: !isDark
+                            ? [
+                                Shadow(
+                                  color: Colors.white.withValues(alpha: 0.8),
+                                  blurRadius: 2,
+                                ),
+                              ]
+                            : null,
                       ),
                     ),
                   ],
@@ -2144,12 +2159,14 @@ class _ScrapSalesInvoiceScreenState extends State<ScrapSalesInvoiceScreen> {
                   style: theme.textTheme.headlineMedium?.copyWith(
                     fontWeight: FontWeight.bold,
                     color: isDark ? Colors.white : Colors.black87,
-                    shadows: !isDark ? [
-                      Shadow(
-                        color: Colors.white.withValues(alpha: 0.9),
-                        blurRadius: 3,
-                      ),
-                    ] : null,
+                    shadows: !isDark
+                        ? [
+                            Shadow(
+                              color: Colors.white.withValues(alpha: 0.9),
+                              blurRadius: 3,
+                            ),
+                          ]
+                        : null,
                   ),
                 ),
               ],
@@ -2198,7 +2215,9 @@ class _ScrapSalesInvoiceScreenState extends State<ScrapSalesInvoiceScreen> {
                     vertical: 6,
                   ),
                   decoration: BoxDecoration(
-                    color: AppColors.success.withValues(alpha: isDark ? 0.2 : 0.12),
+                    color: AppColors.success.withValues(
+                      alpha: isDark ? 0.2 : 0.12,
+                    ),
                     borderRadius: BorderRadius.circular(20),
                     border: Border.all(
                       color: AppColors.success.withValues(alpha: 0.4),
@@ -2235,11 +2254,11 @@ class _ScrapSalesInvoiceScreenState extends State<ScrapSalesInvoiceScreen> {
                       decoration: BoxDecoration(
                         gradient: LinearGradient(
                           colors: [
-                            colorScheme.primary.withValues(alpha: 
-                              isDark ? 0.25 : 0.3,
+                            colorScheme.primary.withValues(
+                              alpha: isDark ? 0.25 : 0.3,
                             ),
-                            AppColors.lightGold.withValues(alpha: 
-                              isDark ? 0.2 : 0.35,
+                            AppColors.lightGold.withValues(
+                              alpha: isDark ? 0.2 : 0.35,
                             ),
                           ],
                         ),
@@ -2257,12 +2276,16 @@ class _ScrapSalesInvoiceScreenState extends State<ScrapSalesInvoiceScreen> {
                               style: theme.textTheme.titleSmall?.copyWith(
                                 fontWeight: FontWeight.bold,
                                 color: isDark ? Colors.white : Colors.black87,
-                                shadows: !isDark ? [
-                                  Shadow(
-                                    color: Colors.white.withValues(alpha: 0.8),
-                                    blurRadius: 2,
-                                  ),
-                                ] : null,
+                                shadows: !isDark
+                                    ? [
+                                        Shadow(
+                                          color: Colors.white.withValues(
+                                            alpha: 0.8,
+                                          ),
+                                          blurRadius: 2,
+                                        ),
+                                      ]
+                                    : null,
                               ),
                             ),
                           ),
@@ -2273,12 +2296,16 @@ class _ScrapSalesInvoiceScreenState extends State<ScrapSalesInvoiceScreen> {
                               style: theme.textTheme.titleSmall?.copyWith(
                                 fontWeight: FontWeight.bold,
                                 color: isDark ? Colors.white : Colors.black87,
-                                shadows: !isDark ? [
-                                  Shadow(
-                                    color: Colors.white.withValues(alpha: 0.8),
-                                    blurRadius: 2,
-                                  ),
-                                ] : null,
+                                shadows: !isDark
+                                    ? [
+                                        Shadow(
+                                          color: Colors.white.withValues(
+                                            alpha: 0.8,
+                                          ),
+                                          blurRadius: 2,
+                                        ),
+                                      ]
+                                    : null,
                               ),
                               textAlign: TextAlign.center,
                             ),
@@ -2290,12 +2317,16 @@ class _ScrapSalesInvoiceScreenState extends State<ScrapSalesInvoiceScreen> {
                               style: theme.textTheme.titleSmall?.copyWith(
                                 fontWeight: FontWeight.bold,
                                 color: isDark ? Colors.white : Colors.black87,
-                                shadows: !isDark ? [
-                                  Shadow(
-                                    color: Colors.white.withValues(alpha: 0.8),
-                                    blurRadius: 2,
-                                  ),
-                                ] : null,
+                                shadows: !isDark
+                                    ? [
+                                        Shadow(
+                                          color: Colors.white.withValues(
+                                            alpha: 0.8,
+                                          ),
+                                          blurRadius: 2,
+                                        ),
+                                      ]
+                                    : null,
                               ),
                               textAlign: TextAlign.center,
                             ),
@@ -2307,12 +2338,16 @@ class _ScrapSalesInvoiceScreenState extends State<ScrapSalesInvoiceScreen> {
                               style: theme.textTheme.titleSmall?.copyWith(
                                 fontWeight: FontWeight.bold,
                                 color: isDark ? Colors.white : Colors.black87,
-                                shadows: !isDark ? [
-                                  Shadow(
-                                    color: Colors.white.withValues(alpha: 0.8),
-                                    blurRadius: 2,
-                                  ),
-                                ] : null,
+                                shadows: !isDark
+                                    ? [
+                                        Shadow(
+                                          color: Colors.white.withValues(
+                                            alpha: 0.8,
+                                          ),
+                                          blurRadius: 2,
+                                        ),
+                                      ]
+                                    : null,
                               ),
                               textAlign: TextAlign.center,
                             ),
@@ -2324,12 +2359,16 @@ class _ScrapSalesInvoiceScreenState extends State<ScrapSalesInvoiceScreen> {
                               style: theme.textTheme.titleSmall?.copyWith(
                                 fontWeight: FontWeight.bold,
                                 color: isDark ? Colors.white : Colors.black87,
-                                shadows: !isDark ? [
-                                  Shadow(
-                                    color: Colors.white.withValues(alpha: 0.8),
-                                    blurRadius: 2,
-                                  ),
-                                ] : null,
+                                shadows: !isDark
+                                    ? [
+                                        Shadow(
+                                          color: Colors.white.withValues(
+                                            alpha: 0.8,
+                                          ),
+                                          blurRadius: 2,
+                                        ),
+                                      ]
+                                    : null,
                               ),
                               textAlign: TextAlign.center,
                             ),
@@ -2345,9 +2384,8 @@ class _ScrapSalesInvoiceScreenState extends State<ScrapSalesInvoiceScreen> {
                         decoration: BoxDecoration(
                           color: index % 2 == 0
                               ? theme.colorScheme.surface
-                              : theme.colorScheme.surfaceVariant.withValues(alpha: 
-                                  isDark ? 0.3 : 0.5,
-                                ),
+                              : theme.colorScheme.surfaceContainerHighest
+                                    .withValues(alpha: isDark ? 0.3 : 0.5),
                           border: Border(
                             bottom: BorderSide(color: dividerColor, width: 1),
                           ),
@@ -2373,8 +2411,8 @@ class _ScrapSalesInvoiceScreenState extends State<ScrapSalesInvoiceScreen> {
                                         vertical: 3,
                                       ),
                                       decoration: BoxDecoration(
-                                        color: AppColors.warning.withValues(alpha: 
-                                          isDark ? 0.2 : 0.25,
+                                        color: AppColors.warning.withValues(
+                                          alpha: isDark ? 0.2 : 0.25,
                                         ),
                                         borderRadius: BorderRadius.circular(6),
                                       ),
@@ -2456,7 +2494,9 @@ class _ScrapSalesInvoiceScreenState extends State<ScrapSalesInvoiceScreen> {
             Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
-                color: colorScheme.primary.withValues(alpha: isDark ? 0.15 : 0.12),
+                color: colorScheme.primary.withValues(
+                  alpha: isDark ? 0.15 : 0.12,
+                ),
                 borderRadius: BorderRadius.circular(12),
                 border: Border.all(
                   color: colorScheme.primary.withValues(alpha: 0.4),
@@ -2493,7 +2533,9 @@ class _ScrapSalesInvoiceScreenState extends State<ScrapSalesInvoiceScreen> {
                             ),
                             boxShadow: [
                               BoxShadow(
-                                color: colorScheme.primary.withValues(alpha: 0.16),
+                                color: colorScheme.primary.withValues(
+                                  alpha: 0.16,
+                                ),
                                 blurRadius: 4,
                                 offset: const Offset(0, 2),
                               ),
@@ -2641,8 +2683,8 @@ class _ScrapSalesInvoiceScreenState extends State<ScrapSalesInvoiceScreen> {
                             boxShadow: _remainingAmount > 0
                                 ? [
                                     BoxShadow(
-                                      color: colorScheme.primary.withValues(alpha: 
-                                        0.25,
+                                      color: colorScheme.primary.withValues(
+                                        alpha: 0.25,
                                       ),
                                       blurRadius: 4,
                                       offset: const Offset(0, 2),
@@ -2690,8 +2732,8 @@ class _ScrapSalesInvoiceScreenState extends State<ScrapSalesInvoiceScreen> {
                                   decoration: BoxDecoration(
                                     border: Border(
                                       right: BorderSide(
-                                        color: colorScheme.primary.withValues(alpha: 
-                                          0.4,
+                                        color: colorScheme.primary.withValues(
+                                          alpha: 0.4,
                                         ),
                                       ),
                                     ),
@@ -2744,7 +2786,9 @@ class _ScrapSalesInvoiceScreenState extends State<ScrapSalesInvoiceScreen> {
                           backgroundColor: colorScheme.primary,
                           foregroundColor: colorScheme.onPrimary,
                           elevation: 3,
-                          shadowColor: colorScheme.primary.withValues(alpha: 0.4),
+                          shadowColor: colorScheme.primary.withValues(
+                            alpha: 0.4,
+                          ),
                         ),
                       ),
                     ],
@@ -2753,8 +2797,8 @@ class _ScrapSalesInvoiceScreenState extends State<ScrapSalesInvoiceScreen> {
                   Container(
                     padding: const EdgeInsets.all(8),
                     decoration: BoxDecoration(
-                      color: AppColors.warning.withValues(alpha: 
-                        isDark ? 0.18 : 0.12,
+                      color: AppColors.warning.withValues(
+                        alpha: isDark ? 0.18 : 0.12,
                       ),
                       borderRadius: BorderRadius.circular(6),
                       border: Border.all(
@@ -2792,12 +2836,20 @@ class _ScrapSalesInvoiceScreenState extends State<ScrapSalesInvoiceScreen> {
                 gradient: LinearGradient(
                   colors: _remainingAmount > 0
                       ? [
-                          colorScheme.error.withValues(alpha: isDark ? 0.16 : 0.12),
-                          colorScheme.error.withValues(alpha: isDark ? 0.28 : 0.2),
+                          colorScheme.error.withValues(
+                            alpha: isDark ? 0.16 : 0.12,
+                          ),
+                          colorScheme.error.withValues(
+                            alpha: isDark ? 0.28 : 0.2,
+                          ),
                         ]
                       : [
-                          AppColors.success.withValues(alpha: isDark ? 0.16 : 0.12),
-                          AppColors.success.withValues(alpha: isDark ? 0.28 : 0.2),
+                          AppColors.success.withValues(
+                            alpha: isDark ? 0.16 : 0.12,
+                          ),
+                          AppColors.success.withValues(
+                            alpha: isDark ? 0.28 : 0.2,
+                          ),
                         ],
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,

@@ -96,7 +96,7 @@ curl "http://localhost:8001/api/suppliers/1/ledger?page=1&per_page=20"
         {
             "date": "2025-11-03T10:30:00",
             "entry_number": "JE-000123",
-            "description": "شراء من مورد - فاتورة 456",
+        "description": "شراء (مورد) - فاتورة 456",
             "reference_type": "invoice",
             "reference_id": 456,
             "account_name": "الموردين",
@@ -164,7 +164,7 @@ curl "http://localhost:8001/api/suppliers/1/ledger?page=1&per_page=20"
 
 ### تدفق البيانات
 
-1. **إنشاء فاتورة شراء من مورد:**
+1. **إنشاء فاتورة شراء (مورد):**
    - يُنشأ سطر في `journal_entry_lines` مع `supplier_id`
    - يُسجّل الوزن في `credit_21k` (أو العيار المناسب)
    - يُحدّث رصيد `supplier.balance_gold_21k`
@@ -186,7 +186,7 @@ curl "http://localhost:8001/api/suppliers/1/ledger?page=1&per_page=20"
 curl -X POST http://localhost:8001/api/invoices \
   -H "Content-Type: application/json" \
   -d '{
-    "invoice_type": "شراء من مورد",
+    "invoice_type": "شراء",
     "supplier_id": 1,
     "date": "2025-11-04T10:00:00",
     "karat_lines": [

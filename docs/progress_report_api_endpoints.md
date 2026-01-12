@@ -25,7 +25,7 @@ new_invoice = Invoice(
 ##### 1. **للمرتجعات:**
 
 ```python
-return_types = ['مرتجع بيع', 'مرتجع شراء', 'مرتجع شراء من مورد']
+return_types = ['مرتجع بيع', 'مرتجع شراء', 'مرتجع شراء (مورد)']
 if invoice_type in return_types:
     # ✓ التحقق من وجود original_invoice_id
     if not data.get('original_invoice_id'):
@@ -41,7 +41,7 @@ if invoice_type in return_types:
         customer_id must match original
     elif invoice_type == 'مرتجع شراء':
         customer_id must match original
-    elif invoice_type == 'مرتجع شراء من مورد':
+    elif invoice_type == 'مرتجع شراء (مورد)':
         supplier_id must match original
 ```
 
@@ -140,7 +140,7 @@ GET /api/invoices/123/can-return
 **Business Logic:**
 ```python
 # الفواتير القابلة للإرجاع
-returnable_types = ['بيع', 'شراء من عميل', 'شراء من مورد']
+returnable_types = ['بيع', 'شراء من عميل', 'شراء']
 
 # حساب المبلغ المتبقي
 total_returned = sum(r.total for r in existing_returns)
@@ -362,13 +362,13 @@ POST /api/invoices
     إلى حـ/ المخزون - كسر     [دائن]
 ```
 
-#### 5. **شراء من مورد:**
+#### 5. **شراء:**
 ```
 من حـ/ المخزون                [مدين]
     إلى حـ/ المورد            [دائن]
 ```
 
-#### 6. **مرتجع شراء من مورد:**
+#### 6. **مرتجع شراء (مورد):**
 ```
 من حـ/ المورد                 [مدين]
     إلى حـ/ المخزون           [دائن]

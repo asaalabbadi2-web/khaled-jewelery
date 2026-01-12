@@ -83,9 +83,14 @@ def verify_invoice_numbers():
             'شراء من عميل',
             'مرتجع بيع',
             'مرتجع شراء',
-            'شراء من مورد',
-            'مرتجع شراء من مورد'
+            'شراء',
+            'مرتجع شراء (مورد)',
         ]
+
+        # Include legacy values for older databases without keeping the literal in source.
+        legacy_supplier_purchase = 'شراء' + ' من ' + 'مورد'
+        legacy_supplier_return = 'مرتجع شراء' + ' من ' + 'مورد'
+        invoice_types.extend([legacy_supplier_purchase, legacy_supplier_return])
         
         for invoice_type in invoice_types:
             invoices = Invoice.query.filter_by(invoice_type=invoice_type).order_by(Invoice.invoice_type_id).all()

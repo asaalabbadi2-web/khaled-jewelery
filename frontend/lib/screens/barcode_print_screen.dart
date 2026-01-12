@@ -36,7 +36,7 @@ class BarcodePrintScreen extends StatefulWidget {
 }
 
 class _BarcodePrintScreenState extends State<BarcodePrintScreen> {
-  BarcodeType _selectedType = BarcodeType.Code128;
+  BarcodeType _selectedType = BarcodeType.code128;
   int _labelCount = 1;
   bool _showPrice = true;
   bool _showItemCode = true;
@@ -204,7 +204,7 @@ class _BarcodePrintScreenState extends State<BarcodePrintScreen> {
 
             // نوع الباركود
             DropdownButtonFormField<BarcodeType>(
-              value: _selectedType,
+              initialValue: _selectedType,
               decoration: const InputDecoration(
                 labelText: 'نوع الباركود',
                 border: OutlineInputBorder(),
@@ -212,19 +212,19 @@ class _BarcodePrintScreenState extends State<BarcodePrintScreen> {
               ),
               items: const [
                 DropdownMenuItem(
-                  value: BarcodeType.Code128,
+                  value: BarcodeType.code128,
                   child: Text('Code 128 (موصى به)'),
                 ),
                 DropdownMenuItem(
-                  value: BarcodeType.QrCode,
+                  value: BarcodeType.qrCode,
                   child: Text('QR Code'),
                 ),
                 DropdownMenuItem(
-                  value: BarcodeType.CodeEAN13,
+                  value: BarcodeType.codeEan13,
                   child: Text('EAN-13'),
                 ),
                 DropdownMenuItem(
-                  value: BarcodeType.Code39,
+                  value: BarcodeType.code39,
                   child: Text('Code 39'),
                 ),
               ],
@@ -293,13 +293,13 @@ class _BarcodePrintScreenState extends State<BarcodePrintScreen> {
 
   barcode_lib.Barcode _getBarcodeType() {
     switch (_selectedType) {
-      case BarcodeType.Code128:
+      case BarcodeType.code128:
         return barcode_lib.Barcode.code128();
-      case BarcodeType.QrCode:
+      case BarcodeType.qrCode:
         return barcode_lib.Barcode.qrCode();
-      case BarcodeType.CodeEAN13:
+      case BarcodeType.codeEan13:
         return barcode_lib.Barcode.ean13();
-      case BarcodeType.Code39:
+      case BarcodeType.code39:
         return barcode_lib.Barcode.code39();
     }
   }
@@ -308,7 +308,7 @@ class _BarcodePrintScreenState extends State<BarcodePrintScreen> {
     try {
       // إنشاء PDF مرة واحدة فقط
       Uint8List? cachedPdf;
-      
+
       if (kIsWeb) {
         // للويب: استخدام sharePdf لفتح PDF في نافذة جديدة
         final pdf = await _generatePDF();
@@ -327,13 +327,15 @@ class _BarcodePrintScreenState extends State<BarcodePrintScreen> {
           name: 'barcode_${widget.itemCode}',
         );
       }
-      
+
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(kIsWeb 
-            ? 'تم فتح ملف الباركود. يمكنك طباعته من المتصفح.'
-            : 'تم إرسال الباركود إلى الطابعة.'),
+          content: Text(
+            kIsWeb
+                ? 'تم فتح ملف الباركود. يمكنك طباعته من المتصفح.'
+                : 'تم إرسال الباركود إلى الطابعة.',
+          ),
           backgroundColor: Colors.green,
         ),
       );
@@ -476,4 +478,4 @@ class _BarcodePrintScreenState extends State<BarcodePrintScreen> {
   }
 }
 
-enum BarcodeType { Code128, QrCode, CodeEAN13, Code39 }
+enum BarcodeType { code128, qrCode, codeEan13, code39 }

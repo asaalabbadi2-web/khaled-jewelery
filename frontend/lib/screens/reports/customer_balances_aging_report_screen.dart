@@ -116,7 +116,9 @@ class _CustomerBalancesAgingReportScreenState
     );
 
     if (picked != null) {
-      setState(() => _cutoffDate = DateTime(picked.year, picked.month, picked.day));
+      setState(
+        () => _cutoffDate = DateTime(picked.year, picked.month, picked.day),
+      );
       await _loadReport();
     }
   }
@@ -147,7 +149,9 @@ class _CustomerBalancesAgingReportScreenState
       textDirection: isArabic ? TextDirection.rtl : TextDirection.ltr,
       child: Scaffold(
         appBar: AppBar(
-          title: Text(isArabic ? 'تقرير أعمار الذمم للعملاء' : 'Customer Balances Aging'),
+          title: Text(
+            isArabic ? 'تقرير أعمار الذمم للعملاء' : 'Customer Balances Aging',
+          ),
           actions: [
             IconButton(
               icon: const Icon(Icons.refresh),
@@ -160,8 +164,8 @@ class _CustomerBalancesAgingReportScreenState
           child: _isLoading
               ? const Center(child: CircularProgressIndicator())
               : _error != null
-                  ? _buildErrorState()
-                  : _buildContent(),
+              ? _buildErrorState()
+              : _buildContent(),
         ),
       ),
     );
@@ -201,7 +205,9 @@ class _CustomerBalancesAgingReportScreenState
 
   Widget _buildContent() {
     final report = _report;
-    final customers = List<Map<String, dynamic>>.from(report['customers'] ?? []);
+    final customers = List<Map<String, dynamic>>.from(
+      report['customers'] ?? [],
+    );
     final isArabic = widget.isArabic;
 
     return RefreshIndicator(
@@ -234,20 +240,25 @@ class _CustomerBalancesAgingReportScreenState
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
-          crossAxisAlignment: isArabic ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+          crossAxisAlignment: isArabic
+              ? CrossAxisAlignment.end
+              : CrossAxisAlignment.start,
           children: [
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text(
                   isArabic ? 'خيارات التقرير' : 'Report Filters',
-                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                  style: const TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 16,
+                  ),
                 ),
                 Text(
                   summary['total_customers'] != null
                       ? (isArabic
-                          ? 'العملاء: ${summary['total_customers']}'
-                          : 'Customers: ${summary['total_customers']}')
+                            ? 'العملاء: ${summary['total_customers']}'
+                            : 'Customers: ${summary['total_customers']}')
                       : '',
                   style: const TextStyle(color: Colors.grey),
                 ),
@@ -261,12 +272,18 @@ class _CustomerBalancesAgingReportScreenState
                 OutlinedButton.icon(
                   onPressed: _pickCutoffDate,
                   icon: const Icon(Icons.event_available),
-                  label: Text(isArabic
-                      ? 'تاريخ الترحيل: $cutoffText'
-                      : 'Cutoff: $cutoffText'),
+                  label: Text(
+                    isArabic
+                        ? 'تاريخ الترحيل: $cutoffText'
+                        : 'Cutoff: $cutoffText',
+                  ),
                 ),
                 FilterChip(
-                  label: Text(isArabic ? 'إظهار الأرصدة الصفرية' : 'Include zero balances'),
+                  label: Text(
+                    isArabic
+                        ? 'إظهار الأرصدة الصفرية'
+                        : 'Include zero balances',
+                  ),
                   selected: _includeZeroBalances,
                   onSelected: (value) {
                     setState(() => _includeZeroBalances = value);
@@ -274,7 +291,9 @@ class _CustomerBalancesAgingReportScreenState
                   },
                 ),
                 FilterChip(
-                  label: Text(isArabic ? 'تضمين غير المرحلة' : 'Include unposted'),
+                  label: Text(
+                    isArabic ? 'تضمين غير المرحلة' : 'Include unposted',
+                  ),
                   selected: _includeUnposted,
                   onSelected: (value) {
                     setState(() => _includeUnposted = value);
@@ -287,7 +306,9 @@ class _CustomerBalancesAgingReportScreenState
                     controller: _groupController,
                     keyboardType: TextInputType.number,
                     decoration: InputDecoration(
-                      labelText: isArabic ? 'معرّف مجموعة العملاء' : 'Customer group ID',
+                      labelText: isArabic
+                          ? 'معرّف مجموعة العملاء'
+                          : 'Customer group ID',
                       suffixIcon: _groupController.text.isEmpty
                           ? null
                           : IconButton(
@@ -325,13 +346,17 @@ class _CustomerBalancesAgingReportScreenState
     final metrics = [
       _SummaryMetric(
         label: isArabic ? 'إجمالي الذمم (ر.س)' : 'Outstanding (Cash)',
-        value: _formatCurrency(_asDouble(summary['total_outstanding_cash'] ?? 0)),
+        value: _formatCurrency(
+          _asDouble(summary['total_outstanding_cash'] ?? 0),
+        ),
         icon: Icons.payments,
         color: Colors.teal,
       ),
       _SummaryMetric(
         label: isArabic ? 'إجمالي الذمم (جم)' : 'Outstanding (Gold)',
-        value: _formatWeight(_asDouble(summary['total_outstanding_weight'] ?? 0)),
+        value: _formatWeight(
+          _asDouble(summary['total_outstanding_weight'] ?? 0),
+        ),
         icon: Icons.scale,
         color: Colors.amber.shade700,
       ),
@@ -373,13 +398,17 @@ class _CustomerBalancesAgingReportScreenState
   Widget _buildBucketChartCard(bool isArabic) {
     final summary = Map<String, dynamic>.from(_report['summary'] ?? {});
     final bucketCash = Map<String, dynamic>.from(summary['bucket_cash'] ?? {});
-    final bucketWeight = Map<String, dynamic>.from(summary['bucket_weight'] ?? {});
+    final bucketWeight = Map<String, dynamic>.from(
+      summary['bucket_weight'] ?? {},
+    );
     final bucketLabels = Map<String, dynamic>.from(_report['buckets'] ?? {});
 
     if (bucketCash.isEmpty && bucketWeight.isEmpty) {
       return _buildEmptyState(
         icon: Icons.bar_chart,
-        message: isArabic ? 'لا يوجد توزيع أعمار لعرضه.' : 'No aging distribution to display.',
+        message: isArabic
+            ? 'لا يوجد توزيع أعمار لعرضه.'
+            : 'No aging distribution to display.',
       );
     }
 
@@ -427,7 +456,9 @@ class _CustomerBalancesAgingReportScreenState
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
-          crossAxisAlignment: isArabic ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+          crossAxisAlignment: isArabic
+              ? CrossAxisAlignment.end
+              : CrossAxisAlignment.start,
           children: [
             Text(
               isArabic ? 'توزيع الأعمار' : 'Aging distribution',
@@ -441,7 +472,10 @@ class _CustomerBalancesAgingReportScreenState
                   maxY: maxY == 0 ? 1 : maxY * 1.2,
                   minY: 0,
                   alignment: BarChartAlignment.spaceAround,
-                  gridData: const FlGridData(show: true, drawVerticalLine: false),
+                  gridData: const FlGridData(
+                    show: true,
+                    drawVerticalLine: false,
+                  ),
                   borderData: FlBorderData(show: false),
                   titlesData: FlTitlesData(
                     bottomTitles: AxisTitles(
@@ -454,7 +488,9 @@ class _CustomerBalancesAgingReportScreenState
                           }
                           final label = bucketLabels[keys[index]];
                           final localized = label is Map
-                              ? (isArabic ? (label['ar'] ?? '') : (label['en'] ?? ''))
+                              ? (isArabic
+                                    ? (label['ar'] ?? '')
+                                    : (label['en'] ?? ''))
                               : keys[index];
                           return Padding(
                             padding: const EdgeInsets.only(top: 8),
@@ -477,8 +513,12 @@ class _CustomerBalancesAgingReportScreenState
                         ),
                       ),
                     ),
-                    rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                    topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                    rightTitles: const AxisTitles(
+                      sideTitles: SideTitles(showTitles: false),
+                    ),
+                    topTitles: const AxisTitles(
+                      sideTitles: SideTitles(showTitles: false),
+                    ),
                   ),
                   barGroups: groups,
                 ),
@@ -488,10 +528,16 @@ class _CustomerBalancesAgingReportScreenState
             Wrap(
               spacing: 16,
               children: [
-                _LegendChip(color: Colors.teal, label: isArabic ? 'القيمة (ر.س)' : 'Cash'),
-                _LegendChip(color: Colors.amber.shade700, label: isArabic ? 'الوزن (جم)' : 'Gold weight'),
+                _LegendChip(
+                  color: Colors.teal,
+                  label: isArabic ? 'القيمة (ر.س)' : 'Cash',
+                ),
+                _LegendChip(
+                  color: Colors.amber.shade700,
+                  label: isArabic ? 'الوزن (جم)' : 'Gold weight',
+                ),
               ],
-            )
+            ),
           ],
         ),
       ),
@@ -509,7 +555,9 @@ class _CustomerBalancesAgingReportScreenState
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         child: _buildEmptyState(
           icon: Icons.verified,
-          message: isArabic ? 'لا يوجد عملاء متأخرين.' : 'No overdue customers.',
+          message: isArabic
+              ? 'لا يوجد عملاء متأخرين.'
+              : 'No overdue customers.',
         ),
       );
     }
@@ -520,7 +568,9 @@ class _CustomerBalancesAgingReportScreenState
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
-          crossAxisAlignment: isArabic ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+          crossAxisAlignment: isArabic
+              ? CrossAxisAlignment.end
+              : CrossAxisAlignment.start,
           children: [
             Text(
               isArabic ? 'أكثر العملاء تراكماً' : 'Top overdue customers',
@@ -529,8 +579,12 @@ class _CustomerBalancesAgingReportScreenState
             const SizedBox(height: 12),
             ...topCustomers.map((customer) {
               final over90 = customer['buckets']?['over_90'] ?? {};
-              final over90Cash = _formatCurrency(_asDouble(over90['cash'] ?? 0));
-              final outstandingCash = _formatCurrency(_asDouble(customer['outstanding_cash'] ?? 0));
+              final over90Cash = _formatCurrency(
+                _asDouble(over90['cash'] ?? 0),
+              );
+              final outstandingCash = _formatCurrency(
+                _asDouble(customer['outstanding_cash'] ?? 0),
+              );
               return ListTile(
                 contentPadding: EdgeInsets.zero,
                 leading: CircleAvatar(
@@ -555,7 +609,10 @@ class _CustomerBalancesAgingReportScreenState
     );
   }
 
-  Widget _buildCustomersTable(bool isArabic, List<Map<String, dynamic>> customers) {
+  Widget _buildCustomersTable(
+    bool isArabic,
+    List<Map<String, dynamic>> customers,
+  ) {
     if (customers.isEmpty) {
       return _buildEmptyState(
         icon: Icons.table_chart,
@@ -567,7 +624,7 @@ class _CustomerBalancesAgingReportScreenState
       DataColumn(label: Text(isArabic ? 'العميل' : 'Customer')),
       DataColumn(label: Text(isArabic ? 'الرصيد (ر.س)' : 'Outstanding (cash)')),
       DataColumn(label: Text(isArabic ? 'الرصيد (جم)' : 'Outstanding (g)')),
-      DataColumn(label: Text(isArabic ? '0-30' : '0-30')), 
+      DataColumn(label: Text(isArabic ? '0-30' : '0-30')),
       DataColumn(label: Text(isArabic ? '31-60' : '31-60')),
       DataColumn(label: Text(isArabic ? '61-90' : '61-90')),
       DataColumn(label: Text(isArabic ? '90+' : '90+')),
@@ -580,8 +637,9 @@ class _CustomerBalancesAgingReportScreenState
         cells: [
           DataCell(
             Column(
-              crossAxisAlignment:
-                  isArabic ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+              crossAxisAlignment: isArabic
+                  ? CrossAxisAlignment.end
+                  : CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
                 Text(
@@ -595,12 +653,28 @@ class _CustomerBalancesAgingReportScreenState
               ],
             ),
           ),
-          DataCell(Text(_formatCurrency(_asDouble(customer['outstanding_cash'] ?? 0)))),
-          DataCell(Text(_formatWeight(_asDouble(customer['outstanding_weight'] ?? 0)))),
-          DataCell(Text(_formatCurrency(_asDouble(buckets['current']?['cash'] ?? 0)))),
-          DataCell(Text(_formatCurrency(_asDouble(buckets['days_31_60']?['cash'] ?? 0)))),
-          DataCell(Text(_formatCurrency(_asDouble(buckets['days_61_90']?['cash'] ?? 0)))),
-          DataCell(Text(_formatCurrency(_asDouble(buckets['over_90']?['cash'] ?? 0)))),
+          DataCell(
+            Text(_formatCurrency(_asDouble(customer['outstanding_cash'] ?? 0))),
+          ),
+          DataCell(
+            Text(_formatWeight(_asDouble(customer['outstanding_weight'] ?? 0))),
+          ),
+          DataCell(
+            Text(_formatCurrency(_asDouble(buckets['current']?['cash'] ?? 0))),
+          ),
+          DataCell(
+            Text(
+              _formatCurrency(_asDouble(buckets['days_31_60']?['cash'] ?? 0)),
+            ),
+          ),
+          DataCell(
+            Text(
+              _formatCurrency(_asDouble(buckets['days_61_90']?['cash'] ?? 0)),
+            ),
+          ),
+          DataCell(
+            Text(_formatCurrency(_asDouble(buckets['over_90']?['cash'] ?? 0))),
+          ),
           DataCell(Text('${customer['average_days_overdue'] ?? 0}')),
         ],
       );
@@ -683,8 +757,9 @@ class _SummaryTile extends StatelessWidget {
           const SizedBox(width: 12),
           Expanded(
             child: Column(
-              crossAxisAlignment:
-                  isArabic ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+              crossAxisAlignment: isArabic
+                  ? CrossAxisAlignment.end
+                  : CrossAxisAlignment.start,
               children: [
                 Text(
                   metric.label,

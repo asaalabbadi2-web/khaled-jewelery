@@ -31,7 +31,7 @@ class _ItemsScreenEnhancedState extends State<ItemsScreenEnhanced> {
   List items = [];
   List filteredItems = [];
   bool loading = true;
-  
+
   // 🆕 التصنيفات
   List<Category> categories = [];
   bool categoriesLoading = false;
@@ -42,7 +42,7 @@ class _ItemsScreenEnhancedState extends State<ItemsScreenEnhanced> {
   int? _selectedCategoryId; // 🆕 فلتر حسب التصنيف
   String _sortBy = 'name'; // name, weight, price, date
   bool _sortAscending = true;
-  
+
   // 🆕 فلاتر متقدمة
   bool? _hasStones; // null = الكل، true = بأحجار، false = بدون أحجار
   double? _minWeight;
@@ -75,7 +75,7 @@ class _ItemsScreenEnhancedState extends State<ItemsScreenEnhanced> {
     _loadItems();
     _loadCategories(); // 🆕 تحميل التصنيفات
   }
-  
+
   // 🆕 تحميل التصنيفات
   Future<void> _loadCategories() async {
     setState(() => categoriesLoading = true);
@@ -142,37 +142,41 @@ class _ItemsScreenEnhancedState extends State<ItemsScreenEnhanced> {
         final matchesKarat =
             _selectedKarat.isEmpty ||
             item['karat']?.toString() == _selectedKarat;
-        
+
         // 🆕 Category filter
         final matchesCategory =
             _selectedCategoryId == null ||
             item['category_id'] == _selectedCategoryId;
-        
+
         // 🆕 Stones filter
         final matchesStones =
-            _hasStones == null ||
-            (item['has_stones'] ?? false) == _hasStones;
-        
+            _hasStones == null || (item['has_stones'] ?? false) == _hasStones;
+
         // 🆕 Weight range filter
         final weight = double.tryParse(item['weight']?.toString() ?? '0') ?? 0;
         final matchesWeight =
             (_minWeight == null || weight >= _minWeight!) &&
             (_maxWeight == null || weight <= _maxWeight!);
-        
+
         // 🆕 Wage range filter
         final wage = double.tryParse(item['wage']?.toString() ?? '0') ?? 0;
         final matchesWage =
             (_minWage == null || wage >= _minWage!) &&
             (_maxWage == null || wage <= _maxWage!);
-        
+
         // 🆕 Price range filter
         final price = double.tryParse(item['price']?.toString() ?? '0') ?? 0;
         final matchesPrice =
             (_minPrice == null || price >= _minPrice!) &&
             (_maxPrice == null || price <= _maxPrice!);
 
-        return matchesSearch && matchesKarat && matchesCategory && 
-               matchesStones && matchesWeight && matchesWage && matchesPrice;
+        return matchesSearch &&
+            matchesKarat &&
+            matchesCategory &&
+            matchesStones &&
+            matchesWeight &&
+            matchesWage &&
+            matchesPrice;
       }).toList();
 
       // Apply sorting
@@ -245,8 +249,8 @@ class _ItemsScreenEnhancedState extends State<ItemsScreenEnhanced> {
 
     if (confirmed == true) {
       try {
-  await widget.api.deleteItem(item['id']);
-  await _loadItems(notifyListeners: true);
+        await widget.api.deleteItem(item['id']);
+        await _loadItems(notifyListeners: true);
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -546,8 +550,10 @@ class _ItemsScreenEnhancedState extends State<ItemsScreenEnhanced> {
                 final result = await Navigator.push(
                   context,
                   MaterialPageRoute(
-                    builder: (_) =>
-                        AddItemScreenEnhanced(api: widget.api, itemToEdit: item),
+                    builder: (_) => AddItemScreenEnhanced(
+                      api: widget.api,
+                      itemToEdit: item,
+                    ),
                   ),
                 );
                 if (result == true) {
@@ -610,7 +616,9 @@ class _ItemsScreenEnhancedState extends State<ItemsScreenEnhanced> {
                                   vertical: 2,
                                 ),
                                 decoration: BoxDecoration(
-                                  color: karatBadgeColor.withValues(alpha: 0.18),
+                                  color: karatBadgeColor.withValues(
+                                    alpha: 0.18,
+                                  ),
                                   borderRadius: BorderRadius.circular(4),
                                 ),
                                 child: Text(
@@ -630,13 +638,17 @@ class _ItemsScreenEnhancedState extends State<ItemsScreenEnhanced> {
                               Icon(
                                 Icons.qr_code,
                                 size: 14,
-                                color: colorScheme.onSurface.withValues(alpha: 0.6),
+                                color: colorScheme.onSurface.withValues(
+                                  alpha: 0.6,
+                                ),
                               ),
                               const SizedBox(width: 4),
                               Text(
                                 barcode,
                                 style: textTheme.bodySmall?.copyWith(
-                                  color: colorScheme.onSurface.withValues(alpha: 0.6),
+                                  color: colorScheme.onSurface.withValues(
+                                    alpha: 0.6,
+                                  ),
                                 ),
                               ),
                             ],
@@ -698,26 +710,34 @@ class _ItemsScreenEnhancedState extends State<ItemsScreenEnhanced> {
                             Icon(
                               Icons.scale,
                               size: 14,
-                              color: colorScheme.onSurface.withValues(alpha: 0.6),
+                              color: colorScheme.onSurface.withValues(
+                                alpha: 0.6,
+                              ),
                             ),
                             const SizedBox(width: 4),
                             Text(
                               '${weight.toStringAsFixed(2)} جم',
                               style: textTheme.bodySmall?.copyWith(
-                                color: colorScheme.onSurface.withValues(alpha: 0.8),
+                                color: colorScheme.onSurface.withValues(
+                                  alpha: 0.8,
+                                ),
                               ),
                             ),
                             const SizedBox(width: 16),
                             Icon(
                               Icons.inventory,
                               size: 14,
-                              color: colorScheme.onSurface.withValues(alpha: 0.6),
+                              color: colorScheme.onSurface.withValues(
+                                alpha: 0.6,
+                              ),
                             ),
                             const SizedBox(width: 4),
                             Text(
                               '$count قطعة',
                               style: textTheme.bodySmall?.copyWith(
-                                color: colorScheme.onSurface.withValues(alpha: 0.8),
+                                color: colorScheme.onSurface.withValues(
+                                  alpha: 0.8,
+                                ),
                               ),
                             ),
                           ],
@@ -749,20 +769,20 @@ class _ItemsScreenEnhancedState extends State<ItemsScreenEnhanced> {
                     child: OutlinedButton.icon(
                       onPressed: canCreateItems
                           ? () async {
-                        // 🔄 استنساخ الصنف بسرعة
-                        final result = await Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                            builder: (_) => QuickAddItemsScreen(
-                              api: widget.api,
-                              templateItem: item,
-                            ),
-                          ),
-                        );
-                        if (result == true) {
-                          await _loadItems(notifyListeners: true);
-                        }
-                      }
+                              // 🔄 استنساخ الصنف بسرعة
+                              final result = await Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => QuickAddItemsScreen(
+                                    api: widget.api,
+                                    templateItem: item,
+                                  ),
+                                ),
+                              );
+                              if (result == true) {
+                                await _loadItems(notifyListeners: true);
+                              }
+                            }
                           : null,
                       icon: const Icon(Icons.copy, size: 16),
                       label: const Text('استنساخ'),
@@ -876,7 +896,8 @@ class _ItemsScreenEnhancedState extends State<ItemsScreenEnhanced> {
           ),
           const SizedBox(height: 8),
           TextButton.icon(
-            onPressed: (context.read<AuthProvider>().hasPermission('items.create'))
+            onPressed:
+                (context.read<AuthProvider>().hasPermission('items.create'))
                 ? () async {
                     final result = await Navigator.push(
                       context,
@@ -902,13 +923,25 @@ class _ItemsScreenEnhancedState extends State<ItemsScreenEnhanced> {
 
   void _showFilterDialog() {
     // Controllers للفلاتر المتقدمة
-    final minWeightController = TextEditingController(text: _minWeight?.toString() ?? '');
-    final maxWeightController = TextEditingController(text: _maxWeight?.toString() ?? '');
-    final minWageController = TextEditingController(text: _minWage?.toString() ?? '');
-    final maxWageController = TextEditingController(text: _maxWage?.toString() ?? '');
-    final minPriceController = TextEditingController(text: _minPrice?.toString() ?? '');
-    final maxPriceController = TextEditingController(text: _maxPrice?.toString() ?? '');
-    
+    final minWeightController = TextEditingController(
+      text: _minWeight?.toString() ?? '',
+    );
+    final maxWeightController = TextEditingController(
+      text: _maxWeight?.toString() ?? '',
+    );
+    final minWageController = TextEditingController(
+      text: _minWage?.toString() ?? '',
+    );
+    final maxWageController = TextEditingController(
+      text: _maxWage?.toString() ?? '',
+    );
+    final minPriceController = TextEditingController(
+      text: _minPrice?.toString() ?? '',
+    );
+    final maxPriceController = TextEditingController(
+      text: _maxPrice?.toString() ?? '',
+    );
+
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -943,7 +976,7 @@ class _ItemsScreenEnhancedState extends State<ItemsScreenEnhanced> {
                 value: _selectedKarat.isEmpty ? null : _selectedKarat,
               ),
               const SizedBox(height: 16),
-              
+
               // التصنيف
               DropdownButtonFormField<int?>(
                 decoration: const InputDecoration(
@@ -971,7 +1004,7 @@ class _ItemsScreenEnhancedState extends State<ItemsScreenEnhanced> {
                 value: _selectedCategoryId,
               ),
               const SizedBox(height: 16),
-              
+
               // الأحجار
               DropdownButtonFormField<bool?>(
                 decoration: const InputDecoration(
@@ -981,8 +1014,14 @@ class _ItemsScreenEnhancedState extends State<ItemsScreenEnhanced> {
                 ),
                 items: const [
                   DropdownMenuItem<bool?>(value: null, child: Text('الكل')),
-                  DropdownMenuItem<bool?>(value: true, child: Text('يحتوي على أحجار')),
-                  DropdownMenuItem<bool?>(value: false, child: Text('بدون أحجار')),
+                  DropdownMenuItem<bool?>(
+                    value: true,
+                    child: Text('يحتوي على أحجار'),
+                  ),
+                  DropdownMenuItem<bool?>(
+                    value: false,
+                    child: Text('بدون أحجار'),
+                  ),
                 ],
                 onChanged: (value) {
                   setState(() {
@@ -993,9 +1032,12 @@ class _ItemsScreenEnhancedState extends State<ItemsScreenEnhanced> {
                 value: _hasStones,
               ),
               const SizedBox(height: 16),
-              
+
               // مدى الوزن
-              const Text('مدى الوزن (جم)', style: TextStyle(fontWeight: FontWeight.bold)),
+              const Text(
+                'مدى الوزن (جم)',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
               const SizedBox(height: 8),
               Row(
                 children: [
@@ -1026,9 +1068,12 @@ class _ItemsScreenEnhancedState extends State<ItemsScreenEnhanced> {
                 ],
               ),
               const SizedBox(height: 16),
-              
+
               // مدى المصنعية
-              const Text('مدى المصنعية (ر.س)', style: TextStyle(fontWeight: FontWeight.bold)),
+              const Text(
+                'مدى المصنعية (ر.س)',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
               const SizedBox(height: 8),
               Row(
                 children: [
@@ -1059,9 +1104,12 @@ class _ItemsScreenEnhancedState extends State<ItemsScreenEnhanced> {
                 ],
               ),
               const SizedBox(height: 16),
-              
+
               // مدى السعر
-              const Text('مدى السعر (ر.س)', style: TextStyle(fontWeight: FontWeight.bold)),
+              const Text(
+                'مدى السعر (ر.س)',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
               const SizedBox(height: 8),
               Row(
                 children: [
@@ -1132,7 +1180,7 @@ class _ItemsScreenEnhancedState extends State<ItemsScreenEnhanced> {
       ),
     );
   }
-  
+
   // 🆕 Dialog لإدارة التصنيفات
   void _showCategoriesManagementDialog() {
     showDialog(
@@ -1350,9 +1398,7 @@ class _CategoriesManagementDialogState
           ),
           ElevatedButton(
             onPressed: () => Navigator.pop(context, true),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppColors.error,
-            ),
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.error),
             child: const Text('حذف'),
           ),
         ],
@@ -1411,10 +1457,7 @@ class _CategoriesManagementDialogState
               ),
               child: Row(
                 children: [
-                  Icon(
-                    Icons.category,
-                    color: AppColors.primaryGold,
-                  ),
+                  Icon(Icons.category, color: AppColors.primaryGold),
                   const SizedBox(width: 12),
                   const Expanded(
                     child: Text(
@@ -1438,93 +1481,95 @@ class _CategoriesManagementDialogState
               child: _loading
                   ? const Center(child: CircularProgressIndicator())
                   : _categories.isEmpty
-                      ? Center(
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(
-                                Icons.category_outlined,
-                                size: 64,
-                                color: colorScheme.onSurface.withValues(alpha: 0.3),
+                  ? Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Icons.category_outlined,
+                            size: 64,
+                            color: colorScheme.onSurface.withValues(alpha: 0.3),
+                          ),
+                          const SizedBox(height: 16),
+                          Text(
+                            'لا توجد تصنيفات',
+                            style: theme.textTheme.titleMedium?.copyWith(
+                              color: colorScheme.onSurface.withValues(
+                                alpha: 0.6,
                               ),
-                              const SizedBox(height: 16),
-                              Text(
-                                'لا توجد تصنيفات',
-                                style: theme.textTheme.titleMedium?.copyWith(
-                                  color: colorScheme.onSurface.withValues(alpha: 0.6),
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          const Text('ابدأ بإضافة تصنيف جديد'),
+                        ],
+                      ),
+                    )
+                  : ListView.builder(
+                      itemCount: _categories.length,
+                      itemBuilder: (context, index) {
+                        final category = _categories[index];
+                        return ListTile(
+                          leading: CircleAvatar(
+                            backgroundColor: AppColors.primaryGold.withValues(
+                              alpha: 0.18,
+                            ),
+                            child: Icon(
+                              Icons.category,
+                              color: AppColors.primaryGold,
+                              size: 20,
+                            ),
+                          ),
+                          title: Text(
+                            category.name,
+                            style: const TextStyle(fontWeight: FontWeight.bold),
+                          ),
+                          subtitle: Text(
+                            category.description ?? '',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          trailing: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              // عداد الأصناف
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 4,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: colorScheme.primary.withValues(
+                                    alpha: 0.15,
+                                  ),
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: Text(
+                                  '${category.itemsCount ?? 0}',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.bold,
+                                    color: colorScheme.primary,
+                                  ),
                                 ),
                               ),
-                              const SizedBox(height: 8),
-                              const Text('ابدأ بإضافة تصنيف جديد'),
+                              const SizedBox(width: 8),
+                              IconButton(
+                                icon: const Icon(Icons.edit, size: 20),
+                                onPressed: () => _editCategory(category),
+                              ),
+                              IconButton(
+                                icon: Icon(
+                                  Icons.delete,
+                                  size: 20,
+                                  color: AppColors.error,
+                                ),
+                                onPressed: () => _deleteCategory(category),
+                              ),
                             ],
                           ),
-                        )
-                      : ListView.builder(
-                          itemCount: _categories.length,
-                          itemBuilder: (context, index) {
-                            final category = _categories[index];
-                            return ListTile(
-                              leading: CircleAvatar(
-                                backgroundColor: AppColors.primaryGold
-                                    .withValues(alpha: 0.18),
-                                child: Icon(
-                                  Icons.category,
-                                  color: AppColors.primaryGold,
-                                  size: 20,
-                                ),
-                              ),
-                              title: Text(
-                                category.name,
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                              subtitle: Text(
-                                category.description ?? '',
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                              trailing: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  // عداد الأصناف
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 8,
-                                      vertical: 4,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: colorScheme.primary
-                                          .withValues(alpha: 0.15),
-                                      borderRadius: BorderRadius.circular(12),
-                                    ),
-                                    child: Text(
-                                      '${category.itemsCount ?? 0}',
-                                      style: TextStyle(
-                                        fontSize: 12,
-                                        fontWeight: FontWeight.bold,
-                                        color: colorScheme.primary,
-                                      ),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 8),
-                                  IconButton(
-                                    icon: const Icon(Icons.edit, size: 20),
-                                    onPressed: () => _editCategory(category),
-                                  ),
-                                  IconButton(
-                                    icon: Icon(
-                                      Icons.delete,
-                                      size: 20,
-                                      color: AppColors.error,
-                                    ),
-                                    onPressed: () => _deleteCategory(category),
-                                  ),
-                                ],
-                              ),
-                            );
-                          },
-                        ),
+                        );
+                      },
+                    ),
             ),
 
             // Add Button

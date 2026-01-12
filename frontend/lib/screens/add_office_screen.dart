@@ -37,7 +37,7 @@ class _AddOfficeScreenState extends State<AddOfficeScreen> {
   final _licenseNumberController = TextEditingController();
   final _taxNumberController = TextEditingController();
   final _notesController = TextEditingController();
-  
+
   String _country = 'Saudi Arabia';
   bool _active = true;
 
@@ -161,9 +161,11 @@ class _AddOfficeScreenState extends State<AddOfficeScreen> {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     // معلومات أساسية
-                    _buildSectionTitle(isAr ? 'المعلومات الأساسية' : 'Basic Information'),
+                    _buildSectionTitle(
+                      isAr ? 'المعلومات الأساسية' : 'Basic Information',
+                    ),
                     const SizedBox(height: 16),
-                    
+
                     TextFormField(
                       controller: _nameController,
                       decoration: InputDecoration(
@@ -181,7 +183,7 @@ class _AddOfficeScreenState extends State<AddOfficeScreen> {
                       },
                     ),
                     const SizedBox(height: 16),
-                    
+
                     TextFormField(
                       controller: _phoneController,
                       decoration: InputDecoration(
@@ -192,7 +194,7 @@ class _AddOfficeScreenState extends State<AddOfficeScreen> {
                       keyboardType: TextInputType.phone,
                     ),
                     const SizedBox(height: 16),
-                    
+
                     TextFormField(
                       controller: _emailController,
                       decoration: InputDecoration(
@@ -203,7 +205,7 @@ class _AddOfficeScreenState extends State<AddOfficeScreen> {
                       keyboardType: TextInputType.emailAddress,
                     ),
                     const SizedBox(height: 16),
-                    
+
                     TextFormField(
                       controller: _contactPersonController,
                       decoration: InputDecoration(
@@ -213,11 +215,11 @@ class _AddOfficeScreenState extends State<AddOfficeScreen> {
                       ),
                     ),
                     const SizedBox(height: 24),
-                    
+
                     // العنوان
                     _buildSectionTitle(isAr ? 'العنوان' : 'Address'),
                     const SizedBox(height: 16),
-                    
+
                     TextFormField(
                       controller: _addressLine1Controller,
                       decoration: InputDecoration(
@@ -227,7 +229,7 @@ class _AddOfficeScreenState extends State<AddOfficeScreen> {
                       ),
                     ),
                     const SizedBox(height: 16),
-                    
+
                     TextFormField(
                       controller: _addressLine2Controller,
                       decoration: InputDecoration(
@@ -237,7 +239,7 @@ class _AddOfficeScreenState extends State<AddOfficeScreen> {
                       ),
                     ),
                     const SizedBox(height: 16),
-                    
+
                     Row(
                       children: [
                         Expanded(
@@ -264,7 +266,7 @@ class _AddOfficeScreenState extends State<AddOfficeScreen> {
                       ],
                     ),
                     const SizedBox(height: 16),
-                    
+
                     Row(
                       children: [
                         Expanded(
@@ -282,25 +284,26 @@ class _AddOfficeScreenState extends State<AddOfficeScreen> {
                         const SizedBox(width: 16),
                         Expanded(
                           child: DropdownButtonFormField<String>(
-                            value: _country,
+                            initialValue: _country,
                             decoration: InputDecoration(
                               labelText: isAr ? 'الدولة' : 'Country',
                               prefixIcon: const Icon(Icons.public),
                               border: const OutlineInputBorder(),
                             ),
-                            items: [
-                              'Saudi Arabia',
-                              'UAE',
-                              'Kuwait',
-                              'Bahrain',
-                              'Qatar',
-                              'Oman',
-                            ].map((country) {
-                              return DropdownMenuItem(
-                                value: country,
-                                child: Text(country),
-                              );
-                            }).toList(),
+                            items:
+                                [
+                                  'Saudi Arabia',
+                                  'UAE',
+                                  'Kuwait',
+                                  'Bahrain',
+                                  'Qatar',
+                                  'Oman',
+                                ].map((country) {
+                                  return DropdownMenuItem(
+                                    value: country,
+                                    child: Text(country),
+                                  );
+                                }).toList(),
                             onChanged: (value) {
                               setState(() => _country = value!);
                             },
@@ -309,11 +312,13 @@ class _AddOfficeScreenState extends State<AddOfficeScreen> {
                       ],
                     ),
                     const SizedBox(height: 24),
-                    
+
                     // معلومات رسمية
-                    _buildSectionTitle(isAr ? 'المعلومات الرسمية' : 'Official Information'),
+                    _buildSectionTitle(
+                      isAr ? 'المعلومات الرسمية' : 'Official Information',
+                    ),
                     const SizedBox(height: 16),
-                    
+
                     TextFormField(
                       controller: _licenseNumberController,
                       decoration: InputDecoration(
@@ -323,7 +328,7 @@ class _AddOfficeScreenState extends State<AddOfficeScreen> {
                       ),
                     ),
                     const SizedBox(height: 16),
-                    
+
                     TextFormField(
                       controller: _taxNumberController,
                       decoration: InputDecoration(
@@ -333,11 +338,11 @@ class _AddOfficeScreenState extends State<AddOfficeScreen> {
                       ),
                     ),
                     const SizedBox(height: 24),
-                    
+
                     // ملاحظات
                     _buildSectionTitle(isAr ? 'ملاحظات' : 'Notes'),
                     const SizedBox(height: 16),
-                    
+
                     TextFormField(
                       controller: _notesController,
                       decoration: InputDecoration(
@@ -348,24 +353,22 @@ class _AddOfficeScreenState extends State<AddOfficeScreen> {
                       maxLines: 3,
                     ),
                     const SizedBox(height: 24),
-                    
+
                     // الحالة
                     if (isEdit)
                       SwitchListTile(
                         title: Text(isAr ? 'مكتب نشط' : 'Active Office'),
                         subtitle: Text(
-                          isAr
-                              ? 'تفعيل/تعطيل المكتب'
-                              : 'Enable/Disable office',
+                          isAr ? 'تفعيل/تعطيل المكتب' : 'Enable/Disable office',
                         ),
                         value: _active,
                         onChanged: (value) {
                           setState(() => _active = value);
                         },
-                            activeColor: AppColors.primaryGold,
+                        activeThumbColor: AppColors.primaryGold,
                       ),
                     const SizedBox(height: 24),
-                    
+
                     // زر الحفظ
                     ElevatedButton.icon(
                       onPressed: _isLoading ? null : _saveOffice,
@@ -378,8 +381,8 @@ class _AddOfficeScreenState extends State<AddOfficeScreen> {
                       ),
                       style: ElevatedButton.styleFrom(
                         padding: const EdgeInsets.all(16),
-                            backgroundColor: AppColors.primaryGold,
-                            foregroundColor: Colors.white,
+                        backgroundColor: AppColors.primaryGold,
+                        foregroundColor: Colors.white,
                       ),
                     ),
                   ],

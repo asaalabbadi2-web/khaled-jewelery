@@ -20,15 +20,18 @@ class ReportCategorySection extends StatelessWidget {
     final title = category.localizedName(isArabic);
 
     return Column(
-      crossAxisAlignment:
-          isArabic ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+      crossAxisAlignment: isArabic
+          ? CrossAxisAlignment.end
+          : CrossAxisAlignment.start,
       children: [
         _buildHeader(context, title),
         const SizedBox(height: 16),
         LayoutBuilder(
           builder: (context, constraints) {
             final isWide = constraints.maxWidth > 840;
-            final crossAxisCount = isWide ? 3 : (constraints.maxWidth > 520 ? 2 : 1);
+            final crossAxisCount = isWide
+                ? 3
+                : (constraints.maxWidth > 520 ? 2 : 1);
 
             return GridView.builder(
               itemCount: category.reports.length,
@@ -61,8 +64,9 @@ class ReportCategorySection extends StatelessWidget {
     final theme = Theme.of(context);
 
     return Row(
-      mainAxisAlignment:
-          isArabic ? MainAxisAlignment.end : MainAxisAlignment.start,
+      mainAxisAlignment: isArabic
+          ? MainAxisAlignment.end
+          : MainAxisAlignment.start,
       textDirection: isArabic ? TextDirection.rtl : TextDirection.ltr,
       children: [
         Container(

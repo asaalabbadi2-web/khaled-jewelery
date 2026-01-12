@@ -18,10 +18,7 @@ class GlobalInputDecorationTheme {
 /// Mixin to add automatic number conversion to any StatefulWidget
 mixin AutomaticNumberConversion<T extends StatefulWidget> on State<T> {
   /// Wraps a TextField/TextFormField with automatic number conversion
-  Widget wrapWithNumberConversion(
-    Widget child, {
-    bool forceConversion = true,
-  }) {
+  Widget wrapWithNumberConversion(Widget child, {bool forceConversion = true}) {
     if (forceConversion) {
       // يمكن إضافة logic هنا لتطبيق التحويل تلقائياً
       return child;
@@ -35,7 +32,9 @@ extension NumberConversionController on TextEditingController {
   /// استمع للتغييرات وطبق التحويل تلقائياً
   void enableAutoConversion() {
     addListener(() {
-      final converted = ArabicNumberTextInputFormatter.convertToWesternNumbers(text);
+      final converted = ArabicNumberTextInputFormatter.convertToWesternNumbers(
+        text,
+      );
       if (converted != text) {
         final selection = this.selection;
         text = converted;
@@ -49,14 +48,15 @@ extension NumberConversionController on TextEditingController {
 }
 
 /// Builder function لإنشاء TextField مع تحويل تلقائي
-typedef TextFieldBuilder = Widget Function({
-  TextEditingController? controller,
-  InputDecoration? decoration,
-  TextInputType? keyboardType,
-  List<TextInputFormatter>? inputFormatters,
-  ValueChanged<String>? onChanged,
-  int? maxLines,
-});
+typedef TextFieldBuilder =
+    Widget Function({
+      TextEditingController? controller,
+      InputDecoration? decoration,
+      TextInputType? keyboardType,
+      List<TextInputFormatter>? inputFormatters,
+      ValueChanged<String>? onChanged,
+      int? maxLines,
+    });
 
 /// Global function لإنشاء TextField مع تحويل أرقام تلقائي
 Widget buildTextFieldWithConversion({
@@ -73,7 +73,8 @@ Widget buildTextFieldWithConversion({
   bool autofocus = false,
 }) {
   // تحديد هل الحقل رقمي
-  final isNumeric = keyboardType == TextInputType.number ||
+  final isNumeric =
+      keyboardType == TextInputType.number ||
       keyboardType == const TextInputType.numberWithOptions(decimal: true) ||
       keyboardType == const TextInputType.numberWithOptions(signed: true);
 
@@ -81,8 +82,11 @@ Widget buildTextFieldWithConversion({
   final formatters = <TextInputFormatter>[
     if (isNumeric)
       ArabicNumberTextInputFormatter(
-        allowDecimal: keyboardType == const TextInputType.numberWithOptions(decimal: true),
-        allowNegative: keyboardType == const TextInputType.numberWithOptions(signed: true),
+        allowDecimal:
+            keyboardType ==
+            const TextInputType.numberWithOptions(decimal: true),
+        allowNegative:
+            keyboardType == const TextInputType.numberWithOptions(signed: true),
       )
     else
       const UniversalNumberTextInputFormatter(),

@@ -5,8 +5,10 @@ import '../api_service.dart';
 import '../providers/auth_provider.dart';
 
 class SystemResetScreen extends StatefulWidget {
+  const SystemResetScreen({super.key});
+
   @override
-  _SystemResetScreenState createState() => _SystemResetScreenState();
+  State<SystemResetScreen> createState() => _SystemResetScreenState();
 }
 
 class _SystemResetScreenState extends State<SystemResetScreen> {
@@ -52,7 +54,7 @@ class _SystemResetScreenState extends State<SystemResetScreen> {
         _systemInfo = response['data'];
       });
     } catch (e) {
-       if (!mounted) return;
+      if (!mounted) return;
       _showErrorDialog('خطأ في تحميل البيانات: $e');
     } finally {
       if (mounted) {
@@ -61,7 +63,11 @@ class _SystemResetScreenState extends State<SystemResetScreen> {
     }
   }
 
-  Future<void> _performReset(String resetType, String title, String description) async {
+  Future<void> _performReset(
+    String resetType,
+    String title,
+    String description,
+  ) async {
     final confirmed = await _showConfirmationDialog(
       title,
       description,
@@ -86,7 +92,9 @@ class _SystemResetScreenState extends State<SystemResetScreen> {
           await auth.logout();
           await auth.init();
           if (!mounted) return;
-          Navigator.of(context).pushNamedAndRemoveUntil('/setup', (route) => false);
+          Navigator.of(
+            context,
+          ).pushNamedAndRemoveUntil('/setup', (route) => false);
           return;
         }
 
@@ -95,10 +103,9 @@ class _SystemResetScreenState extends State<SystemResetScreen> {
         _showErrorDialog(response['message']);
       }
     } catch (e) {
-       if (!mounted) return;
+      if (!mounted) return;
       _showErrorDialog('خطأ: $e');
-    }
-    finally {
+    } finally {
       if (mounted) {
         setState(() => _isLoading = false);
       }
@@ -135,7 +142,8 @@ class _SystemResetScreenState extends State<SystemResetScreen> {
         final snapshot = (result['snapshot'] as Map<String, dynamic>?) ?? {};
         final avg = _toDouble(snapshot['avg_total']);
         final buffer = StringBuffer(
-            rebuild ? 'تمت إعادة بناء المتوسط بنجاح.' : 'تم تصفير المتوسط بنجاح.');
+          rebuild ? 'تمت إعادة بناء المتوسط بنجاح.' : 'تم تصفير المتوسط بنجاح.',
+        );
         if (processed != null) {
           buffer.write(' الفواتير المعاد احتسابها: $processed.');
         }
@@ -156,7 +164,10 @@ class _SystemResetScreenState extends State<SystemResetScreen> {
   }
 
   Future<bool> _showConfirmationDialog(
-      String title, String message, {required String confirmationText}) async {
+    String title,
+    String message, {
+    required String confirmationText,
+  }) async {
     final controller = TextEditingController();
     final formKey = GlobalKey<FormFieldState>();
 
@@ -169,9 +180,18 @@ class _SystemResetScreenState extends State<SystemResetScreen> {
                 return AlertDialog(
                   title: Row(
                     children: [
-                      Icon(Icons.warning, color: Theme.of(context).colorScheme.error, size: 28),
+                      Icon(
+                        Icons.warning,
+                        color: Theme.of(context).colorScheme.error,
+                        size: 28,
+                      ),
                       const SizedBox(width: 12),
-                      Expanded(child: Text(title, style: const TextStyle(fontWeight: FontWeight.bold))),
+                      Expanded(
+                        child: Text(
+                          title,
+                          style: const TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                      ),
                     ],
                   ),
                   content: Column(
@@ -183,9 +203,10 @@ class _SystemResetScreenState extends State<SystemResetScreen> {
                       Text(
                         'للتأكيد، يرجى كتابة "$confirmationText" في الحقل أدناه:',
                         style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.bold,
-                            color: Theme.of(context).colorScheme.error),
+                          fontSize: 14,
+                          fontWeight: FontWeight.bold,
+                          color: Theme.of(context).colorScheme.error,
+                        ),
                       ),
                       const SizedBox(height: 8),
                       TextFormField(
@@ -221,7 +242,9 @@ class _SystemResetScreenState extends State<SystemResetScreen> {
                               ? () => Navigator.of(context).pop(true)
                               : null,
                           style: FilledButton.styleFrom(
-                            backgroundColor: Theme.of(context).colorScheme.error,
+                            backgroundColor: Theme.of(
+                              context,
+                            ).colorScheme.error,
                           ),
                           child: const Text('تأكيد الحذف'),
                         );
@@ -245,7 +268,10 @@ class _SystemResetScreenState extends State<SystemResetScreen> {
           children: [
             Icon(Icons.check_circle, color: Colors.green.shade700, size: 28),
             const SizedBox(width: 12),
-            const Text('نجحت العملية', style: TextStyle(fontWeight: FontWeight.bold)),
+            const Text(
+              'نجحت العملية',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
           ],
         ),
         content: Text(message, style: const TextStyle(fontSize: 16)),
@@ -260,13 +286,17 @@ class _SystemResetScreenState extends State<SystemResetScreen> {
   }
 
   void _showErrorDialog(String message) {
-     if (!mounted) return;
+    if (!mounted) return;
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
         title: Row(
           children: [
-            Icon(Icons.error, color: Theme.of(context).colorScheme.error, size: 28),
+            Icon(
+              Icons.error,
+              color: Theme.of(context).colorScheme.error,
+              size: 28,
+            ),
             const SizedBox(width: 12),
             const Text('خطأ', style: TextStyle(fontWeight: FontWeight.bold)),
           ],
@@ -339,7 +369,10 @@ class _SystemResetScreenState extends State<SystemResetScreen> {
                 ),
                 const SizedBox(width: 8),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 6,
+                  ),
                   decoration: BoxDecoration(
                     color: color.withValues(alpha: 0.15),
                     borderRadius: BorderRadius.circular(20),
@@ -365,7 +398,7 @@ class _SystemResetScreenState extends State<SystemResetScreen> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       decoration: BoxDecoration(
-  color: color.withValues(alpha: 0.12),
+        color: color.withValues(alpha: 0.12),
         borderRadius: BorderRadius.circular(12),
       ),
       child: Column(
@@ -373,7 +406,11 @@ class _SystemResetScreenState extends State<SystemResetScreen> {
         children: [
           Text(
             label,
-            style: TextStyle(fontSize: 12, color: color.withValues(alpha: 0.8), fontWeight: FontWeight.bold),
+            style: TextStyle(
+              fontSize: 12,
+              color: color.withValues(alpha: 0.8),
+              fontWeight: FontWeight.bold,
+            ),
           ),
           const SizedBox(height: 4),
           Text(
@@ -389,7 +426,10 @@ class _SystemResetScreenState extends State<SystemResetScreen> {
     );
   }
 
-  Widget _buildCostingSummaryCard(ThemeData theme, Map<String, dynamic> costingData) {
+  Widget _buildCostingSummaryCard(
+    ThemeData theme,
+    Map<String, dynamic> costingData,
+  ) {
     if (costingData.isEmpty) {
       return const SizedBox.shrink();
     }
@@ -430,7 +470,9 @@ class _SystemResetScreenState extends State<SystemResetScreen> {
                     children: [
                       Text(
                         'سلامة متوسط التكلفة',
-                        style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
                       const SizedBox(height: 4),
                       Text(
@@ -447,10 +489,26 @@ class _SystemResetScreenState extends State<SystemResetScreen> {
               spacing: 12,
               runSpacing: 12,
               children: [
-                _buildStatChip('الوزن بالمخزون', '${formatWeight(weight)} جم', infoColor),
-                _buildStatChip('متوسط إجمالي/جم', '${formatCost(avgTotal)} ر.س', secondaryColor),
-                _buildStatChip('مكون الذهب/جم', '${formatCost(avgGold)} ر.س', theme.colorScheme.secondary),
-                _buildStatChip('مكون الأجرة/جم', '${formatCost(avgWage)} ر.س', theme.colorScheme.error),
+                _buildStatChip(
+                  'الوزن بالمخزون',
+                  '${formatWeight(weight)} جم',
+                  infoColor,
+                ),
+                _buildStatChip(
+                  'متوسط إجمالي/جم',
+                  '${formatCost(avgTotal)} ر.س',
+                  secondaryColor,
+                ),
+                _buildStatChip(
+                  'مكون الذهب/جم',
+                  '${formatCost(avgGold)} ر.س',
+                  theme.colorScheme.secondary,
+                ),
+                _buildStatChip(
+                  'مكون الأجرة/جم',
+                  '${formatCost(avgWage)} ر.س',
+                  theme.colorScheme.error,
+                ),
               ],
             ),
             if (lastUpdated != null) ...[
@@ -464,16 +522,22 @@ class _SystemResetScreenState extends State<SystemResetScreen> {
               children: [
                 Expanded(
                   child: FilledButton.icon(
-                    onPressed: _isCostingAction ? null : () => _handleCostingAction(rebuild: false),
+                    onPressed: _isCostingAction
+                        ? null
+                        : () => _handleCostingAction(rebuild: false),
                     icon: const Icon(Icons.restart_alt),
-                    style: FilledButton.styleFrom(backgroundColor: theme.colorScheme.error),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: theme.colorScheme.error,
+                    ),
                     label: const Text('تصفير المتوسط'),
                   ),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
                   child: OutlinedButton.icon(
-                    onPressed: _isCostingAction ? null : () => _handleCostingAction(rebuild: true),
+                    onPressed: _isCostingAction
+                        ? null
+                        : () => _handleCostingAction(rebuild: true),
                     icon: const Icon(Icons.replay_circle_filled_outlined),
                     label: const Text('إعادة بناء من الفواتير'),
                   ),
@@ -490,17 +554,20 @@ class _SystemResetScreenState extends State<SystemResetScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final data = _systemInfo;
-    
+
     final transactions = (data?['transactions'] as Map<String, dynamic>?) ?? {};
-    final customersSuppliers = (data?['customers_suppliers'] as Map<String, dynamic>?) ?? {};
+    final customersSuppliers =
+        (data?['customers_suppliers'] as Map<String, dynamic>?) ?? {};
     final settingsData = (data?['settings'] as Map<String, dynamic>?) ?? {};
-  final costingData = (data?['inventory_costing'] as Map<String, dynamic>?) ?? {};
+    final costingData =
+        (data?['inventory_costing'] as Map<String, dynamic>?) ?? {};
 
     final int journalEntries = _toInt(transactions['journal_entries']);
     final int invoicesCount = _toInt(transactions['invoices']);
     final int vouchersCount = _toInt(transactions['vouchers']);
-    final int transactionsTotal = journalEntries + invoicesCount + vouchersCount;
-    
+    final int transactionsTotal =
+        journalEntries + invoicesCount + vouchersCount;
+
     final int customersCount = _toInt(customersSuppliers['customers']);
     final int suppliersCount = _toInt(customersSuppliers['suppliers']);
     final int customersSuppliersTotal = customersCount + suppliersCount;
@@ -509,7 +576,10 @@ class _SystemResetScreenState extends State<SystemResetScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('إعادة تهيئة النظام', style: TextStyle(fontWeight: FontWeight.bold)),
+        title: const Text(
+          'إعادة تهيئة النظام',
+          style: TextStyle(fontWeight: FontWeight.bold),
+        ),
         backgroundColor: theme.colorScheme.errorContainer,
         foregroundColor: theme.colorScheme.onErrorContainer,
         actions: [
@@ -523,115 +593,122 @@ class _SystemResetScreenState extends State<SystemResetScreen> {
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : _systemInfo == null
-              ? Center(
-                  child: Text(
-                  'خطأ في تحميل بيانات النظام',
-                  style: TextStyle(color: theme.colorScheme.error),
-                ))
-              : RefreshIndicator(
-                  onRefresh: _loadSystemInfo,
-                  child: ListView(
-                    padding: const EdgeInsets.symmetric(vertical: 8),
-                    children: [
-                      Container(
-                        margin: const EdgeInsets.all(16),
-                        padding: const EdgeInsets.all(16),
-                        decoration: BoxDecoration(
-                          color: theme.colorScheme.errorContainer.withValues(alpha: 0.5),
-                          borderRadius: BorderRadius.circular(12),
+          ? Center(
+              child: Text(
+                'خطأ في تحميل بيانات النظام',
+                style: TextStyle(color: theme.colorScheme.error),
+              ),
+            )
+          : RefreshIndicator(
+              onRefresh: _loadSystemInfo,
+              child: ListView(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                children: [
+                  Container(
+                    margin: const EdgeInsets.all(16),
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: theme.colorScheme.errorContainer.withValues(
+                        alpha: 0.5,
+                      ),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.warning_amber_rounded,
+                          color: theme.colorScheme.error,
+                          size: 32,
                         ),
-                        child: Row(
-                          children: [
-                            Icon(
-                              Icons.warning_amber_rounded,
-                              color: theme.colorScheme.error,
-                              size: 32,
+                        const SizedBox(width: 16),
+                        Expanded(
+                          child: Text(
+                            'إعادة تهيئة النظام ستحذف البيانات بشكل نهائي. يرجى أخذ نسخة احتياطية أولاً.',
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.bold,
+                              color: theme.colorScheme.onErrorContainer,
                             ),
-                            const SizedBox(width: 16),
-                            Expanded(
-                              child: Text(
-                                'إعادة تهيئة النظام ستحذف البيانات بشكل نهائي. يرجى أخذ نسخة احتياطية أولاً.',
-                                style: TextStyle(
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.bold,
-                                  color: theme.colorScheme.onErrorContainer,
-                                ),
-                              ),
-                            ),
-                          ],
+                          ),
                         ),
-                      ),
-                        _buildCostingSummaryCard(theme, costingData),
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                        child: Text(
-                          'اختر نوع إعادة التهيئة:',
-                          style: theme.textTheme.titleLarge,
-                        ),
-                      ),
-                      _buildResetCard(
-                        title: 'حذف العمليات',
-                        description: 'حذف جميع القيود والفواتير والسندات',
-                        icon: Icons.receipt_long,
-                        color: theme.colorScheme.primary,
-                        itemCount: transactionsTotal,
-                        onPressed: () => _performReset(
-                          'transactions',
-                          'حذف العمليات',
-                          'سيتم حذف جميع العمليات ($transactionsTotal سجل). ستبقى بيانات العملاء والموردين والحسابات.',
-                        ),
-                      ),
-                      _buildResetCard(
-                        title: 'حذف العملاء والموردين',
-                        description: 'حذف جميع بيانات العملاء والموردين',
-                        icon: Icons.people_outline,
-                        color: theme.colorScheme.secondary,
-                        itemCount: customersSuppliersTotal,
-                        onPressed: () => _performReset(
-                          'customers_suppliers',
-                          'حذف العملاء والموردين',
-                          'سيتم حذف جميع بيانات العملاء ($customersCount) والموردين ($suppliersCount).',
-                        ),
-                      ),
-                      _buildResetCard(
-                        title: 'إعادة تعيين الإعدادات',
-                        description: 'إرجاع جميع الإعدادات للقيم الافتراضية',
-                        icon: Icons.settings_backup_restore,
-                        color: theme.colorScheme.tertiary,
-                        itemCount: hasSettings ? 1 : 0,
-                        onPressed: () => _performReset(
-                          'settings',
-                          'إعادة تعيين الإعدادات',
-                          'سيتم إعادة تعيين جميع الإعدادات للقيم الافتراضية.',
-                        ),
-                      ),
-                      _buildResetCard(
-                        title: 'إعادة تهيئة كاملة (مع الحفاظ على شجرة الحسابات)',
-                        description: 'حذف جميع البيانات التشغيلية مع الحفاظ على شجرة الحسابات',
-                        icon: Icons.delete_sweep,
-                        color: theme.colorScheme.error,
-                        itemCount: 1,
-                        onPressed: () => _performReset(
-                          'all',
-                          'إعادة تهيئة كاملة',
-                          'سيتم حذف جميع البيانات نهائياً مع الحفاظ على شجرة الحسابات. سيؤدي ذلك إلى حذف المستخدمين والبيانات التشغيلية.',
-                        ),
-                      ),
-                      _buildResetCard(
-                        title: 'إعادة تهيئة كاملة (مع حذف شجرة الحسابات)',
-                        description: 'حذف جميع البيانات بما في ذلك شجرة الحسابات',
-                        icon: Icons.delete_forever,
-                        color: theme.colorScheme.error,
-                        itemCount: 1,
-                        onPressed: () => _performReset(
-                          'all_with_accounts',
-                          'إعادة تهيئة كاملة',
-                          'سيتم حذف كل شيء نهائياً من قاعدة البيانات (بما في ذلك شجرة الحسابات). لا يمكن التراجع عن هذه العملية.',
-                        ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
-                ),
+                  _buildCostingSummaryCard(theme, costingData),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 8,
+                    ),
+                    child: Text(
+                      'اختر نوع إعادة التهيئة:',
+                      style: theme.textTheme.titleLarge,
+                    ),
+                  ),
+                  _buildResetCard(
+                    title: 'حذف العمليات',
+                    description: 'حذف جميع القيود والفواتير والسندات',
+                    icon: Icons.receipt_long,
+                    color: theme.colorScheme.primary,
+                    itemCount: transactionsTotal,
+                    onPressed: () => _performReset(
+                      'transactions',
+                      'حذف العمليات',
+                      'سيتم حذف جميع العمليات ($transactionsTotal سجل). ستبقى بيانات العملاء والموردين والحسابات.',
+                    ),
+                  ),
+                  _buildResetCard(
+                    title: 'حذف العملاء والموردين',
+                    description: 'حذف جميع بيانات العملاء والموردين',
+                    icon: Icons.people_outline,
+                    color: theme.colorScheme.secondary,
+                    itemCount: customersSuppliersTotal,
+                    onPressed: () => _performReset(
+                      'customers_suppliers',
+                      'حذف العملاء والموردين',
+                      'سيتم حذف جميع بيانات العملاء ($customersCount) والموردين ($suppliersCount).',
+                    ),
+                  ),
+                  _buildResetCard(
+                    title: 'إعادة تعيين الإعدادات',
+                    description: 'إرجاع جميع الإعدادات للقيم الافتراضية',
+                    icon: Icons.settings_backup_restore,
+                    color: theme.colorScheme.tertiary,
+                    itemCount: hasSettings ? 1 : 0,
+                    onPressed: () => _performReset(
+                      'settings',
+                      'إعادة تعيين الإعدادات',
+                      'سيتم إعادة تعيين جميع الإعدادات للقيم الافتراضية.',
+                    ),
+                  ),
+                  _buildResetCard(
+                    title: 'إعادة تهيئة كاملة (مع الحفاظ على شجرة الحسابات)',
+                    description:
+                        'حذف جميع البيانات التشغيلية مع الحفاظ على شجرة الحسابات',
+                    icon: Icons.delete_sweep,
+                    color: theme.colorScheme.error,
+                    itemCount: 1,
+                    onPressed: () => _performReset(
+                      'all',
+                      'إعادة تهيئة كاملة',
+                      'سيتم حذف جميع البيانات نهائياً مع الحفاظ على شجرة الحسابات. سيؤدي ذلك إلى حذف المستخدمين والبيانات التشغيلية.',
+                    ),
+                  ),
+                  _buildResetCard(
+                    title: 'إعادة تهيئة كاملة (مع حذف شجرة الحسابات)',
+                    description: 'حذف جميع البيانات بما في ذلك شجرة الحسابات',
+                    icon: Icons.delete_forever,
+                    color: theme.colorScheme.error,
+                    itemCount: 1,
+                    onPressed: () => _performReset(
+                      'all_with_accounts',
+                      'إعادة تهيئة كاملة',
+                      'سيتم حذف كل شيء نهائياً من قاعدة البيانات (بما في ذلك شجرة الحسابات). لا يمكن التراجع عن هذه العملية.',
+                    ),
+                  ),
+                ],
+              ),
+            ),
     );
   }
 }

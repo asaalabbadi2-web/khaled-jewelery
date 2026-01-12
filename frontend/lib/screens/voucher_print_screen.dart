@@ -44,13 +44,13 @@ class _VoucherPrintScreenState extends State<VoucherPrintScreen> {
   @override
   Widget build(BuildContext context) {
     final isReceipt = widget.voucher['voucher_type'] == 'receipt';
-    
+
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          widget.isArabic 
-            ? (isReceipt ? 'طباعة سند قبض' : 'طباعة سند صرف')
-            : (isReceipt ? 'Print Receipt Voucher' : 'Print Payment Voucher'),
+          widget.isArabic
+              ? (isReceipt ? 'طباعة سند قبض' : 'طباعة سند صرف')
+              : (isReceipt ? 'Print Receipt Voucher' : 'Print Payment Voucher'),
         ),
         backgroundColor: isReceipt ? Colors.green : Colors.orange,
         actions: [
@@ -64,16 +64,16 @@ class _VoucherPrintScreenState extends State<VoucherPrintScreen> {
       body: _isGenerating
           ? const Center(child: CircularProgressIndicator())
           : kIsWeb
-              ? _buildWebPreview(isReceipt)
-              : PdfPreview(
-                  build: (format) => _generatePdf(format),
-                  canChangePageFormat: true,
-                  allowPrinting: true,
-                  allowSharing: true,
-                  initialPageFormat: _getPdfPageFormat(),
-                  pdfFileName:
-                      'voucher_${widget.voucher['id']}_${DateFormat('yyyyMMdd').format(DateTime.now())}.pdf',
-                ),
+          ? _buildWebPreview(isReceipt)
+          : PdfPreview(
+              build: (format) => _generatePdf(format),
+              canChangePageFormat: true,
+              allowPrinting: true,
+              allowSharing: true,
+              initialPageFormat: _getPdfPageFormat(),
+              pdfFileName:
+                  'voucher_${widget.voucher['id']}_${DateFormat('yyyyMMdd').format(DateTime.now())}.pdf',
+            ),
     );
   }
 
@@ -94,20 +94,14 @@ class _VoucherPrintScreenState extends State<VoucherPrintScreen> {
               widget.isArabic
                   ? '${isReceipt ? 'سند قبض' : 'سند صرف'} رقم #${widget.voucher['id']}'
                   : '${isReceipt ? 'Receipt' : 'Payment'} Voucher #${widget.voucher['id']}',
-              style: const TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.bold,
-              ),
+              style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 12),
             Text(
               widget.isArabic
                   ? 'اضغط على زر التحميل أعلاه لحفظ السند كـ PDF'
                   : 'Click the download button above to save the voucher as PDF',
-              style: TextStyle(
-                fontSize: 16,
-                color: Colors.grey.shade600,
-              ),
+              style: TextStyle(fontSize: 16, color: Colors.grey.shade600),
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 32),
@@ -192,7 +186,8 @@ class _VoucherPrintScreenState extends State<VoucherPrintScreen> {
                 '${goldFormat.format(voucher['amount_gold'])} ${widget.isArabic ? 'جرام' : 'g'}',
                 isAmount: true,
               ),
-            if (voucher['notes'] != null && voucher['notes'].toString().isNotEmpty)
+            if (voucher['notes'] != null &&
+                voucher['notes'].toString().isNotEmpty)
               Padding(
                 padding: const EdgeInsets.only(top: 12),
                 child: Column(
@@ -221,10 +216,7 @@ class _VoucherPrintScreenState extends State<VoucherPrintScreen> {
         children: [
           Text(
             label,
-            style: TextStyle(
-              color: Colors.grey.shade700,
-              fontSize: 14,
-            ),
+            style: TextStyle(color: Colors.grey.shade700, fontSize: 14),
           ),
           Text(
             value,
@@ -243,12 +235,12 @@ class _VoucherPrintScreenState extends State<VoucherPrintScreen> {
     try {
       setState(() => _isGenerating = true);
       final pdf = await _generatePdf(_getPdfPageFormat());
-      
+
       await Printing.layoutPdf(
         onLayout: (_) => pdf,
         name: 'voucher_${widget.voucher['id']}.pdf',
       );
-      
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -294,14 +286,16 @@ class _VoucherPrintScreenState extends State<VoucherPrintScreen> {
     final pdf = pw.Document();
     final voucher = widget.voucher;
     final isReceipt = voucher['voucher_type'] == 'receipt';
-    
+
     final currencyFormat = NumberFormat('#,##0.00', 'ar');
     final goldFormat = NumberFormat('#,##0.000', 'ar');
 
     pdf.addPage(
       pw.Page(
         pageFormat: format,
-        textDirection: widget.isArabic ? pw.TextDirection.rtl : pw.TextDirection.ltr,
+        textDirection: widget.isArabic
+            ? pw.TextDirection.rtl
+            : pw.TextDirection.ltr,
         theme: pw.ThemeData.withFont(
           base: await PdfGoogleFonts.cairoRegular(),
           bold: await PdfGoogleFonts.cairoBold(),
@@ -314,10 +308,12 @@ class _VoucherPrintScreenState extends State<VoucherPrintScreen> {
               pw.Container(
                 padding: const pw.EdgeInsets.all(20),
                 decoration: pw.BoxDecoration(
-                  color: isReceipt 
-                    ? PdfColor.fromHex('#E8F5E9')
-                    : PdfColor.fromHex('#FFF3E0'),
-                  borderRadius: const pw.BorderRadius.all(pw.Radius.circular(8)),
+                  color: isReceipt
+                      ? PdfColor.fromHex('#E8F5E9')
+                      : PdfColor.fromHex('#FFF3E0'),
+                  borderRadius: const pw.BorderRadius.all(
+                    pw.Radius.circular(8),
+                  ),
                 ),
                 child: pw.Row(
                   mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
@@ -326,15 +322,17 @@ class _VoucherPrintScreenState extends State<VoucherPrintScreen> {
                       crossAxisAlignment: pw.CrossAxisAlignment.start,
                       children: [
                         pw.Text(
-                          widget.isArabic 
-                            ? (isReceipt ? 'سند قبض' : 'سند صرف')
-                            : (isReceipt ? 'Receipt Voucher' : 'Payment Voucher'),
+                          widget.isArabic
+                              ? (isReceipt ? 'سند قبض' : 'سند صرف')
+                              : (isReceipt
+                                    ? 'Receipt Voucher'
+                                    : 'Payment Voucher'),
                           style: pw.TextStyle(
                             fontSize: 24,
                             fontWeight: pw.FontWeight.bold,
-                            color: isReceipt 
-                              ? PdfColor.fromHex('#2E7D32')
-                              : PdfColor.fromHex('#E65100'),
+                            color: isReceipt
+                                ? PdfColor.fromHex('#2E7D32')
+                                : PdfColor.fromHex('#E65100'),
                           ),
                         ),
                         pw.SizedBox(height: 4),
@@ -391,35 +389,32 @@ class _VoucherPrintScreenState extends State<VoucherPrintScreen> {
               pw.SizedBox(height: 20),
 
               // Amounts
-              _buildPdfSection(
-                widget.isArabic ? 'المبالغ' : 'Amounts',
-                [
-                  if (voucher['amount_cash'] != null && voucher['amount_cash'] != 0)
-                    _buildPdfRow(
-                      widget.isArabic ? 'المبلغ نقداً' : 'Cash Amount',
-                      '${currencyFormat.format(voucher['amount_cash'])} ${widget.isArabic ? 'ريال' : 'SAR'}',
-                      isBold: true,
-                    ),
-                  if (voucher['amount_gold'] != null && voucher['amount_gold'] != 0)
-                    _buildPdfRow(
-                      widget.isArabic ? 'وزن الذهب' : 'Gold Weight',
-                      '${goldFormat.format(voucher['amount_gold'])} ${widget.isArabic ? 'جرام' : 'g'}',
-                      isBold: true,
-                    ),
-                ],
-              ),
+              _buildPdfSection(widget.isArabic ? 'المبالغ' : 'Amounts', [
+                if (voucher['amount_cash'] != null &&
+                    voucher['amount_cash'] != 0)
+                  _buildPdfRow(
+                    widget.isArabic ? 'المبلغ نقداً' : 'Cash Amount',
+                    '${currencyFormat.format(voucher['amount_cash'])} ${widget.isArabic ? 'ريال' : 'SAR'}',
+                    isBold: true,
+                  ),
+                if (voucher['amount_gold'] != null &&
+                    voucher['amount_gold'] != 0)
+                  _buildPdfRow(
+                    widget.isArabic ? 'وزن الذهب' : 'Gold Weight',
+                    '${goldFormat.format(voucher['amount_gold'])} ${widget.isArabic ? 'جرام' : 'g'}',
+                    isBold: true,
+                  ),
+              ]),
 
-              if (voucher['notes'] != null && voucher['notes'].toString().isNotEmpty) ...[
+              if (voucher['notes'] != null &&
+                  voucher['notes'].toString().isNotEmpty) ...[
                 pw.SizedBox(height: 20),
-                _buildPdfSection(
-                  widget.isArabic ? 'ملاحظات' : 'Notes',
-                  [
-                    pw.Text(
-                      voucher['notes'].toString(),
-                      style: const pw.TextStyle(fontSize: 12),
-                    ),
-                  ],
-                ),
+                _buildPdfSection(widget.isArabic ? 'ملاحظات' : 'Notes', [
+                  pw.Text(
+                    voucher['notes'].toString(),
+                    style: const pw.TextStyle(fontSize: 12),
+                  ),
+                ]),
               ],
 
               pw.Spacer(),
@@ -429,7 +424,9 @@ class _VoucherPrintScreenState extends State<VoucherPrintScreen> {
                 padding: const pw.EdgeInsets.all(20),
                 decoration: pw.BoxDecoration(
                   border: pw.Border.all(color: PdfColors.grey300),
-                  borderRadius: const pw.BorderRadius.all(pw.Radius.circular(8)),
+                  borderRadius: const pw.BorderRadius.all(
+                    pw.Radius.circular(8),
+                  ),
                 ),
                 child: pw.Row(
                   mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
@@ -440,9 +437,7 @@ class _VoucherPrintScreenState extends State<VoucherPrintScreen> {
                     _buildSignatureBox(
                       widget.isArabic ? 'المحاسب' : 'Accountant',
                     ),
-                    _buildSignatureBox(
-                      widget.isArabic ? 'المدير' : 'Manager',
-                    ),
+                    _buildSignatureBox(widget.isArabic ? 'المدير' : 'Manager'),
                   ],
                 ),
               ),
@@ -451,10 +446,7 @@ class _VoucherPrintScreenState extends State<VoucherPrintScreen> {
               pw.Center(
                 child: pw.Text(
                   '${widget.isArabic ? 'تاريخ الطباعة' : 'Printed on'}: ${DateFormat('yyyy-MM-dd HH:mm').format(DateTime.now())}',
-                  style: pw.TextStyle(
-                    fontSize: 10,
-                    color: PdfColors.grey600,
-                  ),
+                  style: pw.TextStyle(fontSize: 10, color: PdfColors.grey600),
                 ),
               ),
             ],
@@ -499,10 +491,7 @@ class _VoucherPrintScreenState extends State<VoucherPrintScreen> {
       child: pw.Row(
         mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
         children: [
-          pw.Text(
-            label,
-            style: const pw.TextStyle(fontSize: 12),
-          ),
+          pw.Text(label, style: const pw.TextStyle(fontSize: 12)),
           pw.Text(
             value,
             style: pw.TextStyle(
@@ -529,10 +518,7 @@ class _VoucherPrintScreenState extends State<VoucherPrintScreen> {
             ),
           ),
           pw.SizedBox(height: 8),
-          pw.Text(
-            label,
-            style: const pw.TextStyle(fontSize: 11),
-          ),
+          pw.Text(label, style: const pw.TextStyle(fontSize: 11)),
         ],
       ),
     );

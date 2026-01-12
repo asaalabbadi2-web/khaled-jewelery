@@ -50,9 +50,9 @@ class _PasswordPolicyScreenState extends State<PasswordPolicyScreen> {
       _requireSpecial = policy['require_special'] ?? true;
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('تعذر تحميل السياسة: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('تعذر تحميل السياسة: $e')));
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -73,14 +73,14 @@ class _PasswordPolicyScreenState extends State<PasswordPolicyScreen> {
       };
       await _api.updatePasswordPolicy(payload);
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('تم حفظ سياسة كلمة المرور')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('تم حفظ سياسة كلمة المرور')));
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('تعذر الحفظ: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('تعذر الحفظ: $e')));
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -132,10 +132,26 @@ class _PasswordPolicyScreenState extends State<PasswordPolicyScreen> {
                   ),
                 ),
                 const Divider(height: 32),
-                _buildSwitch('تطلب حرف كبير', _requireUpper, (v) => _requireUpper = v),
-                _buildSwitch('تطلب حرف صغير', _requireLower, (v) => _requireLower = v),
-                _buildSwitch('تطلب رقم', _requireDigit, (v) => _requireDigit = v),
-                _buildSwitch('تطلب رمز خاص', _requireSpecial, (v) => _requireSpecial = v),
+                _buildSwitch(
+                  'تطلب حرف كبير',
+                  _requireUpper,
+                  (v) => _requireUpper = v,
+                ),
+                _buildSwitch(
+                  'تطلب حرف صغير',
+                  _requireLower,
+                  (v) => _requireLower = v,
+                ),
+                _buildSwitch(
+                  'تطلب رقم',
+                  _requireDigit,
+                  (v) => _requireDigit = v,
+                ),
+                _buildSwitch(
+                  'تطلب رمز خاص',
+                  _requireSpecial,
+                  (v) => _requireSpecial = v,
+                ),
                 const SizedBox(height: 24),
                 SizedBox(
                   width: double.infinity,

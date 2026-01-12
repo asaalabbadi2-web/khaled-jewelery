@@ -30,9 +30,18 @@ class BonusManagementScreen extends StatelessWidget {
             labelColor: Colors.black,
             indicatorColor: AppColors.darkGold,
             tabs: [
-              Tab(text: isAr ? 'المكافآت' : 'Bonuses', icon: const Icon(Icons.card_giftcard)),
-              Tab(text: isAr ? 'القواعد' : 'Rules', icon: const Icon(Icons.rule)),
-              Tab(text: isAr ? 'احتساب' : 'Calculate', icon: const Icon(Icons.calculate)),
+              Tab(
+                text: isAr ? 'المكافآت' : 'Bonuses',
+                icon: const Icon(Icons.card_giftcard),
+              ),
+              Tab(
+                text: isAr ? 'القواعد' : 'Rules',
+                icon: const Icon(Icons.rule),
+              ),
+              Tab(
+                text: isAr ? 'احتساب' : 'Calculate',
+                icon: const Icon(Icons.calculate),
+              ),
             ],
           ),
         ),

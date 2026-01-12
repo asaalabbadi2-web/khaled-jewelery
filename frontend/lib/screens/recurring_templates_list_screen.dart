@@ -4,8 +4,10 @@ import 'recurring_template_form.dart';
 
 /// شاشة عرض قائمة القوالب الدورية
 class RecurringTemplatesListScreen extends StatefulWidget {
+  const RecurringTemplatesListScreen({super.key});
+
   @override
-  _RecurringTemplatesListScreenState createState() =>
+  State<RecurringTemplatesListScreen> createState() =>
       _RecurringTemplatesListScreenState();
 }
 
@@ -209,8 +211,8 @@ class _RecurringTemplatesListScreenState
               child: _isLoading
                   ? Center(child: CircularProgressIndicator())
                   : _filteredTemplates.isEmpty
-                      ? _buildEmptyState()
-                      : _buildTemplatesList(),
+                  ? _buildEmptyState()
+                  : _buildTemplatesList(),
             ),
           ],
         ),
@@ -265,11 +267,7 @@ class _RecurringTemplatesListScreenState
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(
-            Icons.repeat_rounded,
-            size: 80,
-            color: Colors.grey[300],
-          ),
+          Icon(Icons.repeat_rounded, size: 80, color: Colors.grey[300]),
           SizedBox(height: 16),
           Text(
             'لا توجد قوالب دورية',
@@ -310,7 +308,9 @@ class _RecurringTemplatesListScreenState
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
         side: BorderSide(
-          color: isActive ? Color(0xFFD4AF37).withValues(alpha: 0.3) : Colors.grey.withValues(alpha: 0.2),
+          color: isActive
+              ? Color(0xFFD4AF37).withValues(alpha: 0.3)
+              : Colors.grey.withValues(alpha: 0.2),
           width: 1,
         ),
       ),
@@ -395,8 +395,11 @@ class _RecurringTemplatesListScreenState
                         value: 'create',
                         child: Row(
                           children: [
-                            Icon(Icons.add_circle,
-                                size: 20, color: Color(0xFFD4AF37)),
+                            Icon(
+                              Icons.add_circle,
+                              size: 20,
+                              color: Color(0xFFD4AF37),
+                            ),
                             SizedBox(width: 8),
                             Text('إنشاء قيد الآن'),
                           ],
@@ -449,8 +452,7 @@ class _RecurringTemplatesListScreenState
                     _getFrequencyText(template['frequency'] ?? ''),
                     Color(0xFFD4AF37),
                   ),
-                  if (template['interval'] != null &&
-                      template['interval'] > 1)
+                  if (template['interval'] != null && template['interval'] > 1)
                     _buildInfoChip(
                       Icons.numbers,
                       'كل ${template['interval']}',
@@ -462,11 +464,7 @@ class _RecurringTemplatesListScreenState
                     isActive ? Colors.green : Colors.orange,
                   ),
                   if (autoCreate)
-                    _buildInfoChip(
-                      Icons.auto_awesome,
-                      'تلقائي',
-                      Colors.purple,
-                    ),
+                    _buildInfoChip(Icons.auto_awesome, 'تلقائي', Colors.purple),
                   if (template['total_created'] != null &&
                       template['total_created'] > 0)
                     _buildInfoChip(
@@ -486,18 +484,11 @@ class _RecurringTemplatesListScreenState
                   ),
                   child: Row(
                     children: [
-                      Icon(
-                        Icons.schedule,
-                        size: 16,
-                        color: Color(0xFFD4AF37),
-                      ),
+                      Icon(Icons.schedule, size: 16, color: Color(0xFFD4AF37)),
                       SizedBox(width: 8),
                       Text(
                         'التشغيل القادم: ${template['next_run_date'].split('T').first}',
-                        style: TextStyle(
-                          fontSize: 13,
-                          color: Colors.black87,
-                        ),
+                        style: TextStyle(fontSize: 13, color: Colors.black87),
                       ),
                     ],
                   ),

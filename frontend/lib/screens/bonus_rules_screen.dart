@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
@@ -53,8 +54,9 @@ class _BonusRulesScreenState extends State<BonusRulesScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(message),
-        backgroundColor:
-            isError ? Colors.red : Theme.of(context).colorScheme.primary,
+        backgroundColor: isError
+            ? Colors.red
+            : Theme.of(context).colorScheme.primary,
         behavior: SnackBarBehavior.floating,
         duration: const Duration(seconds: 3),
         action: SnackBarAction(
@@ -123,17 +125,17 @@ class _BonusRulesScreenState extends State<BonusRulesScreen> {
     final content = _loading
         ? const Center(child: CircularProgressIndicator())
         : _rules.isEmpty
-            ? Center(
-                child: Text(
-                  isAr ? 'لا توجد قواعد مكافآت' : 'No bonus rules',
-                  style: const TextStyle(fontSize: 18, color: Colors.grey),
-                ),
-              )
-            : ListView.builder(
-                padding: const EdgeInsets.all(16),
-                itemCount: _rules.length,
-                itemBuilder: (ctx, i) => _buildRuleCard(_rules[i]),
-              );
+        ? Center(
+            child: Text(
+              isAr ? 'لا توجد قواعد مكافآت' : 'No bonus rules',
+              style: const TextStyle(fontSize: 18, color: Colors.grey),
+            ),
+          )
+        : ListView.builder(
+            padding: const EdgeInsets.all(16),
+            itemCount: _rules.length,
+            itemBuilder: (ctx, i) => _buildRuleCard(_rules[i]),
+          );
 
     final body = widget.embedded
         ? Column(
@@ -158,20 +160,13 @@ class _BonusRulesScreenState extends State<BonusRulesScreen> {
         icon: const Icon(Icons.add),
         label: Text(isAr ? 'إضافة قاعدة' : 'Add Rule'),
       ),
-      body: SafeArea(
-        top: widget.embedded,
-        bottom: false,
-        child: body,
-      ),
+      body: SafeArea(top: widget.embedded, bottom: false, child: body),
     );
   }
 
   List<Widget> _buildAppBarActions(bool isAr) {
     return [
-      IconButton(
-        icon: const Icon(Icons.refresh),
-        onPressed: _loadRules,
-      ),
+      IconButton(icon: const Icon(Icons.refresh), onPressed: _loadRules),
       PopupMenuButton<bool?>(
         icon: const Icon(Icons.filter_list),
         onSelected: (value) {
@@ -179,10 +174,7 @@ class _BonusRulesScreenState extends State<BonusRulesScreen> {
           _loadRules();
         },
         itemBuilder: (ctx) => [
-          PopupMenuItem(
-            value: null,
-            child: Text(isAr ? 'الكل' : 'All'),
-          ),
+          PopupMenuItem(value: null, child: Text(isAr ? 'الكل' : 'All')),
           PopupMenuItem(
             value: true,
             child: Text(isAr ? 'نشطة فقط' : 'Active Only'),
@@ -204,10 +196,7 @@ class _BonusRulesScreenState extends State<BonusRulesScreen> {
         children: [
           Text(
             isAr ? 'قواعد المكافآت' : 'Bonus Rules',
-            style: const TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-            ),
+            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
           ),
           const Spacer(),
           ..._buildAppBarActions(isAr),
@@ -313,9 +302,15 @@ class _BonusRulesScreenState extends State<BonusRulesScreen> {
                                     type,
                                     style: const TextStyle(fontSize: 12),
                                   ),
-                                  backgroundColor: const Color(0xFFD4AF37).withOpacity(0.2),
-                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                  backgroundColor: const Color(
+                                    0xFFD4AF37,
+                                  ).withValues(alpha: 0.2),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 8,
+                                    vertical: 2,
+                                  ),
+                                  materialTapTargetSize:
+                                      MaterialTapTargetSize.shrinkWrap,
                                 ),
                               )
                               .toList(),
@@ -335,7 +330,11 @@ class _BonusRulesScreenState extends State<BonusRulesScreen> {
                     const SizedBox(width: 8),
                     TextButton.icon(
                       onPressed: () => _deleteRule(rule),
-                      icon: const Icon(Icons.delete, size: 18, color: Colors.red),
+                      icon: const Icon(
+                        Icons.delete,
+                        size: 18,
+                        color: Colors.red,
+                      ),
                       label: Text(
                         isAr ? 'حذف' : 'Delete',
                         style: const TextStyle(color: Colors.red),
@@ -406,7 +405,7 @@ class _BonusRuleDialogState extends State<_BonusRuleDialog> {
   DateTime? _validFrom;
   DateTime? _validTo;
   bool _saving = false;
-  
+
   // 🆕 للموظفين وأنواع الفواتير
   List<EmployeeModel> _allEmployees = [];
   List<int> _selectedEmployeeIds = [];
@@ -420,49 +419,61 @@ class _BonusRuleDialogState extends State<_BonusRuleDialog> {
     final rule = widget.rule;
     _nameController = TextEditingController(text: rule?.name ?? '');
     _descController = TextEditingController(text: rule?.description ?? '');
-    _valueController =
-        TextEditingController(text: rule?.bonusValue.toString() ?? '0');
-    _minController =
-        TextEditingController(text: rule?.minBonus.toString() ?? '0');
-    _maxController =
-        TextEditingController(text: rule?.maxBonus?.toString() ?? '');
+    _valueController = TextEditingController(
+      text: rule?.bonusValue.toString() ?? '0',
+    );
+    _minController = TextEditingController(
+      text: rule?.minBonus.toString() ?? '0',
+    );
+    _maxController = TextEditingController(
+      text: rule?.maxBonus?.toString() ?? '',
+    );
     _minSalesController = TextEditingController(
       text: rule?.conditions != null && rule!.conditions!['min_sales'] != null
-        ? rule.conditions!['min_sales'].toString()
-        : '');
+          ? rule.conditions!['min_sales'].toString()
+          : '',
+    );
     _minProfitController = TextEditingController(
       text: rule?.conditions != null && rule!.conditions!['min_profit'] != null
-        ? rule.conditions!['min_profit'].toString()
-        : '');
+          ? rule.conditions!['min_profit'].toString()
+          : '',
+    );
     _minAttendanceController = TextEditingController(
-      text: rule?.conditions != null &&
-          rule!.conditions!['min_attendance_rate'] != null
-        ? rule.conditions!['min_attendance_rate'].toString()
-        : '');
+      text:
+          rule?.conditions != null &&
+              rule!.conditions!['min_attendance_rate'] != null
+          ? rule.conditions!['min_attendance_rate'].toString()
+          : '',
+    );
     _profitPercentInvoiceController = TextEditingController(
-      text: rule?.conditions != null &&
-          rule!.conditions!['min_profit_percent_of_invoice'] != null
-        ? rule.conditions!['min_profit_percent_of_invoice'].toString()
-        : '');
+      text:
+          rule?.conditions != null &&
+              rule!.conditions!['min_profit_percent_of_invoice'] != null
+          ? rule.conditions!['min_profit_percent_of_invoice'].toString()
+          : '',
+    );
     _selectedRuleType = rule?.ruleType ?? 'sales_target';
     _selectedBonusType = rule?.bonusType ?? 'percentage';
     _isActive = rule?.isActive ?? true;
     _validFrom = rule?.validFrom;
     _validTo = rule?.validTo;
-    
+
     // 🆕 تحميل الموظفين المحددين وأنواع الفواتير
     _selectedEmployeeIds = rule?.targetEmployeeIds ?? [];
     _selectedInvoiceTypes = rule?.applicableInvoiceTypes ?? [];
     _loadInitialData();
   }
-  
+
   /// 🆕 تحميل البيانات الأولية (الموظفين وأنواع الفواتير)
   Future<void> _loadInitialData() async {
     setState(() => _loadingData = true);
     try {
       // تحميل الموظفين
-      final employeesResponse = await widget.api.getEmployees(isActive: true, perPage: 100);
-      
+      final employeesResponse = await widget.api.getEmployees(
+        isActive: true,
+        perPage: 100,
+      );
+
       // التحقق من نوع البيانات المُرجعة
       final employeesData = employeesResponse['employees'];
       List<EmployeeModel> employees;
@@ -473,15 +484,19 @@ class _BonusRuleDialogState extends State<_BonusRuleDialog> {
             .map((json) => EmployeeModel.fromJson(json as Map<String, dynamic>))
             .toList();
       } else {
-        throw Exception('Unexpected employees data type: ${employeesData.runtimeType}');
+        throw Exception(
+          'Unexpected employees data type: ${employeesData.runtimeType}',
+        );
       }
-      
+
       // تحميل أنواع الفواتير (قد تكون قائمة نصوص أو كائنات)
       final invoiceTypesData = await widget.api.getInvoiceTypes();
       late final List<InvoiceTypeModel> invoiceTypes;
       if (invoiceTypesData.isNotEmpty && invoiceTypesData.first is Map) {
         invoiceTypes = invoiceTypesData
-            .map((json) => InvoiceTypeModel.fromJson(json as Map<String, dynamic>))
+            .map(
+              (json) => InvoiceTypeModel.fromJson(json as Map<String, dynamic>),
+            )
             .toList();
       } else {
         invoiceTypes = invoiceTypesData
@@ -495,18 +510,24 @@ class _BonusRuleDialogState extends State<_BonusRuleDialog> {
             )
             .toList();
       }
-      
+
       setState(() {
         _allEmployees = employees;
         _availableInvoiceTypes = invoiceTypes;
       });
-      
+
       // 🔍 Debug: طباعة البيانات المحملة
-      print('✅ Loaded ${employees.length} employees');
-      print('✅ Loaded ${invoiceTypes.length} invoice types');
-      print('📋 Invoice types: ${invoiceTypes.map((t) => t.label).join(", ")}');
+      if (kDebugMode) {
+        debugPrint('✅ Loaded ${employees.length} employees');
+        debugPrint('✅ Loaded ${invoiceTypes.length} invoice types');
+        debugPrint(
+          '📋 Invoice types: ${invoiceTypes.map((t) => t.label).join(", ")}',
+        );
+      }
     } catch (e) {
-      print('❌ Error loading data: $e');
+      if (kDebugMode) {
+        debugPrint('❌ Error loading data: $e');
+      }
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -552,24 +573,33 @@ class _BonusRuleDialogState extends State<_BonusRuleDialog> {
             ? null
             : double.parse(_maxController.text),
         'conditions': {},
-        'target_employee_ids': _selectedEmployeeIds.isEmpty ? null : _selectedEmployeeIds, // 🆕
-        'applicable_invoice_types': _selectedInvoiceTypes.isEmpty ? null : _selectedInvoiceTypes, // 🆕
+        'target_employee_ids': _selectedEmployeeIds.isEmpty
+            ? null
+            : _selectedEmployeeIds, // 🆕
+        'applicable_invoice_types': _selectedInvoiceTypes.isEmpty
+            ? null
+            : _selectedInvoiceTypes, // 🆕
         'is_active': _isActive,
         'valid_from': _validFrom?.toIso8601String().split('T').first,
         'valid_to': _validTo?.toIso8601String().split('T').first,
       };
 
       // تعبئة الشروط الاختيارية
-      double? _tryParse(String v) => v.trim().isEmpty ? null : double.tryParse(v.trim());
-      final minSales = _tryParse(_minSalesController.text);
-      final minProfit = _tryParse(_minProfitController.text);
-      final minAttendance = _tryParse(_minAttendanceController.text);
-      final minProfitPercentInvoice = _tryParse(_profitPercentInvoiceController.text);
+      double? tryParse(String v) =>
+          v.trim().isEmpty ? null : double.tryParse(v.trim());
+      final minSales = tryParse(_minSalesController.text);
+      final minProfit = tryParse(_minProfitController.text);
+      final minAttendance = tryParse(_minAttendanceController.text);
+      final minProfitPercentInvoice = tryParse(
+        _profitPercentInvoiceController.text,
+      );
 
       final conditions = <String, dynamic>{};
       if (minSales != null) conditions['min_sales'] = minSales;
       if (minProfit != null) conditions['min_profit'] = minProfit;
-      if (minAttendance != null) conditions['min_attendance_rate'] = minAttendance;
+      if (minAttendance != null) {
+        conditions['min_attendance_rate'] = minAttendance;
+      }
       if (minProfitPercentInvoice != null) {
         conditions['min_profit_percent_of_invoice'] = minProfitPercentInvoice;
       }
@@ -578,10 +608,12 @@ class _BonusRuleDialogState extends State<_BonusRuleDialog> {
       }
 
       // 🔍 Debug: طباعة البيانات المرسلة
-      print('📤 Sending bonus rule payload:');
-      print('   Target Employees: $_selectedEmployeeIds');
-      print('   Invoice Types: $_selectedInvoiceTypes');
-      print('   Full payload: $payload');
+      if (kDebugMode) {
+        debugPrint('📤 Sending bonus rule payload:');
+        debugPrint('   Target Employees: $_selectedEmployeeIds');
+        debugPrint('   Invoice Types: $_selectedInvoiceTypes');
+        debugPrint('   Full payload: $payload');
+      }
 
       if (widget.rule?.id != null) {
         await widget.api.updateBonusRule(widget.rule!.id!, payload);
@@ -593,10 +625,7 @@ class _BonusRuleDialogState extends State<_BonusRuleDialog> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(e.toString()),
-            backgroundColor: Colors.red,
-          ),
+          SnackBar(content: Text(e.toString()), backgroundColor: Colors.red),
         );
       }
     } finally {
@@ -643,7 +672,7 @@ class _BonusRuleDialogState extends State<_BonusRuleDialog> {
                 ),
                 const SizedBox(height: 12),
                 DropdownButtonFormField<String>(
-                  value: _selectedRuleType,
+                  initialValue: _selectedRuleType,
                   decoration: InputDecoration(
                     labelText: isAr ? 'نوع القاعدة' : 'Rule Type',
                     border: const OutlineInputBorder(),
@@ -660,7 +689,7 @@ class _BonusRuleDialogState extends State<_BonusRuleDialog> {
                 ),
                 const SizedBox(height: 12),
                 DropdownButtonFormField<String>(
-                  value: _selectedBonusType,
+                  initialValue: _selectedBonusType,
                   decoration: InputDecoration(
                     labelText: isAr ? 'نوع المكافأة' : 'Bonus Type',
                     border: const OutlineInputBorder(),
@@ -683,8 +712,9 @@ class _BonusRuleDialogState extends State<_BonusRuleDialog> {
                     border: const OutlineInputBorder(),
                   ),
                   keyboardType: TextInputType.number,
-                  validator: (v) =>
-                      v == null || double.tryParse(v) == null ? 'رقم مطلوب' : null,
+                  validator: (v) => v == null || double.tryParse(v) == null
+                      ? 'رقم مطلوب'
+                      : null,
                 ),
                 const SizedBox(height: 12),
                 Row(
@@ -717,7 +747,9 @@ class _BonusRuleDialogState extends State<_BonusRuleDialog> {
                 Align(
                   alignment: Alignment.centerLeft,
                   child: Text(
-                    isAr ? 'شروط الاستحقاق (اختياري)' : 'Eligibility (optional)',
+                    isAr
+                        ? 'شروط الاستحقاق (اختياري)'
+                        : 'Eligibility (optional)',
                     style: const TextStyle(fontWeight: FontWeight.bold),
                   ),
                 ),
@@ -729,7 +761,9 @@ class _BonusRuleDialogState extends State<_BonusRuleDialog> {
                         controller: _minSalesController,
                         decoration: InputDecoration(
                           labelText: isAr ? 'حد أدنى للمبيعات' : 'Min sales',
-                          helperText: isAr ? 'بالريال أو الوزن حسب الفاتورة' : 'In SAR/weight per invoice',
+                          helperText: isAr
+                              ? 'بالريال أو الوزن حسب الفاتورة'
+                              : 'In SAR/weight per invoice',
                           border: const OutlineInputBorder(),
                         ),
                         keyboardType: TextInputType.number,
@@ -756,8 +790,12 @@ class _BonusRuleDialogState extends State<_BonusRuleDialog> {
                       child: TextFormField(
                         controller: _profitPercentInvoiceController,
                         decoration: InputDecoration(
-                          labelText: isAr ? 'ربح % من الفاتورة' : 'Profit % of invoice',
-                          helperText: isAr ? 'مثال: 5 يعني ربح ≥5% من إجمالي الفاتورة' : 'e.g. 5 means profit ≥5% of invoice total',
+                          labelText: isAr
+                              ? 'ربح % من الفاتورة'
+                              : 'Profit % of invoice',
+                          helperText: isAr
+                              ? 'مثال: 5 يعني ربح ≥5% من إجمالي الفاتورة'
+                              : 'e.g. 5 means profit ≥5% of invoice total',
                           border: const OutlineInputBorder(),
                         ),
                         keyboardType: TextInputType.number,
@@ -841,7 +879,7 @@ class _BonusRuleDialogState extends State<_BonusRuleDialog> {
                   onChanged: (v) => setState(() => _isActive = v),
                 ),
                 const Divider(height: 32),
-                
+
                 // 🆕 قسم تخصيص الموظفين
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -855,7 +893,10 @@ class _BonusRuleDialogState extends State<_BonusRuleDialog> {
                     ),
                     if (_selectedEmployeeIds.isNotEmpty)
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 4,
+                        ),
                         decoration: BoxDecoration(
                           color: const Color(0xFFD4AF37),
                           borderRadius: BorderRadius.circular(12),
@@ -918,7 +959,9 @@ class _BonusRuleDialogState extends State<_BonusRuleDialog> {
                             spacing: 8,
                             runSpacing: 8,
                             children: _allEmployees.map((emp) {
-                              final isSelected = _selectedEmployeeIds.contains(emp.id);
+                              final isSelected = _selectedEmployeeIds.contains(
+                                emp.id,
+                              );
                               return ChoiceChip(
                                 label: Text(emp.name),
                                 selected: isSelected,
@@ -931,26 +974,34 @@ class _BonusRuleDialogState extends State<_BonusRuleDialog> {
                                     }
                                   });
                                 },
-                                selectedColor: const Color(0xFFD4AF37).withOpacity(0.3),
+                                selectedColor: const Color(
+                                  0xFFD4AF37,
+                                ).withValues(alpha: 0.3),
                                 checkmarkColor: const Color(0xFF8B6914),
                                 backgroundColor: Colors.grey.shade100,
                                 labelStyle: TextStyle(
-                                  color: isSelected ? const Color(0xFF8B6914) : Colors.black87,
-                                  fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                                  color: isSelected
+                                      ? const Color(0xFF8B6914)
+                                      : Colors.black87,
+                                  fontWeight: isSelected
+                                      ? FontWeight.bold
+                                      : FontWeight.normal,
                                 ),
                               );
                             }).toList(),
                           ),
                   ),
-                
+
                 const Divider(height: 32),
-                
+
                 // 🆕 قسم تحديد أنواع الفواتير
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     Text(
-                      isAr ? '📋 أنواع الفواتير المستهدفة' : '📋 Target Invoice Types',
+                      isAr
+                          ? '📋 أنواع الفواتير المستهدفة'
+                          : '📋 Target Invoice Types',
                       style: Theme.of(context).textTheme.titleMedium?.copyWith(
                         fontWeight: FontWeight.bold,
                         color: const Color(0xFFD4AF37),
@@ -958,7 +1009,10 @@ class _BonusRuleDialogState extends State<_BonusRuleDialog> {
                     ),
                     if (_selectedInvoiceTypes.isNotEmpty)
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 4,
+                        ),
                         decoration: BoxDecoration(
                           color: const Color(0xFFD4AF37),
                           borderRadius: BorderRadius.circular(12),
@@ -1021,7 +1075,9 @@ class _BonusRuleDialogState extends State<_BonusRuleDialog> {
                             spacing: 8,
                             runSpacing: 8,
                             children: _availableInvoiceTypes.map((type) {
-                              final isSelected = _selectedInvoiceTypes.contains(type.value);
+                              final isSelected = _selectedInvoiceTypes.contains(
+                                type.value,
+                              );
                               return ChoiceChip(
                                 label: Text(type.label),
                                 tooltip: type.description,
@@ -1035,14 +1091,23 @@ class _BonusRuleDialogState extends State<_BonusRuleDialog> {
                                     }
                                   });
                                 },
-                                selectedColor: const Color(0xFFD4AF37).withOpacity(0.3),
+                                selectedColor: const Color(
+                                  0xFFD4AF37,
+                                ).withValues(alpha: 0.3),
                                 checkmarkColor: const Color(0xFF8B6914),
                                 backgroundColor: Colors.grey.shade100,
                                 labelStyle: TextStyle(
-                                  color: isSelected ? const Color(0xFF8B6914) : Colors.black87,
-                                  fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                                  color: isSelected
+                                      ? const Color(0xFF8B6914)
+                                      : Colors.black87,
+                                  fontWeight: isSelected
+                                      ? FontWeight.bold
+                                      : FontWeight.normal,
                                 ),
-                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 8,
+                                ),
                               );
                             }).toList(),
                           ),

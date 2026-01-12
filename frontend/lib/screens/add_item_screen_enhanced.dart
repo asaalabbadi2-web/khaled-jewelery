@@ -149,7 +149,7 @@ class _AddItemScreenEnhancedState extends State<AddItemScreenEnhanced> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('✅ تم مسح الباركود: $code'),
-              backgroundColor: AppColors.success,
+            backgroundColor: AppColors.success,
           ),
         );
       }
@@ -158,7 +158,7 @@ class _AddItemScreenEnhancedState extends State<AddItemScreenEnhanced> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('خطأ في الماسح: $e'),
-            backgroundColor: AppColors.error,
+          backgroundColor: AppColors.error,
         ),
       );
     }
@@ -169,7 +169,7 @@ class _AddItemScreenEnhancedState extends State<AddItemScreenEnhanced> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('⚠️ يرجى تصحيح الأخطاء أولاً'),
-            backgroundColor: AppColors.warning,
+          backgroundColor: AppColors.warning,
         ),
       );
       return;
@@ -228,7 +228,11 @@ class _AddItemScreenEnhancedState extends State<AddItemScreenEnhanced> {
           if (!mounted) return;
 
           DataSyncBus.notifyItemsChanged();
-          _resetSingleEntryAfterAdd(response: response is Map ? Map<String, dynamic>.from(response) : null);
+          _resetSingleEntryAfterAdd(
+            response: response is Map
+                ? Map<String, dynamic>.from(response)
+                : null,
+          );
 
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -249,7 +253,7 @@ class _AddItemScreenEnhancedState extends State<AddItemScreenEnhanced> {
                     ),
                 ],
               ),
-                backgroundColor: AppColors.success,
+              backgroundColor: AppColors.success,
               duration: const Duration(seconds: 4),
             ),
           );
@@ -264,7 +268,11 @@ class _AddItemScreenEnhancedState extends State<AddItemScreenEnhanced> {
       }
 
       if (!_isEditMode) {
-        _resetSingleEntryAfterAdd(response: response is Map ? Map<String, dynamic>.from(response) : null);
+        _resetSingleEntryAfterAdd(
+          response: response is Map
+              ? Map<String, dynamic>.from(response)
+              : null,
+        );
       }
 
       ScaffoldMessenger.of(context).showSnackBar(
@@ -794,10 +802,7 @@ class _AddItemScreenEnhancedState extends State<AddItemScreenEnhanced> {
                           : AppColors.primaryGold.withValues(alpha: 0.1),
                       shape: BoxShape.circle,
                     ),
-                    child: Icon(
-                      icon,
-                      color: AppColors.darkGold,
-                    ),
+                    child: Icon(icon, color: AppColors.darkGold),
                   ),
                   const SizedBox(width: 8),
                   Text(
@@ -847,17 +852,12 @@ class _AddItemScreenEnhancedState extends State<AddItemScreenEnhanced> {
     return Container(
       decoration: BoxDecoration(
         gradient: LinearGradient(
-          colors: [
-            AppColors.primaryGold.withValues(alpha: 0.16),
-            Colors.white,
-          ],
+          colors: [AppColors.primaryGold.withValues(alpha: 0.16), Colors.white],
           begin: Alignment.topRight,
           end: Alignment.bottomLeft,
         ),
         borderRadius: BorderRadius.circular(22),
-        border: Border.all(
-          color: AppColors.primaryGold.withValues(alpha: 0.2),
-        ),
+        border: Border.all(color: AppColors.primaryGold.withValues(alpha: 0.2)),
         boxShadow: [
           BoxShadow(
             color: AppColors.primaryGold.withValues(alpha: 0.12),
@@ -922,10 +922,10 @@ class _AddItemScreenEnhancedState extends State<AddItemScreenEnhanced> {
                           fontWeight: FontWeight.bold,
                           color: AppColors.darkGold,
                         ),
-                      )
+                      ),
                     ],
                   ),
-                )
+                ),
               ],
             ),
             const SizedBox(height: 16),
@@ -936,8 +936,7 @@ class _AddItemScreenEnhancedState extends State<AddItemScreenEnhanced> {
                     mode: _AddItemEntryMode.single,
                     icon: Icons.looks_one,
                     title: 'قطعة واحدة',
-                    subtitle:
-                        'ملء كل التفاصيل مع الباركود والمخزون والمصنعية.',
+                    subtitle: 'ملء كل التفاصيل مع الباركود والمخزون والمصنعية.',
                     badge: 'تفصيلي',
                   ),
                 ),
@@ -982,9 +981,7 @@ class _AddItemScreenEnhancedState extends State<AddItemScreenEnhanced> {
       decoration: BoxDecoration(
         color: AppColors.primaryGold.withValues(alpha: 0.12),
         borderRadius: BorderRadius.circular(30),
-        border: Border.all(
-          color: AppColors.primaryGold.withValues(alpha: 0.3),
-        ),
+        border: Border.all(color: AppColors.primaryGold.withValues(alpha: 0.3)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,

@@ -217,8 +217,8 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
     });
 
     try {
-  final apiService = ApiService();
-  final fetched = await apiService.getItems(inStockOnly: true);
+      final apiService = ApiService();
+      final fetched = await apiService.getItems(inStockOnly: true);
       final normalized = fetched
           .whereType<Map<String, dynamic>>()
           .map((item) => Map<String, dynamic>.from(item))
@@ -334,13 +334,17 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
         default:
           if (isCheck) {
             boxes = allBoxes
-                .where((box) => box.safeType == 'bank' || box.safeType == 'check')
+                .where(
+                  (box) => box.safeType == 'bank' || box.safeType == 'check',
+                )
                 .toList();
           } else if (isBankLike) {
             boxes = allBoxes.where((box) => box.safeType == 'bank').toList();
           } else {
             boxes = allBoxes
-                .where((box) => box.safeType == 'cash' || box.safeType == 'bank')
+                .where(
+                  (box) => box.safeType == 'cash' || box.safeType == 'bank',
+                )
                 .toList();
           }
       }
@@ -443,7 +447,8 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
 
   // ignore: unused_element
   Future<void> _recomputeGoldCosting() async {
-    final confirm = await showDialog<bool>(
+    final confirm =
+        await showDialog<bool>(
           context: context,
           builder: (dialogContext) {
             return AlertDialog(
@@ -459,7 +464,9 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                 ),
                 FilledButton(
                   onPressed: () => Navigator.pop(dialogContext, true),
-                  style: FilledButton.styleFrom(backgroundColor: AppColors.warning),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: AppColors.warning,
+                  ),
                   child: const Text('متابعة'),
                 ),
               ],
@@ -589,7 +596,9 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(14),
         border: Border.all(color: accent.withValues(alpha: 0.35)),
-        color: accent.withValues(alpha: theme.brightness == Brightness.dark ? 0.15 : 0.1),
+        color: accent.withValues(
+          alpha: theme.brightness == Brightness.dark ? 0.15 : 0.1,
+        ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -599,7 +608,9 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
               Container(
                 padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: theme.brightness == Brightness.dark ? 0.08 : 0.85),
+                  color: Colors.white.withValues(
+                    alpha: theme.brightness == Brightness.dark ? 0.08 : 0.85,
+                  ),
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: Icon(icon, color: accent, size: 20),
@@ -625,10 +636,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
           ),
           if (subtitle != null) ...[
             const SizedBox(height: 4),
-            Text(
-              subtitle,
-              style: theme.textTheme.bodySmall,
-            ),
+            Text(subtitle, style: theme.textTheme.bodySmall),
           ],
         ],
       ),
@@ -979,7 +987,9 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
 
   Future<void> _showManualItemDialog() async {
     if (!_settingsProvider.allowManualInvoiceItems) {
-      _showError('هذه الميزة معطلة من الإعدادات. فعّل خيار "السماح بإضافة صنف يدوي" أولاً.');
+      _showError(
+        'هذه الميزة معطلة من الإعدادات. فعّل خيار "السماح بإضافة صنف يدوي" أولاً.',
+      );
       return;
     }
 
@@ -1076,7 +1086,9 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                       const SizedBox(height: 12),
                       TextFormField(
                         controller: weightController,
-                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true,
+                        ),
                         textInputAction: TextInputAction.next,
                         inputFormatters: [
                           ArabicNumberTextInputFormatter(
@@ -1099,7 +1111,9 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                       const SizedBox(height: 12),
                       TextFormField(
                         controller: wageController,
-                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true,
+                        ),
                         textInputAction: TextInputAction.next,
                         inputFormatters: [
                           ArabicNumberTextInputFormatter(
@@ -1115,7 +1129,9 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                       const SizedBox(height: 12),
                       TextFormField(
                         controller: totalController,
-                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true,
+                        ),
                         inputFormatters: [
                           ArabicNumberTextInputFormatter(
                             allowDecimal: true,
@@ -1125,7 +1141,8 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                         decoration: InputDecoration(
                           labelText: 'الإجمالي مع الضريبة (اختياري)',
                           prefixIcon: const Icon(Icons.attach_money),
-                          helperText: 'اترك الحقل فارغاً ليتم احتساب السعر تلقائياً',
+                          helperText:
+                              'اترك الحقل فارغاً ليتم احتساب السعر تلقائياً',
                           suffixText: _settingsProvider.currencySymbol,
                         ),
                       ),
@@ -1146,9 +1163,13 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                       return;
                     }
 
-                    final weight = tryParseOptionalDouble(weightController.text) ?? 0;
-                    final wage = tryParseOptionalDouble(wageController.text) ?? 0;
-                    final manualTotal = tryParseOptionalDouble(totalController.text);
+                    final weight =
+                        tryParseOptionalDouble(weightController.text) ?? 0;
+                    final wage =
+                        tryParseOptionalDouble(wageController.text) ?? 0;
+                    final manualTotal = tryParseOptionalDouble(
+                      totalController.text,
+                    );
 
                     Navigator.pop(dialogContext, {
                       'name': nameController.text.trim(),
@@ -1170,7 +1191,6 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
     // نتجنب التخلص المباشر من المتحكمات لأن عناصر الحوار قد تستدعي إطاراً إضافياً
     // بعد الإغلاق. تركها لجمع القمامة آمن للاستخدام المؤقت هنا.
 
-
     if (manualData == null) return;
 
     final manualItem = InvoiceItem(
@@ -1182,7 +1202,9 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
       wage: _parseDouble(manualData['wage']),
       goldPrice24k: _goldPrice24k,
       mainKarat: _settingsProvider.mainKarat,
-      taxRate: _settingsProvider.taxRateForKarat(_parseDouble(manualData['karat'])),
+      taxRate: _settingsProvider.taxRateForKarat(
+        _parseDouble(manualData['karat']),
+      ),
       avgGoldCostPerMainGram: _avgGoldCostPerMainGram,
       avgManufacturingCostPerMainGram: _avgManufacturingCostPerMainGram,
     );
@@ -1213,7 +1235,8 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
 
-    final shouldOpenSettings = await showDialog<bool>(
+    final shouldOpenSettings =
+        await showDialog<bool>(
           context: context,
           builder: (dialogContext) {
             return AlertDialog(
@@ -1233,9 +1256,13 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: const [
-                  Text('لإضافة صنف يدوي يجب تفعيل الخيار من شاشة الإعدادات > الشركة والفواتير.'),
+                  Text(
+                    'لإضافة صنف يدوي يجب تفعيل الخيار من شاشة الإعدادات > الشركة والفواتير.',
+                  ),
                   SizedBox(height: 8),
-                  Text('بعد التفعيل سيظهر زر "صنف يدوي" دائماً داخل شاشة الفاتورة.'),
+                  Text(
+                    'بعد التفعيل سيظهر زر "صنف يدوي" دائماً داخل شاشة الفاتورة.',
+                  ),
                 ],
               ),
               actions: [
@@ -1489,13 +1516,17 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
       if (_selectedCustomerId == null) {
         final proceedWithCash = await _confirmUseCashCustomer();
         if (!proceedWithCash) {
-          _showError('يرجى اختيار عميل لإكمال الفاتورة أو الاستمرار مع العميل النقدي.');
+          _showError(
+            'يرجى اختيار عميل لإكمال الفاتورة أو الاستمرار مع العميل النقدي.',
+          );
           return;
         }
 
-  cashCustomer ??= await _getOrCreateCashCustomer(promptIfMissing: false);
+        cashCustomer ??= await _getOrCreateCashCustomer(promptIfMissing: false);
         if (cashCustomer == null || cashCustomer['id'] == null) {
-          _showError('لا يوجد عميل نقدي متاح. يرجى إنشاء عميل نقدي أو اختيار عميل محدد للمتابعة.');
+          _showError(
+            'لا يوجد عميل نقدي متاح. يرجى إنشاء عميل نقدي أو اختيار عميل محدد للمتابعة.',
+          );
           return;
         }
 
@@ -1519,20 +1550,20 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
       );
       final totalTax = _items.fold<double>(0.0, (sum, item) => sum + item.tax);
 
-            final authProvider = Provider.of<AuthProvider>(context, listen: false);
-            final sellerName = authProvider.fullName;
-            final sellerEmployeeId = authProvider.currentUser?.employeeId;
+      final authProvider = Provider.of<AuthProvider>(context, listen: false);
+      final sellerName = authProvider.fullName;
+      final sellerEmployeeId = authProvider.currentUser?.employeeId;
 
-            final invoiceData = {
-              'customer_id': customerId,
-              'branch_id': _selectedBranchId,
-              'invoice_type': 'بيع',
-              'transaction_type': 'sell',
-              if (sellerName.isNotEmpty) 'posted_by': sellerName,
-              if (sellerEmployeeId != null) 'employee_id': sellerEmployeeId,
-              'date': DateTime.now().toIso8601String(),
-              'total': totalAmount,
-              'total_weight': totalWeight,
+      final invoiceData = {
+        'customer_id': customerId,
+        'branch_id': _selectedBranchId,
+        'invoice_type': 'بيع',
+        'transaction_type': 'sell',
+        if (sellerName.isNotEmpty) 'posted_by': sellerName,
+        if (sellerEmployeeId != null) 'employee_id': sellerEmployeeId,
+        'date': DateTime.now().toIso8601String(),
+        'total': totalAmount,
+        'total_weight': totalWeight,
         'total_cost': totalCost,
         'total_tax': totalTax,
         'payments': _payments
@@ -1552,8 +1583,10 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
         final match = widget.customers.firstWhere(
           (c) => c['id'].toString() == customerId.toString(),
         );
-        invoiceForPrint['customer_name'] ??= match['name'] ?? match['customer_name'];
-        invoiceForPrint['customer_phone'] ??= match['phone'] ?? match['customer_phone'];
+        invoiceForPrint['customer_name'] ??=
+            match['name'] ?? match['customer_name'];
+        invoiceForPrint['customer_phone'] ??=
+            match['phone'] ?? match['customer_phone'];
       } catch (_) {
         // ignore
       }
@@ -1564,7 +1597,9 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
         builder: (dialogContext) {
           return AlertDialog(
             title: const Text('تم حفظ الفاتورة'),
-            content: Text('✅ تم حفظ الفاتورة #${invoiceForPrint['id'] ?? ''}\nهل تريد طباعتها الآن؟'),
+            content: Text(
+              '✅ تم حفظ الفاتورة #${invoiceForPrint['id'] ?? ''}\nهل تريد طباعتها الآن؟',
+            ),
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(dialogContext, false),
@@ -1584,10 +1619,8 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
       if (shouldPrint == true) {
         await Navigator.of(context).push(
           MaterialPageRoute(
-            builder: (_) => InvoicePrintScreen(
-              invoice: invoiceForPrint,
-              isArabic: true,
-            ),
+            builder: (_) =>
+                InvoicePrintScreen(invoice: invoiceForPrint, isArabic: true),
           ),
         );
       }
@@ -1716,10 +1749,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
       if (id == null) continue;
 
       if (_isCashCustomerEntry(customer)) {
-        return {
-          ...customer,
-          'id': id,
-        };
+        return {...customer, 'id': id};
       }
     }
     return null;
@@ -1734,10 +1764,14 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
 
   bool _containsCashKeyword(String value) {
     if (value.isEmpty) return false;
-    return value.contains('نقد') || value.contains('كاش') || value.contains('cash');
+    return value.contains('نقد') ||
+        value.contains('كاش') ||
+        value.contains('cash');
   }
 
-  Future<Map<String, dynamic>?> _getOrCreateCashCustomer({bool promptIfMissing = true}) async {
+  Future<Map<String, dynamic>?> _getOrCreateCashCustomer({
+    bool promptIfMissing = true,
+  }) async {
     final existing = _findCashCustomer();
     if (existing != null) return existing;
 
@@ -1748,7 +1782,8 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
 
-    final shouldCreate = await showDialog<bool>(
+    final shouldCreate =
+        await showDialog<bool>(
           context: context,
           builder: (dialogContext) {
             return AlertDialog(
@@ -1829,7 +1864,10 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                       color: AppColors.warning.withValues(alpha: 0.15),
                       borderRadius: BorderRadius.circular(12),
                     ),
-                    child: const Icon(Icons.warning_amber, color: AppColors.warning),
+                    child: const Icon(
+                      Icons.warning_amber,
+                      color: AppColors.warning,
+                    ),
                   ),
                   const SizedBox(width: 12),
                   Expanded(
@@ -1860,7 +1898,10 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                   style: FilledButton.styleFrom(
                     backgroundColor: AppColors.success,
                     foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 18,
+                      vertical: 12,
+                    ),
                   ),
                   onPressed: () => Navigator.pop(dialogContext, true),
                   child: const Text('استمرار مع عميل نقدي'),
@@ -1924,7 +1965,9 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
             setState(() {
               widget.customers.add(saved);
               final rawId = saved['id'];
-              _selectedCustomerId = rawId is int ? rawId : int.tryParse(rawId.toString());
+              _selectedCustomerId = rawId is int
+                  ? rawId
+                  : int.tryParse(rawId.toString());
             });
           },
         ),
@@ -2039,12 +2082,13 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
       return filtered;
     }
 
-    final availableKarats = _availableItems
-        .map((item) => normalizeKarat(item['karat']))
-        .where((value) => value != null)
-        .cast<String>()
-        .toSet()
-      ..removeWhere((element) => element.trim().isEmpty);
+    final availableKarats =
+        _availableItems
+            .map((item) => normalizeKarat(item['karat']))
+            .where((value) => value != null)
+            .cast<String>()
+            .toSet()
+          ..removeWhere((element) => element.trim().isEmpty);
     final sortedKarats = availableKarats.toList()
       ..sort((a, b) => int.parse(a).compareTo(int.parse(b)));
 
@@ -2080,7 +2124,8 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                               )
                             : null,
                       ),
-                      onChanged: (value) => setDialogState(() => searchQuery = value.trim()),
+                      onChanged: (value) =>
+                          setDialogState(() => searchQuery = value.trim()),
                     ),
                     const SizedBox(height: 12),
                     if (availableKarats.isNotEmpty) ...[
@@ -2098,16 +2143,20 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                             FilterChip(
                               label: const Text('الكل'),
                               selected: karatFilter == null,
-                              onSelected: (_) => setDialogState(() => karatFilter = null),
+                              onSelected: (_) =>
+                                  setDialogState(() => karatFilter = null),
                             ),
                             const SizedBox(width: 8),
                             ...sortedKarats.map(
                               (karat) => Padding(
-                                padding: const EdgeInsetsDirectional.only(end: 8),
+                                padding: const EdgeInsetsDirectional.only(
+                                  end: 8,
+                                ),
                                 child: FilterChip(
                                   label: Text('عيار $karat'),
                                   selected: karatFilter == karat,
-                                  onSelected: (_) => setDialogState(() => karatFilter = karat),
+                                  onSelected: (_) =>
+                                      setDialogState(() => karatFilter = karat),
                                 ),
                               ),
                             ),
@@ -2129,17 +2178,20 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                         ChoiceChip(
                           label: const Text('وزن أعلى'),
                           selected: sortMode == 'weight_desc',
-                          onSelected: (_) => setDialogState(() => sortMode = 'weight_desc'),
+                          onSelected: (_) =>
+                              setDialogState(() => sortMode = 'weight_desc'),
                         ),
                         ChoiceChip(
                           label: const Text('وزن أقل'),
                           selected: sortMode == 'weight_asc',
-                          onSelected: (_) => setDialogState(() => sortMode = 'weight_asc'),
+                          onSelected: (_) =>
+                              setDialogState(() => sortMode = 'weight_asc'),
                         ),
                         ChoiceChip(
                           label: const Text('أبجدي'),
                           selected: sortMode == 'name',
-                          onSelected: (_) => setDialogState(() => sortMode = 'name'),
+                          onSelected: (_) =>
+                              setDialogState(() => sortMode = 'name'),
                         ),
                       ],
                     ),
@@ -2157,44 +2209,64 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                               itemBuilder: (context, index) {
                                 final item = filteredItems[index];
                                 final weight = _parseDouble(item['weight']);
-                                final karatLabel = item['karat']?.toString() ?? '-';
-                                final barcode = item['barcode']?.toString() ?? '';
-                                final code = item['item_code']?.toString() ?? '';
+                                final karatLabel =
+                                    item['karat']?.toString() ?? '-';
+                                final barcode =
+                                    item['barcode']?.toString() ?? '';
+                                final code =
+                                    item['item_code']?.toString() ?? '';
 
                                 return Card(
                                   elevation: 0,
-                                  color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.4),
+                                  color: theme
+                                      .colorScheme
+                                      .surfaceContainerHighest
+                                      .withValues(alpha: 0.4),
                                   child: ListTile(
                                     leading: CircleAvatar(
-                                      backgroundColor: colorScheme.primary.withValues(alpha: 0.12),
+                                      backgroundColor: colorScheme.primary
+                                          .withValues(alpha: 0.12),
                                       child: Text(
                                         karatLabel,
-                                        style: theme.textTheme.bodyMedium?.copyWith(
-                                          color: colorScheme.primary,
-                                          fontWeight: FontWeight.bold,
-                                        ),
+                                        style: theme.textTheme.bodyMedium
+                                            ?.copyWith(
+                                              color: colorScheme.primary,
+                                              fontWeight: FontWeight.bold,
+                                            ),
                                       ),
                                     ),
-                                    title: Text(item['name']?.toString() ?? 'بدون اسم'),
+                                    title: Text(
+                                      item['name']?.toString() ?? 'بدون اسم',
+                                    ),
                                     subtitle: Column(
                                       mainAxisSize: MainAxisSize.min,
-                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
                                       children: [
                                         if (code.isNotEmpty)
-                                          Text('الكود: $code', style: theme.textTheme.bodySmall),
+                                          Text(
+                                            'الكود: $code',
+                                            style: theme.textTheme.bodySmall,
+                                          ),
                                         if (barcode.isNotEmpty)
-                                          Text('الباركود: $barcode', style: theme.textTheme.bodySmall),
+                                          Text(
+                                            'الباركود: $barcode',
+                                            style: theme.textTheme.bodySmall,
+                                          ),
                                       ],
                                     ),
                                     trailing: Column(
-                                      mainAxisAlignment: MainAxisAlignment.center,
-                                      crossAxisAlignment: CrossAxisAlignment.end,
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.center,
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.end,
                                       children: [
                                         Text(
                                           '${weight.toStringAsFixed(3)} جم',
-                                          style: theme.textTheme.titleSmall?.copyWith(
-                                            fontWeight: FontWeight.bold,
-                                          ),
+                                          style: theme.textTheme.titleSmall
+                                              ?.copyWith(
+                                                fontWeight: FontWeight.bold,
+                                              ),
                                         ),
                                       ],
                                     ),
@@ -2242,10 +2314,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                   'لبيع الذهب الجديد مع ضريبة القيمة المضافة ووسائل الدفع المتعددة',
               color: AppColors.invoiceSaleNew,
               icon: Icons.point_of_sale_rounded,
-              trailing: Text(
-                'نوع الفاتورة',
-                style: theme.textTheme.labelLarge,
-              ),
+              trailing: Text('نوع الفاتورة', style: theme.textTheme.labelLarge),
             ),
             const SizedBox(height: 16),
             _buildCustomerSection(theme),
@@ -2352,8 +2421,12 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
 
   Widget _buildCostingInsightCard(ThemeData theme) {
     final colorScheme = theme.colorScheme;
-    final hasSnapshot = _avgTotalCostPerMainGram > 0 || _inventoryWeightMain > 0;
-    final invoiceRawWeight = _items.fold<double>(0.0, (sum, item) => sum + item.weight);
+    final hasSnapshot =
+        _avgTotalCostPerMainGram > 0 || _inventoryWeightMain > 0;
+    final invoiceRawWeight = _items.fold<double>(
+      0.0,
+      (sum, item) => sum + item.weight,
+    );
 
     return Card(
       elevation: 2,
@@ -2368,7 +2441,11 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
           childrenPadding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
           maintainState: true,
           initiallyExpanded: false,
-          leading: Icon(Icons.insights, color: AppColors.invoiceSaleNew, size: 28),
+          leading: Icon(
+            Icons.insights,
+            color: AppColors.invoiceSaleNew,
+            size: 28,
+          ),
           title: Text(
             'معلومات التكلفة والتسعير',
             style: TextStyle(
@@ -2413,7 +2490,9 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                             textBaseline: TextBaseline.alphabetic,
                             children: [
                               Text(
-                                hasSnapshot ? _formatCurrency(_avgTotalCostPerMainGram) : '--',
+                                hasSnapshot
+                                    ? _formatCurrency(_avgTotalCostPerMainGram)
+                                    : '--',
                                 style: theme.textTheme.headlineSmall?.copyWith(
                                   fontWeight: FontWeight.bold,
                                   color: AppColors.invoiceSaleNew,
@@ -2434,209 +2513,237 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                     ),
                     if (_invoiceCostTotal > 0)
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 8,
+                        ),
                         decoration: BoxDecoration(
-                    color: AppColors.invoiceSaleNew.withValues(alpha: 0.05),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: AppColors.invoiceSaleNew.withValues(alpha: 0.2)),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      Text(
-                        'تكلفة الفاتورة',
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: AppColors.invoiceSaleNew,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      Text(
-                        _formatCurrency(_invoiceCostTotal),
-                        style: theme.textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.bold,
-                          color: AppColors.invoiceSaleNew,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-            ],
-          ),
-
-          if (_isLoadingCosting) ...[
-            const SizedBox(height: 16),
-            const LinearProgressIndicator(minHeight: 2),
-          ],
-
-          if (_costingError != null) ...[
-            const SizedBox(height: 16),
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: colorScheme.error.withValues(alpha: 0.1),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Row(
-                children: [
-                  Icon(Icons.error_outline, size: 20, color: colorScheme.error),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Text(
-                      _costingError!,
-                      style: TextStyle(color: colorScheme.error),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-
-          const SizedBox(height: 20),
-          const Divider(height: 1),
-          const SizedBox(height: 16),
-
-          // Details Grid
-          Row(
-            children: [
-              Expanded(
-                child: _buildCompactMetric(
-                  theme,
-                  'ذهب / جم',
-                  hasSnapshot ? _formatCurrency(_avgGoldCostPerMainGram) : '--',
-                  Icons.grid_goldenratio,
-                  AppColors.invoiceSaleNew,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _buildCompactMetric(
-                  theme,
-                  'مصنعية / جم',
-                  hasSnapshot ? _formatCurrency(_avgManufacturingCostPerMainGram) : '--',
-                  Icons.handyman,
-                  AppColors.warning,
-                ),
-              ),
-            ],
-          ),
-
-          const SizedBox(height: 16),
-
-          // Footer Info
-          Wrap(
-            spacing: 12,
-            runSpacing: 8,
-            children: [
-              _buildCostingInfoChip(
-                theme,
-                icon: Icons.style,
-                label: 'المنهجية: $_costingMethodLabel',
-              ),
-              _buildCostingInfoChip(
-                theme,
-                icon: Icons.inventory_2,
-                label: 'المخزون: ${_formatWeight(_inventoryWeightMain)}',
-              ),
-              _buildCostingInfoChip(
-                theme,
-                icon: Icons.schedule,
-                label: 'تحديث: ${_formatTimestamp(_costingLastUpdated)}',
-              ),
-            ],
-          ),
-
-          const SizedBox(height: 20),
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(18),
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(14),
-              color: AppColors.invoiceSaleNew.withValues(alpha: 0.08),
-              border: Border.all(
-                color: AppColors.invoiceSaleNew.withValues(alpha: 0.4),
-              ),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Icon(Icons.assignment, color: AppColors.invoiceSaleNew),
-                    const SizedBox(width: 8),
-                    Text(
-                      'التكلفة التقديرية للفاتورة الحالية',
-                      style: theme.textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                if (_items.isEmpty)
-                  Text(
-                    'أضف أصنافاً لرؤية التكلفة بناءً على المتوسط المتحرك.',
-                    style: theme.textTheme.bodyMedium,
-                  )
-                else ...[
-                  _buildCostingDetailRow(
-                    theme,
-                    icon: Icons.scale,
-                    title: 'إجمالي الوزن الفعلي',
-                    value: _formatWeight(invoiceRawWeight),
-                  ),
-                  const SizedBox(height: 6),
-                  _buildCostingDetailRow(
-                    theme,
-                    icon: Icons.compass_calibration,
-                    title: 'الوزن المكافئ (${_settingsProvider.mainKarat}K)',
-                    value: _formatWeight(_invoiceWeightMain),
-                  ),
-                  const Divider(height: 24, thickness: 1.2),
-                  _buildCostingDetailRow(
-                    theme,
-                    icon: Icons.local_fire_department,
-                    title: 'تكلفة الذهب المتوقع',
-                    value: _formatCurrency(_invoiceCostGoldComponent),
-                  ),
-                  const SizedBox(height: 6),
-                  _buildCostingDetailRow(
-                    theme,
-                    icon: Icons.handyman,
-                    title: 'تكلفة المصنعية المتراكمة',
-                    value: _formatCurrency(_invoiceCostManufacturingComponent),
-                  ),
-                  const SizedBox(height: 10),
-                  Container(
-                    padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 14),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withValues(
-                        alpha: theme.brightness == Brightness.dark ? 0.05 : 0.7,
-                      ),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text(
-                          'التكلفة الإجمالية المتوقعة',
-                          style: theme.textTheme.titleMedium?.copyWith(
-                            fontWeight: FontWeight.bold,
+                          color: AppColors.invoiceSaleNew.withValues(
+                            alpha: 0.05,
+                          ),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: AppColors.invoiceSaleNew.withValues(
+                              alpha: 0.2,
+                            ),
                           ),
                         ),
-                        Text(
-                          _formatCurrency(_invoiceCostTotal),
-                          style: theme.textTheme.titleLarge?.copyWith(
-                            fontWeight: FontWeight.w800,
-                            color: AppColors.invoiceSaleNew,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          children: [
+                            Text(
+                              'تكلفة الفاتورة',
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: AppColors.invoiceSaleNew,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            Text(
+                              _formatCurrency(_invoiceCostTotal),
+                              style: theme.textTheme.titleMedium?.copyWith(
+                                fontWeight: FontWeight.bold,
+                                color: AppColors.invoiceSaleNew,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                  ],
+                ),
+
+                if (_isLoadingCosting) ...[
+                  const SizedBox(height: 16),
+                  const LinearProgressIndicator(minHeight: 2),
+                ],
+
+                if (_costingError != null) ...[
+                  const SizedBox(height: 16),
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: colorScheme.error.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(
+                          Icons.error_outline,
+                          size: 20,
+                          color: colorScheme.error,
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(
+                            _costingError!,
+                            style: TextStyle(color: colorScheme.error),
                           ),
                         ),
                       ],
                     ),
                   ),
                 ],
-              ],
-            ),
-          ),
+
+                const SizedBox(height: 20),
+                const Divider(height: 1),
+                const SizedBox(height: 16),
+
+                // Details Grid
+                Row(
+                  children: [
+                    Expanded(
+                      child: _buildCompactMetric(
+                        theme,
+                        'ذهب / جم',
+                        hasSnapshot
+                            ? _formatCurrency(_avgGoldCostPerMainGram)
+                            : '--',
+                        Icons.grid_goldenratio,
+                        AppColors.invoiceSaleNew,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: _buildCompactMetric(
+                        theme,
+                        'مصنعية / جم',
+                        hasSnapshot
+                            ? _formatCurrency(_avgManufacturingCostPerMainGram)
+                            : '--',
+                        Icons.handyman,
+                        AppColors.warning,
+                      ),
+                    ),
+                  ],
+                ),
+
+                const SizedBox(height: 16),
+
+                // Footer Info
+                Wrap(
+                  spacing: 12,
+                  runSpacing: 8,
+                  children: [
+                    _buildCostingInfoChip(
+                      theme,
+                      icon: Icons.style,
+                      label: 'المنهجية: $_costingMethodLabel',
+                    ),
+                    _buildCostingInfoChip(
+                      theme,
+                      icon: Icons.inventory_2,
+                      label: 'المخزون: ${_formatWeight(_inventoryWeightMain)}',
+                    ),
+                    _buildCostingInfoChip(
+                      theme,
+                      icon: Icons.schedule,
+                      label: 'تحديث: ${_formatTimestamp(_costingLastUpdated)}',
+                    ),
+                  ],
+                ),
+
+                const SizedBox(height: 20),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(18),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(14),
+                    color: AppColors.invoiceSaleNew.withValues(alpha: 0.08),
+                    border: Border.all(
+                      color: AppColors.invoiceSaleNew.withValues(alpha: 0.4),
+                    ),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(
+                            Icons.assignment,
+                            color: AppColors.invoiceSaleNew,
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            'التكلفة التقديرية للفاتورة الحالية',
+                            style: theme.textTheme.titleMedium?.copyWith(
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      if (_items.isEmpty)
+                        Text(
+                          'أضف أصنافاً لرؤية التكلفة بناءً على المتوسط المتحرك.',
+                          style: theme.textTheme.bodyMedium,
+                        )
+                      else ...[
+                        _buildCostingDetailRow(
+                          theme,
+                          icon: Icons.scale,
+                          title: 'إجمالي الوزن الفعلي',
+                          value: _formatWeight(invoiceRawWeight),
+                        ),
+                        const SizedBox(height: 6),
+                        _buildCostingDetailRow(
+                          theme,
+                          icon: Icons.compass_calibration,
+                          title:
+                              'الوزن المكافئ (${_settingsProvider.mainKarat}K)',
+                          value: _formatWeight(_invoiceWeightMain),
+                        ),
+                        const Divider(height: 24, thickness: 1.2),
+                        _buildCostingDetailRow(
+                          theme,
+                          icon: Icons.local_fire_department,
+                          title: 'تكلفة الذهب المتوقع',
+                          value: _formatCurrency(_invoiceCostGoldComponent),
+                        ),
+                        const SizedBox(height: 6),
+                        _buildCostingDetailRow(
+                          theme,
+                          icon: Icons.handyman,
+                          title: 'تكلفة المصنعية المتراكمة',
+                          value: _formatCurrency(
+                            _invoiceCostManufacturingComponent,
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            vertical: 12,
+                            horizontal: 14,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(
+                              alpha: theme.brightness == Brightness.dark
+                                  ? 0.05
+                                  : 0.7,
+                            ),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text(
+                                'التكلفة الإجمالية المتوقعة',
+                                style: theme.textTheme.titleMedium?.copyWith(
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                              Text(
+                                _formatCurrency(_invoiceCostTotal),
+                                style: theme.textTheme.titleLarge?.copyWith(
+                                  fontWeight: FontWeight.w800,
+                                  color: AppColors.invoiceSaleNew,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
               ],
             ),
           ],
@@ -2677,8 +2784,8 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                 Container(
                   padding: const EdgeInsets.all(10),
                   decoration: BoxDecoration(
-                    color: colorScheme.primary.withValues(alpha: 
-                      isDark ? 0.18 : 0.12,
+                    color: colorScheme.primary.withValues(
+                      alpha: isDark ? 0.18 : 0.12,
                     ),
                     borderRadius: BorderRadius.circular(12),
                   ),
@@ -2848,7 +2955,11 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            Icon(Icons.account_tree, color: colorScheme.primary, size: 20),
+                            Icon(
+                              Icons.account_tree,
+                              color: colorScheme.primary,
+                              size: 20,
+                            ),
                             const SizedBox(width: 10),
                             Flexible(
                               child: Text(
@@ -2872,7 +2983,10 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                 },
                 decoration: InputDecoration(
                   labelText: 'اختر الفرع',
-                  prefixIcon: Icon(Icons.account_tree, color: colorScheme.primary),
+                  prefixIcon: Icon(
+                    Icons.account_tree,
+                    color: colorScheme.primary,
+                  ),
                 ),
                 dropdownColor: theme.cardColor,
                 icon: Icon(Icons.arrow_drop_down, color: colorScheme.primary),
@@ -2991,7 +3105,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
   Widget _buildSmartInputSection() {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
-  final allowManualItems = _settingsProvider.allowManualInvoiceItems;
+    final allowManualItems = _settingsProvider.allowManualInvoiceItems;
 
     return Container(
       decoration: BoxDecoration(
@@ -3191,8 +3305,8 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
         border: Border.all(color: dividerColor.withValues(alpha: 0.6)),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 
-              theme.brightness == Brightness.dark ? 0.3 : 0.06,
+            color: Colors.black.withValues(
+              alpha: theme.brightness == Brightness.dark ? 0.3 : 0.06,
             ),
             blurRadius: 8,
             offset: const Offset(0, 2),
@@ -3347,7 +3461,10 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                 InkWell(
                   onTap: () => _showEditDialog(index, 'karat', item.karat),
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 6,
+                    ),
                     decoration: BoxDecoration(
                       color: AppColors.info.withValues(alpha: 0.15),
                       borderRadius: BorderRadius.circular(6),
@@ -3366,7 +3483,10 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                 InkWell(
                   onTap: () => _showEditDialog(index, 'weight', item.weight),
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 6,
+                    ),
                     decoration: BoxDecoration(
                       color: AppColors.success.withValues(alpha: 0.15),
                       borderRadius: BorderRadius.circular(6),
@@ -3385,7 +3505,10 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                 InkWell(
                   onTap: () => _showEditDialog(index, 'wage', item.wage),
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 6,
+                    ),
                     decoration: BoxDecoration(
                       color: AppColors.warning.withValues(alpha: 0.15),
                       borderRadius: BorderRadius.circular(6),
@@ -3393,10 +3516,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                         color: AppColors.warning.withValues(alpha: 0.3),
                       ),
                     ),
-                    child: Text(
-                      item.wage.toStringAsFixed(2),
-                      style: cellStyle,
-                    ),
+                    child: Text(item.wage.toStringAsFixed(2), style: cellStyle),
                   ),
                 ),
               ),
@@ -3411,9 +3531,13 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
               DataCell(Text(item.tax.toStringAsFixed(2), style: cellStyle)),
               DataCell(
                 InkWell(
-                  onTap: () => _showEditDialog(index, 'total', item.totalWithTax),
+                  onTap: () =>
+                      _showEditDialog(index, 'total', item.totalWithTax),
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 6,
+                    ),
                     decoration: BoxDecoration(
                       color: AppColors.karat24.withValues(alpha: 0.15),
                       borderRadius: BorderRadius.circular(6),
@@ -3529,7 +3653,10 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
     final colorScheme = theme.colorScheme;
     final isDark = theme.brightness == Brightness.dark;
 
-    final totalWeight = _items.fold<double>(0.0, (sum, item) => sum + item.weight);
+    final totalWeight = _items.fold<double>(
+      0.0,
+      (sum, item) => sum + item.weight,
+    );
     final totalWeight24kEq = _items.fold<double>(
       0.0,
       (sum, item) => sum + (item.weight * (item.karat / 24.0)),
@@ -3565,10 +3692,13 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
               ),
               style: ElevatedButton.styleFrom(
                 minimumSize: const Size(0, 56),
-                backgroundColor:
-                    isDark ? AppColors.karat24 : AppColors.primaryGold,
+                backgroundColor: isDark
+                    ? AppColors.karat24
+                    : AppColors.primaryGold,
                 foregroundColor: isDark ? Colors.white : Colors.black,
-                disabledBackgroundColor: theme.disabledColor.withValues(alpha: 0.2),
+                disabledBackgroundColor: theme.disabledColor.withValues(
+                  alpha: 0.2,
+                ),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(12),
                 ),
@@ -3588,7 +3718,9 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
               borderRadius: BorderRadius.circular(12),
               boxShadow: [
                 BoxShadow(
-                  color: colorScheme.primary.withValues(alpha: isDark ? 0.35 : 0.4),
+                  color: colorScheme.primary.withValues(
+                    alpha: isDark ? 0.35 : 0.4,
+                  ),
                   blurRadius: 12,
                   offset: const Offset(0, 4),
                 ),
@@ -3605,32 +3737,40 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                       style: theme.textTheme.titleMedium?.copyWith(
                         fontWeight: FontWeight.w600,
                         color: isDark ? Colors.white : Colors.black87,
-                        shadows: !isDark ? [
-                          Shadow(
-                            color: Colors.white.withValues(alpha: 0.8),
-                            blurRadius: 2,
-                          ),
-                        ] : null,
+                        shadows: !isDark
+                            ? [
+                                Shadow(
+                                  color: Colors.white.withValues(alpha: 0.8),
+                                  blurRadius: 2,
+                                ),
+                              ]
+                            : null,
                       ),
                     ),
                     Text(
                       '${_items.length} صنف',
                       style: theme.textTheme.bodySmall?.copyWith(
-                        color: isDark ? Colors.white.withValues(alpha: 0.9) : Colors.black87,
+                        color: isDark
+                            ? Colors.white.withValues(alpha: 0.9)
+                            : Colors.black87,
                         fontWeight: FontWeight.w500,
-                        shadows: !isDark ? [
-                          Shadow(
-                            color: Colors.white.withValues(alpha: 0.8),
-                            blurRadius: 2,
-                          ),
-                        ] : null,
+                        shadows: !isDark
+                            ? [
+                                Shadow(
+                                  color: Colors.white.withValues(alpha: 0.8),
+                                  blurRadius: 2,
+                                ),
+                              ]
+                            : null,
                       ),
                     ),
                     const SizedBox(height: 4),
                     Text(
                       'الوزن: ${totalWeight.toStringAsFixed(3)} جم • معادل 24: ${totalWeight24kEq.toStringAsFixed(3)} جم',
                       style: theme.textTheme.bodySmall?.copyWith(
-                        color: isDark ? Colors.white.withValues(alpha: 0.9) : Colors.black87,
+                        color: isDark
+                            ? Colors.white.withValues(alpha: 0.9)
+                            : Colors.black87,
                         fontWeight: FontWeight.w600,
                         shadows: !isDark
                             ? [
@@ -3649,12 +3789,14 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                   style: theme.textTheme.headlineMedium?.copyWith(
                     fontWeight: FontWeight.bold,
                     color: isDark ? Colors.white : Colors.black87,
-                    shadows: !isDark ? [
-                      Shadow(
-                        color: Colors.white.withValues(alpha: 0.9),
-                        blurRadius: 3,
-                      ),
-                    ] : null,
+                    shadows: !isDark
+                        ? [
+                            Shadow(
+                              color: Colors.white.withValues(alpha: 0.9),
+                              blurRadius: 3,
+                            ),
+                          ]
+                        : null,
                   ),
                 ),
               ],
@@ -3703,7 +3845,9 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                     vertical: 6,
                   ),
                   decoration: BoxDecoration(
-                    color: AppColors.success.withValues(alpha: isDark ? 0.2 : 0.12),
+                    color: AppColors.success.withValues(
+                      alpha: isDark ? 0.2 : 0.12,
+                    ),
                     borderRadius: BorderRadius.circular(20),
                     border: Border.all(
                       color: AppColors.success.withValues(alpha: 0.4),
@@ -3740,11 +3884,11 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                       decoration: BoxDecoration(
                         gradient: LinearGradient(
                           colors: [
-                            colorScheme.primary.withValues(alpha: 
-                              isDark ? 0.25 : 0.3,
+                            colorScheme.primary.withValues(
+                              alpha: isDark ? 0.25 : 0.3,
                             ),
-                            AppColors.lightGold.withValues(alpha: 
-                              isDark ? 0.2 : 0.35,
+                            AppColors.lightGold.withValues(
+                              alpha: isDark ? 0.2 : 0.35,
                             ),
                           ],
                         ),
@@ -3762,12 +3906,16 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                               style: theme.textTheme.titleSmall?.copyWith(
                                 fontWeight: FontWeight.bold,
                                 color: isDark ? Colors.white : Colors.black87,
-                                shadows: !isDark ? [
-                                  Shadow(
-                                    color: Colors.white.withValues(alpha: 0.8),
-                                    blurRadius: 2,
-                                  ),
-                                ] : null,
+                                shadows: !isDark
+                                    ? [
+                                        Shadow(
+                                          color: Colors.white.withValues(
+                                            alpha: 0.8,
+                                          ),
+                                          blurRadius: 2,
+                                        ),
+                                      ]
+                                    : null,
                               ),
                             ),
                           ),
@@ -3778,12 +3926,16 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                               style: theme.textTheme.titleSmall?.copyWith(
                                 fontWeight: FontWeight.bold,
                                 color: isDark ? Colors.white : Colors.black87,
-                                shadows: !isDark ? [
-                                  Shadow(
-                                    color: Colors.white.withValues(alpha: 0.8),
-                                    blurRadius: 2,
-                                  ),
-                                ] : null,
+                                shadows: !isDark
+                                    ? [
+                                        Shadow(
+                                          color: Colors.white.withValues(
+                                            alpha: 0.8,
+                                          ),
+                                          blurRadius: 2,
+                                        ),
+                                      ]
+                                    : null,
                               ),
                               textAlign: TextAlign.center,
                             ),
@@ -3795,12 +3947,16 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                               style: theme.textTheme.titleSmall?.copyWith(
                                 fontWeight: FontWeight.bold,
                                 color: isDark ? Colors.white : Colors.black87,
-                                shadows: !isDark ? [
-                                  Shadow(
-                                    color: Colors.white.withValues(alpha: 0.8),
-                                    blurRadius: 2,
-                                  ),
-                                ] : null,
+                                shadows: !isDark
+                                    ? [
+                                        Shadow(
+                                          color: Colors.white.withValues(
+                                            alpha: 0.8,
+                                          ),
+                                          blurRadius: 2,
+                                        ),
+                                      ]
+                                    : null,
                               ),
                               textAlign: TextAlign.center,
                             ),
@@ -3812,12 +3968,16 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                               style: theme.textTheme.titleSmall?.copyWith(
                                 fontWeight: FontWeight.bold,
                                 color: isDark ? Colors.white : Colors.black87,
-                                shadows: !isDark ? [
-                                  Shadow(
-                                    color: Colors.white.withValues(alpha: 0.8),
-                                    blurRadius: 2,
-                                  ),
-                                ] : null,
+                                shadows: !isDark
+                                    ? [
+                                        Shadow(
+                                          color: Colors.white.withValues(
+                                            alpha: 0.8,
+                                          ),
+                                          blurRadius: 2,
+                                        ),
+                                      ]
+                                    : null,
                               ),
                               textAlign: TextAlign.center,
                             ),
@@ -3829,12 +3989,16 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                               style: theme.textTheme.titleSmall?.copyWith(
                                 fontWeight: FontWeight.bold,
                                 color: isDark ? Colors.white : Colors.black87,
-                                shadows: !isDark ? [
-                                  Shadow(
-                                    color: Colors.white.withValues(alpha: 0.8),
-                                    blurRadius: 2,
-                                  ),
-                                ] : null,
+                                shadows: !isDark
+                                    ? [
+                                        Shadow(
+                                          color: Colors.white.withValues(
+                                            alpha: 0.8,
+                                          ),
+                                          blurRadius: 2,
+                                        ),
+                                      ]
+                                    : null,
                               ),
                               textAlign: TextAlign.center,
                             ),
@@ -3848,10 +4012,10 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                       return Container(
                         padding: const EdgeInsets.all(12),
                         decoration: BoxDecoration(
-              color: index % 2 == 0
-                ? theme.colorScheme.surface
-                : theme.colorScheme.surfaceContainerHighest
-                  .withValues(alpha: isDark ? 0.3 : 0.5),
+                          color: index % 2 == 0
+                              ? theme.colorScheme.surface
+                              : theme.colorScheme.surfaceContainerHighest
+                                    .withValues(alpha: isDark ? 0.3 : 0.5),
                           border: Border(
                             bottom: BorderSide(color: dividerColor, width: 1),
                           ),
@@ -3877,8 +4041,8 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                                         vertical: 3,
                                       ),
                                       decoration: BoxDecoration(
-                                        color: AppColors.warning.withValues(alpha: 
-                                          isDark ? 0.2 : 0.25,
+                                        color: AppColors.warning.withValues(
+                                          alpha: isDark ? 0.2 : 0.25,
                                         ),
                                         borderRadius: BorderRadius.circular(6),
                                       ),
@@ -3960,7 +4124,9 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
             Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
-                color: colorScheme.primary.withValues(alpha: isDark ? 0.15 : 0.12),
+                color: colorScheme.primary.withValues(
+                  alpha: isDark ? 0.15 : 0.12,
+                ),
                 borderRadius: BorderRadius.circular(12),
                 border: Border.all(
                   color: colorScheme.primary.withValues(alpha: 0.4),
@@ -3997,7 +4163,9 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                             ),
                             boxShadow: [
                               BoxShadow(
-                                color: colorScheme.primary.withValues(alpha: 0.16),
+                                color: colorScheme.primary.withValues(
+                                  alpha: 0.16,
+                                ),
                                 blurRadius: 4,
                                 offset: const Offset(0, 2),
                               ),
@@ -4245,8 +4413,8 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                                                     vertical: 2,
                                                   ),
                                               decoration: BoxDecoration(
-                                                color: Colors.green.withValues(alpha: 
-                                                  0.2,
+                                                color: Colors.green.withValues(
+                                                  alpha: 0.2,
                                                 ),
                                                 borderRadius:
                                                     BorderRadius.circular(4),
@@ -4304,8 +4472,8 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                             boxShadow: _remainingAmount > 0
                                 ? [
                                     BoxShadow(
-                                      color: colorScheme.primary.withValues(alpha: 
-                                        0.25,
+                                      color: colorScheme.primary.withValues(
+                                        alpha: 0.25,
                                       ),
                                       blurRadius: 4,
                                       offset: const Offset(0, 2),
@@ -4353,8 +4521,8 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                                   decoration: BoxDecoration(
                                     border: Border(
                                       right: BorderSide(
-                                        color: colorScheme.primary.withValues(alpha: 
-                                          0.4,
+                                        color: colorScheme.primary.withValues(
+                                          alpha: 0.4,
                                         ),
                                       ),
                                     ),
@@ -4412,8 +4580,9 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                           backgroundColor: colorScheme.primary,
                           foregroundColor: colorScheme.onPrimary,
                           elevation: 3,
-                          shadowColor:
-                              colorScheme.primary.withValues(alpha: 0.4),
+                          shadowColor: colorScheme.primary.withValues(
+                            alpha: 0.4,
+                          ),
                         ),
                       ),
                     ],
@@ -4422,8 +4591,8 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                   Container(
                     padding: const EdgeInsets.all(8),
                     decoration: BoxDecoration(
-                      color: AppColors.warning.withValues(alpha: 
-                        isDark ? 0.18 : 0.12,
+                      color: AppColors.warning.withValues(
+                        alpha: isDark ? 0.18 : 0.12,
                       ),
                       borderRadius: BorderRadius.circular(6),
                       border: Border.all(
@@ -4461,12 +4630,20 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                 gradient: LinearGradient(
                   colors: _remainingAmount > 0
                       ? [
-                          colorScheme.error.withValues(alpha: isDark ? 0.16 : 0.12),
-                          colorScheme.error.withValues(alpha: isDark ? 0.28 : 0.2),
+                          colorScheme.error.withValues(
+                            alpha: isDark ? 0.16 : 0.12,
+                          ),
+                          colorScheme.error.withValues(
+                            alpha: isDark ? 0.28 : 0.2,
+                          ),
                         ]
                       : [
-                          AppColors.success.withValues(alpha: isDark ? 0.16 : 0.12),
-                          AppColors.success.withValues(alpha: isDark ? 0.28 : 0.2),
+                          AppColors.success.withValues(
+                            alpha: isDark ? 0.16 : 0.12,
+                          ),
+                          AppColors.success.withValues(
+                            alpha: isDark ? 0.28 : 0.2,
+                          ),
                         ],
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
@@ -4717,9 +4894,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
       ),
     );
   }
-
 }
-
 
 // ==================== Invoice Item Model ====================
 class InvoiceItem {
@@ -4757,8 +4932,8 @@ class InvoiceItem {
     required this.taxRate,
     required double avgGoldCostPerMainGram,
     required double avgManufacturingCostPerMainGram,
-  })  : _avgGoldCostPerMainGram = avgGoldCostPerMainGram,
-        _avgManufacturingCostPerMainGram = avgManufacturingCostPerMainGram;
+  }) : _avgGoldCostPerMainGram = avgGoldCostPerMainGram,
+       _avgManufacturingCostPerMainGram = avgManufacturingCostPerMainGram;
 
   // حساب سعر الجرام الخام (سعر الذهب فقط حسب العيار)
   double calculatePricePerGram() {

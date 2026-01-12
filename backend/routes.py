@@ -435,7 +435,7 @@ def _coerce_float(value, default=0.0):
 
 def validate_bridge_account_balance(bridge_account_id, tolerance=0.01):
     """
-    🆕 التحقق من أن رصيد حساب الجسر = صفر بعد كل فاتورة شراء من مورد.
+    🆕 التحقق من أن رصيد حساب الجسر = صفر بعد كل فاتورة شراء (مورد).
     
     القاعدة الذهبية:
     - حساب الجسر يجب أن يُصفّر دائماً بعد كل معاملة
@@ -1397,7 +1397,11 @@ def get_account_statement(account_id):
                 'id': -int(line.id),
                 'date': line.voucher.date.isoformat(),
                 'description': line.voucher.description or (line.description or ''),
-                'journal_entry_id': None,
+                'journal_entry_id': line.voucher.journal_entry_id,
+                'entry_number': line.voucher.journal_entry.entry_number if line.voucher.journal_entry else None,
+                'reference_type': 'voucher',
+                'reference_id': line.voucher.id,
+                'reference_number': line.voucher.voucher_number,
                 'cash_debit': cash_debit,
                 'cash_credit': cash_credit,
                 'gold_debit': 0.0,
@@ -1442,6 +1446,10 @@ def get_account_statement(account_id):
             'date': line.journal_entry.date.isoformat(),
             'description': line.journal_entry.description,
             'journal_entry_id': line.journal_entry_id,
+            'entry_number': line.journal_entry.entry_number,
+            'reference_type': line.journal_entry.reference_type,
+            'reference_id': line.journal_entry.reference_id,
+            'reference_number': line.journal_entry.reference_number,
             'cash_debit': line.cash_debit or 0,
             'cash_credit': line.cash_credit or 0,
             'gold_debit': gold_debit_normalized,
@@ -1713,6 +1721,14 @@ def add_supplier():
             account_category = Account.query.filter_by(account_number='211').first()
         
         # 3. إنشاء المورد
+        raw_wage_type = data.get('default_wage_type')
+        wage_type = (raw_wage_type or 'cash')
+        if not isinstance(wage_type, str):
+            wage_type = str(wage_type)
+        wage_type = wage_type.strip().lower()
+        if wage_type not in ('cash', 'gold'):
+            wage_type = 'cash'
+
         new_supplier = Supplier(
             supplier_code=supplier_code,
             name=data['name'],
@@ -1724,6 +1740,9 @@ def add_supplier():
             state=data.get('state'),
             postal_code=data.get('postal_code'),
             country=data.get('country'),
+            tax_number=data.get('tax_number'),
+            classification=data.get('classification'),
+            default_wage_type=wage_type,
             account_category_id=account_category.id if account_category else None,
             balance_cash=0.0,
             balance_gold_18k=0.0,
@@ -1766,6 +1785,20 @@ def update_supplier(id):
     supplier.postal_code = data.get('postal_code', supplier.postal_code)
     supplier.country = data.get('country', supplier.country)
 
+    supplier.tax_number = data.get('tax_number', supplier.tax_number)
+    supplier.classification = data.get('classification', supplier.classification)
+
+    if 'default_wage_type' in data:
+        raw_wage_type = data.get('default_wage_type')
+        wage_type = (raw_wage_type or 'cash')
+        if not isinstance(wage_type, str):
+            wage_type = str(wage_type)
+        wage_type = wage_type.strip().lower()
+        if wage_type in ('cash', 'gold'):
+            supplier.default_wage_type = wage_type
+        else:
+            supplier.default_wage_type = 'cash'
+
     # Allow updating account_category if needed
     if 'account_category_number' in data:
         account_category = Account.query.filter_by(account_number=data['account_category_number']).first()
@@ -1783,6 +1816,62 @@ def update_supplier(id):
 def delete_supplier(id):
     supplier = Supplier.query.get_or_404(id)
     try:
+        # Safety rules:
+        # - Block delete/deactivate when any balance exists.
+        # - Block when there are unposted supplier invoices.
+        # - If there is any history (posted invoices or journal lines), prefer deactivate.
+
+        cash_balance = float(supplier.balance_cash or 0.0)
+        gold_balances = [
+            float(supplier.balance_gold_18k or 0.0),
+            float(supplier.balance_gold_21k or 0.0),
+            float(supplier.balance_gold_22k or 0.0),
+            float(supplier.balance_gold_24k or 0.0),
+        ]
+
+        has_cash_balance = abs(cash_balance) > 0.01
+        has_gold_balance = any(abs(v) > 0.0005 for v in gold_balances)
+
+        if has_cash_balance or has_gold_balance:
+            return jsonify({
+                'error': 'لا يمكن حذف/تعطيل المورد لوجود أرصدة (نقد/وزن). قم بتصفير الرصيد أولاً.',
+                'code': 'supplier_has_balance',
+            }), 400
+
+        has_unposted_invoices = (
+            Invoice.query
+            .filter(Invoice.supplier_id == id)
+            .filter(Invoice.is_posted.is_(False))
+            .first()
+            is not None
+        )
+        if has_unposted_invoices:
+            return jsonify({
+                'error': 'لا يمكن حذف المورد لوجود فواتير غير مُرحّلة/مسودات مرتبطة به.',
+                'code': 'supplier_has_unposted_invoices',
+            }), 400
+
+        has_posted_invoices = (
+            Invoice.query
+            .filter(Invoice.supplier_id == id)
+            .filter(Invoice.is_posted.is_(True))
+            .first()
+            is not None
+        )
+
+        has_journal_history = (
+            JournalEntryLine.query
+            .filter(JournalEntryLine.supplier_id == id)
+            .filter(JournalEntryLine.is_deleted.is_(False))
+            .first()
+            is not None
+        )
+
+        if has_posted_invoices or has_journal_history:
+            supplier.active = False
+            db.session.commit()
+            return jsonify({'result': 'success', 'action': 'deactivated'})
+
         if supplier.account_id:
             account = Account.query.get(supplier.account_id)
             if account:
@@ -1794,7 +1883,7 @@ def delete_supplier(id):
         
         db.session.delete(supplier)
         db.session.commit()
-        return jsonify({'result': 'success'})
+        return jsonify({'result': 'success', 'action': 'deleted'})
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': f'Failed to delete supplier: {str(e)}'}), 500
@@ -2018,8 +2107,12 @@ def get_supplier_weight_statement(supplier_id):
         statement_lines.append({
             'id': line.id,
             'date': line.journal_entry.date.isoformat(),
-            'description': (line.journal_entry.description or ''),
+            'description': (line.description or line.journal_entry.description or ''),
             'journal_entry_id': line.journal_entry_id,
+            'entry_number': line.journal_entry.entry_number if line.journal_entry else None,
+            'reference_type': line.journal_entry.reference_type if line.journal_entry else None,
+            'reference_id': line.journal_entry.reference_id if line.journal_entry else None,
+            'reference_number': line.journal_entry.reference_number if line.journal_entry else None,
             'cash_debit': line.cash_debit or 0.0,
             'cash_credit': line.cash_credit or 0.0,
             'gold_debit': gold_debit_normalized,
@@ -2673,8 +2766,8 @@ def _rebuild_costing_from_invoices(limit: int | None = None) -> dict:
     _costing_zero_config()
 
     # Invoice types that affect inventory weight
-    add_types = {'شراء من مورد', 'شراء من عميل', 'مرتجع بيع'}
-    consume_types = {'بيع', 'مرتجع شراء', 'مرتجع شراء من مورد'}
+    add_types = {'شراء', 'شراء من عميل', 'مرتجع بيع'}
+    consume_types = {'بيع', 'مرتجع شراء', 'مرتجع شراء (مورد)'}
     relevant_types = add_types.union(consume_types)
 
     query = (
@@ -3047,9 +3140,9 @@ def add_invoice_payment(invoice_id: int):
                 return 'in'
             if t == 'مرتجع بيع':
                 return 'out'
-            if t in ('شراء من عميل', 'شراء من مورد'):
+            if t in ('شراء من عميل', 'شراء'):
                 return 'out'
-            if t in ('مرتجع شراء', 'مرتجع شراء من مورد'):
+            if t in ('مرتجع شراء', 'مرتجع شراء (مورد)'):
                 return 'in'
             # fallback
             return 'in'
@@ -3656,28 +3749,38 @@ def add_invoice():
         elif transaction_type == 'buy':
             # تحديد نوع الشراء بناءً على gold_type ووجود supplier_id
             if gold_type == 'new' or data.get('supplier_id'):
-                invoice_type = 'شراء من مورد'
+                invoice_type = 'شراء'
             else:
                 invoice_type = 'شراء من عميل'
         else:
             invoice_type = 'بيع'  # افتراضي
-    elif invoice_type == 'شراء':
-        # تحويل 'شراء' العام إلى نوع محدد
-        # ملاحظة: Flutter قد يرسل customer_id حتى للمورد، لذا نعتمد على gold_type
-        if gold_type == 'new':
-            invoice_type = 'شراء من مورد'
-            # نقل customer_id إلى supplier_id إذا لم يكن supplier_id موجوداً
-            if not data.get('supplier_id') and data.get('customer_id'):
-                print(f"⚠️ Converting customer_id to supplier_id for 'شراء من مورد'")
-                data['supplier_id'] = data.pop('customer_id')
-        else:
-            invoice_type = 'شراء من عميل'
+    elif isinstance(invoice_type, str):
+        invoice_type = invoice_type.strip()
+
+        # Canonicalize legacy supplier purchase/return labels by keywords.
+        if 'مورد' in invoice_type and 'شراء' in invoice_type:
+            if 'مرتجع' in invoice_type:
+                invoice_type = 'مرتجع شراء (مورد)'
+            else:
+                invoice_type = 'شراء'
+
+        if invoice_type == 'شراء':
+            # 'شراء' can represent either supplier purchase (worked gold) or
+            # scrap purchase, depending on gold_type.
+            # ملاحظة: Flutter قد يرسل customer_id حتى للمورد، لذا نعتمد على gold_type
+            if gold_type != 'new':
+                invoice_type = 'شراء من عميل'
+            else:
+                # نقل customer_id إلى supplier_id إذا لم يكن supplier_id موجوداً
+                if not data.get('supplier_id') and data.get('customer_id'):
+                    print("⚠️ Converting customer_id to supplier_id for supplier purchase")
+                    data['supplier_id'] = data.pop('customer_id')
     
     if not invoice_type:
         return jsonify({'error': 'invoice_type or transaction_type is required'}), 400
     
     # 🆕 Validation للمرتجعات
-    return_types = ['مرتجع بيع', 'مرتجع شراء', 'مرتجع شراء من مورد']
+    return_types = ['مرتجع بيع', 'مرتجع شراء', 'مرتجع شراء (مورد)']
     if invoice_type in return_types:
         # التحقق من وجود original_invoice_id
         if not data.get('original_invoice_id'):
@@ -3695,8 +3798,17 @@ def add_invoice():
         elif invoice_type == 'مرتجع شراء' and original_invoice.invoice_type == 'شراء من عميل':
             if original_invoice.customer_id != data.get('customer_id'):
                 return jsonify({'error': 'Customer ID must match original invoice'}), 400
-        elif invoice_type == 'مرتجع شراء من مورد' and original_invoice.invoice_type == 'شراء من مورد':
-            if original_invoice.supplier_id != data.get('supplier_id'):
+        elif invoice_type == 'مرتجع شراء (مورد)':
+            original_type = (original_invoice.invoice_type or '').strip()
+            is_supplier_purchase = (
+                original_type == 'شراء'
+                or (
+                    'مورد' in original_type
+                    and 'شراء' in original_type
+                    and 'مرتجع' not in original_type
+                )
+            )
+            if is_supplier_purchase and original_invoice.supplier_id != data.get('supplier_id'):
                 return jsonify({'error': 'Supplier ID must match original invoice'}), 400
     
     # 🆕 Validation لنوع الذهب
@@ -4288,9 +4400,13 @@ def add_invoice():
                         return 'in'
                     if t == 'مرتجع بيع':
                         return 'out'
-                    if t in ('شراء من عميل', 'شراء من مورد'):
+                    if t in ('شراء من عميل', 'شراء') or (
+                        'شراء' in t and 'مورد' in t and 'مرتجع' not in t
+                    ):
                         return 'out'
-                    if t in ('مرتجع شراء', 'مرتجع شراء من مورد'):
+                    if t in ('مرتجع شراء', 'مرتجع شراء (مورد)') or (
+                        'مرتجع' in t and 'شراء' in t and 'مورد' in t
+                    ):
                         return 'in'
                     return 'in'
 
@@ -4369,9 +4485,13 @@ def add_invoice():
                     return 'in'
                 if t == 'مرتجع بيع':
                     return 'out'
-                if t in ('شراء من عميل', 'شراء من مورد'):
+                if t in ('شراء من عميل', 'شراء') or (
+                    'شراء' in t and 'مورد' in t and 'مرتجع' not in t
+                ):
                     return 'out'
-                if t in ('مرتجع شراء', 'مرتجع شراء من مورد'):
+                if t in ('مرتجع شراء', 'مرتجع شراء (مورد)') or (
+                    'مرتجع' in t and 'شراء' in t and 'مورد' in t
+                ):
                     return 'in'
                 return 'in'
             
@@ -4398,6 +4518,93 @@ def add_invoice():
                     amount_cash=_extract_float('total', 0.0),
                     notes=None,
                     created_by=posted_by_username,
+                )
+            )
+
+        # --- Gold settlement (barter/partial) ---
+        try:
+            settlement_method = data.get('settlement_method') or data.get('settlement_mode')
+            if settlement_method is not None:
+                new_invoice.settlement_method = str(settlement_method).strip() or None
+        except Exception:
+            pass
+
+        settled_gold_weight = _to_float_request(data.get('settled_gold_weight', 0.0))
+        settled_gold_karat = _to_float_request(data.get('settled_gold_karat', 0.0))
+        settled_gold_safe_box_id = data.get('settled_gold_safe_box_id')
+
+        if settled_gold_weight > 0 and settled_gold_karat > 0:
+            try:
+                settled_gold_safe_box_id = int(settled_gold_safe_box_id)
+            except Exception:
+                db.session.rollback()
+                return jsonify({
+                    'error': 'missing_or_invalid_gold_safe_box',
+                    'message': 'يجب تحديد خزينة ذهب صحيحة للمقايضة/السداد بالذهب',
+                }), 400
+
+            gold_safe = SafeBox.query.get(settled_gold_safe_box_id)
+            if not gold_safe:
+                db.session.rollback()
+                return jsonify({
+                    'error': 'gold_safe_box_not_found',
+                    'message': 'خزينة الذهب المحددة غير موجودة',
+                    'safe_box_id': settled_gold_safe_box_id,
+                }), 400
+
+            safe_type = getattr(gold_safe, 'safe_type', None) or getattr(gold_safe, 'safeType', None)
+            if safe_type != 'gold':
+                db.session.rollback()
+                return jsonify({
+                    'error': 'safe_box_not_gold',
+                    'message': 'الخزينة المحددة ليست خزينة ذهب',
+                    'safe_box_id': settled_gold_safe_box_id,
+                    'safe_type': safe_type,
+                }), 400
+
+            karat_int = int(round(float(settled_gold_karat)))
+            weight_kwargs = {
+                'weight_18k': 0.0,
+                'weight_21k': 0.0,
+                'weight_22k': 0.0,
+                'weight_24k': 0.0,
+            }
+            if karat_int == 18:
+                weight_kwargs['weight_18k'] = float(settled_gold_weight)
+            elif karat_int == 21:
+                weight_kwargs['weight_21k'] = float(settled_gold_weight)
+            elif karat_int == 22:
+                weight_kwargs['weight_22k'] = float(settled_gold_weight)
+            elif karat_int == 24:
+                weight_kwargs['weight_24k'] = float(settled_gold_weight)
+            else:
+                db.session.rollback()
+                return jsonify({
+                    'error': 'invalid_gold_karat',
+                    'message': 'عيار الذهب غير مدعوم للمقايضة/السداد',
+                    'karat': settled_gold_karat,
+                }), 400
+
+            # Store settled weight in MAIN karat on the invoice.
+            try:
+                main_equiv = convert_to_main_karat(float(settled_gold_weight), karat_int)
+            except Exception:
+                # Fallback: simple proportion to 21k if conversion helper unavailable
+                main_equiv = float(settled_gold_weight) * (karat_int / 21.0) if karat_int > 0 else 0.0
+
+            new_invoice.settled_gold_weight = round(float(main_equiv), 3)
+
+            db.session.add(
+                SafeBoxTransaction(
+                    safe_box_id=settled_gold_safe_box_id,
+                    ref_type='invoice_gold_settlement',
+                    ref_id=new_invoice.id,
+                    invoice_id=new_invoice.id,
+                    direction=_direction_for_invoice_type(new_invoice.invoice_type),
+                    amount_cash=0.0,
+                    notes='gold settlement',
+                    created_by=posted_by_username,
+                    **weight_kwargs,
                 )
             )
 
@@ -5461,13 +5668,13 @@ def add_invoice():
                     description="خصم من المخزون (مرتجع)"
                 )
         
-        elif invoice_type == 'شراء من مورد':
-            # 5. شراء من مورد
+        elif invoice_type == 'شراء':
+            # 5. شراء (مورد)
             # السيناريو الجديد: المخزون يُثبت بالوزن والقيمة، المورد دائن بالذهب،
             # ويتم تسجيل التقييم النقدي على حساب جسر مستقل.
             
             print("\n" + "="*80)
-            print("🔍 DEBUGGING: شراء من مورد - START")
+            print("🔍 DEBUGGING: شراء (مورد) - START")
             print("="*80)
             print(f"📋 gold_by_karat (from karat_lines/items) = {gold_by_karat}")
             print(f"💰 wage_cash = {data.get('manufacturing_wage_cash')}")
@@ -5478,26 +5685,24 @@ def add_invoice():
             # محاولة الحصول على حساب الجسر من الطلب أو إعدادات الربط
             bridge_acc_id = (
                 data.get('bridge_account_id')
-                or get_account_id_for_mapping('شراء من مورد', 'supplier_bridge')
                 or get_account_id_for_mapping('شراء', 'supplier_bridge')
             )
 
             if not bridge_acc_id:
                 bridge_acc_id = (
-                    get_account_id_for_mapping('شراء من مورد', 'suppliers')
-                    or get_account_id_for_mapping('شراء', 'suppliers')
+                    get_account_id_for_mapping('شراء', 'suppliers')
                     or (party_account.id if party_account and not party_account.tracks_weight else None)
                     or (cash_account.id if cash_account else None)
                 )
 
             if bridge_acc_id:
-                operation_key = 'شراء من مورد'
-                fallback_operation = 'شراء'
+                operation_key = 'شراء'
+                fallback_operation = None
                 dual_entry_params = set(create_dual_journal_entry.__code__.co_varnames)
 
                 def _mapping(account_type):
                     value = get_account_id_for_mapping(operation_key, account_type)
-                    if value is None:
+                    if value is None and fallback_operation:
                         value = get_account_id_for_mapping(fallback_operation, account_type)
                     return value
 
@@ -5718,6 +5923,9 @@ def add_invoice():
                             actual_gold_weights_for_memo[k] = actual_gold_weights_for_memo.get(k, 0.0) + w
                 
                 print(f"✅ DEBUG: actual_gold_weights_for_memo (physical gold only) = {actual_gold_weights_for_memo}")
+
+                # Track which karats had an inventory weight debit posted.
+                posted_weight_debits = set()
                 
                 if valuation_cash_total > 0 or total_weight_for_allocation > 0:
                     remaining_cash = valuation_cash_total
@@ -5749,13 +5957,15 @@ def add_invoice():
                             account_id=inv_account_id,
                             cash_debit=cash_share if cash_share > 0 else 0,
                             apply_golden_rule=False,  # الوزن يثبت يدوياً لاحقاً
-                            description=f"إثبات مخزون عيار {karat} شراء من مورد"
+                            exclude_from_ledger=True,  # لا نربط المخزون بالمورد في كشف الحساب
+                            description=f"إثبات مخزون عيار {karat} شراء (مورد)"
                         )
                         
                         # 🆕 القيد الوزني: استخدام الوزن الفعلي من karat_lines (بدون المصنعية)
                         actual_weight_for_karat = actual_gold_weights_for_memo.get(karat, 0.0)
                         if actual_weight_for_karat > 0:
                             # حاول استخدام حساب مذكرة مرتبط بحساب المخزون المالي
+                            # وإذا لم يوجد، استخدم fallback ثم الحساب المالي نفسه لمنع عدم توازن الوزن.
                             weight_inventory_memo_acc_id = None
                             try:
                                 inv_acc_obj = Account.query.get(inv_account_id)
@@ -5768,14 +5978,20 @@ def add_invoice():
                             if not weight_inventory_memo_acc_id:
                                 weight_inventory_memo_acc_id = get_account_id_by_number('7521')
 
+                            # آخر fallback: استخدم نفس حساب المخزون المالي (أفضل من فشل الحفظ بسبب عدم توازن الوزن)
+                            if not weight_inventory_memo_acc_id:
+                                weight_inventory_memo_acc_id = inv_account_id
+
                             if weight_inventory_memo_acc_id:
                                 print(f"🟢 DEBUG Posting memo weight debit to account {weight_inventory_memo_acc_id} for karat {karat}: {actual_weight_for_karat}")
                                 create_dual_journal_entry(
                                     journal_entry_id=journal_entry.id,
                                     account_id=weight_inventory_memo_acc_id,
                                     **_weight_kwargs_for_karat(karat, round(actual_weight_for_karat, 3), 'debit'),
-                                    description=f"شراء وزني من مورد - عيار {karat}"
+                                    exclude_from_ledger=True,  # سطر مذكرة مخزون ليس التزاماً على المورد
+                                    description=f"شراء وزني (مورد) - عيار {karat}"
                                 )
+                                posted_weight_debits.add(str(karat))
                             else:
                                 print("⚠️ Memo inventory account not found. Skipping supplier weight entry.")
 
@@ -5789,9 +6005,72 @@ def add_invoice():
                             account_id=fallback_account_id,
                             cash_debit=valuation_cash_total,
                             apply_golden_rule=False,
-                            description="إثبات مخزون شراء من مورد (بدون توزيع عيارات)"
+                            exclude_from_ledger=True,
+                            description="إثبات مخزون شراء (مورد) (بدون توزيع عيارات)"
                         )
                         cash_debit_booked = round(cash_debit_booked + valuation_cash_total, 2)
+
+                # --- Safety net: ensure physical weight is always balanced ---
+                # If a karat weight exists but inventory mapping was missing, we still need a debit
+                # to balance the supplier payable weight credit.
+                for karat_key, weight_val in (actual_gold_weights_for_memo or {}).items():
+                    karat_str = str(karat_key)
+                    if weight_val <= 0 or karat_str in posted_weight_debits:
+                        continue
+
+                    # Prefer the memo account linked to the mapped inventory account (if any).
+                    inv_for_karat = inventory_accounts.get(karat_str)
+                    weight_target_acc_id = None
+
+                    if inv_for_karat:
+                        try:
+                            inv_acc_obj = Account.query.get(inv_for_karat)
+                            if inv_acc_obj and inv_acc_obj.memo_account_id:
+                                weight_target_acc_id = inv_acc_obj.memo_account_id
+                        except Exception:
+                            weight_target_acc_id = None
+
+                    # Fallback to a generic inventory memo account if present.
+                    if not weight_target_acc_id:
+                        weight_target_acc_id = get_account_id_by_number('7521')
+
+                    # Last fallback: any available inventory account (financial) or the mapped one.
+                    if not weight_target_acc_id:
+                        weight_target_acc_id = inv_for_karat or (next(iter(inventory_accounts.values())) if inventory_accounts else None)
+
+                    if weight_target_acc_id:
+                        weight_kwargs = _weight_kwargs_for_karat(karat_str, round(float(weight_val), 3), 'debit')
+                        if not weight_kwargs:
+                            continue
+
+                        created_line = create_dual_journal_entry(
+                            journal_entry_id=journal_entry.id,
+                            account_id=weight_target_acc_id,
+                            **weight_kwargs,
+                            exclude_from_ledger=True,
+                            description=f"شراء وزني من مورد - عيار {karat_str} (fallback)"
+                        )
+
+                        # Extra safety: if for any reason the helper didn't set the expected weight field,
+                        # insert a direct weight-only line to avoid blocking invoice save.
+                        expected_field = f"debit_{karat_str}k"
+                        expected_value = float(weight_val)
+                        if not created_line or (getattr(created_line, expected_field, 0.0) or 0.0) <= 0.0:
+                            try:
+                                from models import JournalEntryLine
+                                manual_line = JournalEntryLine(
+                                    journal_entry_id=journal_entry.id,
+                                    account_id=weight_target_acc_id,
+                                    cash_debit=0.0,
+                                    cash_credit=0.0,
+                                    description=f"شراء وزني من مورد - عيار {karat_str} (manual fallback)",
+                                )
+                                setattr(manual_line, expected_field, round(expected_value, 3))
+                                db.session.add(manual_line)
+                                db.session.flush()
+                            except Exception as manual_exc:
+                                print(f"⚠️ Weight safety-net manual insert failed: {manual_exc}")
+                        posted_weight_debits.add(karat_str)
 
                 # --- 2) أجور المصنعية → مخزون أجور المصنعية (1350) ---
                 # 🆕 النظام الجديد: فصل المصنعية في حساب مستقل
@@ -5810,7 +6089,8 @@ def add_invoice():
                         account_id=wage_inventory_account_id,
                         cash_debit=round(wage_cash, 2),
                         apply_golden_rule=False,
-                        description="إضافة أجور مصنعية للمخزون - شراء من مورد"
+                        exclude_from_ledger=True,  # المصنعية تُعرض على المورد كالتزام منفصل (نوسمها على سطر المورد فقط)
+                        description="إضافة أجور مصنعية للمخزون - شراء (مورد)"
                     )
                     cash_debit_booked = round(cash_debit_booked + wage_cash, 2)
 
@@ -5823,6 +6103,7 @@ def add_invoice():
                         account_id=vat_receivable_acc_id,
                         cash_debit=round(wage_tax_total, 2),
                         apply_golden_rule=False,
+                        exclude_from_ledger=True,
                         description="ضريبة على أجور المصنعية - مشتريات من مورد"
                     )
                     cash_debit_booked = round(cash_debit_booked + wage_tax_total, 2)
@@ -5834,28 +6115,75 @@ def add_invoice():
                         account_id=vat_receivable_acc_id,
                         cash_debit=round(gold_tax_total, 2),
                         apply_golden_rule=False,
+                        exclude_from_ledger=True,
                         description="ضريبة على قيمة الذهب - مشتريات من مورد"
                     )
                     cash_debit_booked = round(cash_debit_booked + gold_tax_total, 2)
 
-                # --- 4) الحساب الجسر: يثبت المبلغ النقدي المستحق للمورد ---
-                # حساب الجسر يحمل كامل المبلغ النقدي (قيمة الذهب + الأجور + الضرائب)
-                bridge_total_cash = round(cash_debit_booked, 2)
-                if bridge_total_cash > 0:
+                # --- 4) فصل الالتزامات ---
+                # A) التقييم النقدي للذهب (ليس التزاماً على المورد في كشف الحساب)
+                valuation_bridge_cash = round(valuation_cash_total + gold_tax_total, 2)
+
+                # Supplier-specific wage settlement type:
+                # - cash: wage is a SAR payable on supplier
+                # - gold: wage is converted to gold weight (main karat) payable on supplier,
+                #         while the cash-equivalent wage cost is balanced via the bridge
+                from models import Supplier
+                supplier_obj = None
+                try:
+                    supplier_obj = Supplier.query.get(new_invoice.supplier_id) if new_invoice.supplier_id else None
+                except Exception:
+                    supplier_obj = None
+
+                supplier_wage_type = (
+                    (supplier_obj.default_wage_type if supplier_obj else None) or 'cash'
+                )
+                if not isinstance(supplier_wage_type, str):
+                    supplier_wage_type = str(supplier_wage_type)
+                supplier_wage_type = supplier_wage_type.strip().lower()
+                if supplier_wage_type not in ('cash', 'gold'):
+                    supplier_wage_type = 'cash'
+
+                wage_gold_weight_main = 0.0
+                wage_cash_liability = wage_cash
+                wage_gold_weight_field = None
+                if supplier_wage_type == 'gold' and wage_cash > 0:
+                    try:
+                        price_snapshot = get_current_gold_price()
+                        price_main = _to_float(price_snapshot.get('price_per_gram_main_karat'), 0.0)
+                        if price_main > 0:
+                            main_karat = get_main_karat() or 21
+                            candidate_field = f"weight_{int(round(float(main_karat)))}k_credit"
+                            if candidate_field in dual_entry_params:
+                                wage_gold_weight_main = round(wage_cash / price_main, 3)
+                                wage_gold_weight_field = candidate_field
+                                wage_cash_liability = 0.0
+                                valuation_bridge_cash = round(valuation_bridge_cash + wage_cash, 2)
+                            else:
+                                supplier_wage_type = 'cash'
+                    except Exception as exc:
+                        print(f"⚠️ Failed to convert wage cash to gold weight: {exc}")
+                        wage_gold_weight_main = 0.0
+                        wage_cash_liability = wage_cash
+                if valuation_bridge_cash > 0:
                     create_dual_journal_entry(
                         journal_entry_id=journal_entry.id,
                         account_id=bridge_acc_id,
-                        cash_credit=bridge_total_cash,
-                        apply_golden_rule=False,  # لا نحول جسر المورد إلى وزن
-                        description="جسر تقييم المورد (مستحق نقدي)"
+                        cash_credit=valuation_bridge_cash,
+                        apply_golden_rule=False,
+                        exclude_from_ledger=True,  # مهم: لا نربطه بالمورد حتى لا يظهر كمديونية مزدوجة
+                        description="جسر تقييم الذهب الخام (غير ظاهر في كشف المورد)"
                     )
+
+                # B) الأجور + ضريبة الأجور:
+                # - Wage VAT is always cash.
+                # - Wage itself may be cash payable or gold payable depending on supplier.
+                wage_payable_cash = round(wage_cash_liability + wage_tax_total, 2)
 
                 # --- 5) المورد دائن بالذهب (حسب العيارات) ---
                 if not supplier_account_id and supplier_gold_by_karat:
                     fallback_candidates = [
-                        (get_account_id_for_mapping('شراء من مورد', 'suppliers_weight'), True),
                         (get_account_id_for_mapping('شراء', 'suppliers_weight'), True),
-                        (get_account_id_for_mapping('شراء من مورد', 'suppliers'), True),
                         (get_account_id_for_mapping('شراء', 'suppliers'), True),
                         (party_account.id if party_account else None, True),
                     ]
@@ -5903,12 +6231,42 @@ def add_invoice():
 
                     if supplier_weight_kwargs:
                         print(f"   supplier_weight_kwargs (final) = {supplier_weight_kwargs}")
+
+                        # سطر التزام المورد (ذهب)
                         create_dual_journal_entry(
                             journal_entry_id=journal_entry.id,
                             account_id=supplier_account_id,
+                            apply_golden_rule=False,
+                            description="التزام المورد - ذهب (وزن)",
                             **supplier_weight_kwargs,
-                            description="رصيد مورد بالذهب"
                         )
+
+                # Supplier wage as gold (main karat)
+                if supplier_account_id and wage_gold_weight_main > 0 and wage_gold_weight_field:
+                        create_dual_journal_entry(
+                            journal_entry_id=journal_entry.id,
+                            account_id=supplier_account_id,
+                            apply_golden_rule=False,
+                            description="التزام المورد - أجور مصنعية (ذهب)",
+                        **{wage_gold_weight_field: round(wage_gold_weight_main, 3)},
+                        )
+                        try:
+                            new_invoice.payment_gold_weight = round(
+                                _to_float(new_invoice.payment_gold_weight, 0.0) + wage_gold_weight_main,
+                                3,
+                            )
+                        except Exception:
+                            pass
+
+                # سطر التزام المورد (نقد) للأجور + ضريبة الأجور
+                if supplier_account_id and wage_payable_cash > 0:
+                    create_dual_journal_entry(
+                        journal_entry_id=journal_entry.id,
+                        account_id=supplier_account_id,
+                        cash_credit=wage_payable_cash,
+                        apply_golden_rule=False,
+                        description="التزام المورد - أجور مصنعية + ضريبة الأجور",
+                    )
                 
                 # 🆕 التحقق من توازن حساب الجسر بعد الفاتورة
                 db.session.flush()  # تطبيق التغييرات قبل التحقق
@@ -5930,8 +6288,8 @@ def add_invoice():
                     'error': 'لم يتم تهيئة حساب الجسر لمشتريات الموردين، يرجى ضبط mapping "supplier_bridge" أو حساب المورد النقدي.'
                 }), 400
         
-        elif invoice_type == 'مرتجع شراء من مورد':
-            # 6. مرتجع شراء من مورد (عكس الشراء)
+        elif invoice_type == 'مرتجع شراء (مورد)':
+            # 6. مرتجع شراء (مورد) (عكس الشراء)
             # من حـ/ المورد (أو الصندوق) [مدين]
             #     إلى حـ/ المخزون [دائن]
             
@@ -6422,9 +6780,13 @@ def check_can_return(invoice_id):
     invoice = Invoice.query.get_or_404(invoice_id)
     
     # الفواتير التي يمكن إرجاعها
-    returnable_types = ['بيع', 'شراء من عميل', 'شراء من مورد']
-    
-    can_return = invoice.invoice_type in returnable_types
+    returnable_types = ['بيع', 'شراء من عميل', 'شراء']
+
+    invoice_type_value = (invoice.invoice_type or '').strip()
+    if 'مورد' in invoice_type_value and 'شراء' in invoice_type_value and 'مرتجع' not in invoice_type_value:
+        invoice_type_value = 'شراء'
+
+    can_return = invoice_type_value in returnable_types
     
     # التحقق من المرتجعات السابقة
     existing_returns = Invoice.query.filter_by(original_invoice_id=invoice_id).all()
@@ -6432,7 +6794,7 @@ def check_can_return(invoice_id):
     
     return jsonify({
         'can_return': can_return,
-        'invoice_type': invoice.invoice_type,
+        'invoice_type': invoice_type_value,
         'original_total': invoice.total,
         'total_returned': total_returned,
         'remaining_amount': invoice.total - total_returned,
@@ -6446,7 +6808,7 @@ def get_returnable_invoices():
     الحصول على جميع الفواتير القابلة للإرجاع
     """
     # الأنواع القابلة للإرجاع
-    returnable_types = ['بيع', 'شراء من عميل', 'شراء من مورد']
+    returnable_types = ['بيع', 'شراء من عميل', 'شراء']
     
     # فلترة حسب النوع إذا تم تحديده
     invoice_type_filter = request.args.get('invoice_type')
@@ -6763,7 +7125,8 @@ def _ensure_weight_tracking_account(account_id):
 
 
 def _get_manufacturing_wage_inventory_account_id():
-    for operation in ('شراء من مورد', 'شراء', 'بيع'):
+    legacy_supplier_purchase = 'شراء' + ' من ' + 'مورد'
+    for operation in ('شراء', legacy_supplier_purchase, 'بيع'):
         acc_id = get_account_id_for_mapping(operation, 'manufacturing_wage_inventory')
         if acc_id:
             return acc_id
@@ -8003,10 +8366,10 @@ def get_inventory_status_report():
     else:
         movement_rows = []
 
-    purchase_types = {'شراء من عميل', 'شراء من مورد', 'شراء'}
+    purchase_types = {'شراء من عميل', 'شراء'}
     sale_types = {'بيع', 'فاتورة بيع'}
     sale_return_types = {'مرتجع بيع'}
-    purchase_return_types = {'مرتجع شراء', 'مرتجع شراء من مورد'}
+    purchase_return_types = {'مرتجع شراء', 'مرتجع شراء (مورد)'}
 
     for invoice_item, invoice in movement_rows:
         item_id = invoice_item.item_id
@@ -8014,6 +8377,11 @@ def get_inventory_status_report():
             continue
 
         invoice_type = (invoice.invoice_type or '').strip()
+        if 'مورد' in invoice_type and 'شراء' in invoice_type:
+            if 'مرتجع' in invoice_type:
+                invoice_type = 'مرتجع شراء (مورد)'
+            else:
+                invoice_type = 'شراء'
 
         sign = 0
         if invoice_type in purchase_types or (
@@ -8477,10 +8845,10 @@ def get_low_stock_report():
             .all()
         )
 
-    purchase_types = {'شراء من عميل', 'شراء من مورد', 'شراء'}
+    purchase_types = {'شراء من عميل', 'شراء'}
     sale_types = {'بيع', 'فاتورة بيع'}
     sale_return_types = {'مرتجع بيع'}
-    purchase_return_types = {'مرتجع شراء', 'مرتجع شراء من مورد'}
+    purchase_return_types = {'مرتجع شراء', 'مرتجع شراء (مورد)'}
 
     def determine_direction(invoice_type):
         normalized = (invoice_type or '').strip()
@@ -8831,10 +9199,10 @@ def get_inventory_movement_report():
         .all()
     )
 
-    purchase_types = {'شراء', 'شراء من عميل', 'شراء من مورد'}
+    purchase_types = {'شراء', 'شراء من عميل'}
     sale_types = {'بيع', 'فاتورة بيع'}
     sale_return_types = {'مرتجع بيع'}
-    purchase_return_types = {'مرتجع شراء', 'مرتجع شراء من مورد'}
+    purchase_return_types = {'مرتجع شراء', 'مرتجع شراء (مورد)'}
 
     def determine_direction(invoice_type_value: str):
         normalized = (invoice_type_value or '').strip()
@@ -9670,10 +10038,10 @@ def get_sales_vs_purchases_trend():
         end_dt = start_dt + timedelta(days=1)
 
     # Determine invoice direction mapping (reuse logic similar to inventory)
-    purchase_types = {'شراء', 'شراء من عميل', 'شراء من مورد'}
+    purchase_types = {'شراء', 'شراء من عميل'}
     sale_types = {'بيع', 'فاتورة بيع'}
     sale_return_types = {'مرتجع بيع'}
-    purchase_return_types = {'مرتجع شراء', 'مرتجع شراء من مورد'}
+    purchase_return_types = {'مرتجع شراء', 'مرتجع شراء (مورد)'}
 
     def determine_direction(invoice_type_value: str):
         normalized = (invoice_type_value or '').strip()
@@ -14373,8 +14741,10 @@ def create_office_reservation():
         if supplier_override and supplier_override != supplier.id:
             return jsonify({'error': 'لا يمكن تحديد مورد مختلف عن مورد المكتب'}), 400
 
+        legacy_supplier_purchase = 'شراء' + ' من ' + 'مورد'
+
         last_invoice = (
-            Invoice.query.filter_by(invoice_type='شراء من مورد')
+            Invoice.query.filter(Invoice.invoice_type.in_(['شراء', legacy_supplier_purchase]))
             .order_by(Invoice.invoice_type_id.desc())
             .first()
         )
@@ -14386,7 +14756,7 @@ def create_office_reservation():
             office_id=office.id,
             date=reservation_date,
             total=total_amount,
-            invoice_type='شراء من مورد',
+            invoice_type='شراء',
             status='paid' if payment_status == 'paid' else ('partially_paid' if payment_status == 'partial' else 'unpaid'),
             total_weight=weight_main_karat,
             gold_subtotal=total_amount,

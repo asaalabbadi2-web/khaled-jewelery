@@ -17,8 +17,10 @@ class ReportCatalog {
             icon: Icons.dashboard,
             titleAr: 'لوحة تحكم المدير',
             titleEn: 'Admin Dashboard',
-            descriptionAr: 'مؤشرات سريعة، مخططات، وتنبيهات من واقع دفتر الخزينة وإغلاق الورديات.',
-            descriptionEn: 'Quick KPIs, charts, and alerts from the ledger and shift closings.',
+            descriptionAr:
+                'مؤشرات سريعة، مخططات، وتنبيهات من واقع دفتر الخزينة وإغلاق الورديات.',
+            descriptionEn:
+                'Quick KPIs, charts, and alerts from the ledger and shift closings.',
             route: 'admin_dashboard',
             type: ReportType.financial,
             available: true,
@@ -30,9 +32,9 @@ class ReportCatalog {
             titleAr: 'لوحة التحليل الوزني',
             titleEn: 'Weighted Analytics Dashboard',
             descriptionAr:
-              'تحليل تفاعلي للوزن المكافئ 24k والتدفقات النقدية حسب الفروع أو نوع العملية أو الموظف.',
+                'تحليل تفاعلي للوزن المكافئ (بالعيار الرئيسي) والتدفقات النقدية حسب الفروع أو نوع العملية أو الموظف.',
             descriptionEn:
-                'Interactive analysis of 24k-equivalent weight and cash flows by office, transaction type, or employee.',
+                'Interactive analysis of main-karat equivalent weight and cash flows by office, transaction type, or employee.',
             route: 'analytics_dashboard',
             type: ReportType.financial,
             available: true,
@@ -43,8 +45,10 @@ class ReportCatalog {
             icon: Icons.trending_up,
             titleAr: 'قائمة الدخل',
             titleEn: 'Income Statement',
-            descriptionAr: 'تحليل الإيرادات والمصروفات والربح الصافي حسب الفترة.',
-            descriptionEn: 'Analyze revenues, expenses, and net profit by period.',
+            descriptionAr:
+                'تحليل الإيرادات والمصروفات والربح الصافي حسب الفترة.',
+            descriptionEn:
+                'Analyze revenues, expenses, and net profit by period.',
             route: 'income_statement',
             type: ReportType.financial,
             available: true,
@@ -56,7 +60,8 @@ class ReportCatalog {
             titleAr: 'الميزانية العمومية',
             titleEn: 'Balance Sheet',
             descriptionAr: 'عرض الأصول والخصوم وحقوق الملكية بنهاية الفترة.',
-            descriptionEn: 'Show assets, liabilities, and equity at period end.',
+            descriptionEn:
+                'Show assets, liabilities, and equity at period end.',
             route: 'balance_sheet',
             type: ReportType.financial,
             requiresFilters: false,
@@ -66,8 +71,10 @@ class ReportCatalog {
             icon: Icons.swap_vert_circle,
             titleAr: 'التدفقات النقدية',
             titleEn: 'Cash Flow',
-            descriptionAr: 'متابعة التدفقات النقدية من التشغيل والاستثمار والتمويل.',
-            descriptionEn: 'Track cash flows from operations, investing, financing.',
+            descriptionAr:
+                'متابعة التدفقات النقدية من التشغيل والاستثمار والتمويل.',
+            descriptionEn:
+                'Track cash flows from operations, investing, financing.',
             route: 'cash_flow',
             type: ReportType.financial,
           ),
@@ -112,7 +119,8 @@ class ReportCatalog {
             titleAr: 'ملخص المبيعات',
             titleEn: 'Sales Overview',
             descriptionAr: 'مبيعات يومية/شهرية مع مؤشرات الوزن والقيمة.',
-            descriptionEn: 'Daily/monthly sales with weight and value indicators.',
+            descriptionEn:
+                'Daily/monthly sales with weight and value indicators.',
             route: 'sales_overview',
             type: ReportType.sales,
             available: true,
@@ -144,8 +152,10 @@ class ReportCatalog {
             icon: Icons.auto_graph,
             titleAr: 'اتجاه المبيعات مقابل المشتريات',
             titleEn: 'Sales vs Purchases Trend',
-            descriptionAr: 'مقارنة الاتجاهات الزمنية للقيمة والوزن بين المبيعات والمشتريات.',
-            descriptionEn: 'Compare value and weight trends for sales versus purchases.',
+            descriptionAr:
+                'مقارنة الاتجاهات الزمنية للقيمة والوزن بين المبيعات والمشتريات.',
+            descriptionEn:
+                'Compare value and weight trends for sales versus purchases.',
             route: 'sales_vs_purchases_trend',
             type: ReportType.sales,
             available: true,
@@ -283,7 +293,8 @@ class ReportCatalog {
             titleAr: 'كشف حساب تفصيلي',
             titleEn: 'Detailed Account Statement',
             descriptionAr: 'عرض تدفقات الحساب المختار حسب العيار والنقد.',
-            descriptionEn: 'Display flows of selected account by karat and cash.',
+            descriptionEn:
+                'Display flows of selected account by karat and cash.',
             route: 'account_statement',
             type: ReportType.accounting,
             available: true,

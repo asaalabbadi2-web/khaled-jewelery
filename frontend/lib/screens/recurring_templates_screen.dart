@@ -8,13 +8,11 @@ import 'recurring_template_form.dart';
 class RecurringTemplatesScreen extends StatefulWidget {
   final bool isArabic;
 
-  const RecurringTemplatesScreen({
-    Key? key,
-    this.isArabic = true,
-  }) : super(key: key);
+  const RecurringTemplatesScreen({super.key, this.isArabic = true});
 
   @override
-  State<RecurringTemplatesScreen> createState() => _RecurringTemplatesScreenState();
+  State<RecurringTemplatesScreen> createState() =>
+      _RecurringTemplatesScreenState();
 }
 
 class _RecurringTemplatesScreenState extends State<RecurringTemplatesScreen> {
@@ -52,8 +50,9 @@ class _RecurringTemplatesScreenState extends State<RecurringTemplatesScreen> {
             backgroundColor: theme.colorScheme.error,
             content: Text(
               'خطأ في تحميل القوالب: $e',
-              style: theme.textTheme.bodyMedium
-                  ?.copyWith(color: theme.colorScheme.onError),
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: theme.colorScheme.onError,
+              ),
             ),
           ),
         );
@@ -104,10 +103,7 @@ class _RecurringTemplatesScreenState extends State<RecurringTemplatesScreen> {
           gradient: LinearGradient(
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
-            colors: [
-              colorScheme.surface,
-              theme.scaffoldBackgroundColor,
-            ],
+            colors: [colorScheme.surface, theme.scaffoldBackgroundColor],
           ),
         ),
         child: isLoading
@@ -115,8 +111,8 @@ class _RecurringTemplatesScreenState extends State<RecurringTemplatesScreen> {
                 child: CircularProgressIndicator(color: colorScheme.primary),
               )
             : templates.isEmpty
-                ? _buildEmptyState(isAr, theme)
-                : _buildTemplatesList(isAr, theme),
+            ? _buildEmptyState(isAr, theme)
+            : _buildTemplatesList(isAr, theme),
       ),
     );
   }
@@ -170,7 +166,10 @@ class _RecurringTemplatesScreenState extends State<RecurringTemplatesScreen> {
   }
 
   Widget _buildTemplateCard(
-      Map<String, dynamic> template, bool isAr, ThemeData theme) {
+    Map<String, dynamic> template,
+    bool isAr,
+    ThemeData theme,
+  ) {
     final isActive = template['is_active'] ?? false;
     final name = template['name'] ?? '';
     final frequencyText = template['frequency_text'] ?? '';
@@ -184,10 +183,7 @@ class _RecurringTemplatesScreenState extends State<RecurringTemplatesScreen> {
       elevation: 4,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: InkWell(
-        onTap: () => _openTemplateForm(
-          template: template,
-          isEditMode: true,
-        ),
+        onTap: () => _openTemplateForm(template: template, isEditMode: true),
         borderRadius: BorderRadius.circular(12),
         child: Padding(
           padding: EdgeInsets.all(16),
@@ -198,8 +194,9 @@ class _RecurringTemplatesScreenState extends State<RecurringTemplatesScreen> {
               Row(
                 children: [
                   CircleAvatar(
-                    backgroundColor:
-                        isActive ? AppColors.success : theme.disabledColor,
+                    backgroundColor: isActive
+                        ? AppColors.success
+                        : theme.disabledColor,
                     radius: 20,
                     child: Icon(Icons.repeat, color: Colors.white, size: 20),
                   ),
@@ -227,7 +224,7 @@ class _RecurringTemplatesScreenState extends State<RecurringTemplatesScreen> {
                               decoration: BoxDecoration(
                                 color: isActive
                                     ? AppColors.success.withValues(alpha: 0.12)
-                                    : theme.colorScheme.surfaceVariant,
+                                    : theme.colorScheme.surfaceContainerHighest,
                                 borderRadius: BorderRadius.circular(8),
                                 border: Border.all(
                                   color: isActive
@@ -243,8 +240,9 @@ class _RecurringTemplatesScreenState extends State<RecurringTemplatesScreen> {
                                   fontSize: 11,
                                   color: isActive
                                       ? AppColors.success
-                                      : theme.colorScheme.onSurface
-                                          .withValues(alpha: 0.6),
+                                      : theme.colorScheme.onSurface.withValues(
+                                          alpha: 0.6,
+                                        ),
                                   fontWeight: FontWeight.bold,
                                 ),
                               ),
@@ -254,8 +252,9 @@ class _RecurringTemplatesScreenState extends State<RecurringTemplatesScreen> {
                               frequencyText,
                               style: TextStyle(
                                 fontSize: 12,
-                                color:
-                                    theme.colorScheme.onSurface.withValues(alpha: 0.6),
+                                color: theme.colorScheme.onSurface.withValues(
+                                  alpha: 0.6,
+                                ),
                               ),
                             ),
                           ],
@@ -265,11 +264,11 @@ class _RecurringTemplatesScreenState extends State<RecurringTemplatesScreen> {
                   ),
                 ],
               ),
-              
+
               SizedBox(height: 12),
               Divider(height: 1),
               SizedBox(height: 12),
-              
+
               // Info
               Row(
                 children: [
@@ -297,16 +296,12 @@ class _RecurringTemplatesScreenState extends State<RecurringTemplatesScreen> {
                   ),
                 ],
               ),
-              
+
               SizedBox(height: 6),
-              
+
               Row(
                 children: [
-                  Icon(
-                    Icons.check_circle,
-                    size: 16,
-                    color: AppColors.success,
-                  ),
+                  Icon(Icons.check_circle, size: 16, color: AppColors.success),
                   SizedBox(width: 6),
                   Text(
                     isAr ? 'تم إنشاء: ' : 'Created: ',
@@ -325,7 +320,7 @@ class _RecurringTemplatesScreenState extends State<RecurringTemplatesScreen> {
                   ),
                 ],
               ),
-              
+
               if (lastCreatedDate != null) ...[
                 SizedBox(height: 4),
                 Text(
@@ -336,9 +331,9 @@ class _RecurringTemplatesScreenState extends State<RecurringTemplatesScreen> {
                   ),
                 ),
               ],
-              
+
               SizedBox(height: 12),
-              
+
               // Actions
               Row(
                 children: [
@@ -407,48 +402,43 @@ class _RecurringTemplatesScreenState extends State<RecurringTemplatesScreen> {
           child: Container(
             color: colorScheme.surface,
             child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              ListTile(
-                leading: Icon(Icons.edit, color: colorScheme.primary),
-                title: Text(
-                  isAr ? 'تعديل القالب' : 'Edit Template',
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ListTile(
+                  leading: Icon(Icons.edit, color: colorScheme.primary),
+                  title: Text(isAr ? 'تعديل القالب' : 'Edit Template'),
+                  onTap: () {
+                    Navigator.pop(context);
+                    _openTemplateForm(template: template, isEditMode: true);
+                  },
                 ),
-                onTap: () {
-                  Navigator.pop(context);
-                  _openTemplateForm(
-                    template: template,
-                    isEditMode: true,
-                  );
-                },
-              ),
-              ListTile(
-                leading: Icon(
-                  template['is_active'] ? Icons.pause : Icons.play_arrow,
-                  color: AppColors.warning,
+                ListTile(
+                  leading: Icon(
+                    template['is_active'] ? Icons.pause : Icons.play_arrow,
+                    color: AppColors.warning,
+                  ),
+                  title: Text(
+                    template['is_active']
+                        ? (isAr ? 'تعطيل القالب' : 'Deactivate')
+                        : (isAr ? 'تفعيل القالب' : 'Activate'),
+                  ),
+                  onTap: () {
+                    Navigator.pop(context);
+                    _toggleActive(template['id'], isAr);
+                  },
                 ),
-                title: Text(
-                  template['is_active']
-                      ? (isAr ? 'تعطيل القالب' : 'Deactivate')
-                      : (isAr ? 'تفعيل القالب' : 'Activate'),
+                ListTile(
+                  leading: Icon(Icons.delete, color: AppColors.error),
+                  title: Text(
+                    isAr ? 'حذف القالب' : 'Delete Template',
+                    style: TextStyle(color: AppColors.error),
+                  ),
+                  onTap: () {
+                    Navigator.pop(context);
+                    _confirmDelete(template, isAr);
+                  },
                 ),
-                onTap: () {
-                  Navigator.pop(context);
-                  _toggleActive(template['id'], isAr);
-                },
-              ),
-              ListTile(
-                leading: Icon(Icons.delete, color: AppColors.error),
-                title: Text(
-                  isAr ? 'حذف القالب' : 'Delete Template',
-                  style: TextStyle(color: AppColors.error),
-                ),
-                onTap: () {
-                  Navigator.pop(context);
-                  _confirmDelete(template, isAr);
-                },
-              ),
-            ],
+              ],
             ),
           ),
         );
@@ -463,8 +453,9 @@ class _RecurringTemplatesScreenState extends State<RecurringTemplatesScreen> {
         barrierDismissible: false,
         builder: (context) => Center(
           child: Card(
-            shape:
-                RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
             child: Padding(
               padding: EdgeInsets.all(20),
               child: Column(
@@ -494,7 +485,7 @@ class _RecurringTemplatesScreenState extends State<RecurringTemplatesScreen> {
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         final entryNumber = data['entry']?['entry_number'] ?? '';
-        
+
         final theme = Theme.of(context);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -504,12 +495,13 @@ class _RecurringTemplatesScreenState extends State<RecurringTemplatesScreen> {
               isAr
                   ? 'تم إنشاء القيد $entryNumber بنجاح'
                   : 'Entry $entryNumber created successfully',
-              style: theme.textTheme.bodyMedium
-                  ?.copyWith(color: theme.colorScheme.onPrimary),
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: theme.colorScheme.onPrimary,
+              ),
             ),
           ),
         );
-        
+
         _loadTemplates(); // Refresh list
       } else {
         throw Exception('Failed to create entry');
@@ -522,8 +514,9 @@ class _RecurringTemplatesScreenState extends State<RecurringTemplatesScreen> {
           backgroundColor: AppColors.error,
           content: Text(
             isAr ? 'خطأ: $e' : 'Error: $e',
-            style: theme.textTheme.bodyMedium
-                ?.copyWith(color: theme.colorScheme.onError),
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: theme.colorScheme.onError,
+            ),
           ),
         ),
       );
@@ -533,7 +526,9 @@ class _RecurringTemplatesScreenState extends State<RecurringTemplatesScreen> {
   Future<void> _toggleActive(int templateId, bool isAr) async {
     try {
       final response = await http.post(
-        Uri.parse('$_baseUrl/api/recurring_templates/$templateId/toggle_active'),
+        Uri.parse(
+          '$_baseUrl/api/recurring_templates/$templateId/toggle_active',
+        ),
       );
 
       if (response.statusCode == 200) {
@@ -543,8 +538,9 @@ class _RecurringTemplatesScreenState extends State<RecurringTemplatesScreen> {
             backgroundColor: AppColors.primaryGold,
             content: Text(
               isAr ? 'تم تغيير حالة القالب' : 'Template status changed',
-              style: theme.textTheme.bodyMedium
-                  ?.copyWith(color: theme.colorScheme.onPrimary),
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: theme.colorScheme.onPrimary,
+              ),
             ),
           ),
         );
@@ -557,8 +553,9 @@ class _RecurringTemplatesScreenState extends State<RecurringTemplatesScreen> {
           backgroundColor: AppColors.error,
           content: Text(
             isAr ? 'خطأ: $e' : 'Error: $e',
-            style: theme.textTheme.bodyMedium
-                ?.copyWith(color: theme.colorScheme.onError),
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: theme.colorScheme.onError,
+            ),
           ),
         ),
       );
@@ -571,10 +568,9 @@ class _RecurringTemplatesScreenState extends State<RecurringTemplatesScreen> {
       builder: (context) => AlertDialog(
         title: Text(
           isAr ? 'تأكيد الحذف' : 'Confirm Delete',
-          style: Theme.of(context)
-              .textTheme
-              .titleLarge
-              ?.copyWith(color: AppColors.error),
+          style: Theme.of(
+            context,
+          ).textTheme.titleLarge?.copyWith(color: AppColors.error),
         ),
         content: Text(
           isAr
@@ -610,8 +606,9 @@ class _RecurringTemplatesScreenState extends State<RecurringTemplatesScreen> {
               backgroundColor: AppColors.success,
               content: Text(
                 isAr ? 'تم حذف القالب' : 'Template deleted',
-                style: theme.textTheme.bodyMedium
-                    ?.copyWith(color: theme.colorScheme.onPrimary),
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: theme.colorScheme.onPrimary,
+                ),
               ),
             ),
           );
@@ -624,8 +621,9 @@ class _RecurringTemplatesScreenState extends State<RecurringTemplatesScreen> {
             backgroundColor: AppColors.error,
             content: Text(
               isAr ? 'خطأ: $e' : 'Error: $e',
-              style: theme.textTheme.bodyMedium
-                  ?.copyWith(color: theme.colorScheme.onError),
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: theme.colorScheme.onError,
+              ),
             ),
           ),
         );

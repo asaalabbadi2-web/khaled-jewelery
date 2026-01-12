@@ -12,13 +12,32 @@ from sqlalchemy import event
 db = SQLAlchemy()
 
 
+def _configured_main_karat_f() -> float:
+    """Return the configured main karat as float.
+
+    Prefers Settings.main_karat when available, otherwise falls back to MAIN_KARAT/21.
+    Kept defensive because this can be called in varied app/migration contexts.
+    """
+    try:
+        settings = Settings.query.first()  # type: ignore[name-defined]
+        if settings and getattr(settings, 'main_karat', None):
+            return float(settings.main_karat)
+    except Exception:
+        pass
+
+    try:
+        return float(MAIN_KARAT or 21)
+    except Exception:
+        return 21.0
+
+
 PAYMENT_METHOD_ALLOWED_INVOICE_TYPES = [
     'بيع',
     'شراء من عميل',
     'مرتجع بيع',
     'مرتجع شراء',
-    'شراء من مورد',
-    'مرتجع شراء من مورد',
+    'شراء',
+    'مرتجع شراء (مورد)',
 ]
 
 class Account(db.Model):
@@ -506,6 +525,12 @@ class Supplier(db.Model):
     postal_code = db.Column(db.String(20))
     country = db.Column(db.String(50))
     notes = db.Column(db.Text)
+    tax_number = db.Column(db.String(50))
+    classification = db.Column(db.String(50))
+    # How this supplier expects manufacturing wages to be settled by default:
+    # - cash: wages are a SAR liability
+    # - gold: wages are converted to gold weight (main karat) and added to gold liability
+    default_wage_type = db.Column(db.String(10), default='cash')
     active = db.Column(db.Boolean, default=True)
     created_at = db.Column(db.DateTime, default=db.func.now())
     
@@ -543,6 +568,9 @@ class Supplier(db.Model):
             'postal_code': self.postal_code,
             'country': self.country,
             'notes': self.notes,
+            'tax_number': self.tax_number,
+            'classification': self.classification,
+            'default_wage_type': self.default_wage_type or 'cash',
             'active': self.active,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'account_category_id': self.account_category_id,
@@ -681,8 +709,11 @@ class Item(db.Model):
         تحويل الوزن إلى العيار الرئيسي
         """
         try:
+            main_karat = _configured_main_karat_f()
             karat_value = float(self.karat)
-            return self.weight * karat_value / MAIN_KARAT
+            if not main_karat:
+                return self.weight
+            return self.weight * karat_value / main_karat
         except Exception:
             return self.weight
     count = db.Column(db.Integer)     # عدد
@@ -693,7 +724,10 @@ class Item(db.Model):
         تحويل أجرة المصنعية إلى ما يعادلها بالذهب
         """
         try:
-            return self.wage / MAIN_KARAT
+            main_karat = _configured_main_karat_f()
+            if not main_karat:
+                return self.wage
+            return self.wage / main_karat
         except Exception:
             return self.wage
     
@@ -740,7 +774,7 @@ class Invoice(db.Model):
     employee = db.relationship('Employee', foreign_keys=[employee_id])
     
     # نوع الفاتورة - 6 أنواع
-    # 'بيع', 'شراء من عميل', 'مرتجع بيع', 'مرتجع شراء', 'شراء من مورد', 'مرتجع شراء من مورد'
+    # 'بيع', 'شراء من عميل', 'مرتجع بيع', 'مرتجع شراء', 'شراء', 'مرتجع شراء (مورد)'
     invoice_type = db.Column(db.String(50), nullable=False, server_default='بيع')
     
     # حالة الدفع
@@ -848,6 +882,13 @@ class Invoice(db.Model):
     __table_args__ = (db.UniqueConstraint('invoice_type', 'invoice_type_id', name='_invoice_type_uc'),)
 
     def to_dict(self):
+        invoice_type_value = (self.invoice_type or '').strip()
+        if 'مورد' in invoice_type_value and 'شراء' in invoice_type_value:
+            if 'مرتجع' in invoice_type_value:
+                invoice_type_value = 'مرتجع شراء (مورد)'
+            else:
+                invoice_type_value = 'شراء'
+
         result = {
             'id': self.id,
             'invoice_type_id': self.invoice_type_id,
@@ -858,7 +899,7 @@ class Invoice(db.Model):
             'office_id': self.office_id,  # 🆕 المكتب
             'date': self.date.isoformat(),
             'total': self.total,
-            'invoice_type': self.invoice_type,
+            'invoice_type': invoice_type_value,
             'status': self.status,
             'is_posted': self.is_posted,  # 🆕 حالة الترحيل
             'posted_at': self.posted_at.isoformat() if self.posted_at else None,  # 🆕
@@ -1007,6 +1048,8 @@ class Invoice(db.Model):
         حساب إجمالي وزن الفاتورة بالعيار الرئيسي، بما في ذلك الأصناف اليدوية.
         """
 
+        main_karat = _configured_main_karat_f()
+
         def _to_float(value, default=0.0):
             try:
                 if value in (None, ''):
@@ -1017,10 +1060,12 @@ class Invoice(db.Model):
 
         def _convert_to_main_karat(weight_value, karat_value):
             weight_float = _to_float(weight_value, 0.0)
-            karat_float = _to_float(karat_value, MAIN_KARAT)
+            karat_float = _to_float(karat_value, main_karat)
             if weight_float <= 0 or karat_float <= 0:
                 return 0.0
-            return (weight_float * karat_float) / MAIN_KARAT
+            if not main_karat:
+                return weight_float
+            return (weight_float * karat_float) / main_karat
 
         base_weight = 0.0
 
@@ -1042,7 +1087,10 @@ class Invoice(db.Model):
         """
         حساب إجمالي أجرة المصنعية بالذهب
         """
-        return sum(ii.item.wage * ii.quantity / MAIN_KARAT for ii in self.items)
+        main_karat = _configured_main_karat_f()
+        if not main_karat:
+            return sum(ii.item.wage * ii.quantity for ii in self.items)
+        return sum(ii.item.wage * ii.quantity / main_karat for ii in self.items)
 
     def profit_loss_in_gold(self):
         """
@@ -2576,7 +2624,7 @@ class AccountingMapping(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     
     # نوع العملية (invoice_type من جدول Invoice)
-    # 'بيع', 'شراء من عميل', 'مرتجع بيع', 'مرتجع شراء', 'شراء من مورد', 'مرتجع شراء من مورد'
+    # 'بيع', 'شراء من عميل', 'مرتجع بيع', 'مرتجع شراء', 'شراء', 'مرتجع شراء (مورد)'
     operation_type = db.Column(db.String(50), nullable=False, index=True)
     
     # نوع الحساب المراد ربطه

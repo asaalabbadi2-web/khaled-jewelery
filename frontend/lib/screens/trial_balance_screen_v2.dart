@@ -7,10 +7,10 @@ import '../providers/settings_provider.dart';
 /// Enhanced Trial Balance Screen with dual-entry accounting support
 /// Features: Date filtering, karat detail view, balance calculations, professional UI
 class TrialBalanceScreenV2 extends StatefulWidget {
-  const TrialBalanceScreenV2({Key? key}) : super(key: key);
+  const TrialBalanceScreenV2({super.key});
 
   @override
-  _TrialBalanceScreenV2State createState() => _TrialBalanceScreenV2State();
+  State<TrialBalanceScreenV2> createState() => _TrialBalanceScreenV2State();
 }
 
 class _TrialBalanceScreenV2State extends State<TrialBalanceScreenV2> {
@@ -72,7 +72,11 @@ class _TrialBalanceScreenV2State extends State<TrialBalanceScreenV2> {
     return _toDouble(_totals[key], fallback: fallback);
   }
 
-  double _entryDouble(Map<String, dynamic> entry, String key, {double fallback = 0.0}) {
+  double _entryDouble(
+    Map<String, dynamic> entry,
+    String key, {
+    double fallback = 0.0,
+  }) {
     return _toDouble(entry[key], fallback: fallback);
   }
 
@@ -259,12 +263,12 @@ class _TrialBalanceScreenV2State extends State<TrialBalanceScreenV2> {
   }
 
   Widget _buildNormalSummary() {
-  final goldDebit = _getTotal('gold_debit');
-  final goldCredit = _getTotal('gold_credit');
-  final goldBalance = _getTotal('gold_balance');
-  final cashDebit = _getTotal('cash_debit');
-  final cashCredit = _getTotal('cash_credit');
-  final cashBalance = _getTotal('cash_balance');
+    final goldDebit = _getTotal('gold_debit');
+    final goldCredit = _getTotal('gold_credit');
+    final goldBalance = _getTotal('gold_balance');
+    final cashDebit = _getTotal('cash_debit');
+    final cashCredit = _getTotal('cash_credit');
+    final cashBalance = _getTotal('cash_balance');
 
     return Row(
       children: [
@@ -517,7 +521,8 @@ class _TrialBalanceScreenV2State extends State<TrialBalanceScreenV2> {
         color: Color(0xFF1976D2),
         fontSize: 14,
       ),
-      dataRowHeight: 56,
+      dataRowMinHeight: 56,
+      dataRowMaxHeight: 56,
       columns: const [
         DataColumn(label: Text('رقم الحساب')),
         DataColumn(label: Text('اسم الحساب')),
@@ -607,7 +612,7 @@ class _TrialBalanceScreenV2State extends State<TrialBalanceScreenV2> {
               ),
             ],
           );
-        }).toList(),
+        }),
         // Totals row
         DataRow(
           color: WidgetStateProperty.all(Colors.blue.shade50),
@@ -625,10 +630,7 @@ class _TrialBalanceScreenV2State extends State<TrialBalanceScreenV2> {
             ),
             DataCell(
               Text(
-                _formatWeight(
-                  _getTotal('gold_debit'),
-                  includeUnit: false,
-                ),
+                _formatWeight(_getTotal('gold_debit'), includeUnit: false),
                 style: TextStyle(
                   fontWeight: FontWeight.bold,
                   color: Colors.grey.shade900, // داكن جداً
@@ -637,10 +639,7 @@ class _TrialBalanceScreenV2State extends State<TrialBalanceScreenV2> {
             ),
             DataCell(
               Text(
-                _formatWeight(
-                  _getTotal('gold_credit'),
-                  includeUnit: false,
-                ),
+                _formatWeight(_getTotal('gold_credit'), includeUnit: false),
                 style: TextStyle(
                   fontWeight: FontWeight.bold,
                   color: Colors.grey.shade900, // داكن جداً
@@ -649,10 +648,7 @@ class _TrialBalanceScreenV2State extends State<TrialBalanceScreenV2> {
             ),
             DataCell(
               Text(
-                _formatWeight(
-                  _getTotal('gold_balance'),
-                  includeUnit: false,
-                ),
+                _formatWeight(_getTotal('gold_balance'), includeUnit: false),
                 style: TextStyle(
                   fontWeight: FontWeight.bold,
                   fontSize: 15,
@@ -673,10 +669,7 @@ class _TrialBalanceScreenV2State extends State<TrialBalanceScreenV2> {
             ),
             DataCell(
               Text(
-                _formatCash(
-                  _getTotal('cash_credit'),
-                  includeSymbol: false,
-                ),
+                _formatCash(_getTotal('cash_credit'), includeSymbol: false),
                 style: TextStyle(
                   fontWeight: FontWeight.bold,
                   color: Colors.grey.shade900, // داكن جداً
@@ -685,10 +678,7 @@ class _TrialBalanceScreenV2State extends State<TrialBalanceScreenV2> {
             ),
             DataCell(
               Text(
-                _formatCash(
-                  _getTotal('cash_balance'),
-                  includeSymbol: false,
-                ),
+                _formatCash(_getTotal('cash_balance'), includeSymbol: false),
                 style: TextStyle(
                   fontWeight: FontWeight.bold,
                   fontSize: 15,
@@ -712,7 +702,8 @@ class _TrialBalanceScreenV2State extends State<TrialBalanceScreenV2> {
         color: Color(0xFF1976D2),
         fontSize: 13,
       ),
-      dataRowHeight: 56,
+      dataRowMinHeight: 56,
+      dataRowMaxHeight: 56,
       columnSpacing: 12,
       columns: const [
         DataColumn(label: Text('رقم الحساب')),
@@ -754,28 +745,58 @@ class _TrialBalanceScreenV2State extends State<TrialBalanceScreenV2> {
                 ),
               ), // لون فاتح
               // 18K
-              DataCell(Text(_entryDouble(entry, 'debit_18k').toStringAsFixed(3))),
-              DataCell(Text(_entryDouble(entry, 'credit_18k').toStringAsFixed(3))),
-              DataCell(_buildBalanceCell(_entryDouble(entry, 'balance_18k'), true)),
+              DataCell(
+                Text(_entryDouble(entry, 'debit_18k').toStringAsFixed(3)),
+              ),
+              DataCell(
+                Text(_entryDouble(entry, 'credit_18k').toStringAsFixed(3)),
+              ),
+              DataCell(
+                _buildBalanceCell(_entryDouble(entry, 'balance_18k'), true),
+              ),
               // 21K
-              DataCell(Text(_entryDouble(entry, 'debit_21k').toStringAsFixed(3))),
-              DataCell(Text(_entryDouble(entry, 'credit_21k').toStringAsFixed(3))),
-              DataCell(_buildBalanceCell(_entryDouble(entry, 'balance_21k'), true)),
+              DataCell(
+                Text(_entryDouble(entry, 'debit_21k').toStringAsFixed(3)),
+              ),
+              DataCell(
+                Text(_entryDouble(entry, 'credit_21k').toStringAsFixed(3)),
+              ),
+              DataCell(
+                _buildBalanceCell(_entryDouble(entry, 'balance_21k'), true),
+              ),
               // 22K
-              DataCell(Text(_entryDouble(entry, 'debit_22k').toStringAsFixed(3))),
-              DataCell(Text(_entryDouble(entry, 'credit_22k').toStringAsFixed(3))),
-              DataCell(_buildBalanceCell(_entryDouble(entry, 'balance_22k'), true)),
+              DataCell(
+                Text(_entryDouble(entry, 'debit_22k').toStringAsFixed(3)),
+              ),
+              DataCell(
+                Text(_entryDouble(entry, 'credit_22k').toStringAsFixed(3)),
+              ),
+              DataCell(
+                _buildBalanceCell(_entryDouble(entry, 'balance_22k'), true),
+              ),
               // 24K
-              DataCell(Text(_entryDouble(entry, 'debit_24k').toStringAsFixed(3))),
-              DataCell(Text(_entryDouble(entry, 'credit_24k').toStringAsFixed(3))),
-              DataCell(_buildBalanceCell(_entryDouble(entry, 'balance_24k'), true)),
+              DataCell(
+                Text(_entryDouble(entry, 'debit_24k').toStringAsFixed(3)),
+              ),
+              DataCell(
+                Text(_entryDouble(entry, 'credit_24k').toStringAsFixed(3)),
+              ),
+              DataCell(
+                _buildBalanceCell(_entryDouble(entry, 'balance_24k'), true),
+              ),
               // Cash
-              DataCell(Text(_entryDouble(entry, 'cash_debit').toStringAsFixed(2))),
-              DataCell(Text(_entryDouble(entry, 'cash_credit').toStringAsFixed(2))),
-              DataCell(_buildBalanceCell(_entryDouble(entry, 'cash_balance'), false)),
+              DataCell(
+                Text(_entryDouble(entry, 'cash_debit').toStringAsFixed(2)),
+              ),
+              DataCell(
+                Text(_entryDouble(entry, 'cash_credit').toStringAsFixed(2)),
+              ),
+              DataCell(
+                _buildBalanceCell(_entryDouble(entry, 'cash_balance'), false),
+              ),
             ],
           );
-        }).toList(),
+        }),
         // Totals row
         DataRow(
           color: WidgetStateProperty.all(Colors.blue.shade50),
@@ -811,11 +832,7 @@ class _TrialBalanceScreenV2State extends State<TrialBalanceScreenV2> {
               ),
             ),
             DataCell(
-              _buildBalanceCell(
-                _getTotal('balance_18k'),
-                true,
-                bold: true,
-              ),
+              _buildBalanceCell(_getTotal('balance_18k'), true, bold: true),
             ),
             // 21K
             DataCell(
@@ -837,11 +854,7 @@ class _TrialBalanceScreenV2State extends State<TrialBalanceScreenV2> {
               ),
             ),
             DataCell(
-              _buildBalanceCell(
-                _getTotal('balance_21k'),
-                true,
-                bold: true,
-              ),
+              _buildBalanceCell(_getTotal('balance_21k'), true, bold: true),
             ),
             // 22K
             DataCell(
@@ -863,11 +876,7 @@ class _TrialBalanceScreenV2State extends State<TrialBalanceScreenV2> {
               ),
             ),
             DataCell(
-              _buildBalanceCell(
-                _getTotal('balance_22k'),
-                true,
-                bold: true,
-              ),
+              _buildBalanceCell(_getTotal('balance_22k'), true, bold: true),
             ),
             // 24K
             DataCell(
@@ -889,11 +898,7 @@ class _TrialBalanceScreenV2State extends State<TrialBalanceScreenV2> {
               ),
             ),
             DataCell(
-              _buildBalanceCell(
-                _getTotal('balance_24k'),
-                true,
-                bold: true,
-              ),
+              _buildBalanceCell(_getTotal('balance_24k'), true, bold: true),
             ),
             // Cash
             DataCell(
@@ -915,11 +920,7 @@ class _TrialBalanceScreenV2State extends State<TrialBalanceScreenV2> {
               ),
             ),
             DataCell(
-              _buildBalanceCell(
-                _getTotal('cash_balance'),
-                false,
-                bold: true,
-              ),
+              _buildBalanceCell(_getTotal('cash_balance'), false, bold: true),
             ),
           ],
         ),
@@ -1111,7 +1112,7 @@ class _TrialBalanceScreenV2State extends State<TrialBalanceScreenV2> {
                     style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
                   ),
                   value: tempKaratDetail,
-                  activeColor: Colors.amber.shade800,
+                  activeThumbColor: Colors.amber.shade800,
                   onChanged: (value) {
                     setDialogState(() => tempKaratDetail = value);
                   },

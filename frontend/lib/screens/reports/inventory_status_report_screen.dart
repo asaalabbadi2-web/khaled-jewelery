@@ -19,10 +19,12 @@ class InventoryStatusReportScreen extends StatefulWidget {
   });
 
   @override
-  State<InventoryStatusReportScreen> createState() => _InventoryStatusReportScreenState();
+  State<InventoryStatusReportScreen> createState() =>
+      _InventoryStatusReportScreenState();
 }
 
-class _InventoryStatusReportScreenState extends State<InventoryStatusReportScreen> {
+class _InventoryStatusReportScreenState
+    extends State<InventoryStatusReportScreen> {
   Map<String, dynamic>? _report;
   bool _isLoading = false;
   String? _error;
@@ -193,8 +195,8 @@ class _InventoryStatusReportScreenState extends State<InventoryStatusReportScree
           child: _isLoading
               ? const Center(child: CircularProgressIndicator())
               : _error != null
-                  ? _buildErrorState(isArabic)
-                  : _buildContent(isArabic),
+              ? _buildErrorState(isArabic)
+              : _buildContent(isArabic),
         ),
       ),
     );
@@ -254,7 +256,7 @@ class _InventoryStatusReportScreenState extends State<InventoryStatusReportScree
     final chips = _karatOptions.map((karat) {
       final selected = _selectedKarats.contains(karat);
       return FilterChip(
-            label: Text(isArabic ? 'عيار $karat' : '${karat}K'),
+        label: Text(isArabic ? 'عيار $karat' : '${karat}K'),
         selected: selected,
         onSelected: (value) {
           setState(() {
@@ -275,7 +277,9 @@ class _InventoryStatusReportScreenState extends State<InventoryStatusReportScree
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
-          crossAxisAlignment: isArabic ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+          crossAxisAlignment: isArabic
+              ? CrossAxisAlignment.end
+              : CrossAxisAlignment.start,
           children: [
             Text(
               isArabic ? 'خيارات التقرير' : 'Report Options',
@@ -299,7 +303,9 @@ class _InventoryStatusReportScreenState extends State<InventoryStatusReportScree
                   },
                 ),
                 FilterChip(
-                  label: Text(isArabic ? 'تضمين غير المرحلة' : 'Include Unposted'),
+                  label: Text(
+                    isArabic ? 'تضمين غير المرحلة' : 'Include Unposted',
+                  ),
                   selected: _includeUnposted,
                   onSelected: (value) {
                     setState(() => _includeUnposted = value);
@@ -320,7 +326,9 @@ class _InventoryStatusReportScreenState extends State<InventoryStatusReportScree
                         ..._limitOptions.map(
                           (value) => DropdownMenuItem<int?>(
                             value: value,
-                            child: Text(isArabic ? 'أعلى $value' : 'Top $value'),
+                            child: Text(
+                              isArabic ? 'أعلى $value' : 'Top $value',
+                            ),
                           ),
                         ),
                       ],
@@ -337,7 +345,9 @@ class _InventoryStatusReportScreenState extends State<InventoryStatusReportScree
                             (value) => DropdownMenuItem<int>(
                               value: value,
                               child: Text(
-                                isArabic ? 'بطيء بعد $value يوم' : 'Slow after $value d',
+                                isArabic
+                                    ? 'بطيء بعد $value يوم'
+                                    : 'Slow after $value d',
                               ),
                             ),
                           )
@@ -359,7 +369,9 @@ class _InventoryStatusReportScreenState extends State<InventoryStatusReportScree
                           .map(
                             (value) => DropdownMenuItem<String>(
                               value: value,
-                              child: Text(_localizedOrderLabel(value, isArabic)),
+                              child: Text(
+                                _localizedOrderLabel(value, isArabic),
+                              ),
                             ),
                           )
                           .toList(),
@@ -371,7 +383,9 @@ class _InventoryStatusReportScreenState extends State<InventoryStatusReportScree
                     ),
                     IconButton(
                       tooltip: isArabic ? 'تغيير الترتيب' : 'Toggle order',
-                      icon: Icon(_ascending ? Icons.arrow_upward : Icons.arrow_downward),
+                      icon: Icon(
+                        _ascending ? Icons.arrow_upward : Icons.arrow_downward,
+                      ),
                       onPressed: () {
                         setState(() => _ascending = !_ascending);
                         _loadReport();
@@ -412,7 +426,9 @@ class _InventoryStatusReportScreenState extends State<InventoryStatusReportScree
       ),
       _SummaryMetric(
         label: isArabic ? 'الوزن المتاح' : 'Available Weight',
-        value: _formatWeight(_asDouble(summary['total_effective_weight_main_karat'])),
+        value: _formatWeight(
+          _asDouble(summary['total_effective_weight_main_karat']),
+        ),
         icon: Icons.scale,
         color: Colors.orange,
       ),
@@ -436,7 +452,9 @@ class _InventoryStatusReportScreenState extends State<InventoryStatusReportScree
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
-          crossAxisAlignment: isArabic ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+          crossAxisAlignment: isArabic
+              ? CrossAxisAlignment.end
+              : CrossAxisAlignment.start,
           children: [
             Wrap(
               spacing: 16,
@@ -496,9 +514,15 @@ class _InventoryStatusReportScreenState extends State<InventoryStatusReportScree
     }
 
     final sortedByValue = [...items]
-      ..sort((a, b) => _asDouble(b['market_value']).compareTo(_asDouble(a['market_value'])));
+      ..sort(
+        (a, b) => _asDouble(
+          b['market_value'],
+        ).compareTo(_asDouble(a['market_value'])),
+      );
     final topItems = sortedByValue.take(8).toList();
-    final hasPositive = topItems.any((item) => _asDouble(item['market_value']) > 0);
+    final hasPositive = topItems.any(
+      (item) => _asDouble(item['market_value']) > 0,
+    );
 
     return Card(
       elevation: 2,
@@ -506,7 +530,9 @@ class _InventoryStatusReportScreenState extends State<InventoryStatusReportScree
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
-          crossAxisAlignment: isArabic ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+          crossAxisAlignment: isArabic
+              ? CrossAxisAlignment.end
+              : CrossAxisAlignment.start,
           children: [
             Text(
               isArabic ? 'أعلى الأصناف بالقيمة' : 'Top Items by Value',
@@ -515,7 +541,9 @@ class _InventoryStatusReportScreenState extends State<InventoryStatusReportScree
             const SizedBox(height: 12),
             if (!hasPositive)
               _buildEmptyState(
-                isArabic ? 'لا توجد قيم سوقية موجبة لعرضها.' : 'No positive market values to display.',
+                isArabic
+                    ? 'لا توجد قيم سوقية موجبة لعرضها.'
+                    : 'No positive market values to display.',
                 Icons.show_chart,
               )
             else
@@ -537,7 +565,9 @@ class _InventoryStatusReportScreenState extends State<InventoryStatusReportScree
     final items = _items;
     if (items.isEmpty) {
       return _buildEmptyState(
-        isArabic ? 'لا توجد بيانات للمخزون الحالي.' : 'No inventory data available.',
+        isArabic
+            ? 'لا توجد بيانات للمخزون الحالي.'
+            : 'No inventory data available.',
         Icons.inventory,
       );
     }
@@ -550,7 +580,9 @@ class _InventoryStatusReportScreenState extends State<InventoryStatusReportScree
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
-          crossAxisAlignment: isArabic ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+          crossAxisAlignment: isArabic
+              ? CrossAxisAlignment.end
+              : CrossAxisAlignment.start,
           children: [
             Text(
               isArabic ? 'تفاصيل الأصناف' : 'Items Details',
@@ -564,21 +596,38 @@ class _InventoryStatusReportScreenState extends State<InventoryStatusReportScree
                   DataColumn(label: Text(isArabic ? 'الصنف' : 'Item')),
                   DataColumn(label: Text(isArabic ? 'العيار' : 'Karat')),
                   DataColumn(label: Text(isArabic ? 'الكمية' : 'Quantity')),
-                  DataColumn(label: Text(isArabic ? 'الوزن (عيار رئيسي)' : 'Weight (Main Karat)')),
-                  DataColumn(label: Text(isArabic ? 'القيمة السوقية' : 'Market Value')),
-                  DataColumn(label: Text(isArabic ? 'التقييم الدفتري' : 'Tag Value')),
+                  DataColumn(
+                    label: Text(
+                      isArabic ? 'الوزن (عيار رئيسي)' : 'Weight (Main Karat)',
+                    ),
+                  ),
+                  DataColumn(
+                    label: Text(isArabic ? 'القيمة السوقية' : 'Market Value'),
+                  ),
+                  DataColumn(
+                    label: Text(isArabic ? 'التقييم الدفتري' : 'Tag Value'),
+                  ),
                   DataColumn(label: Text(isArabic ? 'الفرق' : 'Gap')),
                   DataColumn(label: Text(isArabic ? 'الحالة' : 'Status')),
-                  DataColumn(label: Text(isArabic ? 'أيام منذ الحركة' : 'Days Since Move')),
+                  DataColumn(
+                    label: Text(
+                      isArabic ? 'أيام منذ الحركة' : 'Days Since Move',
+                    ),
+                  ),
                   DataColumn(label: Text(isArabic ? 'مستندات' : 'Docs')),
-                  DataColumn(label: Text(isArabic ? 'آخر حركة' : 'Last Movement')),
+                  DataColumn(
+                    label: Text(isArabic ? 'آخر حركة' : 'Last Movement'),
+                  ),
                 ],
                 rows: items.map((item) {
                   final itemCode = item['item_code'] ?? '';
                   final itemName = item['item_name'] ?? '';
-                  final label = itemCode.isEmpty ? itemName : '$itemName ($itemCode)';
+                  final label = itemCode.isEmpty
+                      ? itemName
+                      : '$itemName ($itemCode)';
                   final lastMovement = item['last_movement_date'];
-                  final formattedDate = lastMovement == null || lastMovement == ''
+                  final formattedDate =
+                      lastMovement == null || lastMovement == ''
                       ? '-'
                       : dateFormat.format(DateTime.parse(lastMovement));
 
@@ -586,13 +635,33 @@ class _InventoryStatusReportScreenState extends State<InventoryStatusReportScree
                     cells: [
                       DataCell(Text(label)),
                       DataCell(Text(item['karat']?.toString() ?? '-')),
-                      DataCell(Text(_weightFormat.format(_asDouble(item['effective_stock_quantity'])))),
-                      DataCell(Text(_formatWeight(_asDouble(item['effective_weight_main_karat'])))),
-                      DataCell(Text(_formatCurrency(_asDouble(item['market_value'])))),
-                      DataCell(Text(_formatCurrency(_asDouble(item['tag_value'])))),
-                      DataCell(Text(_formatCurrency(_asDouble(item['valuation_gap'])))),
+                      DataCell(
+                        Text(
+                          _weightFormat.format(
+                            _asDouble(item['effective_stock_quantity']),
+                          ),
+                        ),
+                      ),
+                      DataCell(
+                        Text(
+                          _formatWeight(
+                            _asDouble(item['effective_weight_main_karat']),
+                          ),
+                        ),
+                      ),
+                      DataCell(
+                        Text(_formatCurrency(_asDouble(item['market_value']))),
+                      ),
+                      DataCell(
+                        Text(_formatCurrency(_asDouble(item['tag_value']))),
+                      ),
+                      DataCell(
+                        Text(_formatCurrency(_asDouble(item['valuation_gap']))),
+                      ),
                       DataCell(_buildStatusChip(item, isArabic)),
-                      DataCell(Text(item['days_since_movement']?.toString() ?? '-')),
+                      DataCell(
+                        Text(item['days_since_movement']?.toString() ?? '-'),
+                      ),
                       DataCell(Text('${item['documents'] ?? 0}')),
                       DataCell(Text(formattedDate)),
                     ],
@@ -645,7 +714,10 @@ class _InventoryStatusReportScreenState extends State<InventoryStatusReportScree
         children: [
           Icon(icon, size: 16, color: Colors.black87),
           const SizedBox(width: 6),
-          Text(label, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+          Text(
+            label,
+            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+          ),
         ],
       ),
     );
@@ -699,7 +771,9 @@ class _SummaryTile extends StatelessWidget {
         borderRadius: BorderRadius.circular(16),
       ),
       child: Column(
-        crossAxisAlignment: isArabic ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+        crossAxisAlignment: isArabic
+            ? CrossAxisAlignment.end
+            : CrossAxisAlignment.start,
         children: [
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -761,7 +835,10 @@ class _TopItemsValueChart extends StatelessWidget {
       );
     }).toList();
 
-    final maxY = data.fold<double>(0, (prev, item) => math.max(prev, item.value));
+    final maxY = data.fold<double>(
+      0,
+      (prev, item) => math.max(prev, item.value),
+    );
     final interval = maxY <= 0 ? 1.0 : maxY / 4;
 
     return BarChart(
@@ -773,10 +850,8 @@ class _TopItemsValueChart extends StatelessWidget {
           show: true,
           drawVerticalLine: false,
           horizontalInterval: interval <= 0 ? 1.0 : interval,
-          getDrawingHorizontalLine: (value) => FlLine(
-            color: Colors.grey.withValues(alpha: 0.2),
-            strokeWidth: 1,
-          ),
+          getDrawingHorizontalLine: (value) =>
+              FlLine(color: Colors.grey.withValues(alpha: 0.2), strokeWidth: 1),
         ),
         borderData: FlBorderData(
           show: true,
@@ -788,8 +863,12 @@ class _TopItemsValueChart extends StatelessWidget {
           ),
         ),
         titlesData: FlTitlesData(
-          topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-          rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          topTitles: const AxisTitles(
+            sideTitles: SideTitles(showTitles: false),
+          ),
+          rightTitles: const AxisTitles(
+            sideTitles: SideTitles(showTitles: false),
+          ),
           leftTitles: AxisTitles(
             sideTitles: SideTitles(
               showTitles: true,
@@ -860,7 +939,10 @@ class _TopItemsValueChart extends StatelessWidget {
               final label = isArabic ? 'القيمة السوقية' : 'Market Value';
               return BarTooltipItem(
                 '${point.label}\n$label: ${formatCurrency(rod.toY)}',
-                const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                ),
               );
             },
           ),

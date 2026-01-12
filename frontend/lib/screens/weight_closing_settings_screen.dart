@@ -61,8 +61,10 @@ class _WeightClosingSettingsScreenState
   }
 
   void _hydrateFromProvider() {
-    final config =
-        Provider.of<SettingsProvider>(context, listen: false).weightClosingSettings;
+    final config = Provider.of<SettingsProvider>(
+      context,
+      listen: false,
+    ).weightClosingSettings;
     _applyConfig(config, shouldSetState: false);
   }
 
@@ -70,7 +72,9 @@ class _WeightClosingSettingsScreenState
     if (!mounted) return;
     setState(() => _isLoading = true);
     try {
-      final config = await context.read<SettingsProvider>().fetchWeightClosingSettings();
+      final config = await context
+          .read<SettingsProvider>()
+          .fetchWeightClosingSettings();
       if (!mounted) return;
       _applyConfig(config);
     } catch (error) {
@@ -83,12 +87,10 @@ class _WeightClosingSettingsScreenState
     }
   }
 
-  void _applyConfig(
-    Map<String, dynamic> config, {
-    bool shouldSetState = true,
-  }) {
+  void _applyConfig(Map<String, dynamic> config, {bool shouldSetState = true}) {
     final enabled = config['enabled'] == true;
-    final priceSource = (config['price_source']?.toString().toLowerCase()) ?? 'live';
+    final priceSource =
+        (config['price_source']?.toString().toLowerCase()) ?? 'live';
     final allowOverride = config['allow_override'] == null
         ? true
         : (config['allow_override'] == true);
@@ -108,7 +110,9 @@ class _WeightClosingSettingsScreenState
         _priceSource = _normalizePriceSource(priceSource);
         _allowOverride = allowOverride;
         _cashDeficitThreshold = cashThreshold < 0 ? 0.0 : cashThreshold;
-        _goldPureDeficitThresholdGrams = goldThreshold < 0 ? 0.0 : goldThreshold;
+        _goldPureDeficitThresholdGrams = goldThreshold < 0
+            ? 0.0
+            : goldThreshold;
       });
     } else {
       _autoCloseEnabled = enabled;
@@ -119,7 +123,8 @@ class _WeightClosingSettingsScreenState
     }
 
     _cashThresholdController.text = _cashDeficitThreshold.toStringAsFixed(2);
-    _goldThresholdController.text = _goldPureDeficitThresholdGrams.toStringAsFixed(3);
+    _goldThresholdController.text = _goldPureDeficitThresholdGrams
+        .toStringAsFixed(3);
   }
 
   double _asDouble(dynamic value, {double fallback = 0.0}) {
@@ -148,7 +153,8 @@ class _WeightClosingSettingsScreenState
       'price_source': _priceSource,
       'allow_override': _allowOverride,
       'shift_close_cash_deficit_threshold': _cashDeficitThreshold,
-      'shift_close_gold_pure_deficit_threshold_grams': _goldPureDeficitThresholdGrams,
+      'shift_close_gold_pure_deficit_threshold_grams':
+          _goldPureDeficitThresholdGrams,
     };
 
     try {
@@ -174,8 +180,9 @@ class _WeightClosingSettingsScreenState
       ..showSnackBar(
         SnackBar(
           content: Text(message, textAlign: TextAlign.center),
-          backgroundColor:
-              isError ? Theme.of(context).colorScheme.error : Theme.of(context).colorScheme.primary,
+          backgroundColor: isError
+              ? Theme.of(context).colorScheme.error
+              : Theme.of(context).colorScheme.primary,
         ),
       );
   }
@@ -262,7 +269,9 @@ class _WeightClosingSettingsScreenState
       children: [
         _buildInfoChip(
           icon: _autoCloseEnabled ? Icons.check_circle : Icons.pause_circle,
-          label: _autoCloseEnabled ? 'التسكير الآلي مفعل' : 'التسكير الآلي متوقف',
+          label: _autoCloseEnabled
+              ? 'التسكير الآلي مفعل'
+              : 'التسكير الآلي متوقف',
           color: _autoCloseEnabled ? success : theme.colorScheme.outline,
         ),
         _buildInfoChip(
@@ -272,7 +281,9 @@ class _WeightClosingSettingsScreenState
         ),
         _buildInfoChip(
           icon: _allowOverride ? Icons.edit_note : Icons.block,
-          label: _allowOverride ? 'المستخدم يستطيع التعديل' : 'لا يسمح بالتعديل اليدوي',
+          label: _allowOverride
+              ? 'المستخدم يستطيع التعديل'
+              : 'لا يسمح بالتعديل اليدوي',
           color: info,
         ),
       ],
@@ -286,10 +297,7 @@ class _WeightClosingSettingsScreenState
   }) {
     return Chip(
       avatar: Icon(icon, size: 18, color: Colors.white),
-      label: Text(
-        label,
-        style: const TextStyle(color: Colors.white),
-      ),
+      label: Text(label, style: const TextStyle(color: Colors.white)),
       backgroundColor: color.withValues(alpha: 0.9),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
     );
@@ -298,7 +306,7 @@ class _WeightClosingSettingsScreenState
   Widget _buildPriceSourceOption(ThemeData theme, String key) {
     final isSelected = _priceSource == key;
     final Color primary = theme.colorScheme.primary;
-  final Color outline = theme.colorScheme.outlineVariant;
+    final Color outline = theme.colorScheme.outlineVariant;
     final String title = _priceSourceTitles[key] ?? key;
     final String subtitle = _priceSourceDescriptions[key] ?? '';
 
@@ -313,8 +321,9 @@ class _WeightClosingSettingsScreenState
             border: Border.all(color: isSelected ? primary : outline),
             color: isSelected
                 ? primary.withValues(alpha: 0.08)
-        : theme.colorScheme.surfaceContainerHighest
-          .withValues(alpha: 0.05),
+                : theme.colorScheme.surfaceContainerHighest.withValues(
+                    alpha: 0.05,
+                  ),
           ),
           padding: const EdgeInsets.all(12),
           child: Row(
@@ -366,10 +375,7 @@ class _WeightClosingSettingsScreenState
         value: _autoCloseEnabled,
         onChanged: (value) => setState(() => _autoCloseEnabled = value),
         title: const Text('تشغيل التسكير التلقائي عند حفظ فاتورة البيع'),
-        subtitle: Text(
-          valueDescription,
-          style: theme.textTheme.bodySmall,
-        ),
+        subtitle: Text(valueDescription, style: theme.textTheme.bodySmall),
       ),
     );
   }
@@ -390,8 +396,9 @@ class _WeightClosingSettingsScreenState
               style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 12),
-      ..._priceSourceTitles.keys
-        .map((key) => _buildPriceSourceOption(theme, key)),
+            ..._priceSourceTitles.keys.map(
+              (key) => _buildPriceSourceOption(theme, key),
+            ),
           ],
         ),
       ),
@@ -433,7 +440,9 @@ class _WeightClosingSettingsScreenState
             const SizedBox(height: 14),
             TextField(
               controller: _cashThresholdController,
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
               decoration: const InputDecoration(
                 labelText: 'عجز نقدي أكبر من (ر.س)',
                 hintText: 'مثال: 50',
@@ -442,13 +451,17 @@ class _WeightClosingSettingsScreenState
               onChanged: (v) {
                 final parsed = double.tryParse(v.trim());
                 if (parsed == null) return;
-                setState(() => _cashDeficitThreshold = parsed < 0 ? 0.0 : parsed);
+                setState(
+                  () => _cashDeficitThreshold = parsed < 0 ? 0.0 : parsed,
+                );
               },
             ),
             const SizedBox(height: 12),
             TextField(
               controller: _goldThresholdController,
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
               decoration: const InputDecoration(
                 labelText: 'عجز ذهب صافي أكبر من (جم 24k)',
                 hintText: 'مثال: 0.10',
@@ -457,7 +470,11 @@ class _WeightClosingSettingsScreenState
               onChanged: (v) {
                 final parsed = double.tryParse(v.trim());
                 if (parsed == null) return;
-                setState(() => _goldPureDeficitThresholdGrams = parsed < 0 ? 0.0 : parsed);
+                setState(
+                  () => _goldPureDeficitThresholdGrams = parsed < 0
+                      ? 0.0
+                      : parsed,
+                );
               },
             ),
           ],

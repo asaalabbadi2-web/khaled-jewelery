@@ -5,7 +5,7 @@ import '../utils.dart';
 
 /// شاشة تحديث سعر الذهب المحسّنة بتصميم احترافي
 class GoldPriceManualScreenEnhanced extends StatefulWidget {
-  const GoldPriceManualScreenEnhanced({Key? key}) : super(key: key);
+  const GoldPriceManualScreenEnhanced({super.key});
 
   @override
   State<GoldPriceManualScreenEnhanced> createState() =>
@@ -23,7 +23,7 @@ class _GoldPriceManualScreenEnhancedState
   bool _useUsdInput = false;
   double? _currentPrice;
   DateTime? _lastUpdateDate;
-  List<Map<String, dynamic>> _priceHistory = [];
+  final List<Map<String, dynamic>> _priceHistory = [];
 
   // ألوان النظام
   final Color _goldColor = const Color(0xFFFFD700);
@@ -565,7 +565,7 @@ class _GoldPriceManualScreenEnhancedState
                   ),
                   Switch(
                     value: _useUsdInput,
-                    activeColor: _accentColor,
+                    activeThumbColor: _accentColor,
                     onChanged: (value) {
                       setState(() {
                         _useUsdInput = value;
@@ -814,7 +814,7 @@ class _GoldPriceManualScreenEnhancedState
               shrinkWrap: true,
               physics: NeverScrollableScrollPhysics(),
               itemCount: _priceHistory.length > 5 ? 5 : _priceHistory.length,
-              separatorBuilder: (_, __) => Divider(height: 24),
+              separatorBuilder: (context, index) => Divider(height: 24),
               itemBuilder: (context, index) {
                 final record = _priceHistory[index];
                 final price = record['price'] as double;

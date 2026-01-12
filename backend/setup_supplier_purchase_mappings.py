@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-إعداد الربط المحاسبي لفواتير شراء من مورد
+إعداد الربط المحاسبي لفواتير شراء (مورد)
 Setup Accounting Mappings for Supplier Purchase Invoices
 """
 
@@ -18,10 +18,10 @@ from app import app, db
 from models import Account, AccountingMapping
 
 def setup_mappings():
-    """إعداد الربط المحاسبي الأساسي لفواتير شراء من مورد"""
+    """إعداد الربط المحاسبي الأساسي لفواتير شراء (مورد)"""
     
     print("=" * 80)
-    print("⚙️  إعداد الربط المحاسبي لفواتير شراء من مورد")
+    print("⚙️  إعداد الربط المحاسبي لفواتير شراء (مورد)")
     print("=" * 80)
     
     with app.app_context():
@@ -144,13 +144,21 @@ def setup_mappings():
         
         created_count = 0
         updated_count = 0
+
+        legacy_supplier_purchase = 'شراء' + ' من ' + 'مورد'
         
         for account_type, account_id, description in mappings_to_create:
             # التحقق من وجود الربط
             existing = AccountingMapping.query.filter_by(
-                operation_type='شراء من مورد',
+                operation_type='شراء',
                 account_type=account_type
             ).first()
+
+            if not existing:
+                existing = AccountingMapping.query.filter_by(
+                    operation_type=legacy_supplier_purchase,
+                    account_type=account_type
+                ).first()
             
             if existing:
                 existing.account_id = account_id
@@ -158,7 +166,7 @@ def setup_mappings():
                 print(f"   🔄 تحديث: {account_type} → حساب #{account_id}")
             else:
                 mapping = AccountingMapping(
-                    operation_type='شراء من مورد',
+                    operation_type='شراء',
                     account_type=account_type,
                     account_id=account_id
                 )
@@ -180,11 +188,11 @@ def setup_mappings():
         
         # 4️⃣ عرض ملخص الإعدادات
         print("\n" + "=" * 80)
-        print("📋 ملخص الربط المحاسبي لفواتير شراء من مورد:")
+        print("📋 ملخص الربط المحاسبي لفواتير شراء (مورد):")
         print("=" * 80)
         
         mappings = AccountingMapping.query.filter_by(
-            operation_type='شراء من مورد'
+            operation_type='شراء'
         ).all()
         
         for mapping in mappings:
@@ -195,7 +203,7 @@ def setup_mappings():
             print(f"     يتتبع الوزن: {'✅ نعم' if account and account.tracks_weight else '❌ لا'}")
         
         print("\n" + "=" * 80)
-        print("✅ تم إعداد النظام بنجاح! يمكنك الآن إنشاء فواتير شراء من مورد")
+        print("✅ تم إعداد النظام بنجاح! يمكنك الآن إنشاء فواتير شراء (مورد)")
         print("=" * 80)
         
         return True

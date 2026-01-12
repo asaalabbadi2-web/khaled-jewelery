@@ -56,7 +56,7 @@ GoldTypeSelector(
 
 ### أماكن الاستخدام:
 - ✅ `add_invoice_screen.dart` (lines ~1072)
-- يظهر فقط في فواتير الشراء (شراء من عميل، شراء من مورد)
+- يظهر فقط في فواتير الشراء (شراء من عميل، شراء)
 
 ---
 
@@ -241,7 +241,7 @@ import '../widgets/widgets.dart';
 ### GoldTypeSelector:
 | Screen | Lines | Usage |
 |--------|-------|-------|
-| `add_invoice_screen.dart` | 1072-1078 | شراء من عميل، شراء من مورد |
+| `add_invoice_screen.dart` | 1072-1078 | شراء من عميل، شراء |
 
 ### ReturnReasonInput:
 | Screen | Lines | Usage |

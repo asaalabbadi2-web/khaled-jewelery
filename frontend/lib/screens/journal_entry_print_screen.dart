@@ -20,7 +20,8 @@ class JournalEntryPrintScreen extends StatefulWidget {
   });
 
   @override
-  State<JournalEntryPrintScreen> createState() => _JournalEntryPrintScreenState();
+  State<JournalEntryPrintScreen> createState() =>
+      _JournalEntryPrintScreenState();
 }
 
 class _JournalEntryPrintScreenState extends State<JournalEntryPrintScreen> {
@@ -45,9 +46,7 @@ class _JournalEntryPrintScreenState extends State<JournalEntryPrintScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(
-          widget.isArabic ? 'طباعة قيد يومي' : 'Print Journal Entry',
-        ),
+        title: Text(widget.isArabic ? 'طباعة قيد يومي' : 'Print Journal Entry'),
         backgroundColor: const Color(0xFFD4AF37),
         actions: [
           IconButton(
@@ -60,53 +59,43 @@ class _JournalEntryPrintScreenState extends State<JournalEntryPrintScreen> {
       body: _isGenerating
           ? const Center(child: CircularProgressIndicator())
           : kIsWeb
-              ? _buildWebPreview()
-              : PdfPreview(
-                  build: (format) => _generatePdf(format),
-                  canChangePageFormat: true,
-                  allowPrinting: true,
-                  allowSharing: true,
-                  initialPageFormat: _getPdfPageFormat(),
-                  pdfFileName:
-                      'journal_entry_${widget.journalEntry['id']}_${DateFormat('yyyyMMdd').format(DateTime.now())}.pdf',
-                ),
+          ? _buildWebPreview()
+          : PdfPreview(
+              build: (format) => _generatePdf(format),
+              canChangePageFormat: true,
+              allowPrinting: true,
+              allowSharing: true,
+              initialPageFormat: _getPdfPageFormat(),
+              pdfFileName:
+                  'journal_entry_${widget.journalEntry['id']}_${DateFormat('yyyyMMdd').format(DateTime.now())}.pdf',
+            ),
     );
   }
 
   Widget _buildWebPreview() {
     final entry = widget.journalEntry;
     final lines = (entry['lines'] as List<dynamic>?) ?? [];
-    
+
     return Center(
       child: SingleChildScrollView(
         padding: const EdgeInsets.all(24),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            const Icon(
-              Icons.receipt_long,
-              size: 80,
-              color: Color(0xFFD4AF37),
-            ),
+            const Icon(Icons.receipt_long, size: 80, color: Color(0xFFD4AF37)),
             const SizedBox(height: 24),
             Text(
               widget.isArabic
                   ? 'قيد يومي رقم #${entry['id']}'
                   : 'Journal Entry #${entry['id']}',
-              style: const TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.bold,
-              ),
+              style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 12),
             Text(
               widget.isArabic
                   ? 'اضغط على زر التحميل أعلاه لحفظ القيد كـ PDF'
                   : 'Click the download button above to save the entry as PDF',
-              style: TextStyle(
-                fontSize: 16,
-                color: Colors.grey.shade600,
-              ),
+              style: TextStyle(fontSize: 16, color: Colors.grey.shade600),
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 32),
@@ -163,13 +152,12 @@ class _JournalEntryPrintScreenState extends State<JournalEntryPrintScreen> {
           children: [
             Row(
               children: [
-                const Icon(
-                  Icons.receipt_long,
-                  color: Color(0xFFD4AF37),
-                ),
+                const Icon(Icons.receipt_long, color: Color(0xFFD4AF37)),
                 const SizedBox(width: 12),
                 Text(
-                  widget.isArabic ? 'ملخص القيد اليومي' : 'Journal Entry Summary',
+                  widget.isArabic
+                      ? 'ملخص القيد اليومي'
+                      : 'Journal Entry Summary',
                   style: const TextStyle(
                     fontSize: 18,
                     fontWeight: FontWeight.bold,
@@ -197,10 +185,7 @@ class _JournalEntryPrintScreenState extends State<JournalEntryPrintScreen> {
             const Divider(height: 16),
             Text(
               widget.isArabic ? 'الإجماليات:' : 'Totals:',
-              style: const TextStyle(
-                fontWeight: FontWeight.bold,
-                fontSize: 15,
-              ),
+              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
             ),
             const SizedBox(height: 8),
             _buildInfoRow(
@@ -225,7 +210,8 @@ class _JournalEntryPrintScreenState extends State<JournalEntryPrintScreen> {
                 isAmount: true,
               ),
             ],
-            if (entry['description'] != null && entry['description'].toString().isNotEmpty)
+            if (entry['description'] != null &&
+                entry['description'].toString().isNotEmpty)
               Padding(
                 padding: const EdgeInsets.only(top: 12),
                 child: Column(
@@ -254,10 +240,7 @@ class _JournalEntryPrintScreenState extends State<JournalEntryPrintScreen> {
         children: [
           Text(
             label,
-            style: TextStyle(
-              color: Colors.grey.shade700,
-              fontSize: 14,
-            ),
+            style: TextStyle(color: Colors.grey.shade700, fontSize: 14),
           ),
           Text(
             value,
@@ -276,12 +259,12 @@ class _JournalEntryPrintScreenState extends State<JournalEntryPrintScreen> {
     try {
       setState(() => _isGenerating = true);
       final pdf = await _generatePdf(_getPdfPageFormat());
-      
+
       await Printing.layoutPdf(
         onLayout: (_) => pdf,
         name: 'journal_entry_${widget.journalEntry['id']}.pdf',
       );
-      
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -327,7 +310,7 @@ class _JournalEntryPrintScreenState extends State<JournalEntryPrintScreen> {
     final pdf = pw.Document();
     final entry = widget.journalEntry;
     final lines = (entry['lines'] as List<dynamic>?) ?? [];
-    
+
     final currencyFormat = NumberFormat('#,##0.00', 'ar');
     final goldFormat = NumberFormat('#,##0.000', 'ar');
 
@@ -347,7 +330,9 @@ class _JournalEntryPrintScreenState extends State<JournalEntryPrintScreen> {
     pdf.addPage(
       pw.Page(
         pageFormat: format,
-        textDirection: widget.isArabic ? pw.TextDirection.rtl : pw.TextDirection.ltr,
+        textDirection: widget.isArabic
+            ? pw.TextDirection.rtl
+            : pw.TextDirection.ltr,
         theme: pw.ThemeData.withFont(
           base: await PdfGoogleFonts.cairoRegular(),
           bold: await PdfGoogleFonts.cairoBold(),
@@ -361,7 +346,9 @@ class _JournalEntryPrintScreenState extends State<JournalEntryPrintScreen> {
                 padding: const pw.EdgeInsets.all(20),
                 decoration: pw.BoxDecoration(
                   color: PdfColor.fromHex('#FFF9E6'),
-                  borderRadius: const pw.BorderRadius.all(pw.Radius.circular(8)),
+                  borderRadius: const pw.BorderRadius.all(
+                    pw.Radius.circular(8),
+                  ),
                 ),
                 child: pw.Row(
                   mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
@@ -420,13 +407,16 @@ class _JournalEntryPrintScreenState extends State<JournalEntryPrintScreen> {
                     widget.isArabic ? 'نوع القيد' : 'Entry Type',
                     entry['entry_type'] ?? '',
                   ),
-                  if (entry['description'] != null && entry['description'].toString().isNotEmpty)
+                  if (entry['description'] != null &&
+                      entry['description'].toString().isNotEmpty)
                     pw.Container(
                       margin: const pw.EdgeInsets.only(top: 8),
                       padding: const pw.EdgeInsets.all(8),
                       decoration: pw.BoxDecoration(
                         color: PdfColor.fromHex('#F5F5F5'),
-                        borderRadius: const pw.BorderRadius.all(pw.Radius.circular(4)),
+                        borderRadius: const pw.BorderRadius.all(
+                          pw.Radius.circular(4),
+                        ),
                       ),
                       child: pw.Text(
                         '${widget.isArabic ? 'البيان' : 'Description'}: ${entry['description']}',
@@ -442,7 +432,9 @@ class _JournalEntryPrintScreenState extends State<JournalEntryPrintScreen> {
               pw.Container(
                 decoration: pw.BoxDecoration(
                   border: pw.Border.all(color: PdfColors.grey300),
-                  borderRadius: const pw.BorderRadius.all(pw.Radius.circular(8)),
+                  borderRadius: const pw.BorderRadius.all(
+                    pw.Radius.circular(8),
+                  ),
                 ),
                 child: pw.Column(
                   children: [
@@ -525,11 +517,13 @@ class _JournalEntryPrintScreenState extends State<JournalEntryPrintScreen> {
                       final index = e.key;
                       final line = e.value;
                       final isEven = index % 2 == 0;
-                      
+
                       return pw.Container(
                         padding: const pw.EdgeInsets.all(10),
                         decoration: pw.BoxDecoration(
-                          color: isEven ? PdfColors.white : PdfColor.fromHex('#F9F9F9'),
+                          color: isEven
+                              ? PdfColors.white
+                              : PdfColor.fromHex('#F9F9F9'),
                         ),
                         child: pw.Row(
                           children: [
@@ -543,7 +537,8 @@ class _JournalEntryPrintScreenState extends State<JournalEntryPrintScreen> {
                             pw.Expanded(
                               flex: 2,
                               child: pw.Text(
-                                line['debit_cash'] != null && line['debit_cash'] != 0
+                                line['debit_cash'] != null &&
+                                        line['debit_cash'] != 0
                                     ? currencyFormat.format(line['debit_cash'])
                                     : '-',
                                 style: const pw.TextStyle(fontSize: 10),
@@ -553,7 +548,8 @@ class _JournalEntryPrintScreenState extends State<JournalEntryPrintScreen> {
                             pw.Expanded(
                               flex: 2,
                               child: pw.Text(
-                                line['credit_cash'] != null && line['credit_cash'] != 0
+                                line['credit_cash'] != null &&
+                                        line['credit_cash'] != 0
                                     ? currencyFormat.format(line['credit_cash'])
                                     : '-',
                                 style: const pw.TextStyle(fontSize: 10),
@@ -563,7 +559,8 @@ class _JournalEntryPrintScreenState extends State<JournalEntryPrintScreen> {
                             pw.Expanded(
                               flex: 2,
                               child: pw.Text(
-                                line['debit_gold'] != null && line['debit_gold'] != 0
+                                line['debit_gold'] != null &&
+                                        line['debit_gold'] != 0
                                     ? goldFormat.format(line['debit_gold'])
                                     : '-',
                                 style: const pw.TextStyle(fontSize: 10),
@@ -573,7 +570,8 @@ class _JournalEntryPrintScreenState extends State<JournalEntryPrintScreen> {
                             pw.Expanded(
                               flex: 2,
                               child: pw.Text(
-                                line['credit_gold'] != null && line['credit_gold'] != 0
+                                line['credit_gold'] != null &&
+                                        line['credit_gold'] != 0
                                     ? goldFormat.format(line['credit_gold'])
                                     : '-',
                                 style: const pw.TextStyle(fontSize: 10),
@@ -590,7 +588,10 @@ class _JournalEntryPrintScreenState extends State<JournalEntryPrintScreen> {
                       decoration: pw.BoxDecoration(
                         color: PdfColor.fromHex('#FFF9E6'),
                         border: pw.Border(
-                          top: pw.BorderSide(color: PdfColors.grey400, width: 2),
+                          top: pw.BorderSide(
+                            color: PdfColors.grey400,
+                            width: 2,
+                          ),
                         ),
                       ),
                       child: pw.Row(
@@ -663,7 +664,9 @@ class _JournalEntryPrintScreenState extends State<JournalEntryPrintScreen> {
                 padding: const pw.EdgeInsets.all(20),
                 decoration: pw.BoxDecoration(
                   border: pw.Border.all(color: PdfColors.grey300),
-                  borderRadius: const pw.BorderRadius.all(pw.Radius.circular(8)),
+                  borderRadius: const pw.BorderRadius.all(
+                    pw.Radius.circular(8),
+                  ),
                 ),
                 child: pw.Row(
                   mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
@@ -674,9 +677,7 @@ class _JournalEntryPrintScreenState extends State<JournalEntryPrintScreen> {
                     _buildSignatureBox(
                       widget.isArabic ? 'المراجع' : 'Reviewer',
                     ),
-                    _buildSignatureBox(
-                      widget.isArabic ? 'المدير' : 'Manager',
-                    ),
+                    _buildSignatureBox(widget.isArabic ? 'المدير' : 'Manager'),
                   ],
                 ),
               ),
@@ -685,10 +686,7 @@ class _JournalEntryPrintScreenState extends State<JournalEntryPrintScreen> {
               pw.Center(
                 child: pw.Text(
                   '${widget.isArabic ? 'تاريخ الطباعة' : 'Printed on'}: ${DateFormat('yyyy-MM-dd HH:mm').format(DateTime.now())}',
-                  style: pw.TextStyle(
-                    fontSize: 10,
-                    color: PdfColors.grey600,
-                  ),
+                  style: pw.TextStyle(fontSize: 10, color: PdfColors.grey600),
                 ),
               ),
             ],
@@ -733,14 +731,8 @@ class _JournalEntryPrintScreenState extends State<JournalEntryPrintScreen> {
       child: pw.Row(
         mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
         children: [
-          pw.Text(
-            label,
-            style: const pw.TextStyle(fontSize: 12),
-          ),
-          pw.Text(
-            value,
-            style: const pw.TextStyle(fontSize: 12),
-          ),
+          pw.Text(label, style: const pw.TextStyle(fontSize: 12)),
+          pw.Text(value, style: const pw.TextStyle(fontSize: 12)),
         ],
       ),
     );
@@ -760,10 +752,7 @@ class _JournalEntryPrintScreenState extends State<JournalEntryPrintScreen> {
             ),
           ),
           pw.SizedBox(height: 8),
-          pw.Text(
-            label,
-            style: const pw.TextStyle(fontSize: 11),
-          ),
+          pw.Text(label, style: const pw.TextStyle(fontSize: 11)),
         ],
       ),
     );

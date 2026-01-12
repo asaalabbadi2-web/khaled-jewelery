@@ -3,7 +3,7 @@ import 'package:intl/intl.dart';
 import '../../api_service.dart';
 
 class DualSystemReconciliationScreen extends StatefulWidget {
-  const DualSystemReconciliationScreen({Key? key}) : super(key: key);
+  const DualSystemReconciliationScreen({super.key});
 
   @override
   State<DualSystemReconciliationScreen> createState() =>
@@ -36,10 +36,7 @@ class _DualSystemReconciliationScreenState
       final dateStr = DateFormat('yyyy-MM-dd').format(_selectedDate);
       final response = await _apiService.getJson(
         '/reports/dual-system-reconciliation',
-        queryParameters: {
-          'date': dateStr,
-          'threshold': _threshold.toString(),
-        },
+        queryParameters: {'date': dateStr, 'threshold': _threshold.toString()},
       );
       if (!mounted) return;
       setState(() {
@@ -49,9 +46,9 @@ class _DualSystemReconciliationScreenState
     } catch (e) {
       if (!mounted) return;
       setState(() => _isLoading = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('خطأ في تحميل التقرير: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('خطأ في تحميل التقرير: $e')));
     }
   }
 
@@ -81,14 +78,13 @@ class _DualSystemReconciliationScreenState
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('تقرير المطابقة المزدوجة',
-            style: TextStyle(fontFamily: 'Cairo')),
+        title: const Text(
+          'تقرير المطابقة المزدوجة',
+          style: TextStyle(fontFamily: 'Cairo'),
+        ),
         backgroundColor: const Color(0xFFD4AF37),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: _loadReport,
-          ),
+          IconButton(icon: const Icon(Icons.refresh), onPressed: _loadReport),
           IconButton(
             icon: const Icon(Icons.settings),
             onPressed: _showSettings,
@@ -98,18 +94,22 @@ class _DualSystemReconciliationScreenState
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : _reportData == null
-              ? const Center(child: Text('لا توجد بيانات'))
-              : _buildReportContent(),
+          ? const Center(child: Text('لا توجد بيانات'))
+          : _buildReportContent(),
     );
   }
 
   Widget _buildReportContent() {
-  final status = (_reportData!['status'] as String?) ?? 'balanced';
-  final cashSystem = (_reportData!['cash_system'] as Map<String, dynamic>?) ?? {};
-  final weightSystem = (_reportData!['weight_system'] as Map<String, dynamic>?) ?? {};
-  final reconciliation = (_reportData!['reconciliation'] as Map<String, dynamic>?) ?? {};
-  final alerts = (_reportData!['alerts'] as List<dynamic>?) ?? const [];
-  final goldPrice = (_reportData!['gold_price'] as Map<String, dynamic>?) ?? {};
+    final status = (_reportData!['status'] as String?) ?? 'balanced';
+    final cashSystem =
+        (_reportData!['cash_system'] as Map<String, dynamic>?) ?? {};
+    final weightSystem =
+        (_reportData!['weight_system'] as Map<String, dynamic>?) ?? {};
+    final reconciliation =
+        (_reportData!['reconciliation'] as Map<String, dynamic>?) ?? {};
+    final alerts = (_reportData!['alerts'] as List<dynamic>?) ?? const [];
+    final goldPrice =
+        (_reportData!['gold_price'] as Map<String, dynamic>?) ?? {};
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16.0),
@@ -153,7 +153,7 @@ class _DualSystemReconciliationScreenState
     final isBalanced = status == 'balanced';
     return Card(
       elevation: 4,
-      color: _getStatusColor(status).withOpacity(0.1),
+      color: _getStatusColor(status).withValues(alpha: 0.1),
       child: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Row(
@@ -258,8 +258,8 @@ class _DualSystemReconciliationScreenState
   }
 
   Widget _buildCashSystemCard(Map<String, dynamic> cashSystem) {
-  final totalValue = _asDouble(cashSystem['total_inventory_value']);
-  final avgCost = _asDouble(cashSystem['avg_cost_per_gram']);
+    final totalValue = _asDouble(cashSystem['total_inventory_value']);
+    final avgCost = _asDouble(cashSystem['avg_cost_per_gram']);
 
     return Card(
       elevation: 2,
@@ -277,8 +277,14 @@ class _DualSystemReconciliationScreenState
               ),
             ),
             const Divider(),
-            _buildInfoRow('إجمالي قيمة المخزون', '${totalValue.toStringAsFixed(2)} ر.س'),
-            _buildInfoRow('متوسط التكلفة', '${avgCost.toStringAsFixed(2)} ر.س/جم'),
+            _buildInfoRow(
+              'إجمالي قيمة المخزون',
+              '${totalValue.toStringAsFixed(2)} ر.س',
+            ),
+            _buildInfoRow(
+              'متوسط التكلفة',
+              '${avgCost.toStringAsFixed(2)} ر.س/جم',
+            ),
           ],
         ),
       ),
@@ -286,8 +292,8 @@ class _DualSystemReconciliationScreenState
   }
 
   Widget _buildWeightSystemCard(Map<String, dynamic> weightSystem) {
-  final totalGrams = _asDouble(weightSystem['total_inventory_grams']);
-  final currentValue = _asDouble(weightSystem['current_value']);
+    final totalGrams = _asDouble(weightSystem['total_inventory_grams']);
+    final currentValue = _asDouble(weightSystem['current_value']);
 
     return Card(
       elevation: 2,
@@ -305,8 +311,14 @@ class _DualSystemReconciliationScreenState
               ),
             ),
             const Divider(),
-            _buildInfoRow('إجمالي الوزن', '${totalGrams.toStringAsFixed(3)} جرام'),
-            _buildInfoRow('القيمة الحالية', '${currentValue.toStringAsFixed(2)} ر.س'),
+            _buildInfoRow(
+              'إجمالي الوزن',
+              '${totalGrams.toStringAsFixed(3)} جرام',
+            ),
+            _buildInfoRow(
+              'القيمة الحالية',
+              '${currentValue.toStringAsFixed(2)} ر.س',
+            ),
           ],
         ),
       ),
@@ -314,12 +326,12 @@ class _DualSystemReconciliationScreenState
   }
 
   Widget _buildReconciliationCard(Map<String, dynamic> reconciliation) {
-  final unrealizedGain = _asDouble(reconciliation['unrealized_gain_loss']);
-  final variance = _asDouble(reconciliation['value_variance']);
-  final variancePct = _asDouble(reconciliation['value_variance_pct']);
-  final weightCheck =
-    (reconciliation['weight_balance_check'] as Map<String, dynamic>?) ?? {};
-  final isBalanced = (weightCheck['is_balanced'] as bool?) ?? false;
+    final unrealizedGain = _asDouble(reconciliation['unrealized_gain_loss']);
+    final variance = _asDouble(reconciliation['value_variance']);
+    final variancePct = _asDouble(reconciliation['value_variance_pct']);
+    final weightCheck =
+        (reconciliation['weight_balance_check'] as Map<String, dynamic>?) ?? {};
+    final isBalanced = (weightCheck['is_balanced'] as bool?) ?? false;
 
     return Card(
       elevation: 2,
@@ -387,7 +399,9 @@ class _DualSystemReconciliationScreenState
               ),
             ),
             const Divider(),
-            ...alerts.map((alert) => _buildAlertItem(alert as Map<String, dynamic>)),
+            ...alerts.map(
+              (alert) => _buildAlertItem(alert as Map<String, dynamic>),
+            ),
           ],
         ),
       ),
@@ -403,7 +417,7 @@ class _DualSystemReconciliationScreenState
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: _getSeverityColor(severity).withOpacity(0.1),
+        color: _getSeverityColor(severity).withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(8),
         border: Border.all(color: _getSeverityColor(severity)),
       ),
@@ -412,8 +426,11 @@ class _DualSystemReconciliationScreenState
         children: [
           Row(
             children: [
-              Icon(_getSeverityIcon(severity),
-                  color: _getSeverityColor(severity), size: 20),
+              Icon(
+                _getSeverityIcon(severity),
+                color: _getSeverityColor(severity),
+                size: 20,
+              ),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
@@ -456,7 +473,9 @@ class _DualSystemReconciliationScreenState
 
   Widget _buildRecommendationsSection() {
     final recommendations = _reportData!['recommendations'] as List<dynamic>?;
-    if (recommendations == null || recommendations.isEmpty) return const SizedBox.shrink();
+    if (recommendations == null || recommendations.isEmpty) {
+      return const SizedBox.shrink();
+    }
 
     return Card(
       elevation: 2,
@@ -476,24 +495,26 @@ class _DualSystemReconciliationScreenState
               ),
             ),
             const Divider(),
-            ...recommendations.map((rec) => Padding(
-                  padding: const EdgeInsets.only(bottom: 8.0),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text('• ', style: TextStyle(fontSize: 16)),
-                      Expanded(
-                        child: Text(
-                          rec as String,
-                          style: const TextStyle(
-                            fontFamily: 'Cairo',
-                            fontSize: 14,
-                          ),
+            ...recommendations.map(
+              (rec) => Padding(
+                padding: const EdgeInsets.only(bottom: 8.0),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('• ', style: TextStyle(fontSize: 16)),
+                    Expanded(
+                      child: Text(
+                        rec as String,
+                        style: const TextStyle(
+                          fontFamily: 'Cairo',
+                          fontSize: 14,
                         ),
                       ),
-                    ],
-                  ),
-                )),
+                    ),
+                  ],
+                ),
+              ),
+            ),
           ],
         ),
       ),
@@ -532,12 +553,18 @@ class _DualSystemReconciliationScreenState
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('إعدادات التقرير', style: TextStyle(fontFamily: 'Cairo')),
+        title: const Text(
+          'إعدادات التقرير',
+          style: TextStyle(fontFamily: 'Cairo'),
+        ),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             ListTile(
-              title: const Text('التاريخ', style: TextStyle(fontFamily: 'Cairo')),
+              title: const Text(
+                'التاريخ',
+                style: TextStyle(fontFamily: 'Cairo'),
+              ),
               subtitle: Text(
                 DateFormat('yyyy-MM-dd').format(_selectedDate),
                 style: const TextStyle(fontFamily: 'Cairo'),

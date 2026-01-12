@@ -12,7 +12,7 @@
 ### الأنواع المدعومة:
 1. ✅ **مرتجع بيع** - إرجاع فاتورة بيع
 2. ✅ **مرتجع شراء** - إرجاع فاتورة شراء من عميل
-3. ✅ **مرتجع شراء من مورد** - إرجاع فاتورة شراء من مورد
+3. ✅ **مرتجع شراء (مورد)** - إرجاع فاتورة شراء
 
 ---
 
@@ -200,10 +200,10 @@ TextFormField(
 
 ```dart
 final payload = {
-  'customer_id': widget.returnType != 'مرتجع شراء من مورد' 
+  'customer_id': widget.returnType != 'مرتجع شراء (مورد)' 
       ? selectedOriginalInvoice!['customer_id'] 
       : null,
-  'supplier_id': widget.returnType == 'مرتجع شراء من مورد' 
+  'supplier_id': widget.returnType == 'مرتجع شراء (مورد)' 
       ? selectedOriginalInvoice!['supplier_id'] 
       : null,
   'date': DateTime.now().toIso8601String(),

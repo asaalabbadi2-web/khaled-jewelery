@@ -14,8 +14,7 @@ class CalculateBonusesScreen extends StatefulWidget {
   });
 
   @override
-  State<CalculateBonusesScreen> createState() =>
-      _CalculateBonusesScreenState();
+  State<CalculateBonusesScreen> createState() => _CalculateBonusesScreenState();
 }
 
 class _CalculateBonusesScreenState extends State<CalculateBonusesScreen> {
@@ -51,33 +50,31 @@ class _CalculateBonusesScreenState extends State<CalculateBonusesScreen> {
       }
 
       setState(() {
-        _previewResults = bonuses
-            .map((b) {
-              // استخراج اسم الموظف من كائن employee
-              String employeeName = 'غير محدد';
-              if (b['employee'] is Map) {
-                employeeName = b['employee']['name'] ?? 'غير محدد';
-              } else if (b['employee_name'] != null) {
-                employeeName = b['employee_name'];
-              }
+        _previewResults = bonuses.map((b) {
+          // استخراج اسم الموظف من كائن employee
+          String employeeName = 'غير محدد';
+          if (b['employee'] is Map) {
+            employeeName = b['employee']['name'] ?? 'غير محدد';
+          } else if (b['employee_name'] != null) {
+            employeeName = b['employee_name'];
+          }
 
-              // استخراج اسم القاعدة من كائن rule
-              String ruleName = '';
-              if (b['rule'] is Map) {
-                ruleName = b['rule']['name'] ?? '';
-              } else if (b['rule_name'] != null) {
-                ruleName = b['rule_name'];
-              }
+          // استخراج اسم القاعدة من كائن rule
+          String ruleName = '';
+          if (b['rule'] is Map) {
+            ruleName = b['rule']['name'] ?? '';
+          } else if (b['rule_name'] != null) {
+            ruleName = b['rule_name'];
+          }
 
-              return {
-                'employee_name': employeeName,
-                'bonus_type': b['bonus_type'] ?? '',
-                'amount': (b['amount'] as num?)?.toDouble() ?? 0.0,
-                'rule_name': ruleName,
-                'status': b['status'] ?? 'pending',
-              };
-            })
-            .toList();
+          return {
+            'employee_name': employeeName,
+            'bonus_type': b['bonus_type'] ?? '',
+            'amount': (b['amount'] as num?)?.toDouble() ?? 0.0,
+            'rule_name': ruleName,
+            'status': b['status'] ?? 'pending',
+          };
+        }).toList();
       });
 
       _showSnack(
@@ -138,8 +135,9 @@ class _CalculateBonusesScreenState extends State<CalculateBonusesScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(message),
-        backgroundColor:
-            isError ? Colors.red : Theme.of(context).colorScheme.primary,
+        backgroundColor: isError
+            ? Colors.red
+            : Theme.of(context).colorScheme.primary,
         behavior: SnackBarBehavior.floating,
         duration: const Duration(seconds: 3),
         action: SnackBarAction(
@@ -246,7 +244,9 @@ class _CalculateBonusesScreenState extends State<CalculateBonusesScreen> {
                                 ),
                               )
                             : const Icon(Icons.calculate),
-                        label: Text(isAr ? 'معاينة النتائج' : 'Preview Results'),
+                        label: Text(
+                          isAr ? 'معاينة النتائج' : 'Preview Results',
+                        ),
                       ),
                     ),
                   ],
@@ -269,7 +269,9 @@ class _CalculateBonusesScreenState extends State<CalculateBonusesScreen> {
                 child: _previewResults!.isEmpty
                     ? Center(
                         child: Text(
-                          isAr ? 'لا توجد مكافآت للفترة المحددة' : 'No bonuses for this period',
+                          isAr
+                              ? 'لا توجد مكافآت للفترة المحددة'
+                              : 'No bonuses for this period',
                           style: const TextStyle(
                             fontSize: 16,
                             color: Colors.grey,
@@ -315,12 +317,12 @@ class _CalculateBonusesScreenState extends State<CalculateBonusesScreen> {
   Widget _buildResultCard(Map<String, dynamic> result) {
     final status = result['status'] as String? ?? 'pending';
     final isAr = widget.isArabic;
-    
+
     // تحديد لون ونص الحالة
     Color statusColor;
     String statusText;
     IconData statusIcon;
-    
+
     switch (status) {
       case 'approved':
         statusColor = Colors.blue;
@@ -342,7 +344,7 @@ class _CalculateBonusesScreenState extends State<CalculateBonusesScreen> {
         statusText = isAr ? 'معلقة' : 'Pending';
         statusIcon = Icons.pending;
     }
-    
+
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
       child: ListTile(
@@ -357,7 +359,9 @@ class _CalculateBonusesScreenState extends State<CalculateBonusesScreen> {
         subtitle: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(result['rule_name'] as String? ?? result['bonus_type'] as String),
+            Text(
+              result['rule_name'] as String? ?? result['bonus_type'] as String,
+            ),
             const SizedBox(height: 4),
             Row(
               children: [

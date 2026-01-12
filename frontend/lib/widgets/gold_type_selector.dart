@@ -21,7 +21,7 @@ class GoldTypeSelector extends StatelessWidget {
     final bool isAr = Localizations.localeOf(context).languageCode == 'ar';
 
     return DropdownButtonFormField<String>(
-      value: selectedGoldType,
+      initialValue: selectedGoldType,
       decoration: InputDecoration(
         labelText: labelText ?? (isAr ? 'نوع الذهب' : 'Gold Type'),
         border: const OutlineInputBorder(),

@@ -181,7 +181,7 @@ class _PayrollScreenState extends State<PayrollScreen> {
               ),
               const SizedBox(height: 8),
               DropdownButtonFormField<int>(
-                value: selectedAccountId,
+                initialValue: selectedAccountId,
                 decoration: InputDecoration(
                   border: const OutlineInputBorder(),
                   contentPadding: const EdgeInsets.symmetric(
@@ -395,7 +395,9 @@ class _PayrollScreenState extends State<PayrollScreen> {
                         child: ListTile(
                           onTap: () => _openForm(entry: entry),
                           leading: CircleAvatar(
-                            backgroundColor: statusColor.withValues(alpha: 0.15),
+                            backgroundColor: statusColor.withValues(
+                              alpha: 0.15,
+                            ),
                             child: Icon(Icons.payments, color: statusColor),
                           ),
                           title: Text(
@@ -673,7 +675,7 @@ class _PayrollFormDialogState extends State<PayrollFormDialog> {
                   maxLines: 2,
                 ),
                 DropdownButtonFormField<String>(
-                  value: _status,
+                  initialValue: _status,
                   items: const [
                     DropdownMenuItem(value: 'pending', child: Text('Pending')),
                     DropdownMenuItem(

@@ -138,12 +138,12 @@ def test_invoice_type_2_purchase_from_customer(customer_id):
         return None
 
 def test_invoice_type_3_purchase_from_supplier():
-    """Test 4: Create شراء من مورد invoice"""
-    print_section("Test 4: فاتورة شراء من مورد")
+    """Test 4: Create supplier purchase invoice (canonical type: شراء)"""
+    print_section("Test 4: فاتورة شراء (مورد)")
     
     invoice_data = {
         "supplier_id": 1,  # Assuming supplier exists or will be created
-        "invoice_type": "شراء من مورد",
+        "invoice_type": "شراء",
         "gold_type": "new",
         "date": datetime.now().strftime("%Y-%m-%d"),
         "items": [
@@ -165,7 +165,7 @@ def test_invoice_type_3_purchase_from_supplier():
     
     if response.status_code == 201:
         invoice = response.json()
-        print_test("إنشاء فاتورة شراء من مورد", True, f"Invoice ID: {invoice['id']}")
+        print_test("إنشاء فاتورة شراء (مورد)", True, f"Invoice ID: {invoice['id']}")
         print_test("التحقق من gold_type", invoice.get('gold_type') == 'new', 
                    f"gold_type: {invoice.get('gold_type')}")
         
@@ -174,15 +174,15 @@ def test_invoice_type_3_purchase_from_supplier():
         if je_response.status_code == 200:
             entries = je_response.json()
             latest = entries[0] if entries else None
-            if latest and 'شراء من مورد' in latest['description']:
-                print_test("القيد المحاسبي للشراء من مورد", True, f"Entry ID: {latest['id']}")
+            if latest and ('شراء' in latest.get('description', '') and 'مورد' in latest.get('description', '')):
+                print_test("القيد المحاسبي للشراء (مورد)", True, f"Entry ID: {latest['id']}")
                 print(f"   المدين: المخزون | الدائن: الموردين")
             else:
-                print_test("القيد المحاسبي للشراء من مورد", False, "لم يتم إنشاء القيد")
+                print_test("القيد المحاسبي للشراء (مورد)", False, "لم يتم إنشاء القيد")
         
         return invoice['id']
     else:
-        print_test("إنشاء فاتورة شراء من مورد", False, f"Error: {response.text}")
+        print_test("إنشاء فاتورة شراء (مورد)", False, f"Error: {response.text}")
         return None
 
 def test_invoice_type_4_sales_return(original_invoice_id, customer_id):
@@ -297,16 +297,16 @@ def test_invoice_type_5_purchase_return(original_invoice_id, customer_id):
         return None
 
 def test_invoice_type_6_supplier_return(original_invoice_id):
-    """Test 7: Create مرتجع شراء من مورد invoice"""
-    print_section("Test 7: فاتورة مرتجع شراء من مورد")
+    """Test 7: Create supplier purchase return invoice"""
+    print_section("Test 7: فاتورة مرتجع شراء (مورد)")
     
     if not original_invoice_id:
-        print_test("مرتجع شراء من مورد", False, "لا توجد فاتورة شراء من مورد أصلية")
+        print_test("مرتجع شراء (مورد)", False, "لا توجد فاتورة شراء (مورد) أصلية")
         return None
     
     invoice_data = {
         "supplier_id": 1,
-        "invoice_type": "مرتجع شراء من مورد",
+        "invoice_type": "مرتجع شراء (مورد)",
         "original_invoice_id": original_invoice_id,
         "return_reason": "عدم مطابقة المواصفات - اختبار",
         "date": datetime.now().strftime("%Y-%m-%d"),
@@ -329,7 +329,7 @@ def test_invoice_type_6_supplier_return(original_invoice_id):
     
     if response.status_code == 201:
         invoice = response.json()
-        print_test("إنشاء مرتجع شراء من مورد", True, f"Invoice ID: {invoice['id']}")
+        print_test("إنشاء مرتجع شراء (مورد)", True, f"Invoice ID: {invoice['id']}")
         print_test("الربط بالفاتورة الأصلية", 
                    invoice.get('original_invoice_id') == original_invoice_id,
                    f"Original ID: {invoice.get('original_invoice_id')}")
@@ -339,15 +339,15 @@ def test_invoice_type_6_supplier_return(original_invoice_id):
         if je_response.status_code == 200:
             entries = je_response.json()
             latest = entries[0] if entries else None
-            if latest and 'مرتجع شراء من مورد' in latest['description']:
-                print_test("القيد المحاسبي لمرتجع شراء من مورد", True, f"Entry ID: {latest['id']}")
+            if latest and ('مرتجع' in latest.get('description', '') and 'شراء' in latest.get('description', '') and 'مورد' in latest.get('description', '')):
+                print_test("القيد المحاسبي لمرتجع شراء (مورد)", True, f"Entry ID: {latest['id']}")
                 print(f"   المدين: الموردين | الدائن: المخزون")
             else:
-                print_test("القيد المحاسبي لمرتجع شراء من مورد", False, "لم يتم إنشاء القيد")
+                print_test("القيد المحاسبي لمرتجع شراء (مورد)", False, "لم يتم إنشاء القيد")
         
         return invoice['id']
     else:
-        print_test("إنشاء مرتجع شراء من مورد", False, f"Error: {response.text}")
+        print_test("إنشاء مرتجع شراء (مورد)", False, f"Error: {response.text}")
         return None
 
 def test_returnable_invoices_api():
@@ -428,10 +428,10 @@ def main():
     print(f"""
     ✅ فاتورة بيع: {"نجح" if sale_invoice_id else "فشل"}
     ✅ فاتورة شراء من عميل: {"نجح" if purchase_invoice_id else "فشل"}
-    ✅ فاتورة شراء من مورد: {"نجح" if supplier_purchase_id else "فشل"}
+    ✅ فاتورة شراء (مورد): {"نجح" if supplier_purchase_id else "فشل"}
     ✅ مرتجع بيع: {"نجح" if sales_return_id else "فشل"}
     ✅ مرتجع شراء: {"نجح" if purchase_return_id else "فشل"}
-    ✅ مرتجع شراء من مورد: {"نجح" if supplier_return_id else "فشل"}
+    ✅ مرتجع شراء (مورد): {"نجح" if supplier_return_id else "فشل"}
     
     📝 جميع الاختبارات مكتملة!
     """)

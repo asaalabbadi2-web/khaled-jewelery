@@ -19,7 +19,8 @@ class SalesByItemReportScreen extends StatefulWidget {
   });
 
   @override
-  State<SalesByItemReportScreen> createState() => _SalesByItemReportScreenState();
+  State<SalesByItemReportScreen> createState() =>
+      _SalesByItemReportScreenState();
 }
 
 class _SalesByItemReportScreenState extends State<SalesByItemReportScreen> {
@@ -60,7 +61,11 @@ class _SalesByItemReportScreenState extends State<SalesByItemReportScreen> {
   void initState() {
     super.initState();
     final today = DateTime.now();
-    final start = DateTime(today.year, today.month, today.day).subtract(const Duration(days: 29));
+    final start = DateTime(
+      today.year,
+      today.month,
+      today.day,
+    ).subtract(const Duration(days: 29));
     final end = DateTime(today.year, today.month, today.day);
     _selectedRange = DateTimeRange(start: start, end: end);
     _currencyFormat = NumberFormat.currency(
@@ -128,11 +133,9 @@ class _SalesByItemReportScreenState extends State<SalesByItemReportScreen> {
 
   Future<void> _pickDateRange() async {
     final now = DateTime.now();
-    final initialRange = _selectedRange ??
-        DateTimeRange(
-          start: now.subtract(const Duration(days: 29)),
-          end: now,
-        );
+    final initialRange =
+        _selectedRange ??
+        DateTimeRange(start: now.subtract(const Duration(days: 29)), end: now);
 
     final picked = await showDateRangePicker(
       context: context,
@@ -219,8 +222,8 @@ class _SalesByItemReportScreenState extends State<SalesByItemReportScreen> {
           child: _isLoading
               ? const Center(child: CircularProgressIndicator())
               : _error != null
-                  ? _buildErrorState()
-                  : _buildContent(),
+              ? _buildErrorState()
+              : _buildContent(),
         ),
       ),
     );
@@ -289,7 +292,9 @@ class _SalesByItemReportScreenState extends State<SalesByItemReportScreen> {
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
-          crossAxisAlignment: isArabic ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+          crossAxisAlignment: isArabic
+              ? CrossAxisAlignment.end
+              : CrossAxisAlignment.start,
           children: [
             Text(
               isArabic ? 'خيارات التقرير' : 'Report Options',
@@ -313,7 +318,9 @@ class _SalesByItemReportScreenState extends State<SalesByItemReportScreen> {
                     label: Text(isArabic ? 'إلغاء التحديد' : 'Clear'),
                   ),
                 FilterChip(
-                  label: Text(isArabic ? 'تضمين غير المرحلة' : 'Include Unposted'),
+                  label: Text(
+                    isArabic ? 'تضمين غير المرحلة' : 'Include Unposted',
+                  ),
                   selected: _includeUnposted,
                   onSelected: (value) {
                     setState(() => _includeUnposted = value);
@@ -356,7 +363,9 @@ class _SalesByItemReportScreenState extends State<SalesByItemReportScreen> {
                     ),
                     IconButton(
                       tooltip: isArabic ? 'تغيير الترتيب' : 'Toggle order',
-                      icon: Icon(_ascending ? Icons.arrow_upward : Icons.arrow_downward),
+                      icon: Icon(
+                        _ascending ? Icons.arrow_upward : Icons.arrow_downward,
+                      ),
                       onPressed: () {
                         setState(() => _ascending = !_ascending);
                         _loadReport();
@@ -402,7 +411,8 @@ class _SalesByItemReportScreenState extends State<SalesByItemReportScreen> {
       ),
       _SummaryMetric(
         label: isArabic ? 'صافي الوزن' : 'Net Weight',
-        value: '${_formatWeight(_asDouble(summary['net_weight']))} (عيار $_mainKarat)',
+        value:
+            '${_formatWeight(_asDouble(summary['net_weight']))} (عيار $_mainKarat)',
         icon: Icons.scale,
         color: Colors.purple,
       ),
@@ -452,7 +462,9 @@ class _SalesByItemReportScreenState extends State<SalesByItemReportScreen> {
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
-          crossAxisAlignment: isArabic ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+          crossAxisAlignment: isArabic
+              ? CrossAxisAlignment.end
+              : CrossAxisAlignment.start,
           children: [
             Text(
               isArabic ? 'أعلى الأصناف (القيمة)' : 'Top Items by Net Sales',
@@ -471,7 +483,9 @@ class _SalesByItemReportScreenState extends State<SalesByItemReportScreen> {
             else
               _buildEmptyState(
                 icon: Icons.bar_chart,
-                message: isArabic ? 'لا توجد قيم موجبة للعرض.' : 'No positive values to show.',
+                message: isArabic
+                    ? 'لا توجد قيم موجبة للعرض.'
+                    : 'No positive values to show.',
               ),
           ],
         ),
@@ -499,7 +513,9 @@ class _SalesByItemReportScreenState extends State<SalesByItemReportScreen> {
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
-          crossAxisAlignment: isArabic ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+          crossAxisAlignment: isArabic
+              ? CrossAxisAlignment.end
+              : CrossAxisAlignment.start,
           children: [
             Text(
               isArabic ? 'قائمة الأصناف' : 'Items List',
@@ -513,15 +529,29 @@ class _SalesByItemReportScreenState extends State<SalesByItemReportScreen> {
                   DataColumn(label: Text(isArabic ? 'الصنف' : 'Item')),
                   DataColumn(label: Text(isArabic ? 'العيار' : 'Karat')),
                   DataColumn(label: Text(isArabic ? 'المستندات' : 'Documents')),
-                  DataColumn(label: Text(isArabic ? 'كمية المبيعات' : 'Sales Qty')),
+                  DataColumn(
+                    label: Text(isArabic ? 'كمية المبيعات' : 'Sales Qty'),
+                  ),
                   DataColumn(label: Text(isArabic ? 'صافي الكمية' : 'Net Qty')),
-                  DataColumn(label: Text(isArabic ? 'وزن المبيعات' : 'Sales Weight')),
-                  DataColumn(label: Text(isArabic ? 'صافي الوزن' : 'Net Weight')),
-                  DataColumn(label: Text(isArabic ? 'إجمالي المبيعات' : 'Sales')),
+                  DataColumn(
+                    label: Text(isArabic ? 'وزن المبيعات' : 'Sales Weight'),
+                  ),
+                  DataColumn(
+                    label: Text(isArabic ? 'صافي الوزن' : 'Net Weight'),
+                  ),
+                  DataColumn(
+                    label: Text(isArabic ? 'إجمالي المبيعات' : 'Sales'),
+                  ),
                   DataColumn(label: Text(isArabic ? 'المرتجعات' : 'Returns')),
-                  DataColumn(label: Text(isArabic ? 'صافي المبيعات' : 'Net Sales')),
-                  DataColumn(label: Text(isArabic ? 'متوسط السعر/جرام' : 'Avg Price/g')),
-                  DataColumn(label: Text(isArabic ? 'آخر حركة' : 'Last Activity')),
+                  DataColumn(
+                    label: Text(isArabic ? 'صافي المبيعات' : 'Net Sales'),
+                  ),
+                  DataColumn(
+                    label: Text(isArabic ? 'متوسط السعر/جرام' : 'Avg Price/g'),
+                  ),
+                  DataColumn(
+                    label: Text(isArabic ? 'آخر حركة' : 'Last Activity'),
+                  ),
                 ],
                 rows: items.map((item) {
                   final lastDate = item['last_invoice_date'];
@@ -537,14 +567,40 @@ class _SalesByItemReportScreenState extends State<SalesByItemReportScreen> {
                       DataCell(Text(itemLabel)),
                       DataCell(Text(item['karat']?.toString() ?? '-')),
                       DataCell(Text('${item['documents'] ?? 0}')),
-                      DataCell(Text(_weightFormat.format(_asDouble(item['sales_quantity'])))),
-                      DataCell(Text(_weightFormat.format(_asDouble(item['net_quantity'])))),
-                      DataCell(Text(_formatWeight(_asDouble(item['sales_weight'])))),
-                      DataCell(Text(_formatWeight(_asDouble(item['net_weight'])))),
-                      DataCell(Text(_formatCurrency(_asDouble(item['sales_value'])))),
-                      DataCell(Text(_formatCurrency(_asDouble(item['returns_value'])))),
-                      DataCell(Text(_formatCurrency(_asDouble(item['net_value'])))),
-                      DataCell(Text(_formatCurrency(_asDouble(item['average_price_per_gram'])))),
+                      DataCell(
+                        Text(
+                          _weightFormat.format(
+                            _asDouble(item['sales_quantity']),
+                          ),
+                        ),
+                      ),
+                      DataCell(
+                        Text(
+                          _weightFormat.format(_asDouble(item['net_quantity'])),
+                        ),
+                      ),
+                      DataCell(
+                        Text(_formatWeight(_asDouble(item['sales_weight']))),
+                      ),
+                      DataCell(
+                        Text(_formatWeight(_asDouble(item['net_weight']))),
+                      ),
+                      DataCell(
+                        Text(_formatCurrency(_asDouble(item['sales_value']))),
+                      ),
+                      DataCell(
+                        Text(_formatCurrency(_asDouble(item['returns_value']))),
+                      ),
+                      DataCell(
+                        Text(_formatCurrency(_asDouble(item['net_value']))),
+                      ),
+                      DataCell(
+                        Text(
+                          _formatCurrency(
+                            _asDouble(item['average_price_per_gram']),
+                          ),
+                        ),
+                      ),
                       DataCell(Text(formattedDate)),
                     ],
                   );
@@ -605,7 +661,9 @@ class _SummaryTile extends StatelessWidget {
         borderRadius: BorderRadius.circular(16),
       ),
       child: Column(
-        crossAxisAlignment: isArabic ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+        crossAxisAlignment: isArabic
+            ? CrossAxisAlignment.end
+            : CrossAxisAlignment.start,
         children: [
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -669,7 +727,10 @@ class _TopItemsChart extends StatelessWidget {
       );
     }).toList();
 
-    final maxY = data.fold<double>(0, (prev, point) => math.max(prev, point.value));
+    final maxY = data.fold<double>(
+      0,
+      (prev, point) => math.max(prev, point.value),
+    );
     final interval = maxY <= 0 ? 1.0 : maxY / 4;
 
     return BarChart(
@@ -681,10 +742,8 @@ class _TopItemsChart extends StatelessWidget {
           show: true,
           drawVerticalLine: false,
           horizontalInterval: interval <= 0 ? 1.0 : interval,
-          getDrawingHorizontalLine: (value) => FlLine(
-            color: Colors.grey.withValues(alpha: 0.2),
-            strokeWidth: 1,
-          ),
+          getDrawingHorizontalLine: (value) =>
+              FlLine(color: Colors.grey.withValues(alpha: 0.2), strokeWidth: 1),
         ),
         borderData: FlBorderData(
           show: true,
@@ -696,8 +755,12 @@ class _TopItemsChart extends StatelessWidget {
           ),
         ),
         titlesData: FlTitlesData(
-          topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-          rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          topTitles: const AxisTitles(
+            sideTitles: SideTitles(showTitles: false),
+          ),
+          rightTitles: const AxisTitles(
+            sideTitles: SideTitles(showTitles: false),
+          ),
           leftTitles: AxisTitles(
             sideTitles: SideTitles(
               showTitles: true,
@@ -750,10 +813,7 @@ class _TopItemsChart extends StatelessWidget {
                   BarChartRodData(
                     toY: point.value,
                     gradient: LinearGradient(
-                      colors: [
-                        Colors.amber.shade600,
-                        Colors.orange.shade400,
-                      ],
+                      colors: [Colors.amber.shade600, Colors.orange.shade400],
                     ),
                     width: 20,
                     borderRadius: const BorderRadius.all(Radius.circular(8)),
@@ -771,7 +831,10 @@ class _TopItemsChart extends StatelessWidget {
               final label = isArabic ? 'صافي المبيعات' : 'Net Sales';
               return BarTooltipItem(
                 '${point.label}\n$label: ${formatCurrency(rod.toY)}',
-                const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                ),
               );
             },
           ),

@@ -35,11 +35,12 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
       if (!mounted) return;
 
       final debugOtp = (res['debug_otp'] ?? '').toString().trim();
-      final message = (res['message'] ?? 'تم إرسال رمز إعادة التعيين').toString();
+      final message = (res['message'] ?? 'تم إرسال رمز إعادة التعيين')
+          .toString();
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(message)),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(message)));
 
       Navigator.of(context).push(
         MaterialPageRoute(
@@ -51,9 +52,9 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
       );
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(e.toString())),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(e.toString())));
     } finally {
       if (mounted) setState(() => _submitting = false);
     }
@@ -124,10 +125,12 @@ class ResetPasswordConfirmScreen extends StatefulWidget {
   });
 
   @override
-  State<ResetPasswordConfirmScreen> createState() => _ResetPasswordConfirmScreenState();
+  State<ResetPasswordConfirmScreen> createState() =>
+      _ResetPasswordConfirmScreenState();
 }
 
-class _ResetPasswordConfirmScreenState extends State<ResetPasswordConfirmScreen> {
+class _ResetPasswordConfirmScreenState
+    extends State<ResetPasswordConfirmScreen> {
   final _formKey = GlobalKey<FormState>();
   final _otpController = TextEditingController();
   final _newController = TextEditingController();
@@ -168,9 +171,9 @@ class _ResetPasswordConfirmScreenState extends State<ResetPasswordConfirmScreen>
       Navigator.of(context).popUntil((r) => r.isFirst);
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(e.toString())),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(e.toString())));
     } finally {
       if (mounted) setState(() => _submitting = false);
     }

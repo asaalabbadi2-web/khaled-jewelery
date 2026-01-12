@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:frontend/api_service.dart';
 import 'package:frontend/providers/settings_provider.dart';
 import 'package:intl/intl.dart';
@@ -46,7 +45,8 @@ class JournalLine {
 
     // Ensure at least one karat enabled when defaults provided
     if (goldKaratEnabled.values.where((enabled) => enabled).isEmpty &&
-        defaultGoldKarats != null && defaultGoldKarats.isNotEmpty) {
+        defaultGoldKarats != null &&
+        defaultGoldKarats.isNotEmpty) {
       final fallback = defaultGoldKarats.first;
       if (goldKaratEnabled.containsKey(fallback)) {
         goldKaratEnabled[fallback] = true;
@@ -113,8 +113,12 @@ class JournalLine {
   }
 
   void clearGoldFields({bool disable = false}) {
-    goldDebitControllers.values.forEach((c) => c.text = '0.0');
-    goldCreditControllers.values.forEach((c) => c.text = '0.0');
+    for (var c in goldDebitControllers.values) {
+      c.text = '0.0';
+    }
+    for (var c in goldCreditControllers.values) {
+      c.text = '0.0';
+    }
 
     if (disable) {
       goldKaratEnabled.updateAll((key, value) => false);
@@ -136,8 +140,12 @@ class JournalLine {
   void dispose() {
     cashDebitController.dispose();
     cashCreditController.dispose();
-    goldDebitControllers.values.forEach((c) => c.dispose());
-    goldCreditControllers.values.forEach((c) => c.dispose());
+    for (var c in goldDebitControllers.values) {
+      c.dispose();
+    }
+    for (var c in goldCreditControllers.values) {
+      c.dispose();
+    }
   }
 }
 
@@ -146,10 +154,14 @@ class AddEditJournalEntryScreen extends StatefulWidget {
   final dynamic entry;
   final bool isEditMode;
 
-  AddEditJournalEntryScreen({this.entry, this.isEditMode = false});
+  const AddEditJournalEntryScreen({
+    super.key,
+    this.entry,
+    this.isEditMode = false,
+  });
 
   @override
-  _AddEditJournalEntryScreenState createState() =>
+  State<AddEditJournalEntryScreen> createState() =>
       _AddEditJournalEntryScreenState();
 }
 
@@ -190,7 +202,7 @@ class _AddEditJournalEntryScreenState extends State<AddEditJournalEntryScreen> {
     _referenceNumberController = TextEditingController(
       text: widget.entry?['reference_number'] ?? '',
     );
-    
+
     _selectedEntryType = widget.entry?['entry_type'] ?? 'عادي';
     _referenceType = widget.entry?['reference_type'];
 
@@ -362,10 +374,7 @@ class _AddEditJournalEntryScreenState extends State<AddEditJournalEntryScreen> {
   void _addLine() {
     setState(() {
       _lines.add(
-        JournalLine(
-          karats: _supportedKarats,
-          defaultGoldKarats: {_mainKarat},
-        ),
+        JournalLine(karats: _supportedKarats, defaultGoldKarats: {_mainKarat}),
       );
     });
 
@@ -467,8 +476,8 @@ class _AddEditJournalEntryScreenState extends State<AddEditJournalEntryScreen> {
       'date': _dateController.text,
       'entry_type': _selectedEntryType,
       'reference_type': _referenceType,
-      'reference_number': _referenceNumberController.text.isEmpty 
-          ? null 
+      'reference_number': _referenceNumberController.text.isEmpty
+          ? null
           : _referenceNumberController.text,
       'lines': _lines
           .where((line) => line.hasValues)
@@ -482,8 +491,9 @@ class _AddEditJournalEntryScreenState extends State<AddEditJournalEntryScreen> {
       } else {
         await _apiService.updateJournalEntry(widget.entry['id'], data);
       }
-      if (mounted)
+      if (mounted) {
         Navigator.of(context).pop(true); // Return true to indicate success
+      }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -589,7 +599,10 @@ class _AddEditJournalEntryScreenState extends State<AddEditJournalEntryScreen> {
               padding: const EdgeInsets.symmetric(horizontal: 16.0),
               child: Align(
                 alignment: Alignment.centerLeft,
-                child: Text('الأسطر', style: Theme.of(context).textTheme.titleLarge),
+                child: Text(
+                  'الأسطر',
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
               ),
             ),
             const SizedBox(height: 8),
@@ -651,7 +664,8 @@ class _AddEditJournalEntryScreenState extends State<AddEditJournalEntryScreen> {
                   DateTime? picked = await showDatePicker(
                     context: context,
                     initialDate:
-                        DateTime.tryParse(_dateController.text) ?? DateTime.now(),
+                        DateTime.tryParse(_dateController.text) ??
+                        DateTime.now(),
                     firstDate: DateTime(2000),
                     lastDate: DateTime(2101),
                   );
@@ -673,7 +687,7 @@ class _AddEditJournalEntryScreenState extends State<AddEditJournalEntryScreen> {
             Expanded(
               flex: 2,
               child: DropdownButtonFormField<String>(
-                value: _selectedEntryType,
+                initialValue: _selectedEntryType,
                 decoration: InputDecoration(
                   labelText: 'نوع القيد',
                   border: OutlineInputBorder(
@@ -703,7 +717,7 @@ class _AddEditJournalEntryScreenState extends State<AddEditJournalEntryScreen> {
             Expanded(
               flex: 2,
               child: DropdownButtonFormField<String?>(
-                value: _referenceType,
+                initialValue: _referenceType,
                 decoration: InputDecoration(
                   labelText: 'نوع المرجع',
                   border: OutlineInputBorder(
@@ -715,12 +729,24 @@ class _AddEditJournalEntryScreenState extends State<AddEditJournalEntryScreen> {
                   ),
                 ),
                 items: [
-                  DropdownMenuItem<String?>(value: null, child: Text('بدون مرجع')),
-                  DropdownMenuItem<String?>(value: 'فاتورة', child: Text('فاتورة')),
+                  DropdownMenuItem<String?>(
+                    value: null,
+                    child: Text('بدون مرجع'),
+                  ),
+                  DropdownMenuItem<String?>(
+                    value: 'فاتورة',
+                    child: Text('فاتورة'),
+                  ),
                   DropdownMenuItem<String?>(value: 'سند', child: Text('سند')),
                   DropdownMenuItem<String?>(value: 'شيك', child: Text('شيك')),
-                  DropdownMenuItem<String?>(value: 'أمر دفع', child: Text('أمر دفع')),
-                  DropdownMenuItem<String?>(value: 'recurring_template', child: Text('قيد دوري')),
+                  DropdownMenuItem<String?>(
+                    value: 'أمر دفع',
+                    child: Text('أمر دفع'),
+                  ),
+                  DropdownMenuItem<String?>(
+                    value: 'recurring_template',
+                    child: Text('قيد دوري'),
+                  ),
                   DropdownMenuItem<String?>(value: 'أخرى', child: Text('أخرى')),
                 ],
                 onChanged: (value) {
@@ -814,42 +840,48 @@ class _AddEditJournalEntryScreenState extends State<AddEditJournalEntryScreen> {
                           children: [
                             Expanded(
                               child: DropdownButtonFormField<int>(
-                                value: isSelectedAccountValid ? line.accountId : null,
+                                initialValue: isSelectedAccountValid
+                                    ? line.accountId
+                                    : null,
                                 isExpanded: true,
                                 hint: const Text('اختر حساب فرعي'),
                                 items: sortedAccounts
                                     .map<DropdownMenuItem<int>>((account) {
-                                  final accountNumber =
-                                      account['account_number']?.toString() ?? '';
-                                  final accountName =
-                                      account['name']?.toString() ?? '';
-                                  return DropdownMenuItem<int>(
-                                    value: account['id'],
-                                    child: Row(
-                                      children: [
-                                        Expanded(
-                                          child: Text(
-                                            '$accountNumber - $accountName',
-                                            overflow: TextOverflow.ellipsis,
-                                            style: const TextStyle(
-                                              fontWeight: FontWeight.w600,
+                                      final accountNumber =
+                                          account['account_number']
+                                              ?.toString() ??
+                                          '';
+                                      final accountName =
+                                          account['name']?.toString() ?? '';
+                                      return DropdownMenuItem<int>(
+                                        value: account['id'],
+                                        child: Row(
+                                          children: [
+                                            Expanded(
+                                              child: Text(
+                                                '$accountNumber - $accountName',
+                                                overflow: TextOverflow.ellipsis,
+                                                style: const TextStyle(
+                                                  fontWeight: FontWeight.w600,
+                                                ),
+                                              ),
                                             ),
-                                          ),
+                                            Text(
+                                              _transactionTypeLabel(
+                                                account['transaction_type'],
+                                              ),
+                                              style: TextStyle(
+                                                color: Colors.grey.shade600,
+                                                fontSize: 11,
+                                              ),
+                                            ),
+                                          ],
                                         ),
-                                        Text(
-                                          _transactionTypeLabel(
-                                            account['transaction_type'],
-                                          ),
-                                          style: TextStyle(
-                                            color: Colors.grey.shade600,
-                                            fontSize: 11,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  );
-                                }).toList(),
-                                onChanged: (value) => _onAccountChanged(line, value),
+                                      );
+                                    })
+                                    .toList(),
+                                onChanged: (value) =>
+                                    _onAccountChanged(line, value),
                                 decoration: InputDecoration(
                                   labelText: 'الحساب',
                                   border: OutlineInputBorder(
@@ -885,9 +917,9 @@ class _AddEditJournalEntryScreenState extends State<AddEditJournalEntryScreen> {
                               onPressed: sortedAccounts.isEmpty
                                   ? null
                                   : () => _showAccountSelectionDialog(
-                                        sortedAccounts,
-                                        line,
-                                      ),
+                                      sortedAccounts,
+                                      line,
+                                    ),
                             ),
                             IconButton(
                               icon: Icon(
@@ -1101,9 +1133,9 @@ class _AddEditJournalEntryScreenState extends State<AddEditJournalEntryScreen> {
                     : theme.colorScheme.surface,
                 borderRadius: BorderRadius.circular(6),
                 border: Border.all(
-          color: isSelected
-            ? theme.colorScheme.primary
-            : theme.colorScheme.outlineVariant,
+                  color: isSelected
+                      ? theme.colorScheme.primary
+                      : theme.colorScheme.outlineVariant,
                   width: 1,
                 ),
               ),
@@ -1136,16 +1168,11 @@ class _AddEditJournalEntryScreenState extends State<AddEditJournalEntryScreen> {
     return TextFormField(
       controller: controller,
       style: highlight
-          ? TextStyle(
-              color: highlightColor,
-              fontWeight: FontWeight.bold,
-            )
+          ? TextStyle(color: highlightColor, fontWeight: FontWeight.bold)
           : null,
       decoration: InputDecoration(
         labelText: label,
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(8),
-        ),
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
         contentPadding: const EdgeInsets.symmetric(
           vertical: 10,
           horizontal: 12,
@@ -1153,11 +1180,7 @@ class _AddEditJournalEntryScreenState extends State<AddEditJournalEntryScreen> {
         suffixIcon: IconButton(
           icon: const Icon(Icons.calculate_outlined, size: 20),
           tooltip: 'حساب الوزن لموازنة القيد',
-          onPressed: () => _balanceGold(
-            controller,
-            karat,
-            isDebit,
-          ),
+          onPressed: () => _balanceGold(controller, karat, isDebit),
         ),
       ),
       keyboardType: const TextInputType.numberWithOptions(decimal: true),
@@ -1293,9 +1316,10 @@ class _AddEditJournalEntryScreenState extends State<AddEditJournalEntryScreen> {
     required String suffix,
     required bool isBalanced,
   }) {
-    final difference = (double.tryParse(debit) ?? 0) - (double.tryParse(credit) ?? 0);
+    final difference =
+        (double.tryParse(debit) ?? 0) - (double.tryParse(credit) ?? 0);
     final diffText = difference.abs().toStringAsFixed(suffix == 'غ' ? 3 : 2);
-    
+
     return Container(
       padding: EdgeInsets.symmetric(horizontal: 8, vertical: 6),
       decoration: BoxDecoration(
@@ -1321,7 +1345,12 @@ class _AddEditJournalEntryScreenState extends State<AddEditJournalEntryScreen> {
               children: [
                 _buildCompactValue('مدين', debit, suffix, Colors.blue.shade700),
                 Container(width: 1, height: 20, color: Colors.grey.shade300),
-                _buildCompactValue('دائن', credit, suffix, Colors.orange.shade700),
+                _buildCompactValue(
+                  'دائن',
+                  credit,
+                  suffix,
+                  Colors.orange.shade700,
+                ),
                 Container(width: 1, height: 20, color: Colors.grey.shade300),
                 _buildCompactValue(
                   'فرق',
@@ -1337,17 +1366,16 @@ class _AddEditJournalEntryScreenState extends State<AddEditJournalEntryScreen> {
     );
   }
 
-  Widget _buildCompactValue(String label, String value, String suffix, Color color) {
+  Widget _buildCompactValue(
+    String label,
+    String value,
+    String suffix,
+    Color color,
+  ) {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Text(
-          label,
-          style: TextStyle(
-            fontSize: 9,
-            color: Colors.grey.shade600,
-          ),
-        ),
+        Text(label, style: TextStyle(fontSize: 9, color: Colors.grey.shade600)),
         SizedBox(height: 2),
         RichText(
           text: TextSpan(
@@ -1358,10 +1386,7 @@ class _AddEditJournalEntryScreenState extends State<AddEditJournalEntryScreen> {
             ),
             children: [
               TextSpan(text: value),
-              TextSpan(
-                text: ' $suffix',
-                style: TextStyle(fontSize: 9),
-              ),
+              TextSpan(text: ' $suffix', style: TextStyle(fontSize: 9)),
             ],
           ),
         ),
@@ -1381,10 +1406,7 @@ class _AddEditJournalEntryScreenState extends State<AddEditJournalEntryScreen> {
     }
   }
 
-  void _showAccountSelectionDialog(
-    List<dynamic> accounts,
-    JournalLine line,
-  ) {
+  void _showAccountSelectionDialog(List<dynamic> accounts, JournalLine line) {
     showDialog<void>(
       context: context,
       builder: (dialogContext) {
@@ -1401,7 +1423,8 @@ class _AddEditJournalEntryScreenState extends State<AddEditJournalEntryScreen> {
                 setState(() {
                   filtered = accounts.where((account) {
                     final accountNumber =
-                        account['account_number']?.toString().toLowerCase() ?? '';
+                        account['account_number']?.toString().toLowerCase() ??
+                        '';
                     final accountName =
                         account['name']?.toString().toLowerCase() ?? '';
                     return accountNumber.contains(normalized) ||
@@ -1443,11 +1466,9 @@ class _AddEditJournalEntryScreenState extends State<AddEditJournalEntryScreen> {
                                     account['account_number']?.toString() ?? '';
                                 final accountName =
                                     account['name']?.toString() ?? '';
-                                final badgeColor =
-                                    Theme.of(dialogContext)
-                                        .colorScheme
-                                        .secondary
-                                        .withValues(alpha: 0.15);
+                                final badgeColor = Theme.of(
+                                  dialogContext,
+                                ).colorScheme.secondary.withValues(alpha: 0.15);
                                 final badgeText = accountNumber.length > 2
                                     ? accountNumber.substring(
                                         accountNumber.length - 2,

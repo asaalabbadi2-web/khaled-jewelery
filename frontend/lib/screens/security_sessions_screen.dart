@@ -28,9 +28,9 @@ class _SecuritySessionsScreenState extends State<SecuritySessionsScreen> {
       setState(() => _sessions = data);
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('تعذر تحميل الجلسات: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('تعذر تحميل الجلسات: $e')));
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -41,14 +41,14 @@ class _SecuritySessionsScreenState extends State<SecuritySessionsScreen> {
       await _api.terminateSession(id.toString());
       await _loadSessions();
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('تم إنهاء الجلسة')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('تم إنهاء الجلسة')));
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('تعذر إنهاء الجلسة: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('تعذر إنهاء الجلسة: $e')));
     }
   }
 
@@ -57,14 +57,14 @@ class _SecuritySessionsScreenState extends State<SecuritySessionsScreen> {
       await _api.terminateAllSessions();
       await _loadSessions();
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('تم إنهاء جميع الجلسات')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('تم إنهاء جميع الجلسات')));
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('تعذر إنهاء الجلسات: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('تعذر إنهاء الجلسات: $e')));
     }
   }
 
@@ -77,7 +77,11 @@ class _SecuritySessionsScreenState extends State<SecuritySessionsScreen> {
           children: [
             if (s['device_info'] != null) Text('الجهاز: ${s['device_info']}'),
             if (s['user_agent'] != null)
-              Text('المتصفح: ${s['user_agent']}', maxLines: 2, overflow: TextOverflow.ellipsis),
+              Text(
+                'المتصفح: ${s['user_agent']}',
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
             Text('الإنشاء: ${s['created_at'] ?? '-'}'),
             Text('آخر نشاط: ${s['last_activity'] ?? '-'}'),
           ],
@@ -105,10 +109,7 @@ class _SecuritySessionsScreenState extends State<SecuritySessionsScreen> {
       appBar: AppBar(
         title: const Text('إدارة الجلسات'),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: _loadSessions,
-          ),
+          IconButton(icon: const Icon(Icons.refresh), onPressed: _loadSessions),
           IconButton(
             icon: Icon(_adminView ? Icons.visibility : Icons.visibility_off),
             tooltip: 'عرض كل الجلسات (للمسؤول)',
@@ -134,7 +135,9 @@ class _SecuritySessionsScreenState extends State<SecuritySessionsScreen> {
                         label: const Text('إنهاء جميع الجلسات'),
                       ),
                       const SizedBox(width: 12),
-                      Text(_adminView ? 'وضع المسؤول: كل الجلسات' : 'جلساتي فقط'),
+                      Text(
+                        _adminView ? 'وضع المسؤول: كل الجلسات' : 'جلساتي فقط',
+                      ),
                     ],
                   ),
                   const SizedBox(height: 12),

@@ -8,7 +8,7 @@ import 'dart:convert';
 import 'dart:math' as math;
 
 /// شاشة تصميم القوالب الاحترافية
-/// 
+///
 /// الميزات:
 /// - تصميم مخصص لكل نوع (فواتير، سندات، قيود، كشوفات)
 /// - إضافة وتحريك العناصر بحرية
@@ -42,13 +42,13 @@ class _TemplateDesignerScreenState extends State<TemplateDesignerScreen> {
     'كشف حساب',
     'فاتورة مرتجع',
   ];
-  
+
   String _selectedTemplateType = 'فاتورة بيع';
-  
+
   // عناصر التصميم
   List<TemplateElement> _elements = [];
   TemplateElement? _selectedElement;
-  
+
   // إعدادات الصفحة
   double _pageWidth = 210; // A4 width in mm
   double _pageHeight = 297; // A4 height in mm
@@ -58,14 +58,14 @@ class _TemplateDesignerScreenState extends State<TemplateDesignerScreen> {
   double _marginBottom = 10;
   double _marginLeft = 10;
   double _marginRight = 10;
-  
+
   // أدوات التصميم المتقدمة
   bool _snapToGrid = true;
   bool _showRulers = true;
   bool _showGuides = true;
   bool _showMargins = true;
   double _gridSpacing = 5; // mm
-  
+
   // ألوان الثيم
   final Color _primaryColor = const Color(0xFFD4AF37); // ذهبي
   final Color _accentColor = const Color(0xFF2C3E50);
@@ -82,7 +82,8 @@ class _TemplateDesignerScreenState extends State<TemplateDesignerScreen> {
     {'label': 'اسم المستخدم', 'value': '{{user_name}}'},
   ];
 
-  static const String _templatesStorageKey = 'template_designer_saved_templates_v1';
+  static const String _templatesStorageKey =
+      'template_designer_saved_templates_v1';
   List<TemplateDocument> _savedTemplates = [];
   bool _isLoadingTemplates = false;
 
@@ -133,7 +134,9 @@ class _TemplateDesignerScreenState extends State<TemplateDesignerScreen> {
               final bool selected = _selectedElement?.id == element.id;
               return ListTile(
                 dense: true,
-                tileColor: selected ? _primaryColor.withValues(alpha: 0.15) : null,
+                tileColor: selected
+                    ? _primaryColor.withValues(alpha: 0.15)
+                    : null,
                 leading: Icon(
                   element.isVisible ? Icons.visibility : Icons.visibility_off,
                   color: element.isVisible ? _accentColor : Colors.grey,
@@ -237,7 +240,7 @@ class _TemplateDesignerScreenState extends State<TemplateDesignerScreen> {
         fontSize: 24,
         fontWeight: 'bold',
         alignment: 'center',
-  backgroundColor: _primaryColor.toARGB32(),
+        backgroundColor: _primaryColor.toARGB32(),
         rotation: 0,
         opacity: 1,
         isVisible: true,
@@ -250,13 +253,18 @@ class _TemplateDesignerScreenState extends State<TemplateDesignerScreen> {
     try {
       final prefs = await SharedPreferences.getInstance();
       final stored = prefs.getStringList(_templatesStorageKey) ?? [];
-      final templates = stored.map((raw) {
-        try {
-          return TemplateDocument.fromJson(jsonDecode(raw) as Map<String, dynamic>);
-        } catch (_) {
-          return null;
-        }
-      }).whereType<TemplateDocument>().toList();
+      final templates = stored
+          .map((raw) {
+            try {
+              return TemplateDocument.fromJson(
+                jsonDecode(raw) as Map<String, dynamic>,
+              );
+            } catch (_) {
+              return null;
+            }
+          })
+          .whereType<TemplateDocument>()
+          .toList();
 
       if (mounted) {
         setState(() {
@@ -265,9 +273,9 @@ class _TemplateDesignerScreenState extends State<TemplateDesignerScreen> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('خطأ في تحميل القوالب: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('خطأ في تحميل القوالب: $e')));
       }
     } finally {
       if (mounted) {
@@ -278,7 +286,9 @@ class _TemplateDesignerScreenState extends State<TemplateDesignerScreen> {
 
   Future<void> _persistTemplates() async {
     final prefs = await SharedPreferences.getInstance();
-    final encoded = _savedTemplates.map((template) => jsonEncode(template.toJson())).toList();
+    final encoded = _savedTemplates
+        .map((template) => jsonEncode(template.toJson()))
+        .toList();
     await prefs.setStringList(_templatesStorageKey, encoded);
   }
 
@@ -403,13 +413,10 @@ class _TemplateDesignerScreenState extends State<TemplateDesignerScreen> {
         children: [
           // الشريط الجانبي - أدوات التصميم
           _buildToolbar(),
-          
+
           // منطقة التصميم
-          Expanded(
-            flex: 3,
-            child: _buildDesignCanvas(),
-          ),
-          
+          Expanded(flex: 3, child: _buildDesignCanvas()),
+
           // لوحة الخصائص
           _buildPropertiesPanel(),
         ],
@@ -431,18 +438,18 @@ class _TemplateDesignerScreenState extends State<TemplateDesignerScreen> {
               children: [
                 const Text(
                   'نوع القالب',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                  ),
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                 ),
                 const SizedBox(height: 8),
                 DropdownButtonFormField<String>(
                   isExpanded: true,
-                  value: _selectedTemplateType,
+                  initialValue: _selectedTemplateType,
                   decoration: const InputDecoration(
                     border: OutlineInputBorder(),
-                    contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    contentPadding: EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 8,
+                    ),
                   ),
                   items: _templateTypes.map((type) {
                     return DropdownMenuItem(
@@ -460,9 +467,9 @@ class _TemplateDesignerScreenState extends State<TemplateDesignerScreen> {
               ],
             ),
           ),
-          
+
           const Divider(),
-          
+
           // حجم الصفحة
           Padding(
             padding: const EdgeInsets.all(16),
@@ -471,31 +478,40 @@ class _TemplateDesignerScreenState extends State<TemplateDesignerScreen> {
               children: [
                 const Text(
                   'حجم الصفحة',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                  ),
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                 ),
                 const SizedBox(height: 8),
                 DropdownButtonFormField<String>(
                   isExpanded: true,
-                  value: _pageSize,
+                  initialValue: _pageSize,
                   decoration: const InputDecoration(
                     border: OutlineInputBorder(),
-                    contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    contentPadding: EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 8,
+                    ),
                   ),
                   items: const [
                     DropdownMenuItem(
                       value: 'A4',
-                      child: Text('A4 (210×297 mm)', overflow: TextOverflow.ellipsis),
+                      child: Text(
+                        'A4 (210×297 mm)',
+                        overflow: TextOverflow.ellipsis,
+                      ),
                     ),
                     DropdownMenuItem(
                       value: 'A5',
-                      child: Text('A5 (148×210 mm)', overflow: TextOverflow.ellipsis),
+                      child: Text(
+                        'A5 (148×210 mm)',
+                        overflow: TextOverflow.ellipsis,
+                      ),
                     ),
                     DropdownMenuItem(
                       value: 'Letter',
-                      child: Text('Letter (216×279 mm)', overflow: TextOverflow.ellipsis),
+                      child: Text(
+                        'Letter (216×279 mm)',
+                        overflow: TextOverflow.ellipsis,
+                      ),
                     ),
                     DropdownMenuItem(
                       value: 'Custom',
@@ -512,8 +528,16 @@ class _TemplateDesignerScreenState extends State<TemplateDesignerScreen> {
                 const SizedBox(height: 12),
                 SegmentedButton<String>(
                   segments: const [
-                    ButtonSegment(value: 'portrait', label: Text('عمودي'), icon: Icon(Icons.stay_current_portrait)),
-                    ButtonSegment(value: 'landscape', label: Text('أفقي'), icon: Icon(Icons.stay_current_landscape)),
+                    ButtonSegment(
+                      value: 'portrait',
+                      label: Text('عمودي'),
+                      icon: Icon(Icons.stay_current_portrait),
+                    ),
+                    ButtonSegment(
+                      value: 'landscape',
+                      label: Text('أفقي'),
+                      icon: Icon(Icons.stay_current_landscape),
+                    ),
                   ],
                   selected: {_orientation},
                   onSelectionChanged: (selection) {
@@ -524,16 +548,18 @@ class _TemplateDesignerScreenState extends State<TemplateDesignerScreen> {
                     });
                   },
                   style: ButtonStyle(
-                    padding: WidgetStateProperty.all(const EdgeInsets.symmetric(horizontal: 12, vertical: 10)),
+                    padding: WidgetStateProperty.all(
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    ),
                     visualDensity: VisualDensity.compact,
                   ),
                 ),
               ],
             ),
           ),
-          
+
           const Divider(),
-          
+
           // إعدادات التخطيط
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -542,10 +568,7 @@ class _TemplateDesignerScreenState extends State<TemplateDesignerScreen> {
               children: [
                 const Text(
                   'أدوات التخطيط',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                  ),
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                 ),
                 SwitchListTile.adaptive(
                   value: _snapToGrid,
@@ -576,7 +599,9 @@ class _TemplateDesignerScreenState extends State<TemplateDesignerScreen> {
                   contentPadding: EdgeInsets.zero,
                 ),
                 const SizedBox(height: 8),
-                Text('المسافة بين خطوط الشبكة: ${_gridSpacing.toStringAsFixed(0)} مم'),
+                Text(
+                  'المسافة بين خطوط الشبكة: ${_gridSpacing.toStringAsFixed(0)} مم',
+                ),
                 Slider(
                   min: 2,
                   max: 20,
@@ -586,9 +611,9 @@ class _TemplateDesignerScreenState extends State<TemplateDesignerScreen> {
               ],
             ),
           ),
-          
+
           const Divider(),
-          
+
           // العناصر المتاحة والديناميكية
           Expanded(
             child: ListView(
@@ -596,27 +621,49 @@ class _TemplateDesignerScreenState extends State<TemplateDesignerScreen> {
               children: [
                 const Text(
                   'العناصر المتاحة',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                  ),
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                 ),
                 const SizedBox(height: 8),
                 _buildElementButton('نص', Icons.text_fields, ElementType.text),
-                _buildElementButton('صورة/شعار', Icons.image, ElementType.image),
-                _buildElementButton('جدول', Icons.table_chart, ElementType.table),
-                _buildElementButton('خط فاصل', Icons.horizontal_rule, ElementType.line),
-                _buildElementButton('مستطيل', Icons.rectangle_outlined, ElementType.rectangle),
-                _buildElementButton('باركود', Icons.qr_code, ElementType.barcode),
-                _buildElementButton('حقل تاريخ', Icons.calendar_today, ElementType.dateField),
-                _buildElementButton('حقل رقم', Icons.numbers, ElementType.numberField),
+                _buildElementButton(
+                  'صورة/شعار',
+                  Icons.image,
+                  ElementType.image,
+                ),
+                _buildElementButton(
+                  'جدول',
+                  Icons.table_chart,
+                  ElementType.table,
+                ),
+                _buildElementButton(
+                  'خط فاصل',
+                  Icons.horizontal_rule,
+                  ElementType.line,
+                ),
+                _buildElementButton(
+                  'مستطيل',
+                  Icons.rectangle_outlined,
+                  ElementType.rectangle,
+                ),
+                _buildElementButton(
+                  'باركود',
+                  Icons.qr_code,
+                  ElementType.barcode,
+                ),
+                _buildElementButton(
+                  'حقل تاريخ',
+                  Icons.calendar_today,
+                  ElementType.dateField,
+                ),
+                _buildElementButton(
+                  'حقل رقم',
+                  Icons.numbers,
+                  ElementType.numberField,
+                ),
                 const SizedBox(height: 16),
                 const Text(
                   'الحقول الديناميكية',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                  ),
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                 ),
                 const SizedBox(height: 8),
                 Wrap(
@@ -642,10 +689,7 @@ class _TemplateDesignerScreenState extends State<TemplateDesignerScreen> {
               children: [
                 const Text(
                   'القوالب المحفوظة',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                  ),
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                 ),
                 const SizedBox(height: 8),
                 Row(
@@ -659,7 +703,10 @@ class _TemplateDesignerScreenState extends State<TemplateDesignerScreen> {
                           backgroundColor: Colors.white,
                           foregroundColor: _accentColor,
                           alignment: Alignment.centerRight,
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 12,
+                          ),
                         ),
                       ),
                     ),
@@ -673,7 +720,10 @@ class _TemplateDesignerScreenState extends State<TemplateDesignerScreen> {
                           backgroundColor: Colors.white,
                           foregroundColor: _accentColor,
                           alignment: Alignment.centerRight,
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 12,
+                          ),
                         ),
                       ),
                     ),
@@ -772,7 +822,9 @@ class _TemplateDesignerScreenState extends State<TemplateDesignerScreen> {
                               marginRight: _marginRight,
                             ),
                           ),
-                          ..._elements.map((element) => _buildDraggableElement(element, scale)),
+                          ..._elements.map(
+                            (element) => _buildDraggableElement(element, scale),
+                          ),
                         ],
                       ),
                     ),
@@ -794,28 +846,80 @@ class _TemplateDesignerScreenState extends State<TemplateDesignerScreen> {
         scrollDirection: Axis.horizontal,
         child: Row(
           children: [
-            _toolbarActionButton(Icons.format_align_left, 'محاذاة يسار', () => _alignSelected('left')),
-            _toolbarActionButton(Icons.format_align_center, 'محاذاة وسط', () => _alignSelected('center-horizontal')),
-            _toolbarActionButton(Icons.format_align_right, 'محاذاة يمين', () => _alignSelected('right')),
+            _toolbarActionButton(
+              Icons.format_align_left,
+              'محاذاة يسار',
+              () => _alignSelected('left'),
+            ),
+            _toolbarActionButton(
+              Icons.format_align_center,
+              'محاذاة وسط',
+              () => _alignSelected('center-horizontal'),
+            ),
+            _toolbarActionButton(
+              Icons.format_align_right,
+              'محاذاة يمين',
+              () => _alignSelected('right'),
+            ),
             const VerticalDivider(width: 12),
-            _toolbarActionButton(Icons.vertical_align_top, 'محاذاة أعلى', () => _alignSelected('top')),
-            _toolbarActionButton(Icons.vertical_align_center, 'محاذاة وسط عمودي', () => _alignSelected('center-vertical')),
-            _toolbarActionButton(Icons.vertical_align_bottom, 'محاذاة أسفل', () => _alignSelected('bottom')),
+            _toolbarActionButton(
+              Icons.vertical_align_top,
+              'محاذاة أعلى',
+              () => _alignSelected('top'),
+            ),
+            _toolbarActionButton(
+              Icons.vertical_align_center,
+              'محاذاة وسط عمودي',
+              () => _alignSelected('center-vertical'),
+            ),
+            _toolbarActionButton(
+              Icons.vertical_align_bottom,
+              'محاذاة أسفل',
+              () => _alignSelected('bottom'),
+            ),
             const VerticalDivider(width: 12),
-            _toolbarActionButton(Icons.unfold_more, 'توسيع لعرض الصفحة', () => _stretchSelected('width')),
-            _toolbarActionButton(Icons.unfold_less, 'توسيع لطول الصفحة', () => _stretchSelected('height')),
+            _toolbarActionButton(
+              Icons.unfold_more,
+              'توسيع لعرض الصفحة',
+              () => _stretchSelected('width'),
+            ),
+            _toolbarActionButton(
+              Icons.unfold_less,
+              'توسيع لطول الصفحة',
+              () => _stretchSelected('height'),
+            ),
             const VerticalDivider(width: 12),
-            _toolbarActionButton(Icons.flip_to_front, 'إحضار للأمام', _bringToFront),
-            _toolbarActionButton(Icons.flip_to_back, 'إرسال للخلف', _sendToBack),
-            _toolbarActionButton(Icons.visibility, 'تبديل الإظهار', _toggleSelectedVisibility),
-            _toolbarActionButton(Icons.content_copy, 'نسخ سريع', _duplicateElement),
+            _toolbarActionButton(
+              Icons.flip_to_front,
+              'إحضار للأمام',
+              _bringToFront,
+            ),
+            _toolbarActionButton(
+              Icons.flip_to_back,
+              'إرسال للخلف',
+              _sendToBack,
+            ),
+            _toolbarActionButton(
+              Icons.visibility,
+              'تبديل الإظهار',
+              _toggleSelectedVisibility,
+            ),
+            _toolbarActionButton(
+              Icons.content_copy,
+              'نسخ سريع',
+              _duplicateElement,
+            ),
           ],
         ),
       ),
     );
   }
 
-  Widget _toolbarActionButton(IconData icon, String tooltip, VoidCallback onPressed) {
+  Widget _toolbarActionButton(
+    IconData icon,
+    String tooltip,
+    VoidCallback onPressed,
+  ) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 4),
       child: Tooltip(
@@ -855,12 +959,16 @@ class _TemplateDesignerScreenState extends State<TemplateDesignerScreen> {
           height: element.height * pxPerMm,
           decoration: BoxDecoration(
             border: Border.all(
-              color: isSelected ? _primaryColor : Colors.grey.withValues(alpha: 0.4),
+              color: isSelected
+                  ? _primaryColor
+                  : Colors.grey.withValues(alpha: 0.4),
               width: isSelected ? 2 : 1,
               style: element.isVisible ? BorderStyle.solid : BorderStyle.solid,
             ),
-      color: element.backgroundColor != null
-        ? Color(element.backgroundColor!).withValues(alpha: element.isVisible ? 1 : 0.2)
+            color: element.backgroundColor != null
+                ? Color(
+                    element.backgroundColor!,
+                  ).withValues(alpha: element.isVisible ? 1 : 0.2)
                 : null,
             borderRadius: element.borderRadius != null
                 ? BorderRadius.circular(element.borderRadius!)
@@ -878,11 +986,13 @@ class _TemplateDesignerScreenState extends State<TemplateDesignerScreen> {
                           ? BorderRadius.circular(element.borderRadius!)
                           : null,
                     ),
-                    child: const Icon(Icons.visibility_off, color: Colors.black54),
+                    child: const Icon(
+                      Icons.visibility_off,
+                      color: Colors.black54,
+                    ),
                   ),
                 ),
-              if (isSelected)
-                ..._buildResizeHandles(element, scale),
+              if (isSelected) ..._buildResizeHandles(element, scale),
             ],
           ),
         ),
@@ -943,7 +1053,11 @@ class _TemplateDesignerScreenState extends State<TemplateDesignerScreen> {
     ];
   }
 
-  Widget _resizeHandle(IconData icon, void Function(double dx, double dy) onResize, TemplateElement element) {
+  Widget _resizeHandle(
+    IconData icon,
+    void Function(double dx, double dy) onResize,
+    TemplateElement element,
+  ) {
     return GestureDetector(
       onPanUpdate: (details) {
         setState(() {
@@ -956,10 +1070,7 @@ class _TemplateDesignerScreenState extends State<TemplateDesignerScreen> {
       child: Container(
         width: 16,
         height: 16,
-        decoration: BoxDecoration(
-          color: _primaryColor,
-          shape: BoxShape.circle,
-        ),
+        decoration: BoxDecoration(color: _primaryColor, shape: BoxShape.circle),
         child: Icon(icon, size: 10, color: Colors.white),
       ),
     );
@@ -989,8 +1100,14 @@ class _TemplateDesignerScreenState extends State<TemplateDesignerScreen> {
   void _clampElementWithinPage(TemplateElement element) {
     final double maxX = _pageWidth - element.width - _marginRight;
     final double maxY = _pageHeight - element.height - _marginBottom;
-    element.x = element.x.clamp(_marginLeft, maxX < _marginLeft ? _marginLeft : maxX);
-    element.y = element.y.clamp(_marginTop, maxY < _marginTop ? _marginTop : maxY);
+    element.x = element.x.clamp(
+      _marginLeft,
+      maxX < _marginLeft ? _marginLeft : maxX,
+    );
+    element.y = element.y.clamp(
+      _marginTop,
+      maxY < _marginTop ? _marginTop : maxY,
+    );
   }
 
   Widget _buildElementContent(TemplateElement element, double scale) {
@@ -1001,41 +1118,33 @@ class _TemplateDesignerScreenState extends State<TemplateDesignerScreen> {
             element.content ?? 'نص',
             style: TextStyle(
               fontSize: (element.fontSize ?? 14) * scale,
-              fontWeight: element.fontWeight == 'bold' 
-                  ? FontWeight.bold 
+              fontWeight: element.fontWeight == 'bold'
+                  ? FontWeight.bold
                   : FontWeight.normal,
-              color: element.textColor != null 
+              color: element.textColor != null
                   ? Color(element.textColor!)
                   : Colors.black,
             ),
             textAlign: _getTextAlignment(element.alignment),
           ),
         );
-      
+
       case ElementType.image:
         return Center(
-          child: Icon(
-            Icons.image,
-            size: 40 * scale,
-            color: Colors.grey,
-          ),
+          child: Icon(Icons.image, size: 40 * scale, color: Colors.grey),
         );
-      
+
       case ElementType.table:
         return Center(
-          child: Icon(
-            Icons.table_chart,
-            size: 40 * scale,
-            color: Colors.grey,
-          ),
+          child: Icon(Icons.table_chart, size: 40 * scale, color: Colors.grey),
         );
-      
+
       case ElementType.line:
         return Container(
           decoration: BoxDecoration(
             border: Border(
               bottom: BorderSide(
-                color: element.borderColor != null 
+                color: element.borderColor != null
                     ? Color(element.borderColor!)
                     : Colors.black,
                 width: element.borderWidth ?? 1,
@@ -1043,45 +1152,37 @@ class _TemplateDesignerScreenState extends State<TemplateDesignerScreen> {
             ),
           ),
         );
-      
+
       case ElementType.rectangle:
         return Container(
           decoration: BoxDecoration(
             border: Border.all(
-              color: element.borderColor != null 
+              color: element.borderColor != null
                   ? Color(element.borderColor!)
                   : Colors.black,
               width: element.borderWidth ?? 1,
             ),
           ),
         );
-      
+
       case ElementType.barcode:
         return Center(
-          child: Icon(
-            Icons.qr_code_2,
-            size: 40 * scale,
-            color: Colors.black,
-          ),
+          child: Icon(Icons.qr_code_2, size: 40 * scale, color: Colors.black),
         );
-      
+
       case ElementType.dateField:
         return Center(
           child: Text(
             element.content ?? '2025/11/14',
-            style: TextStyle(
-              fontSize: (element.fontSize ?? 12) * scale,
-            ),
+            style: TextStyle(fontSize: (element.fontSize ?? 12) * scale),
           ),
         );
-      
+
       case ElementType.numberField:
         return Center(
           child: Text(
             element.content ?? '0.00',
-            style: TextStyle(
-              fontSize: (element.fontSize ?? 12) * scale,
-            ),
+            style: TextStyle(fontSize: (element.fontSize ?? 12) * scale),
           ),
         );
     }
@@ -1092,9 +1193,7 @@ class _TemplateDesignerScreenState extends State<TemplateDesignerScreen> {
       return Container(
         width: 280,
         color: Colors.grey[100],
-        child: const Center(
-          child: Text('اختر عنصراً لتحرير خصائصه'),
-        ),
+        child: const Center(child: Text('اختر عنصراً لتحرير خصائصه')),
       );
     }
 
@@ -1128,13 +1227,16 @@ class _TemplateDesignerScreenState extends State<TemplateDesignerScreen> {
               ),
             ],
           ),
-          
+
           const Divider(),
-          
+
           // الموضع والحجم
-          const Text('الموضع والحجم', style: TextStyle(fontWeight: FontWeight.bold)),
+          const Text(
+            'الموضع والحجم',
+            style: TextStyle(fontWeight: FontWeight.bold),
+          ),
           const SizedBox(height: 8),
-          
+
           Row(
             children: [
               Expanded(
@@ -1145,7 +1247,9 @@ class _TemplateDesignerScreenState extends State<TemplateDesignerScreen> {
                     contentPadding: EdgeInsets.all(8),
                   ),
                   keyboardType: TextInputType.number,
-                  controller: TextEditingController(text: element.x.toStringAsFixed(1)),
+                  controller: TextEditingController(
+                    text: element.x.toStringAsFixed(1),
+                  ),
                   onChanged: (value) {
                     setState(() {
                       element.x = double.tryParse(value) ?? element.x;
@@ -1162,7 +1266,9 @@ class _TemplateDesignerScreenState extends State<TemplateDesignerScreen> {
                     contentPadding: EdgeInsets.all(8),
                   ),
                   keyboardType: TextInputType.number,
-                  controller: TextEditingController(text: element.y.toStringAsFixed(1)),
+                  controller: TextEditingController(
+                    text: element.y.toStringAsFixed(1),
+                  ),
                   onChanged: (value) {
                     setState(() {
                       element.y = double.tryParse(value) ?? element.y;
@@ -1172,9 +1278,9 @@ class _TemplateDesignerScreenState extends State<TemplateDesignerScreen> {
               ),
             ],
           ),
-          
+
           const SizedBox(height: 8),
-          
+
           Row(
             children: [
               Expanded(
@@ -1185,7 +1291,9 @@ class _TemplateDesignerScreenState extends State<TemplateDesignerScreen> {
                     contentPadding: EdgeInsets.all(8),
                   ),
                   keyboardType: TextInputType.number,
-                  controller: TextEditingController(text: element.width.toStringAsFixed(1)),
+                  controller: TextEditingController(
+                    text: element.width.toStringAsFixed(1),
+                  ),
                   onChanged: (value) {
                     setState(() {
                       element.width = double.tryParse(value) ?? element.width;
@@ -1202,7 +1310,9 @@ class _TemplateDesignerScreenState extends State<TemplateDesignerScreen> {
                     contentPadding: EdgeInsets.all(8),
                   ),
                   keyboardType: TextInputType.number,
-                  controller: TextEditingController(text: element.height.toStringAsFixed(1)),
+                  controller: TextEditingController(
+                    text: element.height.toStringAsFixed(1),
+                  ),
                   onChanged: (value) {
                     setState(() {
                       element.height = double.tryParse(value) ?? element.height;
@@ -1212,16 +1322,19 @@ class _TemplateDesignerScreenState extends State<TemplateDesignerScreen> {
               ),
             ],
           ),
-          
+
           const SizedBox(height: 16),
-          
+
           // خصائص النص
-          if (element.type == ElementType.text || 
+          if (element.type == ElementType.text ||
               element.type == ElementType.dateField ||
               element.type == ElementType.numberField) ...[
-            const Text('خصائص النص', style: TextStyle(fontWeight: FontWeight.bold)),
+            const Text(
+              'خصائص النص',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
             const SizedBox(height: 8),
-            
+
             TextField(
               decoration: const InputDecoration(
                 labelText: 'المحتوى',
@@ -1235,9 +1348,9 @@ class _TemplateDesignerScreenState extends State<TemplateDesignerScreen> {
               },
               maxLines: 3,
             ),
-            
+
             const SizedBox(height: 8),
-            
+
             TextField(
               decoration: const InputDecoration(
                 labelText: 'حجم الخط',
@@ -1245,22 +1358,27 @@ class _TemplateDesignerScreenState extends State<TemplateDesignerScreen> {
                 contentPadding: EdgeInsets.all(8),
               ),
               keyboardType: TextInputType.number,
-              controller: TextEditingController(text: (element.fontSize ?? 14).toString()),
+              controller: TextEditingController(
+                text: (element.fontSize ?? 14).toString(),
+              ),
               onChanged: (value) {
                 setState(() {
                   element.fontSize = double.tryParse(value) ?? 14;
                 });
               },
             ),
-            
+
             const SizedBox(height: 8),
-            
+
             DropdownButtonFormField<String>(
-              value: element.fontWeight ?? 'normal',
+              initialValue: element.fontWeight ?? 'normal',
               decoration: const InputDecoration(
                 labelText: 'وزن الخط',
                 border: OutlineInputBorder(),
-                contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                contentPadding: EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 8,
+                ),
               ),
               items: const [
                 DropdownMenuItem(value: 'normal', child: Text('عادي')),
@@ -1272,15 +1390,18 @@ class _TemplateDesignerScreenState extends State<TemplateDesignerScreen> {
                 });
               },
             ),
-            
+
             const SizedBox(height: 8),
-            
+
             DropdownButtonFormField<String>(
-              value: element.alignment ?? 'right',
+              initialValue: element.alignment ?? 'right',
               decoration: const InputDecoration(
                 labelText: 'المحاذاة',
                 border: OutlineInputBorder(),
-                contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                contentPadding: EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 8,
+                ),
               ),
               items: const [
                 DropdownMenuItem(value: 'right', child: Text('يمين')),
@@ -1294,20 +1415,20 @@ class _TemplateDesignerScreenState extends State<TemplateDesignerScreen> {
               },
             ),
           ],
-          
+
           const SizedBox(height: 16),
-          
+
           // الألوان
           const Text('الألوان', style: TextStyle(fontWeight: FontWeight.bold)),
           const SizedBox(height: 8),
-          
+
           ListTile(
             title: const Text('لون الخلفية'),
             trailing: Container(
               width: 40,
               height: 40,
               decoration: BoxDecoration(
-                color: element.backgroundColor != null 
+                color: element.backgroundColor != null
                     ? Color(element.backgroundColor!)
                     : Colors.transparent,
                 border: Border.all(color: Colors.grey),
@@ -1315,8 +1436,8 @@ class _TemplateDesignerScreenState extends State<TemplateDesignerScreen> {
             ),
             onTap: () => _pickColor(element, 'background'),
           ),
-          
-          if (element.type == ElementType.text || 
+
+          if (element.type == ElementType.text ||
               element.type == ElementType.dateField ||
               element.type == ElementType.numberField)
             ListTile(
@@ -1325,7 +1446,7 @@ class _TemplateDesignerScreenState extends State<TemplateDesignerScreen> {
                 width: 40,
                 height: 40,
                 decoration: BoxDecoration(
-                  color: element.textColor != null 
+                  color: element.textColor != null
                       ? Color(element.textColor!)
                       : Colors.black,
                   border: Border.all(color: Colors.grey),
@@ -1333,7 +1454,7 @@ class _TemplateDesignerScreenState extends State<TemplateDesignerScreen> {
               ),
               onTap: () => _pickColor(element, 'text'),
             ),
-          
+
           ListTile(
             title: const Text('لون الحدود'),
             trailing: Container(
@@ -1364,7 +1485,8 @@ class _TemplateDesignerScreenState extends State<TemplateDesignerScreen> {
                   ),
                   onChanged: (value) {
                     setState(() {
-                      element.borderWidth = double.tryParse(value) ?? element.borderWidth;
+                      element.borderWidth =
+                          double.tryParse(value) ?? element.borderWidth;
                     });
                   },
                 ),
@@ -1383,7 +1505,8 @@ class _TemplateDesignerScreenState extends State<TemplateDesignerScreen> {
                   ),
                   onChanged: (value) {
                     setState(() {
-                      element.borderRadius = double.tryParse(value) ?? element.borderRadius;
+                      element.borderRadius =
+                          double.tryParse(value) ?? element.borderRadius;
                     });
                   },
                 ),
@@ -1392,7 +1515,10 @@ class _TemplateDesignerScreenState extends State<TemplateDesignerScreen> {
           ),
 
           const SizedBox(height: 16),
-          const Text('المظهر المتقدم', style: TextStyle(fontWeight: FontWeight.bold)),
+          const Text(
+            'المظهر المتقدم',
+            style: TextStyle(fontWeight: FontWeight.bold),
+          ),
           SwitchListTile.adaptive(
             value: element.isVisible,
             onChanged: (value) {
@@ -1470,7 +1596,7 @@ class _TemplateDesignerScreenState extends State<TemplateDesignerScreen> {
   void _insertDynamicField(String value) {
     if (_selectedElement == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('اختر عنصراً نصياً لإضافة الحقل')), 
+        const SnackBar(content: Text('اختر عنصراً نصياً لإضافة الحقل')),
       );
       return;
     }
@@ -1480,11 +1606,15 @@ class _TemplateDesignerScreenState extends State<TemplateDesignerScreen> {
         _selectedElement!.type == ElementType.numberField) {
       setState(() {
         final current = _selectedElement!.content ?? '';
-        _selectedElement!.content = (current.isEmpty ? value : '$current $value');
+        _selectedElement!.content = (current.isEmpty
+            ? value
+            : '$current $value');
       });
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('يمكن إضافة الحقول الديناميكية للعناصر النصية فقط')), 
+        const SnackBar(
+          content: Text('يمكن إضافة الحقول الديناميكية للعناصر النصية فقط'),
+        ),
       );
     }
   }
@@ -1497,7 +1627,8 @@ class _TemplateDesignerScreenState extends State<TemplateDesignerScreen> {
           _selectedElement!.x = _marginLeft;
           break;
         case 'right':
-          _selectedElement!.x = _pageWidth - _selectedElement!.width - _marginRight;
+          _selectedElement!.x =
+              _pageWidth - _selectedElement!.width - _marginRight;
           break;
         case 'center-horizontal':
           _selectedElement!.x = (_pageWidth - _selectedElement!.width) / 2;
@@ -1506,7 +1637,8 @@ class _TemplateDesignerScreenState extends State<TemplateDesignerScreen> {
           _selectedElement!.y = _marginTop;
           break;
         case 'bottom':
-          _selectedElement!.y = _pageHeight - _selectedElement!.height - _marginBottom;
+          _selectedElement!.y =
+              _pageHeight - _selectedElement!.height - _marginBottom;
           break;
         case 'center-vertical':
           _selectedElement!.y = (_pageHeight - _selectedElement!.height) / 2;
@@ -1566,7 +1698,7 @@ class _TemplateDesignerScreenState extends State<TemplateDesignerScreen> {
       isVisible: true,
       borderRadius: type == ElementType.rectangle ? 6 : 0,
     );
-    
+
     setState(() {
       _elements.add(newElement);
       _selectedElement = newElement;
@@ -1575,32 +1707,48 @@ class _TemplateDesignerScreenState extends State<TemplateDesignerScreen> {
 
   String _getElementTypeLabel(ElementType type) {
     switch (type) {
-      case ElementType.text: return 'نص';
-      case ElementType.image: return 'صورة';
-      case ElementType.table: return 'جدول';
-      case ElementType.line: return 'خط';
-      case ElementType.rectangle: return 'مستطيل';
-      case ElementType.barcode: return 'باركود';
-      case ElementType.dateField: return 'تاريخ';
-      case ElementType.numberField: return 'رقم';
+      case ElementType.text:
+        return 'نص';
+      case ElementType.image:
+        return 'صورة';
+      case ElementType.table:
+        return 'جدول';
+      case ElementType.line:
+        return 'خط';
+      case ElementType.rectangle:
+        return 'مستطيل';
+      case ElementType.barcode:
+        return 'باركود';
+      case ElementType.dateField:
+        return 'تاريخ';
+      case ElementType.numberField:
+        return 'رقم';
     }
   }
 
   String _getDefaultContent(ElementType type) {
     switch (type) {
-      case ElementType.text: return 'نص جديد';
-      case ElementType.dateField: return '{{date}}';
-      case ElementType.numberField: return '{{number}}';
-      default: return '';
+      case ElementType.text:
+        return 'نص جديد';
+      case ElementType.dateField:
+        return '{{date}}';
+      case ElementType.numberField:
+        return '{{number}}';
+      default:
+        return '';
     }
   }
 
   TextAlign _getTextAlignment(String? alignment) {
     switch (alignment) {
-      case 'left': return TextAlign.left;
-      case 'center': return TextAlign.center;
-      case 'right': return TextAlign.right;
-      default: return TextAlign.right;
+      case 'left':
+        return TextAlign.left;
+      case 'center':
+        return TextAlign.center;
+      case 'right':
+        return TextAlign.right;
+      default:
+        return TextAlign.right;
     }
   }
 
@@ -1609,12 +1757,12 @@ class _TemplateDesignerScreenState extends State<TemplateDesignerScreen> {
       context: context,
       builder: (context) => _ColorPickerDialog(
         currentColor: colorType == 'background'
-            ? (element.backgroundColor != null 
-                ? Color(element.backgroundColor!) 
-                : Colors.transparent)
-            : (element.textColor != null 
-                ? Color(element.textColor!) 
-                : Colors.black),
+            ? (element.backgroundColor != null
+                  ? Color(element.backgroundColor!)
+                  : Colors.transparent)
+            : (element.textColor != null
+                  ? Color(element.textColor!)
+                  : Colors.black),
       ),
     );
 
@@ -1633,7 +1781,7 @@ class _TemplateDesignerScreenState extends State<TemplateDesignerScreen> {
 
   void _saveTemplate() async {
     final TextEditingController nameController = TextEditingController();
-    
+
     final templateName = await showDialog<String>(
       context: context,
       builder: (context) => AlertDialog(
@@ -1662,9 +1810,16 @@ class _TemplateDesignerScreenState extends State<TemplateDesignerScreen> {
     if (templateName == null || templateName.isEmpty) return;
 
     try {
-      final existingIndex = _savedTemplates.indexWhere((t) => t.name == templateName);
-      final existing = existingIndex >= 0 ? _savedTemplates[existingIndex] : null;
-      final template = _buildCurrentTemplate(templateName, createdAt: existing?.createdAt);
+      final existingIndex = _savedTemplates.indexWhere(
+        (t) => t.name == templateName,
+      );
+      final existing = existingIndex >= 0
+          ? _savedTemplates[existingIndex]
+          : null;
+      final template = _buildCurrentTemplate(
+        templateName,
+        createdAt: existing?.createdAt,
+      );
 
       setState(() {
         if (existingIndex >= 0) {
@@ -1678,9 +1833,11 @@ class _TemplateDesignerScreenState extends State<TemplateDesignerScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(existingIndex >= 0
-                ? 'تم تحديث القالب "$templateName"'
-                : 'تم حفظ القالب "$templateName" بنجاح'),
+            content: Text(
+              existingIndex >= 0
+                  ? 'تم تحديث القالب "$templateName"'
+                  : 'تم حفظ القالب "$templateName" بنجاح',
+            ),
             backgroundColor: Colors.green,
           ),
         );
@@ -1706,9 +1863,9 @@ class _TemplateDesignerScreenState extends State<TemplateDesignerScreen> {
     }
 
     if (_savedTemplates.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('لا توجد قوالب محفوظة بعد')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('لا توجد قوالب محفوظة بعد')));
       return;
     }
 
@@ -1727,8 +1884,14 @@ class _TemplateDesignerScreenState extends State<TemplateDesignerScreen> {
                     itemBuilder: (context, index) {
                       final template = _savedTemplates[index];
                       return ListTile(
-                        contentPadding: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
-                        title: Text(template.name, style: const TextStyle(fontWeight: FontWeight.bold)),
+                        contentPadding: const EdgeInsets.symmetric(
+                          vertical: 4,
+                          horizontal: 8,
+                        ),
+                        title: Text(
+                          template.name,
+                          style: const TextStyle(fontWeight: FontWeight.bold),
+                        ),
                         subtitle: Text(
                           '${template.type} • آخر تعديل: ${_formatTimestamp(template.updatedAt ?? template.createdAt)}',
                           style: const TextStyle(fontSize: 12),
@@ -1741,8 +1904,12 @@ class _TemplateDesignerScreenState extends State<TemplateDesignerScreen> {
                               icon: const Icon(Icons.share),
                               tooltip: 'تصدير',
                               onPressed: () async {
-                                final jsonString = const JsonEncoder.withIndent('  ').convert(template.toJson());
-                                await Clipboard.setData(ClipboardData(text: jsonString));
+                                final jsonString = const JsonEncoder.withIndent(
+                                  '  ',
+                                ).convert(template.toJson());
+                                await Clipboard.setData(
+                                  ClipboardData(text: jsonString),
+                                );
                                 try {
                                   await SharePlus.instance.share(
                                     ShareParams(
@@ -1752,8 +1919,14 @@ class _TemplateDesignerScreenState extends State<TemplateDesignerScreen> {
                                   );
                                 } catch (_) {}
                                 if (mounted) {
-                                  ScaffoldMessenger.of(this.context).showSnackBar(
-                                    SnackBar(content: Text('تم نسخ القالب "${template.name}" إلى الحافظة')),
+                                  ScaffoldMessenger.of(
+                                    this.context,
+                                  ).showSnackBar(
+                                    SnackBar(
+                                      content: Text(
+                                        'تم نسخ القالب "${template.name}" إلى الحافظة',
+                                      ),
+                                    ),
                                   );
                                 }
                               },
@@ -1766,15 +1939,21 @@ class _TemplateDesignerScreenState extends State<TemplateDesignerScreen> {
                                   context: dialogContext,
                                   builder: (context) => AlertDialog(
                                     title: const Text('حذف القالب'),
-                                    content: Text('سيتم حذف القالب "${template.name}" بشكل نهائي'),
+                                    content: Text(
+                                      'سيتم حذف القالب "${template.name}" بشكل نهائي',
+                                    ),
                                     actions: [
                                       TextButton(
-                                        onPressed: () => Navigator.pop(context, false),
+                                        onPressed: () =>
+                                            Navigator.pop(context, false),
                                         child: const Text('إلغاء'),
                                       ),
                                       FilledButton(
-                                        style: FilledButton.styleFrom(backgroundColor: Colors.red),
-                                        onPressed: () => Navigator.pop(context, true),
+                                        style: FilledButton.styleFrom(
+                                          backgroundColor: Colors.red,
+                                        ),
+                                        onPressed: () =>
+                                            Navigator.pop(context, true),
                                         child: const Text('حذف'),
                                       ),
                                     ],
@@ -1784,10 +1963,19 @@ class _TemplateDesignerScreenState extends State<TemplateDesignerScreen> {
                                 if (confirm == true) {
                                   await _deleteTemplate(template);
                                   if (!mounted) return;
-                                  ScaffoldMessenger.of(this.context).showSnackBar(
-                                    SnackBar(content: Text('تم حذف القالب "${template.name}"')),
+                                  ScaffoldMessenger.of(
+                                    this.context,
+                                  ).showSnackBar(
+                                    SnackBar(
+                                      content: Text(
+                                        'تم حذف القالب "${template.name}"',
+                                      ),
+                                    ),
                                   );
-                                  Navigator.of(this.context, rootNavigator: true).pop();
+                                  Navigator.of(
+                                    this.context,
+                                    rootNavigator: true,
+                                  ).pop();
                                 }
                               },
                             ),
@@ -1821,17 +2009,17 @@ class _TemplateDesignerScreenState extends State<TemplateDesignerScreen> {
 
   void _exportTemplate() async {
     try {
-      final exportName = 'قالب_${_selectedTemplateType}_${DateTime.now().millisecondsSinceEpoch}';
+      final exportName =
+          'قالب_${_selectedTemplateType}_${DateTime.now().millisecondsSinceEpoch}';
       final template = _buildCurrentTemplate(exportName);
-      final jsonString = const JsonEncoder.withIndent('  ').convert(template.toJson());
+      final jsonString = const JsonEncoder.withIndent(
+        '  ',
+      ).convert(template.toJson());
 
       await Clipboard.setData(ClipboardData(text: jsonString));
       try {
         await SharePlus.instance.share(
-          ShareParams(
-            text: jsonString,
-            title: 'قالب ${template.name}',
-          ),
+          ShareParams(text: jsonString, title: 'قالب ${template.name}'),
         );
       } catch (_) {
         // مشاركة غير مدعومة في بعض المنصات، يكفي النسخ للحافظة
@@ -1913,7 +2101,8 @@ class _TemplateDesignerScreenState extends State<TemplateDesignerScreen> {
       }
 
       // الآن لدينا محتوى JSON في المتغير content
-      final Map<String, dynamic> data = jsonDecode(content) as Map<String, dynamic>;
+      final Map<String, dynamic> data =
+          jsonDecode(content) as Map<String, dynamic>;
       TemplateDocument template = TemplateDocument.fromJson(data);
       final uniqueName = _generateUniqueName(template.name);
       if (uniqueName != template.name) {
@@ -1931,21 +2120,23 @@ class _TemplateDesignerScreenState extends State<TemplateDesignerScreen> {
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('تم استيراد وتطبيق القالب "${template.name}"')),
+          SnackBar(
+            content: Text('تم استيراد وتطبيق القالب "${template.name}"'),
+          ),
         );
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('تعذر قراءة ملف القالب: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('تعذر قراءة ملف القالب: $e')));
       }
     }
   }
 
   void _duplicateElement() {
     if (_selectedElement == null) return;
-    
+
     final duplicate = TemplateElement(
       id: DateTime.now().millisecondsSinceEpoch.toString(),
       type: _selectedElement!.type,
@@ -1967,7 +2158,7 @@ class _TemplateDesignerScreenState extends State<TemplateDesignerScreen> {
       opacity: _selectedElement!.opacity,
       isVisible: _selectedElement!.isVisible,
     );
-    
+
     setState(() {
       _elements.add(duplicate);
       _selectedElement = duplicate;
@@ -1987,9 +2178,7 @@ class _TemplateDesignerScreenState extends State<TemplateDesignerScreen> {
           ),
           FilledButton(
             onPressed: () => Navigator.pop(context, true),
-            style: FilledButton.styleFrom(
-              backgroundColor: Colors.red,
-            ),
+            style: FilledButton.styleFrom(backgroundColor: Colors.red),
             child: const Text('حذف الكل'),
           ),
         ],
@@ -2019,10 +2208,7 @@ class _TemplateDesignerScreenState extends State<TemplateDesignerScreen> {
                 children: [
                   const Text(
                     'معاينة القالب',
-                    style: TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                    ),
+                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
                   ),
                   Row(
                     children: [
@@ -2116,55 +2302,60 @@ class _ColorPickerDialogState extends State<_ColorPickerDialog> {
             Wrap(
               spacing: 8,
               runSpacing: 8,
-              children: [
-                Colors.transparent,
-                Colors.white,
-                Colors.black,
-                Colors.red,
-                Colors.pink,
-                Colors.purple,
-                Colors.deepPurple,
-                Colors.indigo,
-                Colors.blue,
-                Colors.lightBlue,
-                Colors.cyan,
-                Colors.teal,
-                Colors.green,
-                Colors.lightGreen,
-                Colors.lime,
-                Colors.yellow,
-                Colors.amber,
-                Colors.orange,
-                Colors.deepOrange,
-                Colors.brown,
-                Colors.grey,
-                Colors.blueGrey,
-              ].map((color) {
-        final bool isSelected =
-          _selectedColor.toARGB32() == color.toARGB32();
-                return InkWell(
-                  onTap: () {
-                    setState(() {
-                      _selectedColor = color;
-                    });
-                  },
-                  child: Container(
-                    width: 40,
-                    height: 40,
-                    decoration: BoxDecoration(
-                      color: color,
-                      border: Border.all(
-                        color: isSelected ? Colors.blue : Colors.grey,
-                        width: isSelected ? 3 : 1,
+              children:
+                  [
+                    Colors.transparent,
+                    Colors.white,
+                    Colors.black,
+                    Colors.red,
+                    Colors.pink,
+                    Colors.purple,
+                    Colors.deepPurple,
+                    Colors.indigo,
+                    Colors.blue,
+                    Colors.lightBlue,
+                    Colors.cyan,
+                    Colors.teal,
+                    Colors.green,
+                    Colors.lightGreen,
+                    Colors.lime,
+                    Colors.yellow,
+                    Colors.amber,
+                    Colors.orange,
+                    Colors.deepOrange,
+                    Colors.brown,
+                    Colors.grey,
+                    Colors.blueGrey,
+                  ].map((color) {
+                    final bool isSelected =
+                        _selectedColor.toARGB32() == color.toARGB32();
+                    return InkWell(
+                      onTap: () {
+                        setState(() {
+                          _selectedColor = color;
+                        });
+                      },
+                      child: Container(
+                        width: 40,
+                        height: 40,
+                        decoration: BoxDecoration(
+                          color: color,
+                          border: Border.all(
+                            color: isSelected ? Colors.blue : Colors.grey,
+                            width: isSelected ? 3 : 1,
+                          ),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: color == Colors.transparent
+                            ? const Icon(
+                                Icons.block,
+                                color: Colors.red,
+                                size: 20,
+                              )
+                            : null,
                       ),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: color == Colors.transparent
-                        ? const Icon(Icons.block, color: Colors.red, size: 20)
-                        : null,
-                  ),
-                );
-              }).toList(),
+                    );
+                  }).toList(),
             ),
             const SizedBox(height: 20),
             Container(
@@ -2306,7 +2497,9 @@ class TemplateElement {
     }
 
     return TemplateElement(
-      id: toStringValue(json['id']) ?? DateTime.now().millisecondsSinceEpoch.toString(),
+      id:
+          toStringValue(json['id']) ??
+          DateTime.now().millisecondsSinceEpoch.toString(),
       type: parseElementType(json['type']?.toString()),
       x: toDoubleValue(json['x']),
       y: toDoubleValue(json['y']),
@@ -2314,21 +2507,31 @@ class TemplateElement {
       height: toDoubleValue(json['height'], 20),
       label: toStringValue(json['label']) ?? 'عنصر',
       content: toStringValue(json['content']),
-      fontSize: json['fontSize'] != null ? toDoubleValue(json['fontSize']) : null,
+      fontSize: json['fontSize'] != null
+          ? toDoubleValue(json['fontSize'])
+          : null,
       fontWeight: toStringValue(json['fontWeight']),
       alignment: toStringValue(json['alignment']),
       backgroundColor: toIntValue(json['backgroundColor']),
       textColor: toIntValue(json['textColor']),
       borderColor: toIntValue(json['borderColor']),
-      borderWidth: json['borderWidth'] != null ? toDoubleValue(json['borderWidth']) : null,
-      borderRadius: json['borderRadius'] != null ? toDoubleValue(json['borderRadius']) : null,
-      rotation: json['rotation'] != null ? toDoubleValue(json['rotation']) : null,
-      opacity: json['opacity'] != null ? toDoubleValue(json['opacity'], 1.0) : null,
+      borderWidth: json['borderWidth'] != null
+          ? toDoubleValue(json['borderWidth'])
+          : null,
+      borderRadius: json['borderRadius'] != null
+          ? toDoubleValue(json['borderRadius'])
+          : null,
+      rotation: json['rotation'] != null
+          ? toDoubleValue(json['rotation'])
+          : null,
+      opacity: json['opacity'] != null
+          ? toDoubleValue(json['opacity'], 1.0)
+          : null,
       isVisible: json['isVisible'] == null
           ? true
           : (json['isVisible'] is bool
-              ? json['isVisible'] as bool
-              : json['isVisible'].toString().toLowerCase() != 'false'),
+                ? json['isVisible'] as bool
+                : json['isVisible'].toString().toLowerCase() != 'false'),
     );
   }
 }
@@ -2454,12 +2657,21 @@ class TemplateDocument {
 
     List<TemplateElement> parseElements(dynamic raw) {
       if (raw is List) {
-        return raw.map((item) {
-          if (item is TemplateElement) return item;
-          if (item is Map<String, dynamic>) return TemplateElement.fromJson(item);
-          if (item is Map) return TemplateElement.fromJson(Map<String, dynamic>.from(item));
-          return null;
-        }).whereType<TemplateElement>().toList();
+        return raw
+            .map((item) {
+              if (item is TemplateElement) return item;
+              if (item is Map<String, dynamic>) {
+                return TemplateElement.fromJson(item);
+              }
+              if (item is Map) {
+                return TemplateElement.fromJson(
+                  Map<String, dynamic>.from(item),
+                );
+              }
+              return null;
+            })
+            .whereType<TemplateElement>()
+            .toList();
       }
       return [];
     }
@@ -2470,19 +2682,19 @@ class TemplateDocument {
       name: (name == null || name.isEmpty) ? 'قالب بدون اسم' : name,
       type: (json['type'] as String?) ?? 'قالب',
       pageSize: (json['pageSize'] as String?) ?? 'A4',
-  pageWidth: toDoubleValue(json['pageWidth'], 210),
-  pageHeight: toDoubleValue(json['pageHeight'], 297),
+      pageWidth: toDoubleValue(json['pageWidth'], 210),
+      pageHeight: toDoubleValue(json['pageHeight'], 297),
       orientation: (json['orientation'] as String?) ?? 'portrait',
-  elements: parseElements(json['elements']),
-  marginTop: toDoubleValue(json['marginTop'], 10),
-  marginBottom: toDoubleValue(json['marginBottom'], 10),
-  marginLeft: toDoubleValue(json['marginLeft'], 10),
-  marginRight: toDoubleValue(json['marginRight'], 10),
-  snapToGrid: toBoolValue(json['snapToGrid'], true),
-  showGuides: toBoolValue(json['showGuides'], true),
-  showMargins: toBoolValue(json['showMargins'], true),
-  showRulers: toBoolValue(json['showRulers'], true),
-  gridSpacing: toDoubleValue(json['gridSpacing'], 5),
+      elements: parseElements(json['elements']),
+      marginTop: toDoubleValue(json['marginTop'], 10),
+      marginBottom: toDoubleValue(json['marginBottom'], 10),
+      marginLeft: toDoubleValue(json['marginLeft'], 10),
+      marginRight: toDoubleValue(json['marginRight'], 10),
+      snapToGrid: toBoolValue(json['snapToGrid'], true),
+      showGuides: toBoolValue(json['showGuides'], true),
+      showMargins: toBoolValue(json['showMargins'], true),
+      showRulers: toBoolValue(json['showRulers'], true),
+      gridSpacing: toDoubleValue(json['gridSpacing'], 5),
       createdAt: json['createdAt']?.toString(),
       updatedAt: json['updatedAt']?.toString(),
     );
@@ -2584,7 +2796,11 @@ class GridPainter extends CustomPainter {
 }
 
 class RulerPainter extends CustomPainter {
-  RulerPainter({required this.isHorizontal, required this.length, required this.pxPerMm});
+  RulerPainter({
+    required this.isHorizontal,
+    required this.length,
+    required this.pxPerMm,
+  });
 
   final bool isHorizontal;
   final double length;
@@ -2605,15 +2821,31 @@ class RulerPainter extends CustomPainter {
       final double pos = mm * pxPerMm;
       if (isHorizontal) {
         final double tickHeight = mm % 10 == 0 ? 12 : (mm % 5 == 0 ? 8 : 4);
-        canvas.drawLine(Offset(pos, size.height), Offset(pos, size.height - tickHeight), tickPaint);
+        canvas.drawLine(
+          Offset(pos, size.height),
+          Offset(pos, size.height - tickHeight),
+          tickPaint,
+        );
         if (mm % 10 == 0) {
-          _drawLabel(canvas, mm.toInt().toString(), Offset(pos + 2, size.height - 20));
+          _drawLabel(
+            canvas,
+            mm.toInt().toString(),
+            Offset(pos + 2, size.height - 20),
+          );
         }
       } else {
         final double tickWidth = mm % 10 == 0 ? 12 : (mm % 5 == 0 ? 8 : 4);
-        canvas.drawLine(Offset(size.width, pos), Offset(size.width - tickWidth, pos), tickPaint);
+        canvas.drawLine(
+          Offset(size.width, pos),
+          Offset(size.width - tickWidth, pos),
+          tickPaint,
+        );
         if (mm % 10 == 0) {
-          _drawLabel(canvas, mm.toInt().toString(), Offset(size.width - 24, pos + 2));
+          _drawLabel(
+            canvas,
+            mm.toInt().toString(),
+            Offset(size.width - 24, pos + 2),
+          );
         }
       }
     }
@@ -2632,6 +2864,8 @@ class RulerPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant RulerPainter oldDelegate) {
-    return oldDelegate.length != length || oldDelegate.pxPerMm != pxPerMm || oldDelegate.isHorizontal != isHorizontal;
+    return oldDelegate.length != length ||
+        oldDelegate.pxPerMm != pxPerMm ||
+        oldDelegate.isHorizontal != isHorizontal;
   }
 }

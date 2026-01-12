@@ -13,16 +13,16 @@ class AuditLogScreen extends StatefulWidget {
 
 class _AuditLogScreenState extends State<AuditLogScreen> {
   final ApiService _apiService = ApiService();
-  
+
   List<dynamic> _logs = [];
   bool _isLoading = false;
-  
+
   // Filters
   String? _filterUserName;
   String? _filterAction;
   String? _filterEntityType;
   bool? _filterSuccess;
-  
+
   // Statistics
   Map<String, dynamic>? _stats;
 
@@ -43,7 +43,7 @@ class _AuditLogScreenState extends State<AuditLogScreen> {
         success: _filterSuccess,
         limit: 100,
       );
-      
+
       if (mounted) {
         setState(() {
           _logs = data['logs'] ?? [];
@@ -89,36 +89,52 @@ class _AuditLogScreenState extends State<AuditLogScreen> {
               children: [
                 TextField(
                   decoration: const InputDecoration(labelText: 'اسم المستخدم'),
-                  onChanged: (value) => _filterUserName = value.isEmpty ? null : value,
+                  onChanged: (value) =>
+                      _filterUserName = value.isEmpty ? null : value,
                 ),
                 const SizedBox(height: 16),
                 DropdownButtonFormField<String>(
                   decoration: const InputDecoration(labelText: 'نوع العملية'),
-                  value: _filterAction,
+                  initialValue: _filterAction,
                   items: const [
                     DropdownMenuItem(value: null, child: Text('الكل')),
-                    DropdownMenuItem(value: 'post_invoice', child: Text('ترحيل فاتورة')),
-                    DropdownMenuItem(value: 'unpost_invoice', child: Text('إلغاء ترحيل فاتورة')),
-                    DropdownMenuItem(value: 'post_entry', child: Text('ترحيل قيد')),
-                    DropdownMenuItem(value: 'unpost_entry', child: Text('إلغاء ترحيل قيد')),
+                    DropdownMenuItem(
+                      value: 'post_invoice',
+                      child: Text('ترحيل فاتورة'),
+                    ),
+                    DropdownMenuItem(
+                      value: 'unpost_invoice',
+                      child: Text('إلغاء ترحيل فاتورة'),
+                    ),
+                    DropdownMenuItem(
+                      value: 'post_entry',
+                      child: Text('ترحيل قيد'),
+                    ),
+                    DropdownMenuItem(
+                      value: 'unpost_entry',
+                      child: Text('إلغاء ترحيل قيد'),
+                    ),
                   ],
                   onChanged: (value) => _filterAction = value,
                 ),
                 const SizedBox(height: 16),
                 DropdownButtonFormField<String>(
                   decoration: const InputDecoration(labelText: 'نوع الكيان'),
-                  value: _filterEntityType,
+                  initialValue: _filterEntityType,
                   items: const [
                     DropdownMenuItem(value: null, child: Text('الكل')),
                     DropdownMenuItem(value: 'Invoice', child: Text('فاتورة')),
-                    DropdownMenuItem(value: 'JournalEntry', child: Text('قيد يومية')),
+                    DropdownMenuItem(
+                      value: 'JournalEntry',
+                      child: Text('قيد يومية'),
+                    ),
                   ],
                   onChanged: (value) => _filterEntityType = value,
                 ),
                 const SizedBox(height: 16),
                 DropdownButtonFormField<bool>(
                   decoration: const InputDecoration(labelText: 'الحالة'),
-                  value: _filterSuccess,
+                  initialValue: _filterSuccess,
                   items: const [
                     DropdownMenuItem(value: null, child: Text('الكل')),
                     DropdownMenuItem(value: true, child: Text('نجحت')),
@@ -184,33 +200,33 @@ class _AuditLogScreenState extends State<AuditLogScreen> {
           children: [
             // Statistics Card
             if (_stats != null) _buildStatsCard(),
-            
+
             // Logs List
             Expanded(
               child: _isLoading
                   ? const Center(child: CircularProgressIndicator())
                   : _logs.isEmpty
-                      ? const Center(
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(Icons.history, size: 64, color: Colors.grey),
-                              SizedBox(height: 16),
-                              Text(
-                                'لا توجد سجلات تدقيق',
-                                style: TextStyle(fontSize: 18, color: Colors.grey),
-                              ),
-                            ],
+                  ? const Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.history, size: 64, color: Colors.grey),
+                          SizedBox(height: 16),
+                          Text(
+                            'لا توجد سجلات تدقيق',
+                            style: TextStyle(fontSize: 18, color: Colors.grey),
                           ),
-                        )
-                      : ListView.builder(
-                          padding: const EdgeInsets.all(8),
-                          itemCount: _logs.length,
-                          itemBuilder: (context, index) {
-                            final log = _logs[index];
-                            return _buildLogCard(log);
-                          },
-                        ),
+                        ],
+                      ),
+                    )
+                  : ListView.builder(
+                      padding: const EdgeInsets.all(8),
+                      itemCount: _logs.length,
+                      itemBuilder: (context, index) {
+                        final log = _logs[index];
+                        return _buildLogCard(log);
+                      },
+                    ),
             ),
           ],
         ),
@@ -273,7 +289,12 @@ class _AuditLogScreenState extends State<AuditLogScreen> {
     );
   }
 
-  Widget _buildStatItem(String label, String value, IconData icon, Color color) {
+  Widget _buildStatItem(
+    String label,
+    String value,
+    IconData icon,
+    Color color,
+  ) {
     return Column(
       children: [
         Icon(icon, color: color, size: 32),
@@ -286,10 +307,7 @@ class _AuditLogScreenState extends State<AuditLogScreen> {
             color: color,
           ),
         ),
-        Text(
-          label,
-          style: const TextStyle(fontSize: 12, color: Colors.grey),
-        ),
+        Text(label, style: const TextStyle(fontSize: 12, color: Colors.grey)),
       ],
     );
   }
@@ -297,16 +315,13 @@ class _AuditLogScreenState extends State<AuditLogScreen> {
   Widget _buildLogCard(Map<String, dynamic> log) {
     final success = log['success'] as bool;
     final timestamp = DateTime.parse(log['timestamp']);
-    
+
     return Card(
       margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 8),
       child: ListTile(
         leading: CircleAvatar(
           backgroundColor: success ? Colors.green : Colors.red,
-          child: Icon(
-            success ? Icons.check : Icons.close,
-            color: Colors.white,
-          ),
+          child: Icon(success ? Icons.check : Icons.close, color: Colors.white),
         ),
         title: Text(
           '${log['action_ar']} - ${log['entity_type_ar']} #${log['entity_id']}',
@@ -319,8 +334,7 @@ class _AuditLogScreenState extends State<AuditLogScreen> {
             Text('الوقت: ${_formatDateTime(timestamp)}'),
             if (log['entity_number'] != null)
               Text('رقم الكيان: ${log['entity_number']}'),
-            if (log['ip_address'] != null)
-              Text('IP: ${log['ip_address']}'),
+            if (log['ip_address'] != null) Text('IP: ${log['ip_address']}'),
             if (!success && log['error_message'] != null)
               Text(
                 'الخطأ: ${log['error_message']}',
@@ -354,7 +368,10 @@ class _AuditLogScreenState extends State<AuditLogScreen> {
                 _buildDetailRow('معرف الكيان', log['entity_id'].toString()),
                 if (log['entity_number'] != null)
                   _buildDetailRow('رقم الكيان', log['entity_number']),
-                _buildDetailRow('الوقت', _formatDateTime(DateTime.parse(log['timestamp']))),
+                _buildDetailRow(
+                  'الوقت',
+                  _formatDateTime(DateTime.parse(log['timestamp'])),
+                ),
                 if (log['ip_address'] != null)
                   _buildDetailRow('عنوان IP', log['ip_address']),
                 _buildDetailRow('الحالة', log['success'] ? 'نجحت' : 'فشلت'),
@@ -396,9 +413,7 @@ class _AuditLogScreenState extends State<AuditLogScreen> {
               style: const TextStyle(fontWeight: FontWeight.bold),
             ),
           ),
-          Expanded(
-            child: Text(value),
-          ),
+          Expanded(child: Text(value)),
         ],
       ),
     );

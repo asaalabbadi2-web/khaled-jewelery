@@ -358,7 +358,8 @@ class _SupplierLedgerScreenState extends State<SupplierLedgerScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        supplierInfo?['name']?.toString() ?? widget.supplierName,
+                        supplierInfo?['name']?.toString() ??
+                            widget.supplierName,
                         style: const TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.w700,
@@ -412,7 +413,7 @@ class _SupplierLedgerScreenState extends State<SupplierLedgerScreen> {
     final cash = _toDouble(net['cash']);
     final goldMain = _goldToMain(net);
 
-  Color valueColor(double value) => value >= 0 ? Colors.green : Colors.red;
+    Color valueColor(double value) => value >= 0 ? Colors.green : Colors.red;
 
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
@@ -438,7 +439,7 @@ class _SupplierLedgerScreenState extends State<SupplierLedgerScreen> {
                 ),
                 const SizedBox(width: 12),
                 _buildMetricTile(
-                  _t('ذهب مكافئ 21', 'Gold (21k eq.)'),
+                  _t('ذهب مكافئ $_mainKarat', 'Gold (${_mainKarat}k eq.)'),
                   '${_formatGold(goldMain)} ${_t('جم', 'g')}',
                   Icons.workspace_premium,
                   valueColor(goldMain),
@@ -537,7 +538,7 @@ class _SupplierLedgerScreenState extends State<SupplierLedgerScreen> {
                       ),
                       const SizedBox(height: 6),
                       _buildInfoPill(
-                        '${_t('ذهب مكافئ 21', 'Gold 21k eq.')}: $debitGold ${_t('جم', 'g')}',
+                        '${_t('ذهب مكافئ $_mainKarat', 'Gold ${_mainKarat}k eq.')}: $debitGold ${_t('جم', 'g')}',
                         Colors.orange,
                       ),
                     ],
@@ -562,7 +563,7 @@ class _SupplierLedgerScreenState extends State<SupplierLedgerScreen> {
                       ),
                       const SizedBox(height: 6),
                       _buildInfoPill(
-                        '${_t('ذهب مكافئ 21', 'Gold 21k eq.')}: $creditGold ${_t('جم', 'g')}',
+                        '${_t('ذهب مكافئ $_mainKarat', 'Gold ${_mainKarat}k eq.')}: $creditGold ${_t('جم', 'g')}',
                         Colors.brown,
                       ),
                     ],

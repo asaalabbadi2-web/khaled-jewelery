@@ -10,7 +10,7 @@
 تم تحديث شاشة الفواتير الرئيسية لدعم **3 أنواع من الفواتير العادية**:
 1. ✅ بيع
 2. ✅ شراء من عميل
-3. ✅ شراء من مورد (جديد)
+3. ✅ شراء (جديد)
 
 ---
 
@@ -38,23 +38,23 @@ this.invoiceType = 'بيع', // Default type (updated to match backend)
 ```dart
 case 'شراء':
   return 'فاتورة شراء ذهب كسر';
-// case 'شراء من مورد': // Removed
+// case 'شراء': // Removed
 ```
 
 **بعد:**
 ```dart
 case 'شراء من عميل':
   return 'فاتورة شراء ذهب كسر';
-case 'شراء من مورد':
-  return 'فاتورة شراء من مورد';
-case 'مرتجع شراء من مورد':
-  return 'فاتورة مرتجع شراء من مورد';
+case 'شراء':
+  return 'فاتورة شراء';
+case 'مرتجع شراء (مورد)':
+  return 'فاتورة مرتجع شراء (مورد)';
 ```
 
 **السبب:** 
 - تصحيح نوع الشراء من العميل ليتطابق مع Backend
 - إضافة دعم فواتير المورد
-- إضافة مرتجع شراء من مورد (للمستقبل)
+- إضافة مرتجع شراء (مورد) (للمستقبل)
 
 ---
 
@@ -93,7 +93,7 @@ items: const [
 items: const [
   DropdownMenuItem(value: 'بيع', child: Text('فاتورة بيع')),
   DropdownMenuItem(value: 'شراء من عميل', child: Text('فاتورة شراء ذهب كسر من عميل')),
-  DropdownMenuItem(value: 'شراء من مورد', child: Text('فاتورة شراء من مورد')),
+  DropdownMenuItem(value: 'شراء', child: Text('فاتورة شراء')),
 ],
 onChanged: (value) {
   if (value != null) {
@@ -109,7 +109,7 @@ onChanged: (value) {
 
 **التحسينات:**
 - ✅ تصحيح `'شراء'` → `'شراء من عميل'`
-- ✅ إضافة `'شراء من مورد'`
+- ✅ إضافة `'شراء'`
 - ✅ إزالة المرتجعات (ستكون في شاشة منفصلة)
 - ✅ Reset للاختيارات عند تغيير النوع
 
@@ -120,14 +120,14 @@ onChanged: (value) {
 **العنوان الديناميكي:**
 ```dart
 Text(
-  currentType == 'شراء من مورد' ? 'اختر المورد' : 'اختر العميل',
+  currentType == 'شراء' ? 'اختر المورد' : 'اختر العميل',
   style: Theme.of(context).textTheme.titleMedium,
 ),
 ```
 
 **اختيار العميل (مشروط):**
 ```dart
-if (currentType != 'شراء من مورد')
+if (currentType != 'شراء')
   Autocomplete<Map<String, dynamic>>(
     // ... existing customer selection code
   ),
@@ -135,7 +135,7 @@ if (currentType != 'شراء من مورد')
 
 **اختيار المورد (جديد):**
 ```dart
-if (currentType == 'شراء من مورد')
+if (currentType == 'شراء')
   TextFormField(
     decoration: InputDecoration(
       labelText: 'اسم المورد',
@@ -144,7 +144,7 @@ if (currentType == 'شراء من مورد')
       helperText: 'سيتم إضافة نظام الموردين لاحقاً',
     ),
     validator: (value) {
-      if (currentType == 'شراء من مورد' && (value == null || value.isEmpty)) {
+      if (currentType == 'شراء' && (value == null || value.isEmpty)) {
         return 'الرجاء إدخال اسم المورد';
       }
       return null;
@@ -209,8 +209,8 @@ final payload = {
 **بعد:**
 ```dart
 final payload = {
-  'customer_id': currentType != 'شراء من مورد' ? selectedCustomer : null,
-  'supplier_id': currentType == 'شراء من مورد' ? selectedSupplier : null,
+  'customer_id': currentType != 'شراء' ? selectedCustomer : null,
+  'supplier_id': currentType == 'شراء' ? selectedSupplier : null,
   'date': DateTime.now().toIso8601String(),
   'invoice_type': currentType,
   'gold_type': goldType, // New field
@@ -314,7 +314,7 @@ print('عدد المرتجعات: ${returns['count']}');
 3. إضافة أصناف
 4. الدفع والحفظ
 
-### ✅ شراء من مورد (جديد)
+### ✅ شراء (جديد)
 1. إدخال اسم المورد (مؤقت)
 2. اختيار نوع الذهب (new/scrap)
 3. إضافة أصناف
@@ -376,7 +376,7 @@ print('عدد المرتجعات: ${returns['count']}');
 **الجاهزية:**
 - ✅ تصحيح أنواع الفواتير
 - ✅ دعم حقل gold_type
-- ✅ دعم شراء من مورد (مؤقت)
+- ✅ دعم شراء (مؤقت)
 - ✅ API methods للمرتجعات
 - ⏳ شاشة المرتجعات (قادم)
 

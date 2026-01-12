@@ -207,7 +207,8 @@ class _LoginScreenState extends State<LoginScreen> {
                                   : () {
                                       Navigator.of(context).push(
                                         MaterialPageRoute(
-                                          builder: (_) => const UsernameRecoveryScreen(),
+                                          builder: (_) =>
+                                              const UsernameRecoveryScreen(),
                                         ),
                                       );
                                     },
@@ -219,7 +220,8 @@ class _LoginScreenState extends State<LoginScreen> {
                                   : () {
                                       Navigator.of(context).push(
                                         MaterialPageRoute(
-                                          builder: (_) => const ForgotPasswordScreen(),
+                                          builder: (_) =>
+                                              const ForgotPasswordScreen(),
                                         ),
                                       );
                                     },

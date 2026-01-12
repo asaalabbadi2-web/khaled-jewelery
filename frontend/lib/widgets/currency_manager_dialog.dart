@@ -38,7 +38,7 @@ class CurrencyManagerDialog extends StatefulWidget {
   const CurrencyManagerDialog({super.key});
 
   @override
-  _CurrencyManagerDialogState createState() => _CurrencyManagerDialogState();
+  State<CurrencyManagerDialog> createState() => _CurrencyManagerDialogState();
 }
 
 class _CurrencyManagerDialogState extends State<CurrencyManagerDialog> {

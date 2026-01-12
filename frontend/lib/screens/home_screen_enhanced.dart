@@ -98,7 +98,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced> {
 
   // Bottom Navigation
   int _selectedNavIndex = 0;
-  List<String> _bottomNavItems = [
+  final List<String> _bottomNavItems = [
     'home',
     'invoices',
     'customers',
@@ -793,7 +793,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced> {
     );
     addDestination(
       icon: Icons.business,
-      title: isAr ? 'شراء من مورد' : 'Purchase from Supplier',
+      title: isAr ? 'شراء' : 'Purchase (Supplier)',
       color: Colors.purple,
       onSelected: () async {
         final result = await Navigator.push(
@@ -848,7 +848,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced> {
     );
     addDestination(
       icon: Icons.assignment_return,
-      title: isAr ? 'مرتجع شراء من مورد' : 'Supplier Purchase Return',
+      title: isAr ? 'مرتجع شراء (مورد)' : 'Supplier Purchase Return',
       color: Colors.deepOrange.shade300,
       onSelected: () async {
         final result = await Navigator.push(
@@ -856,7 +856,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced> {
           MaterialPageRoute(
             builder: (_) => AddReturnInvoiceScreen(
               api: api,
-              returnType: 'مرتجع شراء من مورد',
+              returnType: 'مرتجع شراء (مورد)',
             ),
           ),
         );
@@ -1993,7 +1993,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced> {
               ),
             ],
           );
-        }).toList(),
+        }),
       ],
     );
   }
@@ -2690,42 +2690,39 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced> {
                         ],
                       ),
                       SizedBox(height: 12),
-                      ...totalStats
-                          .map(
-                            (stat) => Padding(
-                              padding: const EdgeInsets.only(bottom: 8.0),
-                              child: Row(
-                                children: [
-                                  Icon(
-                                    stat['icon'],
-                                    color: theme.hintColor,
-                                    size: 18,
-                                  ),
-                                  SizedBox(width: 8),
-                                  Expanded(
-                                    child: Text(
-                                      stat['label'],
-                                      style: theme.textTheme.bodyMedium
-                                          ?.copyWith(
-                                            fontSize: 13,
-                                            fontFamily: 'Cairo',
-                                          ),
-                                    ),
-                                  ),
-                                  Text(
-                                    stat['value'],
-                                    style: TextStyle(
-                                      fontSize: 14,
-                                      fontWeight: FontWeight.bold,
-                                      color: color,
-                                      fontFamily: 'Cairo',
-                                    ),
-                                  ),
-                                ],
+                      ...totalStats.map(
+                        (stat) => Padding(
+                          padding: const EdgeInsets.only(bottom: 8.0),
+                          child: Row(
+                            children: [
+                              Icon(
+                                stat['icon'],
+                                color: theme.hintColor,
+                                size: 18,
                               ),
-                            ),
-                          )
-                          .toList(),
+                              SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  stat['label'],
+                                  style: theme.textTheme.bodyMedium?.copyWith(
+                                    fontSize: 13,
+                                    fontFamily: 'Cairo',
+                                  ),
+                                ),
+                              ),
+                              Text(
+                                stat['value'],
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.bold,
+                                  color: color,
+                                  fontFamily: 'Cairo',
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
                     ],
                   ),
                 ),
@@ -2866,7 +2863,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced> {
                       ],
                     ),
                   );
-                }).toList(),
+                }),
               ],
             ),
           ),

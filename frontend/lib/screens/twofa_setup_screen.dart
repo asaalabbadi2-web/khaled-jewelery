@@ -36,8 +36,9 @@ class _TwoFASetupScreenState extends State<TwoFASetupScreen> {
       });
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('تعذر إنشاء 2FA: $e')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('تعذر إنشاء 2FA: $e')));
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -53,13 +54,14 @@ class _TwoFASetupScreenState extends State<TwoFASetupScreen> {
             .map((e) => e.toString())
             .toList();
       });
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('تم تفعيل التحقق الثنائي')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('تم تفعيل التحقق الثنائي')));
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('فشل التفعيل: $e')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('فشل التفعيل: $e')));
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -70,9 +72,9 @@ class _TwoFASetupScreenState extends State<TwoFASetupScreen> {
     try {
       await _api.disable2FA();
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('تم تعطيل التحقق الثنائي')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('تم تعطيل التحقق الثنائي')));
       setState(() {
         _secret = null;
         _otpUri = null;
@@ -80,8 +82,9 @@ class _TwoFASetupScreenState extends State<TwoFASetupScreen> {
       });
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('فشل التعطيل: $e')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('فشل التعطيل: $e')));
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -92,7 +95,9 @@ class _TwoFASetupScreenState extends State<TwoFASetupScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('التحقق الثنائي (2FA)'),
-        actions: [IconButton(onPressed: _disable, icon: const Icon(Icons.lock_open))],
+        actions: [
+          IconButton(onPressed: _disable, icon: const Icon(Icons.lock_open)),
+        ],
       ),
       body: ListView(
         padding: const EdgeInsets.all(16),
@@ -134,10 +139,11 @@ class _TwoFASetupScreenState extends State<TwoFASetupScreen> {
             const SizedBox(height: 8),
             ..._recoveryCodes.map((c) => SelectableText('• $c')),
           ],
-          if (_loading) const Padding(
-            padding: EdgeInsets.only(top: 20),
-            child: Center(child: CircularProgressIndicator()),
-          ),
+          if (_loading)
+            const Padding(
+              padding: EdgeInsets.only(top: 20),
+              child: Center(child: CircularProgressIndicator()),
+            ),
         ],
       ),
     );

@@ -8,11 +8,7 @@ class OfficesScreen extends StatefulWidget {
   final ApiService api;
   final bool isArabic;
 
-  const OfficesScreen({
-    super.key,
-    required this.api,
-    this.isArabic = true,
-  });
+  const OfficesScreen({super.key, required this.api, this.isArabic = true});
 
   @override
   State<OfficesScreen> createState() => _OfficesScreenState();
@@ -59,17 +55,19 @@ class _OfficesScreenState extends State<OfficesScreen> {
     setState(() {
       _filteredOffices = _offices.where((office) {
         if (_searchQuery.isEmpty) return true;
-        
+
         final name = (office['name'] ?? '').toString().toLowerCase();
         final code = (office['office_code'] ?? '').toString().toLowerCase();
         final phone = (office['phone'] ?? '').toString().toLowerCase();
-        final contact = (office['contact_person'] ?? '').toString().toLowerCase();
+        final contact = (office['contact_person'] ?? '')
+            .toString()
+            .toLowerCase();
         final query = _searchQuery.toLowerCase();
-        
+
         return name.contains(query) ||
-               code.contains(query) ||
-               phone.contains(query) ||
-               contact.contains(query);
+            code.contains(query) ||
+            phone.contains(query) ||
+            contact.contains(query);
       }).toList();
     });
   }
@@ -87,10 +85,11 @@ class _OfficesScreenState extends State<OfficesScreen> {
     final result = await Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => AddOfficeScreen(api: widget.api, isArabic: widget.isArabic),
+        builder: (_) =>
+            AddOfficeScreen(api: widget.api, isArabic: widget.isArabic),
       ),
     );
-    
+
     if (result == true) {
       _loadOffices();
     }
@@ -107,7 +106,7 @@ class _OfficesScreenState extends State<OfficesScreen> {
         ),
       ),
     );
-    
+
     if (result == true) {
       _loadOffices();
     }
@@ -151,11 +150,14 @@ class _OfficesScreenState extends State<OfficesScreen> {
             children: [
               Text(
                 balance['office_name'] ?? '',
-                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 18,
+                ),
               ),
               Text('${isAr ? "الكود" : "Code"}: ${balance['office_code']}'),
               const Divider(height: 24),
-              
+
               // النقدي
               Text(
                 isAr ? 'الرصيد النقدي' : 'Cash Balance',
@@ -163,7 +165,7 @@ class _OfficesScreenState extends State<OfficesScreen> {
               ),
               Text('${balance['balance_cash']} ${isAr ? "ر.س" : "SAR"}'),
               const SizedBox(height: 12),
-              
+
               // الذهب
               Text(
                 isAr ? 'الرصيد الوزني' : 'Gold Balance',
@@ -171,21 +173,31 @@ class _OfficesScreenState extends State<OfficesScreen> {
               ),
               ...((balance['balance_gold'] as Map<String, dynamic>).entries
                   .where((e) => e.key != 'total')
-                  .map((e) => Text('${isAr ? "عيار" : "Karat"} ${e.key}: ${e.value} ${isAr ? "جم" : "g"}'))),
+                  .map(
+                    (e) => Text(
+                      '${isAr ? "عيار" : "Karat"} ${e.key}: ${e.value} ${isAr ? "جم" : "g"}',
+                    ),
+                  )),
               Text(
                 '${isAr ? "الإجمالي" : "Total"}: ${balance['balance_gold']['total']} ${isAr ? "جم" : "g"}',
                 style: const TextStyle(fontWeight: FontWeight.bold),
               ),
               const Divider(height: 24),
-              
+
               // إحصائيات
               Text(
                 isAr ? 'الإحصائيات' : 'Statistics',
                 style: const TextStyle(fontWeight: FontWeight.bold),
               ),
-              Text('${isAr ? "عدد الحجوزات" : "Total Reservations"}: ${balance['statistics']['total_reservations']}'),
-              Text('${isAr ? "إجمالي الوزن المشترى" : "Total Weight"}: ${balance['statistics']['total_weight_purchased']} ${isAr ? "جم" : "g"}'),
-              Text('${isAr ? "إجمالي المبالغ المدفوعة" : "Total Paid"}: ${balance['statistics']['total_amount_paid']} ${isAr ? "ر.س" : "SAR"}'),
+              Text(
+                '${isAr ? "عدد الحجوزات" : "Total Reservations"}: ${balance['statistics']['total_reservations']}',
+              ),
+              Text(
+                '${isAr ? "إجمالي الوزن المشترى" : "Total Weight"}: ${balance['statistics']['total_weight_purchased']} ${isAr ? "جم" : "g"}',
+              ),
+              Text(
+                '${isAr ? "إجمالي المبالغ المدفوعة" : "Total Paid"}: ${balance['statistics']['total_amount_paid']} ${isAr ? "ر.س" : "SAR"}',
+              ),
             ],
           ),
         ),
@@ -211,7 +223,9 @@ class _OfficesScreenState extends State<OfficesScreen> {
         foregroundColor: Colors.white,
         actions: [
           IconButton(
-            icon: Icon(_showActiveOnly ? Icons.visibility : Icons.visibility_off),
+            icon: Icon(
+              _showActiveOnly ? Icons.visibility : Icons.visibility_off,
+            ),
             onPressed: () {
               setState(() => _showActiveOnly = !_showActiveOnly);
               _loadOffices();
@@ -258,7 +272,7 @@ class _OfficesScreenState extends State<OfficesScreen> {
               },
             ),
           ),
-          
+
           // إحصائيات سريعة
           if (!_isLoading)
             Container(
@@ -272,44 +286,49 @@ class _OfficesScreenState extends State<OfficesScreen> {
                   ),
                   Text(
                     '${isAr ? "نشط" : "Active"}: ${_filteredOffices.where((o) => o['active'] == true).length}',
-                    style: theme.textTheme.titleSmall?.copyWith(color: AppColors.success),
+                    style: theme.textTheme.titleSmall?.copyWith(
+                      color: AppColors.success,
+                    ),
                   ),
                 ],
               ),
             ),
-          
+
           // القائمة
           Expanded(
             child: _isLoading
                 ? const Center(child: CircularProgressIndicator())
                 : _filteredOffices.isEmpty
-                    ? Center(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(Icons.store_outlined,
-                                size: 64, color: Colors.grey.shade400),
-                            const SizedBox(height: 16),
-                            Text(
-                              isAr ? 'لا توجد مكاتب' : 'No offices found',
-                              style: theme.textTheme.titleMedium?.copyWith(
-                                color: Colors.grey.shade600,
-                              ),
-                            ),
-                          ],
+                ? Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          Icons.store_outlined,
+                          size: 64,
+                          color: Colors.grey.shade400,
                         ),
-                      )
-                    : RefreshIndicator(
-                        onRefresh: _loadOffices,
-                        child: ListView.builder(
-                          padding: const EdgeInsets.all(16),
-                          itemCount: _filteredOffices.length,
-                          itemBuilder: (context, index) {
-                            final office = _filteredOffices[index];
-                            return _buildOfficeCard(office);
-                          },
+                        const SizedBox(height: 16),
+                        Text(
+                          isAr ? 'لا توجد مكاتب' : 'No offices found',
+                          style: theme.textTheme.titleMedium?.copyWith(
+                            color: Colors.grey.shade600,
+                          ),
                         ),
-                      ),
+                      ],
+                    ),
+                  )
+                : RefreshIndicator(
+                    onRefresh: _loadOffices,
+                    child: ListView.builder(
+                      padding: const EdgeInsets.all(16),
+                      itemCount: _filteredOffices.length,
+                      itemBuilder: (context, index) {
+                        final office = _filteredOffices[index];
+                        return _buildOfficeCard(office);
+                      },
+                    ),
+                  ),
           ),
         ],
       ),
@@ -334,7 +353,9 @@ class _OfficesScreenState extends State<OfficesScreen> {
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
         side: BorderSide(
-          color: (isActive ? AppColors.success : AppColors.error).withValues(alpha: 0.4),
+          color: (isActive ? AppColors.success : AppColors.error).withValues(
+            alpha: 0.4,
+          ),
           width: 2,
         ),
       ),
@@ -350,8 +371,9 @@ class _OfficesScreenState extends State<OfficesScreen> {
               Row(
                 children: [
                   CircleAvatar(
-                    backgroundColor: (isActive ? AppColors.success : AppColors.error)
-                        .withValues(alpha: 0.12),
+                    backgroundColor:
+                        (isActive ? AppColors.success : AppColors.error)
+                            .withValues(alpha: 0.12),
                     child: Icon(
                       Icons.store,
                       color: isActive ? AppColors.success : AppColors.error,
@@ -401,29 +423,32 @@ class _OfficesScreenState extends State<OfficesScreen> {
                 ],
               ),
               const SizedBox(height: 12),
-              
+
               // التفاصيل
-              if (office['contact_person'] != null && office['contact_person'].toString().isNotEmpty)
+              if (office['contact_person'] != null &&
+                  office['contact_person'].toString().isNotEmpty)
                 _buildInfoRow(
                   Icons.person,
                   isAr ? 'المسؤول' : 'Contact',
                   office['contact_person'],
                 ),
-              if (office['phone'] != null && office['phone'].toString().isNotEmpty)
+              if (office['phone'] != null &&
+                  office['phone'].toString().isNotEmpty)
                 _buildInfoRow(
                   Icons.phone,
                   isAr ? 'الهاتف' : 'Phone',
                   office['phone'],
                 ),
-              if (office['city'] != null && office['city'].toString().isNotEmpty)
+              if (office['city'] != null &&
+                  office['city'].toString().isNotEmpty)
                 _buildInfoRow(
                   Icons.location_on,
                   isAr ? 'المدينة' : 'City',
                   office['city'],
                 ),
-              
+
               const Divider(height: 24),
-              
+
               // الأرصدة
               Row(
                 children: [
@@ -445,7 +470,7 @@ class _OfficesScreenState extends State<OfficesScreen> {
                 ],
               ),
               const SizedBox(height: 12),
-              
+
               // الأزرار
               Row(
                 mainAxisAlignment: MainAxisAlignment.end,
@@ -474,8 +499,9 @@ class _OfficesScreenState extends State<OfficesScreen> {
                           : (isAr ? 'تفعيل' : 'Activate'),
                     ),
                     style: TextButton.styleFrom(
-                      foregroundColor:
-                          isActive ? AppColors.error : AppColors.success,
+                      foregroundColor: isActive
+                          ? AppColors.error
+                          : AppColors.success,
                     ),
                   ),
                 ],
@@ -496,10 +522,7 @@ class _OfficesScreenState extends State<OfficesScreen> {
           const SizedBox(width: 8),
           Text(
             '$label: ',
-            style: TextStyle(
-              color: Colors.grey.shade600,
-              fontSize: 13,
-            ),
+            style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
           ),
           Expanded(
             child: Text(

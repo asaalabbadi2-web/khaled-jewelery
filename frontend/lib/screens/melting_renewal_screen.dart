@@ -188,10 +188,7 @@ class _RenewalTabState extends State<_RenewalTab> {
               widget.isArabic
                   ? 'سيتم إضافة القطع للمخزون كأصناف جديدة للبيع'
                   : 'Items will be added to inventory for sale',
-              style: const TextStyle(
-                fontSize: 12,
-                fontStyle: FontStyle.italic,
-              ),
+              style: const TextStyle(fontSize: 12, fontStyle: FontStyle.italic),
             ),
           ],
         ),
@@ -224,7 +221,7 @@ class _RenewalTabState extends State<_RenewalTab> {
             : _notesController.text.trim(),
       };
 
-  debugPrint('Renewal payload: $payload');
+      debugPrint('Renewal payload: $payload');
 
       // TODO: استدعاء API
       // await widget.api.createMeltingRenewal(payload);
@@ -279,10 +276,7 @@ class _RenewalTabState extends State<_RenewalTab> {
                       isAr
                           ? 'تجديد القطع المستعملة النظيفة المشتراة من العملاء لإعادة عرضها وبيعها'
                           : 'Renew clean used items purchased from customers for resale',
-                      style: TextStyle(
-                        color: Colors.blue[900],
-                        fontSize: 13,
-                      ),
+                      style: TextStyle(color: Colors.blue[900], fontSize: 13),
                     ),
                   ),
                 ],
@@ -297,7 +291,7 @@ class _RenewalTabState extends State<_RenewalTab> {
             child: Padding(
               padding: const EdgeInsets.all(16),
               child: DropdownButtonFormField<int>(
-                value: _selectedCustomerId,
+                initialValue: _selectedCustomerId,
                 decoration: InputDecoration(
                   labelText: isAr ? 'العميل البائع' : 'Seller Customer',
                   prefixIcon: const Icon(Icons.person),
@@ -361,13 +355,16 @@ class _RenewalTabState extends State<_RenewalTab> {
                       shrinkWrap: true,
                       physics: const NeverScrollableScrollPhysics(),
                       itemCount: _items.length,
-                      separatorBuilder: (_, __) => const Divider(),
+                      separatorBuilder: (context, index) => const Divider(),
                       itemBuilder: (context, index) {
                         final item = _items[index];
                         return ListTile(
                           leading: CircleAvatar(
                             backgroundColor: Colors.amber[100],
-                            child: const Icon(Icons.diamond, color: Colors.amber),
+                            child: const Icon(
+                              Icons.diamond,
+                              color: Colors.amber,
+                            ),
                           ),
                           title: Text(item.description),
                           subtitle: Text(
@@ -548,8 +545,10 @@ class _MeltingTabState extends State<_MeltingTab> {
     setState(() => _selectedItems.removeAt(index));
   }
 
-  double get _totalWeight =>
-      _selectedItems.fold(0.0, (sum, item) => sum + (item.weight * item.quantity));
+  double get _totalWeight => _selectedItems.fold(
+    0.0,
+    (sum, item) => sum + (item.weight * item.quantity),
+  );
 
   Future<void> _submitMelting() async {
     if (!_formKey.currentState!.validate()) return;
@@ -628,7 +627,7 @@ class _MeltingTabState extends State<_MeltingTab> {
             : _notesController.text.trim(),
       };
 
-  debugPrint('Melting payload: $payload');
+      debugPrint('Melting payload: $payload');
 
       // TODO: استدعاء API
       // await widget.api.createMeltingRenewal(payload);
@@ -683,10 +682,7 @@ class _MeltingTabState extends State<_MeltingTab> {
                       isAr
                           ? 'تكسير القطع الراكدة في المخزون ونقلها إلى صندوق الكسر'
                           : 'Melt stagnant inventory items and transfer to melting box',
-                      style: TextStyle(
-                        color: Colors.orange[900],
-                        fontSize: 13,
-                      ),
+                      style: TextStyle(color: Colors.orange[900], fontSize: 13),
                     ),
                   ),
                 ],
@@ -733,13 +729,16 @@ class _MeltingTabState extends State<_MeltingTab> {
                       shrinkWrap: true,
                       physics: const NeverScrollableScrollPhysics(),
                       itemCount: _selectedItems.length,
-                      separatorBuilder: (_, __) => const Divider(),
+                      separatorBuilder: (context, index) => const Divider(),
                       itemBuilder: (context, index) {
                         final item = _selectedItems[index];
                         return ListTile(
                           leading: CircleAvatar(
                             backgroundColor: Colors.red[100],
-                            child: const Icon(Icons.delete_forever, color: Colors.red),
+                            child: const Icon(
+                              Icons.delete_forever,
+                              color: Colors.red,
+                            ),
                           ),
                           title: Text(item.name),
                           subtitle: Text(
@@ -766,7 +765,10 @@ class _MeltingTabState extends State<_MeltingTab> {
                                 },
                               ),
                               IconButton(
-                                icon: const Icon(Icons.delete, color: Colors.red),
+                                icon: const Icon(
+                                  Icons.delete,
+                                  color: Colors.red,
+                                ),
                                 onPressed: () => _removeItem(index),
                               ),
                             ],
@@ -1006,7 +1008,7 @@ class _RenewalItemDialogState extends State<_RenewalItemDialog> {
               ),
               const SizedBox(height: 12),
               DropdownButtonFormField<int>(
-                value: _selectedKarat,
+                initialValue: _selectedKarat,
                 decoration: InputDecoration(
                   labelText: isAr ? 'العيار' : 'Karat',
                 ),
@@ -1024,7 +1026,9 @@ class _RenewalItemDialogState extends State<_RenewalItemDialog> {
               TextFormField(
                 controller: _purchaseValueController,
                 decoration: InputDecoration(
-                  labelText: isAr ? 'سعر الشراء (ريال)' : 'Purchase Price (SAR)',
+                  labelText: isAr
+                      ? 'سعر الشراء (ريال)'
+                      : 'Purchase Price (SAR)',
                 ),
                 keyboardType: TextInputType.number,
                 inputFormatters: [NormalizeNumberFormatter()],
@@ -1047,10 +1051,7 @@ class _RenewalItemDialogState extends State<_RenewalItemDialog> {
           onPressed: () => Navigator.pop(context),
           child: Text(isAr ? 'إلغاء' : 'Cancel'),
         ),
-        FilledButton(
-          onPressed: _submit,
-          child: Text(isAr ? 'إضافة' : 'Add'),
-        ),
+        FilledButton(onPressed: _submit, child: Text(isAr ? 'إضافة' : 'Add')),
       ],
     );
   }

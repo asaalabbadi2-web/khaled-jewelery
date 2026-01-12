@@ -17,7 +17,8 @@ class BonusPayablesReportScreen extends StatefulWidget {
   });
 
   @override
-  State<BonusPayablesReportScreen> createState() => _BonusPayablesReportScreenState();
+  State<BonusPayablesReportScreen> createState() =>
+      _BonusPayablesReportScreenState();
 }
 
 class _BonusPayablesReportScreenState extends State<BonusPayablesReportScreen> {
@@ -103,8 +104,9 @@ class _BonusPayablesReportScreenState extends State<BonusPayablesReportScreen> {
           .map((item) => Map<String, dynamic>.from(item))
           .toList()
         ..sort(
-          (a, b) => (b['total_amount'] as num? ?? 0)
-              .compareTo(a['total_amount'] as num? ?? 0),
+          (a, b) => (b['total_amount'] as num? ?? 0).compareTo(
+            a['total_amount'] as num? ?? 0,
+          ),
         );
     }
     return [];
@@ -125,7 +127,9 @@ class _BonusPayablesReportScreenState extends State<BonusPayablesReportScreen> {
       textDirection: isArabic ? TextDirection.rtl : TextDirection.ltr,
       child: Scaffold(
         appBar: AppBar(
-          title: Text(isArabic ? 'تقرير مستحقات المكافآت' : 'Bonus Payables Report'),
+          title: Text(
+            isArabic ? 'تقرير مستحقات المكافآت' : 'Bonus Payables Report',
+          ),
           actions: [
             IconButton(
               icon: const Icon(Icons.refresh),
@@ -138,8 +142,8 @@ class _BonusPayablesReportScreenState extends State<BonusPayablesReportScreen> {
           child: _isLoading
               ? const Center(child: CircularProgressIndicator())
               : _error != null
-                  ? _buildErrorState(isArabic)
-                  : _buildContent(isArabic),
+              ? _buildErrorState(isArabic)
+              : _buildContent(isArabic),
         ),
       ),
     );
@@ -205,18 +209,26 @@ class _BonusPayablesReportScreenState extends State<BonusPayablesReportScreen> {
       child: Padding(
         padding: const EdgeInsets.all(20),
         child: Column(
-          crossAxisAlignment: isArabic ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+          crossAxisAlignment: isArabic
+              ? CrossAxisAlignment.end
+              : CrossAxisAlignment.start,
           children: [
             Row(
               children: [
-                Icon(Icons.savings, color: Theme.of(context).colorScheme.primary),
+                Icon(
+                  Icons.savings,
+                  color: Theme.of(context).colorScheme.primary,
+                ),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Text(
                     isArabic
                         ? 'إجمالي المكافآت الموافق عليها وغير المدفوعة'
                         : 'Total approved & unpaid bonuses',
-                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16,
+                    ),
                   ),
                 ),
               ],
@@ -224,22 +236,23 @@ class _BonusPayablesReportScreenState extends State<BonusPayablesReportScreen> {
             const SizedBox(height: 16),
             Text(
               _formatCurrency(totalUnpaid),
-              style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
+              style: Theme.of(
+                context,
+              ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 16),
             if (accountInfo != null)
               DecoratedBox(
                 decoration: BoxDecoration(
-                  color: Theme.of(context).colorScheme.surfaceVariant,
+                  color: Theme.of(context).colorScheme.surfaceContainerHighest,
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Padding(
                   padding: const EdgeInsets.all(12),
                   child: Column(
-                    crossAxisAlignment:
-                        isArabic ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+                    crossAxisAlignment: isArabic
+                        ? CrossAxisAlignment.end
+                        : CrossAxisAlignment.start,
                     children: [
                       Text(
                         isArabic
@@ -251,7 +264,9 @@ class _BonusPayablesReportScreenState extends State<BonusPayablesReportScreen> {
                       Row(
                         children: [
                           Icon(
-                            matches == true ? Icons.verified : Icons.info_outline,
+                            matches == true
+                                ? Icons.verified
+                                : Icons.info_outline,
                             color: matches == false
                                 ? Colors.orange
                                 : Theme.of(context).colorScheme.primary,
@@ -270,11 +285,11 @@ class _BonusPayablesReportScreenState extends State<BonusPayablesReportScreen> {
                       Text(
                         matches == true
                             ? (isArabic
-                                ? '✅ الرصيد مطابق لإجمالي المستحقات'
-                                : '✅ Balance matches total payables')
+                                  ? '✅ الرصيد مطابق لإجمالي المستحقات'
+                                  : '✅ Balance matches total payables')
                             : (isArabic
-                                ? '⚠️ يوجد فرق يحتاج تحقق'
-                                : '⚠️ Detected variance – please review'),
+                                  ? '⚠️ يوجد فرق يحتاج تحقق'
+                                  : '⚠️ Detected variance – please review'),
                         style: TextStyle(
                           color: matches == true ? Colors.green : Colors.orange,
                           fontWeight: FontWeight.w600,
@@ -296,10 +311,9 @@ class _BonusPayablesReportScreenState extends State<BonusPayablesReportScreen> {
               isArabic
                   ? 'هذا التقرير يعتمد على المكافآت بالحالة "approved" ولم يتم دفعها بعد.'
                   : 'This report lists bonuses with status "approved" that are still unpaid.',
-              style: Theme.of(context)
-                  .textTheme
-                  .bodyMedium
-                  ?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
             ),
           ],
         ),
@@ -312,7 +326,9 @@ class _BonusPayablesReportScreenState extends State<BonusPayablesReportScreen> {
     if (summary.isEmpty) {
       return _buildEmptyState(
         icon: Icons.pie_chart_outline,
-        message: isArabic ? 'لا توجد بيانات حالة متاحة' : 'No status data available',
+        message: isArabic
+            ? 'لا توجد بيانات حالة متاحة'
+            : 'No status data available',
       );
     }
 
@@ -336,18 +352,16 @@ class _BonusPayablesReportScreenState extends State<BonusPayablesReportScreen> {
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
-          crossAxisAlignment: isArabic ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+          crossAxisAlignment: isArabic
+              ? CrossAxisAlignment.end
+              : CrossAxisAlignment.start,
           children: [
             Text(
               isArabic ? 'توزيع حسب الحالة' : 'Status distribution',
               style: const TextStyle(fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 12),
-            Wrap(
-              spacing: 12,
-              runSpacing: 12,
-              children: chips,
-            ),
+            Wrap(spacing: 12, runSpacing: 12, children: chips),
           ],
         ),
       ),
@@ -370,7 +384,9 @@ class _BonusPayablesReportScreenState extends State<BonusPayablesReportScreen> {
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
-          crossAxisAlignment: isArabic ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+          crossAxisAlignment: isArabic
+              ? CrossAxisAlignment.end
+              : CrossAxisAlignment.start,
           children: [
             Text(
               isArabic ? 'تفاصيل حسب الموظف' : 'Per-employee details',
@@ -389,11 +405,15 @@ class _BonusPayablesReportScreenState extends State<BonusPayablesReportScreen> {
                   ListTile(
                     contentPadding: EdgeInsets.zero,
                     leading: CircleAvatar(
-                      backgroundColor: Theme.of(context).colorScheme.primaryContainer,
+                      backgroundColor: Theme.of(
+                        context,
+                      ).colorScheme.primaryContainer,
                       child: Text(
                         _employeeInitial(employee['employee_name']),
                         style: TextStyle(
-                          color: Theme.of(context).colorScheme.onPrimaryContainer,
+                          color: Theme.of(
+                            context,
+                          ).colorScheme.onPrimaryContainer,
                           fontWeight: FontWeight.bold,
                         ),
                       ),
@@ -408,8 +428,7 @@ class _BonusPayablesReportScreenState extends State<BonusPayablesReportScreen> {
                       style: const TextStyle(fontWeight: FontWeight.bold),
                     ),
                   ),
-                  if (employee != employees.last)
-                    const Divider(height: 8),
+                  if (employee != employees.last) const Divider(height: 8),
                 ],
               );
             }),
@@ -484,14 +503,17 @@ class _StatusChip extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(14),
-        color: Theme.of(context).colorScheme.surfaceVariant,
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
       ),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           Text(label, style: const TextStyle(fontWeight: FontWeight.w600)),
           const SizedBox(height: 6),
-          Text('$count', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+          Text(
+            '$count',
+            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+          ),
           const SizedBox(height: 4),
           Text(totalFormatted, style: const TextStyle(color: Colors.grey)),
         ],

@@ -268,10 +268,7 @@ class _PrintingCenterScreenState extends State<PrintingCenterScreen> {
       'descriptionEn': 'Payment vouchers + supplier statement',
       'etaAr': '90 ثانية',
       'etaEn': '90 seconds',
-      'actions': [
-        'print_payment_voucher',
-        'print_supplier_statement',
-      ],
+      'actions': ['print_payment_voucher', 'print_supplier_statement'],
     },
     {
       'titleAr': 'باركود وتجهيز معروضات',
@@ -293,7 +290,6 @@ class _PrintingCenterScreenState extends State<PrintingCenterScreen> {
     super.initState();
     _initializeSettings();
   }
-
 
   @override
   void dispose() {
@@ -468,19 +464,18 @@ class _PrintingCenterScreenState extends State<PrintingCenterScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            isArabic
-                ? 'لوحة تحكم الطباعة الذهبية'
-                : 'Gold printing control hub',
-            style: theme.textTheme.headlineMedium
-                ?.copyWith(color: Colors.white, fontWeight: FontWeight.bold),
+            isArabic ? 'مركز الطباعة' : 'Gold printing control hub',
+            style: theme.textTheme.headlineMedium?.copyWith(
+              color: Colors.white,
+              fontWeight: FontWeight.bold,
+            ),
           ),
           const SizedBox(height: 8),
           Text(
             isArabic
                 ? 'إدارة احترافية لكل الفواتير والتقارير والباركود من مكان واحد'
                 : 'Manage invoices, vouchers, reports, and barcodes in one place.',
-            style:
-                theme.textTheme.bodyLarge?.copyWith(color: Colors.white70),
+            style: theme.textTheme.bodyLarge?.copyWith(color: Colors.white70),
           ),
           const SizedBox(height: 20),
           TextField(
@@ -537,9 +532,7 @@ class _PrintingCenterScreenState extends State<PrintingCenterScreen> {
               spacing: 12,
               runSpacing: 12,
               children: _workflowSteps
-                  .map(
-                    (step) => _buildWorkflowStepCard(step, theme, isArabic),
-                  )
+                  .map((step) => _buildWorkflowStepCard(step, theme, isArabic))
                   .toList(),
             ),
           ],
@@ -560,8 +553,8 @@ class _PrintingCenterScreenState extends State<PrintingCenterScreen> {
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: color.withOpacity(0.35)),
-        color: color.withOpacity(0.08),
+        border: Border.all(color: color.withValues(alpha: 0.35)),
+        color: color.withValues(alpha: 0.08),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -569,15 +562,17 @@ class _PrintingCenterScreenState extends State<PrintingCenterScreen> {
           Row(
             children: [
               CircleAvatar(
-                backgroundColor: color.withOpacity(0.15),
+                backgroundColor: color.withValues(alpha: 0.15),
                 child: Icon(step['icon'] as IconData, color: color),
               ),
               const SizedBox(width: 12),
               Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 4,
+                ),
                 decoration: BoxDecoration(
-                  color: color.withOpacity(0.15),
+                  color: color.withValues(alpha: 0.15),
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: Text(
@@ -594,8 +589,9 @@ class _PrintingCenterScreenState extends State<PrintingCenterScreen> {
           const SizedBox(height: 16),
           Text(
             isArabic ? step['titleAr'] as String : step['titleEn'] as String,
-            style: theme.textTheme.titleMedium
-                ?.copyWith(fontWeight: FontWeight.bold),
+            style: theme.textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.bold,
+            ),
           ),
           const SizedBox(height: 6),
           Text(
@@ -650,9 +646,7 @@ class _PrintingCenterScreenState extends State<PrintingCenterScreen> {
             ],
           );
         }
-        return Column(
-          children: children,
-        );
+        return Column(children: children);
       },
     );
   }
@@ -721,55 +715,67 @@ class _PrintingCenterScreenState extends State<PrintingCenterScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-          Row(
-            children: [
-              CircleAvatar(
-                backgroundColor: theme.colorScheme.primary.withOpacity(0.12),
-                child: Icon(_getCategoryIcon(job['category'] as String)),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      isArabic ? job['titleAr'] as String : job['titleEn'] as String,
-                      style: const TextStyle(fontWeight: FontWeight.w700),
-                    ),
-                    Text(isArabic ? job['etaAr'] as String : job['etaEn'] as String,
-                        style: theme.textTheme.bodySmall),
-                  ],
+            Row(
+              children: [
+                CircleAvatar(
+                  backgroundColor: theme.colorScheme.primary.withValues(
+                    alpha: 0.12,
+                  ),
+                  child: Icon(_getCategoryIcon(job['category'] as String)),
                 ),
-              ),
-              IconButton(
-                tooltip: isArabic ? 'تخطي' : 'Skip',
-                onPressed: () => _skipQueueJob(job['id'] as String),
-                icon: const Icon(Icons.skip_next),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          LinearProgressIndicator(value: progress.clamp(0.0, 1.0)),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              Chip(
-                avatar: const Icon(Icons.label, size: 16),
-                label: Text(_workflowStatusLabel(status, isArabic)),
-              ),
-              const SizedBox(width: 8),
-              Text(job['id'] as String,
-                  style: theme.textTheme.bodySmall?.copyWith(color: Colors.grey)),
-              const Spacer(),
-              IconButton(
-                tooltip: isArabic ? 'إعادة المحاولة' : 'Retry',
-                onPressed: status == 'failed'
-                    ? () => _retryQueueJob(job['id'] as String)
-                    : null,
-                icon: const Icon(Icons.refresh),
-              ),
-            ],
-          ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        isArabic
+                            ? job['titleAr'] as String
+                            : job['titleEn'] as String,
+                        style: const TextStyle(fontWeight: FontWeight.w700),
+                      ),
+                      Text(
+                        isArabic
+                            ? job['etaAr'] as String
+                            : job['etaEn'] as String,
+                        style: theme.textTheme.bodySmall,
+                      ),
+                    ],
+                  ),
+                ),
+                IconButton(
+                  tooltip: isArabic ? 'تخطي' : 'Skip',
+                  onPressed: () => _skipQueueJob(job['id'] as String),
+                  icon: const Icon(Icons.skip_next),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            LinearProgressIndicator(value: progress.clamp(0.0, 1.0)),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Chip(
+                  avatar: const Icon(Icons.label, size: 16),
+                  label: Text(_workflowStatusLabel(status, isArabic)),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  job['id'] as String,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: Colors.grey,
+                  ),
+                ),
+                const Spacer(),
+                IconButton(
+                  tooltip: isArabic ? 'إعادة المحاولة' : 'Retry',
+                  onPressed: status == 'failed'
+                      ? () => _retryQueueJob(job['id'] as String)
+                      : null,
+                  icon: const Icon(Icons.refresh),
+                ),
+              ],
+            ),
           ],
         ),
       ),
@@ -787,16 +793,17 @@ class _PrintingCenterScreenState extends State<PrintingCenterScreen> {
           children: [
             _buildSectionTitle(
               icon: Icons.visibility,
-              title: isArabic
-                  ? 'معاينة فورية'
-                  : 'Instant preview',
+              title: isArabic ? 'معاينة فورية' : 'Instant preview',
             ),
             const SizedBox(height: 12),
             if (previewAction == null)
               Column(
                 children: [
-                  const Icon(Icons.picture_as_pdf,
-                      size: 72, color: Colors.grey),
+                  const Icon(
+                    Icons.picture_as_pdf,
+                    size: 72,
+                    color: Colors.grey,
+                  ),
                   const SizedBox(height: 8),
                   Text(
                     isArabic
@@ -824,7 +831,7 @@ class _PrintingCenterScreenState extends State<PrintingCenterScreen> {
                     height: 220,
                     decoration: BoxDecoration(
                       borderRadius: BorderRadius.circular(16),
-                      color: Colors.black.withOpacity(0.04),
+                      color: Colors.black.withValues(alpha: 0.04),
                     ),
                     child: const Center(
                       child: Icon(Icons.picture_as_pdf, size: 84),
@@ -835,11 +842,10 @@ class _PrintingCenterScreenState extends State<PrintingCenterScreen> {
                     children: [
                       Expanded(
                         child: OutlinedButton.icon(
-                          onPressed: () => _handleAction(
-                              previewAction['action'] as String),
+                          onPressed: () =>
+                              _handleAction(previewAction['action'] as String),
                           icon: const Icon(Icons.open_in_new),
-                          label:
-                              Text(isArabic ? 'فتح الشاشة' : 'Open screen'),
+                          label: Text(isArabic ? 'فتح الشاشة' : 'Open screen'),
                         ),
                       ),
                       const SizedBox(width: 12),
@@ -896,13 +902,17 @@ class _PrintingCenterScreenState extends State<PrintingCenterScreen> {
                 final selected = _batchSelection.contains(action);
                 return FilterChip(
                   selected: selected,
-                  label: Text(isArabic
-                      ? option['titleAr'] as String
-                      : option['titleEn'] as String),
-                  avatar: Icon(option['icon'] as IconData,
-                      color: selected
-                          ? theme.colorScheme.onPrimary
-                          : option['color'] as Color),
+                  label: Text(
+                    isArabic
+                        ? option['titleAr'] as String
+                        : option['titleEn'] as String,
+                  ),
+                  avatar: Icon(
+                    option['icon'] as IconData,
+                    color: selected
+                        ? theme.colorScheme.onPrimary
+                        : option['color'] as Color,
+                  ),
                   onSelected: (_) => _toggleBatchAction(action),
                 );
               }).toList(),
@@ -911,8 +921,9 @@ class _PrintingCenterScreenState extends State<PrintingCenterScreen> {
               const Divider(height: 32),
               Text(
                 isArabic ? 'اقتراحات جاهزة' : 'Ready-made bundles',
-                style:
-                    theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+                style: theme.textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.bold,
+                ),
               ),
               const SizedBox(height: 12),
               SingleChildScrollView(
@@ -937,13 +948,15 @@ class _PrintingCenterScreenState extends State<PrintingCenterScreen> {
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(18),
-        color: Colors.black.withOpacity(0.03),
+        color: Colors.black.withValues(alpha: 0.03),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            isArabic ? bundle['titleAr'] as String : bundle['titleEn'] as String,
+            isArabic
+                ? bundle['titleAr'] as String
+                : bundle['titleEn'] as String,
             style: const TextStyle(fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 6),
@@ -958,16 +971,19 @@ class _PrintingCenterScreenState extends State<PrintingCenterScreen> {
             spacing: 6,
             runSpacing: 6,
             children: (bundle['actions'] as List<String>)
-                .map((action) => Chip(
-                      label: Text(action.replaceAll('print_', '')),
-                    ))
+                .map(
+                  (action) =>
+                      Chip(label: Text(action.replaceAll('print_', ''))),
+                )
                 .toList(),
           ),
           const SizedBox(height: 8),
           Row(
             children: [
               Text(
-                isArabic ? bundle['etaAr'] as String : bundle['etaEn'] as String,
+                isArabic
+                    ? bundle['etaAr'] as String
+                    : bundle['etaEn'] as String,
                 style: const TextStyle(fontWeight: FontWeight.w600),
               ),
               const Spacer(),
@@ -1001,9 +1017,11 @@ class _PrintingCenterScreenState extends State<PrintingCenterScreen> {
             const SizedBox(height: 12),
             SwitchListTile(
               title: Text(isArabic ? 'جدولة البريد' : 'Schedule emails'),
-              subtitle: Text(isArabic
-                  ? 'إرسال نسخة PDF تلقائياً بعد اكتمال الطباعة'
-                  : 'Email PDFs automatically after printing'),
+              subtitle: Text(
+                isArabic
+                    ? 'إرسال نسخة PDF تلقائياً بعد اكتمال الطباعة'
+                    : 'Email PDFs automatically after printing',
+              ),
               value: _autoScheduleEmailsAutomation,
               onChanged: (value) => setState(() {
                 _autoScheduleEmailsAutomation = value;
@@ -1011,9 +1029,11 @@ class _PrintingCenterScreenState extends State<PrintingCenterScreen> {
             ),
             SwitchListTile(
               title: Text(isArabic ? 'أرشفة سحابية' : 'Cloud archiving'),
-              subtitle: Text(isArabic
-                  ? 'حفظ نسخة في مجلد الأرشيف الذهبي'
-                  : 'Archive a copy in the gold vault folder'),
+              subtitle: Text(
+                isArabic
+                    ? 'حفظ نسخة في مجلد الأرشيف الذهبي'
+                    : 'Archive a copy in the gold vault folder',
+              ),
               value: _autoArchivePdfCopies,
               onChanged: (value) => setState(() {
                 _autoArchivePdfCopies = value;
@@ -1021,9 +1041,11 @@ class _PrintingCenterScreenState extends State<PrintingCenterScreen> {
             ),
             SwitchListTile(
               title: Text(isArabic ? 'إعادة المحاولة الذكية' : 'Smart retries'),
-              subtitle: Text(isArabic
-                  ? 'إعادة المحاولة تلقائياً عند فشل الطباعة'
-                  : 'Automatically retry failed print jobs'),
+              subtitle: Text(
+                isArabic
+                    ? 'إعادة المحاولة تلقائياً عند فشل الطباعة'
+                    : 'Automatically retry failed print jobs',
+              ),
               value: _smartRetryOnFailure,
               onChanged: (value) => setState(() {
                 _smartRetryOnFailure = value;
@@ -1031,9 +1053,11 @@ class _PrintingCenterScreenState extends State<PrintingCenterScreen> {
             ),
             SwitchListTile(
               title: Text(isArabic ? 'تنبيه واتساب' : 'WhatsApp alert'),
-              subtitle: Text(isArabic
-                  ? 'إرسال إشعار مختصر إلى المسؤول'
-                  : 'Send a quick WhatsApp update to admins'),
+              subtitle: Text(
+                isArabic
+                    ? 'إرسال إشعار مختصر إلى المسؤول'
+                    : 'Send a quick WhatsApp update to admins',
+              ),
               value: _notifyOnWhatsapp,
               onChanged: (value) => setState(() {
                 _notifyOnWhatsapp = value;
@@ -1069,9 +1093,9 @@ class _PrintingCenterScreenState extends State<PrintingCenterScreen> {
   void _runBatch(bool isArabic) {
     if (_batchSelection.isEmpty) return;
     final count = _batchSelection.length;
-    _showSnack(isArabic
-        ? 'جارٍ تجهيز $count وثيقة'
-        : 'Preparing $count documents');
+    _showSnack(
+      isArabic ? 'جارٍ تجهيز $count وثيقة' : 'Preparing $count documents',
+    );
   }
 
   void _handlePrintQueue(bool isArabic) {
@@ -1080,9 +1104,11 @@ class _PrintingCenterScreenState extends State<PrintingCenterScreen> {
     setState(() {
       _selectedPreviewAction = current;
     });
-    _showSnack(isArabic
-        ? 'تم تفعيل ${current['titleAr']}'
-        : 'Activated ${current['titleEn']}');
+    _showSnack(
+      isArabic
+          ? 'تم تفعيل ${current['titleAr']}'
+          : 'Activated ${current['titleEn']}',
+    );
   }
 
   Map<String, dynamic>? _findPrintOptionByAction(String action) {
@@ -1218,9 +1244,7 @@ class _PrintingCenterScreenState extends State<PrintingCenterScreen> {
     );
 
     try {
-      await Navigator.of(context).push(
-        MaterialPageRoute(builder: builder),
-      );
+      await Navigator.of(context).push(MaterialPageRoute(builder: builder));
     } finally {
       if (!mounted) return;
       _markQueueJobCompleted(jobId);
@@ -1233,8 +1257,9 @@ class _PrintingCenterScreenState extends State<PrintingCenterScreen> {
           _selectedPreviewAction != null && _selectedPreviewAction?['id'] == id;
       _printQueue.removeWhere((job) => job['id'] == id);
       if (removedSelected) {
-        _selectedPreviewAction =
-            _printQueue.isNotEmpty ? _printQueue.first : null;
+        _selectedPreviewAction = _printQueue.isNotEmpty
+            ? _printQueue.first
+            : null;
       }
     });
   }
@@ -1254,9 +1279,11 @@ class _PrintingCenterScreenState extends State<PrintingCenterScreen> {
   }
 
   void _dispatchPreview(Map<String, dynamic> previewAction) {
-    _showSnack(widget.isArabic
-        ? 'تم إرسال ${previewAction['titleAr']}'
-        : '${previewAction['titleEn']} dispatched');
+    _showSnack(
+      widget.isArabic
+          ? 'تم إرسال ${previewAction['titleAr']}'
+          : '${previewAction['titleEn']} dispatched',
+    );
   }
 
   Widget _buildKpiSection(ThemeData theme, bool isArabic) {
@@ -1265,7 +1292,7 @@ class _PrintingCenterScreenState extends State<PrintingCenterScreen> {
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         itemCount: _kpiCards.length,
-  separatorBuilder: (context, index) => const SizedBox(width: 16),
+        separatorBuilder: (context, index) => const SizedBox(width: 16),
         itemBuilder: (context, index) {
           final kpi = _kpiCards[index];
           return Container(
@@ -1276,7 +1303,7 @@ class _PrintingCenterScreenState extends State<PrintingCenterScreen> {
               borderRadius: BorderRadius.circular(20),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withOpacity(0.05),
+                  color: Colors.black.withValues(alpha: 0.05),
                   blurRadius: 10,
                   offset: const Offset(0, 8),
                 ),
@@ -1286,10 +1313,13 @@ class _PrintingCenterScreenState extends State<PrintingCenterScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 CircleAvatar(
-                  backgroundColor:
-                      theme.colorScheme.primary.withOpacity(0.12),
-                  child: Icon(_getKpiIcon(kpi['icon']!),
-                      color: theme.colorScheme.primary),
+                  backgroundColor: theme.colorScheme.primary.withValues(
+                    alpha: 0.12,
+                  ),
+                  child: Icon(
+                    _getKpiIcon(kpi['icon']!),
+                    color: theme.colorScheme.primary,
+                  ),
                 ),
                 const SizedBox(height: 16),
                 Text(
@@ -1353,7 +1383,9 @@ class _PrintingCenterScreenState extends State<PrintingCenterScreen> {
               spacing: 12,
               runSpacing: 12,
               children: _quickActions.map((action) {
-                final label = isArabic ? action['titleAr'] as String : action['titleEn'] as String;
+                final label = isArabic
+                    ? action['titleAr'] as String
+                    : action['titleEn'] as String;
                 final icon = action['icon'] as IconData;
 
                 return Tooltip(
@@ -1365,7 +1397,7 @@ class _PrintingCenterScreenState extends State<PrintingCenterScreen> {
                         borderRadius: BorderRadius.circular(12),
                         boxShadow: [
                           BoxShadow(
-                            color: Colors.black.withOpacity(0.02),
+                            color: Colors.black.withValues(alpha: 0.02),
                             blurRadius: 8,
                             offset: const Offset(0, 2),
                           ),
@@ -1379,18 +1411,28 @@ class _PrintingCenterScreenState extends State<PrintingCenterScreen> {
                         ),
                         child: InkWell(
                           borderRadius: BorderRadius.circular(12),
-                          onTap: () => _handleQuickAction(action['action'] as String),
-                          overlayColor: MaterialStateProperty.resolveWith((states) {
-                            if (states.contains(MaterialState.pressed)) {
-                              return theme.colorScheme.primary.withOpacity(0.12);
-                            } else if (states.contains(MaterialState.hovered)) {
-                              return theme.colorScheme.primary.withOpacity(0.06);
+                          onTap: () =>
+                              _handleQuickAction(action['action'] as String),
+                          overlayColor: WidgetStateProperty.resolveWith((
+                            states,
+                          ) {
+                            if (states.contains(WidgetState.pressed)) {
+                              return theme.colorScheme.primary.withValues(
+                                alpha: 0.12,
+                              );
+                            } else if (states.contains(WidgetState.hovered)) {
+                              return theme.colorScheme.primary.withValues(
+                                alpha: 0.06,
+                              );
                             }
                             return null;
                           }),
                           child: Container(
                             constraints: const BoxConstraints(minHeight: 48),
-                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 14,
+                              vertical: 10,
+                            ),
                             child: Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
@@ -1398,9 +1440,14 @@ class _PrintingCenterScreenState extends State<PrintingCenterScreen> {
                                   padding: const EdgeInsets.all(8),
                                   decoration: BoxDecoration(
                                     shape: BoxShape.circle,
-                                    color: theme.colorScheme.primary.withOpacity(0.12),
+                                    color: theme.colorScheme.primary
+                                        .withValues(alpha: 0.12),
                                   ),
-                                  child: Icon(icon, color: theme.colorScheme.primary, size: 18),
+                                  child: Icon(
+                                    icon,
+                                    color: theme.colorScheme.primary,
+                                    size: 18,
+                                  ),
                                 ),
                                 const SizedBox(width: 10),
                                 Text(
@@ -1641,9 +1688,9 @@ class _PrintingCenterScreenState extends State<PrintingCenterScreen> {
   }
 
   Widget _buildFavoritesSection(ThemeData theme, bool isArabic) {
-    final options = _getPrintingOptions(isArabic)
-        .where((option) => _favoriteActions.contains(option['action']))
-        .toList();
+    final options = _getPrintingOptions(
+      isArabic,
+    ).where((option) => _favoriteActions.contains(option['action'])).toList();
 
     return Card(
       margin: EdgeInsets.zero,
@@ -1702,10 +1749,12 @@ class _PrintingCenterScreenState extends State<PrintingCenterScreen> {
         if (constraints.maxWidth < 900) {
           return Column(
             children: [
-              ...content.map((widget) => Padding(
-                    padding: const EdgeInsets.only(bottom: 16),
-                    child: widget,
-                  )),
+              ...content.map(
+                (widget) => Padding(
+                  padding: const EdgeInsets.only(bottom: 16),
+                  child: widget,
+                ),
+              ),
             ],
           );
         }
@@ -1739,13 +1788,16 @@ class _PrintingCenterScreenState extends State<PrintingCenterScreen> {
               return ListTile(
                 contentPadding: EdgeInsets.zero,
                 leading: CircleAvatar(
-                  backgroundColor:
-                      theme.colorScheme.primary.withOpacity(0.12),
+                  backgroundColor: theme.colorScheme.primary.withValues(
+                    alpha: 0.12,
+                  ),
                   child: const Icon(Icons.print_outlined),
                 ),
-                title: Text(isArabic
-                    ? printJob['titleAr'] as String
-                    : printJob['titleEn'] as String),
+                title: Text(
+                  isArabic
+                      ? printJob['titleAr'] as String
+                      : printJob['titleEn'] as String,
+                ),
                 subtitle: Text(printJob['date'] as String),
                 trailing: IconButton(
                   icon: const Icon(Icons.refresh),
@@ -1782,12 +1834,12 @@ class _PrintingCenterScreenState extends State<PrintingCenterScreen> {
                   borderRadius: BorderRadius.circular(16),
                 ),
                 child: ListTile(
-                  title: Text(isArabic
-                      ? reminder['titleAr']!
-                      : reminder['titleEn']!),
-                  subtitle: Text(isArabic
-                      ? reminder['timeAr']!
-                      : reminder['timeEn']!),
+                  title: Text(
+                    isArabic ? reminder['titleAr']! : reminder['titleEn']!,
+                  ),
+                  subtitle: Text(
+                    isArabic ? reminder['timeAr']! : reminder['timeEn']!,
+                  ),
                   trailing: IconButton(
                     icon: const Icon(Icons.play_circle_fill),
                     onPressed: () => _handleAction(action),
@@ -1830,8 +1882,7 @@ class _PrintingCenterScreenState extends State<PrintingCenterScreen> {
                     ),
                     child: InkWell(
                       borderRadius: BorderRadius.circular(18),
-                      onTap: () =>
-                          _handleTemplateShortcut(template, isArabic),
+                      onTap: () => _handleTemplateShortcut(template, isArabic),
                       child: Padding(
                         padding: const EdgeInsets.all(16),
                         child: Column(
@@ -1839,7 +1890,7 @@ class _PrintingCenterScreenState extends State<PrintingCenterScreen> {
                           children: [
                             CircleAvatar(
                               backgroundColor: theme.colorScheme.primary
-                                  .withOpacity(0.15),
+                                  .withValues(alpha: 0.15),
                               child: Icon(
                                 template['icon'] as IconData,
                                 color: theme.colorScheme.primary,
@@ -1901,10 +1952,7 @@ class _PrintingCenterScreenState extends State<PrintingCenterScreen> {
     );
   }
 
-  Widget _buildPrintOptionCard(
-    Map<String, dynamic> option,
-    bool isArabic,
-  ) {
+  Widget _buildPrintOptionCard(Map<String, dynamic> option, bool isArabic) {
     final bool available = option['available'] as bool? ?? true;
     final action = option['action'] as String;
     final isFavorite = _favoriteActions.contains(action);
@@ -1921,15 +1969,16 @@ class _PrintingCenterScreenState extends State<PrintingCenterScreen> {
               Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                    Container(
-                      decoration: BoxDecoration(
-                        color: (option['color'] as Color)
-                            .withOpacity(0.12),
+                  Container(
+                    decoration: BoxDecoration(
+                      color: (option['color'] as Color).withValues(alpha: 0.12),
                       borderRadius: BorderRadius.circular(12),
                     ),
                     padding: const EdgeInsets.all(10),
-                    child: Icon(option['icon'] as IconData,
-                        color: option['color'] as Color),
+                    child: Icon(
+                      option['icon'] as IconData,
+                      color: option['color'] as Color,
+                    ),
                   ),
                   const SizedBox(width: 12),
                   Expanded(
@@ -1956,8 +2005,9 @@ class _PrintingCenterScreenState extends State<PrintingCenterScreen> {
                   IconButton(
                     icon: Icon(
                       isFavorite ? Icons.star : Icons.star_border,
-                      color:
-                          isFavorite ? option['color'] as Color : Colors.grey,
+                      color: isFavorite
+                          ? option['color'] as Color
+                          : Colors.grey,
                     ),
                     onPressed: () => _toggleFavorite(action),
                   ),
@@ -1967,11 +2017,13 @@ class _PrintingCenterScreenState extends State<PrintingCenterScreen> {
               Wrap(
                 spacing: 6,
                 children: [
-          Chip(
-          label:
-            Text(_getCategoryLabel(option['category'], isArabic)),
-          backgroundColor: (option['color'] as Color)
-            .withOpacity(0.15),
+                  Chip(
+                    label: Text(
+                      _getCategoryLabel(option['category'], isArabic),
+                    ),
+                    backgroundColor: (option['color'] as Color).withValues(
+                      alpha: 0.15,
+                    ),
                   ),
                   if (!available)
                     const Chip(
@@ -2006,10 +2058,7 @@ class _PrintingCenterScreenState extends State<PrintingCenterScreen> {
         const SizedBox(width: 8),
         Text(
           title,
-          style: const TextStyle(
-            fontWeight: FontWeight.bold,
-            fontSize: 18,
-          ),
+          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
         ),
       ],
     );
@@ -2060,9 +2109,11 @@ class _PrintingCenterScreenState extends State<PrintingCenterScreen> {
     });
 
     await _persistSavedPresets();
-    _showSnack(widget.isArabic
-        ? 'تم حفظ الإعداد "$name" للاستخدام السريع'
-        : 'Preset "$name" saved for quick reuse');
+    _showSnack(
+      widget.isArabic
+          ? 'تم حفظ الإعداد "$name" للاستخدام السريع'
+          : 'Preset "$name" saved for quick reuse',
+    );
   }
 
   Future<void> _persistSavedPresets() async {
@@ -2080,21 +2131,24 @@ class _PrintingCenterScreenState extends State<PrintingCenterScreen> {
       _leftMargin = _valueAsDouble(data['leftMargin'], _leftMargin);
       _rightMargin = _valueAsDouble(data['rightMargin'], _rightMargin);
       _scaling = _valueAsDouble(data['scaling'], _scaling);
-      _includeWatermark = _valueAsBool(data['includeWatermark'], _includeWatermark);
+      _includeWatermark = _valueAsBool(
+        data['includeWatermark'],
+        _includeWatermark,
+      );
       _selectedWatermark =
           (data['selectedWatermark'] as String?) ?? _selectedWatermark;
-      _emailCustomerCopy =
-          _valueAsBool(data['emailCustomerCopy'], _emailCustomerCopy);
+      _emailCustomerCopy = _valueAsBool(
+        data['emailCustomerCopy'],
+        _emailCustomerCopy,
+      );
       _secureMode = _valueAsBool(data['secureMode'], _secureMode);
     });
-  _persistAllSettings();
-  final name = preset['name'] as String? ?? '';
-  final label = name.isEmpty
-    ? (widget.isArabic ? 'الإعداد المحدد' : 'Preset')
-    : '"$name"';
-  _showSnack(widget.isArabic
-    ? 'تم تطبيق $label'
-    : '$label applied');
+    _persistAllSettings();
+    final name = preset['name'] as String? ?? '';
+    final label = name.isEmpty
+        ? (widget.isArabic ? 'الإعداد المحدد' : 'Preset')
+        : '"$name"';
+    _showSnack(widget.isArabic ? 'تم تطبيق $label' : '$label applied');
   }
 
   Future<void> _deletePreset(String name) async {
@@ -2105,12 +2159,10 @@ class _PrintingCenterScreenState extends State<PrintingCenterScreen> {
       });
     });
     await _persistSavedPresets();
-  final label = name.isEmpty
-    ? (widget.isArabic ? 'الإعداد المحدد' : 'Preset')
-    : '"$name"';
-  _showSnack(widget.isArabic
-    ? 'تم حذف $label'
-    : '$label removed');
+    final label = name.isEmpty
+        ? (widget.isArabic ? 'الإعداد المحدد' : 'Preset')
+        : '"$name"';
+    _showSnack(widget.isArabic ? 'تم حذف $label' : '$label removed');
   }
 
   Future<void> _persistAllSettings() async {
@@ -2157,16 +2209,17 @@ class _PrintingCenterScreenState extends State<PrintingCenterScreen> {
     await _handleAction(action);
   }
 
-  void _handleTemplateShortcut(
-      Map<String, dynamic> shortcut, bool isArabic) {
+  void _handleTemplateShortcut(Map<String, dynamic> shortcut, bool isArabic) {
     switch (shortcut['route']) {
       case 'studio':
         _openTemplateStudio(isArabic: isArabic);
         break;
       default:
-        _showSnack(isArabic
-            ? 'سيتم إضافة الربط قريباً'
-            : 'Automation shortcut coming soon');
+        _showSnack(
+          isArabic
+              ? 'سيتم إضافة الربط قريباً'
+              : 'Automation shortcut coming soon',
+        );
     }
   }
 
@@ -2232,9 +2285,11 @@ class _PrintingCenterScreenState extends State<PrintingCenterScreen> {
                         onPressed: () {
                           final value = controller.text.trim();
                           if (value.isEmpty) {
-                            _showSnack(isArabic
-                                ? 'يرجى إدخال اسم الإعداد'
-                                : 'Please enter a preset name');
+                            _showSnack(
+                              isArabic
+                                  ? 'يرجى إدخال اسم الإعداد'
+                                  : 'Please enter a preset name',
+                            );
                             return;
                           }
                           Navigator.pop(context, value);
@@ -2272,184 +2327,193 @@ class _PrintingCenterScreenState extends State<PrintingCenterScreen> {
       case 'print_journal_entry':
         await _showJournalEntryPickerAndPrint();
         break;
-      case 'print_sales_report': {
-        final titles = _resolveActionTitles(
-          action,
-          fallbackAr: 'تقرير المبيعات',
-          fallbackEn: 'Sales report',
-        );
-        await _launchTrackedScreen(
-          action: action,
-          jobId: _generateJobId('RPT-SALES'),
-          titleAr: titles['ar']!,
-          titleEn: titles['en']!,
-          etaAr: 'يتم فتح استوديو تقرير المبيعات',
-          etaEn: 'Opening sales report studio',
-          metaAr: {
-            'آخر فترة': 'آخر 30 يومًا (يمكن تعديلها لاحقًا)',
-            'الوضع': 'تجهيز تقرير تفاعلي مع الطباعة',
-          },
-          metaEn: {
-            'Recent range': 'Last 30 days (adjustable later)',
-            'Mode': 'Interactive report workspace',
-          },
-          builder: (_) => SalesOverviewReportScreen(
-            api: _apiService,
-            isArabic: widget.isArabic,
-          ),
-        );
-        break;
-      }
-      case 'print_inventory_report': {
-        final titles = _resolveActionTitles(
-          action,
-          fallbackAr: 'تقرير المخزون',
-          fallbackEn: 'Inventory report',
-        );
-        await _launchTrackedScreen(
-          action: action,
-          jobId: _generateJobId('RPT-INV'),
-          titleAr: titles['ar']!,
-          titleEn: titles['en']!,
-          etaAr: 'جارٍ تحميل مخزون مكاتب التسكير',
-          etaEn: 'Loading inventory workspace',
-          metaAr: {
-            'التفاصيل': 'اضبط الأعيرة والفرز داخل الشاشة',
-            'النطاق': 'يعرض الأصناف البطيئة والمتحركة',
-          },
-          metaEn: {
-            'Details': 'Configure karats & sorting inside the screen',
-            'Scope': 'Highlights slow vs active items',
-          },
-          builder: (_) => InventoryStatusReportScreen(
-            api: _apiService,
-            isArabic: widget.isArabic,
-          ),
-        );
-        break;
-      }
-      case 'print_trial_balance': {
-        final titles = _resolveActionTitles(
-          action,
-          fallbackAr: 'ميزان المراجعة',
-          fallbackEn: 'Trial balance',
-        );
-        await _launchTrackedScreen(
-          action: action,
-          jobId: _generateJobId('RPT-TB'),
-          titleAr: titles['ar']!,
-          titleEn: titles['en']!,
-          etaAr: 'جارٍ تجهيز ميزان المراجعة',
-          etaEn: 'Preparing trial balance',
-          metaAr: {
-            'ملاحظة': 'اختر فترة التقرير وتفاصيل العيارات داخل الشاشة',
-            'الدقة': 'يعرض الأوزان والأرصدة بدقة كاملة',
-          },
-          metaEn: {
-            'Note': 'Pick the reporting period & karat detail inside',
-            'Precision': 'Shows full gold & cash balances',
-          },
-          builder: (_) => const TrialBalanceScreenV2(),
-        );
-        break;
-      }
-      case 'print_general_ledger': {
-        final titles = _resolveActionTitles(
-          action,
-          fallbackAr: 'دفتر الأستاذ',
-          fallbackEn: 'General ledger',
-        );
-        await _launchTrackedScreen(
-          action: action,
-          jobId: _generateJobId('RPT-GL'),
-          titleAr: titles['ar']!,
-          titleEn: titles['en']!,
-          etaAr: 'يتم تحميل دفتر الأستاذ المتقدم',
-          etaEn: 'Loading advanced ledger',
-          metaAr: {
-            'التوجيه': 'حدد الحساب والفترة من داخل الشاشة',
-            'المخرجات': 'تصدير PDF/Excel بعد التصفية',
-          },
-          metaEn: {
-            'Guidance': 'Select account & period from the screen',
-            'Output': 'Export PDF/Excel after filtering',
-          },
-          builder: (_) => const GeneralLedgerScreenV2(),
-        );
-        break;
-      }
+      case 'print_sales_report':
+        {
+          final titles = _resolveActionTitles(
+            action,
+            fallbackAr: 'تقرير المبيعات',
+            fallbackEn: 'Sales report',
+          );
+          await _launchTrackedScreen(
+            action: action,
+            jobId: _generateJobId('RPT-SALES'),
+            titleAr: titles['ar']!,
+            titleEn: titles['en']!,
+            etaAr: 'يتم فتح استوديو تقرير المبيعات',
+            etaEn: 'Opening sales report studio',
+            metaAr: {
+              'آخر فترة': 'آخر 30 يومًا (يمكن تعديلها لاحقًا)',
+              'الوضع': 'تجهيز تقرير تفاعلي مع الطباعة',
+            },
+            metaEn: {
+              'Recent range': 'Last 30 days (adjustable later)',
+              'Mode': 'Interactive report workspace',
+            },
+            builder: (_) => SalesOverviewReportScreen(
+              api: _apiService,
+              isArabic: widget.isArabic,
+            ),
+          );
+          break;
+        }
+      case 'print_inventory_report':
+        {
+          final titles = _resolveActionTitles(
+            action,
+            fallbackAr: 'تقرير المخزون',
+            fallbackEn: 'Inventory report',
+          );
+          await _launchTrackedScreen(
+            action: action,
+            jobId: _generateJobId('RPT-INV'),
+            titleAr: titles['ar']!,
+            titleEn: titles['en']!,
+            etaAr: 'جارٍ تحميل مخزون مكاتب التسكير',
+            etaEn: 'Loading inventory workspace',
+            metaAr: {
+              'التفاصيل': 'اضبط الأعيرة والفرز داخل الشاشة',
+              'النطاق': 'يعرض الأصناف البطيئة والمتحركة',
+            },
+            metaEn: {
+              'Details': 'Configure karats & sorting inside the screen',
+              'Scope': 'Highlights slow vs active items',
+            },
+            builder: (_) => InventoryStatusReportScreen(
+              api: _apiService,
+              isArabic: widget.isArabic,
+            ),
+          );
+          break;
+        }
+      case 'print_trial_balance':
+        {
+          final titles = _resolveActionTitles(
+            action,
+            fallbackAr: 'ميزان المراجعة',
+            fallbackEn: 'Trial balance',
+          );
+          await _launchTrackedScreen(
+            action: action,
+            jobId: _generateJobId('RPT-TB'),
+            titleAr: titles['ar']!,
+            titleEn: titles['en']!,
+            etaAr: 'جارٍ تجهيز ميزان المراجعة',
+            etaEn: 'Preparing trial balance',
+            metaAr: {
+              'ملاحظة': 'اختر فترة التقرير وتفاصيل العيارات داخل الشاشة',
+              'الدقة': 'يعرض الأوزان والأرصدة بدقة كاملة',
+            },
+            metaEn: {
+              'Note': 'Pick the reporting period & karat detail inside',
+              'Precision': 'Shows full gold & cash balances',
+            },
+            builder: (_) => const TrialBalanceScreenV2(),
+          );
+          break;
+        }
+      case 'print_general_ledger':
+        {
+          final titles = _resolveActionTitles(
+            action,
+            fallbackAr: 'دفتر الأستاذ',
+            fallbackEn: 'General ledger',
+          );
+          await _launchTrackedScreen(
+            action: action,
+            jobId: _generateJobId('RPT-GL'),
+            titleAr: titles['ar']!,
+            titleEn: titles['en']!,
+            etaAr: 'يتم تحميل دفتر الأستاذ المتقدم',
+            etaEn: 'Loading advanced ledger',
+            metaAr: {
+              'التوجيه': 'حدد الحساب والفترة من داخل الشاشة',
+              'المخرجات': 'تصدير PDF/Excel بعد التصفية',
+            },
+            metaEn: {
+              'Guidance': 'Select account & period from the screen',
+              'Output': 'Export PDF/Excel after filtering',
+            },
+            builder: (_) => const GeneralLedgerScreenV2(),
+          );
+          break;
+        }
       case 'print_single_barcode':
         await _showBarcodeItemPicker(action);
         break;
       case 'print_bulk_barcodes':
-        _showSnack(widget.isArabic
-            ? 'ميزة الطباعة المتعددة قيد التطوير'
-            : 'Bulk barcode printing is coming soon');
-        break;
-      case 'print_account_statement': {
-        final titles = _resolveActionTitles(
-          action,
-          fallbackAr: 'كشف حساب تفصيلي',
-          fallbackEn: 'Account statement',
-        );
-        await _launchTrackedScreen(
-          action: action,
-          jobId: _generateJobId('STM-ACC'),
-          titleAr: titles['ar']!,
-          titleEn: titles['en']!,
-          etaAr: 'اختر الحساب ثم اطبع من داخل الشاشة',
-          etaEn: 'Pick the account then print inside the screen',
-          metaAr: {
-            'ملاحظة': 'استخدم زر كشف الحساب ثم تصدير PDF',
-            'التوجيه': 'يمكن تصفية النتائج حسب التاريخ والعيار',
-          },
-          metaEn: {
-            'Note': 'Use the statement button then export PDF',
-            'Hint': 'Filter by date & karat before printing',
-          },
-          builder: (_) => const AccountsScreen(initialOnlyDetailAccounts: true),
+        _showSnack(
+          widget.isArabic
+              ? 'ميزة الطباعة المتعددة قيد التطوير'
+              : 'Bulk barcode printing is coming soon',
         );
         break;
-      }
-      case 'print_customer_statement': {
-        final titles = _resolveActionTitles(
-          action,
-          fallbackAr: 'كشف حساب العملاء',
-          fallbackEn: 'Customer statement',
-        );
-        await _launchTrackedScreen(
-          action: action,
-          jobId: _generateJobId('STM-CUS'),
-          titleAr: titles['ar']!,
-          titleEn: titles['en']!,
-          etaAr: 'يتم تحميل قائمة العملاء مع كشوفاتهم',
-          etaEn: 'Loading customers with statements',
-          metaAr: {
-            'التوجيه': 'اختر العميل واضغط كشف الحساب ثم طباعة',
-            'معلومة': 'يمكن البحث بالاسم أو الهاتف',
-          },
-          metaEn: {
-            'Guidance': 'Select the customer then open statement > print',
-            'Tip': 'Search by name or phone to narrow results',
-          },
-          builder: (_) => CustomersScreen(
-            api: _apiService,
-            isArabic: widget.isArabic,
-          ),
-        );
-        break;
-      }
+      case 'print_account_statement':
+        {
+          final titles = _resolveActionTitles(
+            action,
+            fallbackAr: 'كشف حساب تفصيلي',
+            fallbackEn: 'Account statement',
+          );
+          await _launchTrackedScreen(
+            action: action,
+            jobId: _generateJobId('STM-ACC'),
+            titleAr: titles['ar']!,
+            titleEn: titles['en']!,
+            etaAr: 'اختر الحساب ثم اطبع من داخل الشاشة',
+            etaEn: 'Pick the account then print inside the screen',
+            metaAr: {
+              'ملاحظة': 'استخدم زر كشف الحساب ثم تصدير PDF',
+              'التوجيه': 'يمكن تصفية النتائج حسب التاريخ والعيار',
+            },
+            metaEn: {
+              'Note': 'Use the statement button then export PDF',
+              'Hint': 'Filter by date & karat before printing',
+            },
+            builder: (_) =>
+                const AccountsScreen(initialOnlyDetailAccounts: true),
+          );
+          break;
+        }
+      case 'print_customer_statement':
+        {
+          final titles = _resolveActionTitles(
+            action,
+            fallbackAr: 'كشف حساب العملاء',
+            fallbackEn: 'Customer statement',
+          );
+          await _launchTrackedScreen(
+            action: action,
+            jobId: _generateJobId('STM-CUS'),
+            titleAr: titles['ar']!,
+            titleEn: titles['en']!,
+            etaAr: 'يتم تحميل قائمة العملاء مع كشوفاتهم',
+            etaEn: 'Loading customers with statements',
+            metaAr: {
+              'التوجيه': 'اختر العميل واضغط كشف الحساب ثم طباعة',
+              'معلومة': 'يمكن البحث بالاسم أو الهاتف',
+            },
+            metaEn: {
+              'Guidance': 'Select the customer then open statement > print',
+              'Tip': 'Search by name or phone to narrow results',
+            },
+            builder: (_) =>
+                CustomersScreen(api: _apiService, isArabic: widget.isArabic),
+          );
+          break;
+        }
       default:
-        _showSnack(widget.isArabic
-            ? 'سيتم ربط هذا الخيار قريباً'
-            : 'This option will be linked soon');
+        _showSnack(
+          widget.isArabic
+              ? 'سيتم ربط هذا الخيار قريباً'
+              : 'This option will be linked soon',
+        );
     }
   }
 
   void _showSnack(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message)),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
   }
 
   Future<void> _showInvoicePickerAndPrint(String action) async {
@@ -2459,16 +2523,18 @@ class _PrintingCenterScreenState extends State<PrintingCenterScreen> {
       final invoices = response['invoices'] as List<dynamic>? ?? [];
 
       if (invoices.isEmpty) {
-        _showSnack(widget.isArabic
-            ? 'لا توجد فواتير متاحة'
-            : 'There are no invoices to print yet');
+        _showSnack(
+          widget.isArabic
+              ? 'لا توجد فواتير متاحة'
+              : 'There are no invoices to print yet',
+        );
         return;
       }
 
       // تصفية حسب نوع الفاتورة المطلوب
       List<dynamic> filteredInvoices = invoices;
       String filterType = '';
-      
+
       switch (action) {
         case 'print_sales_invoice':
           filterType = widget.isArabic ? 'بيع' : 'sell';
@@ -2492,15 +2558,18 @@ class _PrintingCenterScreenState extends State<PrintingCenterScreen> {
       }
 
       if (filteredInvoices.isEmpty) {
-        _showSnack(widget.isArabic
-            ? 'لا توجد فواتير من هذا النوع'
-            : 'No invoices of this type available');
+        _showSnack(
+          widget.isArabic
+              ? 'لا توجد فواتير من هذا النوع'
+              : 'No invoices of this type available',
+        );
         return;
       }
 
       final selectedInvoice = await showDialog<Map<String, dynamic>>(
         context: context,
-        builder: (context) => _buildInvoicePickerDialog(filteredInvoices, action),
+        builder: (context) =>
+            _buildInvoicePickerDialog(filteredInvoices, action),
       );
 
       if (selectedInvoice != null && mounted) {
@@ -2511,10 +2580,11 @@ class _PrintingCenterScreenState extends State<PrintingCenterScreen> {
         final option = _findPrintOptionByAction(action);
         final baseTitleAr = option?['titleAr'] as String? ?? 'فاتورة';
         final baseTitleEn = option?['titleEn'] as String? ?? 'Invoice';
-        final partyName = (selectedInvoice['customer_name'] ??
-                selectedInvoice['supplier_name'] ??
-                (widget.isArabic ? 'غير محدد' : 'Not specified'))
-            .toString();
+        final partyName =
+            (selectedInvoice['customer_name'] ??
+                    selectedInvoice['supplier_name'] ??
+                    (widget.isArabic ? 'غير محدد' : 'Not specified'))
+                .toString();
         final totalValue = _parseDouble(selectedInvoice['total']) ?? 0.0;
         final metaAr = <String, String>{
           'الجهة': partyName,
@@ -2558,22 +2628,28 @@ class _PrintingCenterScreenState extends State<PrintingCenterScreen> {
       }
     } catch (e) {
       if (mounted) {
-        _showSnack(widget.isArabic
-            ? 'تعذر تحميل الفواتير: $e'
-            : 'Failed to load invoices: $e');
+        _showSnack(
+          widget.isArabic
+              ? 'تعذر تحميل الفواتير: $e'
+              : 'Failed to load invoices: $e',
+        );
       }
     }
   }
 
   Widget _buildInvoicePickerDialog(List<dynamic> invoices, String action) {
-    String title = widget.isArabic ? 'اختر فاتورة للطباعة' : 'Select invoice to print';
-    
+    String title = widget.isArabic
+        ? 'اختر فاتورة للطباعة'
+        : 'Select invoice to print';
+
     switch (action) {
       case 'print_sales_invoice':
         title = widget.isArabic ? 'اختر فاتورة بيع' : 'Select sales invoice';
         break;
       case 'print_purchase_invoice':
-        title = widget.isArabic ? 'اختر فاتورة شراء' : 'Select purchase invoice';
+        title = widget.isArabic
+            ? 'اختر فاتورة شراء'
+            : 'Select purchase invoice';
         break;
       case 'print_return_invoice':
         title = widget.isArabic ? 'اختر فاتورة مرتجع' : 'Select return invoice';
@@ -2582,7 +2658,7 @@ class _PrintingCenterScreenState extends State<PrintingCenterScreen> {
         title = widget.isArabic ? 'اختر فاتورة كسر' : 'Select scrap invoice';
         break;
     }
-    
+
     return Dialog(
       child: SizedBox(
         width: 580,
@@ -2618,8 +2694,9 @@ class _PrintingCenterScreenState extends State<PrintingCenterScreen> {
                   final invoice = invoices[index] as Map<String, dynamic>;
                   return ListTile(
                     leading: CircleAvatar(
-                      backgroundColor:
-                          const Color(0xFFD4AF37).withOpacity(0.15),
+                      backgroundColor: const Color(
+                        0xFFD4AF37,
+                      ).withValues(alpha: 0.15),
                       child: Text(
                         '#${invoice['invoice_type_id']}',
                         style: const TextStyle(
@@ -2644,7 +2721,7 @@ class _PrintingCenterScreenState extends State<PrintingCenterScreen> {
                             ),
                             side: BorderSide.none,
                             color: WidgetStatePropertyAll(
-                              Colors.green.withOpacity(0.15),
+                              Colors.green.withValues(alpha: 0.15),
                             ),
                           )
                         : null,
@@ -2662,9 +2739,11 @@ class _PrintingCenterScreenState extends State<PrintingCenterScreen> {
   Future<void> _showVoucherPickerAndPrint(String action) async {
     final auth = context.read<AuthProvider>();
     if (!auth.hasPermission('vouchers.view')) {
-      _showSnack(widget.isArabic
-          ? 'ليس لديك صلاحية لعرض السندات'
-          : 'You do not have permission to view vouchers');
+      _showSnack(
+        widget.isArabic
+            ? 'ليس لديك صلاحية لعرض السندات'
+            : 'You do not have permission to view vouchers',
+      );
       return;
     }
 
@@ -2674,9 +2753,11 @@ class _PrintingCenterScreenState extends State<PrintingCenterScreen> {
       final vouchers = response['vouchers'] as List<dynamic>? ?? [];
 
       if (vouchers.isEmpty) {
-        _showSnack(widget.isArabic
-            ? 'لا توجد سندات متاحة'
-            : 'No vouchers available to print');
+        _showSnack(
+          widget.isArabic
+              ? 'لا توجد سندات متاحة'
+              : 'No vouchers available to print',
+        );
         return;
       }
 
@@ -2686,9 +2767,11 @@ class _PrintingCenterScreenState extends State<PrintingCenterScreen> {
           : vouchers.where((v) => v['voucher_type'] == 'payment').toList();
 
       if (filteredVouchers.isEmpty) {
-        _showSnack(widget.isArabic
-            ? 'لا توجد سندات من هذا النوع'
-            : 'No vouchers of this type available');
+        _showSnack(
+          widget.isArabic
+              ? 'لا توجد سندات من هذا النوع'
+              : 'No vouchers of this type available',
+        );
         return;
       }
 
@@ -2703,18 +2786,22 @@ class _PrintingCenterScreenState extends State<PrintingCenterScreen> {
       if (selectedVoucher != null && mounted) {
         final isReceipt = action == 'print_receipt_voucher';
         final option = _findPrintOptionByAction(action);
-        final baseTitleAr = option?['titleAr'] as String? ??
+        final baseTitleAr =
+            option?['titleAr'] as String? ??
             (isReceipt ? 'سند قبض' : 'سند صرف');
-        final baseTitleEn = option?['titleEn'] as String? ??
+        final baseTitleEn =
+            option?['titleEn'] as String? ??
             (isReceipt ? 'Receipt voucher' : 'Payment voucher');
-        final voucherId = selectedVoucher['id']?.toString() ??
+        final voucherId =
+            selectedVoucher['id']?.toString() ??
             DateTime.now().millisecondsSinceEpoch.toString();
         final jobId = '#VCH-$voucherId';
 
-        final accountName = (selectedVoucher['account_name'] ??
-                selectedVoucher['description'] ??
-                (widget.isArabic ? 'غير محدد' : 'Not specified'))
-            .toString();
+        final accountName =
+            (selectedVoucher['account_name'] ??
+                    selectedVoucher['description'] ??
+                    (widget.isArabic ? 'غير محدد' : 'Not specified'))
+                .toString();
         final cashAmount = _parseDouble(selectedVoucher['amount_cash']) ?? 0.0;
         final goldAmount = _parseDouble(selectedVoucher['amount_gold']) ?? 0.0;
 
@@ -2745,8 +2832,9 @@ class _PrintingCenterScreenState extends State<PrintingCenterScreen> {
           titleAr: '$baseTitleAr #$voucherId',
           titleEn: '$baseTitleEn #$voucherId',
           etaAr: isReceipt ? 'جارٍ تجهيز سند القبض' : 'جارٍ تجهيز سند الصرف',
-          etaEn:
-              isReceipt ? 'Preparing receipt voucher' : 'Preparing payment voucher',
+          etaEn: isReceipt
+              ? 'Preparing receipt voucher'
+              : 'Preparing payment voucher',
           metaAr: metaAr,
           metaEn: metaEn,
           progress: 0.3,
@@ -2775,17 +2863,16 @@ class _PrintingCenterScreenState extends State<PrintingCenterScreen> {
       }
     } catch (e) {
       if (mounted) {
-        _showSnack(widget.isArabic
-            ? 'تعذر تحميل السندات: $e'
-            : 'Failed to load vouchers: $e');
+        _showSnack(
+          widget.isArabic
+              ? 'تعذر تحميل السندات: $e'
+              : 'Failed to load vouchers: $e',
+        );
       }
     }
   }
 
-  Widget _buildVoucherPickerDialog(
-    List<dynamic> vouchers,
-    bool isReceipt,
-  ) {
+  Widget _buildVoucherPickerDialog(List<dynamic> vouchers, bool isReceipt) {
     return Dialog(
       child: SizedBox(
         width: 580,
@@ -2805,8 +2892,8 @@ class _PrintingCenterScreenState extends State<PrintingCenterScreen> {
                     widget.isArabic
                         ? (isReceipt ? 'اختر سند قبض' : 'اختر سند صرف')
                         : (isReceipt
-                            ? 'Select receipt voucher'
-                            : 'Select payment voucher'),
+                              ? 'Select receipt voucher'
+                              : 'Select payment voucher'),
                     style: const TextStyle(
                       fontSize: 18,
                       fontWeight: FontWeight.bold,
@@ -2828,10 +2915,9 @@ class _PrintingCenterScreenState extends State<PrintingCenterScreen> {
                   final voucher = vouchers[index] as Map<String, dynamic>;
                   return ListTile(
                     leading: CircleAvatar(
-                      backgroundColor: (isReceipt
-                              ? Colors.green
-                              : Colors.orange)
-                          .withOpacity(0.15),
+                      backgroundColor:
+                          (isReceipt ? Colors.green : Colors.orange)
+                              .withValues(alpha: 0.15),
                       child: Icon(
                         isReceipt ? Icons.arrow_downward : Icons.arrow_upward,
                         color: isReceipt ? Colors.green : Colors.orange,
@@ -2853,7 +2939,7 @@ class _PrintingCenterScreenState extends State<PrintingCenterScreen> {
                             ),
                             side: BorderSide.none,
                             color: WidgetStatePropertyAll(
-                              Colors.green.withOpacity(0.15),
+                              Colors.green.withValues(alpha: 0.15),
                             ),
                           )
                         : null,
@@ -2874,9 +2960,11 @@ class _PrintingCenterScreenState extends State<PrintingCenterScreen> {
       if (!mounted) return;
 
       if (entries.isEmpty) {
-        _showSnack(widget.isArabic
-            ? 'لا توجد قيود يومية متاحة'
-            : 'No journal entries available to print');
+        _showSnack(
+          widget.isArabic
+              ? 'لا توجد قيود يومية متاحة'
+              : 'No journal entries available to print',
+        );
         return;
       }
 
@@ -2886,9 +2974,11 @@ class _PrintingCenterScreenState extends State<PrintingCenterScreen> {
       );
 
       if (selectedEntry != null && mounted) {
-        final entryId = selectedEntry['id']?.toString() ??
+        final entryId =
+            selectedEntry['id']?.toString() ??
             DateTime.now().millisecondsSinceEpoch.toString();
-        final entryType = selectedEntry['entry_type']?.toString() ??
+        final entryType =
+            selectedEntry['entry_type']?.toString() ??
             (widget.isArabic ? 'قيد عام' : 'General entry');
         final titles = _resolveActionTitles(
           'print_journal_entry',
@@ -2919,10 +3009,7 @@ class _PrintingCenterScreenState extends State<PrintingCenterScreen> {
           progress: 0.32,
         );
 
-        final printSettings = {
-          'showLogo': true,
-          'paperSize': _paperSize,
-        };
+        final printSettings = {'showLogo': true, 'paperSize': _paperSize};
 
         await Navigator.push(
           context,
@@ -2940,9 +3027,11 @@ class _PrintingCenterScreenState extends State<PrintingCenterScreen> {
       }
     } catch (e) {
       if (mounted) {
-        _showSnack(widget.isArabic
-            ? 'تعذر تحميل القيود: $e'
-            : 'Failed to load journal entries: $e');
+        _showSnack(
+          widget.isArabic
+              ? 'تعذر تحميل القيود: $e'
+              : 'Failed to load journal entries: $e',
+        );
       }
     }
   }
@@ -2961,9 +3050,7 @@ class _PrintingCenterScreenState extends State<PrintingCenterScreen> {
                   const Icon(Icons.swap_horiz, color: Color(0xFFD4AF37)),
                   const SizedBox(width: 12),
                   Text(
-                    widget.isArabic
-                        ? 'اختر قيد يومية'
-                        : 'Select journal entry',
+                    widget.isArabic ? 'اختر قيد يومية' : 'Select journal entry',
                     style: const TextStyle(
                       fontSize: 18,
                       fontWeight: FontWeight.bold,
@@ -2985,8 +3072,7 @@ class _PrintingCenterScreenState extends State<PrintingCenterScreen> {
                   final entry = entries[index] as Map<String, dynamic>;
                   return ListTile(
                     leading: CircleAvatar(
-                      backgroundColor:
-                          Colors.teal.withOpacity(0.15),
+                      backgroundColor: Colors.teal.withValues(alpha: 0.15),
                       child: const Icon(Icons.swap_horiz, color: Colors.teal),
                     ),
                     title: Text(
@@ -3005,7 +3091,7 @@ class _PrintingCenterScreenState extends State<PrintingCenterScreen> {
                             ),
                             side: BorderSide.none,
                             color: WidgetStatePropertyAll(
-                              Colors.green.withOpacity(0.15),
+                              Colors.green.withValues(alpha: 0.15),
                             ),
                           )
                         : null,
@@ -3025,9 +3111,11 @@ class _PrintingCenterScreenState extends State<PrintingCenterScreen> {
       final items = await _apiService.getItems();
       if (!mounted) return;
       if (items.isEmpty) {
-        _showSnack(widget.isArabic
-            ? 'لا توجد أصناف للطباعة'
-            : 'No items available for printing');
+        _showSnack(
+          widget.isArabic
+              ? 'لا توجد أصناف للطباعة'
+              : 'No items available for printing',
+        );
         return;
       }
 
@@ -3037,7 +3125,8 @@ class _PrintingCenterScreenState extends State<PrintingCenterScreen> {
       );
 
       if (selectedItem != null && mounted) {
-        final barcode = selectedItem['barcode']?.toString() ??
+        final barcode =
+            selectedItem['barcode']?.toString() ??
             selectedItem['item_code']?.toString() ??
             (selectedItem['id']?.toString() ?? 'BAR-0001');
         final itemId = selectedItem['id']?.toString() ?? barcode;
@@ -3096,9 +3185,11 @@ class _PrintingCenterScreenState extends State<PrintingCenterScreen> {
       }
     } catch (e) {
       if (mounted) {
-        _showSnack(widget.isArabic
-            ? 'خطأ في تحميل الأصناف: $e'
-            : 'Failed to load items: $e');
+        _showSnack(
+          widget.isArabic
+              ? 'خطأ في تحميل الأصناف: $e'
+              : 'Failed to load items: $e',
+        );
       }
     }
   }
@@ -3115,7 +3206,7 @@ class _PrintingCenterScreenState extends State<PrintingCenterScreen> {
             final item = items[index] as Map<String, dynamic>;
             return ListTile(
               leading: CircleAvatar(
-                backgroundColor: Colors.blue.withOpacity(0.1),
+                backgroundColor: Colors.blue.withValues(alpha: 0.1),
                 child: Text(item['karat']?.toString() ?? '21K'),
               ),
               title: Text(item['name']?.toString() ?? ''),
@@ -3182,9 +3273,7 @@ class _PrintingCenterScreenState extends State<PrintingCenterScreen> {
                 children: [
                   const Icon(Icons.print, color: Color(0xFFD4AF37)),
                   const SizedBox(width: 12),
-                  Text(
-                    widget.isArabic ? 'إعدادات الطباعة' : 'Print settings',
-                  ),
+                  Text(widget.isArabic ? 'إعدادات الطباعة' : 'Print settings'),
                 ],
               ),
               content: SingleChildScrollView(
@@ -3202,7 +3291,9 @@ class _PrintingCenterScreenState extends State<PrintingCenterScreen> {
                           setDialogState(() => showLogo = value),
                     ),
                     _buildPrintSwitch(
-                      title: widget.isArabic ? 'بيانات العنوان' : 'Address block',
+                      title: widget.isArabic
+                          ? 'بيانات العنوان'
+                          : 'Address block',
                       subtitle: widget.isArabic
                           ? 'إظهار عنوان المتجر ووسائل التواصل'
                           : 'Show store address and contact info',
@@ -3220,7 +3311,9 @@ class _PrintingCenterScreenState extends State<PrintingCenterScreen> {
                           setDialogState(() => showPrices = value),
                     ),
                     _buildPrintSwitch(
-                      title: widget.isArabic ? 'البيانات الضريبية' : 'Tax details',
+                      title: widget.isArabic
+                          ? 'البيانات الضريبية'
+                          : 'Tax details',
                       subtitle: widget.isArabic
                           ? 'رقم التسجيل والضريبة'
                           : 'VAT number and tax summary',
@@ -3247,10 +3340,16 @@ class _PrintingCenterScreenState extends State<PrintingCenterScreen> {
                         ),
                       ),
                       items: const [
-                        DropdownMenuItem(value: 'A4', child: Text('A4')), 
+                        DropdownMenuItem(value: 'A4', child: Text('A4')),
                         DropdownMenuItem(value: 'A5', child: Text('A5')),
-                        DropdownMenuItem(value: 'Letter', child: Text('Letter')),
-                        DropdownMenuItem(value: 'Thermal', child: Text('Thermal 80mm')),
+                        DropdownMenuItem(
+                          value: 'Letter',
+                          child: Text('Letter'),
+                        ),
+                        DropdownMenuItem(
+                          value: 'Thermal',
+                          child: Text('Thermal 80mm'),
+                        ),
                       ],
                       onChanged: (value) {
                         if (value != null) {
@@ -3262,8 +3361,9 @@ class _PrintingCenterScreenState extends State<PrintingCenterScreen> {
                     DropdownButtonFormField<String>(
                       initialValue: orientation,
                       decoration: InputDecoration(
-                        labelText:
-                            widget.isArabic ? 'اتجاه الصفحة' : 'Orientation',
+                        labelText: widget.isArabic
+                            ? 'اتجاه الصفحة'
+                            : 'Orientation',
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(12),
                         ),
@@ -3271,13 +3371,11 @@ class _PrintingCenterScreenState extends State<PrintingCenterScreen> {
                       items: [
                         DropdownMenuItem(
                           value: 'portrait',
-                          child:
-                              Text(widget.isArabic ? 'عمودي' : 'Portrait'),
+                          child: Text(widget.isArabic ? 'عمودي' : 'Portrait'),
                         ),
                         DropdownMenuItem(
                           value: 'landscape',
-                          child:
-                              Text(widget.isArabic ? 'أفقي' : 'Landscape'),
+                          child: Text(widget.isArabic ? 'أفقي' : 'Landscape'),
                         ),
                       ],
                       onChanged: (value) {
@@ -3364,9 +3462,11 @@ class _PrintingCenterScreenState extends State<PrintingCenterScreen> {
                       _autoOpenPrintDialog = autoOpenPrintDialog;
                     });
                     Navigator.pop(context);
-                    _showSnack(widget.isArabic
-                        ? 'تم حفظ إعدادات الطباعة'
-                        : 'Print settings saved');
+                    _showSnack(
+                      widget.isArabic
+                          ? 'تم حفظ إعدادات الطباعة'
+                          : 'Print settings saved',
+                    );
                   },
                   child: Text(widget.isArabic ? 'حفظ' : 'Save'),
                 ),
@@ -3446,7 +3546,7 @@ class _PrintingCenterScreenState extends State<PrintingCenterScreen> {
         'color': Colors.orange,
         'titleAr': 'فاتورة شراء',
         'titleEn': 'Purchase Invoice',
-        'descriptionAr': 'طباعة فاتورة شراء من مورد أو عميل',
+        'descriptionAr': 'طباعة فاتورة شراء أو عميل',
         'descriptionEn': 'Print purchase invoice from supplier or customer',
         'action': 'print_purchase_invoice',
         'available': true,
@@ -3607,7 +3707,6 @@ class _PrintingCenterScreenState extends State<PrintingCenterScreen> {
       },
     ];
   }
-
 }
 
 /* Legacy printing center implementation kept for reference
@@ -3640,7 +3739,7 @@ class _PrintingCenterScreenState extends State<PrintingCenterScreen> {
               Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: (option['color'] as Color).withOpacity(0.1),
+                  color: (option['color'] as Color).withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: Icon(
@@ -4082,7 +4181,8 @@ class _PrintingCenterScreenState extends State<PrintingCenterScreen> {
                     margin: const EdgeInsets.symmetric(vertical: 4),
                     child: ListTile(
                       leading: CircleAvatar(
-                        backgroundColor: const Color(0xFFD4AF37).withOpacity(0.2),
+                        backgroundColor: const Color(0xFFD4AF37)
+                            .withValues(alpha: 0.2),
                         child: Text(
                           '#${invoice['invoice_type_id']}',
                           style: const TextStyle(

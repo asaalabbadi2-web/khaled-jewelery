@@ -120,7 +120,7 @@ def reset_payment_methods():
                 'settlement_days': 0,
                 'account_number': '1111',
                 'safe_box_name': 'الصندوق الرئيسي',
-                'applicable_invoice_types': ['بيع', 'شراء من عميل', 'شراء من مورد']
+                'applicable_invoice_types': ['بيع', 'شراء من عميل', 'شراء']
             },
             {
                 'payment_type': 'mada',
@@ -192,7 +192,7 @@ def reset_payment_methods():
                 'settlement_days': 1,
                 'account_number': '1112',
                 'safe_box_name': 'البنك - الحساب الجاري',
-                'applicable_invoice_types': ['بيع', 'شراء من عميل', 'شراء من مورد']
+                'applicable_invoice_types': ['بيع', 'شراء من عميل', 'شراء']
             },
         ]
         

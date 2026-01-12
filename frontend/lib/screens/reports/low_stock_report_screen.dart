@@ -52,7 +52,8 @@ class _LowStockReportScreenState extends State<LowStockReportScreen> {
 
   final TextEditingController _officeController = TextEditingController();
   final TextEditingController _thresholdQtyController = TextEditingController();
-  final TextEditingController _thresholdWeightController = TextEditingController();
+  final TextEditingController _thresholdWeightController =
+      TextEditingController();
 
   final NumberFormat _quantityFormat = NumberFormat('#,##0.##');
   final NumberFormat _weightFormat = NumberFormat('#,##0.000');
@@ -138,13 +139,20 @@ class _LowStockReportScreenState extends State<LowStockReportScreen> {
     }
     return Chip(
       backgroundColor: color.withValues(alpha: 0.15),
-      label: Text(label, style: TextStyle(color: color, fontWeight: FontWeight.bold)),
+      label: Text(
+        label,
+        style: TextStyle(color: color, fontWeight: FontWeight.bold),
+      ),
     );
   }
 
   void _applyThresholds() {
-    final qty = double.tryParse(_thresholdQtyController.text.replaceAll(',', '.'));
-    final weight = double.tryParse(_thresholdWeightController.text.replaceAll(',', '.'));
+    final qty = double.tryParse(
+      _thresholdQtyController.text.replaceAll(',', '.'),
+    );
+    final weight = double.tryParse(
+      _thresholdWeightController.text.replaceAll(',', '.'),
+    );
     setState(() {
       if (qty != null) {
         _thresholdQuantity = qty.clamp(0, 1000);
@@ -212,7 +220,9 @@ class _LowStockReportScreenState extends State<LowStockReportScreen> {
       textDirection: isArabic ? TextDirection.rtl : TextDirection.ltr,
       child: Scaffold(
         appBar: AppBar(
-          title: Text(isArabic ? 'تقرير الأصناف منخفضة المخزون' : 'Low Stock Items'),
+          title: Text(
+            isArabic ? 'تقرير الأصناف منخفضة المخزون' : 'Low Stock Items',
+          ),
           actions: [
             IconButton(
               tooltip: isArabic ? 'تحديث' : 'Refresh',
@@ -225,8 +235,8 @@ class _LowStockReportScreenState extends State<LowStockReportScreen> {
           child: _isLoading
               ? const Center(child: CircularProgressIndicator())
               : _error != null
-                  ? _buildErrorState(isArabic)
-                  : _buildContent(isArabic),
+              ? _buildErrorState(isArabic)
+              : _buildContent(isArabic),
         ),
       ),
     );
@@ -267,7 +277,9 @@ class _LowStockReportScreenState extends State<LowStockReportScreen> {
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
-          crossAxisAlignment: isArabic ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+          crossAxisAlignment: isArabic
+              ? CrossAxisAlignment.end
+              : CrossAxisAlignment.start,
           children: [
             Text(
               isArabic ? 'خيارات التقرير' : 'Report Options',
@@ -300,7 +312,9 @@ class _LowStockReportScreenState extends State<LowStockReportScreen> {
                   }).toList(),
                 ),
                 FilterChip(
-                  label: Text(isArabic ? 'تضمين المخزون الصفري' : 'Include zero stock'),
+                  label: Text(
+                    isArabic ? 'تضمين المخزون الصفري' : 'Include zero stock',
+                  ),
                   selected: _includeZeroStock,
                   onSelected: (value) {
                     setState(() => _includeZeroStock = value);
@@ -308,7 +322,9 @@ class _LowStockReportScreenState extends State<LowStockReportScreen> {
                   },
                 ),
                 FilterChip(
-                  label: Text(isArabic ? 'تضمين غير المرحلة' : 'Include unposted'),
+                  label: Text(
+                    isArabic ? 'تضمين غير المرحلة' : 'Include unposted',
+                  ),
                   selected: _includeUnposted,
                   onSelected: (value) {
                     setState(() => _includeUnposted = value);
@@ -341,7 +357,9 @@ class _LowStockReportScreenState extends State<LowStockReportScreen> {
                   width: 160,
                   child: TextField(
                     controller: _thresholdQtyController,
-                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
                     textDirection: TextDirection.ltr,
                     decoration: InputDecoration(
                       labelText: isArabic ? 'حد الكمية' : 'Qty threshold',
@@ -353,10 +371,14 @@ class _LowStockReportScreenState extends State<LowStockReportScreen> {
                   width: 180,
                   child: TextField(
                     controller: _thresholdWeightController,
-                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
                     textDirection: TextDirection.ltr,
                     decoration: InputDecoration(
-                      labelText: isArabic ? 'حد الوزن (جم)' : 'Weight threshold (g)',
+                      labelText: isArabic
+                          ? 'حد الوزن (جم)'
+                          : 'Weight threshold (g)',
                     ),
                     onSubmitted: (_) => _applyThresholds(),
                   ),
@@ -376,7 +398,11 @@ class _LowStockReportScreenState extends State<LowStockReportScreen> {
                       .map(
                         (key) => DropdownMenuItem<String>(
                           value: key,
-                          child: Text(isArabic ? _sortLabelsAr[key]! : _sortLabelsEn[key]!),
+                          child: Text(
+                            isArabic
+                                ? _sortLabelsAr[key]!
+                                : _sortLabelsEn[key]!,
+                          ),
                         ),
                       )
                       .toList(),
@@ -388,7 +414,9 @@ class _LowStockReportScreenState extends State<LowStockReportScreen> {
                 ),
                 IconButton(
                   tooltip: isArabic ? 'تغيير ترتيب الفرز' : 'Toggle sort order',
-                  icon: Icon(_ascending ? Icons.arrow_upward : Icons.arrow_downward),
+                  icon: Icon(
+                    _ascending ? Icons.arrow_upward : Icons.arrow_downward,
+                  ),
                   onPressed: () {
                     setState(() => _ascending = !_ascending);
                     _loadReport();
@@ -426,7 +454,9 @@ class _LowStockReportScreenState extends State<LowStockReportScreen> {
       ),
       _SummaryMetric(
         label: isArabic ? 'نقص الكمية' : 'Shortage Qty',
-        value: _formatQuantity(_asDouble(summary['total_shortage_quantity'] ?? 0)),
+        value: _formatQuantity(
+          _asDouble(summary['total_shortage_quantity'] ?? 0),
+        ),
         icon: Icons.scale,
         color: Colors.blueAccent,
       ),
@@ -446,7 +476,9 @@ class _LowStockReportScreenState extends State<LowStockReportScreen> {
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
-          crossAxisAlignment: isArabic ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+          crossAxisAlignment: isArabic
+              ? CrossAxisAlignment.end
+              : CrossAxisAlignment.start,
           children: [
             Wrap(
               spacing: 16,
@@ -503,7 +535,9 @@ class _LowStockReportScreenState extends State<LowStockReportScreen> {
     if (items.isEmpty) {
       return _buildEmptyState(
         icon: Icons.bar_chart,
-        message: isArabic ? 'لا توجد أصناف حرجة لعرضها' : 'No critical items to display',
+        message: isArabic
+            ? 'لا توجد أصناف حرجة لعرضها'
+            : 'No critical items to display',
       );
     }
 
@@ -518,7 +552,9 @@ class _LowStockReportScreenState extends State<LowStockReportScreen> {
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
-          crossAxisAlignment: isArabic ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+          crossAxisAlignment: isArabic
+              ? CrossAxisAlignment.end
+              : CrossAxisAlignment.start,
           children: [
             Text(
               isArabic ? 'أكثر الأصناف خطورة' : 'Most critical items',
@@ -531,11 +567,18 @@ class _LowStockReportScreenState extends State<LowStockReportScreen> {
                 BarChartData(
                   alignment: BarChartAlignment.spaceAround,
                   maxY: maxShortage == 0 ? 1 : maxShortage * 1.2,
-                  gridData: FlGridData(show: true, horizontalInterval: maxShortage == 0 ? 1 : maxShortage / 4),
+                  gridData: FlGridData(
+                    show: true,
+                    horizontalInterval: maxShortage == 0 ? 1 : maxShortage / 4,
+                  ),
                   borderData: FlBorderData(show: false),
                   titlesData: FlTitlesData(
-                    topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                    rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                    topTitles: const AxisTitles(
+                      sideTitles: SideTitles(showTitles: false),
+                    ),
+                    rightTitles: const AxisTitles(
+                      sideTitles: SideTitles(showTitles: false),
+                    ),
                     leftTitles: AxisTitles(
                       sideTitles: SideTitles(
                         showTitles: true,
@@ -591,7 +634,9 @@ class _LowStockReportScreenState extends State<LowStockReportScreen> {
               spacing: 12,
               runSpacing: 8,
               children: items.map((item) {
-                final shortageWeight = _formatWeight(_asDouble(item['shortage_weight']));
+                final shortageWeight = _formatWeight(
+                  _asDouble(item['shortage_weight']),
+                );
                 final name = item['name'] ?? item['item_code'] ?? '';
                 return Chip(
                   avatar: const Icon(Icons.flag, size: 18),
@@ -614,7 +659,9 @@ class _LowStockReportScreenState extends State<LowStockReportScreen> {
     if (items.isEmpty) {
       return _buildEmptyState(
         icon: Icons.table_chart,
-        message: isArabic ? 'لا توجد أصناف مطابقة للمعايير الحالية' : 'No items match the selected filters',
+        message: isArabic
+            ? 'لا توجد أصناف مطابقة للمعايير الحالية'
+            : 'No items match the selected filters',
       );
     }
 
@@ -624,7 +671,9 @@ class _LowStockReportScreenState extends State<LowStockReportScreen> {
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
-          crossAxisAlignment: isArabic ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+          crossAxisAlignment: isArabic
+              ? CrossAxisAlignment.end
+              : CrossAxisAlignment.start,
           children: [
             Text(
               isArabic ? 'جدول الأصناف' : 'Items table',
@@ -638,12 +687,24 @@ class _LowStockReportScreenState extends State<LowStockReportScreen> {
                 columns: [
                   DataColumn(label: Text(isArabic ? 'الصنف' : 'Item')),
                   DataColumn(label: Text(isArabic ? 'العيار' : 'Karat')),
-                  DataColumn(label: Text(isArabic ? 'كمية متاحة' : 'Available qty')),
-                  DataColumn(label: Text(isArabic ? 'وزن متاح' : 'Available weight')),
-                  DataColumn(label: Text(isArabic ? 'نقص الكمية' : 'Shortage qty')),
-                  DataColumn(label: Text(isArabic ? 'نقص الوزن' : 'Shortage weight')),
+                  DataColumn(
+                    label: Text(isArabic ? 'كمية متاحة' : 'Available qty'),
+                  ),
+                  DataColumn(
+                    label: Text(isArabic ? 'وزن متاح' : 'Available weight'),
+                  ),
+                  DataColumn(
+                    label: Text(isArabic ? 'نقص الكمية' : 'Shortage qty'),
+                  ),
+                  DataColumn(
+                    label: Text(isArabic ? 'نقص الوزن' : 'Shortage weight'),
+                  ),
                   DataColumn(label: Text(isArabic ? 'الحالة' : 'Status')),
-                  DataColumn(label: Text(isArabic ? 'أيام بلا حركة' : 'Days no movement')),
+                  DataColumn(
+                    label: Text(
+                      isArabic ? 'أيام بلا حركة' : 'Days no movement',
+                    ),
+                  ),
                 ],
                 rows: items.map((item) {
                   final status = (item['status'] ?? '').toString();
@@ -652,25 +713,54 @@ class _LowStockReportScreenState extends State<LowStockReportScreen> {
                     cells: [
                       DataCell(
                         Column(
-                          crossAxisAlignment:
-                              isArabic ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+                          crossAxisAlignment: isArabic
+                              ? CrossAxisAlignment.end
+                              : CrossAxisAlignment.start,
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            Text(item['name'] ?? '-', style: const TextStyle(fontWeight: FontWeight.w600)),
+                            Text(
+                              item['name'] ?? '-',
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
                             Text(
                               item['item_code'] ?? '',
-                              style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
+                              style: TextStyle(
+                                color: Colors.grey.shade600,
+                                fontSize: 12,
+                              ),
                             ),
                           ],
                         ),
                       ),
                       DataCell(Text(item['karat']?.toString() ?? '-')),
-                      DataCell(Text(_formatQuantity(_asDouble(item['available_quantity'])))),
-                      DataCell(Text(_formatWeight(_asDouble(item['available_weight_main'])))),
-                      DataCell(Text(_formatQuantity(_asDouble(item['shortage_quantity'])))),
-                      DataCell(Text(_formatWeight(_asDouble(item['shortage_weight'])))),
+                      DataCell(
+                        Text(
+                          _formatQuantity(
+                            _asDouble(item['available_quantity']),
+                          ),
+                        ),
+                      ),
+                      DataCell(
+                        Text(
+                          _formatWeight(
+                            _asDouble(item['available_weight_main']),
+                          ),
+                        ),
+                      ),
+                      DataCell(
+                        Text(
+                          _formatQuantity(_asDouble(item['shortage_quantity'])),
+                        ),
+                      ),
+                      DataCell(
+                        Text(_formatWeight(_asDouble(item['shortage_weight']))),
+                      ),
                       DataCell(_buildStatusChip(status, isArabic)),
-                      DataCell(Text(lastMovement != null ? '$lastMovement' : '-')),
+                      DataCell(
+                        Text(lastMovement != null ? '$lastMovement' : '-'),
+                      ),
                     ],
                   );
                 }).toList(),
@@ -722,7 +812,9 @@ class _SummaryTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final alignment = isArabic ? CrossAxisAlignment.end : CrossAxisAlignment.start;
+    final alignment = isArabic
+        ? CrossAxisAlignment.end
+        : CrossAxisAlignment.start;
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -733,8 +825,9 @@ class _SummaryTile extends StatelessWidget {
         crossAxisAlignment: alignment,
         children: [
           Row(
-            mainAxisAlignment:
-                isArabic ? MainAxisAlignment.end : MainAxisAlignment.start,
+            mainAxisAlignment: isArabic
+                ? MainAxisAlignment.end
+                : MainAxisAlignment.start,
             children: [
               CircleAvatar(
                 backgroundColor: metric.color.withValues(alpha: 0.2),
@@ -743,10 +836,7 @@ class _SummaryTile extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 12),
-          Text(
-            metric.label,
-            style: TextStyle(color: Colors.grey.shade700),
-          ),
+          Text(metric.label, style: TextStyle(color: Colors.grey.shade700)),
           const SizedBox(height: 6),
           Text(
             metric.value,

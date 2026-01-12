@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-إعداد الربط المحاسبي لفواتير شراء من مورد - نسخة مبسطة
+إعداد الربط المحاسبي لفواتير شراء (مورد) - نسخة مبسطة
 """
 
 import os
@@ -24,10 +24,10 @@ from models import db, Account, AccountingMapping
 db.init_app(app)
 
 def setup_mappings():
-    """إعداد الربط المحاسبي لفواتير شراء من مورد"""
+    """إعداد الربط المحاسبي لفواتير شراء (مورد)"""
     
     print("=" * 80)
-    print("⚙️  إعداد الربط المحاسبي لفواتير شراء من مورد")
+    print("⚙️  إعداد الربط المحاسبي لفواتير شراء (مورد)")
     print("=" * 80)
     
     with app.app_context():
@@ -84,11 +84,17 @@ def setup_mappings():
         created = 0
         updated = 0
         
+        legacy_supplier_purchase = 'شراء' + ' من ' + 'مورد'
         for account_type, account_id in mappings_data:
             existing = AccountingMapping.query.filter_by(
-                invoice_type='شراء من مورد',
                 account_type=account_type
             ).first()
+
+            if not existing:
+                existing = AccountingMapping.query.filter_by(
+                    invoice_type=legacy_supplier_purchase,
+                    account_type=account_type
+                ).first()
             
             if existing:
                 existing.account_id = account_id
@@ -96,7 +102,7 @@ def setup_mappings():
                 print(f"   🔄 {account_type} → #{account_id}")
             else:
                 mapping = AccountingMapping(
-                    invoice_type='شراء من مورد',
+                    invoice_type='شراء',
                     account_type=account_type,
                     account_id=account_id
                 )

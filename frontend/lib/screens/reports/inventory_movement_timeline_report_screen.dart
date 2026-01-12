@@ -122,16 +122,20 @@ class _InventoryMovementTimelineReportScreenState
     try {
       final data = await widget.api.getOffices(activeOnly: true);
       if (!mounted) return;
-  setState(() {
-    _availableOffices = data
-    .whereType<Map<String, dynamic>>()
-    .map((office) => {
-      'id': office['id'] is int ? office['id'] as int : int.tryParse('${office['id']}') ?? 0,
-      'name': office['name'] ?? office['office_code'] ?? 'Office',
-        })
-    .where((office) => (office['id'] as int) != 0)
-    .toList();
-  });
+      setState(() {
+        _availableOffices = data
+            .whereType<Map<String, dynamic>>()
+            .map(
+              (office) => {
+                'id': office['id'] is int
+                    ? office['id'] as int
+                    : int.tryParse('${office['id']}') ?? 0,
+                'name': office['name'] ?? office['office_code'] ?? 'Office',
+              },
+            )
+            .where((office) => (office['id'] as int) != 0)
+            .toList();
+      });
     } catch (_) {
       if (!mounted) return;
       setState(() => _availableOffices = const []);
@@ -224,15 +228,15 @@ class _InventoryMovementTimelineReportScreenState
               tooltip: isArabic ? 'تحديث' : 'Refresh',
               icon: const Icon(Icons.refresh),
               onPressed: _isLoading ? null : _loadReport,
-            )
+            ),
           ],
         ),
         body: SafeArea(
           child: _isLoading
               ? const Center(child: CircularProgressIndicator())
               : _error != null
-                  ? _buildErrorState(isArabic)
-                  : _buildContent(isArabic),
+              ? _buildErrorState(isArabic)
+              : _buildContent(isArabic),
         ),
       ),
     );
@@ -263,7 +267,7 @@ class _InventoryMovementTimelineReportScreenState
             onPressed: _loadReport,
             icon: const Icon(Icons.refresh),
             label: Text(isArabic ? 'إعادة المحاولة' : 'Try again'),
-          )
+          ),
         ],
       ),
     );
@@ -300,12 +304,14 @@ class _InventoryMovementTimelineReportScreenState
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
-          crossAxisAlignment:
-              isArabic ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+          crossAxisAlignment: isArabic
+              ? CrossAxisAlignment.end
+              : CrossAxisAlignment.start,
           children: [
             Row(
-              mainAxisAlignment:
-                  isArabic ? MainAxisAlignment.end : MainAxisAlignment.start,
+              mainAxisAlignment: isArabic
+                  ? MainAxisAlignment.end
+                  : MainAxisAlignment.start,
               children: [
                 Text(
                   isArabic ? 'خيارات التقرير' : 'Report Filters',
@@ -319,7 +325,7 @@ class _InventoryMovementTimelineReportScreenState
                   onPressed: _clearFilters,
                   icon: const Icon(Icons.refresh),
                   label: Text(isArabic ? 'إعادة الضبط' : 'Reset'),
-                )
+                ),
               ],
             ),
             const SizedBox(height: 16),
@@ -359,9 +365,7 @@ class _InventoryMovementTimelineReportScreenState
                   },
                 ),
                 FilterChip(
-                  label: Text(
-                    isArabic ? 'تضمين المرتجعات' : 'Include returns',
-                  ),
+                  label: Text(isArabic ? 'تضمين المرتجعات' : 'Include returns'),
                   selected: _includeReturns,
                   onSelected: (value) {
                     setState(() => _includeReturns = value);
@@ -420,7 +424,8 @@ class _InventoryMovementTimelineReportScreenState
                     spacing: 8,
                     children: _availableOffices.map((office) {
                       final officeId = office['id'] as int;
-                      final officeName = office['name']?.toString() ??
+                      final officeName =
+                          office['name']?.toString() ??
                           (isArabic ? 'مكتب' : 'Office');
                       final selected = _selectedOffices.contains(officeId);
                       return FilterChip(
@@ -531,8 +536,9 @@ class _InventoryMovementTimelineReportScreenState
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
-          crossAxisAlignment:
-              isArabic ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+          crossAxisAlignment: isArabic
+              ? CrossAxisAlignment.end
+              : CrossAxisAlignment.start,
           children: [
             Row(
               children: [
@@ -557,7 +563,10 @@ class _InventoryMovementTimelineReportScreenState
               spacing: 12,
               runSpacing: 12,
               children: metrics
-                  .map((metric) => _SummaryTile(metric: metric, isArabic: isArabic))
+                  .map(
+                    (metric) =>
+                        _SummaryTile(metric: metric, isArabic: isArabic),
+                  )
                   .toList(),
             ),
             const SizedBox(height: 12),
@@ -565,7 +574,10 @@ class _InventoryMovementTimelineReportScreenState
               spacing: 12,
               runSpacing: 12,
               children: docStats
-                  .map((metric) => _SummaryTile(metric: metric, isArabic: isArabic))
+                  .map(
+                    (metric) =>
+                        _SummaryTile(metric: metric, isArabic: isArabic),
+                  )
                   .toList(),
             ),
           ],
@@ -588,10 +600,10 @@ class _InventoryMovementTimelineReportScreenState
     double maxY = 0;
 
     for (var i = 0; i < timeline.length; i++) {
-      final inboundWeight =
-          _asDouble(timeline[i]['inbound_weight_main_karat']);
-      final outboundWeight =
-          _asDouble(timeline[i]['outbound_weight_main_karat']);
+      final inboundWeight = _asDouble(timeline[i]['inbound_weight_main_karat']);
+      final outboundWeight = _asDouble(
+        timeline[i]['outbound_weight_main_karat'],
+      );
       inboundSpots.add(FlSpot(i.toDouble(), inboundWeight));
       outboundSpots.add(FlSpot(i.toDouble(), outboundWeight));
       maxY = math.max(maxY, math.max(inboundWeight, outboundWeight));
@@ -604,8 +616,9 @@ class _InventoryMovementTimelineReportScreenState
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
-          crossAxisAlignment:
-              isArabic ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+          crossAxisAlignment: isArabic
+              ? CrossAxisAlignment.end
+              : CrossAxisAlignment.start,
           children: [
             Text(
               isArabic ? 'المخطط الزمني للحركة' : 'Timeline chart',
@@ -620,7 +633,10 @@ class _InventoryMovementTimelineReportScreenState
                   maxX: math.max(0, timeline.length - 1).toDouble(),
                   minY: 0,
                   maxY: maxY * 1.2,
-                  gridData: FlGridData(show: true, horizontalInterval: maxY / 4),
+                  gridData: FlGridData(
+                    show: true,
+                    horizontalInterval: maxY / 4,
+                  ),
                   borderData: FlBorderData(
                     show: true,
                     border: const Border(
@@ -648,7 +664,8 @@ class _InventoryMovementTimelineReportScreenState
                           if (index < 0 || index >= timeline.length) {
                             return const SizedBox();
                           }
-                          final label = timeline[index]['label']?.toString() ?? '';
+                          final label =
+                              timeline[index]['label']?.toString() ?? '';
                           return Padding(
                             padding: const EdgeInsets.only(top: 8),
                             child: RotatedBox(
@@ -662,8 +679,12 @@ class _InventoryMovementTimelineReportScreenState
                         },
                       ),
                     ),
-                    rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                    topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                    rightTitles: const AxisTitles(
+                      sideTitles: SideTitles(showTitles: false),
+                    ),
+                    topTitles: const AxisTitles(
+                      sideTitles: SideTitles(showTitles: false),
+                    ),
                   ),
                   lineBarsData: [
                     _buildLineData(
@@ -715,8 +736,9 @@ class _InventoryMovementTimelineReportScreenState
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
-          crossAxisAlignment:
-              isArabic ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+          crossAxisAlignment: isArabic
+              ? CrossAxisAlignment.end
+              : CrossAxisAlignment.start,
           children: [
             Text(
               isArabic ? 'دفتر زمني' : 'Timeline ledger',
@@ -728,8 +750,12 @@ class _InventoryMovementTimelineReportScreenState
               child: DataTable(
                 columns: [
                   DataColumn(label: Text(isArabic ? 'الفترة' : 'Period')),
-                  DataColumn(label: Text(isArabic ? 'وارد (جم)' : 'Inbound (g)')),
-                  DataColumn(label: Text(isArabic ? 'صادر (جم)' : 'Outbound (g)')),
+                  DataColumn(
+                    label: Text(isArabic ? 'وارد (جم)' : 'Inbound (g)'),
+                  ),
+                  DataColumn(
+                    label: Text(isArabic ? 'صادر (جم)' : 'Outbound (g)'),
+                  ),
                   DataColumn(label: Text(isArabic ? 'صافي (جم)' : 'Net (g)')),
                   DataColumn(label: Text(isArabic ? 'المستندات' : 'Documents')),
                 ],
@@ -779,8 +805,9 @@ class _InventoryMovementTimelineReportScreenState
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
-          crossAxisAlignment:
-              isArabic ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+          crossAxisAlignment: isArabic
+              ? CrossAxisAlignment.end
+              : CrossAxisAlignment.start,
           children: [
             Text(
               isArabic ? 'دفتر الحركة' : 'Movement ledger',
@@ -793,14 +820,15 @@ class _InventoryMovementTimelineReportScreenState
               itemCount: movements.length,
               separatorBuilder: (context, index) => const Divider(height: 16),
               itemBuilder: (context, index) {
-        final entry = movements[index];
+                final entry = movements[index];
                 final direction = (entry['direction'] ?? 'inbound').toString();
                 final isInbound = direction == 'inbound';
                 final icon = isInbound
                     ? Icons.arrow_downward_rounded
                     : Icons.arrow_upward_rounded;
                 final color = isInbound ? Colors.green : Colors.orange;
-                final party = entry['party_name']?.toString() ??
+                final party =
+                    entry['party_name']?.toString() ??
                     (isArabic ? 'غير معروف' : 'Unknown');
 
                 DateTime? parsedDate;
@@ -824,13 +852,12 @@ class _InventoryMovementTimelineReportScreenState
                     overflow: TextOverflow.ellipsis,
                   ),
                   subtitle: Column(
-                    crossAxisAlignment:
-                        isArabic ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+                    crossAxisAlignment: isArabic
+                        ? CrossAxisAlignment.end
+                        : CrossAxisAlignment.start,
                     children: [
                       Text(
-                        isArabic
-                            ? 'العميل/المورد: $party'
-                            : 'Party: $party',
+                        isArabic ? 'العميل/المورد: $party' : 'Party: $party',
                       ),
                       Text(
                         '${_formatWeight(_asDouble(entry['weight_main_karat']))} · ${_formatCurrency(_asDouble(entry['value']))}',
@@ -852,9 +879,11 @@ class _InventoryMovementTimelineReportScreenState
                       ),
                       const SizedBox(height: 4),
                       Chip(
-                        label: Text('${isArabic ? 'خطوط' : 'Lines'} ${entry['line_count']}'),
+                        label: Text(
+                          '${isArabic ? 'خطوط' : 'Lines'} ${entry['line_count']}',
+                        ),
                         visualDensity: VisualDensity.compact,
-                      )
+                      ),
                     ],
                   ),
                 );
@@ -928,10 +957,7 @@ class _SummaryTile extends StatelessWidget {
   final _SummaryMetric metric;
   final bool isArabic;
 
-  const _SummaryTile({
-    required this.metric,
-    required this.isArabic,
-  });
+  const _SummaryTile({required this.metric, required this.isArabic});
 
   @override
   Widget build(BuildContext context) {
@@ -952,8 +978,9 @@ class _SummaryTile extends StatelessWidget {
           const SizedBox(width: 12),
           Expanded(
             child: Column(
-              crossAxisAlignment:
-                  isArabic ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+              crossAxisAlignment: isArabic
+                  ? CrossAxisAlignment.end
+                  : CrossAxisAlignment.start,
               children: [
                 Text(
                   metric.title,
@@ -969,7 +996,7 @@ class _SummaryTile extends StatelessWidget {
                 ),
               ],
             ),
-          )
+          ),
         ],
       ),
     );

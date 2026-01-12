@@ -6,13 +6,11 @@ import '../theme/app_theme.dart';
 class BranchesManagementScreen extends StatefulWidget {
   final bool isArabic;
 
-  const BranchesManagementScreen({
-    super.key,
-    required this.isArabic,
-  });
+  const BranchesManagementScreen({super.key, required this.isArabic});
 
   @override
-  State<BranchesManagementScreen> createState() => _BranchesManagementScreenState();
+  State<BranchesManagementScreen> createState() =>
+      _BranchesManagementScreenState();
 }
 
 class _BranchesManagementScreenState extends State<BranchesManagementScreen> {
@@ -72,8 +70,12 @@ class _BranchesManagementScreenState extends State<BranchesManagementScreen> {
 
   Future<void> _openBranchForm({Map<String, dynamic>? branch}) async {
     final isEdit = branch != null;
-    final nameController = TextEditingController(text: isEdit ? _asString(branch['name']) : '');
-    final codeController = TextEditingController(text: isEdit ? _asString(branch['branch_code']) : '');
+    final nameController = TextEditingController(
+      text: isEdit ? _asString(branch['name']) : '',
+    );
+    final codeController = TextEditingController(
+      text: isEdit ? _asString(branch['branch_code']) : '',
+    );
 
     final result = await showDialog<bool>(
       context: context,
@@ -101,7 +103,9 @@ class _BranchesManagementScreenState extends State<BranchesManagementScreen> {
                 TextField(
                   controller: codeController,
                   decoration: InputDecoration(
-                    labelText: widget.isArabic ? 'رمز الفرع (Code)' : 'Branch code',
+                    labelText: widget.isArabic
+                        ? 'رمز الفرع (Code)'
+                        : 'Branch code',
                     prefixIcon: const Icon(Icons.confirmation_number_outlined),
                     helperText: widget.isArabic
                         ? 'اتركه فارغاً لتوليده تلقائياً'
@@ -131,7 +135,10 @@ class _BranchesManagementScreenState extends State<BranchesManagementScreen> {
     final code = codeController.text.trim();
 
     if (name.isEmpty) {
-      _showSnack(widget.isArabic ? 'اسم الفرع مطلوب' : 'Branch name is required', isError: true);
+      _showSnack(
+        widget.isArabic ? 'اسم الفرع مطلوب' : 'Branch name is required',
+        isError: true,
+      );
       return;
     }
 
@@ -154,14 +161,23 @@ class _BranchesManagementScreenState extends State<BranchesManagementScreen> {
       await _loadBranches();
       _showSnack(widget.isArabic ? 'تم الحفظ' : 'Saved');
     } catch (e) {
-      _showSnack((widget.isArabic ? 'فشل الحفظ: ' : 'Save failed: ') + e.toString(), isError: true);
+      _showSnack(
+        (widget.isArabic ? 'فشل الحفظ: ' : 'Save failed: ') + e.toString(),
+        isError: true,
+      );
     }
   }
 
-  Future<void> _toggleActive(Map<String, dynamic> branch, bool nextValue) async {
+  Future<void> _toggleActive(
+    Map<String, dynamic> branch,
+    bool nextValue,
+  ) async {
     final id = _asInt(branch['id']);
     if (id == null) {
-      _showSnack(widget.isArabic ? 'معرّف الفرع غير صالح' : 'Invalid branch id', isError: true);
+      _showSnack(
+        widget.isArabic ? 'معرّف الفرع غير صالح' : 'Invalid branch id',
+        isError: true,
+      );
       return;
     }
 
@@ -173,7 +189,11 @@ class _BranchesManagementScreenState extends State<BranchesManagementScreen> {
       }
       await _loadBranches();
     } catch (e) {
-      _showSnack((widget.isArabic ? 'فشل تحديث الحالة: ' : 'Failed to update status: ') + e.toString(), isError: true);
+      _showSnack(
+        (widget.isArabic ? 'فشل تحديث الحالة: ' : 'Failed to update status: ') +
+            e.toString(),
+        isError: true,
+      );
     }
   }
 
@@ -214,62 +234,67 @@ class _BranchesManagementScreenState extends State<BranchesManagementScreen> {
           child: _isLoading
               ? const Center(child: CircularProgressIndicator())
               : _error != null
-                  ? Center(
-                      child: Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text(
-                              isAr ? 'فشل تحميل الفروع' : 'Failed to load branches',
-                              style: theme.textTheme.titleMedium,
-                            ),
-                            const SizedBox(height: 8),
-                            Text(_error!, textAlign: TextAlign.center),
-                            const SizedBox(height: 12),
-                            FilledButton.icon(
-                              onPressed: _loadBranches,
-                              icon: const Icon(Icons.refresh),
-                              label: Text(isAr ? 'إعادة المحاولة' : 'Retry'),
-                            ),
-                          ],
+              ? Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          isAr ? 'فشل تحميل الفروع' : 'Failed to load branches',
+                          style: theme.textTheme.titleMedium,
                         ),
-                      ),
-                    )
-                  : ListView.separated(
-                      padding: const EdgeInsets.all(16),
-                      itemCount: _branches.length,
-                      separatorBuilder: (_, __) => const SizedBox(height: 10),
-                      itemBuilder: (context, index) {
-                        final b = _branches[index];
-                        final name = _asString(b['name']);
-                        final code = _asString(b['branch_code']);
-                        final active = _asBool(b['active']);
-
-                        return Card(
-                          child: ListTile(
-                            leading: Icon(
-                              Icons.account_tree,
-                              color: active ? theme.colorScheme.primary : theme.disabledColor,
-                            ),
-                            title: Text(
-                              name.isEmpty ? (isAr ? 'فرع' : 'Branch') : name,
-                              style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
-                            ),
-                            subtitle: Text(
-                              code.isEmpty
-                                  ? (isAr ? 'بدون رمز' : 'No code')
-                                  : (isAr ? 'الرمز: $code' : 'Code: $code'),
-                            ),
-                            trailing: Switch(
-                              value: active,
-                              onChanged: (v) => _toggleActive(b, v),
-                            ),
-                            onTap: () => _openBranchForm(branch: b),
-                          ),
-                        );
-                      },
+                        const SizedBox(height: 8),
+                        Text(_error!, textAlign: TextAlign.center),
+                        const SizedBox(height: 12),
+                        FilledButton.icon(
+                          onPressed: _loadBranches,
+                          icon: const Icon(Icons.refresh),
+                          label: Text(isAr ? 'إعادة المحاولة' : 'Retry'),
+                        ),
+                      ],
                     ),
+                  ),
+                )
+              : ListView.separated(
+                  padding: const EdgeInsets.all(16),
+                  itemCount: _branches.length,
+                  separatorBuilder: (context, index) =>
+                      const SizedBox(height: 10),
+                  itemBuilder: (context, index) {
+                    final b = _branches[index];
+                    final name = _asString(b['name']);
+                    final code = _asString(b['branch_code']);
+                    final active = _asBool(b['active']);
+
+                    return Card(
+                      child: ListTile(
+                        leading: Icon(
+                          Icons.account_tree,
+                          color: active
+                              ? theme.colorScheme.primary
+                              : theme.disabledColor,
+                        ),
+                        title: Text(
+                          name.isEmpty ? (isAr ? 'فرع' : 'Branch') : name,
+                          style: theme.textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        subtitle: Text(
+                          code.isEmpty
+                              ? (isAr ? 'بدون رمز' : 'No code')
+                              : (isAr ? 'الرمز: $code' : 'Code: $code'),
+                        ),
+                        trailing: Switch(
+                          value: active,
+                          onChanged: (v) => _toggleActive(b, v),
+                        ),
+                        onTap: () => _openBranchForm(branch: b),
+                      ),
+                    );
+                  },
+                ),
         ),
       ),
     );

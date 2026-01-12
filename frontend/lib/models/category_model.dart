@@ -21,8 +21,8 @@ class Category {
       id: json['id'],
       name: json['name'] ?? '',
       description: json['description'],
-      createdAt: json['created_at'] != null 
-          ? DateTime.parse(json['created_at']) 
+      createdAt: json['created_at'] != null
+          ? DateTime.parse(json['created_at'])
           : null,
       itemsCount: json['items_count'] ?? 0,
     );
@@ -30,11 +30,7 @@ class Category {
 
   /// تحويل Category إلى JSON
   Map<String, dynamic> toJson() {
-    return {
-      'id': id,
-      'name': name,
-      'description': description,
-    };
+    return {'id': id, 'name': name, 'description': description};
   }
 
   /// نسخة معدلة من التصنيف

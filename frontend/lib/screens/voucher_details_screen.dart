@@ -7,8 +7,7 @@ import '../theme/app_theme.dart' as theme;
 class VoucherDetailsScreen extends StatefulWidget {
   final int voucherId;
 
-  const VoucherDetailsScreen({Key? key, required this.voucherId})
-    : super(key: key);
+  const VoucherDetailsScreen({super.key, required this.voucherId});
 
   @override
   State<VoucherDetailsScreen> createState() => _VoucherDetailsScreenState();
@@ -65,9 +64,7 @@ class _VoucherDetailsScreenState extends State<VoucherDetailsScreen> {
           ),
           TextButton(
             onPressed: () => Navigator.pop(context, true),
-            style: TextButton.styleFrom(
-              foregroundColor: theme.AppColors.error,
-            ),
+            style: TextButton.styleFrom(foregroundColor: theme.AppColors.error),
             child: const Text('حذف'),
           ),
         ],
@@ -115,9 +112,7 @@ class _VoucherDetailsScreenState extends State<VoucherDetailsScreen> {
           ),
           TextButton(
             onPressed: () => Navigator.pop(context, true),
-            style: TextButton.styleFrom(
-              foregroundColor: theme.AppColors.error,
-            ),
+            style: TextButton.styleFrom(foregroundColor: theme.AppColors.error),
             child: const Text('إلغاء السند'),
           ),
         ],
@@ -211,8 +206,8 @@ class _VoucherDetailsScreenState extends State<VoucherDetailsScreen> {
     final status = voucher['status'] ?? 'active';
     final isCancelled = status == 'cancelled';
     final isActive = status == 'active';
-  final double? amountCash = _toDouble(voucher['amount_cash']);
-  final double? amountGold = _toDouble(voucher['amount_gold']);
+    final double? amountCash = _toDouble(voucher['amount_cash']);
+    final double? amountGold = _toDouble(voucher['amount_gold']);
 
     Color typeColor;
     IconData typeIcon;
@@ -678,8 +673,9 @@ class _VoucherDetailsScreenState extends State<VoucherDetailsScreen> {
     messenger.showSnackBar(
       SnackBar(
         content: Text(message),
-        backgroundColor:
-            error ? theme.AppColors.error : theme.AppColors.primaryGold,
+        backgroundColor: error
+            ? theme.AppColors.error
+            : theme.AppColors.primaryGold,
         behavior: SnackBarBehavior.floating,
       ),
     );

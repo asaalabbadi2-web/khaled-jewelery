@@ -195,15 +195,19 @@ class _UsersScreenState extends State<UsersScreen> {
 
     // Not logged in
     if (current == null) {
-      _showSnack(isAr ? 'يرجى تسجيل الدخول أولاً' : 'Please login first',
-          isError: true);
+      _showSnack(
+        isAr ? 'يرجى تسجيل الدخول أولاً' : 'Please login first',
+        isError: true,
+      );
       return;
     }
 
     // Block self toggle
     if (current.id != null && user.id != null && current.id == user.id) {
       _showSnack(
-        isAr ? 'لا يمكنك تعطيل/تفعيل حسابك' : 'You cannot toggle your own account',
+        isAr
+            ? 'لا يمكنك تعطيل/تفعيل حسابك'
+            : 'You cannot toggle your own account',
         isError: true,
       );
       return;
@@ -212,7 +216,8 @@ class _UsersScreenState extends State<UsersScreen> {
     // Policy: manager can toggle employee only
     final actorRole = auth.role;
     final targetRole = user.role;
-    final allowed = auth.isSystemAdmin ||
+    final allowed =
+        auth.isSystemAdmin ||
         (actorRole == 'manager' && targetRole == 'employee');
 
     if (!allowed) {
@@ -290,8 +295,8 @@ class _UsersScreenState extends State<UsersScreen> {
         _showSnack(
           deactivated
               ? (widget.isArabic
-                  ? 'تم إلغاء تفعيل المستخدم بدلاً من الحذف'
-                  : 'User deactivated instead of deleted')
+                    ? 'تم إلغاء تفعيل المستخدم بدلاً من الحذف'
+                    : 'User deactivated instead of deleted')
               : (widget.isArabic ? 'تم حذف المستخدم' : 'User deleted'),
         );
       }
@@ -352,11 +357,14 @@ class _UsersScreenState extends State<UsersScreen> {
         return;
       }
     } else {
-      final canEdit = auth.isSystemAdmin ||
+      final canEdit =
+          auth.isSystemAdmin ||
           (auth.role == 'manager' && user.role == 'employee');
       if (!canEdit) {
         _showSnack(
-          isAr ? 'غير مصرح بتعديل هذا المستخدم' : 'Not allowed to edit this user',
+          isAr
+              ? 'غير مصرح بتعديل هذا المستخدم'
+              : 'Not allowed to edit this user',
           isError: true,
         );
         return;
@@ -831,8 +839,9 @@ class _UserFormDialogState extends State<UserFormDialog> {
         ? const ['system_admin', 'manager', 'accountant', 'employee']
         : (isManager ? const ['employee'] : const ['employee']);
 
-    final effectiveRole =
-        allowedRoles.contains(_role) ? _role : allowedRoles.first;
+    final effectiveRole = allowedRoles.contains(_role)
+        ? _role
+        : allowedRoles.first;
     if (effectiveRole != _role) {
       // keep state consistent if current role is not allowed
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -915,16 +924,14 @@ class _UserFormDialogState extends State<UserFormDialog> {
                   validator: (value) {
                     if (widget.user == null) {
                       if (value == null || value.trim().isEmpty) {
-                        return isAr
-                            ? 'رقم الجوال مطلوب'
-                            : 'Mobile is required';
+                        return isAr ? 'رقم الجوال مطلوب' : 'Mobile is required';
                       }
                     }
                     return null;
                   },
                 ),
                 DropdownButtonFormField<String>(
-                  value: effectiveRole,
+                  initialValue: effectiveRole,
                   items: allowedRoles
                       .map(
                         (r) => DropdownMenuItem(
@@ -936,20 +943,21 @@ class _UserFormDialogState extends State<UserFormDialog> {
                                         'manager': 'مدير فرع',
                                         'accountant': 'محاسب',
                                         'employee': 'بائع',
-                                      }[r] ?? r
+                                      }[r] ??
+                                      r
                                 : {
                                         'system_admin': 'System Admin',
                                         'manager': 'Branch Manager',
                                         'accountant': 'Accountant',
                                         'employee': 'Seller',
-                                      }[r] ?? r,
+                                      }[r] ??
+                                      r,
                           ),
                         ),
                       )
                       .toList(),
                   onChanged: canChangeRole
-                      ? (value) =>
-                          setState(() => _role = value ?? 'employee')
+                      ? (value) => setState(() => _role = value ?? 'employee')
                       : null,
                   decoration: InputDecoration(
                     labelText: isAr ? 'الدور' : 'Role',
@@ -963,7 +971,7 @@ class _UserFormDialogState extends State<UserFormDialog> {
                         child: Center(child: CircularProgressIndicator()),
                       )
                     : DropdownButtonFormField<int?>(
-                        value: _selectedEmployeeId,
+                        initialValue: _selectedEmployeeId,
                         decoration: InputDecoration(
                           labelText: isAr
                               ? 'الموظف (اختياري)'
@@ -994,7 +1002,7 @@ class _UserFormDialogState extends State<UserFormDialog> {
                               value: emp.id,
                               child: Text(display),
                             );
-                          }).toList(),
+                          }),
                         ],
                         onChanged: (value) {
                           setState(() => _selectedEmployeeId = value);

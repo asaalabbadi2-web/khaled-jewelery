@@ -102,7 +102,7 @@ create_dual_journal_entry(
     journal_entry_id=journal_entry.id,
     account_id=wage_inventory_account_id,
     cash_debit=round(wage_cash, 2),
-    description="إضافة أجور مصنعية للمخزون - شراء من مورد"
+    description="إضافة أجور مصنعية للمخزون - شراء"
 )
 ```
 

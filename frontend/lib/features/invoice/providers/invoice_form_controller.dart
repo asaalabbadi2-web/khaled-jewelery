@@ -44,13 +44,21 @@ class InvoiceFormController extends ChangeNotifier {
     required this.api,
     required this.config,
     required List<Map<String, dynamic>> customers,
+    int? mainKarat,
   }) : _customers = List<Map<String, dynamic>>.from(customers),
        _taxRate = config.defaultTaxRate {
+    _mainKarat = (mainKarat ?? 21).clamp(1, 24);
     fetchGoldPrice();
+    if (mainKarat == null) {
+      _loadMainKaratFromSettings();
+    }
   }
 
   final ApiService api;
   final InvoiceFlowConfig config;
+
+  int _mainKarat = 21;
+  int get mainKarat => _mainKarat;
 
   final List<Map<String, dynamic>> _customers;
   final List<InvoiceItemRow> _items = [];
@@ -98,11 +106,28 @@ class InvoiceFormController extends ChangeNotifier {
       totalWeight21k - paymentGoldWeight21k - settledGoldWeight;
 
   double get wageInGold21k {
-    final goldPrice21k = _goldPrice24k > 0
-        ? (_goldPrice24k / 24.0) * 21.0 * _exchangeRate
+    final goldPriceMain = _goldPrice24k > 0
+        ? (_goldPrice24k / 24.0) * mainKarat * _exchangeRate
         : 0.0;
-    if (goldPrice21k <= 0) return 0.0;
-    return totalWage / goldPrice21k;
+    if (goldPriceMain <= 0) return 0.0;
+    return totalWage / goldPriceMain;
+  }
+
+  Future<void> _loadMainKaratFromSettings() async {
+    try {
+      final settings = await api.getSettings();
+      final raw = settings['main_karat'];
+      final parsed = raw is num
+          ? raw.toInt()
+          : int.tryParse(raw?.toString() ?? '');
+      if (parsed == null) return;
+      final next = parsed.clamp(1, 24);
+      if (next == _mainKarat) return;
+      _mainKarat = next;
+      notifyListeners();
+    } catch (_) {
+      // Keep default main karat if settings are unavailable.
+    }
   }
 
   void setNotes(String value) {
@@ -353,7 +378,7 @@ class InvoiceFormController extends ChangeNotifier {
   double _convertToMainKarat(double weight, double karat) {
     if (weight <= 0) return 0.0;
     if (karat <= 0) return weight;
-    return weight * (karat / 21.0);
+    return weight * (karat / mainKarat);
   }
 
   double? _parseGoldPrice(Map<String, dynamic> response) {

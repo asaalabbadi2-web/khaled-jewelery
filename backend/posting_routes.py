@@ -48,13 +48,18 @@ posting_bp = Blueprint('posting', __name__)
 def _direction_for_invoice_gold(invoice_type: str) -> str:
     """Map invoice type to gold movement direction (in/out)."""
     t = (invoice_type or '').strip()
+    if 'مورد' in t and 'شراء' in t:
+        if 'مرتجع' in t:
+            t = 'مرتجع شراء (مورد)'
+        else:
+            t = 'شراء'
     if t == 'بيع':
         return 'out'
     if t == 'مرتجع بيع':
         return 'in'
-    if t in ('شراء من عميل', 'شراء من مورد'):
+    if t in ('شراء من عميل', 'شراء'):
         return 'in'
-    if t in ('مرتجع شراء', 'مرتجع شراء من مورد'):
+    if t in ('مرتجع شراء', 'مرتجع شراء (مورد)'):
         return 'out'
     # Default: no-op direction is safer as 'out'/'in' both change inventory;
     # but we only create rows when weights exist, so choose 'out' only for explicit sale.

@@ -126,7 +126,7 @@ class _PayrollReportScreenState extends State<PayrollReportScreen> {
               children: [
                 Expanded(
                   child: DropdownButtonFormField<int>(
-                    value: _selectedYear,
+                    initialValue: _selectedYear,
                     decoration: InputDecoration(
                       labelText: isAr ? 'السنة' : 'Year',
                       border: const OutlineInputBorder(),
@@ -150,7 +150,7 @@ class _PayrollReportScreenState extends State<PayrollReportScreen> {
                 const SizedBox(width: 16),
                 Expanded(
                   child: DropdownButtonFormField<int?>(
-                    value: _selectedMonth,
+                    initialValue: _selectedMonth,
                     decoration: InputDecoration(
                       labelText: isAr ? 'الشهر' : 'Month',
                       border: const OutlineInputBorder(),

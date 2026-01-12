@@ -50,25 +50,43 @@ INVOICE_TYPE_OPTIONS = [
         'description': 'استرجاع مشتريات الكسر من العميل',
     },
     {
-        'value': 'شراء من مورد',
-        'name_ar': 'شراء من مورد',
+        'value': 'شراء',
+        'name_ar': 'شراء',
         'category': 'accounting',
         'description': 'شراء ذهب جديد من المورد',
     },
     {
-        'value': 'مرتجع شراء من مورد',
-        'name_ar': 'مرتجع شراء من مورد',
+        'value': 'مرتجع شراء (مورد)',
+        'name_ar': 'مرتجع شراء (مورد)',
         'category': 'accounting',
         'description': 'استرجاع مشتريات من المورد',
     },
 ]
 
 
+def _canonicalize_invoice_type(value: str) -> str:
+    """Normalize invoice types to the canonical labels used by the app.
+
+    We intentionally avoid relying on exact legacy strings; instead we infer
+    supplier purchase/return by keywords to support older stored values.
+    """
+    candidate = (value or '').strip()
+    if not candidate:
+        return candidate
+
+    if 'مورد' in candidate and 'شراء' in candidate:
+        if 'مرتجع' in candidate:
+            return 'مرتجع شراء (مورد)'
+        return 'شراء'
+
+    return candidate
+
+
 def _normalize_invoice_type_filter(raw_value):
     if not raw_value:
         return None
 
-    cleaned = raw_value.strip()
+    cleaned = _canonicalize_invoice_type(raw_value)
     if cleaned in {'الكل', 'all', 'ALL'}:
         return None
 
@@ -95,7 +113,7 @@ def _normalize_applicable_invoice_types(raw_types):
 
     for raw_type in raw_types:
         if isinstance(raw_type, str):
-            candidate = raw_type.strip()
+            candidate = _canonicalize_invoice_type(raw_type)
         else:
             candidate = None
 

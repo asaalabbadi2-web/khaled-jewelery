@@ -192,7 +192,6 @@ class _VouchersListScreenState extends State<VouchersListScreen>
         });
       }
     }
- 
   }
 
   Future<void> _refresh() async {
@@ -374,11 +373,11 @@ class _VouchersListScreenState extends State<VouchersListScreen>
     showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (context) => WillPopScope(
-        onWillPop: () async => false,
-        child: AlertDialog(
+      builder: (context) => PopScope(
+        canPop: false,
+        child: const AlertDialog(
           content: Row(
-            children: const [
+            children: [
               SizedBox(
                 width: 24,
                 height: 24,
@@ -972,12 +971,12 @@ class _VouchersListScreenState extends State<VouchersListScreen>
     final String description = (voucher['description'] ?? '').toString();
 
     // Sample the card background (gradient between white and a light gold)
-    final Color _cardBgStart = Colors.white;
-    final Color _cardBgEnd = _withAlpha(theme.AppColors.lightGold, 0.08);
-    final Color cardBgSample = _sampleColor(_cardBgStart, _cardBgEnd, 0.5);
-    final bool _cardBgIsLight = cardBgSample.computeLuminance() > 0.5;
+    final Color cardBgStart = Colors.white;
+    final Color cardBgEnd = _withAlpha(theme.AppColors.lightGold, 0.08);
+    final Color cardBgSample = _sampleColor(cardBgStart, cardBgEnd, 0.5);
+    final bool cardBgIsLight = cardBgSample.computeLuminance() > 0.5;
     final Color titleColor = _contrastOn(cardBgSample);
-    final Color secondaryTextColor = _cardBgIsLight
+    final Color secondaryTextColor = cardBgIsLight
         ? _withAlpha(Colors.black, 0.6)
         : _withAlpha(Colors.white, 0.85);
 
@@ -1453,9 +1452,11 @@ class _VouchersListScreenState extends State<VouchersListScreen>
           : math.pow((vSrgb + 0.055) / 1.055, 2.4).toDouble();
     }
 
-    return 0.2126 * channel(c.red) +
-        0.7152 * channel(c.green) +
-        0.0722 * channel(c.blue);
+    final int r = (c.r * 255).round();
+    final int g = (c.g * 255).round();
+    final int b = (c.b * 255).round();
+
+    return 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b);
   }
 
   // Return either black or white depending on background luminance to maximize contrast.
@@ -1767,7 +1768,7 @@ class _VouchersListScreenState extends State<VouchersListScreen>
       final output = await getTemporaryDirectory();
       final file = File('${output.path}/vouchers.pdf');
       await file.writeAsBytes(await pdf.save());
-        if (mounted) {
+      if (mounted) {
         await SharePlus.instance.share(
           ShareParams(
             files: [XFile(file.path)],
@@ -1801,18 +1802,66 @@ class _VouchersListScreenState extends State<VouchersListScreen>
     final headers = ['الرقم', 'التاريخ', 'النوع', 'البيان', 'المبلغ'];
     int rowIndex = 0;
     for (int c = 0; c < headers.length; c++) {
-      sheet.cell(excel.CellIndex.indexByColumnRow(columnIndex: c, rowIndex: rowIndex)).value = headers[c];
+      sheet
+              .cell(
+                excel.CellIndex.indexByColumnRow(
+                  columnIndex: c,
+                  rowIndex: rowIndex,
+                ),
+              )
+              .value =
+          headers[c];
     }
     // Add data rows
     for (final voucher in _vouchers) {
       rowIndex++;
       final type = voucher['voucher_type'] == 'receipt' ? 'قبض' : 'صرف';
       final amount = voucher['amount_cash'] ?? 0.0;
-      sheet.cell(excel.CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: rowIndex)).value = voucher['voucher_number'] ?? '';
-      sheet.cell(excel.CellIndex.indexByColumnRow(columnIndex: 1, rowIndex: rowIndex)).value = voucher['date'] ?? '';
-      sheet.cell(excel.CellIndex.indexByColumnRow(columnIndex: 2, rowIndex: rowIndex)).value = type;
-      sheet.cell(excel.CellIndex.indexByColumnRow(columnIndex: 3, rowIndex: rowIndex)).value = voucher['description'] ?? '';
-      sheet.cell(excel.CellIndex.indexByColumnRow(columnIndex: 4, rowIndex: rowIndex)).value = amount;
+      sheet
+              .cell(
+                excel.CellIndex.indexByColumnRow(
+                  columnIndex: 0,
+                  rowIndex: rowIndex,
+                ),
+              )
+              .value =
+          voucher['voucher_number'] ?? '';
+      sheet
+              .cell(
+                excel.CellIndex.indexByColumnRow(
+                  columnIndex: 1,
+                  rowIndex: rowIndex,
+                ),
+              )
+              .value =
+          voucher['date'] ?? '';
+      sheet
+              .cell(
+                excel.CellIndex.indexByColumnRow(
+                  columnIndex: 2,
+                  rowIndex: rowIndex,
+                ),
+              )
+              .value =
+          type;
+      sheet
+              .cell(
+                excel.CellIndex.indexByColumnRow(
+                  columnIndex: 3,
+                  rowIndex: rowIndex,
+                ),
+              )
+              .value =
+          voucher['description'] ?? '';
+      sheet
+              .cell(
+                excel.CellIndex.indexByColumnRow(
+                  columnIndex: 4,
+                  rowIndex: rowIndex,
+                ),
+              )
+              .value =
+          amount;
     }
 
     try {
@@ -1822,7 +1871,7 @@ class _VouchersListScreenState extends State<VouchersListScreen>
       final file = File('${output.path}/$fileName');
 
       final bytes = excelFile.save();
-        if (bytes != null) {
+      if (bytes != null) {
         await file.writeAsBytes(bytes);
         if (!mounted) return;
         await SharePlus.instance.share(

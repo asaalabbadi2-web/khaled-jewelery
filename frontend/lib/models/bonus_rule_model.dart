@@ -61,9 +61,10 @@ class BonusRuleModel {
       targetEmployeeIds: (json['target_employee_ids'] as List<dynamic>?)
           ?.map((e) => e as int)
           .toList(),
-      applicableInvoiceTypes: (json['applicable_invoice_types'] as List<dynamic>?)
-          ?.map((e) => e.toString())
-          .toList(),
+      applicableInvoiceTypes:
+          (json['applicable_invoice_types'] as List<dynamic>?)
+              ?.map((e) => e.toString())
+              .toList(),
       isActive: json['is_active'] as bool? ?? true,
       validFrom: json['valid_from'] != null
           ? DateTime.parse(json['valid_from'] as String)
@@ -132,7 +133,8 @@ class BonusRuleModel {
       targetDepartments: targetDepartments ?? this.targetDepartments,
       targetPositions: targetPositions ?? this.targetPositions,
       targetEmployeeIds: targetEmployeeIds ?? this.targetEmployeeIds,
-      applicableInvoiceTypes: applicableInvoiceTypes ?? this.applicableInvoiceTypes,
+      applicableInvoiceTypes:
+          applicableInvoiceTypes ?? this.applicableInvoiceTypes,
       isActive: isActive ?? this.isActive,
       validFrom: validFrom ?? this.validFrom,
       validTo: validTo ?? this.validTo,
@@ -142,18 +144,18 @@ class BonusRuleModel {
 
   /// الأنواع المتاحة للقواعد
   static const List<String> ruleTypes = [
-    'sales_target',   // تحقيق هدف مبيعات
-    'attendance',     // الحضور والانضباط
-    'performance',    // تقييم الأداء
-    'fixed',          // مكافأة ثابتة
-    'profit_based',   // مكافأة على أساس الربح
-    'custom',         // مخصصة
+    'sales_target', // تحقيق هدف مبيعات
+    'attendance', // الحضور والانضباط
+    'performance', // تقييم الأداء
+    'fixed', // مكافأة ثابتة
+    'profit_based', // مكافأة على أساس الربح
+    'custom', // مخصصة
   ];
 
   /// أنواع احتساب المكافأة
   static const List<String> bonusTypes = [
-    'percentage',       // نسبة من الراتب
-    'fixed',           // مبلغ ثابت
+    'percentage', // نسبة من الراتب
+    'fixed', // مبلغ ثابت
     'sales_percentage', // نسبة من المبيعات
     'profit_percentage', // نسبة من الربح
   ];

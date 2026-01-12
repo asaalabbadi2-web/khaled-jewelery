@@ -67,9 +67,9 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
       }
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(e.toString())),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(e.toString())));
     } finally {
       if (mounted) setState(() => _submitting = false);
     }
@@ -82,7 +82,9 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
       child: Scaffold(
         appBar: AppBar(
           automaticallyImplyLeading: !widget.force,
-          title: Text(widget.force ? 'تعيين كلمة مرور جديدة' : 'تغيير كلمة المرور'),
+          title: Text(
+            widget.force ? 'تعيين كلمة مرور جديدة' : 'تغيير كلمة المرور',
+          ),
         ),
         body: SafeArea(
           child: Padding(

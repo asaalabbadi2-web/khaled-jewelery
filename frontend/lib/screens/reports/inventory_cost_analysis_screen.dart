@@ -4,7 +4,7 @@ import 'package:intl/intl.dart';
 import '../../api_service.dart';
 
 class InventoryCostAnalysisScreen extends StatefulWidget {
-  const InventoryCostAnalysisScreen({Key? key}) : super(key: key);
+  const InventoryCostAnalysisScreen({super.key});
 
   @override
   State<InventoryCostAnalysisScreen> createState() =>
@@ -68,9 +68,9 @@ class _InventoryCostAnalysisScreenState
     } catch (e) {
       if (!mounted) return;
       setState(() => _loading = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('تعذر تحميل التقرير: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('تعذر تحميل التقرير: $e')));
     }
   }
 
@@ -78,27 +78,35 @@ class _InventoryCostAnalysisScreenState
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('تحليل تكلفة المخزون',
-            style: TextStyle(fontFamily: 'Cairo')),
+        title: const Text(
+          'تحليل تكلفة المخزون',
+          style: TextStyle(fontFamily: 'Cairo'),
+        ),
         backgroundColor: const Color(0xFFD4AF37),
         actions: [
           IconButton(onPressed: _load, icon: const Icon(Icons.refresh)),
-          IconButton(onPressed: () => _pickDate(isStart: true), icon: const Icon(Icons.date_range)),
+          IconButton(
+            onPressed: () => _pickDate(isStart: true),
+            icon: const Icon(Icons.date_range),
+          ),
         ],
       ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _data == null
-              ? const Center(child: Text('لا توجد بيانات'))
-              : _buildContent(),
+          ? const Center(child: Text('لا توجد بيانات'))
+          : _buildContent(),
     );
   }
 
   Widget _buildContent() {
-    final current = (_data!['current_inventory'] as Map<String, dynamic>? ) ?? {};
-    final purchases = (_data!['purchases_analysis'] as Map<String, dynamic>?) ?? {};
+    final current =
+        (_data!['current_inventory'] as Map<String, dynamic>?) ?? {};
+    final purchases =
+        (_data!['purchases_analysis'] as Map<String, dynamic>?) ?? {};
     final comparison = (_data!['comparison'] as Map<String, dynamic>?) ?? {};
-    final summary = (_data!['executive_summary'] as Map<String, dynamic>?) ?? {};
+    final summary =
+        (_data!['executive_summary'] as Map<String, dynamic>?) ?? {};
     final period = (_data!['period'] as Map<String, dynamic>?) ?? {};
 
     return RefreshIndicator(
@@ -116,7 +124,9 @@ class _InventoryCostAnalysisScreenState
           const SizedBox(height: 12),
           _buildComparisonCard(comparison),
           const SizedBox(height: 12),
-          _buildMonthlyBreakdown(purchases['monthly_breakdown'] as List<dynamic>?),
+          _buildMonthlyBreakdown(
+            purchases['monthly_breakdown'] as List<dynamic>?,
+          ),
         ],
       ),
     );
@@ -133,24 +143,36 @@ class _InventoryCostAnalysisScreenState
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('الفترة',
-                    style: TextStyle(
-                        fontFamily: 'Cairo',
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold)),
+                const Text(
+                  'الفترة',
+                  style: TextStyle(
+                    fontFamily: 'Cairo',
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
                 const SizedBox(height: 4),
-                Text('${period['start_date'] ?? '-'} → ${period['end_date'] ?? '-'}',
-                    style: const TextStyle(fontFamily: 'Cairo')),
-                Text('الأيام: ${period['days'] ?? '-'}',
-                    style: const TextStyle(fontFamily: 'Cairo', color: Colors.grey)),
+                Text(
+                  '${period['start_date'] ?? '-'} → ${period['end_date'] ?? '-'}',
+                  style: const TextStyle(fontFamily: 'Cairo'),
+                ),
+                Text(
+                  'الأيام: ${period['days'] ?? '-'}',
+                  style: const TextStyle(
+                    fontFamily: 'Cairo',
+                    color: Colors.grey,
+                  ),
+                ),
               ],
             ),
             ElevatedButton.icon(
-              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFD4AF37)),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFFD4AF37),
+              ),
               onPressed: _load,
               icon: const Icon(Icons.refresh, size: 18),
               label: const Text('تحديث', style: TextStyle(fontFamily: 'Cairo')),
-            )
+            ),
           ],
         ),
       ),
@@ -190,27 +212,39 @@ class _InventoryCostAnalysisScreenState
                   color: Colors.green,
                 ),
                 const SizedBox(width: 8),
-                Text('الملخص التنفيذي',
-                    style: TextStyle(
-                      fontFamily: 'Cairo',
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.grey.shade700,
-                    )),
+                Text(
+                  'الملخص التنفيذي',
+                  style: TextStyle(
+                    fontFamily: 'Cairo',
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.grey.shade700,
+                  ),
+                ),
               ],
             ),
             const SizedBox(height: 8),
-            Text(keyMetric,
-                style: const TextStyle(
-                    fontFamily: 'Cairo',
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold)),
+            Text(
+              keyMetric,
+              style: const TextStyle(
+                fontFamily: 'Cairo',
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
             const SizedBox(height: 4),
-            Text('اتجاه الأسعار: $priceTrend',
-                style: TextStyle(fontFamily: 'Cairo', color: trendColor)),
+            Text(
+              'اتجاه الأسعار: $priceTrend',
+              style: TextStyle(fontFamily: 'Cairo', color: trendColor),
+            ),
             const SizedBox(height: 4),
-            Text('التوصية: $action',
-                style: const TextStyle(fontFamily: 'Cairo', color: Colors.black87)),
+            Text(
+              'التوصية: $action',
+              style: const TextStyle(
+                fontFamily: 'Cairo',
+                color: Colors.black87,
+              ),
+            ),
           ],
         ),
       ),
@@ -231,11 +265,14 @@ class _InventoryCostAnalysisScreenState
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('المخزون الحالي',
-                style: TextStyle(
-                    fontFamily: 'Cairo',
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold)),
+            const Text(
+              'المخزون الحالي',
+              style: TextStyle(
+                fontFamily: 'Cairo',
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
             const Divider(),
             _infoRow('القيمة الدفترية', '${totalValue.toStringAsFixed(2)} ر.س'),
             _infoRow('الوزن', '${totalWeight.toStringAsFixed(3)} جم'),
@@ -252,12 +289,14 @@ class _InventoryCostAnalysisScreenState
                 spacing: 8,
                 runSpacing: 6,
                 children: (current['details'] as List)
-                    .map((d) => Chip(
-                          label: Text(
-                            '${d['account_name']} (${d['value']})',
-                            style: const TextStyle(fontFamily: 'Cairo'),
-                          ),
-                        ))
+                    .map(
+                      (d) => Chip(
+                        label: Text(
+                          '${d['account_name']} (${d['value']})',
+                          style: const TextStyle(fontFamily: 'Cairo'),
+                        ),
+                      ),
+                    )
                     .toList(),
               ),
           ],
@@ -294,13 +333,19 @@ class _InventoryCostAnalysisScreenState
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('المشتريات خلال الفترة',
-                style: TextStyle(
-                    fontFamily: 'Cairo',
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold)),
+            const Text(
+              'المشتريات خلال الفترة',
+              style: TextStyle(
+                fontFamily: 'Cairo',
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
             const Divider(),
-            _infoRow('القيمة الإجمالية', '${totalValue.toStringAsFixed(2)} ر.س'),
+            _infoRow(
+              'القيمة الإجمالية',
+              '${totalValue.toStringAsFixed(2)} ر.س',
+            ),
             _infoRow('الوزن الإجمالي', '${totalWeight.toStringAsFixed(3)} جم'),
             _infoRow('متوسط تكلفة الشراء', '${avg.toStringAsFixed(2)} ر.س/جم'),
             _infoRow('أقل سعر شراء', '${min.toStringAsFixed(2)} ر.س/جم'),
@@ -332,28 +377,49 @@ class _InventoryCostAnalysisScreenState
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('المقارنة والتحليل',
-                style: TextStyle(
-                    fontFamily: 'Cairo',
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold)),
+            const Text(
+              'المقارنة والتحليل',
+              style: TextStyle(
+                fontFamily: 'Cairo',
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
             const Divider(),
             _infoRow('فرق التكلفة', '${diff.toStringAsFixed(2)} ر.س'),
             _infoRow('نسبة الفرق', '${diffPct.toStringAsFixed(2)}%'),
-            _infoRow('السعر الحالي', '${marketPrice.toStringAsFixed(2)} ر.س/جم'),
+            _infoRow(
+              'السعر الحالي',
+              '${marketPrice.toStringAsFixed(2)} ر.س/جم',
+            ),
             const SizedBox(height: 6),
-            Text(interpretation,
-                style: const TextStyle(fontFamily: 'Cairo', color: Colors.black87)),
+            Text(
+              interpretation,
+              style: const TextStyle(
+                fontFamily: 'Cairo',
+                color: Colors.black87,
+              ),
+            ),
             if (recommendation.isNotEmpty) ...[
               const SizedBox(height: 4),
-              Text('التوصية: $recommendation',
-                  style: const TextStyle(fontFamily: 'Cairo', color: Colors.blueGrey)),
+              Text(
+                'التوصية: $recommendation',
+                style: const TextStyle(
+                  fontFamily: 'Cairo',
+                  color: Colors.blueGrey,
+                ),
+              ),
             ],
             if (market.isNotEmpty) ...[
               const SizedBox(height: 4),
-              Text('مقارنة السوق: $market',
-                  style: const TextStyle(fontFamily: 'Cairo', color: Colors.green)),
-            ]
+              Text(
+                'مقارنة السوق: $market',
+                style: const TextStyle(
+                  fontFamily: 'Cairo',
+                  color: Colors.green,
+                ),
+              ),
+            ],
           ],
         ),
       ),
@@ -371,11 +437,14 @@ class _InventoryCostAnalysisScreenState
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('تحليل شهري',
-                style: TextStyle(
-                    fontFamily: 'Cairo',
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold)),
+            const Text(
+              'تحليل شهري',
+              style: TextStyle(
+                fontFamily: 'Cairo',
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
             const Divider(),
             ...months.map((m) {
               final month = m['month'] as String? ?? '-';
@@ -391,16 +460,23 @@ class _InventoryCostAnalysisScreenState
                     Column(
                       crossAxisAlignment: CrossAxisAlignment.end,
                       children: [
-                        Text('${value.toStringAsFixed(0)} ر.س',
-                            style: const TextStyle(fontFamily: 'Cairo')),
-                        Text('${weight.toStringAsFixed(2)} جم | ${avg.toStringAsFixed(2)} ر.س/جم',
-                            style: const TextStyle(fontFamily: 'Cairo', color: Colors.grey)),
+                        Text(
+                          '${value.toStringAsFixed(0)} ر.س',
+                          style: const TextStyle(fontFamily: 'Cairo'),
+                        ),
+                        Text(
+                          '${weight.toStringAsFixed(2)} جم | ${avg.toStringAsFixed(2)} ر.س/جم',
+                          style: const TextStyle(
+                            fontFamily: 'Cairo',
+                            color: Colors.grey,
+                          ),
+                        ),
                       ],
-                    )
+                    ),
                   ],
                 ),
               );
-            })
+            }),
           ],
         ),
       ),
@@ -413,15 +489,23 @@ class _InventoryCostAnalysisScreenState
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(label,
-              style: const TextStyle(
-                  fontFamily: 'Cairo', fontSize: 14, color: Colors.grey)),
-          Text(value,
-              style: TextStyle(
-                  fontFamily: 'Cairo',
-                  fontSize: 15,
-                  fontWeight: FontWeight.bold,
-                  color: valueColor ?? Colors.black)),
+          Text(
+            label,
+            style: const TextStyle(
+              fontFamily: 'Cairo',
+              fontSize: 14,
+              color: Colors.grey,
+            ),
+          ),
+          Text(
+            value,
+            style: TextStyle(
+              fontFamily: 'Cairo',
+              fontSize: 15,
+              fontWeight: FontWeight.bold,
+              color: valueColor ?? Colors.black,
+            ),
+          ),
         ],
       ),
     );

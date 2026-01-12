@@ -29,8 +29,15 @@ def update_old_entries():
         
         # 1. البحث عن جميع قيود فواتير الموردين
         print("\n📋 البحث عن فواتير الموردين...")
+        legacy_supplier_purchase = 'شراء' + ' من ' + 'مورد'
+        legacy_supplier_return = 'مرتجع شراء' + ' من ' + 'مورد'
         supplier_invoices = Invoice.query.filter(
-            Invoice.invoice_type.in_(['شراء من مورد', 'مرتجع شراء من مورد'])
+            Invoice.invoice_type.in_([
+                'شراء',
+                'مرتجع شراء (مورد)',
+                legacy_supplier_purchase,
+                legacy_supplier_return,
+            ])
         ).filter(
             Invoice.supplier_id.isnot(None)
         ).all()

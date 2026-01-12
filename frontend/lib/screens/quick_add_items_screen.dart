@@ -27,7 +27,7 @@ class QuickAddItemsScreen extends StatefulWidget {
 
 class _QuickAddItemsScreenState extends State<QuickAddItemsScreen> {
   final _formKey = GlobalKey<FormState>();
-  
+
   // البيانات المشتركة
   final TextEditingController _baseNameController = TextEditingController();
   final TextEditingController _wagePerGramController = TextEditingController();
@@ -35,10 +35,10 @@ class _QuickAddItemsScreenState extends State<QuickAddItemsScreen> {
   String _selectedKarat = '21';
   int? _selectedCategoryId;
   bool _hasStones = false;
-  
+
   // قائمة الأوزان
   List<PieceData> pieces = [PieceData()];
-  
+
   // التصنيفات
   List<Category> categories = [];
   bool categoriesLoading = false;
@@ -58,24 +58,24 @@ class _QuickAddItemsScreenState extends State<QuickAddItemsScreen> {
       pieces = [PieceData()];
     });
   }
-  
+
   @override
   void initState() {
     super.initState();
     _loadCategories();
-    
+
     // إذا كان هناك قطعة للاستنساخ، نملأ البيانات
     if (widget.templateItem != null) {
       _fillFromTemplate(widget.templateItem!);
     }
   }
-  
+
   void _fillFromTemplate(Map<String, dynamic> item) {
     _baseNameController.text = item['name'] ?? '';
     _selectedKarat = item['karat']?.toString() ?? '21';
     _selectedCategoryId = item['category_id'];
     _hasStones = item['has_stones'] == true;
-    
+
     // حساب الأجرة للجرام
     final weight = double.tryParse(item['weight']?.toString() ?? '0') ?? 0;
     final wage = double.tryParse(item['wage']?.toString() ?? '0') ?? 0;
@@ -84,7 +84,7 @@ class _QuickAddItemsScreenState extends State<QuickAddItemsScreen> {
       _wagePerGramController.text = wagePerGram.toStringAsFixed(2);
     }
   }
-  
+
   Future<void> _loadCategories() async {
     setState(() => categoriesLoading = true);
     try {
@@ -97,7 +97,7 @@ class _QuickAddItemsScreenState extends State<QuickAddItemsScreen> {
       setState(() => categoriesLoading = false);
     }
   }
-  
+
   void _addPiece() {
     setState(() {
       pieces.add(PieceData());
@@ -138,12 +138,12 @@ class _QuickAddItemsScreenState extends State<QuickAddItemsScreen> {
       return;
     }
 
-  final matches = RegExp(r'[-+]?\d*\.?\d+')
-    .allMatches(text)
-    .map((m) => double.tryParse(m.group(0) ?? ''))
-    .where((value) => value != null && value > 0)
-    .map((value) => value!)
-    .toList();
+    final matches = RegExp(r'[-+]?\d*\.?\d+')
+        .allMatches(text)
+        .map((m) => double.tryParse(m.group(0) ?? ''))
+        .where((value) => value != null && value > 0)
+        .map((value) => value!)
+        .toList();
 
     if (matches.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -179,7 +179,7 @@ class _QuickAddItemsScreenState extends State<QuickAddItemsScreen> {
       ),
     );
   }
-  
+
   void _removePiece(int index) {
     if (pieces.length > 1) {
       setState(() {
@@ -187,16 +187,19 @@ class _QuickAddItemsScreenState extends State<QuickAddItemsScreen> {
       });
     }
   }
-  
+
   Future<void> _saveItems() async {
     if (!_formKey.currentState!.validate()) return;
-    
+
     // التحقق من وجود قطعة واحدة على الأقل بوزن صحيح
-    final validPieces = pieces.where((p) => 
-      p.weightController.text.isNotEmpty && 
-      (double.tryParse(p.weightController.text) ?? 0) > 0
-    ).toList();
-    
+    final validPieces = pieces
+        .where(
+          (p) =>
+              p.weightController.text.isNotEmpty &&
+              (double.tryParse(p.weightController.text) ?? 0) > 0,
+        )
+        .toList();
+
     if (validPieces.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -206,12 +209,12 @@ class _QuickAddItemsScreenState extends State<QuickAddItemsScreen> {
       );
       return;
     }
-    
+
     setState(() => saving = true);
-    
+
     try {
       final wagePerGram = double.tryParse(_wagePerGramController.text) ?? 0;
-      
+
       final requestBody = {
         'base_name': _baseNameController.text.trim(),
         'category_id': _selectedCategoryId,
@@ -223,35 +226,36 @@ class _QuickAddItemsScreenState extends State<QuickAddItemsScreen> {
           return {
             'weight': weight,
             'description': p.descriptionController.text.trim(),
-            'name': p.nameController.text.trim().isEmpty 
-              ? null 
-              : p.nameController.text.trim(),
+            'name': p.nameController.text.trim().isEmpty
+                ? null
+                : p.nameController.text.trim(),
             if (_hasStones) ...{
-              'stones_weight': double.tryParse(p.stonesWeightController.text) ?? 0,
-              'stones_value': double.tryParse(p.stonesValueController.text) ?? 0,
-            }
+              'stones_weight':
+                  double.tryParse(p.stonesWeightController.text) ?? 0,
+              'stones_value':
+                  double.tryParse(p.stonesValueController.text) ?? 0,
+            },
           };
         }).toList(),
       };
-      
-  final result = await widget.api.quickAddItems(requestBody);
-  DataSyncBus.notifyItemsChanged();
-      
+
+      final result = await widget.api.quickAddItems(requestBody);
+      DataSyncBus.notifyItemsChanged();
+
       if (!mounted) return;
-      
+
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(result['message'] ?? '✅ تم إضافة الأصناف بنجاح'),
           backgroundColor: AppColors.success,
         ),
       );
-      
+
       if (widget.embedded) {
         widget.onSuccess?.call();
       } else {
         _resetAfterSave();
       }
-      
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -266,7 +270,7 @@ class _QuickAddItemsScreenState extends State<QuickAddItemsScreen> {
       }
     }
   }
-  
+
   @override
   void dispose() {
     _baseNameController.dispose();
@@ -277,7 +281,7 @@ class _QuickAddItemsScreenState extends State<QuickAddItemsScreen> {
     }
     super.dispose();
   }
-  
+
   @override
   Widget build(BuildContext context) {
     final content = _buildFormContent(context);
@@ -365,7 +369,7 @@ class _QuickAddItemsScreenState extends State<QuickAddItemsScreen> {
                 ),
               ),
             ),
-          
+
           // 📝 البيانات المشتركة
           Card(
             child: Padding(
@@ -381,7 +385,7 @@ class _QuickAddItemsScreenState extends State<QuickAddItemsScreen> {
                     ),
                   ),
                   const SizedBox(height: 16),
-                  
+
                   // الاسم الأساسي
                   TextFormField(
                     controller: _baseNameController,
@@ -390,11 +394,11 @@ class _QuickAddItemsScreenState extends State<QuickAddItemsScreen> {
                       hintText: 'مثال: بنجرة، خاتم، أسورة',
                       prefixIcon: Icon(Icons.label_outline),
                     ),
-                    validator: (v) => 
-                      v == null || v.trim().isEmpty ? 'مطلوب' : null,
+                    validator: (v) =>
+                        v == null || v.trim().isEmpty ? 'مطلوب' : null,
                   ),
                   const SizedBox(height: 12),
-                  
+
                   // العيار
                   DropdownButtonFormField<String>(
                     // ignore: deprecated_member_use
@@ -409,7 +413,7 @@ class _QuickAddItemsScreenState extends State<QuickAddItemsScreen> {
                     onChanged: (v) => setState(() => _selectedKarat = v!),
                   ),
                   const SizedBox(height: 12),
-                  
+
                   // التصنيف
                   if (categoriesLoading)
                     const LinearProgressIndicator()
@@ -430,7 +434,7 @@ class _QuickAddItemsScreenState extends State<QuickAddItemsScreen> {
                       onChanged: (v) => setState(() => _selectedCategoryId = v),
                     ),
                   const SizedBox(height: 12),
-                  
+
                   // الأجرة للجرام
                   TextFormField(
                     controller: _wagePerGramController,
@@ -448,7 +452,7 @@ class _QuickAddItemsScreenState extends State<QuickAddItemsScreen> {
                     },
                   ),
                   const SizedBox(height: 12),
-                  
+
                   // أحجار؟
                   SwitchListTile(
                     title: const Text('يحتوي على أحجار'),
@@ -460,7 +464,7 @@ class _QuickAddItemsScreenState extends State<QuickAddItemsScreen> {
               ),
             ),
           ),
-          
+
           const SizedBox(height: 16),
 
           // ⚡ طرق إدخال أسرع
@@ -488,7 +492,8 @@ class _QuickAddItemsScreenState extends State<QuickAddItemsScreen> {
                     maxLines: 3,
                     decoration: const InputDecoration(
                       labelText: 'الصق الأوزان هنا',
-                      hintText: 'مثال: 4.123\n4.215\n4.198 أو 4.123, 4.215, 4.198',
+                      hintText:
+                          'مثال: 4.123\n4.215\n4.198 أو 4.123, 4.215, 4.198',
                       prefixIcon: Icon(Icons.paste),
                     ),
                   ),
@@ -518,7 +523,7 @@ class _QuickAddItemsScreenState extends State<QuickAddItemsScreen> {
               ),
             ),
           ),
-          
+
           // 💎 القطع
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -538,11 +543,11 @@ class _QuickAddItemsScreenState extends State<QuickAddItemsScreen> {
             ],
           ),
           const SizedBox(height: 8),
-          
+
           ...pieces.asMap().entries.map((entry) {
             final index = entry.key;
             final piece = entry.value;
-            
+
             return Card(
               margin: const EdgeInsets.only(bottom: 12),
               child: Padding(
@@ -573,7 +578,7 @@ class _QuickAddItemsScreenState extends State<QuickAddItemsScreen> {
                       ],
                     ),
                     const SizedBox(height: 8),
-                    
+
                     // الوزن (إجباري)
                     TextFormField(
                       controller: piece.weightController,
@@ -595,7 +600,7 @@ class _QuickAddItemsScreenState extends State<QuickAddItemsScreen> {
                       },
                     ),
                     const SizedBox(height: 8),
-                    
+
                     // اسم مخصص (اختياري)
                     TextFormField(
                       controller: piece.nameController,
@@ -607,7 +612,7 @@ class _QuickAddItemsScreenState extends State<QuickAddItemsScreen> {
                       ),
                     ),
                     const SizedBox(height: 8),
-                    
+
                     // ملاحظات
                     TextFormField(
                       controller: piece.descriptionController,
@@ -619,7 +624,7 @@ class _QuickAddItemsScreenState extends State<QuickAddItemsScreen> {
                       ),
                       maxLines: 2,
                     ),
-                    
+
                     // حقول الأحجار
                     if (_hasStones) ...[
                       const SizedBox(height: 8),
@@ -658,19 +663,19 @@ class _QuickAddItemsScreenState extends State<QuickAddItemsScreen> {
               ),
             );
           }),
-          
+
           const SizedBox(height: 16),
-          
+
           // زر الحفظ
           ElevatedButton.icon(
             onPressed: saving ? null : _saveItems,
-            icon: saving 
-              ? const SizedBox(
-                  width: 20,
-                  height: 20,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              : const Icon(Icons.check_circle),
+            icon: saving
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.check_circle),
             label: Text(saving ? 'جاري الحفظ...' : 'حفظ الكل'),
             style: ElevatedButton.styleFrom(
               padding: const EdgeInsets.symmetric(vertical: 16),
@@ -690,7 +695,7 @@ class PieceData {
   final TextEditingController descriptionController = TextEditingController();
   final TextEditingController stonesWeightController = TextEditingController();
   final TextEditingController stonesValueController = TextEditingController();
-  
+
   void dispose() {
     weightController.dispose();
     nameController.dispose();

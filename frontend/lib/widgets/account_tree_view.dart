@@ -56,13 +56,13 @@ class AccountTreeView extends StatelessWidget {
   final Function(Map<String, dynamic>) onAccountTap; // Add this
 
   const AccountTreeView({
-    Key? key,
+    super.key,
     required this.roots,
     required this.onEdit,
     required this.onDelete,
     required this.onAddChild,
     required this.onAccountTap, // Add this
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -89,13 +89,13 @@ class AccountTile extends StatelessWidget {
   final Function(Map<String, dynamic>) onAccountTap; // Add this
 
   const AccountTile({
-    Key? key,
+    super.key,
     required this.node,
     required this.onEdit,
     required this.onDelete,
     required this.onAddChild,
     required this.onAccountTap, // Add this
-  }) : super(key: key);
+  });
 
   @override
   Widget build(BuildContext context) {
