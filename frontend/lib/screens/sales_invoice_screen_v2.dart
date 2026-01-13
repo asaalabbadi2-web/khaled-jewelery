@@ -60,6 +60,10 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
   final List<PaymentEntry> _payments = []; // 🆕 قائمة الدفعات المadded
   int? _selectedPaymentMethodId; // للـ Dropdown
 
+  // 🆕 Gold barter (scrap) inside payments
+  bool _enableBarter = false;
+  final List<_BarterLine> _barterLines = [];
+
   // Safe Boxes - 🆕 الخزائن المتاحة للدفع
   List<SafeBoxModel> _safeBoxes = [];
   int? _selectedSafeBoxId; // الخزينة المختارة للدفعة الحالية
@@ -91,6 +95,13 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
       _showAdvancedPaymentOptions = false;
       _smartInputController.clear();
       _customAmountController.clear();
+
+      _enableBarter = false;
+      for (final line in _barterLines) {
+        line.dispose();
+      }
+      _barterLines.clear();
+
       _invoiceWeightMain = 0.0;
       _invoiceCostGoldComponent = 0.0;
       _invoiceCostManufacturingComponent = 0.0;
@@ -142,6 +153,9 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
     _smartInputController.dispose();
     _smartInputFocus.dispose();
     _customAmountController.dispose(); // 🆕
+    for (final line in _barterLines) {
+      line.dispose();
+    }
     super.dispose();
   }
 
@@ -188,10 +202,11 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
         _branchesLoadingError = e.toString();
       });
     } finally {
-      if (!mounted) return;
-      setState(() {
-        _isLoadingBranches = false;
-      });
+      if (mounted) {
+        setState(() {
+          _isLoadingBranches = false;
+        });
+      }
     }
   }
 
@@ -771,9 +786,14 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
     );
 
     final total = _calculateGrandTotal();
+    final barterTotal = _barterTotal;
+    if (barterTotal > total + 0.01) {
+      _showError('قيمة المقايضة أكبر من إجمالي الفاتورة');
+      return;
+    }
     final alreadyPaid = _payments.fold<double>(0, (sum, p) => sum + p.amount);
     final remaining = double.parse(
-      (total - alreadyPaid).toStringAsFixed(2),
+      (total - alreadyPaid - barterTotal).toStringAsFixed(2),
     ); // تقريب لتجنب مشاكل الدقة
 
     if (remaining <= 0.01) {
@@ -853,8 +873,47 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
       _payments.fold<double>(0, (sum, p) => sum + p.commissionVat);
   double get _totalNet =>
       _payments.fold<double>(0, (sum, p) => sum + p.netAmount);
+
+  double get _barterTotal {
+    if (!_enableBarter) return 0.0;
+    final total = _barterLines.fold<double>(
+      0.0,
+      (sum, line) => sum + line.value(_parseDouble, _goldPrice24k),
+    );
+    return double.parse(total.toStringAsFixed(2));
+  }
+
+  double get _barterTotalWeightNet {
+    if (!_enableBarter) return 0.0;
+    return _barterLines.fold<double>(
+      0.0,
+      (sum, line) => sum + line.netWeight(_parseDouble),
+    );
+  }
+
+  void _ensureAtLeastOneBarterLine() {
+    if (_barterLines.isNotEmpty) return;
+    _barterLines.add(_BarterLine(karat: 21));
+  }
+
+  void _addBarterLine() {
+    setState(() {
+      _barterLines.add(_BarterLine(karat: 21));
+    });
+  }
+
+  void _removeBarterLine(int index) {
+    setState(() {
+      final line = _barterLines.removeAt(index);
+      line.dispose();
+      if (_barterLines.isEmpty) {
+        _enableBarter = false;
+      }
+    });
+  }
+
   double get _remainingAmount {
-    final remaining = _calculateGrandTotal() - _totalPayments;
+    final remaining = _calculateGrandTotal() - _totalPayments - _barterTotal;
     // تجاهل الفروقات الصغيرة (أقل من 0.01 ريال)
     return remaining.abs() < 0.01 ? 0.0 : remaining;
   }
@@ -1454,16 +1513,74 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
 
     final allowPartialPayments = _settingsProvider.allowPartialInvoicePayments;
 
+    // 🆕 Barter validation
+    final barterTotal = _barterTotal;
+    if (_enableBarter) {
+      if (_barterLines.isEmpty) {
+        _showError('يرجى إضافة سطر مقايضة واحد على الأقل');
+        return;
+      }
+
+      for (final line in _barterLines) {
+        if (!{18, 21, 22, 24}.contains(line.karat)) {
+          _showError('يرجى اختيار عيار صحيح للمقايضة');
+          return;
+        }
+
+        final standing = line.standingWeight(_parseDouble);
+        final stones = line.stonesWeight(_parseDouble);
+        final net = line.netWeight(_parseDouble);
+        final enteredPrice = line.pricePerGram(_parseDouble);
+        final effectivePrice = line.effectivePricePerGram(
+          _parseDouble,
+          _goldPrice24k,
+        );
+
+        if (standing <= 0) {
+          _showError('يرجى إدخال الوزن القائم لكل سطر مقايضة');
+          return;
+        }
+        if (stones < 0) {
+          _showError('وزن الفصوص لا يمكن أن يكون سالباً');
+          return;
+        }
+        if (stones > standing + 1e-9) {
+          _showError('وزن الفصوص لا يمكن أن يتجاوز الوزن القائم');
+          return;
+        }
+        if (net <= 0) {
+          _showError('الصافي يجب أن يكون أكبر من صفر');
+          return;
+        }
+        if (enteredPrice <= 0 && _goldPrice24k <= 0) {
+          _showError('يرجى إدخال سعر الذهب أو سعر شراء/جرام للمقايضة');
+          return;
+        }
+        if (effectivePrice <= 0) {
+          _showError('سعر الجرام غير صالح للمقايضة');
+          return;
+        }
+      }
+    }
+
     // 🆕 التحقق من الدفع (مع دعم البيع الآجل عند تفعيل الإعداد)
     final total = _calculateGrandTotal();
-    final totalPaid = _totalPayments;
+    if (barterTotal > total + 0.01) {
+      _showError('قيمة المقايضة أكبر من إجمالي الفاتورة');
+      return;
+    }
+
+    final totalPaidCash = _totalPayments;
+    final totalPaid = totalPaidCash + barterTotal;
     final remaining = total - totalPaid;
 
     final totalCost = _items.fold<double>(0.0, (sum, item) => sum + item.cost);
     final paidBelowCost = totalPaid + 0.01 < totalCost;
     final saleBelowCost = total + 0.01 < totalCost;
 
-    if (_payments.isEmpty) {
+    final hasAnySettlement = _payments.isNotEmpty || barterTotal > 0.01;
+
+    if (!hasAnySettlement) {
       if (!allowPartialPayments) {
         _showError('يرجى إضافة وسيلة دفع واحدة على الأقل');
         return;
@@ -1550,6 +1667,8 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
       );
       final totalTax = _items.fold<double>(0.0, (sum, item) => sum + item.tax);
 
+      if (!mounted) return;
+
       final authProvider = Provider.of<AuthProvider>(context, listen: false);
       final sellerName = authProvider.fullName;
       final sellerEmployeeId = authProvider.currentUser?.employeeId;
@@ -1566,6 +1685,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
         'total_weight': totalWeight,
         'total_cost': totalCost,
         'total_tax': totalTax,
+        if (_enableBarter && barterTotal > 0.01) 'barter_total': barterTotal,
         'payments': _payments
             .map((p) => p.toJson())
             .toList(), // 🆕 إرسال array من الدفعات
@@ -1574,6 +1694,74 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
       };
 
       final response = await apiService.addInvoice(invoiceData);
+
+      // 🆕 Auto-create linked scrap purchase invoice for barter (offset)
+      if (_enableBarter && barterTotal > 0.01) {
+        final saleInvoiceId = response['id'];
+
+        final barterItems = _barterLines
+            .map((line) {
+              final standing = line.standingWeight(_parseDouble);
+              final stones = line.stonesWeight(_parseDouble);
+              final net = line.netWeight(_parseDouble);
+              final pricePerGram = line.effectivePricePerGram(
+                _parseDouble,
+                _goldPrice24k,
+              );
+              final value = line.value(_parseDouble, _goldPrice24k);
+              if (net <= 0 || pricePerGram <= 0) return null;
+              return <String, dynamic>{
+                'name': 'ذهب كسر (مقايضة)',
+                'karat': line.karat,
+                // weight should be NET weight to keep downstream totals consistent
+                'weight': net,
+                'standing_weight': standing,
+                'stones_weight': stones,
+                'direct_purchase_price_per_gram': pricePerGram,
+                // price per item = cash-equivalent value of this line
+                'price': value,
+                'tax': 0.0,
+                'wage': 0.0,
+                'quantity': 1,
+              };
+            })
+            .whereType<Map<String, dynamic>>()
+            .toList();
+
+        final barterWeightNet = _barterTotalWeightNet;
+
+        final scrapInvoiceData = {
+          'customer_id': customerId,
+          'branch_id': _selectedBranchId,
+          'invoice_type': 'شراء من عميل',
+          'gold_type': 'scrap',
+          'transaction_type': 'buy',
+          if (sellerName.isNotEmpty) 'posted_by': sellerName,
+          if (sellerEmployeeId != null) 'employee_id': sellerEmployeeId,
+          if (sellerEmployeeId != null)
+            'scrap_holder_employee_id': sellerEmployeeId,
+          'date': DateTime.now().toIso8601String(),
+          'total': barterTotal,
+          'total_weight': barterWeightNet,
+          'total_cost': barterTotal,
+          'total_tax': 0.0,
+          'payments': <Map<String, dynamic>>[],
+          'amount_paid': 0.0,
+          'settlement_method': 'offset',
+          'barter_sale_invoice_id': saleInvoiceId,
+          'items': barterItems,
+        };
+
+        try {
+          await apiService.addInvoice(scrapInvoiceData);
+        } catch (e) {
+          if (mounted) {
+            _showError(
+              'تم حفظ فاتورة البيع، لكن فشل إنشاء فاتورة شراء الكسر للمقايضة: $e',
+            );
+          }
+        }
+      }
 
       if (!mounted) return;
 
@@ -4120,6 +4308,217 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
               const SizedBox(height: 16),
             ],
 
+            // 🆕 مقايضة ذهب كسر داخل وسائل الدفع
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: AppColors.primaryGold.withValues(
+                  alpha: isDark ? 0.12 : 0.10,
+                ),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: AppColors.primaryGold.withValues(alpha: 0.35),
+                  width: 2,
+                ),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(
+                            Icons.swap_horiz,
+                            color: AppColors.primaryGold,
+                            size: 22,
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            'مقايضة ذهب كسر',
+                            style: theme.textTheme.titleMedium?.copyWith(
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ],
+                      ),
+                      Switch(
+                        value: _enableBarter,
+                        onChanged: (value) {
+                          setState(() {
+                            _enableBarter = value;
+                            if (value) {
+                              _ensureAtLeastOneBarterLine();
+                            } else {
+                              for (final line in _barterLines) {
+                                line.dispose();
+                              }
+                              _barterLines.clear();
+                            }
+                          });
+                        },
+                      ),
+                    ],
+                  ),
+                  if (_enableBarter) ...[
+                    const SizedBox(height: 12),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: OutlinedButton.icon(
+                        onPressed: _addBarterLine,
+                        icon: const Icon(Icons.add),
+                        label: const Text('إضافة ذهب مقايضة'),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    ...List.generate(_barterLines.length, (index) {
+                      final line = _barterLines[index];
+                      final net = line.netWeight(_parseDouble);
+                      final value = line.value(_parseDouble, _goldPrice24k);
+
+                      return Container(
+                        margin: const EdgeInsets.only(bottom: 10),
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: theme.colorScheme.surface,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: AppColors.primaryGold.withValues(alpha: 0.25),
+                          ),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: DropdownButtonFormField<int>(
+                                    initialValue: line.karat,
+                                    decoration: const InputDecoration(
+                                      labelText: 'العيار',
+                                    ),
+                                    items: const [18, 21, 22, 24]
+                                        .map(
+                                          (k) => DropdownMenuItem<int>(
+                                            value: k,
+                                            child: Text('$k'),
+                                          ),
+                                        )
+                                        .toList(),
+                                    onChanged: (value) {
+                                      if (value == null) return;
+                                      setState(() {
+                                        line.karat = value;
+                                      });
+                                    },
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
+                                IconButton(
+                                  tooltip: 'حذف',
+                                  onPressed: _barterLines.length <= 1
+                                      ? null
+                                      : () => _removeBarterLine(index),
+                                  icon: const Icon(Icons.delete_outline),
+                                  color: AppColors.error,
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 10),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: TextField(
+                                    controller: line.standingController,
+                                    decoration: const InputDecoration(
+                                      labelText: 'الوزن القائم (جم)',
+                                    ),
+                                    keyboardType:
+                                        const TextInputType.numberWithOptions(
+                                          decimal: true,
+                                        ),
+                                    onChanged: (_) => setState(() {}),
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: TextField(
+                                    controller: line.stonesController,
+                                    decoration: const InputDecoration(
+                                      labelText: 'وزن الفصوص (جم)',
+                                    ),
+                                    keyboardType:
+                                        const TextInputType.numberWithOptions(
+                                          decimal: true,
+                                        ),
+                                    onChanged: (_) => setState(() {}),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 10),
+                            TextField(
+                              controller: line.pricePerGramController,
+                              decoration: InputDecoration(
+                                labelText: 'سعر الشراء/جرام',
+                                suffixText: _settingsProvider.currencySymbol,
+                              ),
+                              keyboardType:
+                                  const TextInputType.numberWithOptions(
+                                    decimal: true,
+                                  ),
+                              onChanged: (_) => setState(() {}),
+                            ),
+                            const SizedBox(height: 10),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text(
+                                  'الصافي: ${net.toStringAsFixed(3)} جم',
+                                  style: theme.textTheme.bodyMedium?.copyWith(
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                                Text(
+                                  'القيمة: ${value.toStringAsFixed(2)} ${_settingsProvider.currencySymbol}',
+                                  style: theme.textTheme.bodyMedium?.copyWith(
+                                    fontWeight: FontWeight.bold,
+                                    color: AppColors.primaryGold,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      );
+                    }),
+                    const SizedBox(height: 6),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          'إجمالي المقايضة:',
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        Text(
+                          '${_barterTotal.toStringAsFixed(2)} ${_settingsProvider.currencySymbol}',
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            fontWeight: FontWeight.bold,
+                            color: AppColors.primaryGold,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ],
+              ),
+            ),
+
+            const SizedBox(height: 16),
+
             // 🆕 إضافة وسيلة دفع جديدة
             Container(
               padding: const EdgeInsets.all(16),
@@ -5163,5 +5562,52 @@ class PaymentEntry {
       'notes': notes,
       if (safeBoxId != null) 'safe_box_id': safeBoxId, // 🆕
     };
+  }
+}
+
+class _BarterLine {
+  int karat;
+  final TextEditingController standingController = TextEditingController();
+  final TextEditingController stonesController = TextEditingController();
+  final TextEditingController pricePerGramController = TextEditingController();
+
+  _BarterLine({required this.karat});
+
+  double standingWeight(double Function(dynamic) parseDouble) =>
+      parseDouble(standingController.text);
+
+  double stonesWeight(double Function(dynamic) parseDouble) =>
+      parseDouble(stonesController.text);
+
+  double netWeight(double Function(dynamic) parseDouble) {
+    final standing = standingWeight(parseDouble);
+    final stones = stonesWeight(parseDouble);
+    final net = standing - stones;
+    return net < 0 ? 0.0 : net;
+  }
+
+  double pricePerGram(double Function(dynamic) parseDouble) =>
+      parseDouble(pricePerGramController.text);
+
+  double effectivePricePerGram(
+    double Function(dynamic) parseDouble,
+    double goldPrice24k,
+  ) {
+    final entered = pricePerGram(parseDouble);
+    if (entered > 0) return entered;
+    if (goldPrice24k <= 0) return 0.0;
+    return goldPrice24k * (karat / 24.0);
+  }
+
+  double value(double Function(dynamic) parseDouble, double goldPrice24k) {
+    final v = netWeight(parseDouble) *
+        effectivePricePerGram(parseDouble, goldPrice24k);
+    return double.tryParse(v.toStringAsFixed(2)) ?? 0.0;
+  }
+
+  void dispose() {
+    standingController.dispose();
+    stonesController.dispose();
+    pricePerGramController.dispose();
   }
 }

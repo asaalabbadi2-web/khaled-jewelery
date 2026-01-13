@@ -265,6 +265,32 @@ def ensure_invoice_tax_columns(engine: Engine) -> None:
     _log_added(columns_added)
 
 
+def ensure_invoice_barter_columns(engine: Engine) -> None:
+    """Ensure barter-link columns exist on invoices.
+
+    Used to link a customer scrap-purchase invoice back to the originating sale
+    invoice in gold barter flows.
+    """
+    columns_added: list[str] = []
+    try:
+        columns_added.extend(
+            _ensure_columns(
+                engine,
+                "invoice",
+                [
+                    ("barter_sale_invoice_id", "INTEGER", "NULL"),
+                    ("barter_total", "FLOAT", "0"),
+                    ("scrap_holder_employee_id", "INTEGER", "NULL"),
+                ],
+            )
+        )
+    except SQLAlchemyError as exc:
+        LOGGER.error("Auto schema guard failed: %s", exc)
+        return
+
+    _log_added(columns_added)
+
+
 def ensure_supplier_columns(engine: Engine) -> None:
     """Ensure newer supplier metadata columns exist for legacy databases."""
     columns_added: list[str] = []

@@ -11,7 +11,7 @@ Prereqs:
 - rclone in PATH
 - One of:
   - pg_dump in PATH (PostgreSQL client tools), OR
-  - docker in PATH (if you want to run pg_dump inside the Postgres container)
+  - `docker` in PATH (if you want to run pg_dump inside the Postgres container)
 
 Examples:
   pwsh -File .\backend\backup_postgres_to_gdrive.ps1 -DatabaseUrl "postgresql://user:pass@host:5432/db" -RcloneRemote "gdrive-crypt:yasargold/postgres"

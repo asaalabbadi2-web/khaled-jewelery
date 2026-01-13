@@ -2148,6 +2148,50 @@ class ApiService {
     }
   }
 
+  Future<Map<String, dynamic>> getEmployeeScrapLedgerReport({
+    DateTime? startDate,
+    DateTime? endDate,
+    int? branchId,
+    bool includeUnposted = true,
+    bool includeUnassigned = true,
+  }) async {
+    final queryParams = <String, String>{};
+
+    if (startDate != null) {
+      queryParams['start_date'] = startDate.toIso8601String().split('T').first;
+    }
+
+    if (endDate != null) {
+      queryParams['end_date'] = endDate.toIso8601String().split('T').first;
+    }
+
+    if (branchId != null) {
+      queryParams['branch_id'] = branchId.toString();
+    }
+
+    if (includeUnposted) {
+      queryParams['include_unposted'] = 'true';
+    }
+
+    if (!includeUnassigned) {
+      queryParams['include_unassigned'] = 'false';
+    }
+
+    final uri = Uri.parse(
+      '$_baseUrl/reports/employee_scrap_ledger',
+    ).replace(queryParameters: queryParams.isEmpty ? null : queryParams);
+
+    final response = await _authedGet(uri);
+
+    if (response.statusCode == 200) {
+      return json.decode(utf8.decode(response.bodyBytes));
+    } else {
+      throw Exception(
+        'Failed to load employee scrap ledger report: ${response.body}',
+      );
+    }
+  }
+
   // Hybrid System - Customer & Supplier Code Methods
 
   /// Get next available customer code (C-000001, C-000002, ...)

@@ -23,9 +23,16 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 # Flask app setup, database connection, and register routes
 
 # Flask app setup with PostgreSQL, db init, register routes, create tables, run debug
-from flask import Flask, url_for
-from models import db
-from routes import api, ensure_weight_closing_support_accounts
+try:
+	from flask import Flask, url_for
+	from models import db
+	from routes import api, ensure_weight_closing_support_accounts
+except ImportError as exc:
+	raise SystemExit(
+		"Missing backend dependencies. Run the backend using the venv:\n"
+		"  cd backend && ./venv/bin/python app.py\n"
+		"(or activate the venv first: source backend/venv/bin/activate)"
+	) from exc
 print("DEBUG: Imported api blueprint from routes")  # Debug log
 from payment_methods_routes import payment_methods_api  # 🆕 استيراد payment methods routes
 print("DEBUG: Imported payment_methods_api blueprint")  # Debug log
@@ -58,6 +65,7 @@ from schema_guard import (
 	ensure_auth_security_columns,
 	ensure_weight_closing_columns,
 	ensure_invoice_tax_columns,
+	ensure_invoice_barter_columns,
 	ensure_invoice_branch_columns,
 	ensure_invoice_employee_columns,
 	ensure_journal_line_dimension_columns,
@@ -117,6 +125,7 @@ with app.app_context():
 	ensure_auth_security_columns(db.engine)
 	ensure_weight_closing_columns(db.engine)
 	ensure_invoice_tax_columns(db.engine)
+	ensure_invoice_barter_columns(db.engine)
 	ensure_invoice_branch_columns(db.engine)
 	ensure_journal_line_dimension_columns(db.engine)
 	ensure_supplier_columns(db.engine)
@@ -153,6 +162,7 @@ def create_tables():
 		ensure_auth_security_columns(db.engine)
 		ensure_weight_closing_columns(db.engine)
 		ensure_invoice_tax_columns(db.engine)
+		ensure_invoice_barter_columns(db.engine)
 		ensure_invoice_branch_columns(db.engine)
 		ensure_invoice_employee_columns(db.engine)
 		ensure_journal_line_dimension_columns(db.engine)

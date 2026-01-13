@@ -237,6 +237,20 @@ class ReportCatalog {
             available: true,
             requiresFilters: true,
           ),
+          ReportDescriptor(
+            id: 'employee_scrap_ledger',
+            icon: Icons.badge_outlined,
+            titleAr: 'عهدة ذهب الكسر (الموظفين)',
+            titleEn: 'Employee Scrap Ledger',
+            descriptionAr:
+                'ملخص ذهب الكسر المستلم حسب العهدة (الموظف) مع إجماليات سريعة.',
+            descriptionEn:
+                'Scrap gold received grouped by employee custody with quick totals.',
+            route: 'employee_scrap_ledger',
+            type: ReportType.gold,
+            available: true,
+            requiresFilters: true,
+          ),
         ],
       ),
       ReportCategory(

@@ -3839,6 +3839,25 @@ def add_invoice():
     payment_method_obj = None  # نستخدمه لاحقاً عند الحاجة للخزينة الافتراضية
     karat_lines_data = data.get('karat_lines', [])
 
+    # If the client supplied valid karat lines, treat them as the single source of truth
+    # for gold weight totals to avoid double-counting with items (some clients send both).
+    has_valid_karat_lines = False
+    try:
+        if karat_lines_data and isinstance(karat_lines_data, list):
+            for _line in karat_lines_data:
+                if not isinstance(_line, dict):
+                    continue
+                _k = _to_float_request(_line.get('karat'), 0.0)
+                _w = _to_float_request(
+                    _line.get('weight_grams', _line.get('weight', _line.get('total_weight'))),
+                    0.0,
+                )
+                if _k > 0 and _w > 0:
+                    has_valid_karat_lines = True
+                    break
+    except Exception:
+        has_valid_karat_lines = False
+
     # 🆕 Branch dimension (separate from offices; offices are closing offices/suppliers)
     branch_id = data.get('branch_id')
     if branch_id not in (None, '', False):
@@ -3878,23 +3897,63 @@ def add_invoice():
     commission_vat_total = 0.0
     data_total = _to_float_request(data.get('total', 0.0))
     net_amount = data_total  # قد يكون محسوباً مسبقاً أو سيحسب من items
+
+    # 🆕 Barter support: allow partial cash payments when part of the sale is settled via gold barter (offset).
+    # The client should send `barter_total` (cash-equivalent) when barter is used.
+    try:
+        barter_total = _to_float_request(data.get('barter_total', 0.0))
+    except Exception:
+        barter_total = 0.0
+
+    # 🆕 Scrap custody identity (who holds received scrap gold).
+    # We intentionally do NOT use SafeBox for this.
+    scrap_holder_employee_id = None
+    try:
+        raw_she = data.get('scrap_holder_employee_id')
+        if raw_she not in (None, '', False):
+            scrap_holder_employee_id = int(raw_she)
+    except Exception:
+        scrap_holder_employee_id = None
+
+    # If this is a scrap purchase invoice and custody holder isn't specified,
+    # default to the invoice employee_id (who executed the transaction).
+    try:
+        inv_type_key = str((data.get('invoice_type') or '')).strip()
+        gold_type_key = str((data.get('gold_type') or '')).strip().lower()
+        if scrap_holder_employee_id is None and inv_type_key == 'شراء من عميل' and gold_type_key == 'scrap':
+            raw_emp = data.get('employee_id')
+            if raw_emp not in (None, '', False):
+                scrap_holder_employee_id = int(raw_emp)
+    except Exception:
+        pass
+
+    allow_partial_for_barter_sale = False
+    try:
+        raw_invoice_type = data.get('invoice_type')
+        if isinstance(raw_invoice_type, str):
+            raw_invoice_type = raw_invoice_type.strip()
+        bt = _to_float_request(data.get('barter_total', 0.0))
+        allow_partial_for_barter_sale = (raw_invoice_type == 'بيع') and (bt > 0.01)
+    except Exception:
+        allow_partial_for_barter_sale = False
     
     # إذا كانت هناك وسائل دفع متعددة
     if payments_data and isinstance(payments_data, list) and len(payments_data) > 0:
         total_payments = sum(_to_float_request(p.get('amount', 0.0)) for p in payments_data)
+        effective_settled = total_payments + (barter_total or 0.0)
         # التحقق من الدفعات مقابل إجمالي الفاتورة
         if data_total > 0:
             if allow_partial_payments:
                 # ✅ السماح بالدفع الجزئي طالما لا يوجد تجاوز
-                if (total_payments - data_total) > 0.01:  # tolerance للفواصل العشرية
+                if (effective_settled - data_total) > 0.01:  # tolerance للفواصل العشرية
                     return jsonify({
-                        'error': f'مجموع المبالغ ({total_payments}) أكبر من إجمالي الفاتورة ({data_total})'
+                        'error': f'مجموع المبالغ ({effective_settled}) أكبر من إجمالي الفاتورة ({data_total})'
                     }), 400
             else:
                 # ❌ الوضع الافتراضي: يجب أن يساوي مجموع الدفعات إجمالي الفاتورة
-                if abs(total_payments - data_total) > 0.01:  # tolerance للفواصل العشرية
+                if abs(effective_settled - data_total) > 0.01:  # tolerance للفواصل العشرية
                     return jsonify({
-                        'error': f'مجموع المبالغ ({total_payments}) لا يساوي إجمالي الفاتورة ({data_total})'
+                        'error': f'مجموع المبالغ ({effective_settled}) لا يساوي إجمالي الفاتورة ({data_total})'
                     }), 400
 
         # 🆕 مزامنة amount_paid مع مجموع الدفعات إذا لم يُرسل أو كان غير متطابق.
@@ -3941,7 +4000,7 @@ def add_invoice():
         # عند تفعيل الدفع الجزئي، لا يمكن معرفة عمولة الجزء غير المدفوع (وسيلة الدفع غير معروفة بعد)
         # لذلك نترك net_amount = إجمالي الفاتورة إذا كانت الدفعات أقل من الإجمالي.
         gross_amount = data_total if data_total > 0 else total_payments
-        if allow_partial_payments and data_total > 0 and total_payments < (data_total - 0.01):
+        if allow_partial_payments and data_total > 0 and effective_settled < (data_total - 0.01):
             net_amount = data_total
         else:
             net_amount = gross_amount - commission_amount - commission_vat_total
@@ -4090,12 +4149,16 @@ def add_invoice():
             gold_tax_total=_extract_float('gold_tax_total'),
             wage_tax_total=_extract_float('wage_tax_total'),
             apply_gold_tax=bool(data.get('apply_gold_tax', False)),
+            settlement_method=data.get('settlement_method'),
             payment_method=data.get('payment_method'),  # للتوافق مع الفواتير القديمة
             payment_method_id=payment_method_id,  # 🆕 Foreign key
             commission_amount=commission_amount,  # 🆕 العمولة المحسوبة
             net_amount=net_amount,  # 🆕 المبلغ الصافي
             amount_paid=_extract_float('amount_paid', 0.0),
+            barter_total=barter_total,  # 🆕 قيمة المقايضة (تسوية غير نقدية)
+            scrap_holder_employee_id=scrap_holder_employee_id,
             safe_box_id=data.get('safe_box_id'),  # 🆕 الخزينة المستخدمة
+            barter_sale_invoice_id=data.get('barter_sale_invoice_id'),  # 🆕 ربط فاتورة شراء الكسر بفاتورة البيع (المقايضة)
             posted_by=posted_by_username,  # 🆕 تعيين المستخدم الذي أنشأ الفاتورة
             # 🆕 الحقول الجديدة
             original_invoice_id=data.get('original_invoice_id'),
@@ -4196,7 +4259,8 @@ def add_invoice():
 
             item_total_weight = weight_per_item * quantity_value
             if item_total_weight > 0:
-                computed_total_weight += item_total_weight
+                if not has_valid_karat_lines:
+                    computed_total_weight += item_total_weight
 
             item_wage_val = _to_float(item_wage, 0.0)
 
@@ -4626,21 +4690,22 @@ def add_invoice():
 
             gold_by_karat[karat_key] += weight_float
 
-        for item_data in data.get('items', []):
-            item_id = item_data.get('item_id')
-            item = Item.query.get(item_id) if item_id else None
+        if not has_valid_karat_lines:
+            for item_data in data.get('items', []):
+                item_id = item_data.get('item_id')
+                item = Item.query.get(item_id) if item_id else None
 
-            # ✅ أولوية لبيانات الوزن/العيار المرسلة مع الفاتورة
-            karat_value = item_data.get('karat') if item_data.get('karat') not in (None, '') else (item.karat if item else None)
-            weight_value = item_data.get('weight') if item_data.get('weight') is not None else (item.weight if item else None)
+                # ✅ أولوية لبيانات الوزن/العيار المرسلة مع الفاتورة
+                karat_value = item_data.get('karat') if item_data.get('karat') not in (None, '') else (item.karat if item else None)
+                weight_value = item_data.get('weight') if item_data.get('weight') is not None else (item.weight if item else None)
 
-            if weight_value is None:
-                weight_value = item_data.get('total_weight')
+                if weight_value is None:
+                    weight_value = item_data.get('total_weight')
 
-            quantity_value = _to_float(item_data.get('quantity', 1), 1.0) or 1.0
-            total_weight_value = _to_float(weight_value, 0.0) * (quantity_value if quantity_value > 0 else 1.0)
+                quantity_value = _to_float(item_data.get('quantity', 1), 1.0) or 1.0
+                total_weight_value = _to_float(weight_value, 0.0) * (quantity_value if quantity_value > 0 else 1.0)
 
-            _register_gold_weight(karat_value, total_weight_value)
+                _register_gold_weight(karat_value, total_weight_value)
 
         if karat_lines_data and isinstance(karat_lines_data, list):
             for line_data in karat_lines_data:
@@ -4775,6 +4840,8 @@ def add_invoice():
             # القيد الأول: إثبات الإيراد (المبلغ الكامل)
             # من حـ/ النقدية → إلى حـ/ مبيعات الذهب الجديد
             # ============================================
+
+            paid_amount_total = 0.0
             
             # 🆕 دعم وسائل دفع متعددة
             if payments_data and len(payments_data) > 0:
@@ -4784,6 +4851,8 @@ def add_invoice():
                     pm_commission = _to_float(payment.get('commission_amount', 0.0))
                     pm_commission_vat = _to_float(payment.get('commission_vat', 0.0))
                     pm_net = _to_float(payment.get('net_amount', pm_amount - pm_commission - pm_commission_vat))
+
+                    paid_amount_total += pm_amount
                     
                     # 🆕 الحصول على الحساب من الخزينة (وليس من وسيلة الدفع مباشرة)
                     safe_box = None
@@ -4835,7 +4904,20 @@ def add_invoice():
                             apply_golden_rule=False
                         )
                     else:
-                        acc_id = cash_acc_id or 15
+                        acc_id = cash_acc_id or (cash_account.id if cash_account else None)
+                        if not acc_id:
+                            db.session.rollback()
+                            return jsonify({
+                                'error': 'cash_account_missing',
+                                'message': 'لا يوجد حساب نقدية افتراضي. الرجاء ضبط ربط حسابات (cash) أو إنشاء حساب "صندوق النقدية" أو تحديد خزينة للدفع.',
+                            }), 400
+                        if not Account.query.get(acc_id):
+                            db.session.rollback()
+                            return jsonify({
+                                'error': 'account_not_found',
+                                'message': 'حساب النقدية غير موجود في شجرة الحسابات',
+                                'account_id': acc_id,
+                            }), 400
                         pm_name = pm_obj.name if pm_obj else "وسيلة دفع"
                         create_dual_journal_entry(
                             journal_entry_id=journal_entry.id,
@@ -4872,6 +4954,7 @@ def add_invoice():
             # وسيلة دفع واحدة
             elif payment_method_id:
                 actual_debit_amount = net_amount if commission_amount > 0 else total_cash
+                paid_amount_total = total_cash
                 
                 # 🆕 الحصول على الحساب من الخزينة
                 safe_box = None
@@ -4919,7 +5002,20 @@ def add_invoice():
                         apply_golden_rule=False
                     )
                 else:
-                    acc_id = cash_acc_id or 15
+                    acc_id = cash_acc_id or (cash_account.id if cash_account else None)
+                    if not acc_id:
+                        db.session.rollback()
+                        return jsonify({
+                            'error': 'cash_account_missing',
+                            'message': 'لا يوجد حساب نقدية افتراضي. الرجاء ضبط ربط حسابات (cash) أو إنشاء حساب "صندوق النقدية" أو تحديد خزينة للدفع.',
+                        }), 400
+                    if not Account.query.get(acc_id):
+                        db.session.rollback()
+                        return jsonify({
+                            'error': 'account_not_found',
+                            'message': 'حساب النقدية غير موجود في شجرة الحسابات',
+                            'account_id': acc_id,
+                        }), 400
                     create_dual_journal_entry(
                         journal_entry_id=journal_entry.id,
                         account_id=acc_id,
@@ -4955,13 +5051,75 @@ def add_invoice():
             
             # لا توجد وسيلة دفع - استخدام الصندوق
             else:
-                acc_id = cash_acc_id or 15
+                # If this sale uses barter offset (or is a deferred sale with partial payments enabled),
+                # do NOT assume cash was received.
+                try:
+                    barter_total_for_sale = _to_float_request(data.get('barter_total', 0.0))
+                except Exception:
+                    barter_total_for_sale = 0.0
+                try:
+                    amount_paid_body = _to_float_request(data.get('amount_paid', 0.0))
+                except Exception:
+                    amount_paid_body = 0.0
+
+                is_deferred_or_barter = (
+                    (barter_total_for_sale and barter_total_for_sale > 0.01)
+                    or (allow_partial_payments and amount_paid_body <= 0.01)
+                )
+
+                if is_deferred_or_barter:
+                    paid_amount_total = 0.0
+                else:
+                    acc_id = cash_acc_id or (cash_account.id if cash_account else None)
+                    if not acc_id:
+                        db.session.rollback()
+                        return jsonify({
+                            'error': 'cash_account_missing',
+                            'message': 'لا يوجد حساب نقدية افتراضي. الرجاء ضبط ربط حسابات (cash) أو إنشاء حساب "صندوق النقدية".',
+                        }), 400
+                    if not Account.query.get(acc_id):
+                        db.session.rollback()
+                        return jsonify({
+                            'error': 'account_not_found',
+                            'message': 'حساب النقدية غير موجود في شجرة الحسابات',
+                            'account_id': acc_id,
+                        }), 400
+                    create_dual_journal_entry(
+                        journal_entry_id=journal_entry.id,
+                        account_id=acc_id,
+                        cash_debit=total_cash,
+                        description="استلام نقدي",
+                        apply_golden_rule=False
+                    )
+
+                    paid_amount_total = total_cash
+
+            # 🆕 إن كان هناك فرق (بيع آجل/جزئي/مقايضة) نُثبته على حساب العميل لتوازن القيود.
+            try:
+                remaining_receivable = round(float(total_cash or 0.0) - float(paid_amount_total or 0.0), 2)
+            except Exception:
+                remaining_receivable = 0.0
+
+            if remaining_receivable > 0.009:
+                ar_account_id = None
+                if party_account:
+                    ar_account_id = party_account.id
+                else:
+                    ar_account_id = cash_acc_id or (cash_account.id if cash_account else None)
+
+                if not ar_account_id:
+                    db.session.rollback()
+                    return jsonify({
+                        'error': 'customer_account_missing',
+                        'message': 'لا يوجد حساب عميل لتسجيل الفرق (البيع الآجل/المقايضة).',
+                    }), 400
+
                 create_dual_journal_entry(
                     journal_entry_id=journal_entry.id,
-                    account_id=acc_id,
-                    cash_debit=total_cash,
-                    description="استلام نقدي",
-                    apply_golden_rule=False
+                    account_id=ar_account_id,
+                    cash_debit=remaining_receivable,
+                    description="ذمم عميل (فرق غير مدفوع/مقايضة)",
+                    apply_golden_rule=False,
                 )
             
             # ✅ دائن حساب المبيعات (الإيراد بدون الضريبة)
@@ -5422,24 +5580,55 @@ def add_invoice():
                     )
             
             # 2. دائن حساب النقدية (من الخزينة)
-            acc_id = cash_acc_id or 15
-            
-            # 🆕 الحصول على الحساب من الخزينة
+            # Resolve payment credit account.
+            # - Normal purchase: credit cash/bank safe box account
+            # - Barter/offset: credit customer account (liability) so it can net with the sale receivable
+            settlement_method_raw = (
+                (getattr(new_invoice, 'settlement_method', None) or data.get('settlement_method') or '')
+            )
+            settlement_method_key = str(settlement_method_raw).strip().lower()
+            is_offset_settlement = settlement_method_key in ('offset', 'barter', 'trade', 'swap')
+
+            acc_id = None
             safe_box = None
-            if safe_box_id:
-                safe_box = SafeBox.query.get(safe_box_id)
-            elif payment_method_obj and payment_method_obj.default_safe_box:
-                safe_box = payment_method_obj.default_safe_box
-            
-            if safe_box and safe_box.account:
-                acc_id = safe_box.account.id
-            
+            if not is_offset_settlement:
+                # 🆕 الحصول على الحساب من الخزينة
+                if safe_box_id:
+                    safe_box = SafeBox.query.get(safe_box_id)
+                elif payment_method_obj and payment_method_obj.default_safe_box:
+                    safe_box = payment_method_obj.default_safe_box
+
+                if safe_box and safe_box.account:
+                    acc_id = safe_box.account.id
+                else:
+                    acc_id = cash_acc_id or (cash_account.id if cash_account else None)
+            else:
+                if party_account:
+                    acc_id = party_account.id
+                else:
+                    acc_id = cash_acc_id or (cash_account.id if cash_account else None)
+
+            if not acc_id:
+                db.session.rollback()
+                return jsonify({
+                    'error': 'cash_account_missing',
+                    'message': 'لا يوجد حساب لتسجيل مقابل الشراء (نقداً/تقاص). الرجاء ضبط ربط الحسابات أو حساب العميل.',
+                }), 400
+
+            if not Account.query.get(acc_id):
+                db.session.rollback()
+                return jsonify({
+                    'error': 'account_not_found',
+                    'message': 'الحساب غير موجود في شجرة الحسابات',
+                    'account_id': acc_id,
+                }), 400
+
             create_dual_journal_entry(
                 journal_entry_id=journal_entry.id,
                 account_id=acc_id,
                 cash_credit=total_cash,
                 apply_golden_rule=False,
-                description="دفع نقدي لشراء ذهب"
+                description=("تقاص/مقايضة شراء ذهب" if is_offset_settlement else "دفع نقدي لشراء ذهب")
             )
             
             # ============================================
@@ -5475,30 +5664,58 @@ def add_invoice():
             # الحصول على حساب المذكرة الخاص بالنقدية
             cash_account = db.session.query(Account).get(acc_id)
             if cash_account and cash_account.memo_account_id:
-                main_karat_value = get_main_karat()
-                # توزيع الوزن المعادل حسب نسبة كل عيار
-                for karat, weight in gold_by_karat.items():
-                    if weight > 0 and total_weight_purchased > 0:
-                        karat_proportion = weight / total_weight_purchased
+                settlement_method_raw_w = (
+                    (getattr(new_invoice, 'settlement_method', None) or data.get('settlement_method') or '')
+                )
+                settlement_method_key_w = str(settlement_method_raw_w).strip().lower()
+                barter_sale_id_w = (
+                    getattr(new_invoice, 'barter_sale_invoice_id', None)
+                    or data.get('barter_sale_invoice_id')
+                )
+                is_offset_settlement_w = (
+                    settlement_method_key_w in ('offset', 'barter', 'trade', 'swap')
+                    or barter_sale_id_w not in (None, '', False)
+                )
 
-                        # cash_weight_equivalent محسوب بوحدة العيار الرئيسي (جم @ main karat)
-                        # لذلك يجب تحويله إلى وزن مكافئ في عيار السطر حتى لا يحدث خلل في توازن الأوزان.
-                        karat_cash_weight_main = cash_weight_equivalent * karat_proportion
-                        try:
-                            karat_int = int(round(float(karat)))
-                        except Exception:
-                            karat_int = main_karat_value
-                        karat_cash_weight = convert_from_main_karat(karat_cash_weight_main, karat_int)
-                        
-                        # دائن: حساب النقدية الوزني
-                        weight_params = {}
-                        weight_params[f'weight_{karat}k_credit'] = karat_cash_weight
-                        create_dual_journal_entry(
-                            journal_entry_id=journal_entry.id,
-                            account_id=cash_account.memo_account_id,
-                            **weight_params,
-                            description=f"دفع وزني - شراء عيار {karat}"
-                        )
+                if is_offset_settlement_w:
+                    # In offset/barter settlement there is no real cash movement.
+                    # To keep the weight journal balanced, credit the counterparty's memo
+                    # with the same physical weights received into inventory.
+                    create_dual_journal_entry(
+                        journal_entry_id=journal_entry.id,
+                        account_id=cash_account.memo_account_id,
+                        **_weight_kwargs_from_map(gold_by_karat, 'credit'),
+                        apply_golden_rule=False,
+                        description="تقاص وزني - شراء ذهب (مقايضة)"
+                    )
+                else:
+                    main_karat_value = get_main_karat()
+                    # توزيع الوزن المعادل حسب نسبة كل عيار
+                    for karat, weight in gold_by_karat.items():
+                        if weight > 0 and total_weight_purchased > 0:
+                            karat_proportion = weight / total_weight_purchased
+
+                            # cash_weight_equivalent محسوب بوحدة العيار الرئيسي (جم @ main karat)
+                            # لذلك يجب تحويله إلى وزن مكافئ في عيار السطر حتى لا يحدث خلل في توازن الأوزان.
+                            karat_cash_weight_main = cash_weight_equivalent * karat_proportion
+                            try:
+                                karat_int = int(round(float(karat)))
+                            except Exception:
+                                karat_int = main_karat_value
+                            karat_cash_weight = convert_from_main_karat(
+                                karat_cash_weight_main,
+                                karat_int,
+                            )
+
+                            # دائن: حساب النقدية الوزني
+                            weight_params = {}
+                            weight_params[f'weight_{karat}k_credit'] = karat_cash_weight
+                            create_dual_journal_entry(
+                                journal_entry_id=journal_entry.id,
+                                account_id=cash_account.memo_account_id,
+                                **weight_params,
+                                description=f"دفع وزني - شراء عيار {karat}"
+                            )
             else:
                 print(f"⚠️ No memo account for cash (account {acc_id})")
             
@@ -6128,7 +6345,6 @@ def add_invoice():
                 # - cash: wage is a SAR payable on supplier
                 # - gold: wage is converted to gold weight (main karat) payable on supplier,
                 #         while the cash-equivalent wage cost is balanced via the bridge
-                from models import Supplier
                 supplier_obj = None
                 try:
                     supplier_obj = Supplier.query.get(new_invoice.supplier_id) if new_invoice.supplier_id else None
@@ -6343,22 +6559,27 @@ def add_invoice():
                     if abs(v) > 0.001
                 ]
 
-                # لا نُصحح إلا حالة بسيطة جداً: عيار واحد فقط وبفرق صغير
-                AUTO_WEIGHT_TOLERANCE = 1.5  # grams (increased for return invoice rounding)
+                # محاولة موازنة فروقات الوزن الصغيرة تلقائياً (مثل فروقات التقريب)
+                # ملاحظة: حالات المقايضة/الأوزان متعددة العيارات قد تُنتج فروقات صغيرة عبر أكثر من عيار.
+                AUTO_WEIGHT_TOLERANCE = 1.5  # grams
+                try:
+                    # For barter-linked scrap purchases (offset), valuation may differ materially
+                    # from the current gold price used for cash↔weight conversion. In those cases
+                    # we prefer not to fail the save; instead we allow a wider auto-rebalance.
+                    inv_type_key = str(getattr(new_invoice, 'invoice_type', '') or '').strip()
+                    gold_type_key = str(getattr(new_invoice, 'gold_type', '') or '').strip().lower()
+                    settlement_key = str(getattr(new_invoice, 'settlement_method', '') or '').strip().lower()
+                    has_barter_link = getattr(new_invoice, 'barter_sale_invoice_id', None) not in (None, '', False)
+                    is_offset_like = settlement_key in ('offset', 'barter', 'trade', 'swap') or has_barter_link
+                    if inv_type_key == 'شراء من عميل' and gold_type_key == 'scrap' and is_offset_like:
+                        AUTO_WEIGHT_TOLERANCE = 10.0
+                except Exception:
+                    pass
                 if (
                     abs(balance_check.get('cash_balance', 0.0)) <= 0.01
-                    and len(imbalanced) == 1
-                    and abs(imbalanced[0][1]) <= AUTO_WEIGHT_TOLERANCE
+                    and imbalanced
+                    and all(abs(diff) <= AUTO_WEIGHT_TOLERANCE for _, diff in imbalanced)
                 ):
-                    karat_label, diff = imbalanced[0]  # diff = debit - credit
-                    try:
-                        karat_int = int(str(karat_label).replace('k', '').strip())
-                    except Exception:
-                        karat_int = 21
-
-                    debit_field = f'debit_{karat_int}k'
-                    credit_field = f'credit_{karat_int}k'
-
                     lines = (
                         db.session.query(JournalEntryLine)
                         .filter_by(journal_entry_id=journal_entry.id)
@@ -6366,43 +6587,52 @@ def add_invoice():
                         .all()
                     )
 
-                    target_line = None
-                    if diff > 0:
-                        # debit > credit → نزيد credit
-                        for line in lines:
-                            if (getattr(line, credit_field, 0) or 0) > 0:
-                                target_line = line
-                                break
-                    else:
-                        # credit > debit → نزيد debit
-                        for line in lines:
-                            if (getattr(line, debit_field, 0) or 0) > 0:
-                                target_line = line
-                                break
+                    for karat_label, diff in imbalanced:  # diff = debit - credit
+                        try:
+                            karat_int = int(str(karat_label).replace('k', '').strip())
+                        except Exception:
+                            karat_int = 21
 
-                    if not target_line and lines:
-                        target_line = lines[0]
+                        debit_field = f'debit_{karat_int}k'
+                        credit_field = f'credit_{karat_int}k'
 
-                    if target_line:
+                        target_line = None
                         if diff > 0:
-                            setattr(
-                                target_line,
-                                credit_field,
-                                round((getattr(target_line, credit_field, 0) or 0) + diff, 3),
-                            )
+                            # debit > credit → نزيد credit
+                            for line in lines:
+                                if (getattr(line, credit_field, 0) or 0) > 0:
+                                    target_line = line
+                                    break
                         else:
-                            setattr(
-                                target_line,
-                                debit_field,
-                                round((getattr(target_line, debit_field, 0) or 0) + abs(diff), 3),
-                            )
+                            # credit > debit → نزيد debit
+                            for line in lines:
+                                if (getattr(line, debit_field, 0) or 0) > 0:
+                                    target_line = line
+                                    break
 
-                        db.session.add(target_line)
-                        db.session.flush()
+                        if not target_line and lines:
+                            target_line = lines[0]
 
-                        # إعادة التحقق بعد التصحيح
-                        balance_check = verify_dual_balance(journal_entry.id)
-                        print(f"Balance check after auto-weight-balance: {balance_check}")
+                        if target_line:
+                            if diff > 0:
+                                setattr(
+                                    target_line,
+                                    credit_field,
+                                    round((getattr(target_line, credit_field, 0) or 0) + diff, 3),
+                                )
+                            else:
+                                setattr(
+                                    target_line,
+                                    debit_field,
+                                    round((getattr(target_line, debit_field, 0) or 0) + abs(diff), 3),
+                                )
+                            db.session.add(target_line)
+
+                    db.session.flush()
+
+                    # إعادة التحقق بعد التصحيح
+                    balance_check = verify_dual_balance(journal_entry.id)
+                    print(f"Balance check after auto-weight-balance: {balance_check}")
 
                 if not balance_check['balanced']:
                     db.session.rollback()
@@ -6428,10 +6658,12 @@ def add_invoice():
         try:
             total_amount = float(new_invoice.total or 0.0)
             paid_amount = float(new_invoice.amount_paid or 0.0)
+            barter_total_status = float(getattr(new_invoice, 'barter_total', 0.0) or 0.0)
+            total_settled = paid_amount + barter_total_status
             eps = 0.01
-            if paid_amount <= eps:
+            if total_settled <= eps:
                 new_invoice.status = 'unpaid'
-            elif paid_amount >= total_amount - eps:
+            elif total_settled >= total_amount - eps:
                 new_invoice.status = 'paid'
             else:
                 new_invoice.status = 'partially_paid'
@@ -7790,6 +8022,250 @@ def get_sales_overview_report():
             'group_by': group_by,
             'include_unposted': include_unposted,
             'gold_type': gold_type_filter,
+        },
+        'count': len(invoices),
+    })
+
+
+# ============================================================================
+# Reports API - Employee Scrap Ledger
+# ============================================================================
+
+@api.route('/reports/employee_scrap_ledger', methods=['GET'])
+@require_permission('employees.view')
+@require_permission('reports.gold_position')
+def get_employee_scrap_ledger_report():
+    """تقرير بسيط لتجميع ذهب الكسر حسب الموظف (العهدة).
+
+    يعتمد على فواتير: invoice_type='شراء من عميل' + gold_type='scrap'
+    ويجمع الوزن حسب العيار، مع تحويل إجمالي إلى العيار الرئيسي.
+
+    Query params:
+    - start_date, end_date (YYYY-MM-DD)
+    - branch_id (int)
+    - include_unposted (true/false)
+    - include_unassigned (true/false)
+    """
+
+    start_date = request.args.get('start_date') or request.args.get('date_from')
+    end_date = request.args.get('end_date') or request.args.get('date_to')
+    branch_id_param = request.args.get('branch_id')
+    include_unposted = (request.args.get('include_unposted', 'false').lower() == 'true')
+    include_unassigned = (request.args.get('include_unassigned', 'true').lower() == 'true')
+
+    try:
+        start_dt = None
+        end_dt = None
+
+        if start_date:
+            start_value = _parse_iso_date(start_date, 'start_date')
+            start_dt = datetime.combine(start_value, datetime.min.time())
+
+        if end_date:
+            end_value = _parse_iso_date(end_date, 'end_date')
+            end_dt = datetime.combine(end_value, datetime.min.time()) + timedelta(days=1)
+
+        branch_id = int(branch_id_param) if branch_id_param not in (None, '') else None
+    except ValueError as exc:
+        return jsonify({'error': str(exc)}), 400
+
+    def round_weight(value):
+        try:
+            return round(float(value or 0.0), 3)
+        except Exception:
+            return 0.0
+
+    def round_money(value):
+        try:
+            return round(float(value or 0.0), 2)
+        except Exception:
+            return 0.0
+
+    main_karat = float(get_main_karat() or 21)
+
+    filters = [
+        Invoice.invoice_type == 'شراء من عميل',
+        Invoice.gold_type == 'scrap',
+    ]
+
+    if not include_unposted:
+        filters.append(Invoice.is_posted.is_(True))
+
+    if branch_id is not None:
+        filters.append(Invoice.branch_id == branch_id)
+
+    if start_dt:
+        filters.append(Invoice.date >= start_dt)
+
+    if end_dt:
+        filters.append(Invoice.date < end_dt)
+
+    if not include_unassigned:
+        filters.append(Invoice.scrap_holder_employee_id.isnot(None))
+
+    invoices = (
+        Invoice.query
+        .options(
+            joinedload(Invoice.items),
+            joinedload(Invoice.karat_lines),
+            joinedload(Invoice.scrap_holder_employee),
+        )
+        .filter(*filters)
+        .order_by(Invoice.date.asc(), Invoice.id.asc())
+        .all()
+    )
+
+    ledger_map = {}
+    totals = {
+        'invoice_count': 0,
+        'total_value': 0.0,
+        'total_cash_paid': 0.0,
+        'weights_by_karat': {},
+        'total_weight': 0.0,
+        'total_weight_main_karat': 0.0,
+    }
+
+    def _karat_label(karat_value: float) -> str:
+        try:
+            karat_float = float(karat_value)
+        except Exception:
+            return 'unknown'
+        if karat_float.is_integer():
+            return f"{int(karat_float)}k"
+        return str(karat_float)
+
+    def _accumulate_weights(target: dict, karat_value: float, grams_value: float):
+        if not grams_value:
+            return
+        try:
+            karat_float = float(karat_value)
+        except Exception:
+            return
+        if karat_float <= 0:
+            return
+        label = _karat_label(karat_float)
+        target[label] = float(target.get(label, 0.0) or 0.0) + float(grams_value)
+
+    for inv in invoices:
+        holder_id = getattr(inv, 'scrap_holder_employee_id', None)
+        bucket_key = holder_id  # can be None
+        if bucket_key not in ledger_map:
+            try:
+                holder_name = inv.scrap_holder_employee.name if inv.scrap_holder_employee else None
+            except Exception:
+                holder_name = None
+
+            ledger_map[bucket_key] = {
+                'scrap_holder_employee_id': holder_id,
+                'scrap_holder_employee_name': holder_name,
+                'invoice_count': 0,
+                'total_value': 0.0,
+                'total_cash_paid': 0.0,
+                'weights_by_karat': {},
+                'total_weight': 0.0,
+                'total_weight_main_karat': 0.0,
+                'first_date': None,
+                'last_date': None,
+            }
+
+        row = ledger_map[bucket_key]
+        row['invoice_count'] += 1
+        totals['invoice_count'] += 1
+
+        inv_total = float(getattr(inv, 'total', 0.0) or 0.0)
+        inv_paid = float(getattr(inv, 'amount_paid', 0.0) or 0.0)
+        row['total_value'] += inv_total
+        row['total_cash_paid'] += inv_paid
+        totals['total_value'] += inv_total
+        totals['total_cash_paid'] += inv_paid
+
+        try:
+            inv_date = inv.date
+            inv_date_iso = inv_date.isoformat() if inv_date else None
+        except Exception:
+            inv_date = None
+            inv_date_iso = None
+
+        if inv_date_iso:
+            if row['first_date'] is None or inv_date_iso < row['first_date']:
+                row['first_date'] = inv_date_iso
+            if row['last_date'] is None or inv_date_iso > row['last_date']:
+                row['last_date'] = inv_date_iso
+
+        # Avoid double counting: prefer karat_lines when they exist and have weight.
+        per_invoice_weights = defaultdict(float)
+
+        used_karat_lines = False
+        try:
+            if getattr(inv, 'karat_lines', None):
+                kl_sum = 0.0
+                for kl in inv.karat_lines:
+                    kl_sum += float(getattr(kl, 'weight_grams', 0.0) or 0.0)
+                if kl_sum > 0:
+                    used_karat_lines = True
+                    for kl in inv.karat_lines:
+                        karat_val = float(getattr(kl, 'karat', 0.0) or 0.0)
+                        grams_val = float(getattr(kl, 'weight_grams', 0.0) or 0.0)
+                        if grams_val and karat_val:
+                            per_invoice_weights[karat_val] += grams_val
+        except Exception:
+            used_karat_lines = False
+
+        if not used_karat_lines:
+            try:
+                for it in (inv.items or []):
+                    qty = int(getattr(it, 'quantity', 1) or 1)
+                    karat_val = float(getattr(it, 'karat', 0.0) or 0.0)
+                    grams_val = float(getattr(it, 'weight', 0.0) or 0.0) * qty
+                    if grams_val and karat_val:
+                        per_invoice_weights[karat_val] += grams_val
+            except Exception:
+                pass
+
+        for karat_val, grams_val in per_invoice_weights.items():
+            _accumulate_weights(row['weights_by_karat'], karat_val, grams_val)
+            _accumulate_weights(totals['weights_by_karat'], karat_val, grams_val)
+            row['total_weight'] += float(grams_val)
+            totals['total_weight'] += float(grams_val)
+            try:
+                row['total_weight_main_karat'] += float(convert_to_main_karat(float(grams_val), float(karat_val)))
+                totals['total_weight_main_karat'] += float(convert_to_main_karat(float(grams_val), float(karat_val)))
+            except Exception:
+                pass
+
+    rows = list(ledger_map.values())
+
+    for row in rows:
+        row['total_value'] = round_money(row['total_value'])
+        row['total_cash_paid'] = round_money(row['total_cash_paid'])
+        row['total_weight'] = round_weight(row['total_weight'])
+        row['total_weight_main_karat'] = round_weight(row['total_weight_main_karat'])
+        row['weights_by_karat'] = {
+            key: round_weight(value)
+            for key, value in sorted((row.get('weights_by_karat') or {}).items(), key=lambda item: item[0])
+        }
+
+    rows.sort(key=lambda r: (r.get('total_weight_main_karat') or 0.0), reverse=True)
+
+    totals['total_value'] = round_money(totals['total_value'])
+    totals['total_cash_paid'] = round_money(totals['total_cash_paid'])
+    totals['total_weight'] = round_weight(totals['total_weight'])
+    totals['total_weight_main_karat'] = round_weight(totals['total_weight_main_karat'])
+    totals['weights_by_karat'] = {
+        key: round_weight(value)
+        for key, value in sorted((totals.get('weights_by_karat') or {}).items(), key=lambda item: item[0])
+    }
+
+    return jsonify({
+        'main_karat': main_karat,
+        'rows': rows,
+        'totals': totals,
+        'filters': {
+            'start_date': start_date,
+            'end_date': end_date,
+            'branch_id': branch_id,
+            'include_unposted': include_unposted,
+            'include_unassigned': include_unassigned,
         },
         'count': len(invoices),
     })

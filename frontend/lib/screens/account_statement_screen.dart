@@ -14,6 +14,7 @@ import 'package:printing/printing.dart';
 
 import '../api_service.dart';
 import '../models/account_statement_model.dart';
+import '../theme/app_theme.dart' as app_theme;
 
 class AccountStatementScreen extends StatefulWidget {
   final int accountId;
@@ -128,9 +129,13 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
             _dateRange?.end == null ||
             date.isBefore(_dateRange!.end.add(const Duration(days: 1)));
         final matchesSearch = query.isEmpty
-          ? true
-          : description.contains(query) ||
-              _matchesSearch(line: line, query: query, mainKarat: mainKarat);
+            ? true
+            : description.contains(query) ||
+                  _matchesSearch(
+                    line: line,
+                    query: query,
+                    mainKarat: mainKarat,
+                  );
 
         bool matchesFilterType = true;
         if (_filterType == 'credit') {
@@ -1022,8 +1027,8 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
           _convertToMainKarat(line.credit22k, 22, mainKarat) +
           _convertToMainKarat(line.credit24k, 24, mainKarat);
 
-        final goldMovement = debitMain - creditMain;
-        final cashMovement = line.cashDebit - line.cashCredit;
+      final goldMovement = debitMain - creditMain;
+      final cashMovement = line.cashDebit - line.cashCredit;
 
       final cells = <DataCell>[
         DataCell(Text(DateFormat('yyyy-MM-dd').format(line.date))),
@@ -1246,7 +1251,11 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
         const SizedBox(height: 4),
         Row(
           children: [
-            Icon(Icons.tag, size: 14, color: theme.colorScheme.onSurfaceVariant),
+            Icon(
+              Icons.tag,
+              size: 14,
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
             const SizedBox(width: 4),
             Text(
               subtitle,
@@ -1367,8 +1376,10 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
                 final invoice = snapshot.data!;
                 final items = (invoice['items'] as List?) ?? const [];
                 final invoiceType = (invoice['invoice_type'] ?? '').toString();
-                final customerName = (invoice['customer_name'] ?? '').toString();
-                final supplierName = (invoice['supplier_name'] ?? '').toString();
+                final customerName = (invoice['customer_name'] ?? '')
+                    .toString();
+                final supplierName = (invoice['supplier_name'] ?? '')
+                    .toString();
 
                 return ConstrainedBox(
                   constraints: BoxConstraints(
@@ -1430,9 +1441,12 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
                                   }
 
                                   final description =
-                                      (item['description'] ?? item['item_name'] ?? '')
+                                      (item['description'] ??
+                                              item['item_name'] ??
+                                              '')
                                           .toString();
-                                  final karat = (item['karat'] ?? '').toString();
+                                  final karat = (item['karat'] ?? '')
+                                      .toString();
                                   final weight = item['weight_grams'];
                                   final weightText = (weight is num)
                                       ? weight.toDouble().toStringAsFixed(3)
@@ -1642,6 +1656,8 @@ class _SummaryCard extends StatelessWidget {
     final theme = Theme.of(context);
     final textTheme = theme.textTheme;
     final borderColor = theme.colorScheme.outlineVariant;
+    final goldColor = app_theme.AppColors.primaryGold;
+    final cashColor = app_theme.AppColors.success;
 
     return Card(
       elevation: 0,
@@ -1684,7 +1700,7 @@ class _SummaryCard extends StatelessWidget {
                     label: 'ذهب (جم)',
                     value: goldValue.toStringAsFixed(3),
                     subtitle: 'مكافئ عيار $mainKarat',
-                    color: theme.colorScheme.primary,
+                    color: goldColor,
                     icon: Icons.scale,
                   ),
                 ),
@@ -1693,7 +1709,7 @@ class _SummaryCard extends StatelessWidget {
                   child: _SummaryMetric(
                     label: 'نقد (ر.س)',
                     value: cashValue.toStringAsFixed(2),
-                    color: theme.colorScheme.tertiary,
+                    color: cashColor,
                     icon: Icons.payments,
                   ),
                 ),

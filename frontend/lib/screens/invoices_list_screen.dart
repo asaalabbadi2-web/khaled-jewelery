@@ -394,10 +394,15 @@ class _InvoicesListScreenState extends State<InvoicesListScreen> {
           if (normalized == 'cancelled') return sum;
 
           final total = _tryParseDouble(invoice['total']);
-          final paid = _tryParseDouble(
+          final paidCash = _tryParseDouble(
             invoice['amount_paid'] ?? invoice['total_payments_amount'],
           );
-          final paidClamped = paid.clamp(0.0, total);
+          final barterTotal = _tryParseDouble(invoice['barter_total']);
+          final hasTotalSettledKey = invoice.containsKey('total_settled_amount');
+          final totalSettled = hasTotalSettledKey
+              ? _tryParseDouble(invoice['total_settled_amount'])
+              : (paidCash + barterTotal);
+          final paidClamped = totalSettled.clamp(0.0, total);
           return sum + paidClamped;
         } catch (e) {
           debugPrint('⚠️ خطأ في حساب المدفوع: $e');
@@ -413,10 +418,15 @@ class _InvoicesListScreenState extends State<InvoicesListScreen> {
           if (normalized == 'cancelled') return sum;
 
           final total = _tryParseDouble(invoice['total']);
-          final paid = _tryParseDouble(
+          final paidCash = _tryParseDouble(
             invoice['amount_paid'] ?? invoice['total_payments_amount'],
           );
-          final remaining = (total - paid).clamp(0.0, double.infinity);
+          final barterTotal = _tryParseDouble(invoice['barter_total']);
+          final hasTotalSettledKey = invoice.containsKey('total_settled_amount');
+          final totalSettled = hasTotalSettledKey
+              ? _tryParseDouble(invoice['total_settled_amount'])
+              : (paidCash + barterTotal);
+          final remaining = (total - totalSettled).clamp(0.0, double.infinity);
           return sum + remaining;
         } catch (e) {
           debugPrint('⚠️ خطأ في حساب المتبقي: $e');
@@ -1940,10 +1950,16 @@ class _InvoicesListScreenState extends State<InvoicesListScreen> {
     final tax = _tryParseDouble(invoice['total_tax']);
     final subtotal = (total - tax).clamp(0.0, double.infinity);
 
-    final paid = _tryParseDouble(
+    final paidCash = _tryParseDouble(
       invoice['amount_paid'] ?? invoice['total_payments_amount'],
     );
-    final remaining = (total - paid).clamp(0.0, double.infinity);
+    final barterTotal = _tryParseDouble(invoice['barter_total']);
+    final hasTotalSettledKey = invoice.containsKey('total_settled_amount');
+    final totalSettled = hasTotalSettledKey
+        ? _tryParseDouble(invoice['total_settled_amount'])
+        : (paidCash + barterTotal);
+    final paid = totalSettled;
+    final remaining = (total - totalSettled).clamp(0.0, double.infinity);
     final canSettle = !isCancelled && remaining > 0.01;
 
     final invoiceNumber = _getInvoiceDisplayNumber(invoice);
@@ -2259,6 +2275,17 @@ class _InvoicesListScreenState extends State<InvoicesListScreen> {
                               isAr: isAr,
                               colorScheme: colorScheme,
                             ),
+                            if (barterTotal > 0.01) ...[
+                              const SizedBox(height: 8),
+                              _buildSummaryRow(
+                                label: isAr
+                                    ? 'المقايضة (قيمة)'
+                                    : 'Barter (Value)',
+                                value: barterTotal,
+                                isAr: isAr,
+                                colorScheme: colorScheme,
+                              ),
+                            ],
                             const SizedBox(height: 8),
                             _buildSummaryRow(
                               label: isAr ? 'المتبقي' : 'Remaining',

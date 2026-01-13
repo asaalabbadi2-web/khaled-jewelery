@@ -865,6 +865,16 @@ class Invoice(db.Model):
     settled_gold_weight = db.Column(db.Float, nullable=True)
     settled_wage_amount = db.Column(db.Float, nullable=True)
 
+    # 🆕 Cash-equivalent amount settled via barter/trade-in (used in sales payment netting).
+    barter_total = db.Column(db.Float, default=0.0, nullable=False)
+
+    # 🆕 Identity of who holds received scrap gold (barter flow) without using SafeBox.
+    scrap_holder_employee_id = db.Column(db.Integer, db.ForeignKey('employee.id'), nullable=True)
+    scrap_holder_employee = db.relationship('Employee', foreign_keys=[scrap_holder_employee_id])
+
+    # 🆕 Link a customer scrap-purchase invoice back to the originating sale invoice (barter flow)
+    barter_sale_invoice_id = db.Column(db.Integer, db.ForeignKey('invoice.id'), nullable=True)
+
     items = db.relationship('InvoiceItem', backref='invoice', lazy=True)
     
     # 🆕 علاقة مع دفعات متعددة (One-to-Many)
@@ -889,6 +899,17 @@ class Invoice(db.Model):
             else:
                 invoice_type_value = 'شراء'
 
+        effective_total_weight = self.total_weight
+        try:
+            if getattr(self, 'karat_lines', None):
+                kl_sum = 0.0
+                for kl in self.karat_lines:
+                    kl_sum += float(getattr(kl, 'weight_grams', 0.0) or 0.0)
+                if kl_sum > 0:
+                    effective_total_weight = round(kl_sum, 4)
+        except Exception:
+            effective_total_weight = self.total_weight
+
         result = {
             'id': self.id,
             'invoice_type_id': self.invoice_type_id,
@@ -904,7 +925,7 @@ class Invoice(db.Model):
             'is_posted': self.is_posted,  # 🆕 حالة الترحيل
             'posted_at': self.posted_at.isoformat() if self.posted_at else None,  # 🆕
             'posted_by': self.posted_by,  # 🆕
-            'total_weight': self.total_weight,
+            'total_weight': effective_total_weight,
             'total_tax': self.total_tax,
             'total_cost': self.total_cost,
             'gold_subtotal': self.gold_subtotal,
@@ -939,15 +960,36 @@ class Invoice(db.Model):
             'commission_amount': self.commission_amount,
             'net_amount': self.net_amount,
             'amount_paid': self.amount_paid,
+            'barter_total': float(getattr(self, 'barter_total', 0.0) or 0.0),
             'manufacturing_wage_mode_snapshot': self.manufacturing_wage_mode_snapshot,
             'wage_inventory_account_id': self.wage_inventory_account_id,
             'wage_inventory_balance_main_karat': self.wage_inventory_balance_main_karat,
             'safe_box_id': self.safe_box_id,  # 🆕 الخزينة
+            'scrap_holder_employee_id': getattr(self, 'scrap_holder_employee_id', None),
+            'barter_sale_invoice_id': getattr(self, 'barter_sale_invoice_id', None),
             'original_invoice_id': self.original_invoice_id,
             'return_reason': self.return_reason,
             'gold_type': self.gold_type,
             'items': [item.to_dict() for item in self.items]
         }
+
+        # Read-only helper: total settled value (cash/bank + barter).
+        try:
+            paid_amount = float(self.amount_paid or 0.0)
+        except Exception:
+            paid_amount = 0.0
+        try:
+            barter_total = float(getattr(self, 'barter_total', 0.0) or 0.0)
+        except Exception:
+            barter_total = 0.0
+        result['total_settled_amount'] = round(paid_amount + barter_total, 2)
+
+        try:
+            result['scrap_holder_employee_name'] = (
+                self.scrap_holder_employee.name if self.scrap_holder_employee else None
+            )
+        except Exception:
+            result['scrap_holder_employee_name'] = None
 
         # 🆕 اسم الموظف المنفذ
         # - المصدر الأساسي: employee_id المخزن على الفاتورة

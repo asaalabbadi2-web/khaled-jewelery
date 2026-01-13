@@ -291,11 +291,14 @@ class SuppliersScreenState extends State<SuppliersScreen> {
             required String title,
             required String value,
           }) {
+            final tintedBg = background.withValues(alpha: 0.12);
+            final tintedBorder = background.withValues(alpha: 0.25);
             return Container(
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: background,
+                color: tintedBg,
                 borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: tintedBorder, width: 1),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -371,7 +374,7 @@ class SuppliersScreenState extends State<SuppliersScreen> {
                         Expanded(
                           child: buildSummaryCard(
                             background: app_theme.AppColors.success,
-                            foreground: Colors.white,
+                            foreground: app_theme.AppColors.success,
                             title: isAr
                                 ? 'إجمالي النقد الدائن'
                                 : 'Total cash credit',
@@ -382,7 +385,7 @@ class SuppliersScreenState extends State<SuppliersScreen> {
                         Expanded(
                           child: buildSummaryCard(
                             background: app_theme.AppColors.info,
-                            foreground: Colors.white,
+                            foreground: app_theme.AppColors.info,
                             title: isAr
                                 ? 'الموردون النشطون'
                                 : 'Active suppliers',

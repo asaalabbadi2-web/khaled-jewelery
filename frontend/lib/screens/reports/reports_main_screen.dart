@@ -18,6 +18,7 @@ import 'customer_balances_aging_report_screen.dart';
 import 'gold_price_history_report_screen.dart';
 import 'gold_position_report_screen.dart';
 import 'income_statement_report_screen.dart';
+import 'employee_scrap_ledger_report_screen.dart';
 import 'analytics_dashboard_screen.dart';
 import 'admin_dashboard_screen.dart';
 
@@ -390,6 +391,12 @@ class _ReportsMainScreenState extends State<ReportsMainScreen> {
         break;
       case 'gold_position':
         destination = GoldPositionReportScreen(
+          api: widget.api,
+          isArabic: widget.isArabic,
+        );
+        break;
+      case 'employee_scrap_ledger':
+        destination = EmployeeScrapLedgerReportScreen(
           api: widget.api,
           isArabic: widget.isArabic,
         );
