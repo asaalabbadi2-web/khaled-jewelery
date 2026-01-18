@@ -30,6 +30,7 @@ services:
       DATABASE_URL: ${DATABASE_URL:-postgresql://yasargold:change_me@db:5432/yasargold}
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-}
       BYPASS_AUTH_FOR_DEVELOPMENT: "0"
+      YASAR_ENV: ${YASAR_ENV:-production}
       BACKUP_DIR: ${BACKUP_DIR:-/data/backups}
       ALLOW_DANGEROUS_RESETS: ${ALLOW_DANGEROUS_RESETS:-false}
     depends_on:

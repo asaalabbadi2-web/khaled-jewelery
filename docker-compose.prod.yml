@@ -25,6 +25,7 @@ services:
       DATABASE_URL: ${DATABASE_URL:-postgresql://yasargold:change_me@db:5432/yasargold}
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-}
       BYPASS_AUTH_FOR_DEVELOPMENT: "0"
+      YASAR_ENV: ${YASAR_ENV:-production}
       # Persist server-side snapshots/audit logs and allow UI download/restore.
       BACKUP_DIR: ${BACKUP_DIR:-/data/backups}
       # Keep this OFF by default; enable only during a controlled maintenance window.
