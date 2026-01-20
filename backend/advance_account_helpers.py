@@ -10,6 +10,17 @@ from backend.models import Account, Employee, db
 from typing import Optional, Tuple
 
 try:
+    from backend.employee_account_naming import (
+        employee_advance_account_name,
+        legacy_or_current_names,
+    )
+except Exception:  # pragma: no cover
+    from employee_account_naming import (
+        employee_advance_account_name,
+        legacy_or_current_names,
+    )
+
+try:
     # When imported from within backend package
     from backend.account_number_generator import get_next_account_number
 except Exception:  # pragma: no cover
@@ -121,7 +132,7 @@ def create_advance_account_for_employee(employee_id, created_by='system'):
     # إنشاء حساب السلفة
     advance_account = Account(
         account_number=str(account_number),
-        name=f"سلفة {employee.name}",
+        name=employee_advance_account_name(employee.name),
         type='asset',
         transaction_type='cash',
         parent_id=parent_account.id
@@ -149,18 +160,23 @@ def get_employee_advance_account(employee_id):
     
     parent, scheme = _get_advances_parent_account()
 
+    possible_names = legacy_or_current_names(
+        current=employee_advance_account_name(employee.name),
+        legacy=f"سلفة {employee.name}",
+    )
+
     # Preferred scheme: search under 1710 by parent_id + name
     if scheme == '1710' and parent:
         return Account.query.filter(
             Account.parent_id == parent.id,
-            Account.name == f"سلفة {employee.name}",
+            Account.name.in_(possible_names),
         ).first()
 
     # Legacy scheme: search by numeric range
     return Account.query.filter(
         Account.account_number >= '140000',
         Account.account_number <= '149999',
-        Account.name == f"سلفة {employee.name}",
+        Account.name.in_(possible_names),
     ).first()
 
 
@@ -329,6 +345,6 @@ def link_advance_to_employee(advance_account_id, employee_id):
         raise ValueError(f"الموظف {employee.name} ليس له حساب شخصي")
     
     # تحديث اسم الحساب ليرتبط بالموظف
-    account.name = f"سلفة {employee.name}"
+    account.name = employee_advance_account_name(employee.name)
     
     return account

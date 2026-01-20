@@ -15,6 +15,12 @@ Implementation (matches the current chart-of-accounts):
 from models import Account, SafeBox, db
 from account_number_generator import get_next_account_number
 
+from employee_account_naming import (
+    employee_gold_custody_account_name,
+    employee_gold_safe_name,
+    group_account_name,
+)
+
 from typing import Optional
 
 
@@ -27,8 +33,9 @@ def ensure_employee_gold_group_account(created_by: str = 'system') -> Optional[A
 
     group = Account.query.filter_by(account_number='71300011').first()
     if group:
-        if (group.name or '').strip() != 'صناديق الموظفين (عهد)':
-            group.name = 'صناديق الموظفين (عهد)'
+        desired = group_account_name('employee_gold_custody')
+        if (group.name or '').strip() in ('', 'صناديق الموظفين (عهد)') and (group.name or '').strip() != desired:
+            group.name = desired
             db.session.flush()
         return group
 
@@ -40,7 +47,7 @@ def ensure_employee_gold_group_account(created_by: str = 'system') -> Optional[A
 
     group = Account(
         account_number='71300011',
-        name='صناديق الموظفين (عهد)',
+        name=group_account_name('employee_gold_custody'),
         type='asset',
         transaction_type='gold',
         tracks_weight=True,
@@ -81,7 +88,7 @@ def create_employee_gold_safe(employee_name: str, created_by: str = 'system', em
 
     account = Account(
         account_number=acc_number,
-        name=f'عهدة ذهب {label}',
+        name=employee_gold_custody_account_name(label),
         type='asset',
         transaction_type='gold',
         tracks_weight=True,
@@ -91,7 +98,7 @@ def create_employee_gold_safe(employee_name: str, created_by: str = 'system', em
     db.session.flush()
 
     safe = SafeBox(
-        name=f'عهدة ذهب {employee_name}',
+        name=employee_gold_safe_name(employee_name),
         name_en=None,
         safe_type='gold',
         account_id=account.id,

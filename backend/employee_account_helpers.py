@@ -16,6 +16,12 @@ possible, without force-changing existing account parents/types.
 # استخدم نفس الوحدة التي يهيئها app.py لتفادي إنشاء نسخة SQLAlchemy ثانية
 from models import Account, db
 
+from employee_account_naming import (
+    employee_payable_account_name,
+    employee_personal_account_name,
+    group_account_name,
+)
+
 from account_number_generator import get_next_account_number
 
 from typing import Dict, List, Optional, Tuple
@@ -89,7 +95,7 @@ def ensure_employee_group_accounts(created_by: str = 'system'):
         inferred_parent = _find_existing_parent_by_prefix('1700')
         parent_1700 = _ensure_account(
             account_number='1700',
-            name='حسابات الموظفين',
+            name=group_account_name('employees'),
             acc_type='asset',
             transaction_type='cash',
             tracks_weight=False,
@@ -101,7 +107,7 @@ def ensure_employee_group_accounts(created_by: str = 'system'):
     if not parent_1710:
         parent_1710 = _ensure_account(
             account_number='1710',
-            name='سلف الموظفين',
+            name=group_account_name('employee_advances'),
             acc_type='asset',
             transaction_type='cash',
             tracks_weight=False,
@@ -110,9 +116,9 @@ def ensure_employee_group_accounts(created_by: str = 'system'):
 
     # 230/240/250 - employee payables/obligations group accounts
     payables_groups: Dict[str, Tuple[str, str]] = {
-        '230': ('التزامات الموظفين - رواتب', '2300'),
-        '240': ('التزامات الموظفين - مكافآت', '2400'),
-        '250': ('التزامات الموظفين - أخرى', '2500'),
+        '230': (group_account_name('employee_payables_salary'), '2300'),
+        '240': (group_account_name('employee_payables_bonus'), '2400'),
+        '250': (group_account_name('employee_payables_other'), '2500'),
     }
 
     ensured: Dict[str, Account] = {
@@ -185,10 +191,10 @@ def create_employee_account(employee_name, department='administration', created_
     # إنشاء الحساب
     account = Account(
         account_number=account_number,
-        name=f"ح/ {employee_name}",
+        name=employee_personal_account_name(employee_name),
         type='asset',
         transaction_type='cash',
-        parent_id=parent_account.id
+        parent_id=parent_account.id,
     )
     
     db.session.add(account)
@@ -222,7 +228,10 @@ def create_employee_payables_accounts(employee_name: str, created_by: str = 'sys
         acc_number = get_next_account_number(str(parent.account_number))
         account = Account(
             account_number=str(acc_number),
-            name=acc_name,
+            name=employee_payable_account_name(
+                employee_name,
+                category_ar='رواتب' if parent_num == '2300' else 'مكافآت' if parent_num == '2400' else 'أخرى',
+            ),
             type='liability',
             transaction_type='cash',
             tracks_weight=False,

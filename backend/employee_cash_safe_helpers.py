@@ -14,6 +14,12 @@ Implementation (matches the current chart-of-accounts):
 from models import Account, SafeBox, db
 from account_number_generator import get_next_account_number
 
+from employee_account_naming import (
+    employee_cash_custody_account_name,
+    employee_cash_safe_name,
+    group_account_name,
+)
+
 from typing import Optional
 
 
@@ -22,8 +28,9 @@ def ensure_employee_cash_group_account(created_by: str = 'system') -> Optional[A
     group = Account.query.filter_by(account_number='1100001').first()
     if group:
         # Keep naming consistent with requested structure.
-        if (group.name or '').strip() != 'صناديق الموظفين النقدية (عهد)':
-            group.name = 'صناديق الموظفين النقدية (عهد)'
+        desired = group_account_name('employee_cash_custody')
+        if (group.name or '').strip() in ('', 'صناديق الموظفين النقدية (عهد)') and (group.name or '').strip() != desired:
+            group.name = desired
             db.session.flush()
         return group
 
@@ -35,7 +42,7 @@ def ensure_employee_cash_group_account(created_by: str = 'system') -> Optional[A
 
     group = Account(
         account_number='1100001',
-        name='صناديق الموظفين النقدية (عهد)',
+        name=group_account_name('employee_cash_custody'),
         type='asset',
         transaction_type='cash',
         tracks_weight=False,
@@ -74,7 +81,7 @@ def create_employee_cash_safe(employee_name: str, created_by: str = 'system', em
 
     account = Account(
         account_number=acc_number,
-        name=f'صندوق الموظف {label}',
+        name=employee_cash_custody_account_name(label),
         type='asset',
         transaction_type='cash',
         tracks_weight=False,
@@ -84,14 +91,14 @@ def create_employee_cash_safe(employee_name: str, created_by: str = 'system', em
     db.session.flush()
 
     safe = SafeBox(
-        name=f'صندوق الموظف {employee_name}',
+        name=employee_cash_safe_name(employee_name),
         name_en=None,
         safe_type='cash',
         account_id=int(account.id),
         karat=None,
         is_active=True,
         is_default=False,
-        notes='صندوق نقدية خاص بالموظف',
+        notes='عهدة نقدية خاصة بالموظف',
         created_by=created_by,
     )
     db.session.add(safe)
