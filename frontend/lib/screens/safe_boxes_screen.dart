@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import '../api_service.dart';
 import '../models/safe_box_model.dart';
+import 'clearing_settlement_screen.dart';
 import 'gold_safe_transfer_screen.dart';
 
 class SafeBoxesScreen extends StatefulWidget {
@@ -31,7 +32,7 @@ class SafeBoxesScreen extends StatefulWidget {
 
 class _SafeBoxesScreenState extends State<SafeBoxesScreen> {
   List<SafeBoxModel> _safeBoxes = [];
-  String _filterType = 'all'; // all, cash, bank, gold, check
+  String _filterType = 'all'; // all, cash, bank, clearing, gold, check
   String _searchQuery = '';
   bool _activeOnly = false;
   bool _defaultOnly = false;
@@ -219,6 +220,10 @@ class _SafeBoxesScreenState extends State<SafeBoxesScreen> {
                       DropdownMenuItem(
                         value: 'bank',
                         child: Text(isAr ? 'بنكي' : 'Bank'),
+                      ),
+                      DropdownMenuItem(
+                        value: 'clearing',
+                        child: Text(isAr ? 'مستحقات تحصيل' : 'Clearing'),
                       ),
                       DropdownMenuItem(
                         value: 'gold',
@@ -697,6 +702,17 @@ class _SafeBoxesScreenState extends State<SafeBoxesScreen> {
                     },
                   ),
                   FilterChip(
+                    label: Text(isAr ? 'مستحقات تحصيل' : 'Clearing'),
+                    selected: _filterType == 'clearing',
+                    avatar: const Icon(Icons.swap_horiz, size: 18),
+                    onSelected: (selected) {
+                      setState(() {
+                        _filterType = 'clearing';
+                        _loadSafeBoxes();
+                      });
+                    },
+                  ),
+                  FilterChip(
                     label: Text(isAr ? 'ذهبي' : 'Gold'),
                     selected: _filterType == 'gold',
                     avatar: const Icon(Icons.diamond, size: 18),
@@ -839,6 +855,25 @@ class _SafeBoxesScreenState extends State<SafeBoxesScreen> {
                           trailing: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
+                              if ((safeBox.safeType).toLowerCase() == 'clearing')
+                                IconButton(
+                                  tooltip: isAr ? 'تسوية تحصيل' : 'Clearing Settlement',
+                                  icon: const Icon(Icons.swap_horiz, size: 20),
+                                  onPressed: safeBox.id == null
+                                      ? null
+                                      : () async {
+                                          final changed = await Navigator.of(context).push<bool>(
+                                            MaterialPageRoute(
+                                              builder: (_) => ClearingSettlementScreen(
+                                                initialClearingSafeBoxId: safeBox.id,
+                                              ),
+                                            ),
+                                          );
+                                          if (changed == true) {
+                                            _loadSafeBoxes();
+                                          }
+                                        },
+                                ),
                               IconButton(
                                 icon: const Icon(Icons.edit, size: 20),
                                 onPressed: () =>

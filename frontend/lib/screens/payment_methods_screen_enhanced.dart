@@ -2,6 +2,8 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import '../api_service.dart';
+import '../models/safe_box_model.dart';
+import '../widgets/safe_box_picker_dialog.dart';
 
 /// شاشة إدارة وسائل الدفع المحسّنة بتصميم احترافي
 class PaymentMethodsScreenEnhanced extends StatefulWidget {
@@ -19,6 +21,7 @@ class _PaymentMethodsScreenEnhancedState
   List<Map<String, dynamic>> _paymentTypes = [];
   List<Map<String, dynamic>> _invoiceTypeOptions = [];
   List<String> _invoiceTypeDefaultSelection = [];
+  List<SafeBoxModel> _availableSafeBoxes = [];
   bool _isLoading = true;
 
   // ألوان النظام
@@ -54,11 +57,63 @@ class _PaymentMethodsScreenEnhancedState
     _fetchData();
   }
 
+  String _suggestedSafeTypeForPaymentType(String? paymentType) {
+    final pt = (paymentType ?? '').trim().toLowerCase();
+    if (pt == 'cash') return 'cash';
+    if (pt == 'check') return 'check';
+    if (pt == 'bank_transfer' || pt.contains('transfer') || pt.contains('bank')) {
+      return 'bank';
+    }
+    // bank_transfer / credit_card / debit_card / online / BNPL... => bank
+    // Card networks / BNPL / wallets usually settle later -> clearing
+    return 'clearing';
+  }
+
+  String _safeTypeLabelAr(String safeType) {
+    switch (safeType.trim().toLowerCase()) {
+      case 'cash':
+        return 'نقدي';
+      case 'bank':
+        return 'بنكي';
+      case 'clearing':
+        return 'مستحقات تحصيل';
+      case 'check':
+        return 'شيكات';
+      case 'gold':
+        return 'ذهبي';
+      default:
+        return safeType;
+    }
+  }
+
+  bool _isSafeTypeCompatible(String? paymentType, String safeType) {
+    final pt = (paymentType ?? '').trim().toLowerCase();
+    final st = safeType.trim().toLowerCase();
+    if (st == 'gold') return false;
+    if (pt == 'cash') return st == 'cash';
+    if (pt == 'check') return st == 'check' || st == 'bank';
+    if (pt == 'bank_transfer' || pt.contains('transfer') || pt.contains('bank')) {
+      return st == 'bank';
+    }
+    // Card networks/BNPL: prefer clearing, but allow bank if you want direct posting.
+    return st == 'clearing' || st == 'bank';
+  }
+
   Future<void> _fetchData() async {
     setState(() => _isLoading = true);
     try {
       final methodsRaw = await apiService.getPaymentMethods();
       final types = await apiService.getPaymentTypes();
+      List<SafeBoxModel> safeBoxes = <SafeBoxModel>[];
+      try {
+        safeBoxes = await apiService.getSafeBoxes(
+          isActive: true,
+          includeAccount: false,
+          includeBalance: false,
+        );
+      } catch (_) {
+        safeBoxes = <SafeBoxModel>[];
+      }
       Map<String, dynamic>? invoiceTypesPayload;
       try {
         invoiceTypesPayload = await apiService.getPaymentInvoiceTypeOptions();
@@ -68,6 +123,13 @@ class _PaymentMethodsScreenEnhancedState
 
       const fallbackPaymentTypes = [
         {'code': 'cash', 'name_ar': 'نقدي', 'icon': '💵'},
+        {'code': 'mada', 'name_ar': 'بطاقة مدى', 'icon': '💳'},
+        {'code': 'visa', 'name_ar': 'بطاقة فيزا', 'icon': '💳'},
+        {'code': 'mastercard', 'name_ar': 'بطاقة ماستركارد', 'icon': '💳'},
+        {'code': 'stc_pay', 'name_ar': 'STC Pay', 'icon': '📱'},
+        {'code': 'apple_pay', 'name_ar': 'Apple Pay', 'icon': '📱'},
+        {'code': 'tabby', 'name_ar': 'تابي', 'icon': '🛍️'},
+        {'code': 'tamara', 'name_ar': 'تمارا', 'icon': '🛍️'},
         {'code': 'bank_transfer', 'name_ar': 'تحويل بنكي', 'icon': '🏦'},
       ];
 
@@ -126,6 +188,14 @@ class _PaymentMethodsScreenEnhancedState
         }
       }
 
+      // Ensure dropdown items are unique by code (Dropdown asserts on duplicates).
+      final dedupedTypesByCode = <String, Map<String, dynamic>>{};
+      for (final type in ensuredTypes) {
+        final code = type['code']?.toString();
+        if (code == null || code.trim().isEmpty) continue;
+        dedupedTypesByCode.putIfAbsent(code, () => type);
+      }
+
       final invoiceOptions = (invoiceTypesPayload?['options'] is List)
           ? (invoiceTypesPayload?['options'] as List)
                 .whereType<Map<String, dynamic>>()
@@ -161,9 +231,10 @@ class _PaymentMethodsScreenEnhancedState
 
       setState(() {
         _paymentMethods = paymentMethods;
-        _paymentTypes = ensuredTypes;
+        _paymentTypes = dedupedTypesByCode.values.toList();
         _invoiceTypeOptions = invoiceOptions;
         _invoiceTypeDefaultSelection = defaultInvoiceSelection;
+        _availableSafeBoxes = safeBoxes;
         _isLoading = false;
       });
     } catch (e) {
@@ -222,9 +293,12 @@ class _PaymentMethodsScreenEnhancedState
 
     if (confirm == true) {
       try {
-        await apiService.deletePaymentMethod(id);
+        final result = await apiService.deletePaymentMethod(id);
         _fetchData();
-        _showMessage('✅ تم الحذف بنجاح');
+        final msg = (result['message']?.toString().trim().isNotEmpty ?? false)
+            ? result['message'].toString()
+            : '✅ تم تنفيذ العملية بنجاح';
+        _showMessage('✅ $msg');
       } catch (e) {
         _showMessage('خطأ في الحذف: $e', isError: true);
       }
@@ -729,6 +803,30 @@ class _PaymentMethodsScreenEnhancedState
     bool isActive = editingMethod?['is_active'] ?? true;
     String? invoiceTypesError;
 
+    // Guard: when editing a method with a legacy/unknown type (or before types are loaded),
+    // DropdownButton will assert if initialValue is not present in items.
+    String? paymentTypeWarning;
+    final availableTypeCodes = _paymentTypes
+      .map((t) => t['code']?.toString())
+      .whereType<String>()
+      .where((v) => v.trim().isNotEmpty)
+      .toSet();
+    if (selectedType != null && !availableTypeCodes.contains(selectedType)) {
+      paymentTypeWarning =
+        'تنبيه: نوع وسيلة الدفع الحالية غير موجود ضمن القائمة. الرجاء اختيار نوع صحيح.';
+      selectedType = null;
+    }
+
+    int? selectedDefaultSafeBoxId;
+    try {
+      final raw = editingMethod?['default_safe_box_id'];
+      selectedDefaultSafeBoxId = raw is int
+          ? raw
+          : int.tryParse(raw?.toString() ?? '');
+    } catch (_) {
+      selectedDefaultSafeBoxId = null;
+    }
+
     final allInvoiceTypeValues = _invoiceTypeOptions
         .map((option) => option['value']?.toString() ?? '')
         .where((value) => value.isNotEmpty)
@@ -817,10 +915,42 @@ class _PaymentMethodsScreenEnhancedState
                     onChanged: (value) {
                       setDialogState(() {
                         selectedType = value;
+                        paymentTypeWarning = null;
+
+                        // If the chosen safe box no longer matches the new type, clear it.
+                        if (selectedDefaultSafeBoxId != null) {
+                          SafeBoxModel? sb;
+                          try {
+                            sb = _availableSafeBoxes.firstWhere(
+                              (e) => e.id == selectedDefaultSafeBoxId,
+                            );
+                          } catch (_) {
+                            sb = null;
+                          }
+
+                          if (sb != null && !_isSafeTypeCompatible(selectedType, sb.safeType)) {
+                            selectedDefaultSafeBoxId = null;
+                          }
+                        }
                       });
                     },
                     validator: (value) => value == null ? 'مطلوب' : null,
                   ),
+
+                  if (paymentTypeWarning != null) ...[
+                    const SizedBox(height: 8),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: Text(
+                        paymentTypeWarning!,
+                        style: TextStyle(
+                          color: _warningColor,
+                          fontSize: 12,
+                        ),
+                        textAlign: TextAlign.right,
+                      ),
+                    ),
+                  ],
 
                   SizedBox(height: 16),
 
@@ -875,6 +1005,127 @@ class _PaymentMethodsScreenEnhancedState
                       fillColor: Colors.grey.shade50,
                     ),
                     keyboardType: TextInputType.number,
+                  ),
+
+                  SizedBox(height: 16),
+
+                  // الخزينة الافتراضية (اختياري)
+                  Builder(
+                    builder: (context) {
+                      final suggestedType = _suggestedSafeTypeForPaymentType(
+                        selectedType,
+                      );
+
+                      SafeBoxModel? selectedSb;
+                      if (selectedDefaultSafeBoxId != null) {
+                        try {
+                          selectedSb = _availableSafeBoxes.firstWhere(
+                            (sb) => sb.id == selectedDefaultSafeBoxId,
+                          );
+                        } catch (_) {
+                          selectedSb = null;
+                        }
+                      }
+
+                      final hasBoxes = _availableSafeBoxes.isNotEmpty;
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Align(
+                            alignment: Alignment.centerRight,
+                            child: Text(
+                              'الخزينة الافتراضية (اختياري)',
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                color: Colors.grey.shade700,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          InkWell(
+                            onTap: !hasBoxes
+                                ? null
+                                : () async {
+                                    final picked = await showDialog<SafeBoxModel>(
+                                      context: context,
+                                      builder: (_) => SafeBoxPickerDialog(
+                                        safeBoxes: _availableSafeBoxes,
+                                        selectedSafeBoxId: selectedDefaultSafeBoxId,
+                                        filterSafeType: suggestedType,
+                                        excludeGold: true,
+                                      ),
+                                    );
+                                    if (picked != null) {
+                                      if (!_isSafeTypeCompatible(selectedType, picked.safeType)) {
+                                        _showMessage(
+                                          '⚠️ نوع الخزينة غير مناسب لنوع وسيلة الدفع',
+                                          isError: true,
+                                        );
+                                        return;
+                                      }
+                                      setDialogState(() {
+                                        selectedDefaultSafeBoxId = picked.id;
+                                      });
+                                    }
+                                  },
+                            borderRadius: BorderRadius.circular(12),
+                            child: InputDecorator(
+                              decoration: InputDecoration(
+                                labelText: 'الخزينة',
+                                prefixIcon:
+                                    Icon(Icons.account_balance_wallet, color: _accentColor),
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                filled: true,
+                                fillColor: Colors.grey.shade50,
+                                suffixIcon: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    if (selectedDefaultSafeBoxId != null)
+                                      IconButton(
+                                        tooltip: 'مسح الربط',
+                                        onPressed: () => setDialogState(() {
+                                          selectedDefaultSafeBoxId = null;
+                                        }),
+                                        icon: Icon(Icons.close, color: Colors.grey.shade700),
+                                      ),
+                                    Icon(
+                                      Icons.arrow_drop_down,
+                                      color: hasBoxes
+                                          ? Colors.grey.shade700
+                                          : Colors.grey.shade400,
+                                    ),
+                                    const SizedBox(width: 6),
+                                  ],
+                                ),
+                              ),
+                              child: Text(
+                                selectedSb == null
+                                    ? (hasBoxes
+                                    ? 'اختر خزينة (اقتراح: ${_safeTypeLabelAr(suggestedType)})'
+                                        : 'لا توجد خزائن متاحة')
+                                    : '${selectedSb.name} (${selectedSb.typeNameAr})',
+                                style: TextStyle(
+                                  color: selectedSb == null
+                                      ? Colors.grey.shade700
+                                      : Colors.black87,
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            'إذا لم يتم تحديد خزينة هنا، سيختار النظام الخزينة عند تسجيل الدفعة حسب الفاتورة/الإعدادات.',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.grey.shade600,
+                            ),
+                            textAlign: TextAlign.right,
+                          ),
+                        ],
+                      );
+                    },
                   ),
 
                   SizedBox(height: 16),
@@ -1069,8 +1320,7 @@ class _PaymentMethodsScreenEnhancedState
                       await apiService.createPaymentMethod(
                         paymentType: selectedType!,
                         name: name,
-                        defaultSafeBoxId:
-                            null, // لن يتم تحديد خزينة افتراضية عند الإضافة
+                        defaultSafeBoxId: selectedDefaultSafeBoxId,
                         commissionRate: commissionRate,
                         settlementDays: settlementDays, // 🆕
                         isActive: isActive,
@@ -1083,7 +1333,9 @@ class _PaymentMethodsScreenEnhancedState
                         paymentType: selectedType!,
                         name: name,
                         commissionRate: commissionRate,
+                        settlementDays: settlementDays,
                         isActive: isActive,
+                        defaultSafeBoxId: selectedDefaultSafeBoxId,
                         applicableInvoiceTypes: invoiceTypeList,
                       );
                     }

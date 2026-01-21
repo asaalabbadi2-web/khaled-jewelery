@@ -660,7 +660,12 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
           break;
         default:
           boxes = allBoxes
-              .where((box) => box.safeType == 'cash' || box.safeType == 'bank')
+              .where(
+                (box) =>
+                    box.safeType == 'cash' ||
+                    box.safeType == 'bank' ||
+                    box.safeType == 'clearing',
+              )
               .toList();
       }
 
@@ -673,11 +678,23 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
 
       setState(() {
         _safeBoxes = boxes;
-        final defaultBox = _safeBoxes.firstWhere(
-          (box) => box.isDefault == true,
-          orElse: () => _safeBoxes.first,
-        );
-        _selectedSafeBoxId = defaultBox.id;
+        SafeBoxModel picked;
+        final clearingBoxes = _safeBoxes
+            .where((box) => (box.safeType).toLowerCase() == 'clearing')
+            .toList();
+        if (clearingBoxes.isNotEmpty && paymentType != 'cash') {
+          picked = clearingBoxes.firstWhere(
+            (box) => box.isDefault == true,
+            orElse: () => clearingBoxes.first,
+          );
+        } else {
+          picked = _safeBoxes.firstWhere(
+            (box) => box.isDefault == true,
+            orElse: () => _safeBoxes.first,
+          );
+        }
+
+        _selectedSafeBoxId = picked.id;
       });
     } catch (e) {
       debugPrint('فشل تحميل الخزائن: $e');

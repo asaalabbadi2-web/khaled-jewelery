@@ -416,8 +416,9 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
         }
         // الوضع الافتراضي (نقد/شيكات/بنك)
         return sb.safeType == 'cash' ||
-            sb.safeType == 'bank' ||
-            sb.safeType == 'check';
+          sb.safeType == 'bank' ||
+          sb.safeType == 'clearing' ||
+          sb.safeType == 'check';
       }).toList();
 
       return filteredSafes
@@ -2562,7 +2563,9 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
                     ? acc['safe_model'] as SafeBoxModel
                     : _findSafeByAccountId(_coerceAccountId(acc['id']));
                 if (safe != null &&
-                    (safe.safeType == 'cash' || safe.safeType == 'bank')) {
+                    (safe.safeType == 'cash' ||
+                      safe.safeType == 'bank' ||
+                      safe.safeType == 'clearing')) {
                   _ensureSafeLedgerBalanceLoaded(safe);
                 }
               },
@@ -2574,7 +2577,9 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
                 final safe = _findSafeByAccountId(line.accountId);
                 if (safe == null) return const SizedBox.shrink();
                 if (safe.id == null) return const SizedBox.shrink();
-                if (!(safe.safeType == 'cash' || safe.safeType == 'bank')) {
+                if (!(safe.safeType == 'cash' ||
+                  safe.safeType == 'bank' ||
+                  safe.safeType == 'clearing')) {
                   return const SizedBox.shrink();
                 }
 

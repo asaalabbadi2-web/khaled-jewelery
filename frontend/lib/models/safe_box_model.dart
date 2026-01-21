@@ -121,6 +121,8 @@ class SafeBoxModel {
         return Icons.money;
       case 'bank':
         return Icons.account_balance;
+      case 'clearing':
+        return Icons.swap_horiz;
       case 'gold':
         return Icons.diamond;
       case 'check':
@@ -137,6 +139,8 @@ class SafeBoxModel {
         return 'نقدي';
       case 'bank':
         return 'بنكي';
+      case 'clearing':
+        return 'مستحقات تحصيل';
       case 'gold':
         return 'ذهبي';
       case 'check':
@@ -153,6 +157,8 @@ class SafeBoxModel {
         return 'Cash';
       case 'bank':
         return 'Bank';
+      case 'clearing':
+        return 'Clearing';
       case 'gold':
         return 'Gold';
       case 'check':
@@ -169,6 +175,8 @@ class SafeBoxModel {
         return Colors.green;
       case 'bank':
         return Colors.blue;
+      case 'clearing':
+        return Colors.teal;
       case 'gold':
         return Colors.amber;
       case 'check':

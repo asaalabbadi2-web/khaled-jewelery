@@ -2763,14 +2763,19 @@ class ApiService {
     required String paymentType,
     required String name,
     required double commissionRate,
+    int settlementDays = 0,
     required bool isActive,
+    int? defaultSafeBoxId,
     List<String>? applicableInvoiceTypes,
   }) async {
     final payload = <String, dynamic>{
       'payment_type': paymentType,
       'name': name,
       'commission_rate': commissionRate,
+      'settlement_days': settlementDays,
       'is_active': isActive,
+      // Always include to allow clearing (null) explicitly.
+      'default_safe_box_id': defaultSafeBoxId,
     };
 
     if (applicableInvoiceTypes != null && applicableInvoiceTypes.isNotEmpty) {
@@ -2790,13 +2795,27 @@ class ApiService {
   }
 
   /// حذف وسيلة دفع
-  Future<void> deletePaymentMethod(int id) async {
-    final response = await http.delete(
+  Future<Map<String, dynamic>> deletePaymentMethod(int id) async {
+    final response = await _authedDelete(
       Uri.parse('$_baseUrl/payment-methods/$id'),
+      headers: {'Content-Type': 'application/json; charset=UTF-8'},
     );
-    if (response.statusCode != 200) {
-      throw Exception('Failed to delete payment method');
+    if (response.statusCode == 200 || response.statusCode == 204) {
+      if (response.bodyBytes.isEmpty) return <String, dynamic>{};
+      final decoded = utf8.decode(response.bodyBytes);
+      if (decoded.trim().isEmpty) return <String, dynamic>{};
+      final parsed = json.decode(decoded);
+      if (parsed is Map<String, dynamic>) return parsed;
+      return <String, dynamic>{};
     }
+
+    String details = response.body;
+    try {
+      details = utf8.decode(response.bodyBytes);
+    } catch (_) {
+      // ignore
+    }
+    throw Exception('Failed to delete payment method: $details');
   }
 
   /// حفظ ترتيب طرق الدفع
@@ -3844,6 +3863,49 @@ class ApiService {
     throw Exception(bodyStr);
   }
 
+  /// إنشاء تسوية مستحقات تحصيل (Clearing → Bank) مع إثبات العمولة عند التسوية.
+  /// Endpoint: POST /clearing/settlements
+  Future<Map<String, dynamic>> createClearingSettlement({
+    required int clearingSafeBoxId,
+    required int bankSafeBoxId,
+    required double grossAmount,
+    double feeAmount = 0.0,
+    int? feeAccountId,
+    DateTime? settlementDate,
+    String? referenceNumber,
+    String? notes,
+    String? description,
+    String? createdBy,
+  }) async {
+    final payload = <String, dynamic>{
+      'clearing_safe_box_id': clearingSafeBoxId,
+      'bank_safe_box_id': bankSafeBoxId,
+      'gross_amount': grossAmount,
+      'fee_amount': feeAmount,
+      if (feeAccountId != null) 'fee_account_id': feeAccountId,
+      if (settlementDate != null) 'settlement_date': settlementDate.toIso8601String(),
+      if (referenceNumber != null) 'reference_number': referenceNumber,
+      if (notes != null) 'notes': notes,
+      if (description != null) 'description': description,
+      if (createdBy != null) 'created_by': createdBy,
+    };
+
+    final response = await _authedPost(
+      Uri.parse('$_baseUrl/clearing/settlements'),
+      headers: {'Content-Type': 'application/json; charset=UTF-8'},
+      body: json.encode(payload),
+    );
+
+    final bodyStr = utf8.decode(response.bodyBytes);
+    if (response.statusCode == 201 || response.statusCode == 200) {
+      final decoded = json.decode(bodyStr);
+      if (decoded is Map<String, dynamic>) return decoded;
+      return <String, dynamic>{'raw': decoded};
+    }
+
+    throw Exception(bodyStr);
+  }
+
   /// الحصول على خزينة محددة
   Future<SafeBoxModel> getSafeBox(int id, {bool includeBalance = true}) async {
     final queryParams = <String, String>{};
@@ -4003,7 +4065,7 @@ class ApiService {
     throw Exception(bodyStr);
   }
 
-  /// الحصول على خزائن الدفع النشطة (نقدي + بنكي)
+  /// الحصول على خزائن الدفع النشطة (نقدي + بنكي + مستحقات تحصيل)
   Future<List<SafeBoxModel>> getPaymentSafeBoxes() async {
     final safeBoxes = await getSafeBoxes(
       isActive: true,
@@ -4011,9 +4073,14 @@ class ApiService {
       includeBalance: true,
     );
 
-    // فلترة الخزائن النقدية والبنكية فقط
+    // فلترة خزائن الدفع فقط (لا تشمل الذهب)
     return safeBoxes
-        .where((sb) => sb.safeType == 'cash' || sb.safeType == 'bank')
+      .where(
+        (sb) =>
+          sb.safeType == 'cash' ||
+          sb.safeType == 'bank' ||
+          sb.safeType == 'clearing',
+      )
         .toList();
   }
 

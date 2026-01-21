@@ -2885,7 +2885,7 @@ class SafeBox(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=False)  # اسم الخزينة (صندوق النقدية الرئيسي، بنك الرياض، صندوق الكسر عيار 24)
     name_en = db.Column(db.String(100), nullable=True)  # الاسم بالإنجليزية
-    safe_type = db.Column(db.String(20), nullable=False)  # نوع الخزينة: cash, bank, gold, check
+    safe_type = db.Column(db.String(20), nullable=False)  # نوع الخزينة: cash, bank, gold, check, clearing
     account_id = db.Column(db.Integer, db.ForeignKey('account.id'), nullable=False)  # الحساب المرتبط
     
     # معلومات إضافية للخزائن الذهبية

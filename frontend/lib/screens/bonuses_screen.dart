@@ -272,7 +272,12 @@ class _BonusesScreenState extends State<BonusesScreen> {
         includeAccount: false,
       );
       safeBoxes = all
-          .where((sb) => sb.safeType == 'cash' || sb.safeType == 'bank')
+          .where(
+            (sb) =>
+                sb.safeType == 'cash' ||
+                sb.safeType == 'bank' ||
+                sb.safeType == 'clearing',
+          )
           .toList();
     } catch (e) {
       _showSnack(

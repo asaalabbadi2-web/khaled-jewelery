@@ -11,6 +11,7 @@ import 'dart:math' as math;
 import 'dart:ui' as ui;
 import 'package:share_plus/share_plus.dart';
 import '../api_service.dart';
+import 'clearing_settlement_screen.dart';
 import 'voucher_details_screen.dart';
 import 'add_voucher_screen.dart';
 import '../theme/app_theme.dart' as theme;
@@ -1369,6 +1370,21 @@ class _VouchersListScreenState extends State<VouchersListScreen>
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
+        _buildExtendedFab(
+          heroTag: 'clearing_settlement',
+          label: 'تسوية تحصيل',
+          icon: Icons.swap_horiz,
+          backgroundColor: theme.AppColors.warning,
+          onPressed: () async {
+            final changed = await Navigator.of(context).push<bool>(
+              MaterialPageRoute(builder: (_) => const ClearingSettlementScreen()),
+            );
+            if (changed == true) {
+              _refresh();
+            }
+          },
+        ),
+        const SizedBox(height: 10),
         _buildExtendedFab(
           heroTag: 'receipt',
           label: 'سند قبض',

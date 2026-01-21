@@ -361,7 +361,12 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                 )
                 .toList();
           } else if (isBankLike) {
-            boxes = allBoxes.where((box) => box.safeType == 'bank').toList();
+            // Cards/BNPL/wallets commonly settle later => allow clearing + bank.
+            boxes = allBoxes
+                .where(
+                  (box) => box.safeType == 'bank' || box.safeType == 'clearing',
+                )
+                .toList();
           } else {
             boxes = allBoxes
                 .where(
@@ -379,20 +384,55 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
         if (_safeBoxes.isNotEmpty) {
           SafeBoxModel? picked;
 
+          // If employee cash safes are enabled, default cash payments to the
+          // logged-in employee cash safe (when available).
+          if (isCash) {
+            try {
+              final employeeCashSafesEnabled =
+                  _settingsProvider.settings['employee_cash_safes_enabled'] ==
+                      true;
+              if (employeeCashSafesEnabled) {
+                final authProvider =
+                    Provider.of<AuthProvider>(context, listen: false);
+                final employeeCashSafeId =
+                    authProvider.currentUser?.employee?.cashSafeBoxId;
+                if (employeeCashSafeId != null) {
+                  picked = _safeBoxes.firstWhere(
+                    (box) => box.id == employeeCashSafeId,
+                    orElse: () => _safeBoxes.first,
+                  );
+                }
+              }
+            } catch (_) {
+              // ignore and fall back to the standard selection logic
+            }
+          }
+
           final defId = defaultSafeBoxId is int
               ? defaultSafeBoxId
               : int.tryParse(defaultSafeBoxId?.toString() ?? '');
 
-          if (defId != null) {
+          if (picked == null && defId != null) {
             picked = _safeBoxes.firstWhere(
               (box) => box.id == defId,
               orElse: () => _safeBoxes.first,
             );
-          } else {
+          } else if (picked == null) {
+            // Prefer clearing safes when available for non-cash methods.
+            final clearingBoxes = _safeBoxes
+                .where((box) => (box.safeType).toLowerCase() == 'clearing')
+                .toList();
+            if (clearingBoxes.isNotEmpty) {
+              picked = clearingBoxes.firstWhere(
+                (box) => box.isDefault == true,
+                orElse: () => clearingBoxes.first,
+              );
+            } else {
             picked = _safeBoxes.firstWhere(
               (box) => box.isDefault == true,
               orElse: () => _safeBoxes.first,
             );
+            }
           }
 
           _selectedSafeBoxId = picked.id;

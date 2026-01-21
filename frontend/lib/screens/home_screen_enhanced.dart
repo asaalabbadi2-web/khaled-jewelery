@@ -43,6 +43,7 @@ import 'attendance_screen.dart';
 import 'payroll_report_screen.dart';
 import 'bonus_management_screen.dart';
 import 'safe_boxes_screen.dart';
+import 'payment_methods_screen_enhanced.dart';
 import 'melting_renewal_screen.dart';
 import 'gold_reservation_screen.dart';
 import 'offices_screen.dart';
@@ -53,6 +54,9 @@ import 'reports/gold_price_history_report_screen.dart';
 import 'reports/reports_main_screen.dart';
 import 'reports/admin_dashboard_screen.dart';
 import 'printing_center_screen.dart';
+import 'security_sessions_screen.dart';
+import 'change_password_screen.dart';
+import 'user_profile_screen.dart';
 
 class HomeScreenEnhanced extends StatefulWidget {
   final VoidCallback? onToggleLocale;
@@ -466,7 +470,9 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced> {
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        isAr ? 'الدور: ${auth.role}' : 'Role: ${auth.role}',
+                        isAr
+                            ? 'الدور: ${auth.roleDisplayName}'
+                            : 'Role: ${auth.role}',
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
@@ -476,6 +482,59 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced> {
                             alpha: 0.75,
                           ),
                         ),
+                      ),
+                      const SizedBox(height: 10),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 6,
+                        children: [
+                          ActionChip(
+                            avatar: const Icon(Icons.person_outline, size: 16),
+                            label: Text(isAr ? 'ملفي' : 'Profile'),
+                            onPressed: () async {
+                              final userId = auth.currentUser?.id;
+                              Navigator.of(context).pop();
+                              if (userId == null) return;
+                              await Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => UserProfileScreen(
+                                    api: api,
+                                    userId: userId,
+                                    isArabic: isAr,
+                                  ),
+                                ),
+                              );
+                              await _loadAllData();
+                            },
+                          ),
+                          ActionChip(
+                            avatar: const Icon(Icons.lock_outline, size: 16),
+                            label: Text(isAr ? 'كلمة المرور' : 'Password'),
+                            onPressed: () async {
+                              Navigator.of(context).pop();
+                              await Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => const ChangePasswordScreen(),
+                                ),
+                              );
+                            },
+                          ),
+                          ActionChip(
+                            avatar: const Icon(Icons.security, size: 16),
+                            label: Text(isAr ? 'الجلسات' : 'Sessions'),
+                            onPressed: () async {
+                              Navigator.of(context).pop();
+                              await Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => const SecuritySessionsScreen(),
+                                ),
+                              );
+                            },
+                          ),
+                        ],
                       ),
                     ],
                   ),
@@ -1038,6 +1097,18 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced> {
       },
     );
     addDestination(
+      icon: Icons.credit_card,
+      title: isAr ? 'إعداد وسائل الدفع' : 'Payment Methods',
+      color: Colors.amber.shade600,
+      onSelected: () async {
+        await Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => const PaymentMethodsScreenEnhanced()),
+        );
+        await _loadAllData();
+      },
+    );
+    addDestination(
       icon: Icons.account_tree,
       title: isAr ? 'إدارة المكاتب والفروع' : 'Branches Management',
       color: Colors.amber.shade600,
@@ -1273,9 +1344,11 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced> {
             ),
             Consumer<AuthProvider>(
               builder: (context, auth, _) {
-                final displayName = auth.username.isEmpty
-                    ? (isAr ? 'حساب المستخدم' : 'Account')
-                    : auth.username;
+                final displayName = auth.fullName.isEmpty
+                    ? (auth.username.isEmpty
+                          ? (isAr ? 'حساب المستخدم' : 'Account')
+                          : auth.username)
+                    : auth.fullName;
                 return PopupMenuButton<String>(
                   tooltip: displayName,
                   offset: const Offset(0, 48),
@@ -1328,12 +1401,56 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced> {
                           ),
                           const SizedBox(height: 4),
                           Text(
-                            isAr ? 'الدور: ${auth.role}' : 'Role: ${auth.role}',
+                            isAr
+                                ? 'الدور: ${auth.roleDisplayName}'
+                                : 'Role: ${auth.role}',
                             style: Theme.of(context).textTheme.bodySmall,
                           ),
                         ],
                       ),
                     ),
+                    const PopupMenuDivider(),
+                    PopupMenuItem<String>(
+                      value: 'profile',
+                      child: Row(
+                        children: [
+                          const Icon(Icons.person_outline, size: 18),
+                          const SizedBox(width: 8),
+                          Text(isAr ? 'ملف المستخدم' : 'User Profile'),
+                        ],
+                      ),
+                    ),
+                    PopupMenuItem<String>(
+                      value: 'password',
+                      child: Row(
+                        children: [
+                          const Icon(Icons.lock_outline, size: 18),
+                          const SizedBox(width: 8),
+                          Text(isAr ? 'تغيير كلمة المرور' : 'Change Password'),
+                        ],
+                      ),
+                    ),
+                    PopupMenuItem<String>(
+                      value: 'sessions',
+                      child: Row(
+                        children: [
+                          const Icon(Icons.security, size: 18),
+                          const SizedBox(width: 8),
+                          Text(isAr ? 'إدارة الجلسات' : 'Sessions'),
+                        ],
+                      ),
+                    ),
+                    if (auth.isSystemAdmin || auth.isManager)
+                      PopupMenuItem<String>(
+                        value: 'users',
+                        child: Row(
+                          children: [
+                            const Icon(Icons.group, size: 18),
+                            const SizedBox(width: 8),
+                            Text(isAr ? 'إدارة المستخدمين' : 'Users'),
+                          ],
+                        ),
+                      ),
                     const PopupMenuDivider(),
                     PopupMenuItem<String>(
                       value: 'logout',
@@ -1349,6 +1466,65 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced> {
                   onSelected: (value) async {
                     if (value == 'logout') {
                       await auth.logout();
+                      return;
+                    }
+
+                    if (value == 'password') {
+                      await Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => const ChangePasswordScreen(),
+                        ),
+                      );
+                      return;
+                    }
+
+                    if (value == 'sessions') {
+                      await Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => const SecuritySessionsScreen(),
+                        ),
+                      );
+                      return;
+                    }
+
+                    if (value == 'users') {
+                      await Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => UsersScreen(api: api, isArabic: isAr),
+                        ),
+                      );
+                      return;
+                    }
+
+                    if (value == 'profile') {
+                      final userId = auth.currentUser?.id;
+                      if (userId == null) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text(
+                              isAr
+                                  ? 'لا يمكن فتح الملف: رقم المستخدم غير متوفر'
+                                  : 'Cannot open profile: missing user id',
+                            ),
+                            backgroundColor: AppColors.warning,
+                          ),
+                        );
+                        return;
+                      }
+                      await Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => UserProfileScreen(
+                            api: api,
+                            userId: userId,
+                            isArabic: isAr,
+                          ),
+                        ),
+                      );
+                      return;
                     }
                   },
                 );

@@ -12,6 +12,7 @@ from models import (
     Account,
     PaymentMethod,
     PaymentType,
+    InvoicePayment,
     PAYMENT_METHOD_ALLOWED_INVOICE_TYPES,
     SafeBox,
     Settings,
@@ -178,6 +179,145 @@ LEGACY_FALLBACK_PAYMENT_METHODS: List[Dict[str, Any]] = [
 payment_methods_api = Blueprint('payment_methods_api', __name__)
 
 
+DEFAULT_PAYMENT_TYPE_DEFINITIONS: List[Dict[str, Any]] = [
+    {
+        'code': 'cash',
+        'name_ar': 'نقداً',
+        'name_en': 'Cash',
+        'icon': '💵',
+        'category': 'cash',
+        'sort_order': 1,
+    },
+    {
+        'code': 'mada',
+        'name_ar': 'بطاقة مدى',
+        'name_en': 'Mada',
+        'icon': '💳',
+        'category': 'card',
+        'sort_order': 2,
+    },
+    {
+        'code': 'visa',
+        'name_ar': 'بطاقة فيزا',
+        'name_en': 'Visa',
+        'icon': '💳',
+        'category': 'card',
+        'sort_order': 3,
+    },
+    {
+        'code': 'mastercard',
+        'name_ar': 'بطاقة ماستركارد',
+        'name_en': 'Mastercard',
+        'icon': '💳',
+        'category': 'card',
+        'sort_order': 4,
+    },
+    {
+        'code': 'stc_pay',
+        'name_ar': 'STC Pay',
+        'name_en': 'STC Pay',
+        'icon': '📱',
+        'category': 'digital_wallet',
+        'sort_order': 5,
+    },
+    {
+        'code': 'apple_pay',
+        'name_ar': 'Apple Pay',
+        'name_en': 'Apple Pay',
+        'icon': '📱',
+        'category': 'digital_wallet',
+        'sort_order': 6,
+    },
+    {
+        'code': 'tabby',
+        'name_ar': 'تابي',
+        'name_en': 'Tabby',
+        'icon': '🛍️',
+        'category': 'bnpl',
+        'sort_order': 7,
+    },
+    {
+        'code': 'tamara',
+        'name_ar': 'تمارا',
+        'name_en': 'Tamara',
+        'icon': '🛍️',
+        'category': 'bnpl',
+        'sort_order': 8,
+    },
+    {
+        'code': 'bank_transfer',
+        'name_ar': 'تحويل بنكي',
+        'name_en': 'Bank Transfer',
+        'icon': '🏦',
+        'category': 'bank_transfer',
+        'sort_order': 9,
+    },
+]
+
+
+def ensure_default_payment_types() -> None:
+    """Ensure a usable set of payment types exists.
+
+    This keeps the app functional even if the database was created without
+    running the optional seeding scripts.
+    """
+
+    try:
+        existing = {
+            pt.code: pt
+            for pt in PaymentType.query.all()
+            if getattr(pt, 'code', None)
+        }
+    except Exception:
+        return
+
+    changed = False
+
+    for definition in DEFAULT_PAYMENT_TYPE_DEFINITIONS:
+        code = str(definition.get('code') or '').strip()
+        if not code:
+            continue
+
+        record = existing.get(code)
+        if record is None:
+            record = PaymentType(
+                code=code,
+                name_ar=str(definition.get('name_ar') or code),
+                name_en=definition.get('name_en'),
+                icon=definition.get('icon'),
+                category=definition.get('category'),
+                is_active=True,
+                sort_order=int(definition.get('sort_order') or 0),
+            )
+            db.session.add(record)
+            existing[code] = record
+            changed = True
+            continue
+
+        # Preserve any existing customization; only fill missing fields.
+        if not getattr(record, 'name_ar', None):
+            record.name_ar = str(definition.get('name_ar') or code)
+            changed = True
+        if getattr(record, 'name_en', None) in (None, '') and definition.get('name_en'):
+            record.name_en = definition.get('name_en')
+            changed = True
+        if getattr(record, 'icon', None) in (None, '') and definition.get('icon'):
+            record.icon = definition.get('icon')
+            changed = True
+        if getattr(record, 'category', None) in (None, '') and definition.get('category'):
+            record.category = definition.get('category')
+            changed = True
+        if getattr(record, 'sort_order', None) in (None, 0) and definition.get('sort_order'):
+            record.sort_order = int(definition.get('sort_order') or 0)
+            changed = True
+
+    if changed:
+        try:
+            db.session.commit()
+        except Exception:
+            db.session.rollback()
+
+
 def _infer_payment_type_from_name(name: str) -> str:
     normalized = (name or '').lower()
     if any(keyword in normalized for keyword in ['cash', 'نقد']):
@@ -209,16 +349,21 @@ def _load_legacy_payment_methods() -> List[Dict[str, Any]]:
     settings_record = Settings.query.first()
     legacy_methods: List[Dict[str, Any]] = []
 
-    if settings_record and settings_record.payment_methods:
+    # If settings explicitly provide a JSON list (even an empty one), honor it.
+    # This allows admin tooling (like WIPE-ALL) to intentionally disable legacy auto-seeding
+    # by setting Settings.payment_methods to "[]".
+    if settings_record and settings_record.payment_methods is not None:
+        raw_value = settings_record.payment_methods
+        if not raw_value or not str(raw_value).strip():
+            return []
         try:
-            decoded = json.loads(settings_record.payment_methods)
+            decoded = json.loads(raw_value)
             if isinstance(decoded, list):
-                legacy_methods = [
-                    method for method in decoded if isinstance(method, dict)
-                ]
+                return [method for method in decoded if isinstance(method, dict)]
         except (ValueError, TypeError):
             legacy_methods = []
 
+    # Backward-compatible fallback: if settings are missing/invalid, seed from defaults.
     if not legacy_methods:
         legacy_methods = LEGACY_FALLBACK_PAYMENT_METHODS.copy()
 
@@ -400,6 +545,14 @@ def create_payment_method():
             safe_box = SafeBox.query.get(default_safe_box_id)
             if not safe_box:
                 return jsonify({'error': 'الخزينة غير موجودة'}), 404
+
+            # منع ربط وسيلة دفع بخزينة ذهب
+            try:
+                if (safe_box.safe_type or '').strip().lower() == 'gold':
+                    return jsonify({'error': 'لا يمكن ربط وسيلة دفع بخزينة ذهب'}), 400
+            except Exception:
+                pass
+
             # استخدام حساب الخزينة (اختياري)
             account_id_to_use = safe_box.account_id
         
@@ -457,37 +610,82 @@ def update_payment_method(id):
         
         data = request.get_json()
         
-        # تحديث البيانات
-        if 'payment_type' in data:
-            new_payment_type = data['payment_type']
+        # Normalize proposed values (for cross-field validation)
+        proposed_payment_type = data.get('payment_type', payment_method.payment_type)
+        proposed_default_safe_box_id = data.get(
+            'default_safe_box_id',
+            getattr(payment_method, 'default_safe_box_id', None),
+        )
 
-            parent_account_id = None
-            if payment_method.default_safe_box and payment_method.default_safe_box.account:
-                parent_account_id = payment_method.default_safe_box.account.parent_id
+        # Allow explicit null to clear the default safe box
+        if 'default_safe_box_id' in data and data.get('default_safe_box_id') in (None, '', 0, '0', False):
+            proposed_default_safe_box_id = None
 
-            if parent_account_id:
-                duplicate_for_update = (
-                    PaymentMethod.query
-                    .join(SafeBox, PaymentMethod.default_safe_box_id == SafeBox.id)
-                    .join(Account, SafeBox.account_id == Account.id)
-                    .filter(
-                        PaymentMethod.payment_type == new_payment_type,
-                        Account.parent_id == parent_account_id,
-                        PaymentMethod.id != payment_method.id
-                    )
-                    .first()
+        # Validate proposed safe box if provided
+        proposed_parent_account_id = None
+        if proposed_default_safe_box_id not in (None, '', 0, '0', False):
+            try:
+                proposed_default_safe_box_id = int(proposed_default_safe_box_id)
+            except Exception:
+                return jsonify({'error': 'معرف الخزينة غير صالح'}), 400
+
+            sb = SafeBox.query.get(proposed_default_safe_box_id)
+            if not sb:
+                return jsonify({'error': 'الخزينة غير موجودة'}), 404
+
+            try:
+                if (sb.safe_type or '').strip().lower() == 'gold':
+                    return jsonify({'error': 'لا يمكن ربط وسيلة دفع بخزينة ذهب'}), 400
+            except Exception:
+                pass
+
+            try:
+                acc = getattr(sb, 'account', None)
+                if not acc and getattr(sb, 'account_id', None):
+                    acc = Account.query.get(int(sb.account_id))
+                proposed_parent_account_id = getattr(acc, 'parent_id', None) if acc else None
+            except Exception:
+                proposed_parent_account_id = None
+        else:
+            try:
+                if payment_method.default_safe_box and payment_method.default_safe_box.account:
+                    proposed_parent_account_id = payment_method.default_safe_box.account.parent_id
+            except Exception:
+                proposed_parent_account_id = None
+
+        # Prevent duplicates: same payment_type under same parent account (when parent is known)
+        if proposed_parent_account_id:
+            duplicate_for_update = (
+                PaymentMethod.query
+                .join(SafeBox, PaymentMethod.default_safe_box_id == SafeBox.id)
+                .join(Account, SafeBox.account_id == Account.id)
+                .filter(
+                    PaymentMethod.payment_type == proposed_payment_type,
+                    Account.parent_id == proposed_parent_account_id,
+                    PaymentMethod.id != payment_method.id
                 )
+                .first()
+            )
 
-                if duplicate_for_update:
-                    return jsonify({'error': 'هذا النوع من وسائل الدفع مرتبط بالفعل بنفس الحساب الأب'}), 400
+            if duplicate_for_update:
+                return jsonify({'error': 'هذا النوع من وسائل الدفع مرتبط بالفعل بنفس الحساب الأب'}), 400
 
-            payment_method.payment_type = new_payment_type
+        # Apply updates
+        if 'payment_type' in data:
+            payment_method.payment_type = proposed_payment_type
         if 'name' in data:
             payment_method.name = data['name']
         if 'commission_rate' in data:
             payment_method.commission_rate = data['commission_rate']
+        if 'settlement_days' in data:
+            try:
+                payment_method.settlement_days = int(data.get('settlement_days') or 0)
+            except Exception:
+                payment_method.settlement_days = 0
         if 'is_active' in data:
             payment_method.is_active = data['is_active']
+        if 'default_safe_box_id' in data:
+            payment_method.default_safe_box_id = proposed_default_safe_box_id
         if 'applicable_invoice_types' in data:
             try:
                 payment_method.applicable_invoice_types = _normalize_applicable_invoice_types(
@@ -516,13 +714,47 @@ def delete_payment_method(id):
         if not payment_method:
             return jsonify({'error': 'وسيلة الدفع غير موجودة'}), 404
         
-        # لا نحذف الخزينة لأنها قد تكون مستخدمة بوسائل دفع أخرى
-        # فقط نحذف وسيلة الدفع نفسها
-        db.session.delete(payment_method)
+        # NOTE:
+        # - Payment methods are referenced by invoice payments and other records.
+        # - Also, legacy sync from Settings can re-create deleted rows.
+        # So we treat DELETE as a safe "archive" (soft delete) by deactivating.
+        used_count = 0
+        try:
+            used_count = InvoicePayment.query.filter_by(
+                payment_method_id=payment_method.id
+            ).count()
+        except Exception:
+            used_count = 0
+
+        # Always prefer soft delete to avoid FK errors + preserve history.
+        payment_method.is_active = False
         db.session.commit()
+
+        return jsonify({
+            'message': 'تم تعطيل وسيلة الدفع بنجاح' if used_count else 'تم حذف/تعطيل وسيلة الدفع بنجاح',
+            'deleted': False,
+            'deactivated': True,
+            'used_in_invoices': used_count,
+            'payment_method': payment_method.to_dict(),
+        }), 200
         
-        return jsonify({'message': 'تم حذف وسيلة الدفع بنجاح'}), 200
-        
+    except IntegrityError:
+        # Fallback: if any FK constraint triggers, rollback and deactivate.
+        db.session.rollback()
+        try:
+            payment_method = PaymentMethod.query.get(id)
+            if payment_method:
+                payment_method.is_active = False
+                db.session.commit()
+                return jsonify({
+                    'message': 'تعذر الحذف بسبب ارتباطات سابقة؛ تم تعطيل وسيلة الدفع بدلاً من ذلك',
+                    'deleted': False,
+                    'deactivated': True,
+                    'payment_method': payment_method.to_dict(),
+                }), 200
+        except Exception:
+            db.session.rollback()
+        return jsonify({'error': 'delete_failed_due_to_references'}), 409
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': str(e)}), 500
@@ -606,6 +838,10 @@ def get_payment_types():
     """جلب أنواع وسائل الدفع المتاحة (ديناميكي)"""
     try:
         payment_types = PaymentType.query.filter_by(is_active=True).order_by(PaymentType.sort_order).all()
+
+        if not payment_types:
+            ensure_default_payment_types()
+            payment_types = PaymentType.query.filter_by(is_active=True).order_by(PaymentType.sort_order).all()
         return jsonify([pt.to_dict() for pt in payment_types]), 200
     except Exception as e:
         return jsonify({'error': str(e)}), 500

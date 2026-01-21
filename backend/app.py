@@ -38,7 +38,7 @@ except ImportError as exc:
 _log_startup_imports = os.getenv('LOG_STARTUP_IMPORTS', '0') in ('1', 'true', 'True')
 if _log_startup_imports:
 	print("DEBUG: Imported api blueprint from routes")
-from payment_methods_routes import payment_methods_api  # 🆕 استيراد payment methods routes
+from payment_methods_routes import payment_methods_api, ensure_default_payment_types  # 🆕 استيراد payment methods routes
 if _log_startup_imports:
 	print("DEBUG: Imported payment_methods_api blueprint")
 # استيراد recurring_journal_routes ليتم تسجيل routes على نفس api blueprint
@@ -290,6 +290,10 @@ try:
 	create_tables()
 	with app.app_context():
 		ensure_weight_closing_support_accounts()
+		try:
+			ensure_default_payment_types()
+		except Exception as exc:
+			print(f"[WARNING] Default payment types bootstrap failed: {exc}")
 except Exception as exc:
 	print(f"[WARNING] Startup DB bootstrap failed: {exc}")
 

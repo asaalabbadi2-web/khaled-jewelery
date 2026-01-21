@@ -185,12 +185,14 @@ class EmployeeSummary {
   final String name;
   final String employeeCode;
   final int? goldSafeBoxId;
+  final int? cashSafeBoxId;
 
   const EmployeeSummary({
     required this.id,
     required this.name,
     required this.employeeCode,
     this.goldSafeBoxId,
+    this.cashSafeBoxId,
   });
 
   factory EmployeeSummary.fromJson(Map<String, dynamic> json) {
@@ -199,6 +201,7 @@ class EmployeeSummary {
       name: json['name'] as String? ?? '',
       employeeCode: json['employee_code'] as String? ?? '',
       goldSafeBoxId: json['gold_safe_box_id'] as int?,
+      cashSafeBoxId: json['cash_safe_box_id'] as int?,
     );
   }
 
@@ -208,6 +211,7 @@ class EmployeeSummary {
       'name': name,
       'employee_code': employeeCode,
       'gold_safe_box_id': goldSafeBoxId,
+      'cash_safe_box_id': cashSafeBoxId,
     };
   }
 }

@@ -2234,13 +2234,37 @@ def _reset_full_system_wipe():
     """
     try:
         from models import AppUser
+        from models import Category, Item, PaymentType
 
         # Level 1 + 2
         _reset_factory_data()
 
-        # Inventory: keep Item master data by default, but clear costing snapshots if any remained.
+        # Inventory costing snapshots/config (may remain depending on feature flags)
         try:
             InventoryCostingConfig.query.delete()
+        except Exception:
+            pass
+
+        # Master data wipe (requested by WIPE-ALL)
+        # Payment methods must be cleared before SafeBox deletion because of ondelete=RESTRICT.
+        try:
+            PaymentMethod.query.delete()
+        except Exception:
+            pass
+
+        try:
+            PaymentType.query.delete()
+        except Exception:
+            pass
+
+        # Items/Categories (keep order: items first, then categories)
+        try:
+            Item.query.delete()
+        except Exception:
+            pass
+
+        try:
+            Category.query.delete()
         except Exception:
             pass
 
@@ -2264,6 +2288,15 @@ def _reset_full_system_wipe():
         except Exception:
             pass
 
+        # Disable legacy payment-method auto-seeding after WIPE-ALL.
+        # (payment_methods_routes.py treats explicit [] as "do not seed")
+        try:
+            db.session.query(Settings).update({
+                Settings.payment_methods: '[]',
+            }, synchronize_session=False)
+        except Exception:
+            pass
+
         # AppUser may point to Employee (FK default RESTRICT). Detach before deleting employees.
         try:
             db.session.query(AppUser).update({
@@ -2272,6 +2305,7 @@ def _reset_full_system_wipe():
         except Exception:
             pass
 
+        # In case any payment methods remain (or if delete was blocked for some reason), detach safe box refs.
         try:
             db.session.query(PaymentMethod).update({
                 PaymentMethod.default_safe_box_id: None,
@@ -17028,7 +17062,7 @@ def get_mapped_account():
 @require_permission('safe_boxes.view')
 def list_safe_boxes():
     """الحصول على جميع الخزائن أو حسب النوع"""
-    safe_type = request.args.get('safe_type')  # cash, bank, gold, check
+    safe_type = request.args.get('safe_type')  # cash, bank, gold, check, clearing
     is_active = request.args.get('is_active')
     karat = request.args.get('karat', type=int)
     
@@ -17664,6 +17698,209 @@ def create_safe_box_transfer_voucher():
 # =========================================================================
 
 
+# =========================================================================
+# Clearing Settlement (Clearing → Bank)
+# =========================================================================
+
+
+@api.route('/clearing/settlements', methods=['POST'])
+@require_permission('vouchers.create')
+def create_clearing_settlement():
+    """Create a clearing settlement voucher and update balances.
+
+    Best practice flow:
+    - Credit: Clearing receivable (gross)
+    - Debit: Bank (net)
+    - Debit: Commission expense (fee)
+
+    Body:
+      - clearing_safe_box_id: int (required) (alias: from_safe_box_id)
+      - bank_safe_box_id: int (required) (alias: to_safe_box_id)
+      - gross_amount: float (required) (alias: amount)
+      - fee_amount: float (optional, default 0) (alias: fee)
+      - settlement_date: ISO datetime/date (optional)
+      - reference_number: str (optional)
+      - created_by: str (optional)
+      - fee_account_id: int (required if fee_amount > 0)
+      - description: str (optional)
+    """
+    data = request.get_json(silent=True) or {}
+
+    clearing_safe_box_id = data.get('clearing_safe_box_id') or data.get('from_safe_box_id')
+    bank_safe_box_id = data.get('bank_safe_box_id') or data.get('to_safe_box_id')
+    created_by = data.get('created_by', 'system')
+    reference_number = data.get('reference_number')
+    description_override = (data.get('description') or '').strip() or None
+
+    try:
+        gross_amount = float(data.get('gross_amount') or data.get('amount') or 0.0)
+        fee_amount = float(data.get('fee_amount') or data.get('fee') or 0.0)
+    except (TypeError, ValueError):
+        return jsonify({'error': 'invalid gross_amount/fee_amount'}), 400
+
+    if not clearing_safe_box_id or not bank_safe_box_id:
+        return jsonify({'error': 'clearing_safe_box_id and bank_safe_box_id are required'}), 400
+
+    if gross_amount <= 0:
+        return jsonify({'error': 'gross_amount must be > 0'}), 400
+
+    if fee_amount < 0:
+        return jsonify({'error': 'fee_amount must be >= 0'}), 400
+
+    net_amount = round(gross_amount - fee_amount, 2)
+    if net_amount < 0:
+        return jsonify({'error': 'fee_amount cannot exceed gross_amount'}), 400
+
+    # Parse settlement date
+    settlement_date_raw = data.get('settlement_date') or data.get('date')
+    settlement_dt = datetime.now()
+    if settlement_date_raw:
+        try:
+            if isinstance(settlement_date_raw, str) and len(settlement_date_raw) == 10:
+                settlement_dt = datetime.fromisoformat(settlement_date_raw + 'T00:00:00')
+            else:
+                settlement_dt = datetime.fromisoformat(settlement_date_raw)
+        except Exception:
+            return jsonify({'error': 'invalid settlement_date'}), 400
+
+    clearing_safe_box = SafeBox.query.get(clearing_safe_box_id)
+    if not clearing_safe_box or not clearing_safe_box.is_active:
+        return jsonify({'error': 'Clearing safe box not found or inactive'}), 404
+
+    bank_safe_box = SafeBox.query.get(bank_safe_box_id)
+    if not bank_safe_box or not bank_safe_box.is_active:
+        return jsonify({'error': 'Bank safe box not found or inactive'}), 404
+
+    if (clearing_safe_box.safe_type or '').strip().lower() != 'clearing':
+        return jsonify({'error': 'clearing_safe_box must be of type clearing'}), 400
+
+    if (bank_safe_box.safe_type or '').strip().lower() != 'bank':
+        return jsonify({'error': 'bank_safe_box must be of type bank'}), 400
+
+    clearing_account = clearing_safe_box.account
+    bank_account = bank_safe_box.account
+    if not clearing_account or not bank_account:
+        return jsonify({'error': 'Safe box must be linked to an account'}), 400
+
+    fee_account = None
+    fee_account_id = data.get('fee_account_id')
+    if fee_amount > 0:
+        if not fee_account_id:
+            return jsonify({'error': 'fee_account_id is required for fee_amount > 0'}), 400
+        fee_account = Account.query.get(fee_account_id)
+        if not fee_account:
+            return jsonify({'error': 'fee_account_id not found'}), 404
+
+    # Balance check: prevent settling more than receivable tracked in system
+    clearing_balance = float(getattr(clearing_account, 'balance_cash', 0.0) or 0.0)
+    if clearing_balance < gross_amount:
+        return jsonify({
+            'error': 'Clearing balance is insufficient for settlement',
+            'clearing_balance': round(clearing_balance, 2),
+            'gross_amount': round(gross_amount, 2)
+        }), 400
+
+    try:
+        voucher_number = None
+        for _ in range(3):
+            candidate = generate_voucher_number('adjustment', year=settlement_dt.year)
+            if not Voucher.query.filter_by(voucher_number=candidate).first():
+                voucher_number = candidate
+                break
+        if not voucher_number:
+            return jsonify({'error': 'Failed to generate unique voucher number'}), 500
+
+        if description_override:
+            description = description_override
+        else:
+            description = (
+                f'تسوية مستحقات تحصيل: {clearing_safe_box.name} → {bank_safe_box.name} '
+                f'(إجمالي {gross_amount:.2f}، عمولة {fee_amount:.2f}، صافي {net_amount:.2f})'
+            )
+
+        voucher = Voucher(
+            voucher_number=voucher_number,
+            voucher_type='adjustment',
+            date=settlement_dt,
+            description=description,
+            reference_type='clearing_settlement',
+            reference_number=reference_number,
+            notes=(data.get('notes') or '').strip() or None,
+            created_by=created_by,
+            status='approved',
+            approved_by=created_by,
+            approved_at=datetime.now(),
+            amount_cash=round(gross_amount, 2),
+            amount_gold=0.0,
+        )
+        db.session.add(voucher)
+        db.session.flush()
+
+        lines = []
+        if net_amount > 0:
+            lines.append(VoucherAccountLine(
+                voucher_id=voucher.id,
+                account_id=bank_account.id,
+                line_type='debit',
+                amount_type='cash',
+                amount=round(net_amount, 2),
+                description=f'إيداع صافي تسوية مستحقات إلى {bank_safe_box.name}',
+            ))
+
+        if fee_amount > 0 and fee_account:
+            lines.append(VoucherAccountLine(
+                voucher_id=voucher.id,
+                account_id=fee_account.id,
+                line_type='debit',
+                amount_type='cash',
+                amount=round(fee_amount, 2),
+                description='عمولة تحصيل',
+            ))
+
+        lines.append(VoucherAccountLine(
+            voucher_id=voucher.id,
+            account_id=clearing_account.id,
+            line_type='credit',
+            amount_type='cash',
+            amount=round(gross_amount, 2),
+            description='إقفال مستحقات التحصيل',
+        ))
+
+        for line in lines:
+            db.session.add(line)
+
+        db.session.flush()
+
+        journal_entry = create_journal_entry_from_voucher(voucher)
+        if journal_entry:
+            voucher.journal_entry_id = journal_entry.id
+
+        # Ledger: create SafeBoxTransaction rows for the safe-box-targeting lines.
+        _append_safe_transactions_for_voucher(voucher, created_by=created_by)
+
+        # Update balances immediately (system tracks balances outside posting)
+        clearing_account.update_balance(cash_amount=-gross_amount)
+        bank_account.update_balance(cash_amount=net_amount)
+        if fee_account:
+            fee_account.update_balance(cash_amount=fee_amount)
+
+        db.session.commit()
+
+        return jsonify({
+            'success': True,
+            'voucher': voucher.to_dict(),
+            'balances': {
+                'clearing_account_cash': round(float(getattr(clearing_account, 'balance_cash', 0.0) or 0.0), 2),
+                'bank_account_cash': round(float(getattr(bank_account, 'balance_cash', 0.0) or 0.0), 2),
+                **({'fee_account_cash': round(float(getattr(fee_account, 'balance_cash', 0.0) or 0.0), 2)} if fee_account else {}),
+            }
+        }), 201
+
+    except Exception as exc:
+        db.session.rollback()
+        return jsonify({'error': f'Failed to create clearing settlement: {str(exc)}'}), 500
+
+
 @api.route('/bnpl/settlements', methods=['POST'])
 @require_permission('vouchers.create')
 def create_bnpl_settlement():
@@ -17733,11 +17970,11 @@ def create_bnpl_settlement():
     if not bank_safe_box or not bank_safe_box.is_active:
         return jsonify({'error': 'Bank safe box not found or inactive'}), 404
 
-    # Both are expected to be cash/bank (in this system BNPL is represented as bank-type safe box)
-    if bnpl_safe_box.safe_type != 'bank':
-        return jsonify({'error': 'BNPL safe box must be of type bank'}), 400
+    # BNPL receivable safe can be represented as bank (legacy) or clearing (preferred)
+    if (bnpl_safe_box.safe_type or '').strip().lower() not in ('bank', 'clearing'):
+        return jsonify({'error': 'BNPL safe box must be of type bank or clearing'}), 400
 
-    if bank_safe_box.safe_type != 'bank':
+    if (bank_safe_box.safe_type or '').strip().lower() != 'bank':
         return jsonify({'error': 'bank_safe_box must be of type bank'}), 400
 
     bnpl_account = bnpl_safe_box.account
@@ -17852,6 +18089,8 @@ def create_bnpl_settlement():
         for line in lines:
             db.session.add(line)
 
+        db.session.flush()
+
         # Create journal entry for audit linkage (does not post balances)
         journal_entry = create_journal_entry_from_voucher(voucher)
         if journal_entry:
@@ -17862,6 +18101,9 @@ def create_bnpl_settlement():
         bank_account.update_balance(cash_amount=net_amount)
         if fee_account:
             fee_account.update_balance(cash_amount=fee_amount)
+
+        # Ledger: create SafeBoxTransaction rows for the safe-box-targeting lines.
+        _append_safe_transactions_for_voucher(voucher, created_by=created_by)
 
         db.session.commit()
 
