@@ -1,7 +1,7 @@
 """Add weight_type field to JournalEntryLine
 
 Revision ID: weight_type_field_001
-Revises: dual_system_001_add_dual_system_columns
+Revises: dual_system_001
 Create Date: 2025-12-14 18:30:00
 
 """
@@ -10,7 +10,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision = 'weight_type_field_001'
-down_revision = 'dual_system_001_add_dual_system_columns'
+down_revision = 'dual_system_001'
 branch_labels = None
 depends_on = None
 

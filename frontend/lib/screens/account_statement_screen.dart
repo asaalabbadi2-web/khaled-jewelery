@@ -548,6 +548,77 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
     }).toList();
 
     final doc = pw.Document();
+
+    pw.Widget infoChip({required String label, required String value}) {
+      return pw.Container(
+        padding: const pw.EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+        decoration: pw.BoxDecoration(
+          color: pdf.PdfColor.fromHex('#FFF9E6'),
+          border: pw.Border.all(color: pdf.PdfColor.fromHex('#D4AF37')),
+          borderRadius: const pw.BorderRadius.all(pw.Radius.circular(8)),
+        ),
+        child: pw.Row(
+          mainAxisSize: pw.MainAxisSize.min,
+          children: [
+            pw.Text(label, style: const pw.TextStyle(fontSize: 9)),
+            pw.SizedBox(width: 6),
+            pw.Text(
+              value,
+              style: pw.TextStyle(font: boldFont, fontSize: 9),
+            ),
+          ],
+        ),
+      );
+    }
+
+    pw.Widget metricCard({
+      required String title,
+      required String goldValue,
+      required String cashValue,
+    }) {
+      return pw.Container(
+        padding: const pw.EdgeInsets.all(10),
+        decoration: pw.BoxDecoration(
+          border: pw.Border.all(color: pdf.PdfColors.grey300),
+          borderRadius: const pw.BorderRadius.all(pw.Radius.circular(10)),
+        ),
+        child: pw.Column(
+          crossAxisAlignment: pw.CrossAxisAlignment.end,
+          children: [
+            pw.Text(
+              title,
+              style: pw.TextStyle(font: boldFont, fontSize: 11),
+            ),
+            pw.SizedBox(height: 6),
+            pw.Row(
+              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+              children: [
+                pw.Text(cashValue, style: const pw.TextStyle(fontSize: 10)),
+                pw.Text(goldValue, style: const pw.TextStyle(fontSize: 10)),
+              ],
+            ),
+          ],
+        ),
+      );
+    }
+
+    final statement = _statement!;
+    final goldUnit = 'جم';
+    final cashUnit = 'ر.س';
+    final viewModeLabel = switch (_viewMode) {
+      1 => 'ذهب فقط',
+      2 => 'نقد فقط',
+      _ => 'ذهب + نقد',
+    };
+    final filterLabel = switch (_filterType) {
+      'credit' => 'دائن',
+      'debit' => 'مدين',
+      _ => 'الكل',
+    };
+
+    final dateRangeText = (_dateRange == null)
+        ? '—'
+        : '${DateFormat('yyyy-MM-dd').format(_dateRange!.start)} → ${DateFormat('yyyy-MM-dd').format(_dateRange!.end)}';
     doc.addPage(
       pw.MultiPage(
         pageFormat: pageFormat,
@@ -567,6 +638,64 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
                   pw.Text(
                     'تاريخ التوليد: ${DateFormat('yyyy-MM-dd HH:mm').format(DateTime.now())}',
                     style: const pw.TextStyle(fontSize: 10),
+                  ),
+                  pw.SizedBox(height: 10),
+                  pw.Wrap(
+                    spacing: 8,
+                    runSpacing: 6,
+                    alignment: pw.WrapAlignment.end,
+                    children: [
+                      infoChip(label: 'العرض', value: viewModeLabel),
+                      infoChip(label: 'الفلتر', value: filterLabel),
+                      infoChip(
+                        label: 'حركة فقط',
+                        value: _showOnlyMovement ? 'نعم' : 'لا',
+                      ),
+                      infoChip(label: 'الفترة', value: dateRangeText),
+                      infoChip(label: 'العيار الأساسي', value: '${statement.mainKarat}'),
+                    ],
+                  ),
+                  pw.SizedBox(height: 12),
+                  pw.Row(
+                    mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                    children: [
+                      metricCard(
+                        title: 'رصيد افتتاحي',
+                        goldValue: _viewMode == 2
+                            ? ''
+                            : '${statement.openingBalanceGold.toStringAsFixed(3)} $goldUnit',
+                        cashValue: _viewMode == 1
+                            ? ''
+                            : '${statement.openingBalanceCash.toStringAsFixed(2)} $cashUnit',
+                      ),
+                      metricCard(
+                        title: 'إجمالي مدين',
+                        goldValue: _viewMode == 2
+                            ? ''
+                            : '${statement.totalDebitGold.toStringAsFixed(3)} $goldUnit',
+                        cashValue: _viewMode == 1
+                            ? ''
+                            : '${statement.totalDebitCash.toStringAsFixed(2)} $cashUnit',
+                      ),
+                      metricCard(
+                        title: 'إجمالي دائن',
+                        goldValue: _viewMode == 2
+                            ? ''
+                            : '${statement.totalCreditGold.toStringAsFixed(3)} $goldUnit',
+                        cashValue: _viewMode == 1
+                            ? ''
+                            : '${statement.totalCreditCash.toStringAsFixed(2)} $cashUnit',
+                      ),
+                      metricCard(
+                        title: 'رصيد ختامي',
+                        goldValue: _viewMode == 2
+                            ? ''
+                            : '${statement.effectiveClosingGold.toStringAsFixed(3)} $goldUnit',
+                        cashValue: _viewMode == 1
+                            ? ''
+                            : '${statement.effectiveClosingCash.toStringAsFixed(2)} $cashUnit',
+                      ),
+                    ],
                   ),
                   pw.SizedBox(height: 12),
                   pw.TableHelper.fromTextArray(

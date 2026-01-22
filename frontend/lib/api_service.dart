@@ -2956,6 +2956,19 @@ class ApiService {
     }
   }
 
+  // ==================== App Config ====================
+
+  /// جلب إعدادات بسيطة يحتاجها العميل (مثل الحسابات التجميعية للسندات)
+  Future<Map<String, dynamic>> getAppConfig() async {
+    final response = await _authedGet(Uri.parse('$_baseUrl/app-config'));
+
+    if (response.statusCode == 200) {
+      return json.decode(utf8.decode(response.bodyBytes))
+          as Map<String, dynamic>;
+    }
+    throw Exception('Failed to load app config: ${response.body}');
+  }
+
   // ---------------------------------------------------------------------------
   // Employees API
   // ---------------------------------------------------------------------------

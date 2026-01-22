@@ -75,6 +75,11 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
   List<Map<String, dynamic>> _accounts = [];
   List<SafeBoxModel> _safeBoxes = [];
 
+  int? _customersAggregateAccountId;
+  String? _customersAggregateAccountNumber;
+  int? _suppliersAggregateAccountId;
+  String? _suppliersAggregateAccountNumber;
+
   final Map<int, double> _safeLedgerCashBalance = {};
   final Set<int> _safeLedgerCashBalanceLoading = {};
   List<EmployeeModel> _employees = [];
@@ -181,11 +186,19 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
         partyAccountId = _coerceAccountId(
           customer?['account_id'] ?? customer?['account_category_id'],
         );
+        partyAccountId ??= _customersAggregateAccountId;
+        if (partyAccountId == null && _customersAggregateAccountNumber != null) {
+          partyAccountId = _findAccountIdByNumber(_customersAggregateAccountNumber!);
+        }
       } else if (_partyType == 'supplier' && _selectedSupplierId != null) {
         final supplier = _findById(_suppliers, _selectedSupplierId);
         partyAccountId = _coerceAccountId(
           supplier?['account_id'] ?? supplier?['account_category_id'],
         );
+        partyAccountId ??= _suppliersAggregateAccountId;
+        if (partyAccountId == null && _suppliersAggregateAccountNumber != null) {
+          partyAccountId = _findAccountIdByNumber(_suppliersAggregateAccountNumber!);
+        }
       } else if (_partyType == 'employee' && _selectedEmployeeId != null) {
         final emp = _findEmployeeById(_selectedEmployeeId);
         partyAccountId = emp?.accountId;
@@ -355,10 +368,19 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
     setState(() => _isLoading = true);
 
     try {
-      final customers = await _apiService.getCustomers();
-      final suppliers = await _apiService.getSuppliers();
-      final employeesData = await _apiService.getEmployees();
-      final accounts = await _apiService.getAccounts();
+      final results = await Future.wait([
+        _apiService.getCustomers(),
+        _apiService.getSuppliers(),
+        _apiService.getEmployees(),
+        _apiService.getAccounts(),
+        _apiService.getAppConfig(),
+      ]);
+
+      final customers = results[0] as List<dynamic>;
+      final suppliers = results[1] as List<dynamic>;
+      final employeesData = results[2] as Map<String, dynamic>;
+      final accounts = results[3] as List<dynamic>;
+      final appConfig = results[4] as Map<String, dynamic>;
 
       // تحميل الخزائن النشطة (نقدية وبنكية فقط)
       final safeBoxes = await _apiService.getSafeBoxes(
@@ -367,6 +389,18 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
         includeAccount: true,
         includeBalance: true,
       );
+
+        final aggregate = (appConfig['aggregate_accounts'] as Map?)
+          ?.map((k, v) => MapEntry(k.toString(), v));
+        final customersAgg = (aggregate?['customers'] as Map?)
+          ?.map((k, v) => MapEntry(k.toString(), v));
+        final suppliersAgg = (aggregate?['suppliers'] as Map?)
+          ?.map((k, v) => MapEntry(k.toString(), v));
+
+        final customersAggId = _coerceAccountId(customersAgg?['account_id']);
+        final customersAggNumber = customersAgg?['account_number']?.toString();
+        final suppliersAggId = _coerceAccountId(suppliersAgg?['account_id']);
+        final suppliersAggNumber = suppliersAgg?['account_number']?.toString();
 
       setState(() {
         _customers = customers
@@ -385,6 +419,12 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
             .map((a) => Map<String, dynamic>.from(a))
             .toList();
         _safeBoxes = safeBoxes;
+
+        _customersAggregateAccountId = customersAggId;
+        _customersAggregateAccountNumber = customersAggNumber;
+        _suppliersAggregateAccountId = suppliersAggId;
+        _suppliersAggregateAccountNumber = suppliersAggNumber;
+
         _isLoading = false;
       });
 
@@ -565,6 +605,19 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
       return int.tryParse(trimmed);
     }
     return null;
+  }
+
+  int? _findAccountIdByNumber(String accountNumber) {
+    final target = accountNumber.trim();
+    if (target.isEmpty) return null;
+    try {
+      final acc = _accounts.firstWhere(
+        (a) => a['account_number']?.toString().trim() == target,
+      );
+      return _coerceAccountId(acc['id']);
+    } catch (_) {
+      return null;
+    }
   }
 
   void _ensureFirstLineConfiguration({
@@ -1239,10 +1292,12 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
             if (_partyType == 'customer')
               DropdownButtonFormField<int>(
                 initialValue: _selectedCustomerId,
-                decoration: const InputDecoration(
+                decoration: InputDecoration(
                   labelText: 'العميل *',
-                  border: OutlineInputBorder(),
-                  helperText: 'سيتم القيد على الحساب التجميعي للعملاء (1100)',
+                  border: const OutlineInputBorder(),
+                  helperText: _customersAggregateAccountNumber != null
+                    ? 'سيتم القيد على الحساب التجميعي للعملاء ($_customersAggregateAccountNumber)'
+                      : 'سيتم القيد على الحساب التجميعي للعملاء',
                 ),
                 items: _customers.map<DropdownMenuItem<int>>((customer) {
                   return DropdownMenuItem<int>(
@@ -1259,10 +1314,12 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
             if (_partyType == 'supplier')
               DropdownButtonFormField<int>(
                 initialValue: _selectedSupplierId,
-                decoration: const InputDecoration(
+                decoration: InputDecoration(
                   labelText: 'المورد *',
-                  border: OutlineInputBorder(),
-                  helperText: 'سيتم القيد على الحساب التجميعي للموردين (211)',
+                  border: const OutlineInputBorder(),
+                  helperText: _suppliersAggregateAccountNumber != null
+                    ? 'سيتم القيد على الحساب التجميعي للموردين ($_suppliersAggregateAccountNumber)'
+                      : 'سيتم القيد على الحساب التجميعي للموردين',
                 ),
                 items: _suppliers.map<DropdownMenuItem<int>>((supplier) {
                   return DropdownMenuItem<int>(
@@ -2165,9 +2222,18 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
         );
         partyAccountId = primaryAccountId ?? categoryAccountId;
 
+        // Fallback to configured aggregate account (from /app-config).
+        partyAccountId ??= _customersAggregateAccountId;
+        if (partyAccountId == null && _customersAggregateAccountNumber != null) {
+          partyAccountId = _findAccountIdByNumber(_customersAggregateAccountNumber!);
+        }
+        // Final fallback for older servers/configs.
+        partyAccountId ??= _findAccountIdByNumber('1100');
+
         if (partyAccountId == null) {
+          final expected = _customersAggregateAccountNumber ?? '1100';
           throw Exception(
-            'العميل المختار لا يملك حساباً مرتبطاً أو حساباً تجميعياً',
+            'العميل المختار لا يملك حساباً مرتبطاً، ولا يوجد حساب تجميعي للعملاء ($expected) في شجرة الحسابات',
           );
         }
       } else if (_partyType == 'supplier') {
@@ -2184,9 +2250,19 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
         );
         partyAccountId = primaryAccountId ?? categoryAccountId;
 
+        // Fallback to configured aggregate account (from /app-config).
+        partyAccountId ??= _suppliersAggregateAccountId;
+        if (partyAccountId == null && _suppliersAggregateAccountNumber != null) {
+          partyAccountId = _findAccountIdByNumber(_suppliersAggregateAccountNumber!);
+        }
+        // Final fallback for older servers/configs: prefer 220 then 211.
+        partyAccountId ??= _findAccountIdByNumber('220');
+        partyAccountId ??= _findAccountIdByNumber('211');
+
         if (partyAccountId == null) {
+          final expected = _suppliersAggregateAccountNumber ?? '220/211';
           throw Exception(
-            'المورد المختار لا يملك حساباً مرتبطاً أو حساباً تجميعياً',
+            'المورد المختار لا يملك حساباً مرتبطاً، ولا يوجد حساب تجميعي للموردين ($expected) في شجرة الحسابات',
           );
         }
       } else if (_partyType == 'employee') {

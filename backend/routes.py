@@ -17058,6 +17058,63 @@ def get_mapped_account():
         }), 500
 
 
+@api.route('/app-config', methods=['GET'])
+@require_permission('vouchers.view')
+def get_app_config():
+    """Return small configuration payload needed by client screens.
+
+    This endpoint is intentionally lightweight and safe for non-admin users.
+    It exposes only the aggregate accounts used by vouchers as a fallback when
+    a party (customer/supplier) has no dedicated account linked.
+    """
+    try:
+        from models import Settings, AccountingMapping, Account
+
+        settings = Settings.query.first()
+
+        def _account_payload(account: Account | None):
+            if not account:
+                return None
+            return {
+                'account_id': account.id,
+                'account_number': account.account_number,
+                'name': account.name,
+            }
+
+        def _resolve_aggregate(account_type: str, fallback_numbers: list[str]):
+            # Prefer explicit mapping under operation_type='سندات'
+            mapping = AccountingMapping.query.filter_by(
+                operation_type='سندات',
+                account_type=account_type,
+                is_active=True,
+            ).first()
+            if mapping and mapping.account:
+                return _account_payload(mapping.account)
+
+            # Fallback to well-known account numbers (supports different charts)
+            for num in fallback_numbers:
+                acc = Account.query.filter_by(account_number=str(num)).first()
+                if acc:
+                    return _account_payload(acc)
+
+            return None
+
+        customers_agg = _resolve_aggregate('customers', ['1100', '1110', '1120'])
+        suppliers_agg = _resolve_aggregate('suppliers', ['220', '211'])
+
+        return jsonify({
+            'main_karat': int(getattr(settings, 'main_karat', 21) or 21) if settings else 21,
+            'currency_symbol': getattr(settings, 'currency_symbol', 'ر.س') if settings else 'ر.س',
+            'aggregate_accounts': {
+                'customers': customers_agg,
+                'suppliers': suppliers_agg,
+            },
+        }), 200
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 # ============================================================================
 # SafeBox Routes (إدارة الخزائن)
 # ============================================================================

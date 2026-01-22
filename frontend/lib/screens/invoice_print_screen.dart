@@ -724,6 +724,12 @@ class _InvoicePrintScreenState extends State<InvoicePrintScreen> {
       return fromSettings.trim();
     }
 
+    // If the backend provided a per-invoice template preset key, prefer it.
+    final fromInvoice = widget.invoice['print_template_preset_key']?.toString();
+    if (fromInvoice != null && fromInvoice.trim().isNotEmpty) {
+      return fromInvoice.trim();
+    }
+
     try {
       final prefs = await SharedPreferences.getInstance();
       final active = prefs.getString(_activePresetKeyStorage);

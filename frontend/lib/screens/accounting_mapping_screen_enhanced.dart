@@ -18,6 +18,13 @@ class _AccountingMappingScreenEnhancedState
 
   final List<_OperationConfig> _operationConfigs = const [
     _OperationConfig(
+      key: 'سندات',
+      label: 'سندات',
+      description: 'سندات القبض والصرف (ربط حسابات العملاء والموردين التجميعية)',
+      icon: Icons.receipt_long,
+      tone: _Tone.info,
+    ),
+    _OperationConfig(
       key: 'بيع',
       label: 'بيع',
       description: 'عمليات بيع المجوهرات مباشرة للعملاء',

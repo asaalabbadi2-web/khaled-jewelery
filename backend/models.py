@@ -1721,6 +1721,7 @@ class JournalEntryLine(db.Model):
             'id': self.id,
             'journal_entry_id': self.journal_entry_id,
             'account_id': self.account_id,
+            'account_number': self.account.account_number if self.account else None,
             'account_name': self.account.name if self.account else '',
             'customer_id': self.customer_id,
             'customer_name': self.customer.name if self.customer else None,
