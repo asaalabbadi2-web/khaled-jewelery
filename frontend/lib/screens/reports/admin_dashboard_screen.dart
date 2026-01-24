@@ -1,9 +1,13 @@
+import 'dart:ui' show ImageFilter;
+
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_staggered_animations/flutter_staggered_animations.dart';
 import 'package:intl/intl.dart' hide TextDirection;
 import 'package:provider/provider.dart';
 
 import '../../api_service.dart';
+import '../../models/safe_box_model.dart';
 import '../../providers/settings_provider.dart';
 import '../../theme/app_theme.dart';
 import '../audit_log_screen.dart';
@@ -32,6 +36,9 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   Map<String, dynamic>? _response;
   bool _isLoading = false;
   String? _error;
+
+  int? _expandedVaultSafeBoxId;
+  int? _pressedVaultSafeBoxId;
 
   _TimeRange _timeRange = _TimeRange.week;
 
@@ -251,7 +258,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     final goldChange = snapshot['gold_price_change_pct'];
 
     final changeValue = goldChange is num ? goldChange.toDouble() : null;
-    final isPositive = changeValue != null && changeValue >= 0;
+    final isPositive = (changeValue ?? 0) >= 0;
 
     final goldPriceSeries = _extractSeries(series, const [
       'gold_price',
@@ -1567,6 +1574,10 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
 
     if (safeBoxes.isEmpty) return const SizedBox.shrink();
 
+    final anyExpanded = _expandedVaultSafeBoxId != null;
+    // Give cards enough vertical room to avoid RenderFlex overflow.
+    final listHeight = anyExpanded ? _s(240) : _s(132);
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1606,23 +1617,94 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
         ),
         SizedBox(height: _s(12)),
         SizedBox(
-          height: _s(110),
-          child: ListView.builder(
-            scrollDirection: Axis.horizontal,
-            padding: EdgeInsets.symmetric(horizontal: _s(16)),
-            itemCount: safeBoxes.length,
-            itemBuilder: (context, index) {
-              final sb = safeBoxes[index] as Map<String, dynamic>;
-              return _buildVaultCard(sb);
-            },
+          height: listHeight,
+          child: AnimationLimiter(
+            child: ListView.builder(
+              scrollDirection: Axis.horizontal,
+              padding: EdgeInsets.symmetric(horizontal: _s(16)),
+              itemCount: safeBoxes.length,
+              itemBuilder: (context, index) {
+                final sb = safeBoxes[index] as Map<String, dynamic>;
+                final id = sb['id'];
+                final sbId = id is int ? id : int.tryParse(id?.toString() ?? '');
+                final heroTag = sbId != null ? 'vault_safe_box_$sbId' : 'vault_safe_box_$index';
+                final isExpanded =
+                    (sbId != null && sbId == _expandedVaultSafeBoxId);
+                final isPressed =
+                    (sbId != null && sbId == _pressedVaultSafeBoxId);
+
+                final card = _buildVaultCard(
+                  sb,
+                  heroTag: heroTag,
+                  isExpanded: isExpanded,
+                  isPressed: isPressed,
+                  onTap: () {
+                    if (sbId == null) return;
+                    setState(() {
+                      _expandedVaultSafeBoxId = isExpanded ? null : sbId;
+                    });
+                  },
+                  onOpenDetails: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => _SafeBoxHeroDetailsScreen(
+                          api: widget.api,
+                          isArabic: widget.isArabic,
+                          safeBox: sb,
+                          heroTag: heroTag,
+                        ),
+                      ),
+                    );
+                  },
+                  onPressChanged: (pressed) {
+                    if (sbId == null) return;
+                    setState(() {
+                      if (pressed) {
+                        _pressedVaultSafeBoxId = sbId;
+                      } else if (_pressedVaultSafeBoxId == sbId) {
+                        _pressedVaultSafeBoxId = null;
+                      }
+                    });
+                  },
+                );
+
+                return AnimationConfiguration.staggeredList(
+                  position: index,
+                  duration: const Duration(milliseconds: 420),
+                  child: SlideAnimation(
+                    verticalOffset: 18.0,
+                    child: FadeInAnimation(child: card),
+                  ),
+                );
+              },
+            ),
           ),
         ),
       ],
     );
   }
 
-  Widget _buildVaultCard(Map<String, dynamic> sb) {
+  double _sbWeight(Map<String, dynamic> sb, String key) {
+    final wb = sb['weight_balance'];
+    if (wb is Map) {
+      final raw = wb[key];
+      if (raw is num) return raw.toDouble();
+      return double.tryParse(raw?.toString() ?? '') ?? 0.0;
+    }
+    return 0.0;
+  }
+
+  Widget _buildVaultCard(
+    Map<String, dynamic> sb, {
+    required String heroTag,
+    required bool isExpanded,
+    required bool isPressed,
+    required VoidCallback onTap,
+    required VoidCallback onOpenDetails,
+    required ValueChanged<bool> onPressChanged,
+  }) {
     final theme = Theme.of(context);
+    final isArabic = widget.isArabic;
 
     final name = sb['name'] ?? '-';
     final safeType = sb['safe_type'] ?? 'cash';
@@ -1630,75 +1712,334 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     final goldBalance = _asDouble(sb['balance_gold_21k']);
     final hasActivity = sb['has_recent_activity'] == true;
 
+    final w18 = _sbWeight(sb, '18k');
+    final w21 = _sbWeight(sb, '21k');
+    final w22 = _sbWeight(sb, '22k');
+    final w24 = _sbWeight(sb, '24k');
+    final totalMain = _asDouble(sb['total_weight_main_karat']);
+    final hasWeightBreakdown = sb['weight_balance'] is Map;
+    final mainKaratFromApi = _asInt(sb['main_karat']);
+    final displayMainKarat = mainKaratFromApi > 0 ? mainKaratFromApi : 21;
+
+    double totalMainFallback() {
+      final mk = displayMainKarat <= 0 ? 21.0 : displayMainKarat.toDouble();
+      return (w18 * (18.0 / mk)) + w21 + (w22 * (22.0 / mk)) + (w24 * (24.0 / mk));
+    }
+
+    final totalMainEffective = (totalMain > 0)
+        ? totalMain
+        : (hasWeightBreakdown ? totalMainFallback() : 0.0);
+
+    Color mainKaratChipColor(int karat) {
+      switch (karat) {
+        case 18:
+          return AppColors.karat18;
+        case 21:
+          return AppColors.karat21;
+        case 22:
+          return AppColors.karat22;
+        case 24:
+          return AppColors.karat24;
+        default:
+          return AppColors.primaryGold;
+      }
+    }
+
     IconData icon;
     Color color;
-    String balance;
+    String subtitle;
+    double primaryValue;
+    String Function(double) primaryFormatter;
 
     switch (safeType) {
       case 'gold':
         icon = Icons.auto_awesome;
         color = AppColors.primaryGold;
-        balance = _formatWeight(goldBalance);
+        // Always show the main-karat equivalent total for gold safes.
+        primaryValue = (totalMainEffective > 0 ? totalMainEffective : goldBalance);
+        primaryFormatter = _formatWeight;
+        subtitle = isArabic ? 'ذهب' : 'Gold';
         break;
       case 'bank':
         icon = Icons.account_balance;
         color = Colors.blue;
-        balance = _formatCurrency(cashBalance);
+        primaryValue = cashBalance;
+        primaryFormatter = _formatCurrency;
+        subtitle = isArabic ? 'بنك' : 'Bank';
         break;
       default:
         icon = Icons.account_balance_wallet;
         color = Colors.green;
-        balance = _formatCurrency(cashBalance);
+        primaryValue = cashBalance;
+        primaryFormatter = _formatCurrency;
+        subtitle = isArabic ? 'نقد' : 'Cash';
     }
 
-    return Container(
-      width: _s(155),
-      margin: EdgeInsetsDirectional.only(start: _s(12)),
-      padding: EdgeInsets.all(_s(12)),
-      decoration: BoxDecoration(
-        color: theme.cardColor,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: color.withValues(alpha: 0.3)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(icon, color: color, size: _s(20)),
-              SizedBox(width: _s(6)),
-              if (hasActivity)
-                Container(
-                  width: _s(9),
-                  height: _s(9),
-                  decoration: const BoxDecoration(
-                    color: Colors.green,
-                    shape: BoxShape.circle,
+    final cardWidth = isExpanded ? _s(280) : _s(155);
+
+    Widget buildDetailChip(String label, String value, {Color? chipColor}) {
+      final c = chipColor ?? color;
+      return Container(
+        padding: EdgeInsets.symmetric(horizontal: _s(8), vertical: _s(5)),
+        decoration: BoxDecoration(
+          color: c.withValues(alpha: 0.10),
+          borderRadius: BorderRadius.circular(_s(10)),
+          border: Border.all(color: c.withValues(alpha: 0.28)),
+        ),
+        child: Text(
+          '$label: $value',
+          style: theme.textTheme.bodySmall?.copyWith(
+            fontSize: _s(11),
+            fontWeight: FontWeight.w600,
+            color: theme.brightness == Brightness.dark
+                ? Colors.white
+                : Colors.black87,
+          ),
+        ),
+      );
+    }
+
+    final details = safeType == 'gold'
+        ? (hasWeightBreakdown
+            ? Wrap(
+                spacing: _s(8),
+                runSpacing: _s(8),
+                children: [
+                  buildDetailChip('24k', _formatWeight(w24), chipColor: AppColors.karat24),
+                  buildDetailChip('22k', _formatWeight(w22), chipColor: AppColors.karat22),
+                  buildDetailChip('21k', _formatWeight(w21), chipColor: AppColors.karat21),
+                  buildDetailChip('18k', _formatWeight(w18), chipColor: AppColors.karat18),
+                  if ((w18.abs() + w21.abs() + w22.abs() + w24.abs()) > 0)
+                    buildDetailChip(
+                      isArabic
+                          ? 'إجمالي (محول لعيار $displayMainKarat)'
+                          : 'Total (converted to ${displayMainKarat}k)',
+                      _formatWeight(totalMainEffective),
+                      chipColor: mainKaratChipColor(displayMainKarat),
+                    ),
+                ],
+              )
+            : Wrap(
+                spacing: _s(8),
+                runSpacing: _s(8),
+                children: [
+                  buildDetailChip('21k', _formatWeight(goldBalance), chipColor: AppColors.karat21),
+                  buildDetailChip(
+                    isArabic ? 'ملاحظة' : 'Note',
+                    isArabic
+                        ? 'تفصيل العيارات غير متوفر بعد'
+                        : 'Karat breakdown not available yet',
+                    chipColor: theme.hintColor,
                   ),
-                ),
-              const Spacer(),
+                ],
+              ))
+        : Wrap(
+            spacing: _s(8),
+            runSpacing: _s(8),
+            children: [
+              buildDetailChip(
+                isArabic ? 'الرصيد' : 'Balance',
+                _formatCurrency(cashBalance),
+                chipColor: color,
+              ),
             ],
-          ),
-          SizedBox(height: _s(8)),
-          Text(
-            name,
-            style: theme.textTheme.bodySmall?.copyWith(
-              fontWeight: FontWeight.w600,
-              fontSize: _s(12),
+          );
+
+    final borderAccent = hasActivity ? Colors.green : theme.hintColor;
+    final borderColor = borderAccent.withValues(alpha: hasActivity ? 0.55 : 0.25);
+    final glowColor = (hasActivity ? Colors.green : color).withValues(
+      alpha: isPressed ? 0.22 : (isExpanded ? 0.14 : 0.10),
+    );
+    final glassBase = theme.colorScheme.surface.withValues(
+      alpha: theme.brightness == Brightness.dark ? 0.25 : 0.78,
+    );
+
+    final heroIconTag = '${heroTag}_icon';
+    final heroNameTag = '${heroTag}_name';
+
+    final cardBody = Material(
+      color: Colors.transparent,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(14),
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(14),
+            onTapDown: (_) => onPressChanged(true),
+            onTapCancel: () => onPressChanged(false),
+            onTap: () {
+              onPressChanged(false);
+              onTap();
+            },
+            child: AnimatedScale(
+              duration: const Duration(milliseconds: 140),
+              curve: Curves.easeOut,
+              scale: isPressed ? 0.985 : 1.0,
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 260),
+                curve: Curves.easeOutCubic,
+                width: cardWidth,
+                padding: EdgeInsets.all(_s(12)),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(
+                    color: borderColor,
+                    width: isPressed ? 1.2 : 1.0,
+                  ),
+                  gradient: LinearGradient(
+                    begin: AlignmentDirectional.topStart,
+                    end: AlignmentDirectional.bottomEnd,
+                    colors: [
+                      glassBase.withValues(alpha: 0.88),
+                      glassBase.withValues(alpha: 0.72),
+                    ],
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: glowColor,
+                      blurRadius: isPressed ? 18 : (isExpanded ? 16 : 12),
+                      offset: const Offset(0, 8),
+                    ),
+                  ],
+                ),
+                child: Stack(
+                  children: [
+                    PositionedDirectional(
+                      start: 0,
+                      top: 0,
+                      bottom: 0,
+                      child: Container(
+                        width: _s(4),
+                        decoration: BoxDecoration(
+                          color: color.withValues(
+                            alpha: hasActivity ? 0.85 : 0.55,
+                          ),
+                          borderRadius: BorderRadiusDirectional.horizontal(
+                            start: Radius.circular(_s(14)),
+                          ),
+                        ),
+                      ),
+                    ),
+                    Padding(
+                      padding: EdgeInsetsDirectional.only(start: _s(6)),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Hero(
+                                tag: heroIconTag,
+                                createRectTween: (begin, end) =>
+                                    MaterialRectArcTween(begin: begin, end: end),
+                                child: Material(
+                                  color: Colors.transparent,
+                                  child: Icon(
+                                    icon,
+                                    color: color,
+                                    size: _s(20),
+                                  ),
+                                ),
+                              ),
+                              SizedBox(width: _s(6)),
+                              if (hasActivity)
+                                Container(
+                                  width: _s(9),
+                                  height: _s(9),
+                                  decoration: const BoxDecoration(
+                                    color: Colors.green,
+                                    shape: BoxShape.circle,
+                                  ),
+                                ),
+                              const Spacer(),
+                              InkResponse(
+                                onTap: () {
+                                  onPressChanged(false);
+                                  onOpenDetails();
+                                },
+                                radius: _s(18),
+                                child: Icon(
+                                  Icons.open_in_new,
+                                  color: theme.hintColor,
+                                  size: _s(18),
+                                ),
+                              ),
+                              SizedBox(width: _s(6)),
+                              AnimatedRotation(
+                                turns: isExpanded ? 0.5 : 0.0,
+                                duration: const Duration(milliseconds: 220),
+                                curve: Curves.easeOutCubic,
+                                child: Icon(
+                                  Icons.expand_more,
+                                  color: theme.hintColor,
+                                  size: _s(18),
+                                ),
+                              ),
+                            ],
+                          ),
+                          SizedBox(height: _s(8)),
+                          Hero(
+                            tag: heroNameTag,
+                            createRectTween: (begin, end) =>
+                                MaterialRectArcTween(begin: begin, end: end),
+                            child: Material(
+                              color: Colors.transparent,
+                              child: Text(
+                                name,
+                                style: theme.textTheme.bodySmall?.copyWith(
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: _s(12.5),
+                                ),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ),
+                          SizedBox(height: _s(2)),
+                          Text(
+                            subtitle,
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              fontSize: _s(11),
+                              color: theme.hintColor,
+                            ),
+                          ),
+                          if (!isExpanded) const Spacer(),
+                          SizedBox(height: _s(10)),
+                          _AnimatedValueText(
+                            value: primaryValue,
+                            formatter: primaryFormatter,
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              fontWeight: FontWeight.bold,
+                              color: color,
+                              fontSize: _s(14),
+                            ),
+                          ),
+                          AnimatedCrossFade(
+                            firstChild: const SizedBox.shrink(),
+                            secondChild: Padding(
+                              padding: EdgeInsets.only(top: _s(12)),
+                              child: details,
+                            ),
+                            crossFadeState: isExpanded
+                                ? CrossFadeState.showSecond
+                                : CrossFadeState.showFirst,
+                            duration: const Duration(milliseconds: 240),
+                            firstCurve: Curves.easeOut,
+                            secondCurve: Curves.easeOutCubic,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ),
-            overflow: TextOverflow.ellipsis,
           ),
-          const Spacer(),
-          Text(
-            balance,
-            style: theme.textTheme.bodyMedium?.copyWith(
-              fontWeight: FontWeight.bold,
-              color: color,
-              fontSize: _s(14),
-            ),
-          ),
-        ],
+        ),
       ),
+    );
+
+    return Container(
+      margin: EdgeInsetsDirectional.only(start: _s(12)),
+      child: cardBody,
     );
   }
 
@@ -1857,4 +2198,452 @@ class _AlertItem {
   final String text;
 
   _AlertItem({required this.icon, required this.color, required this.text});
+}
+
+class _SafeBoxHeroDetailsScreen extends StatefulWidget {
+  final ApiService api;
+  final bool isArabic;
+  final Map<String, dynamic> safeBox;
+  final String heroTag;
+
+  const _SafeBoxHeroDetailsScreen({
+    required this.api,
+    required this.isArabic,
+    required this.safeBox,
+    required this.heroTag,
+  });
+
+  @override
+  State<_SafeBoxHeroDetailsScreen> createState() =>
+      _SafeBoxHeroDetailsScreenState();
+}
+
+class _SafeBoxHeroDetailsScreenState extends State<_SafeBoxHeroDetailsScreen> {
+  late Map<String, dynamic> _safeBox;
+  bool _loading = false;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _safeBox = Map<String, dynamic>.from(widget.safeBox);
+    // Fetch the latest balances immediately on open.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _refresh();
+    });
+  }
+
+  double _uiScale(BuildContext context) {
+    final width = MediaQuery.sizeOf(context).width;
+    if (width >= 1200) return 1.20;
+    if (width >= 900) return 1.12;
+    if (width >= 600) return 1.04;
+    return 1.0;
+  }
+
+  double _s(BuildContext context, double value) => value * _uiScale(context);
+
+  double _asDouble(dynamic v) {
+    if (v is num) return v.toDouble();
+    return double.tryParse(v?.toString() ?? '') ?? 0.0;
+  }
+
+  int _asInt(dynamic v) {
+    if (v is int) return v;
+    if (v is num) return v.toInt();
+    return int.tryParse(v?.toString() ?? '') ?? 0;
+  }
+
+  double _sbWeight(Map<String, dynamic> sb, String key) {
+    final wb = sb['weight_balance'];
+    if (wb is Map) {
+      final raw = wb[key];
+      if (raw is num) return raw.toDouble();
+      return double.tryParse(raw?.toString() ?? '') ?? 0.0;
+    }
+    return 0.0;
+  }
+
+  int? _safeBoxIdFromMap(Map<String, dynamic> sb) {
+    final id = sb['id'];
+    if (id is int) return id;
+    return int.tryParse(id?.toString() ?? '');
+  }
+
+  Map<String, dynamic> _mergeFromSafeBoxModel(SafeBoxModel m) {
+    final wb = m.weightBalance;
+    return <String, dynamic>{
+      'id': m.id,
+      'name': m.name,
+      'safe_type': m.safeType,
+      'weight_balance': wb,
+      'total_weight_main_karat': m.totalWeightMainKarat,
+      'balance_cash': m.cashBalance,
+      // Keep the dashboard convention.
+      'balance_gold_21k': wb?['21k'] ?? 0.0,
+      // Best-effort: keep existing signal if present.
+      'has_recent_activity': _safeBox['has_recent_activity'] == true,
+      // Use safe's karat when available.
+      'main_karat': m.karat,
+    };
+  }
+
+  Future<void> _refresh() async {
+    final id = _safeBoxIdFromMap(_safeBox);
+    if (id == null) return;
+
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+
+    try {
+      final model = await widget.api.getSafeBox(id, includeBalance: true);
+      if (!mounted) return;
+      setState(() {
+        _safeBox = {
+          ..._safeBox,
+          ..._mergeFromSafeBoxModel(model),
+        };
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _error = e.toString();
+      });
+    } finally {
+      if (!mounted) return;
+      setState(() {
+        _loading = false;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final name = _safeBox['name'] ?? '-';
+    final safeType = _safeBox['safe_type'] ?? 'cash';
+    final cashBalance = _asDouble(_safeBox['balance_cash']);
+    final goldBalance = _asDouble(_safeBox['balance_gold_21k']);
+    final hasActivity = _safeBox['has_recent_activity'] == true;
+
+    final w18 = _sbWeight(_safeBox, '18k');
+    final w21 = _sbWeight(_safeBox, '21k');
+    final w22 = _sbWeight(_safeBox, '22k');
+    final w24 = _sbWeight(_safeBox, '24k');
+    final totalMain = _asDouble(_safeBox['total_weight_main_karat']);
+    final mainKaratFromApi = _asInt(_safeBox['main_karat']);
+    final displayMainKarat = mainKaratFromApi > 0 ? mainKaratFromApi : 21;
+
+    IconData icon;
+    Color color;
+    String subtitle;
+
+    switch (safeType) {
+      case 'gold':
+        icon = Icons.auto_awesome;
+        color = AppColors.primaryGold;
+        subtitle = widget.isArabic ? 'ذهب' : 'Gold';
+        break;
+      case 'bank':
+        icon = Icons.account_balance;
+        color = Colors.blue;
+        subtitle = widget.isArabic ? 'بنك' : 'Bank';
+        break;
+      default:
+        icon = Icons.account_balance_wallet;
+        color = Colors.green;
+        subtitle = widget.isArabic ? 'نقد' : 'Cash';
+    }
+
+    Widget buildDetailChip(String label, String value, {Color? chipColor}) {
+      final c = chipColor ?? color;
+      return Container(
+        padding: EdgeInsets.symmetric(
+          horizontal: _s(context, 10),
+          vertical: _s(context, 6),
+        ),
+        decoration: BoxDecoration(
+          color: c.withValues(alpha: 0.10),
+          borderRadius: BorderRadius.circular(_s(context, 12)),
+          border: Border.all(color: c.withValues(alpha: 0.28)),
+        ),
+        child: Text(
+          '$label: $value',
+          style: theme.textTheme.bodySmall?.copyWith(
+            fontWeight: FontWeight.w600,
+            fontSize: _s(context, 12),
+          ),
+        ),
+      );
+    }
+
+    final heroIconTag = '${widget.heroTag}_icon';
+    final heroNameTag = '${widget.heroTag}_name';
+
+    final headerCard = Material(
+      color: Colors.transparent,
+      child: Container(
+        padding: EdgeInsets.all(_s(context, 14)),
+        decoration: BoxDecoration(
+          color: theme.cardColor,
+          borderRadius: BorderRadius.circular(_s(context, 16)),
+          border: Border.all(
+            color: (hasActivity ? Colors.green : theme.hintColor)
+                .withValues(alpha: 0.25),
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: color.withValues(alpha: 0.10),
+              blurRadius: 16,
+              offset: const Offset(0, 10),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Hero(
+                  tag: heroIconTag,
+                  createRectTween: (begin, end) =>
+                      MaterialRectArcTween(begin: begin, end: end),
+                  child: Material(
+                    color: Colors.transparent,
+                    child: Icon(icon, color: color, size: _s(context, 26)),
+                  ),
+                ),
+                SizedBox(width: _s(context, 10)),
+                Expanded(
+                  child: Hero(
+                    tag: heroNameTag,
+                    createRectTween: (begin, end) =>
+                        MaterialRectArcTween(begin: begin, end: end),
+                    child: Material(
+                      color: Colors.transparent,
+                      child: Text(
+                        name,
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.bold,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ),
+                ),
+                if (hasActivity)
+                  Container(
+                    width: _s(context, 9),
+                    height: _s(context, 9),
+                    decoration: const BoxDecoration(
+                      color: Colors.green,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+              ],
+            ),
+            SizedBox(height: _s(context, 6)),
+            Text(
+              subtitle,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.hintColor,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    final detailsContent = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (_error != null)
+          Padding(
+            padding: EdgeInsets.only(top: _s(context, 12)),
+            child: Text(
+              _error!,
+              style: theme.textTheme.bodySmall?.copyWith(color: Colors.red),
+            ),
+          ),
+        SizedBox(height: _s(context, 16)),
+        Card(
+          elevation: 0,
+          color: theme.cardColor,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(_s(context, 16)),
+            side: BorderSide(color: theme.dividerColor.withValues(alpha: 0.5)),
+          ),
+          child: Padding(
+            padding: EdgeInsets.all(_s(context, 14)),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Text(
+                      widget.isArabic ? 'أرصدة مباشرة' : 'Live balances',
+                      style: theme.textTheme.titleSmall
+                          ?.copyWith(fontWeight: FontWeight.bold),
+                    ),
+                    const Spacer(),
+                    if (_loading)
+                      SizedBox(
+                        width: _s(context, 18),
+                        height: _s(context, 18),
+                        child: const CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                  ],
+                ),
+                SizedBox(height: _s(context, 10)),
+                if (safeType == 'gold')
+                  Wrap(
+                    spacing: _s(context, 10),
+                    runSpacing: _s(context, 10),
+                    children: [
+                      buildDetailChip('24k', _weightFmt(w24)),
+                      buildDetailChip('22k', _weightFmt(w22)),
+                      buildDetailChip('21k', _weightFmt(w21)),
+                      buildDetailChip('18k', _weightFmt(w18)),
+                      buildDetailChip(
+                        widget.isArabic
+                            ? 'إجمالي (محول لعيار $displayMainKarat)'
+                            : 'Total (converted to ${displayMainKarat}k)',
+                        _weightFmt(totalMain > 0 ? totalMain : goldBalance),
+                        chipColor: AppColors.primaryGold,
+                      ),
+                    ],
+                  )
+                else
+                  Wrap(
+                    spacing: _s(context, 10),
+                    runSpacing: _s(context, 10),
+                    children: [
+                      buildDetailChip(
+                        widget.isArabic ? 'الرصيد' : 'Balance',
+                        _currencyFmt(cashBalance),
+                        chipColor: color,
+                      ),
+                    ],
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(widget.isArabic ? 'تفاصيل الخزنة' : 'Safe Box Details'),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => SafeBoxesScreen(
+                    api: widget.api,
+                    isArabic: widget.isArabic,
+                    balancesView: true,
+                  ),
+                ),
+              );
+            },
+            child: Text(widget.isArabic ? 'عرض الكل' : 'View all'),
+          ),
+        ],
+      ),
+      body: RefreshIndicator(
+        onRefresh: _refresh,
+        child: ListView(
+          padding: EdgeInsets.all(_s(context, 16)),
+          children: [
+            headerCard,
+            TweenAnimationBuilder<double>(
+              tween: Tween<double>(begin: 0, end: 1),
+              duration: const Duration(milliseconds: 260),
+              curve: Curves.easeOutCubic,
+              builder: (context, v, child) {
+                return Opacity(
+                  opacity: v,
+                  child: Transform.translate(
+                    offset: Offset(0, (1 - v) * 10),
+                    child: child,
+                  ),
+                );
+              },
+              child: detailsContent,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _weightFmt(double v) {
+    final f = NumberFormat('#,##0.000');
+    return '${f.format(v)} g';
+  }
+
+  String _currencyFmt(double v) {
+    final f = NumberFormat.currency(
+      locale: widget.isArabic ? 'ar' : 'en',
+      symbol: '',
+      decimalDigits: 2,
+    );
+    final s = f.format(v).trim();
+    return widget.isArabic ? '$s ر.س' : '$s SAR';
+  }
+}
+
+class _AnimatedValueText extends StatefulWidget {
+  final double value;
+  final String Function(double) formatter;
+  final TextStyle? style;
+
+  const _AnimatedValueText({
+    required this.value,
+    required this.formatter,
+    this.style,
+  });
+
+  @override
+  State<_AnimatedValueText> createState() => _AnimatedValueTextState();
+}
+
+class _AnimatedValueTextState extends State<_AnimatedValueText> {
+  late double _from;
+  late double _to;
+
+  @override
+  void initState() {
+    super.initState();
+    _from = 0.0;
+    _to = widget.value;
+  }
+
+  @override
+  void didUpdateWidget(covariant _AnimatedValueText oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.value != widget.value) {
+      _from = _to;
+      _to = widget.value;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return TweenAnimationBuilder<double>(
+      tween: Tween<double>(begin: _from, end: _to),
+      duration: const Duration(milliseconds: 650),
+      curve: Curves.easeOutCubic,
+      builder: (context, v, _) {
+        return Text(widget.formatter(v), style: widget.style);
+      },
+      onEnd: () {
+        _from = _to;
+      },
+    );
+  }
 }

@@ -958,6 +958,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
             barcode: result.barcode,
             category: result.category,
             categoryId: result.categoryId,
+            entryType: result.entryType,
           ),
         )
         .toList();
@@ -2968,17 +2969,24 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
                 item.name,
                 style: const TextStyle(fontWeight: FontWeight.bold),
               ),
+              if (item.entryType == PurchaseInlineEntryType.category)
+                const Text(
+                  'نوع: تصنيف فقط',
+                  style: TextStyle(fontSize: 12, color: Colors.black54),
+                ),
               if (item.category?.isNotEmpty ?? false)
                 Text(
                   'تصنيف: ${item.category}',
                   style: const TextStyle(fontSize: 12),
                 ),
-              if (item.itemCode?.isNotEmpty ?? false)
+              if (item.entryType == PurchaseInlineEntryType.item &&
+                  (item.itemCode?.isNotEmpty ?? false))
                 Text(
                   'كود: ${item.itemCode}',
                   style: const TextStyle(fontSize: 12),
                 ),
-              if (item.barcode?.isNotEmpty ?? false)
+              if (item.entryType == PurchaseInlineEntryType.item &&
+                  (item.barcode?.isNotEmpty ?? false))
                 Text(
                   'باركود: ${item.barcode}',
                   style: const TextStyle(fontSize: 12),
@@ -3108,6 +3116,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
     karat = normalizedInitialKarat;
     bool hasStones = existing?.hasStones ?? false;
     bool wageInputIsTotal = false;
+    var entryType = existing?.entryType ?? PurchaseInlineEntryType.item;
     String? selectedCategoryName = (existing?.category?.isNotEmpty ?? false)
         ? existing!.category
         : null;
@@ -3118,6 +3127,97 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
       builder: (dialogContext) {
         return StatefulBuilder(
           builder: (context, setDialogState) {
+            void submit() {
+              final name = nameController.text.trim();
+              final parsedWeight = double.tryParse(weightController.text) ?? 0;
+              final parsedWagePerGram = double.tryParse(wageController.text) ?? 0;
+              final parsedWageTotal =
+                  double.tryParse(wageTotalController.text) ?? 0;
+
+              final categoryItems = _buildCategoryDropdownItems();
+              final hasCategoryValue = categoryItems.any(
+                (item) => item.value == selectedCategoryName,
+              );
+              final effectiveCategoryName =
+                  hasCategoryValue ? selectedCategoryName : null;
+              final effectiveCategoryId = _categoryIdForName(
+                effectiveCategoryName,
+              );
+
+              final stonesWeight =
+                  double.tryParse(stonesWeightController.text) ?? 0;
+              final stonesValue =
+                  double.tryParse(stonesValueController.text) ?? 0;
+
+              final resolvedWagePerGram = wageInputIsTotal
+                  ? (parsedWeight > 0 ? (parsedWageTotal / parsedWeight) : 0.0)
+                  : parsedWagePerGram;
+
+              final isCategoryOnly = entryType == PurchaseInlineEntryType.category;
+
+              if (parsedWeight <= 0) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('الوزن مطلوب'),
+                  ),
+                );
+                return;
+              }
+
+              if (!isCategoryOnly && name.isEmpty) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('اسم الصنف مطلوب لإضافة صنف'),
+                  ),
+                );
+                return;
+              }
+
+              if (isCategoryOnly &&
+                  (effectiveCategoryId == null ||
+                      effectiveCategoryName == null ||
+                      effectiveCategoryName.trim().isEmpty)) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('اختر تصنيفاً قبل الحفظ'),
+                  ),
+                );
+                return;
+              }
+
+              final resolvedName = isCategoryOnly
+                  ? (name.isNotEmpty ? name : (effectiveCategoryName ?? 'تصنيف'))
+                  : name;
+
+              Navigator.of(dialogContext).pop(
+                PurchaseInlineItem(
+                  name: resolvedName,
+                  karat: karat,
+                  weightGrams: parsedWeight,
+                  wagePerGram: resolvedWagePerGram,
+                  description: descriptionController.text.trim().isEmpty
+                      ? null
+                      : descriptionController.text.trim(),
+                  itemCode: isCategoryOnly
+                      ? null
+                      : (itemCodeController.text.trim().isEmpty
+                          ? null
+                          : itemCodeController.text.trim()),
+                  barcode: isCategoryOnly
+                      ? null
+                      : (barcodeController.text.trim().isEmpty
+                          ? null
+                          : barcodeController.text.trim()),
+                  category: effectiveCategoryName,
+                  categoryId: effectiveCategoryId,
+                  hasStones: hasStones,
+                  stonesWeight: hasStones ? stonesWeight : 0,
+                  stonesValue: hasStones ? stonesValue : 0,
+                  entryType: entryType,
+                ),
+              );
+            }
+
             final weight = double.tryParse(weightController.text) ?? 0;
             final wagePerGramInput = double.tryParse(wageController.text) ?? 0;
             final wageTotalInput =
@@ -3140,8 +3240,15 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
                 ? selectedCategoryName
                 : null;
 
+            final isCategoryOnly =
+                entryType == PurchaseInlineEntryType.category;
+
             return AlertDialog(
-              title: Text(existing == null ? 'إضافة صنف' : 'تعديل الصنف'),
+              title: Text(
+                existing == null
+                    ? (isCategoryOnly ? 'إضافة تصنيف' : 'إضافة صنف')
+                    : (isCategoryOnly ? 'تعديل التصنيف' : 'تعديل الصنف'),
+              ),
               content: DefaultTabController(
                 length: 2,
                 child: Builder(
@@ -3188,12 +3295,48 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
                                 ListView(
                                   padding: EdgeInsets.zero,
                                   children: [
+                                    ToggleButtons(
+                                      isSelected: [
+                                        entryType == PurchaseInlineEntryType.item,
+                                        entryType ==
+                                            PurchaseInlineEntryType.category,
+                                      ],
+                                      borderRadius: BorderRadius.circular(12),
+                                      onPressed: (index) {
+                                        final next = index == 0
+                                            ? PurchaseInlineEntryType.item
+                                            : PurchaseInlineEntryType.category;
+                                        if (next == entryType) return;
+                                        setDialogState(() {
+                                          entryType = next;
+                                        });
+                                      },
+                                      children: const [
+                                        Padding(
+                                          padding: EdgeInsets.symmetric(
+                                            horizontal: 16,
+                                            vertical: 10,
+                                          ),
+                                          child: Text('تسجيل كصنف'),
+                                        ),
+                                        Padding(
+                                          padding: EdgeInsets.symmetric(
+                                            horizontal: 16,
+                                            vertical: 10,
+                                          ),
+                                          child: Text('تسجيل كتصنيف'),
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 10),
                                     TextField(
                                       controller: nameController,
-                                      decoration: const InputDecoration(
-                                        labelText: 'اسم الصنف',
-                                        border: OutlineInputBorder(),
-                                        prefixIcon: Icon(Icons.title),
+                                      decoration: InputDecoration(
+                                        labelText: isCategoryOnly
+                                            ? 'اسم/وصف (اختياري)'
+                                            : 'اسم الصنف',
+                                        border: const OutlineInputBorder(),
+                                        prefixIcon: const Icon(Icons.title),
                                       ),
                                     ),
                                     const SizedBox(height: 12),
@@ -3227,6 +3370,8 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
                                           const TextInputType.numberWithOptions(
                                             decimal: true,
                                           ),
+                                      textInputAction:
+                                          TextInputAction.next,
                                       inputFormatters: [
                                         NormalizeNumberFormatter(),
                                         FilteringTextInputFormatter.allow(
@@ -3289,12 +3434,14 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
                                           const TextInputType.numberWithOptions(
                                             decimal: true,
                                           ),
+                                      textInputAction: TextInputAction.done,
                                       inputFormatters: [
                                         NormalizeNumberFormatter(),
                                         FilteringTextInputFormatter.allow(
                                           RegExp(r'^[0-9]*\.?[0-9]*$'),
                                         ),
                                       ],
+                                      onSubmitted: (_) => submit(),
                                       decoration: InputDecoration(
                                         labelText: wageInputIsTotal
                                             ? 'إجمالي أجور المصنعية (ريال)'
@@ -3319,15 +3466,17 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
                                       ),
                                     ),
                                     const SizedBox(height: 12),
-                                    TextField(
-                                      controller: itemCodeController,
-                                      decoration: const InputDecoration(
-                                        labelText: 'كود الصنف (اختياري)',
-                                        border: OutlineInputBorder(),
-                                        prefixIcon: Icon(Icons.tag),
+                                    if (!isCategoryOnly) ...[
+                                      TextField(
+                                        controller: itemCodeController,
+                                        decoration: const InputDecoration(
+                                          labelText: 'كود الصنف (اختياري)',
+                                          border: OutlineInputBorder(),
+                                          prefixIcon: Icon(Icons.tag),
+                                        ),
                                       ),
-                                    ),
-                                    const SizedBox(height: 12),
+                                      const SizedBox(height: 12),
+                                    ],
                                     DropdownButtonFormField<String?>(
                                       initialValue: dropdownCategoryValue,
                                       items: categoryItems,
@@ -3337,17 +3486,22 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
                                           : (value) => setDialogState(() {
                                               selectedCategoryName = value;
                                             }),
-                                      decoration: _categoryDropdownDecoration(),
-                                    ),
-                                    const SizedBox(height: 12),
-                                    TextField(
-                                      controller: barcodeController,
-                                      decoration: const InputDecoration(
-                                        labelText: 'الباركود (اختياري)',
-                                        border: OutlineInputBorder(),
-                                        prefixIcon: Icon(Icons.qr_code_2),
+                                      decoration: _categoryDropdownDecoration(
+                                        labelText: isCategoryOnly
+                                            ? 'التصنيف (مطلوب)'
+                                            : 'التصنيف (اختياري)',
                                       ),
                                     ),
+                                    const SizedBox(height: 12),
+                                    if (!isCategoryOnly)
+                                      TextField(
+                                        controller: barcodeController,
+                                        decoration: const InputDecoration(
+                                          labelText: 'الباركود (اختياري)',
+                                          border: OutlineInputBorder(),
+                                          prefixIcon: Icon(Icons.qr_code_2),
+                                        ),
+                                      ),
                                   ],
                                 ),
                                 ListView(
@@ -3390,6 +3544,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
                                             const TextInputType.numberWithOptions(
                                               decimal: true,
                                             ),
+                                        textInputAction: TextInputAction.done,
                                         inputFormatters: [
                                           NormalizeNumberFormatter(),
                                           FilteringTextInputFormatter.allow(
@@ -3402,6 +3557,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
                                           prefixIcon: Icon(Icons.attach_money),
                                         ),
                                         onChanged: (_) => setDialogState(() {}),
+                                        onSubmitted: (_) => submit(),
                                       ),
                                     ],
                                   ],
@@ -3464,58 +3620,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
                   child: const Text('إلغاء'),
                 ),
                 FilledButton.icon(
-                  onPressed: () {
-                    final name = nameController.text.trim();
-                    final parsedWeight =
-                        double.tryParse(weightController.text) ?? 0;
-                    final parsedWagePerGram =
-                        double.tryParse(wageController.text) ?? 0;
-                    final parsedWageTotal =
-                        double.tryParse(wageTotalController.text) ?? 0;
-
-                    final effectiveCategoryName = dropdownCategoryValue;
-                    final effectiveCategoryId = _categoryIdForName(
-                      effectiveCategoryName,
-                    );
-
-                    final resolvedWagePerGram = wageInputIsTotal
-                        ? (parsedWeight > 0
-                              ? (parsedWageTotal / parsedWeight)
-                              : 0.0)
-                        : parsedWagePerGram;
-
-                    if (name.isEmpty || parsedWeight <= 0) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('الاسم والوزن مطلوبان لإضافة الصنف'),
-                        ),
-                      );
-                      return;
-                    }
-
-                    Navigator.of(dialogContext).pop(
-                      PurchaseInlineItem(
-                        name: name,
-                        karat: karat,
-                        weightGrams: parsedWeight,
-                        wagePerGram: resolvedWagePerGram,
-                        description: descriptionController.text.trim().isEmpty
-                            ? null
-                            : descriptionController.text.trim(),
-                        itemCode: itemCodeController.text.trim().isEmpty
-                            ? null
-                            : itemCodeController.text.trim(),
-                        barcode: barcodeController.text.trim().isEmpty
-                            ? null
-                            : barcodeController.text.trim(),
-                        category: effectiveCategoryName,
-                        categoryId: effectiveCategoryId,
-                        hasStones: hasStones,
-                        stonesWeight: hasStones ? stonesWeight : 0,
-                        stonesValue: hasStones ? stonesValue : 0,
-                      ),
-                    );
-                  },
+                  onPressed: submit,
                   icon: const Icon(Icons.save),
                   label: Text(existing == null ? 'إضافة' : 'تحديث'),
                 ),
@@ -3552,6 +3657,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
     String? selectedCategoryName;
     final weightsFocusNode = FocusNode();
     int wageModeIndex = 0; // 0: per-gram, 1: total
+    var entryType = PurchaseInlineEntryType.item;
 
     wageController.selection = TextSelection(
       baseOffset: 0,
@@ -3631,8 +3737,15 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
               weightsFocusNode.requestFocus();
             }
 
+            final isCategoryOnly =
+                entryType == PurchaseInlineEntryType.category;
+
             return AlertDialog(
-              title: const Text('إضافة عدة أوزان لنفس الصنف'),
+              title: Text(
+                isCategoryOnly
+                    ? 'إضافة عدة أوزان لنفس التصنيف'
+                    : 'إضافة عدة أوزان لنفس الصنف',
+              ),
               content: DefaultTabController(
                 length: 2,
                 child: Builder(
@@ -3681,12 +3794,48 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
                                 ListView(
                                   padding: EdgeInsets.zero,
                                   children: [
+                                    ToggleButtons(
+                                      isSelected: [
+                                        entryType == PurchaseInlineEntryType.item,
+                                        entryType ==
+                                            PurchaseInlineEntryType.category,
+                                      ],
+                                      borderRadius: BorderRadius.circular(12),
+                                      onPressed: (index) {
+                                        final next = index == 0
+                                            ? PurchaseInlineEntryType.item
+                                            : PurchaseInlineEntryType.category;
+                                        if (next == entryType) return;
+                                        setDialogState(() {
+                                          entryType = next;
+                                        });
+                                      },
+                                      children: const [
+                                        Padding(
+                                          padding: EdgeInsets.symmetric(
+                                            horizontal: 16,
+                                            vertical: 10,
+                                          ),
+                                          child: Text('تسجيل كصنف'),
+                                        ),
+                                        Padding(
+                                          padding: EdgeInsets.symmetric(
+                                            horizontal: 16,
+                                            vertical: 10,
+                                          ),
+                                          child: Text('تسجيل كتصنيف'),
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 10),
                                     TextField(
                                       controller: nameController,
-                                      decoration: const InputDecoration(
-                                        labelText: 'اسم الصنف',
-                                        border: OutlineInputBorder(),
-                                        prefixIcon: Icon(
+                                      decoration: InputDecoration(
+                                        labelText: isCategoryOnly
+                                            ? 'اسم/وصف (اختياري)'
+                                            : 'اسم الصنف',
+                                        border: const OutlineInputBorder(),
+                                        prefixIcon: const Icon(
                                           Icons.inventory_2_outlined,
                                         ),
                                       ),
@@ -3714,6 +3863,22 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
                                           karat = value;
                                         });
                                       },
+                                    ),
+                                    const SizedBox(height: 12),
+                                    DropdownButtonFormField<String?>(
+                                      initialValue: dropdownCategoryValue,
+                                      items: categoryItems,
+                                      isExpanded: true,
+                                      onChanged: _isLoadingCategories
+                                          ? null
+                                          : (value) => setDialogState(() {
+                                              selectedCategoryName = value;
+                                            }),
+                                      decoration: _categoryDropdownDecoration(
+                                        labelText: isCategoryOnly
+                                            ? 'التصنيف (مطلوب)'
+                                            : 'التصنيف (اختياري)',
+                                      ),
                                     ),
                                     const SizedBox(height: 12),
                                     ToggleButtons(
@@ -3871,35 +4036,28 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
                                       ),
                                     ),
                                     const SizedBox(height: 12),
-                                    TextField(
-                                      controller: itemCodeController,
-                                      decoration: const InputDecoration(
-                                        labelText: 'كود الصنف (اختياري)',
-                                        border: OutlineInputBorder(),
-                                        prefixIcon: Icon(Icons.tag),
+                                    if (!isCategoryOnly) ...[
+                                      TextField(
+                                        controller: itemCodeController,
+                                        decoration: const InputDecoration(
+                                          labelText: 'كود الصنف (اختياري)',
+                                          border: OutlineInputBorder(),
+                                          prefixIcon: Icon(Icons.tag),
+                                        ),
                                       ),
-                                    ),
-                                    const SizedBox(height: 12),
-                                    DropdownButtonFormField<String?>(
-                                      initialValue: dropdownCategoryValue,
-                                      items: categoryItems,
-                                      isExpanded: true,
-                                      onChanged: _isLoadingCategories
-                                          ? null
-                                          : (value) => setDialogState(() {
-                                              selectedCategoryName = value;
-                                            }),
-                                      decoration: _categoryDropdownDecoration(),
-                                    ),
-                                    const SizedBox(height: 12),
-                                    TextField(
-                                      controller: barcodeController,
-                                      decoration: const InputDecoration(
-                                        labelText: 'الباركود (اختياري)',
-                                        border: OutlineInputBorder(),
-                                        prefixIcon: Icon(Icons.qr_code_2),
+                                      const SizedBox(height: 12),
+                                    ],
+                                    if (!isCategoryOnly) ...[
+                                      const SizedBox(height: 12),
+                                      TextField(
+                                        controller: barcodeController,
+                                        decoration: const InputDecoration(
+                                          labelText: 'الباركود (اختياري)',
+                                          border: OutlineInputBorder(),
+                                          prefixIcon: Icon(Icons.qr_code_2),
+                                        ),
                                       ),
-                                    ),
+                                    ],
                                   ],
                                 ),
                               ],
@@ -3929,6 +4087,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
                                 _previewRow(
                                   'إجمالي الوزن',
                                   _formatWeight(totalWeight),
+                                  highlight: totalWeight > 0,
                                 ),
                                 _previewRow(
                                   'إجمالي الأجور',
@@ -3938,6 +4097,24 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
                                   'الأجور/جرام',
                                   effectiveWagePerGram.toStringAsFixed(2),
                                 ),
+                                _previewRow(
+                                  'التصنيف',
+                                  dropdownCategoryValue ?? 'بدون تصنيف',
+                                ),
+                                if (!isCategoryOnly &&
+                                    itemCodeController.text
+                                        .trim()
+                                        .isNotEmpty)
+                                  _previewRow(
+                                    'كود الصنف',
+                                    itemCodeController.text.trim(),
+                                  ),
+                                if (!isCategoryOnly &&
+                                    barcodeController.text.trim().isNotEmpty)
+                                  _previewRow(
+                                    'الباركود',
+                                    barcodeController.text.trim(),
+                                  ),
                               ],
                             ),
                           ),
@@ -3964,9 +4141,19 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
                       effectiveCategoryName,
                     );
 
-                    if (name.isEmpty) {
+                    if (!isCategoryOnly && name.isEmpty) {
                       ScaffoldMessenger.of(parentContext).showSnackBar(
                         const SnackBar(content: Text('اسم الصنف مطلوب')),
+                      );
+                      return;
+                    }
+
+                    if (isCategoryOnly &&
+                        (effectiveCategoryId == null ||
+                            effectiveCategoryName == null ||
+                            effectiveCategoryName.trim().isEmpty)) {
+                      ScaffoldMessenger.of(parentContext).showSnackBar(
+                        const SnackBar(content: Text('اختر تصنيفاً قبل الحفظ')),
                       );
                       return;
                     }
@@ -3989,23 +4176,34 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
                       return;
                     }
 
+                    final resolvedName = isCategoryOnly
+                        ? (name.isNotEmpty
+                            ? name
+                            : (effectiveCategoryName ?? 'تصنيف'))
+                        : name;
+
                     Navigator.of(dialogContext).pop(
                       _InlineBulkResult(
-                        name: name,
+                        name: resolvedName,
                         karat: karat,
                         wagePerGram: wagePerGram,
                         weights: weights,
                         description: descriptionController.text.trim().isEmpty
                             ? null
                             : descriptionController.text.trim(),
-                        itemCode: itemCodeController.text.trim().isEmpty
+                        itemCode: isCategoryOnly
                             ? null
-                            : itemCodeController.text.trim(),
-                        barcode: barcodeController.text.trim().isEmpty
+                            : (itemCodeController.text.trim().isEmpty
+                                ? null
+                                : itemCodeController.text.trim()),
+                        barcode: isCategoryOnly
                             ? null
-                            : barcodeController.text.trim(),
+                            : (barcodeController.text.trim().isEmpty
+                                ? null
+                                : barcodeController.text.trim()),
                         category: effectiveCategoryName,
                         categoryId: effectiveCategoryId,
+                        entryType: entryType,
                       ),
                     );
                   },
@@ -4316,6 +4514,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
                       keyboardType: const TextInputType.numberWithOptions(
                         decimal: true,
                       ),
+                      textInputAction: TextInputAction.next,
                       inputFormatters: [
                         NormalizeNumberFormatter(),
                         FilteringTextInputFormatter.allow(
@@ -4335,6 +4534,8 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
                       keyboardType: const TextInputType.numberWithOptions(
                         decimal: true,
                       ),
+                      textInputAction:
+                          _manualPricing ? TextInputAction.next : TextInputAction.done,
                       inputFormatters: [
                         NormalizeNumberFormatter(),
                         FilteringTextInputFormatter.allow(
@@ -4347,6 +4548,53 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
                         prefixIcon: Icon(Icons.build),
                       ),
                       onChanged: (_) => setDialogState(() {}),
+                      onSubmitted: _manualPricing
+                          ? null
+                          : (_) {
+                              final weightValue =
+                                  double.tryParse(weightController.text) ?? 0;
+                              final wageValue =
+                                  double.tryParse(wagePerGramController.text) ?? 0;
+                              if (weightValue <= 0) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text('يرجى إدخال وزن صحيح'),
+                                  ),
+                                );
+                                return;
+                              }
+                              if (wageValue < 0) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text(
+                                      'لا يمكن أن تكون أجرة المصنعية سالبة',
+                                    ),
+                                  ),
+                                );
+                                return;
+                              }
+
+                              Navigator.of(dialogContext).pop(
+                                PurchaseKaratLine(
+                                  karat: karat,
+                                  weightGrams: weightValue,
+                                  wagePerGram: wageValue,
+                                  goldValueOverride:
+                                      _manualPricing ? manualGoldValue : null,
+                                  wageCashOverride:
+                                      _manualPricing ? manualWageCash : null,
+                                  goldTaxOverride:
+                                      _manualPricing ? manualGoldTax : null,
+                                  wageTaxOverride:
+                                      _manualPricing ? manualWageTax : null,
+                                  description: notesController.text
+                                          .trim()
+                                          .isEmpty
+                                      ? null
+                                      : notesController.text.trim(),
+                                ),
+                              );
+                            },
                     ),
                     if (_manualPricing) ...[
                       const SizedBox(height: 12),
@@ -4418,6 +4666,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
                                   const TextInputType.numberWithOptions(
                                     decimal: true,
                                   ),
+                              textInputAction: TextInputAction.done,
                               inputFormatters: [
                                 NormalizeNumberFormatter(),
                                 FilteringTextInputFormatter.allow(
@@ -4429,6 +4678,51 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
                                 border: OutlineInputBorder(),
                               ),
                               onChanged: (_) => setDialogState(() {}),
+                              onSubmitted: (_) {
+                                final weightValue =
+                                    double.tryParse(weightController.text) ?? 0;
+                                final wageValue =
+                                    double.tryParse(wagePerGramController.text) ?? 0;
+                                if (weightValue <= 0) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                      content: Text('يرجى إدخال وزن صحيح'),
+                                    ),
+                                  );
+                                  return;
+                                }
+                                if (wageValue < 0) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                      content: Text(
+                                        'لا يمكن أن تكون أجرة المصنعية سالبة',
+                                      ),
+                                    ),
+                                  );
+                                  return;
+                                }
+
+                                Navigator.of(dialogContext).pop(
+                                  PurchaseKaratLine(
+                                    karat: karat,
+                                    weightGrams: weightValue,
+                                    wagePerGram: wageValue,
+                                    goldValueOverride:
+                                        _manualPricing ? manualGoldValue : null,
+                                    wageCashOverride:
+                                        _manualPricing ? manualWageCash : null,
+                                    goldTaxOverride:
+                                        _manualPricing ? manualGoldTax : null,
+                                    wageTaxOverride:
+                                        _manualPricing ? manualWageTax : null,
+                                    description: notesController.text
+                                            .trim()
+                                            .isEmpty
+                                        ? null
+                                        : notesController.text.trim(),
+                                  ),
+                                );
+                              },
                             ),
                           ),
                         ],
@@ -4967,6 +5261,7 @@ class PurchaseInlineItem {
   final String? barcode;
   final String? category;
   final int? categoryId;
+  final PurchaseInlineEntryType entryType;
 
   const PurchaseInlineItem({
     required this.name,
@@ -4981,6 +5276,7 @@ class PurchaseInlineItem {
     this.barcode,
     this.category,
     this.categoryId,
+    this.entryType = PurchaseInlineEntryType.item,
   });
 
   PurchaseInlineItem copyWith({
@@ -4996,6 +5292,7 @@ class PurchaseInlineItem {
     String? barcode,
     String? category,
     int? categoryId,
+    PurchaseInlineEntryType? entryType,
   }) {
     return PurchaseInlineItem(
       name: name ?? this.name,
@@ -5010,11 +5307,12 @@ class PurchaseInlineItem {
       barcode: barcode ?? this.barcode,
       category: category ?? this.category,
       categoryId: categoryId ?? this.categoryId,
+      entryType: entryType ?? this.entryType,
     );
   }
 
   Map<String, dynamic> toPayload() {
-    return {
+    final payload = {
       'name': name,
       'karat': karat,
       'weight': weightGrams,
@@ -5029,10 +5327,18 @@ class PurchaseInlineItem {
       'stones_value': stonesValue,
       'category': category,
       'category_id': categoryId,
-      'create_inline': true,
-    }..removeWhere((key, value) => value == null);
+    };
+
+    if (entryType == PurchaseInlineEntryType.item) {
+      payload['create_inline'] = true;
+    }
+
+    payload.removeWhere((key, value) => value == null);
+    return payload;
   }
 }
+
+enum PurchaseInlineEntryType { item, category }
 
 class _InlineBulkResult {
   final String name;
@@ -5044,6 +5350,7 @@ class _InlineBulkResult {
   final String? barcode;
   final String? category;
   final int? categoryId;
+  final PurchaseInlineEntryType entryType;
 
   const _InlineBulkResult({
     required this.name,
@@ -5055,6 +5362,7 @@ class _InlineBulkResult {
     this.barcode,
     this.category,
     this.categoryId,
+    this.entryType = PurchaseInlineEntryType.item,
   });
 }
 

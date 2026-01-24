@@ -179,6 +179,17 @@ LEGACY_FALLBACK_PAYMENT_METHODS: List[Dict[str, Any]] = [
 payment_methods_api = Blueprint('payment_methods_api', __name__)
 
 
+def _normalize_commission_timing(raw_value: Any) -> str:
+    if raw_value is None:
+        return 'invoice'
+    value = str(raw_value).strip().lower()
+    if not value:
+        return 'invoice'
+    if value in {'invoice', 'settlement'}:
+        return value
+    raise ValueError('قيمة commission_timing غير مدعومة (invoice أو settlement)')
+
+
 DEFAULT_PAYMENT_TYPE_DEFINITIONS: List[Dict[str, Any]] = [
     {
         'code': 'cash',
@@ -402,6 +413,12 @@ def _sync_payment_methods_from_settings() -> None:
             legacy.get('applicable_invoice_types')
         )
         default_safe_box_id = legacy.get('default_safe_box_id')
+        try:
+            legacy_commission_timing = _normalize_commission_timing(
+                legacy.get('commission_timing')
+            )
+        except ValueError:
+            legacy_commission_timing = 'invoice'
 
         payment_method = None
         created = False
@@ -431,6 +448,7 @@ def _sync_payment_methods_from_settings() -> None:
                 'name': name,
                 'payment_type': payment_type,
                 'commission_rate': float(commission_value or 0.0),
+                'commission_timing': legacy_commission_timing,
                 'settlement_days': int(settlement_days or 0),
                 'display_order': int(display_order or (index + 1)),
                 'is_active': is_active,
@@ -562,6 +580,13 @@ def create_payment_method():
             )
         except ValueError as exc:
             return jsonify({'error': str(exc)}), 400
+
+        try:
+            commission_timing = _normalize_commission_timing(
+                data.get('commission_timing')
+            )
+        except ValueError as exc:
+            return jsonify({'error': str(exc)}), 400
         
         # إنشاء وسيلة الدفع
         try:
@@ -569,6 +594,7 @@ def create_payment_method():
                 payment_type=data['payment_type'],
                 name=data['name'],
                 commission_rate=data.get('commission_rate', 0.0),
+                commission_timing=commission_timing,
                 settlement_days=data.get('settlement_days', 0),
                 is_active=data.get('is_active', True),
                 applicable_invoice_types=applicable_invoice_types,
@@ -677,6 +703,13 @@ def update_payment_method(id):
             payment_method.name = data['name']
         if 'commission_rate' in data:
             payment_method.commission_rate = data['commission_rate']
+        if 'commission_timing' in data:
+            try:
+                payment_method.commission_timing = _normalize_commission_timing(
+                    data.get('commission_timing')
+                )
+            except ValueError as exc:
+                return jsonify({'error': str(exc)}), 400
         if 'settlement_days' in data:
             try:
                 payment_method.settlement_days = int(data.get('settlement_days') or 0)

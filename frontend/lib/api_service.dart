@@ -362,6 +362,27 @@ class ApiService {
     }
   }
 
+  Future<List<Map<String, dynamic>>> getCustomersGoldBalances({
+    bool ensureAccounts = false,
+  }) async {
+    final uri = Uri.parse('$_baseUrl/customers/gold-balances').replace(
+      queryParameters: ensureAccounts ? {'ensure_accounts': '1'} : null,
+    );
+    final response = await _authedGet(uri);
+    if (response.statusCode == 200) {
+      final decoded = json.decode(utf8.decode(response.bodyBytes));
+      if (decoded is List) {
+        return decoded
+            .whereType<Map>()
+            .map((e) => Map<String, dynamic>.from(e))
+            .toList();
+      }
+      return const [];
+    } else {
+      throw Exception(_errorMessageFromResponse(response));
+    }
+  }
+
   Future<Map<String, dynamic>> addCustomer(
     Map<String, dynamic> customerData,
   ) async {
@@ -2049,10 +2070,18 @@ class ApiService {
   Future<List<Map<String, dynamic>>> getCategoryWeightBalances({
     int? safeBoxId,
     int? categoryId,
+    int? karat,
+    bool groupByKarat = false,
+    String? goldType,
   }) async {
     final queryParams = <String, String>{};
     if (safeBoxId != null) queryParams['safe_box_id'] = safeBoxId.toString();
     if (categoryId != null) queryParams['category_id'] = categoryId.toString();
+    if (karat != null) queryParams['karat'] = karat.toString();
+    if (groupByKarat) queryParams['group_by_karat'] = 'true';
+    if (goldType != null && goldType.trim().isNotEmpty) {
+      queryParams['gold_type'] = goldType.trim();
+    }
 
     final uri = Uri.parse(
       '$_baseUrl/category-weight/balances',
@@ -2078,6 +2107,8 @@ class ApiService {
     int? safeBoxId,
     int? categoryId,
     int? invoiceId,
+    int? karat,
+    String? goldType,
     DateTime? startDate,
     DateTime? endDate,
     int limit = 200,
@@ -2088,6 +2119,10 @@ class ApiService {
     if (safeBoxId != null) queryParams['safe_box_id'] = safeBoxId.toString();
     if (categoryId != null) queryParams['category_id'] = categoryId.toString();
     if (invoiceId != null) queryParams['invoice_id'] = invoiceId.toString();
+    if (karat != null) queryParams['karat'] = karat.toString();
+    if (goldType != null && goldType.trim().isNotEmpty) {
+      queryParams['gold_type'] = goldType.trim();
+    }
     if (startDate != null) {
       queryParams['start_date'] = startDate.toIso8601String().split('T').first;
     }
@@ -2112,6 +2147,43 @@ class ApiService {
     }
 
     return const [];
+  }
+
+  /// إنشاء حركة تعديل يدوي لأوزان التصنيفات (رصيد افتتاحي/تصحيح)
+  /// Endpoint: POST /category-weight/adjustments
+  Future<Map<String, dynamic>> createCategoryWeightAdjustments({
+    required String goldType,
+    required List<Map<String, dynamic>> lines,
+    String? createdBy,
+    String? note,
+    DateTime? date,
+  }) async {
+    final payload = <String, dynamic>{
+      'gold_type': goldType,
+      'lines': lines,
+    };
+
+    if (createdBy != null && createdBy.trim().isNotEmpty) {
+      payload['created_by'] = createdBy.trim();
+    }
+    if (note != null && note.trim().isNotEmpty) {
+      payload['note'] = note.trim();
+    }
+    if (date != null) {
+      payload['date'] = date.toIso8601String().split('T').first;
+    }
+
+    final response = await _authedPost(
+      Uri.parse('$_baseUrl/category-weight/adjustments'),
+      headers: {'Content-Type': 'application/json; charset=UTF-8'},
+      body: json.encode(payload),
+    );
+
+    if (response.statusCode == 200 || response.statusCode == 201) {
+      return json.decode(utf8.decode(response.bodyBytes));
+    }
+
+    throw Exception(_errorMessageFromResponse(response));
   }
 
   Future<Map<String, dynamic>> getSalesVsPurchasesTrend({
@@ -2721,6 +2793,7 @@ class ApiService {
     int? parentAccountId, // 🆕 أصبح اختياري للتوافق
     int? defaultSafeBoxId, // 🆕 الخزينة الافتراضية
     double commissionRate = 0.0,
+    String commissionTiming = 'invoice',
     int settlementDays = 0, // 🆕
     bool isActive = true,
     List<String>? applicableInvoiceTypes,
@@ -2729,6 +2802,7 @@ class ApiService {
       'payment_type': paymentType,
       'name': name,
       'commission_rate': commissionRate,
+      'commission_timing': commissionTiming,
       'settlement_days': settlementDays, // 🆕
       'is_active': isActive,
     };
@@ -2763,6 +2837,7 @@ class ApiService {
     required String paymentType,
     required String name,
     required double commissionRate,
+    String commissionTiming = 'invoice',
     int settlementDays = 0,
     required bool isActive,
     int? defaultSafeBoxId,
@@ -2772,6 +2847,7 @@ class ApiService {
       'payment_type': paymentType,
       'name': name,
       'commission_rate': commissionRate,
+      'commission_timing': commissionTiming,
       'settlement_days': settlementDays,
       'is_active': isActive,
       // Always include to allow clearing (null) explicitly.

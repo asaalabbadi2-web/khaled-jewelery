@@ -1091,14 +1091,14 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced> {
       onSelected: () async {
         await Navigator.push(
           context,
-          MaterialPageRoute(builder: (_) => SafeBoxesScreen()),
+          MaterialPageRoute(builder: (_) => SafeBoxesScreen(balancesView: true)),
         );
         await _loadAllData();
       },
     );
     addDestination(
       icon: Icons.credit_card,
-      title: isAr ? 'إعداد وسائل الدفع' : 'Payment Methods',
+      title: isAr ? 'إدارة وسائل الدفع' : 'Payment Methods',
       color: Colors.amber.shade600,
       onSelected: () async {
         await Navigator.push(

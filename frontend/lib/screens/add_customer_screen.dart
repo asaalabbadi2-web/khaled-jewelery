@@ -118,6 +118,8 @@ class _AddCustomerScreenState extends State<AddCustomerScreen> {
   bool _isLoading = false;
   bool get _isEditMode => widget.customer != null;
 
+  bool _ensureAccounts = true;
+
   String? _nextCustomerCode;
   int? _remainingCapacity;
 
@@ -125,6 +127,8 @@ class _AddCustomerScreenState extends State<AddCustomerScreen> {
   void initState() {
     super.initState();
     final customer = widget.customer;
+
+    _ensureAccounts = true;
 
     nameController = TextEditingController(text: customer?['name'] ?? '');
     phoneController = TextEditingController(text: customer?['phone'] ?? '');
@@ -258,6 +262,7 @@ class _AddCustomerScreenState extends State<AddCustomerScreen> {
         'postal_code': postalController.text,
         'country': countryController.text,
         'notes': notesController.text,
+        'ensure_accounts': _ensureAccounts,
       };
 
       try {
@@ -748,6 +753,47 @@ class _AddCustomerScreenState extends State<AddCustomerScreen> {
                                 hint: AutofillHints.countryName,
                                 margin: EdgeInsets.zero,
                               ),
+                            ),
+                          ],
+                          palette: palette,
+                        ),
+                        const SizedBox(height: 16),
+                        _buildSectionCard(
+                          icon: Icons.account_balance_outlined,
+                          titleAr: 'الربط المحاسبي',
+                          titleEn: 'Accounting Link',
+                          fields: [
+                            _ResponsiveField(
+                              child: SwitchListTile.adaptive(
+                                value: _ensureAccounts,
+                                onChanged: (value) {
+                                  setState(() {
+                                    _ensureAccounts = value;
+                                  });
+                                },
+                                contentPadding: EdgeInsets.zero,
+                                activeColor: primary,
+                                title: Text(
+                                  isAr
+                                      ? 'إنشاء/ربط الحسابات تلقائياً'
+                                      : 'Auto-create/link accounts',
+                                  style: TextStyle(
+                                    color: palette.primaryText,
+                                    fontFamily: 'Cairo',
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                                subtitle: Text(
+                                  isAr
+                                      ? 'ينشئ حساب مالي وحساب مذكرة وزني (أرصدة ذهب العميل) لضمان القيود الوزنية الصحيحة.'
+                                      : 'Creates a financial account + a weight memo account (customer gold balances) for correct weight postings.',
+                                  style: TextStyle(
+                                    color: palette.secondaryText,
+                                    fontFamily: 'Cairo',
+                                  ),
+                                ),
+                              ),
+                              fullWidth: true,
                             ),
                           ],
                           palette: palette,

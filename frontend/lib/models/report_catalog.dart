@@ -228,6 +228,20 @@ class ReportCatalog {
         nameEn: 'Gold Reports',
         reports: const [
           ReportDescriptor(
+            id: 'customer_gold_balances',
+            icon: Icons.people_alt_outlined,
+            titleAr: 'أرصدة ذهب العملاء',
+            titleEn: 'Customer Gold Balances',
+            descriptionAr:
+                'كشف رسمي بأرصدة الذهب للعملاء (حسابات المذكرة) مع مكافئ العيار الرئيسي.',
+            descriptionEn:
+                'Official customer gold balances (memo ledger) with main-karat equivalent.',
+            route: 'customer_gold_balances',
+            type: ReportType.gold,
+            available: true,
+            requiresFilters: false,
+          ),
+          ReportDescriptor(
             id: 'gold_price_history',
             icon: Icons.timeline,
             titleAr: 'تاريخ أسعار الذهب',

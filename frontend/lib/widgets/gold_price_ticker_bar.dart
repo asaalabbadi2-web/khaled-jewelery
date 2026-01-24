@@ -516,24 +516,31 @@ class _GoldPriceTickerBarState extends State<GoldPriceTickerBar>
                     Widget chunk() {
                       return SizedBox(
                         width: cycleWidth,
-                        child: Row(
-                          children: [
-                            Padding(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: horizontalPad,
-                              ),
-                              child: Directionality(
-                                textDirection: widget.isArabic
-                                    ? TextDirection.rtl
-                                    : TextDirection.ltr,
-                                child: DefaultTextStyle(
-                                  style: effectiveStyle,
-                                  child: buildContent(),
+                        child: UnconstrainedBox(
+                          constrainedAxis: Axis.vertical,
+                          alignment: widget.isArabic
+                              ? Alignment.centerRight
+                              : Alignment.centerLeft,
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Padding(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: horizontalPad,
+                                ),
+                                child: Directionality(
+                                  textDirection: widget.isArabic
+                                      ? TextDirection.rtl
+                                      : TextDirection.ltr,
+                                  child: DefaultTextStyle(
+                                    style: effectiveStyle,
+                                    child: buildContent(),
+                                  ),
                                 ),
                               ),
-                            ),
-                            const SizedBox(width: gap),
-                          ],
+                              const SizedBox(width: gap),
+                            ],
+                          ),
                         ),
                       );
                     }

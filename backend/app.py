@@ -8,10 +8,22 @@ try:
 	# Support both layouts:
 	# - repo root:   <repo>/.env
 	# - backend dir: <repo>/backend/.env
+	#
+	# IMPORTANT: Only load .env.production when the environment is explicitly
+	# production. This prevents dev machines from being “locked” just because
+	# .env.production exists in the repo.
 	load_dotenv(os.path.join(_repo_root, '.env'), override=False)
-	load_dotenv(os.path.join(_repo_root, '.env.production'), override=False)
 	load_dotenv(os.path.join(_backend_dir, '.env'), override=False)
-	load_dotenv(os.path.join(_backend_dir, '.env.production'), override=False)
+
+	_env = (
+		(os.getenv('YASAR_ENV') or '').strip().lower()
+		or (os.getenv('APP_ENV') or '').strip().lower()
+		or (os.getenv('ENV') or '').strip().lower()
+		or (os.getenv('FLASK_ENV') or '').strip().lower()
+	)
+	if _env in ('prod', 'production'):
+		load_dotenv(os.path.join(_repo_root, '.env.production'), override=False)
+		load_dotenv(os.path.join(_backend_dir, '.env.production'), override=False)
 except Exception:
 	pass
 # Ensure the backend package directory is importable as top-level for legacy
@@ -92,8 +104,38 @@ from flask_cors import CORS
 app = Flask(__name__)
 # Flask secret key (used by some Flask features). Keep separate from JWT secret.
 app.config['SECRET_KEY'] = (os.getenv('FLASK_SECRET_KEY') or os.getenv('SECRET_KEY') or 'yasar-gold-dev-flask-secret').strip()
-# Configure PostgreSQL connection (replace values as needed)
-app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URL', f"sqlite:///{os.path.join(os.path.dirname(os.path.abspath(__file__)), 'app.db')}")
+
+
+def _normalize_database_url(raw: str) -> str:
+	"""Normalize DATABASE_URL to avoid surprises with Flask's instance/ path.
+
+	Flask-SQLAlchemy resolves relative SQLite paths under the app's `instance/`
+	directory. Historically this project uses `backend/app.db`, so we normalize
+	common relative SQLite URLs (e.g. sqlite:///app.db) to point to backend/app.db.
+	"""
+	value = (raw or '').strip()
+	if not value:
+		return value
+	if value.startswith('sqlite:///') and not value.startswith('sqlite:////'):
+		sqlite_path = value[len('sqlite:///'):]
+		# Absolute paths are already fine (they end up as sqlite:////abs/path)
+		# Only normalize the simplest relative filename (e.g. "app.db").
+		# If the value includes path separators (e.g. "../app.db"), respect it.
+		if (
+			sqlite_path
+			and not sqlite_path.startswith('/')
+			and '/' not in sqlite_path
+			and '\\' not in sqlite_path
+		):
+			backend_dir = os.path.dirname(os.path.abspath(__file__))
+			abs_path = os.path.abspath(os.path.join(backend_dir, sqlite_path))
+			return f"sqlite:///{abs_path}"
+	return value
+
+
+# Configure DB connection
+_default_db = f"sqlite:///{os.path.join(os.path.dirname(os.path.abspath(__file__)), 'app.db')}"
+app.config['SQLALCHEMY_DATABASE_URI'] = _normalize_database_url(os.getenv('DATABASE_URL', _default_db))
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 
@@ -289,6 +331,24 @@ def create_tables():
 try:
 	create_tables()
 	with app.app_context():
+		# Seed chart of accounts only for fresh/empty databases.
+		try:
+			from coa_seed import seed_chart_of_accounts_if_empty
+			seeded = seed_chart_of_accounts_if_empty(db, '../exports/accounts_standard_220126.json')
+			if seeded:
+				print(f"[INFO] Seeded chart of accounts from standard JSON: {seeded} accounts")
+		except Exception as exc:
+			print(f"[WARNING] COA seed skipped/failed: {exc}")
+
+		# Repair/normalize employee gold custody group account numbering on startup.
+		try:
+			from employee_gold_safe_helpers import ensure_employee_gold_group_account
+			ensure_employee_gold_group_account(created_by='system')
+			db.session.commit()
+		except Exception as exc:
+			db.session.rollback()
+			print(f"[WARNING] Employee gold custody bootstrap skipped/failed: {exc}")
+
 		ensure_weight_closing_support_accounts()
 		try:
 			ensure_default_payment_types()

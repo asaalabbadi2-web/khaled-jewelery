@@ -32,6 +32,9 @@ backend/needs_reset.flag
 backend/*.current
 backend/*.backup*
 
+# Temporary investigation artifacts (do not track)
+backend/tmp_*.json
+
 # ===== Flutter / Dart frontend =====
 frontend/.dart_tool/
 frontend/build/

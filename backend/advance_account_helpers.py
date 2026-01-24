@@ -32,17 +32,14 @@ def _get_advances_parent_account() -> Tuple[Optional[Account], str]:
     """Return (parent_account, scheme).
 
     scheme:
-    - '1710' (preferred)
-    - '1400' (legacy)
+    - '1710' (supported)
+
+    Legacy scheme '1400' has been removed by request.
     """
 
     parent = Account.query.filter_by(account_number='1710').first()
     if parent:
         return parent, '1710'
-
-    parent = Account.query.filter_by(account_number='1400').first()
-    if parent:
-        return parent, '1400'
 
     return None, 'none'
 
@@ -51,41 +48,17 @@ def get_next_advance_account_number():
     توليد رقم الحساب التالي لسلفة جديدة
     
     Returns:
-        str: رقم الحساب التالي المتاح (مثل: 140000، 140001...)
+        str: رقم الحساب التالي المتاح (مثل: 1710000، 1710001...)
     
     Raises:
         ValueError: إذا تجاوزت السعة المتاحة (10,000 سلفة)
     """
     parent, scheme = _get_advances_parent_account()
-    if scheme == '1710':
-        # Under 1710 (4 digits) -> 1710000..1710999
-        return get_next_account_number('1710')
+    if scheme != '1710' or not parent:
+        raise ValueError("الحساب التجميعي للسلف (1710) غير موجود. تم إلغاء دعم 1400 نهائياً.")
 
-    # Legacy: نطاق حسابات السلف: 140000 - 149999
-    start_range = 140000
-    end_range = 149999
-    
-    # البحث عن آخر رقم حساب سلفة
-    last_account = Account.query.filter(
-        Account.account_number >= str(start_range),
-        Account.account_number <= str(end_range)
-    ).order_by(Account.account_number.desc()).first()
-    
-    if last_account:
-        last_number = int(last_account.account_number)
-        next_number = last_number + 1
-    else:
-        # أول حساب سلفة
-        next_number = start_range
-    
-    # تحقق من عدم تجاوز النطاق
-    if next_number > end_range:
-        raise ValueError(
-            f"تجاوزت السعة المتاحة لحسابات السلف. "
-            f"الحد الأقصى: {end_range - start_range + 1} سلفة"
-        )
-    
-    return str(next_number)
+    # Under 1710 (4 digits) -> 1710000..1710999
+    return get_next_account_number('1710')
 
 
 def create_advance_account_for_employee(employee_id, created_by='system'):
@@ -122,7 +95,7 @@ def create_advance_account_for_employee(employee_id, created_by='system'):
     parent_account, scheme = _get_advances_parent_account()
     if not parent_account:
         raise ValueError(
-            "الحساب التجميعي للسلف (1710/1400) غير موجود. "
+            "الحساب التجميعي للسلف (1710) غير موجود. "
             "يرجى التأكد من شجرة الحسابات أو إنشاء الحسابات التجميعية أولاً"
         )
     
@@ -165,19 +138,14 @@ def get_employee_advance_account(employee_id):
         legacy=f"سلفة {employee.name}",
     )
 
-    # Preferred scheme: search under 1710 by parent_id + name
+    # Search under 1710 by parent_id + name
     if scheme == '1710' and parent:
         return Account.query.filter(
             Account.parent_id == parent.id,
             Account.name.in_(possible_names),
         ).first()
 
-    # Legacy scheme: search by numeric range
-    return Account.query.filter(
-        Account.account_number >= '140000',
-        Account.account_number <= '149999',
-        Account.name.in_(possible_names),
-    ).first()
+    return None
 
 
 def get_or_create_employee_advance_account(employee_id, created_by='system'):

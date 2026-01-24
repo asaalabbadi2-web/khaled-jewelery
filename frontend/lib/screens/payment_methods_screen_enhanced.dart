@@ -799,6 +799,13 @@ class _PaymentMethodsScreenEnhancedState
       text: (editingMethod?['settlement_days'] ?? 0).toString(),
     );
 
+    String selectedCommissionTiming =
+        (editingMethod?['commission_timing']?.toString().trim().toLowerCase() ?? 'invoice');
+    if (selectedCommissionTiming != 'invoice' &&
+        selectedCommissionTiming != 'settlement') {
+      selectedCommissionTiming = 'invoice';
+    }
+
     String? selectedType = editingMethod?['payment_type'];
     bool isActive = editingMethod?['is_active'] ?? true;
     String? invoiceTypesError;
@@ -987,6 +994,37 @@ class _PaymentMethodsScreenEnhancedState
                       fillColor: Colors.grey.shade50,
                     ),
                     keyboardType: TextInputType.number,
+                  ),
+
+                  SizedBox(height: 16),
+
+                  // متى تُسجل العمولة؟
+                  DropdownButtonFormField<String>(
+                    initialValue: selectedCommissionTiming,
+                    decoration: InputDecoration(
+                      labelText: 'تسجيل العمولة',
+                      prefixIcon: Icon(Icons.receipt_long, color: _infoColor),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      filled: true,
+                      fillColor: Colors.grey.shade50,
+                    ),
+                    items: const [
+                      DropdownMenuItem(
+                        value: 'invoice',
+                        child: Text('ضمن الفاتورة (لا تخصم عند التسوية)'),
+                      ),
+                      DropdownMenuItem(
+                        value: 'settlement',
+                        child: Text('عند التسوية (لا تخصم ضمن الفاتورة)'),
+                      ),
+                    ],
+                    onChanged: (value) {
+                      setDialogState(() {
+                        selectedCommissionTiming = value ?? 'invoice';
+                      });
+                    },
                   ),
 
                   SizedBox(height: 16),
@@ -1322,6 +1360,7 @@ class _PaymentMethodsScreenEnhancedState
                         name: name,
                         defaultSafeBoxId: selectedDefaultSafeBoxId,
                         commissionRate: commissionRate,
+                        commissionTiming: selectedCommissionTiming,
                         settlementDays: settlementDays, // 🆕
                         isActive: isActive,
                         applicableInvoiceTypes: invoiceTypeList,
@@ -1333,6 +1372,7 @@ class _PaymentMethodsScreenEnhancedState
                         paymentType: selectedType!,
                         name: name,
                         commissionRate: commissionRate,
+                        commissionTiming: selectedCommissionTiming,
                         settlementDays: settlementDays,
                         isActive: isActive,
                         defaultSafeBoxId: selectedDefaultSafeBoxId,

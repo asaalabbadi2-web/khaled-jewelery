@@ -114,6 +114,8 @@ class _AddSupplierScreenState extends State<AddSupplierScreen> {
 
   bool _isSaving = false;
 
+  bool _ensureAccounts = true;
+
   String _defaultWageType = 'cash';
 
   bool get _isEditMode => widget.supplier != null;
@@ -124,6 +126,7 @@ class _AddSupplierScreenState extends State<AddSupplierScreen> {
   @override
   void initState() {
     super.initState();
+    _ensureAccounts = true;
     _nameController = TextEditingController(
       text: widget.supplier?['name'] ?? '',
     );
@@ -220,6 +223,7 @@ class _AddSupplierScreenState extends State<AddSupplierScreen> {
       'postal_code': _postalCodeController.text.trim(),
       'country': _countryController.text.trim(),
       'default_wage_type': _defaultWageType,
+      'ensure_accounts': _ensureAccounts,
     };
 
     try {
@@ -787,6 +791,48 @@ class _AddSupplierScreenState extends State<AddSupplierScreen> {
                                 label: widget.isArabic ? 'الدولة' : 'Country',
                                 hint: AutofillHints.countryName,
                               ),
+                            ),
+                          ],
+                          palette: palette,
+                        ),
+                        const SizedBox(height: 16),
+                        _buildSectionCard(
+                          icon: Icons.account_balance_outlined,
+                          title: widget.isArabic
+                              ? 'الربط المحاسبي'
+                              : 'Accounting link',
+                          fields: [
+                            _ResponsiveField(
+                              child: SwitchListTile.adaptive(
+                                value: _ensureAccounts,
+                                onChanged: (value) {
+                                  setState(() {
+                                    _ensureAccounts = value;
+                                  });
+                                },
+                                contentPadding: EdgeInsets.zero,
+                                activeColor: primary,
+                                title: Text(
+                                  widget.isArabic
+                                      ? 'إنشاء/ربط الحسابات تلقائياً'
+                                      : 'Auto-create/link accounts',
+                                  style: TextStyle(
+                                    color: palette.primaryText,
+                                    fontFamily: 'Cairo',
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                                subtitle: Text(
+                                  widget.isArabic
+                                      ? 'ينشئ حساب مالي وحساب مذكرة وزني (أرصدة ذهب المورد) لضمان القيود الوزنية الصحيحة.'
+                                      : 'Creates a financial account + a weight memo account for correct weight postings.',
+                                  style: TextStyle(
+                                    color: palette.secondaryText,
+                                    fontFamily: 'Cairo',
+                                  ),
+                                ),
+                              ),
+                              fullWidth: true,
                             ),
                           ],
                           palette: palette,

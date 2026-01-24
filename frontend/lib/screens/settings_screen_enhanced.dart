@@ -980,7 +980,10 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
                 Navigator.push(
                   context,
                   MaterialPageRoute(
-                    builder: (_) => SafeBoxesScreen(api: _apiService),
+                    builder: (_) => SafeBoxesScreen(
+                      api: _apiService,
+                      balancesView: true,
+                    ),
                   ),
                 );
               },
@@ -1090,7 +1093,10 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
                       Navigator.push(
                         context,
                         MaterialPageRoute(
-                          builder: (_) => SafeBoxesScreen(api: _apiService),
+                          builder: (_) => SafeBoxesScreen(
+                            api: _apiService,
+                            balancesView: true,
+                          ),
                         ),
                       );
                     },
@@ -1606,7 +1612,8 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
           title: 'إعادة تهيئة النظام',
           children: [
             Text(
-              'استخدم هذه الأداة لمسح البيانات وإعادة ضبط النظام.',
+              'استخدم هذه الأداة لمسح البيانات وإعادة ضبط النظام.\n'
+              'ملاحظة: قد تكون بعض الخيارات مقفولة تلقائياً على الإنتاج (Production Lock).',
               style: Theme.of(context).textTheme.bodyMedium,
             ),
             const SizedBox(height: 16),

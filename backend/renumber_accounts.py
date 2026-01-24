@@ -53,7 +53,7 @@ def safe_delete_accounts(force=False):
         return True
 
 
-def create_financial_and_memo_accounts():
+def create_financial_and_memo_accounts(*, force_delete_existing: bool = False):
     """
     إنشاء شجرة الحسابات بالنظام الجديد:
     - المالية: 1, 11, 110, 120, إلخ
@@ -65,6 +65,28 @@ def create_financial_and_memo_accounts():
     - يضيف كلمة "وزني" بعد اسم كل حساب
     """
     with app.app_context():
+        if force_delete_existing:
+            # Destructive mode: ensure we start from an empty account table.
+            # This avoids UNIQUE collisions when bootstraps or previous runs left rows behind.
+            try:
+                db.session.execute(db.text('PRAGMA foreign_keys=OFF'))
+            except Exception:
+                pass
+
+            try:
+                JournalEntryLine.query.delete()
+                JournalEntry.query.delete()
+                Account.query.delete()
+                db.session.commit()
+            except Exception:
+                db.session.rollback()
+                raise
+            finally:
+                try:
+                    db.session.execute(db.text('PRAGMA foreign_keys=ON'))
+                    db.session.commit()
+                except Exception:
+                    db.session.rollback()
         accounts_created = []
         financial_accounts = []  # 🆕 قائمة لتخزين الحسابات المالية لنسخها
         support_accounts_map = {}
@@ -80,10 +102,33 @@ def create_financial_and_memo_accounts():
         def create_account_from_payload(payload):
             if not payload:
                 return None
+            account_number = payload.get('account_number')
+            existing = find_account_by_number(account_number)
+
             parent_number = payload.get('parent_number')
             parent_account = find_account_by_number(parent_number) if parent_number else None
             if parent_number and not parent_account:
                 raise ValueError(f"تعذر العثور على الحساب الأب {parent_number} أثناء إنشاء الحساب {payload.get('account_number')}")
+
+            # Avoid duplicate insertions when WEIGHT_SUPPORT_ACCOUNTS references accounts
+            # already created in the main chart.
+            if existing:
+                # Best-effort: align key fields with the payload.
+                if payload.get('name'):
+                    existing.name = payload.get('name')
+                if payload.get('type'):
+                    existing.type = payload.get('type')
+                if 'transaction_type' in payload and payload.get('transaction_type'):
+                    existing.transaction_type = payload.get('transaction_type')
+                if 'tracks_weight' in payload:
+                    existing.tracks_weight = bool(payload.get('tracks_weight'))
+                if parent_account:
+                    existing.parent_id = parent_account.id
+
+                db.session.flush()
+                if existing not in accounts_created:
+                    accounts_created.append(existing)
+                return existing
 
             account = Account(
                 account_number=payload.get('account_number'),
@@ -105,6 +150,21 @@ def create_financial_and_memo_accounts():
             print("\n🟣 إنشاء النسخ الوزنية للحسابات المالية...")
             
             memo_accounts_map = {}  # {رقم_مالي: حساب_وزني}
+
+            # إنشاء جذر المذكرة (7) لتفادي ظهور 71..75 كجذور مستقلة
+            memo_root = Account.query.filter_by(account_number='7').first()
+            if not memo_root:
+                memo_root = Account(
+                    account_number='7',
+                    name='حسابات المذكرة',
+                    type='Equity',
+                    transaction_type='gold',
+                    tracks_weight=True,
+                    parent_id=None,
+                )
+                db.session.add(memo_root)
+                db.session.flush()
+                accounts_created.append(memo_root)
             
             # المرور على جميع الحسابات المالية بالترتيب
             for fin_account in financial_accounts:
@@ -121,6 +181,9 @@ def create_financial_and_memo_accounts():
                     parent_fin = next((acc for acc in financial_accounts if acc.id == fin_account.parent_id), None)
                     if parent_fin and parent_fin.account_number in memo_accounts_map:
                         memo_parent_id = memo_accounts_map[parent_fin.account_number].id
+                else:
+                    # الحسابات المالية الجذرية (1..5) تصبح تحت 7
+                    memo_parent_id = memo_root.id
                 
                 # إنشاء الحساب الوزني
                 memo_account = Account(

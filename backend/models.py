@@ -262,6 +262,11 @@ class PaymentMethod(db.Model):
     
     # نسبة العمولة (بدون VAT)
     commission_rate = db.Column(db.Float, default=0.0)  # مثال: 2.5 (يعني 2.5%)
+
+    # متى تُسجل العمولة؟
+    # - invoice: تُحسب/تُسجل ضمن الفاتورة (وتؤثر على net_amount)
+    # - settlement: تُسجل عند التسوية (ولا تخصم ضمن الفاتورة)
+    commission_timing = db.Column(db.String(20), default='invoice', nullable=False)
     
     # أيام التسوية
     settlement_days = db.Column(db.Integer, default=0)  # عدد أيام التسوية
@@ -303,6 +308,7 @@ class PaymentMethod(db.Model):
             'payment_type': self.payment_type,
             'name': self.name,
             'commission_rate': self.commission_rate,
+            'commission_timing': getattr(self, 'commission_timing', 'invoice'),
             'settlement_days': getattr(self, 'settlement_days', 0),
             'is_active': self.is_active,
             'display_order': self.display_order,

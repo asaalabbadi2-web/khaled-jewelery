@@ -67,7 +67,7 @@ def group_account_name(kind: str) -> str:
 	if k == 'employee_cash_custody':
 		return 'حساب عهدة نقدية الموظفين'
 	if k == 'employee_gold_custody':
-		return 'حساب عهدة ذهب الموظفين'
+		return 'حساب عهدة ذهب الموظفين وزني'
 	return kind
 
 

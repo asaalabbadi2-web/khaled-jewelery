@@ -58,6 +58,7 @@ except ImportError:  # Local scripts running from backend/ directory
     from config import WEIGHT_SUPPORT_ACCOUNTS, REQUIRE_AUTH_FOR_INVOICE_CREATE
 from office_supplier_service import ensure_office_supplier
 from office_account_service import ensure_office_account
+from party_account_service import ensure_customer_accounts, ensure_supplier_accounts
 from code_generator import generate_item_code, generate_barcode_from_item_code, validate_item_code
 from dual_system_helpers import (
     create_dual_journal_entry,
@@ -84,6 +85,45 @@ api = Blueprint('api', __name__)
 # This blueprint intentionally has no auth `before_request` so it can be used
 # on the login screen.
 public_api = Blueprint('public_api', __name__)
+
+
+def _is_production_env() -> bool:
+    env = (
+        (os.getenv('YASAR_ENV') or '').strip().lower()
+        or (os.getenv('APP_ENV') or '').strip().lower()
+        or (os.getenv('ENV') or '').strip().lower()
+        or (os.getenv('FLASK_ENV') or '').strip().lower()
+    )
+    return env in ('prod', 'production')
+
+
+@api.route('/debug/db-info', methods=['GET'])
+def debug_db_info():
+    """Debug-only helper to confirm which DB the running backend is using.
+
+    This is intentionally restricted in production.
+    """
+    if _is_production_env():
+        return jsonify({'error': 'not_found'}), 404
+
+    try:
+        configured_uri = current_app.config.get('SQLALCHEMY_DATABASE_URI')
+    except Exception:
+        configured_uri = None
+
+    try:
+        engine_url = str(db.engine.url)
+    except Exception:
+        engine_url = None
+
+    return jsonify(
+        {
+            'sqlalchemy_database_uri': configured_uri,
+            'engine_url': engine_url,
+            'is_sqlite': _is_sqlite_database(),
+            'sqlite_path': _sqlite_db_path(),
+        }
+    )
 
 
 def _is_sqlite_database() -> bool:
@@ -898,6 +938,19 @@ def _repair_inventory_wage_memo_links():
     - Links 1340 -> 71330 and 1350 -> 71340.
     """
     try:
+        # --- Fix inventory hierarchy issues (accounts appearing as roots) ---
+        # Some DBs ended up with inventory children created without parent_id due to
+        # missing/incorrect parent_number in WEIGHT_SUPPORT_ACCOUNTS.
+        hierarchy_fixed = 0
+        inv_parent = Account.query.filter_by(account_number='130').first()
+        if inv_parent:
+            for child_no in ('1300', '1310', '1350'):
+                child = Account.query.filter_by(account_number=child_no).first()
+                if child and not child.parent_id:
+                    child.parent_id = inv_parent.id
+                    db.session.add(child)
+                    hierarchy_fixed += 1
+
         # Some DBs have legacy misnaming where 1320 (22k inventory) was incorrectly
         # labeled as wage inventory. Fixing the name reduces user-facing duplicates
         # without affecting account_number-based posting logic.
@@ -916,12 +969,44 @@ def _repair_inventory_wage_memo_links():
         memo_7340 = Account.query.filter_by(account_number='7340').first()
         wage_memo = memo_71340 or memo_7340
 
-        if not (acc_1340 and acc_1350 and memo_71330 and wage_memo):
-            if renamed_1320:
-                db.session.commit()
-            return 1 if renamed_1320 else 0
+        changed = (1 if renamed_1320 else 0) + hierarchy_fixed
 
-        changed = 1 if renamed_1320 else 0
+        # If a legacy wage memo exists (7340) but the new number is expected (71340),
+        # renumber in-place to match the new COA.
+        if memo_7340 and not memo_71340:
+            existing_71340 = Account.query.filter_by(account_number='71340').first()
+            if not existing_71340:
+                memo_7340.account_number = '71340'
+                db.session.add(memo_7340)
+                memo_71340 = memo_7340
+                memo_7340 = None
+                wage_memo = memo_71340
+                changed += 1
+
+        # Keep wage memo under the expected parent (71) when present.
+        if wage_memo:
+            memo_parent = Account.query.filter_by(account_number='71').first()
+            if memo_parent and wage_memo.parent_id != memo_parent.id:
+                wage_memo.parent_id = memo_parent.id
+                db.session.add(wage_memo)
+                changed += 1
+
+        # Always ensure wage inventory cash account 1350 links to the wage memo when possible,
+        # even if optional 24k inventory accounts are missing in this DB.
+        if acc_1350 and wage_memo and acc_1350.memo_account_id != wage_memo.id:
+            acc_1350.memo_account_id = wage_memo.id
+            db.session.add(acc_1350)
+            changed += 1
+
+        # If the optional 24k inventory accounts are missing, still commit the safe fixes above.
+        if not (acc_1340 and memo_71330 and wage_memo):
+            if changed:
+                db.session.commit()
+                try:
+                    link_memo_accounts_helper()
+                except Exception as exc:
+                    print(f"⚠️ Failed to refresh memo account links after repair: {exc}")
+            return changed
 
         # 1) If 1340 is linked to wage memo (71340 or legacy 7340), migrate existing lines to 71330 (only when safe)
         if acc_1340.memo_account_id == wage_memo.id:
@@ -988,10 +1073,7 @@ def _repair_inventory_wage_memo_links():
             acc_1340.memo_account_id = memo_71330.id
             changed += 1
 
-        # 2) Ensure wage inventory cash account 1350 links to wage memo (prefer 71340 if present)
-        if acc_1350.memo_account_id != wage_memo.id:
-            acc_1350.memo_account_id = wage_memo.id
-            changed += 1
+        # Note: 1350 link is already enforced above; keep this section for readability.
 
         if changed:
             db.session.commit()
@@ -1009,6 +1091,7 @@ def ensure_weight_closing_support_accounts():
     """Ensure auxiliary financial/memo accounts required for weight closing exist."""
     created = 0
     linked_pairs = 0
+    updated = 0
 
     for entry in WEIGHT_SUPPORT_ACCOUNTS:
         financial_spec = entry.get('financial') or {}
@@ -1033,15 +1116,40 @@ def ensure_weight_closing_support_accounts():
                 )
                 db.session.add(financial_account)
                 created += 1
+            else:
+                parent = None
+                if financial_spec.get('parent_number'):
+                    parent = Account.query.filter_by(account_number=financial_spec.get('parent_number')).first()
+                desired_parent_id = parent.id if parent else None
+                fields = {
+                    'name': financial_spec.get('name'),
+                    'type': financial_spec.get('type'),
+                    'transaction_type': financial_spec.get('transaction_type', 'cash'),
+                    'tracks_weight': financial_spec.get('tracks_weight', False),
+                }
+                changed_here = False
+                for attr, val in fields.items():
+                    if val is not None and getattr(financial_account, attr) != val:
+                        setattr(financial_account, attr, val)
+                        changed_here = True
+                if financial_account.parent_id != desired_parent_id:
+                    financial_account.parent_id = desired_parent_id
+                    changed_here = True
+                if changed_here:
+                    db.session.add(financial_account)
+                    updated += 1
 
         if memo_spec.get('account_number'):
-            # Special case: manufacturing wage memo account has a known legacy number (7340).
-            # If legacy exists, prefer it to avoid creating duplicate-looking accounts.
-            memo_account = None
-            if entry_key == 'manufacturing_wage' and memo_spec['account_number'] == '71340':
-                memo_account = Account.query.filter_by(account_number='71340').first() or Account.query.filter_by(account_number='7340').first()
-            else:
-                memo_account = Account.query.filter_by(account_number=memo_spec['account_number']).first()
+            # Special case: manufacturing wage memo account had a legacy number (7340).
+            # Renumber it in-place to 71340 to match the new COA.
+            memo_account = Account.query.filter_by(account_number=memo_spec['account_number']).first()
+            if not memo_account and entry_key == 'manufacturing_wage' and memo_spec['account_number'] == '71340':
+                legacy = Account.query.filter_by(account_number='7340').first()
+                if legacy:
+                    legacy.account_number = '71340'
+                    db.session.add(legacy)
+                    memo_account = legacy
+                    updated += 1
             if not memo_account:
                 parent = Account.query.filter_by(account_number=memo_spec.get('parent_number')).first()
                 memo_account = Account(
@@ -1054,12 +1162,34 @@ def ensure_weight_closing_support_accounts():
                 )
                 db.session.add(memo_account)
                 created += 1
+            else:
+                parent = None
+                if memo_spec.get('parent_number'):
+                    parent = Account.query.filter_by(account_number=memo_spec.get('parent_number')).first()
+                desired_parent_id = parent.id if parent else None
+                fields = {
+                    'name': memo_spec.get('name'),
+                    'type': memo_spec.get('type'),
+                    'transaction_type': memo_spec.get('transaction_type', 'gold'),
+                    'tracks_weight': memo_spec.get('tracks_weight', True),
+                }
+                changed_here = False
+                for attr, val in fields.items():
+                    if val is not None and getattr(memo_account, attr) != val:
+                        setattr(memo_account, attr, val)
+                        changed_here = True
+                if memo_account.parent_id != desired_parent_id:
+                    memo_account.parent_id = desired_parent_id
+                    changed_here = True
+                if changed_here:
+                    db.session.add(memo_account)
+                    updated += 1
 
         if financial_account and memo_account and financial_account.memo_account_id != memo_account.id:
             financial_account.memo_account_id = memo_account.id
             linked_pairs += 1
 
-    if created or linked_pairs:
+    if created or linked_pairs or updated:
         try:
             db.session.commit()
         except Exception as exc:
@@ -1077,12 +1207,15 @@ def ensure_weight_closing_support_accounts():
                 for entry in WEIGHT_SUPPORT_ACCOUNTS:
                     financial_spec = entry.get('financial') or {}
                     memo_spec = entry.get('memo') or {}
+                    entry_key = entry.get('key')
                     fin_no = financial_spec.get('account_number')
                     memo_no = memo_spec.get('account_number')
                     if not fin_no or not memo_no:
                         continue
                     fin_acc = Account.query.filter_by(account_number=fin_no).first()
                     memo_acc = Account.query.filter_by(account_number=memo_no).first()
+                    if not memo_acc and entry_key == 'manufacturing_wage' and memo_no == '71340':
+                        memo_acc = Account.query.filter_by(account_number='7340').first()
                     if fin_acc and memo_acc and fin_acc.memo_account_id != memo_acc.id:
                         fin_acc.memo_account_id = memo_acc.id
                         relinked += 1
@@ -1873,14 +2006,40 @@ def system_reset():
             
         elif reset_type == 'all':
             # إعادة تهيئة كاملة مع الحفاظ على شجرة الحسابات (السلوك الافتراضي)
-            from backend.app import reset_database_preserve_accounts
+            # Use the currently-running Flask app module to avoid importing a second app instance.
+            from app import reset_database_preserve_accounts
             reset_database_preserve_accounts()
             message = 'تم إعادة تهيئة النظام بالكامل بنجاح مع الحفاظ على شجرة الحسابات.'
 
         elif reset_type == 'all_with_accounts':
             # إعادة تهيئة كاملة (بما في ذلك شجرة الحسابات)
-            from backend.app import reset_database
+            # Use the currently-running Flask app module to avoid importing a second app instance.
+            from app import reset_database
             reset_database()
+
+            # Defensive: ensure the account table is empty before rebuilding the COA.
+            # Some bootstraps may auto-create support accounts immediately after a reset.
+            try:
+                from models import Account
+                if getattr(db.engine.dialect, 'name', '') == 'sqlite':
+                    db.session.execute(db.text('PRAGMA foreign_keys=OFF'))
+                Account.query.delete()
+                if getattr(db.engine.dialect, 'name', '') == 'sqlite':
+                    db.session.execute(db.text('PRAGMA foreign_keys=ON'))
+                db.session.commit()
+            except Exception:
+                db.session.rollback()
+
+            # إعادة إنشاء شجرة الحسابات بالترقيم الجديد (مالية + وزنية)
+            try:
+                from renumber_accounts import create_financial_and_memo_accounts
+                create_financial_and_memo_accounts(force_delete_existing=True)
+            except Exception as exc:
+                return jsonify({
+                    'status': 'error',
+                    'message': f'فشل إنشاء شجرة الحسابات بالترقيم الجديد: {str(exc)}',
+                    'reset_type': reset_type,
+                }), 500
 
             # إعادة إنشاء حسابات الدعم الأساسية (إن وجدت/مطلوبة) بعد إعادة تهيئة الجداول
             try:
@@ -2975,6 +3134,57 @@ def get_next_customer_code():
         'remaining_capacity': stats['remaining_capacity']
     })
 
+
+@api.route('/customers/gold-balances', methods=['GET'])
+def get_customers_gold_balances():
+    """Official customer gold balances (memo ledger).
+
+    Returns balances from the customer's linked memo account (Account.memo_account_id).
+    Query params:
+      - ensure_accounts=1: best-effort auto-create missing accounts.
+    """
+
+    ensure_flag = (request.args.get('ensure_accounts') or '').strip().lower()
+    ensure_accounts = ensure_flag in ('1', 'true', 'yes', 'y', 'on')
+
+    customers = Customer.query.order_by(Customer.name.asc()).all()
+    results = []
+
+    for c in customers:
+        financial = Account.query.get(c.account_id) if c.account_id else None
+
+        if ensure_accounts and (not financial or not getattr(financial, 'memo_account_id', None)):
+            try:
+                party = ensure_customer_accounts(c)
+                financial = party.financial
+            except Exception:
+                # Non-fatal for listing.
+                pass
+
+        memo = None
+        if financial and getattr(financial, 'memo_account_id', None):
+            memo = Account.query.get(financial.memo_account_id)
+
+        balances = {
+            '18k': round(float(getattr(memo, 'balance_18k', 0.0) or 0.0), 3) if memo else 0.0,
+            '21k': round(float(getattr(memo, 'balance_21k', 0.0) or 0.0), 3) if memo else 0.0,
+            '22k': round(float(getattr(memo, 'balance_22k', 0.0) or 0.0), 3) if memo else 0.0,
+            '24k': round(float(getattr(memo, 'balance_24k', 0.0) or 0.0), 3) if memo else 0.0,
+        }
+
+        results.append({
+            'customer_id': c.id,
+            'customer_code': c.customer_code,
+            'customer_name': c.name,
+            'financial_account_id': financial.id if financial else None,
+            'financial_account_number': financial.account_number if financial else None,
+            'memo_account_id': memo.id if memo else None,
+            'memo_account_number': memo.account_number if memo else None,
+            'balances': balances,
+        })
+
+    return jsonify(results)
+
 @api.route('/suppliers/next-code', methods=['GET'])
 def get_next_supplier_code():
     """
@@ -2992,20 +3202,7 @@ def get_next_supplier_code():
 @api.route('/customers', methods=['GET'])
 def get_customers():
     customers = Customer.query.all()
-    results = []
-    for c in customers:
-        account = Account.query.filter_by(name=c.name).first()
-        results.append({
-            'id': c.id, 
-            'name': c.name, 
-            'phone': c.phone, 
-            'email': c.email,
-            'id_number': c.id_number, 
-            'birth_date': c.birth_date.isoformat() if c.birth_date else None,
-            'id_version_number': c.id_version_number,
-            'account_id': account.id if account else None
-        })
-    return jsonify(results)
+    return jsonify([c.to_dict() for c in customers])
 
 @api.route('/customers', methods=['POST'])
 def add_customer():
@@ -3015,10 +3212,21 @@ def add_customer():
     """
     from code_generator import generate_customer_code
     
-    data = request.json
+    data = request.json or {}
+
+    def _boolish(value, default: bool = True) -> bool:
+        if value is None:
+            return default
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, (int, float)):
+            return bool(value)
+        if isinstance(value, str):
+            return value.strip().lower() in ('1', 'true', 'yes', 'y', 'on')
+        return bool(value)
     
     # Basic validation
-    if not data or 'name' not in data:
+    if 'name' not in data or not str(data.get('name') or '').strip():
         return jsonify({'error': 'الاسم مطلوب'}), 400
 
     birth_date_str = data.get('birth_date')
@@ -3035,14 +3243,22 @@ def add_customer():
         if not customer_code:
             customer_code = generate_customer_code()
         
-        # 2. تحديد الحساب التجميعي (افتراضي: عملاء بيع ذهب - 1100)
-        account_category_number = data.get('account_category_number', '1100')
-        account_category = Account.query.filter_by(account_number=account_category_number).first()
-        
+        # 2. تحديد الحساب التجميعي (افتراضي: عملاء بيع ذهب - 1200)
+        account_category_number = data.get('account_category_number')
+        account_category = None
+
+        if account_category_number:
+            account_category = Account.query.filter_by(account_number=str(account_category_number)).first()
+
         if not account_category:
-            # fallback: ابحث عن أي حساب عملاء
-            account_category = Account.query.filter_by(account_number='110').first()
+            # Prefer current chart numbers, keep legacy fallbacks for older DBs.
+            for fallback_number in ('1200', '1100', '120', '110'):
+                account_category = Account.query.filter_by(account_number=fallback_number).first()
+                if account_category:
+                    break
         
+        ensure_accounts = _boolish(data.get('ensure_accounts'), True)
+
         # 3. إنشاء العميل
         customer = Customer(
             customer_code=customer_code,
@@ -3068,9 +3284,15 @@ def add_customer():
             balance_gold_24k=0.0
         )
         db.session.add(customer)
+        db.session.flush()
+
+        # 4. إنشاء/ربط الحسابات تلقائياً (حساب مالي + حساب مذكرة وزني)
+        if ensure_accounts:
+            ensure_customer_accounts(customer)
+
         db.session.commit()
 
-        return jsonify(customer.to_dict()), 201
+        return jsonify(customer.to_dict_with_account()), 201
 
     except IntegrityError as e:
         db.session.rollback()
@@ -3100,10 +3322,21 @@ def add_supplier():
     """
     from code_generator import generate_supplier_code, validate_supplier_code
     
-    data = request.get_json()
+    data = request.get_json() or {}
+
+    def _boolish(value, default: bool = True) -> bool:
+        if value is None:
+            return default
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, (int, float)):
+            return bool(value)
+        if isinstance(value, str):
+            return value.strip().lower() in ('1', 'true', 'yes', 'y', 'on')
+        return bool(value)
     
     # Check for required fields
-    if not data or 'name' not in data:
+    if 'name' not in data or not str(data.get('name') or '').strip():
         return jsonify({'error': 'الاسم مطلوب'}), 400
 
     try:
@@ -3117,13 +3350,25 @@ def add_supplier():
             if not validation['is_valid']:
                 return jsonify({'error': validation['message']}), 400
         
-        # 2. تحديد الحساب التجميعي (افتراضي: موردي الذهب المشغول - 21100)
-        account_category_number = data.get('account_category_number', '21100')
-        account_category = Account.query.filter_by(account_number=account_category_number).first()
-        
+        # 2. تحديد الحساب التجميعي
+        # ملاحظة: في بعض قواعد البيانات القديمة كان الرقم 21100/211 مستخدماً،
+        # لكن في مخطط الحسابات الحالي قد تكون الفئات 220/210/21.
+        requested_category_number = data.get('account_category_number')
+        account_category = None
+        if requested_category_number:
+            requested_str = str(requested_category_number)
+            # Normalize: if caller provides 210, prefer using 2100 for supplier posting accounts.
+            if requested_str == '210':
+                account_category = Account.query.filter_by(account_number='2100').first()
+            if not account_category:
+                account_category = Account.query.filter_by(account_number=requested_str).first()
+
         if not account_category:
-            # fallback: ابحث عن حساب الموردين الرئيسي
-            account_category = Account.query.filter_by(account_number='211').first()
+            # Prefer posting group 2100 if present; fall back to older charts.
+            for fallback_number in ('2100', '220', '210', '21', '21100', '211'):
+                account_category = Account.query.filter_by(account_number=fallback_number).first()
+                if account_category:
+                    break
         
         # 3. إنشاء المورد
         raw_wage_type = data.get('default_wage_type')
@@ -3156,9 +3401,15 @@ def add_supplier():
             balance_gold_24k=0.0
         )
         db.session.add(new_supplier)
+        db.session.flush()
+
+        ensure_accounts = _boolish(data.get('ensure_accounts'), True)
+        if ensure_accounts:
+            ensure_supplier_accounts(new_supplier)
+
         db.session.commit()
 
-        return jsonify(new_supplier.to_dict()), 201
+        return jsonify(new_supplier.to_dict_with_account()), 201
         
     except IntegrityError as e:
         db.session.rollback()
@@ -3167,7 +3418,9 @@ def add_supplier():
         return jsonify({'error': 'مورد بنفس البيانات موجود بالفعل'}), 409
     except Exception as e:
         db.session.rollback()
-        print(f"Error adding supplier: {e}")
+        print(f"ERROR in add_supplier: {str(e)}")
+        import traceback
+        traceback.print_exc()
         return jsonify({'error': 'حدث خطأ داخلي'}), 500
 
 @api.route('/suppliers/<int:id>', methods=['PUT'])
@@ -3209,6 +3462,24 @@ def update_supplier(id):
         account_category = Account.query.filter_by(account_number=data['account_category_number']).first()
         if account_category:
             supplier.account_category_id = account_category.id
+
+    # Optional: ensure financial + memo accounts exist
+    try:
+        ensure_accounts = data.get('ensure_accounts')
+        if ensure_accounts is None:
+            ensure_accounts_bool = False
+        elif isinstance(ensure_accounts, bool):
+            ensure_accounts_bool = ensure_accounts
+        elif isinstance(ensure_accounts, (int, float)):
+            ensure_accounts_bool = bool(ensure_accounts)
+        else:
+            ensure_accounts_bool = str(ensure_accounts).strip().lower() in ('1', 'true', 'yes', 'y', 'on')
+
+        if ensure_accounts_bool:
+            ensure_supplier_accounts(supplier)
+    except Exception as exc:
+        db.session.rollback()
+        return jsonify({'error': f'Failed to ensure supplier accounts: {str(exc)}'}), 500
 
     try:
         db.session.commit()
@@ -4026,7 +4297,21 @@ def category_weight_balances():
     """Return category-weight balances grouped by gold SafeBox (location)."""
     safe_box_id = request.args.get('safe_box_id', type=int)
     category_id = request.args.get('category_id', type=int)
-    return jsonify(get_category_weight_balances(safe_box_id=safe_box_id, category_id=category_id))
+    karat = request.args.get('karat', type=float)
+    gold_type = (request.args.get('gold_type') or '').strip() or None
+
+    group_by_karat_raw = (request.args.get('group_by_karat') or '').strip().lower()
+    group_by_karat = group_by_karat_raw in ('1', 'true', 'yes', 'y', 'on')
+
+    return jsonify(
+        get_category_weight_balances(
+            safe_box_id=safe_box_id,
+            category_id=category_id,
+            karat=karat,
+            group_by_karat=group_by_karat,
+            gold_type=gold_type,
+        )
+    )
 
 
 @api.route('/category-weight/movements', methods=['GET'])
@@ -4038,6 +4323,8 @@ def category_weight_movements():
     safe_box_id = request.args.get('safe_box_id', type=int)
     category_id = request.args.get('category_id', type=int)
     invoice_id = request.args.get('invoice_id', type=int)
+    karat = request.args.get('karat', type=float)
+    gold_type = (request.args.get('gold_type') or '').strip() or None
     start_date = request.args.get('start_date')
     end_date = request.args.get('end_date')
     limit = request.args.get('limit', default=200, type=int)
@@ -4067,6 +4354,11 @@ def category_weight_movements():
         q = q.filter(CategoryWeightMovement.category_id == category_id)
     if invoice_id:
         q = q.filter(CategoryWeightMovement.invoice_id == invoice_id)
+    if gold_type:
+        q = q.filter(CategoryWeightMovement.gold_type == gold_type)
+    if karat is not None:
+        # Compare with tolerance to avoid float equality issues.
+        q = q.filter(func.abs(CategoryWeightMovement.karat - float(karat)) < 0.001)
 
     if start_dt:
         q = q.filter(CategoryWeightMovement.created_at >= start_dt)
@@ -4075,6 +4367,128 @@ def category_weight_movements():
 
     q = q.order_by(CategoryWeightMovement.created_at.desc()).limit(limit)
     return jsonify([row.to_dict() for row in q.all()])
+
+
+@api.route('/category-weight/adjustments', methods=['POST'])
+@require_permission('items.edit')
+def create_category_weight_adjustments():
+    """Create manual category-weight movements (opening balances / corrections).
+
+    This endpoint exists to register stock that already exists in the shop
+    without historical purchase invoices.
+
+    Body JSON:
+      - created_by: str (optional)
+      - date: ISO datetime (optional) -> stored as created_at for movements
+      - gold_type: str (optional) 'new'|'scrap' (default: 'new')
+      - note: str (optional) applied to all lines unless overridden per-line
+      - lines: [
+          {
+            category_id: int (required)
+            karat: float (required)
+            weight_grams: float (required, can be + or -)
+            safe_box_id: int (optional; auto-resolved by karat if omitted)
+            line_label: str (optional)
+            note: str (optional)
+          }
+        ]
+    """
+
+    from models import CategoryWeightMovement, Category, SafeBox
+
+    data = request.get_json(silent=True) or {}
+    lines = data.get('lines')
+    if not isinstance(lines, list) or not lines:
+        return jsonify({'error': 'lines_required'}), 400
+
+    created_by = (data.get('created_by') or getattr(g, 'user', None) or 'system')
+    gold_type = (data.get('gold_type') or 'new').strip() or 'new'
+    global_note = (data.get('note') or '').strip() or None
+
+    created_at = None
+    if data.get('date'):
+        try:
+            created_at = datetime.fromisoformat(str(data.get('date')))
+        except Exception:
+            return jsonify({'error': 'invalid_date'}), 400
+
+    created = 0
+    created_ids: list[int] = []
+
+    def _as_int(v):
+        try:
+            return int(v)
+        except Exception:
+            return None
+
+    def _as_float(v):
+        try:
+            if v in (None, '', False):
+                return None
+            return float(v)
+        except Exception:
+            return None
+
+    for row in lines:
+        if not isinstance(row, dict):
+            continue
+
+        category_id = _as_int(row.get('category_id'))
+        karat_val = _as_float(row.get('karat'))
+        weight_grams = _as_float(row.get('weight_grams'))
+
+        if not category_id or not karat_val or weight_grams is None:
+            continue
+        if abs(float(weight_grams)) <= 0:
+            continue
+
+        cat = Category.query.get(category_id)
+        if not cat:
+            continue
+
+        safe_box_id = _as_int(row.get('safe_box_id'))
+        if not safe_box_id:
+            try:
+                sb = SafeBox.get_gold_safe_by_karat(int(round(float(karat_val))))
+                safe_box_id = int(sb.id) if sb and sb.id else None
+            except Exception:
+                safe_box_id = None
+        if not safe_box_id:
+            continue
+
+        note = (row.get('note') or global_note or '').strip() or None
+        label = (row.get('line_label') or cat.name or '').strip() or None
+
+        delta = float(weight_grams)
+        delta_main = float(convert_to_main_karat(delta, float(karat_val)))
+
+        mv = CategoryWeightMovement(
+            category_id=category_id,
+            safe_box_id=safe_box_id,
+            invoice_id=None,
+            line_label=label,
+            invoice_type='manual_adjustment',
+            gold_type=gold_type,
+            karat=float(karat_val),
+            weight_delta_grams=round(delta, 6),
+            weight_delta_main_karat=round(delta_main, 6),
+            created_by=str(created_by) if created_by else None,
+            note=note,
+        )
+        if created_at is not None:
+            mv.created_at = created_at
+
+        db.session.add(mv)
+        db.session.flush()
+        created += 1
+        created_ids.append(int(mv.id))
+
+    if created <= 0:
+        db.session.rollback()
+        return jsonify({'error': 'no_valid_lines_created'}), 400
+
+    db.session.commit()
+    return jsonify({'status': 'ok', 'created': created, 'ids': created_ids}), 201
 
 # Endpoint لجلب سعر الذهب الحالي
 @api.route('/gold_price', methods=['GET'])
@@ -4632,6 +5046,39 @@ def add_invoice_payment(invoice_id: int):
     if resolved_safe_box_id is None:
         resolved_safe_box_id = _fallback_cash_safe_box_id()
 
+    # Enforce employee cash safe toggle: if employee cash safes are disabled,
+    # do not allow routing payments into the employee cash safe (fallback to main cash).
+    try:
+        settings_row = Settings.query.first()
+    except Exception:
+        settings_row = None
+    try:
+        emp_cash_safe_id = None
+        emp = getattr(invoice, 'employee', None)
+        if not emp and getattr(invoice, 'employee_id', None):
+            emp = Employee.query.get(int(invoice.employee_id))
+        raw_emp_cash = getattr(emp, 'cash_safe_box_id', None) if emp else None
+        if raw_emp_cash not in (None, '', 0, '0', False):
+            emp_cash_safe_id = int(raw_emp_cash)
+        if (
+            emp_cash_safe_id
+            and resolved_safe_box_id is not None
+            and int(resolved_safe_box_id) == int(emp_cash_safe_id)
+            and not bool(getattr(settings_row, 'employee_cash_safes_enabled', False))
+        ):
+            main_cash = getattr(settings_row, 'main_cash_safe_box_id', None) if settings_row else None
+            if main_cash not in (None, '', 0, '0', False):
+                resolved_safe_box_id = int(main_cash)
+            else:
+                try:
+                    sb = SafeBox.get_default_by_type('cash')
+                    if sb and sb.id:
+                        resolved_safe_box_id = int(sb.id)
+                except Exception:
+                    pass
+    except Exception:
+        pass
+
     if resolved_safe_box_id is None:
         return jsonify({
             'error': 'missing_safe_box_for_payment_method',
@@ -4650,9 +5097,19 @@ def add_invoice_payment(invoice_id: int):
         }), 400
 
     commission_rate = _to_float(getattr(pm_obj, 'commission_rate', 0.0), 0.0)
-    commission_amount = amount * (commission_rate / 100.0) if commission_rate > 0 else 0.0
-    commission_vat = commission_amount * 0.15
-    net_amount = amount - commission_amount - commission_vat
+    try:
+        pm_commission_timing = str(getattr(pm_obj, 'commission_timing', 'invoice') or 'invoice').strip().lower()
+    except Exception:
+        pm_commission_timing = 'invoice'
+
+    if pm_commission_timing == 'settlement':
+        commission_amount = 0.0
+        commission_vat = 0.0
+        net_amount = amount
+    else:
+        commission_amount = amount * (commission_rate / 100.0) if commission_rate > 0 else 0.0
+        commission_vat = commission_amount * 0.15
+        net_amount = amount - commission_amount - commission_vat
 
     try:
         payment = InvoicePayment(
@@ -5743,20 +6200,32 @@ def add_invoice():
             
             if not pm_obj.is_active:
                 return jsonify({'error': f'Payment method "{pm_obj.name}" is not active'}), 400
+
+            # Commission policy:
+            # - invoice (default): commission is recorded at invoice time
+            # - settlement: do not record commission at invoice time
+            try:
+                pm_commission_timing = str(getattr(pm_obj, 'commission_timing', 'invoice') or 'invoice').strip().lower()
+            except Exception:
+                pm_commission_timing = 'invoice'
             
             # حساب عمولة هذه الدفعة
             pm_commission_rate = _to_float_request(
                 payment.get('commission_rate', pm_obj.commission_rate if pm_obj else 0.0)
             )
 
-            if 'commission_amount' in payment:
-                pm_commission_amount = _to_float_request(payment.get('commission_amount', 0.0))
+            if pm_commission_timing == 'settlement':
+                pm_commission_amount = 0.0
+                pm_commission_vat = 0.0
             else:
-                pm_commission_amount = pm_amount * (pm_commission_rate / 100) if pm_commission_rate > 0 else 0.0
+                if 'commission_amount' in payment:
+                    pm_commission_amount = _to_float_request(payment.get('commission_amount', 0.0))
+                else:
+                    pm_commission_amount = pm_amount * (pm_commission_rate / 100) if pm_commission_rate > 0 else 0.0
 
-            pm_commission_vat = _to_float_request(
-                payment.get('commission_vat', pm_commission_amount * 0.15)
-            )
+                pm_commission_vat = _to_float_request(
+                    payment.get('commission_vat', pm_commission_amount * 0.15)
+                )
 
             commission_amount += pm_commission_amount
             commission_vat_total += pm_commission_vat
@@ -5780,10 +6249,16 @@ def add_invoice():
             return jsonify({'error': f'Payment method "{payment_method_obj.name}" is not active'}), 400
         
         # حساب العمولة
-        if payment_method_obj.commission_rate and payment_method_obj.commission_rate > 0:
-            commission_amount = data_total * (payment_method_obj.commission_rate / 100)
-            commission_vat_total = commission_amount * 0.15
-            net_amount = data_total - commission_amount - commission_vat_total
+        try:
+            pm_commission_timing = str(getattr(payment_method_obj, 'commission_timing', 'invoice') or 'invoice').strip().lower()
+        except Exception:
+            pm_commission_timing = 'invoice'
+
+        if pm_commission_timing != 'settlement':
+            if payment_method_obj.commission_rate and payment_method_obj.commission_rate > 0:
+                commission_amount = data_total * (payment_method_obj.commission_rate / 100)
+                commission_vat_total = commission_amount * 0.15
+                net_amount = data_total - commission_amount - commission_vat_total
     
     wage_mode_snapshot = _get_manufacturing_wage_mode()
     print(f"🔴 ENTERING try block for invoice creation, invoice_type={invoice_type}")
@@ -6348,6 +6823,16 @@ def add_invoice():
             except Exception:
                 return False
 
+        def _is_receivable_payment_method(pm) -> bool:
+            """Receivable means on-account; no safe box movement should be created."""
+            if pm is None:
+                return False
+            try:
+                pt = str(getattr(pm, 'payment_type', '') or '').strip().lower()
+                return pt == 'receivable'
+            except Exception:
+                return False
+
         def _fallback_cash_safe_box_id() -> int | None:
             """Fallback cash SafeBox when none is supplied/configured.
 
@@ -6395,50 +6880,84 @@ def add_invoice():
                 pm_amount = _to_float(payment.get('amount', 0.0))
                 pm_obj = PaymentMethod.query.get(pm_id)
 
-                # Resolve safe box per payment (single source of truth)
+                is_receivable = _is_receivable_payment_method(pm_obj)
+
+                # Resolve safe box per payment (single source of truth).
+                # NOTE: Receivable methods are on-account and should not require a safe box.
                 resolved_safe_box_id = None
-                try:
-                    raw_safe_box_id = payment.get('safe_box_id')
-                    if raw_safe_box_id not in (None, '', False):
-                        resolved_safe_box_id = int(raw_safe_box_id)
-                except Exception:
-                    resolved_safe_box_id = None
-                if resolved_safe_box_id is None:
-                    resolved_safe_box_id = new_invoice.safe_box_id
-                if resolved_safe_box_id is None and _is_cash_payment_method(pm_obj):
+                safe_box_obj = None
+                if not is_receivable:
                     try:
-                        settings_row = Settings.query.first()
+                        raw_safe_box_id = payment.get('safe_box_id')
+                        if raw_safe_box_id not in (None, '', False):
+                            resolved_safe_box_id = int(raw_safe_box_id)
                     except Exception:
-                        settings_row = None
-                    if bool(getattr(settings_row, 'employee_cash_safes_enabled', False)):
+                        resolved_safe_box_id = None
+                    if resolved_safe_box_id is None:
+                        resolved_safe_box_id = new_invoice.safe_box_id
+                    if resolved_safe_box_id is None and _is_cash_payment_method(pm_obj):
+                        try:
+                            settings_row = Settings.query.first()
+                        except Exception:
+                            settings_row = None
+                        if bool(getattr(settings_row, 'employee_cash_safes_enabled', False)):
+                            resolved_safe_box_id = _fallback_cash_safe_box_id()
+
+                    if resolved_safe_box_id is None and pm_obj is not None:
+                        resolved_safe_box_id = getattr(pm_obj, 'default_safe_box_id', None)
+
+                    if resolved_safe_box_id is None:
                         resolved_safe_box_id = _fallback_cash_safe_box_id()
 
-                if resolved_safe_box_id is None and pm_obj is not None:
-                    resolved_safe_box_id = getattr(pm_obj, 'default_safe_box_id', None)
+                    # Enforce employee cash safe toggle: when disabled, do not route
+                    # payments into the employee cash safe (fallback to main cash safe).
+                    try:
+                        emp_cash_safe_id = None
+                        emp = getattr(new_invoice, 'employee', None)
+                        if not emp and getattr(new_invoice, 'employee_id', None):
+                            emp = Employee.query.get(int(new_invoice.employee_id))
+                        raw_emp_cash = getattr(emp, 'cash_safe_box_id', None) if emp else None
+                        if raw_emp_cash not in (None, '', 0, '0', False):
+                            emp_cash_safe_id = int(raw_emp_cash)
+                        if (
+                            emp_cash_safe_id
+                            and resolved_safe_box_id is not None
+                            and int(resolved_safe_box_id) == int(emp_cash_safe_id)
+                            and not bool(getattr(settings_row, 'employee_cash_safes_enabled', False))
+                        ):
+                            main_cash = getattr(settings_row, 'main_cash_safe_box_id', None) if settings_row else None
+                            if main_cash not in (None, '', 0, '0', False):
+                                resolved_safe_box_id = int(main_cash)
+                            else:
+                                try:
+                                    sb = SafeBox.get_default_by_type('cash')
+                                    if sb and sb.id:
+                                        resolved_safe_box_id = int(sb.id)
+                                except Exception:
+                                    pass
+                    except Exception:
+                        pass
 
-                if resolved_safe_box_id is None:
-                    resolved_safe_box_id = _fallback_cash_safe_box_id()
+                    if resolved_safe_box_id is None:
+                        db.session.rollback()
+                        return jsonify({
+                            'error': 'missing_safe_box_for_payment_method',
+                            'message': 'يجب تحديد خزينة (SafeBox) لوسيلة الدفع أو ضبط خزينة افتراضية لها',
+                            'payment_method_id': pm_id,
+                            'payment_method_name': getattr(pm_obj, 'name', None) if pm_obj else None,
+                        }), 400
 
-                if resolved_safe_box_id is None:
-                    db.session.rollback()
-                    return jsonify({
-                        'error': 'missing_safe_box_for_payment_method',
-                        'message': 'يجب تحديد خزينة (SafeBox) لوسيلة الدفع أو ضبط خزينة افتراضية لها',
-                        'payment_method_id': pm_id,
-                        'payment_method_name': getattr(pm_obj, 'name', None) if pm_obj else None,
-                    }), 400
-
-                # Validate safe box exists (avoid FK failures and keep atomicity explicit)
-                safe_box_obj = SafeBox.query.get(resolved_safe_box_id)
-                if not safe_box_obj:
-                    db.session.rollback()
-                    return jsonify({
-                        'error': 'safe_box_not_found',
-                        'message': 'الخزينة المحددة غير موجودة',
-                        'safe_box_id': resolved_safe_box_id,
-                        'payment_method_id': pm_id,
-                        'payment_method_name': getattr(pm_obj, 'name', None) if pm_obj else None,
-                    }), 400
+                    # Validate safe box exists (avoid FK failures and keep atomicity explicit)
+                    safe_box_obj = SafeBox.query.get(resolved_safe_box_id)
+                    if not safe_box_obj:
+                        db.session.rollback()
+                        return jsonify({
+                            'error': 'safe_box_not_found',
+                            'message': 'الخزينة المحددة غير موجودة',
+                            'safe_box_id': resolved_safe_box_id,
+                            'payment_method_id': pm_id,
+                            'payment_method_name': getattr(pm_obj, 'name', None) if pm_obj else None,
+                        }), 400
 
                 def _direction_for_invoice_type(t: str) -> str:
                     t = (t or '').strip()
@@ -6477,7 +6996,7 @@ def add_invoice():
                     try:
                         payment_notes = json.dumps({
                             'user_notes': payment_notes,
-                            'safe_box_id': resolved_safe_box_id,
+                            **({'safe_box_id': resolved_safe_box_id} if (not is_receivable and resolved_safe_box_id is not None) else {}),
                         }, ensure_ascii=False)
                     except Exception:
                         payment_notes = payment.get('notes')
@@ -6495,7 +7014,7 @@ def add_invoice():
                 db.session.add(payment_row)
                 db.session.flush()
 
-                if not approval_required:
+                if (not approval_required) and (not is_receivable):
                     db.session.add(
                         SafeBoxTransaction(
                             safe_box_id=resolved_safe_box_id,
@@ -6516,28 +7035,33 @@ def add_invoice():
             pm_obj = PaymentMethod.query.get(payment_method_id)
             pm_commission_rate = pm_obj.commission_rate if pm_obj else 0.0
 
-            resolved_safe_box_id = new_invoice.safe_box_id or (getattr(pm_obj, 'default_safe_box_id', None) if pm_obj else None)
-            if resolved_safe_box_id is None:
-                resolved_safe_box_id = _fallback_cash_safe_box_id()
-            if resolved_safe_box_id is None:
-                db.session.rollback()
-                return jsonify({
-                    'error': 'missing_safe_box_for_payment_method',
-                    'message': 'يجب تحديد خزينة (SafeBox) لوسيلة الدفع أو ضبط خزينة افتراضية لها',
-                    'payment_method_id': payment_method_id,
-                    'payment_method_name': getattr(pm_obj, 'name', None) if pm_obj else None,
-                }), 400
+            is_receivable = _is_receivable_payment_method(pm_obj)
 
-            safe_box_obj = SafeBox.query.get(resolved_safe_box_id)
-            if not safe_box_obj:
-                db.session.rollback()
-                return jsonify({
-                    'error': 'safe_box_not_found',
-                    'message': 'الخزينة المحددة غير موجودة',
-                    'safe_box_id': resolved_safe_box_id,
-                    'payment_method_id': payment_method_id,
-                    'payment_method_name': getattr(pm_obj, 'name', None) if pm_obj else None,
-                }), 400
+            resolved_safe_box_id = None
+            safe_box_obj = None
+            if not is_receivable:
+                resolved_safe_box_id = new_invoice.safe_box_id or (getattr(pm_obj, 'default_safe_box_id', None) if pm_obj else None)
+                if resolved_safe_box_id is None:
+                    resolved_safe_box_id = _fallback_cash_safe_box_id()
+                if resolved_safe_box_id is None:
+                    db.session.rollback()
+                    return jsonify({
+                        'error': 'missing_safe_box_for_payment_method',
+                        'message': 'يجب تحديد خزينة (SafeBox) لوسيلة الدفع أو ضبط خزينة افتراضية لها',
+                        'payment_method_id': payment_method_id,
+                        'payment_method_name': getattr(pm_obj, 'name', None) if pm_obj else None,
+                    }), 400
+
+                safe_box_obj = SafeBox.query.get(resolved_safe_box_id)
+                if not safe_box_obj:
+                    db.session.rollback()
+                    return jsonify({
+                        'error': 'safe_box_not_found',
+                        'message': 'الخزينة المحددة غير موجودة',
+                        'safe_box_id': resolved_safe_box_id,
+                        'payment_method_id': payment_method_id,
+                        'payment_method_name': getattr(pm_obj, 'name', None) if pm_obj else None,
+                    }), 400
 
             def _direction_for_invoice_type(t: str) -> str:
                 t = (t or '').strip()
@@ -6562,7 +7086,7 @@ def add_invoice():
                 try:
                     payment_notes = json.dumps({
                         'user_notes': None,
-                        'safe_box_id': resolved_safe_box_id,
+                        **({'safe_box_id': resolved_safe_box_id} if (not is_receivable and resolved_safe_box_id is not None) else {}),
                     }, ensure_ascii=False)
                 except Exception:
                     payment_notes = None
@@ -6579,7 +7103,7 @@ def add_invoice():
             db.session.add(payment_row)
             db.session.flush()
 
-            if not approval_required:
+            if (not approval_required) and (not is_receivable):
                 db.session.add(
                     SafeBoxTransaction(
                         safe_box_id=resolved_safe_box_id,
@@ -6619,6 +7143,34 @@ def add_invoice():
                 }), 400
 
         if settled_gold_weight > 0 and settled_gold_karat > 0:
+            # Resolve/override the target gold safe based on Settings.
+            # - If employee gold safes are enabled: prefer employee gold safe (if set)
+            # - If disabled: use main scrap gold safe
+            try:
+                srow = Settings.query.first()
+            except Exception:
+                srow = None
+
+            employee_gold_enabled = bool(getattr(srow, 'employee_gold_safes_enabled', False)) if srow else False
+            emp_gold_safe_id = None
+            try:
+                emp = getattr(new_invoice, 'employee', None)
+                if not emp and getattr(new_invoice, 'employee_id', None):
+                    emp = Employee.query.get(int(new_invoice.employee_id))
+                raw_emp_gold = getattr(emp, 'gold_safe_box_id', None) if emp else None
+                if raw_emp_gold not in (None, '', 0, '0', False):
+                    emp_gold_safe_id = int(raw_emp_gold)
+            except Exception:
+                emp_gold_safe_id = None
+
+            # Enforce rule:
+            # - If employee gold safes are enabled and employee has a gold safe -> always use it.
+            # - Otherwise fall back to main scrap gold safe (customer-gold intake location).
+            if employee_gold_enabled and emp_gold_safe_id:
+                settled_gold_safe_box_id = emp_gold_safe_id
+            elif settled_gold_safe_box_id in (None, '', False):
+                settled_gold_safe_box_id = getattr(srow, 'main_scrap_gold_safe_box_id', None) if srow else None
+
             try:
                 settled_gold_safe_box_id = int(settled_gold_safe_box_id)
             except Exception:
@@ -6627,6 +7179,15 @@ def add_invoice():
                     'error': 'missing_or_invalid_gold_safe_box',
                     'message': 'يجب تحديد خزينة ذهب صحيحة للمقايضة/السداد بالذهب',
                 }), 400
+
+            # If employee gold safes are disabled, prevent routing into employee gold safe.
+            try:
+                if (not employee_gold_enabled) and emp_gold_safe_id and int(settled_gold_safe_box_id) == int(emp_gold_safe_id):
+                    main_scrap = getattr(srow, 'main_scrap_gold_safe_box_id', None) if srow else None
+                    if main_scrap not in (None, '', 0, '0', False):
+                        settled_gold_safe_box_id = int(main_scrap)
+            except Exception:
+                pass
 
             gold_safe = SafeBox.query.get(settled_gold_safe_box_id)
             if not gold_safe:
@@ -6751,6 +7312,8 @@ def add_invoice():
                 _register_gold_weight(karat_val, weight_val)
 
         # --- Scrap purchase: deposit received gold into a gold safe (employee or main) ---
+        # Also expose the resolved gold safe account for weight journal entries.
+        scrap_purchase_gold_safe_account_id = None
         try:
             is_scrap_purchase = (
                 (new_invoice.invoice_type == 'شراء من عميل')
@@ -6761,41 +7324,58 @@ def add_invoice():
 
         if is_scrap_purchase:
             target_gold_safe_id = None
-            
-            # 1. أولاً: استخدام safe_box_id من الفاتورة مباشرة (إن وجد)
+            settings_row = None
             try:
-                invoice_safe_box_id = getattr(new_invoice, 'safe_box_id', None)
-                if invoice_safe_box_id not in (None, '', 0, '0'):
-                    target_gold_safe_id = int(invoice_safe_box_id)
-                    print(f"\n🔍 SCRAP_RECEIPT: Using invoice safe_box_id directly: {target_gold_safe_id}")
+                settings_row = Settings.query.first()
             except Exception:
-                pass
+                settings_row = None
             
-            # 2. ثانياً: البحث عن خزينة الموظف
+            # 1) If an explicit scrap holder employee is provided, honor it.
             if target_gold_safe_id is None:
                 try:
                     holder_id = getattr(new_invoice, 'scrap_holder_employee_id', None)
-                    employee_id_fallback = getattr(new_invoice, 'employee_id', None)
-
-                    candidate_ids = []
-                    for raw in (holder_id, employee_id_fallback):
-                        if raw in (None, '', False):
-                            continue
+                    if holder_id not in (None, '', False):
                         try:
-                            candidate_ids.append(int(raw))
+                            emp_id = int(holder_id)
                         except Exception:
-                            continue
-                    
-                    for emp_id in candidate_ids:
-                        holder = Employee.query.get(emp_id)
-                        if holder and getattr(holder, 'gold_safe_box_id', None):
-                            target_gold_safe_id = int(holder.gold_safe_box_id)
-                            print(f"\n🔍 SCRAP_RECEIPT: Using employee {emp_id} gold safe: {target_gold_safe_id}")
-                            break
+                            emp_id = None
+                        if emp_id:
+                            holder = Employee.query.get(emp_id)
+                            if holder and getattr(holder, 'gold_safe_box_id', None):
+                                target_gold_safe_id = int(holder.gold_safe_box_id)
+                                print(f"\n🔍 SCRAP_RECEIPT: Using explicit holder employee {emp_id} gold safe: {target_gold_safe_id}")
                 except Exception:
                     pass
 
-            # 3. ثالثاً: استخدام الخزينة الافتراضية
+            # 2) Otherwise, if employee gold safes are enabled, use the invoice employee gold safe.
+            if target_gold_safe_id is None:
+                try:
+                    employee_gold_enabled = bool(getattr(settings_row, 'employee_gold_safes_enabled', False)) if settings_row else False
+                    employee_id_fallback = getattr(new_invoice, 'employee_id', None)
+                    if employee_gold_enabled and employee_id_fallback not in (None, '', False):
+                        try:
+                            emp_id = int(employee_id_fallback)
+                        except Exception:
+                            emp_id = None
+                        if emp_id:
+                            holder = Employee.query.get(emp_id)
+                            if holder and getattr(holder, 'gold_safe_box_id', None):
+                                target_gold_safe_id = int(holder.gold_safe_box_id)
+                                print(f"\n🔍 SCRAP_RECEIPT: Using invoice employee {emp_id} gold safe: {target_gold_safe_id}")
+                except Exception:
+                    pass
+
+            # 3) Fall back to configured main scrap safe.
+            if target_gold_safe_id is None:
+                try:
+                    scrap_sb_id = getattr(settings_row, 'main_scrap_gold_safe_box_id', None) if settings_row else None
+                    if scrap_sb_id not in (None, '', 0, '0', False):
+                        target_gold_safe_id = int(scrap_sb_id)
+                        print(f"\n🔍 SCRAP_RECEIPT: Using main scrap safe from settings: {target_gold_safe_id}")
+                except Exception:
+                    target_gold_safe_id = None
+
+            # 4) Last resort: any active gold safe.
             if target_gold_safe_id is None:
                 try:
                     default_gold_safe = SafeBox.get_default_by_type('gold')
@@ -6813,33 +7393,99 @@ def add_invoice():
                 except Exception:
                     target_gold_safe_id = None
 
-            # NOTE: avoid double-counting; safebox gold movements are applied on posting.
-            # Only record immediate receipt when invoice is already posted at creation time.
-            if target_gold_safe_id is not None and bool(getattr(new_invoice, 'is_posted', False)):
+            # Always resolve the weight target account (used by weight journal entries)
+            # even when approval is required, so draft invoices don't fail balance checks.
+            if target_gold_safe_id is not None:
                 try:
                     gold_safe = SafeBox.query.get(target_gold_safe_id)
                     if gold_safe and (gold_safe.safe_type or '').lower() == 'gold' and bool(getattr(gold_safe, 'is_active', True)):
-                        weight_kwargs = {
-                            'weight_18k': float(gold_by_karat.get('18', 0.0) or 0.0),
-                            'weight_21k': float(gold_by_karat.get('21', 0.0) or 0.0),
-                            'weight_22k': float(gold_by_karat.get('22', 0.0) or 0.0),
-                            'weight_24k': float(gold_by_karat.get('24', 0.0) or 0.0),
-                        }
-                        has_any_weight = any(v > 0 for v in weight_kwargs.values())
-                        if has_any_weight:
-                            db.session.add(
-                                SafeBoxTransaction(
-                                    safe_box_id=target_gold_safe_id,
-                                    ref_type='invoice_scrap_receipt',
-                                    ref_id=new_invoice.id,
-                                    invoice_id=new_invoice.id,
-                                    direction='in',
-                                    amount_cash=0.0,
-                                    notes='scrap receipt',
-                                    created_by=posted_by_username,
-                                    **weight_kwargs,
+                        try:
+                            if getattr(gold_safe, 'account', None) is not None:
+                                scrap_purchase_gold_safe_account_id = int(gold_safe.account.id)
+                        except Exception:
+                            scrap_purchase_gold_safe_account_id = None
+
+                        # NOTE: avoid double-counting; safebox gold movements are applied only when posting is allowed.
+                        if not approval_required:
+                            weight_kwargs = {
+                                'weight_18k': float(gold_by_karat.get('18', 0.0) or 0.0),
+                                'weight_21k': float(gold_by_karat.get('21', 0.0) or 0.0),
+                                'weight_22k': float(gold_by_karat.get('22', 0.0) or 0.0),
+                                'weight_24k': float(gold_by_karat.get('24', 0.0) or 0.0),
+                            }
+                            has_any_weight = any(v > 0 for v in weight_kwargs.values())
+                            if has_any_weight:
+                                db.session.add(
+                                    SafeBoxTransaction(
+                                        safe_box_id=target_gold_safe_id,
+                                        ref_type='invoice_scrap_receipt',
+                                        ref_id=new_invoice.id,
+                                        invoice_id=new_invoice.id,
+                                        direction='in',
+                                        amount_cash=0.0,
+                                        notes='scrap receipt',
+                                        created_by=posted_by_username,
+                                        **weight_kwargs,
+                                    )
                                 )
+                except Exception:
+                    pass
+
+        # --- Sale gold movements: withdraw/return physical gold from the configured sale safe ---
+        # This complements the weight journal lines and provides an audit ledger for gold safes.
+        try:
+            inv_type_for_gold = (new_invoice.invoice_type or '').strip()
+            inv_gold_type = (str(getattr(new_invoice, 'gold_type', '') or '').strip().lower() or 'new')
+        except Exception:
+            inv_type_for_gold = ''
+            inv_gold_type = 'new'
+
+        if (not approval_required) and inv_type_for_gold in ('بيع', 'مرتجع بيع'):
+            try:
+                settings_row = Settings.query.first()
+            except Exception:
+                settings_row = None
+
+            target_gold_safe_id = None
+            try:
+                if inv_gold_type == 'scrap':
+                    target_gold_safe_id = getattr(settings_row, 'main_scrap_gold_safe_box_id', None) if settings_row else None
+                else:
+                    target_gold_safe_id = getattr(settings_row, 'sale_gold_safe_box_id', None) if settings_row else None
+            except Exception:
+                target_gold_safe_id = None
+
+            try:
+                if target_gold_safe_id not in (None, '', 0, '0', False):
+                    sb = SafeBox.query.get(int(target_gold_safe_id))
+                else:
+                    sb = None
+            except Exception:
+                sb = None
+
+            if sb and (sb.safe_type or '').lower() == 'gold' and bool(getattr(sb, 'is_active', True)):
+                try:
+                    weight_kwargs = {
+                        'weight_18k': float(gold_by_karat.get('18', 0.0) or 0.0),
+                        'weight_21k': float(gold_by_karat.get('21', 0.0) or 0.0),
+                        'weight_22k': float(gold_by_karat.get('22', 0.0) or 0.0),
+                        'weight_24k': float(gold_by_karat.get('24', 0.0) or 0.0),
+                    }
+                    has_any_weight = any(v > 0 for v in weight_kwargs.values())
+                    if has_any_weight:
+                        db.session.add(
+                            SafeBoxTransaction(
+                                safe_box_id=int(sb.id),
+                                ref_type='invoice_sale_gold_movement',
+                                ref_id=new_invoice.id,
+                                invoice_id=new_invoice.id,
+                                direction=('out' if inv_type_for_gold == 'بيع' else 'in'),
+                                amount_cash=0.0,
+                                notes=('sale gold out' if inv_type_for_gold == 'بيع' else 'sale return gold in'),
+                                created_by=posted_by_username,
+                                **weight_kwargs,
                             )
+                        )
                 except Exception:
                     pass
 
@@ -6857,12 +7503,34 @@ def add_invoice():
         party_account = None
         if new_invoice.customer_id:
             customer = Customer.query.get(new_invoice.customer_id)
-            if customer and customer.account_id:
-                party_account = Account.query.get(customer.account_id)
+            if customer:
+                try:
+                    if not customer.account_id or not Account.query.get(customer.account_id):
+                        ensure_customer_accounts(customer)
+                except Exception as exc:
+                    return jsonify({
+                        'error': 'customer_account_missing',
+                        'message': 'تعذر إنشاء/ربط حساب العميل (مالي + مذكرة وزنية).',
+                        'details': str(exc),
+                    }), 400
+
+                if customer.account_id:
+                    party_account = Account.query.get(customer.account_id)
         elif new_invoice.supplier_id:
             supplier = Supplier.query.get(new_invoice.supplier_id)
-            if supplier and supplier.account_id:
-                party_account = Account.query.get(supplier.account_id)
+            if supplier:
+                try:
+                    if not supplier.account_id or not Account.query.get(supplier.account_id):
+                        ensure_supplier_accounts(supplier)
+                except Exception as exc:
+                    return jsonify({
+                        'error': 'supplier_account_missing',
+                        'message': 'تعذر إنشاء/ربط حساب المورد (مالي + مذكرة وزنية).',
+                        'details': str(exc),
+                    }), 400
+
+                if supplier.account_id:
+                    party_account = Account.query.get(supplier.account_id)
         
         # إذا لم يكن هناك طرف، استخدم الصندوق
         if not party_account:
@@ -7018,7 +7686,13 @@ def add_invoice():
                             'safe_box_type': sb_type,
                         }), 400
                     if pm_type != 'cash':
-                        allowed = {'bank'} | ({'check'} if pm_type == 'check' else set())
+                        # Non-cash methods (cards/wallets/transfers/BNPL) often settle via clearing.
+                        # Checks are handled explicitly.
+                        if pm_type == 'check':
+                            allowed = {'bank', 'check'}
+                        else:
+                            allowed = {'bank', 'clearing'}
+
                         if sb_type not in allowed:
                             return jsonify({
                                 'error': 'الخزينة المختارة غير متوافقة مع وسيلة الدفع (يتطلب خزينة بنكية/شيكات حسب النوع)',
@@ -7117,7 +7791,13 @@ def add_invoice():
                         'safe_box_type': sb_type,
                     }), 400
                 if pm_type != 'cash':
-                    allowed = {'bank'} | ({'check'} if pm_type == 'check' else set())
+                    # Non-cash methods (cards/wallets/transfers/BNPL) often settle via clearing.
+                    # Checks are handled explicitly.
+                    if pm_type == 'check':
+                        allowed = {'bank', 'check'}
+                    else:
+                        allowed = {'bank', 'clearing'}
+
                     if sb_type not in allowed:
                         return jsonify({
                             'error': 'الخزينة المختارة غير متوافقة مع وسيلة الدفع (يتطلب خزينة بنكية/شيكات حسب النوع)',
@@ -7774,24 +8454,37 @@ def add_invoice():
             # ============================================
             
             # 1) مدين: المخزون الوزني (الوزن الفعلي - استثناء من القاعدة)
+            # 🔧 Fix: for scrap purchase, record physical weights into the resolved gold safe account
+            # (employee gold safe if explicitly set/enabled, else main scrap safe).
             for karat, weight in gold_by_karat.items():
-                if weight > 0 and karat in inventory_accounts:
-                    inv_acc_id = inventory_accounts[karat]
-                    
-                    # الحصول على حساب المذكرة للمخزون
-                    inv_account = db.session.query(Account).get(inv_acc_id)
-                    if inv_account and inv_account.memo_account_id:
-                        weight_params = {}
-                        weight_params[f'weight_{karat}k_debit'] = weight  # ✅ الوزن الفعلي
-                        
-                        create_dual_journal_entry(
-                            journal_entry_id=journal_entry.id,
-                            account_id=inv_account.memo_account_id,
-                            **weight_params,
-                            description=f"شراء ذهب عيار {karat} (وزن فعلي)"
-                        )
-                    else:
-                        print(f"⚠️ No memo account for inventory {karat}k (account {inv_acc_id})")
+                if weight <= 0:
+                    continue
+
+                inv_acc_id = inventory_accounts.get(karat) if isinstance(inventory_accounts, dict) else None
+                inv_account = db.session.query(Account).get(inv_acc_id) if inv_acc_id else None
+
+                # Prefer the resolved scrap gold safe account (tracks weight), otherwise use memo/fallback.
+                target_weight_account_id = None
+                if scrap_purchase_gold_safe_account_id not in (None, 0):
+                    target_weight_account_id = scrap_purchase_gold_safe_account_id
+                elif inv_account and inv_account.memo_account_id:
+                    target_weight_account_id = inv_account.memo_account_id
+
+                # Fallbacks: generic inventory memo (7521) then the inventory account itself.
+                if not target_weight_account_id:
+                    target_weight_account_id = get_account_id_by_number('7521') or inv_acc_id
+
+                if target_weight_account_id:
+                    weight_params = {}
+                    weight_params[f'weight_{karat}k_debit'] = weight  # ✅ الوزن الفعلي
+                    create_dual_journal_entry(
+                        journal_entry_id=journal_entry.id,
+                        account_id=target_weight_account_id,
+                        **weight_params,
+                        description=f"شراء ذهب عيار {karat} (وزن فعلي)"
+                    )
+                else:
+                    print(f"⚠️ No weight target account for scrap purchase karat {karat} (inv account {inv_acc_id})")
             
             # 2) دائن: النقدية الوزنية (تحويل المبلغ المدفوع إلى وزن)
             # ✅ تطبيق القاعدة: النقد ÷ السعر المباشر (العيار الرئيسي)
@@ -7801,7 +8494,17 @@ def add_invoice():
             
             # الحصول على حساب المذكرة الخاص بالنقدية
             cash_account = db.session.query(Account).get(acc_id)
-            if cash_account and cash_account.memo_account_id:
+            memo_cash_credit_account_id = None
+            try:
+                memo_cash_credit_account_id = (
+                    (cash_account.memo_account_id if cash_account else None)
+                    or default_memo_cash_account_id
+                    or customer_account_id
+                )
+            except Exception:
+                memo_cash_credit_account_id = (cash_account.memo_account_id if cash_account else None)
+
+            if cash_account and memo_cash_credit_account_id:
                 settlement_method_raw_w = (
                     (getattr(new_invoice, 'settlement_method', None) or data.get('settlement_method') or '')
                 )
@@ -7821,41 +8524,58 @@ def add_invoice():
                     # with the same physical weights received into inventory.
                     create_dual_journal_entry(
                         journal_entry_id=journal_entry.id,
-                        account_id=cash_account.memo_account_id,
+                        account_id=memo_cash_credit_account_id,
                         **_weight_kwargs_from_map(gold_by_karat, 'credit'),
                         apply_golden_rule=False,
                         description="تقاص وزني - شراء ذهب (مقايضة)"
                     )
                 else:
-                    main_karat_value = get_main_karat()
-                    # توزيع الوزن المعادل حسب نسبة كل عيار
-                    for karat, weight in gold_by_karat.items():
-                        if weight > 0 and total_weight_purchased > 0:
-                            karat_proportion = weight / total_weight_purchased
+                    main_karat_value = get_main_karat() or 21
 
-                            # cash_weight_equivalent محسوب بوحدة العيار الرئيسي (جم @ main karat)
-                            # لذلك يجب تحويله إلى وزن مكافئ في عيار السطر حتى لا يحدث خلل في توازن الأوزان.
-                            karat_cash_weight_main = cash_weight_equivalent * karat_proportion
+                    # Prefer an invoice-implied price to avoid large imbalances when the live price differs.
+                    # Compute main-equivalent weights per karat, then allocate exactly.
+                    main_weight_by_karat = {}
+                    total_main_weight = 0.0
+                    for karat, weight in gold_by_karat.items():
+                        if weight and weight > 0:
+                            try:
+                                karat_int_tmp = int(round(float(karat)))
+                            except Exception:
+                                karat_int_tmp = int(main_karat_value)
+                            try:
+                                main_w = float(convert_to_main_karat(weight, karat_int_tmp))
+                            except Exception:
+                                main_w = float(weight) * (karat_int_tmp / float(main_karat_value)) if main_karat_value else float(weight)
+                            main_weight_by_karat[karat] = main_w
+                            total_main_weight += main_w
+
+                    # If we have physical weights, we can make the cash weight equivalent match exactly.
+                    # Otherwise, fall back to the live price conversion already computed.
+                    if total_main_weight > 0:
+                        cash_weight_equivalent_main = total_main_weight
+                    else:
+                        cash_weight_equivalent_main = float(cash_weight_equivalent or 0.0)
+
+                    for karat, weight in gold_by_karat.items():
+                        if weight and weight > 0 and cash_weight_equivalent_main > 0 and total_main_weight > 0:
                             try:
                                 karat_int = int(round(float(karat)))
                             except Exception:
-                                karat_int = main_karat_value
-                            karat_cash_weight = convert_from_main_karat(
-                                karat_cash_weight_main,
-                                karat_int,
-                            )
+                                karat_int = int(main_karat_value)
 
-                            # دائن: حساب النقدية الوزني
+                            karat_main_share = cash_weight_equivalent_main * (main_weight_by_karat.get(karat, 0.0) / total_main_weight)
+                            karat_cash_weight = convert_from_main_karat(karat_main_share, karat_int)
+
                             weight_params = {}
                             weight_params[f'weight_{karat}k_credit'] = karat_cash_weight
                             create_dual_journal_entry(
                                 journal_entry_id=journal_entry.id,
-                                account_id=cash_account.memo_account_id,
+                                account_id=memo_cash_credit_account_id,
                                 **weight_params,
                                 description=f"دفع وزني - شراء عيار {karat}"
                             )
             else:
-                print(f"⚠️ No memo account for cash (account {acc_id})")
+                print(f"⚠️ No memo cash account available for purchase weight credit (account {acc_id})")
             
             # ============================================
             # قيد ضريبة القيمة المضافة (إن وجدت)
@@ -13889,6 +14609,24 @@ def update_customer(id):
         if account_category:
             customer.account_category_id = account_category.id
 
+    # Optional: ensure financial + memo accounts exist
+    try:
+        ensure_accounts = data.get('ensure_accounts')
+        if ensure_accounts is None:
+            ensure_accounts_bool = False
+        elif isinstance(ensure_accounts, bool):
+            ensure_accounts_bool = ensure_accounts
+        elif isinstance(ensure_accounts, (int, float)):
+            ensure_accounts_bool = bool(ensure_accounts)
+        else:
+            ensure_accounts_bool = str(ensure_accounts).strip().lower() in ('1', 'true', 'yes', 'y', 'on')
+
+        if ensure_accounts_bool:
+            ensure_customer_accounts(customer)
+    except Exception as exc:
+        db.session.rollback()
+        return jsonify({'error': f'Failed to ensure customer accounts: {str(exc)}'}), 500
+
     try:
         db.session.commit()
         return jsonify(customer.to_dict_with_account())
@@ -13952,8 +14690,8 @@ def create_employee():
         create_employee_payables_accounts,
         get_employee_department_from_code,
         ensure_employee_group_accounts,
+        ensure_memo_for_account,
     )
-    from advance_account_helpers import get_or_create_employee_advance_account
     from employee_gold_safe_helpers import create_employee_gold_safe, ensure_employee_gold_group_account
     from employee_cash_safe_helpers import create_employee_cash_safe, ensure_employee_cash_group_account
     
@@ -13991,6 +14729,22 @@ def create_employee():
     # إنشاء حساب تلقائي للموظف إذا لم يُحدد account_id
     account_id = data.get('account_id')
     auto_created_account = None
+
+    # Defensive: some clients may accidentally send the *group* account (e.g. 1700) or a
+    # weight/memo account (7xxxx) as account_id. In those cases we still want a dedicated
+    # personal account under 1700.
+    try:
+        if account_id not in (None, '', False):
+            linked = Account.query.get(int(account_id))
+            if linked:
+                linked_num = str(getattr(linked, 'account_number', '') or '')
+                linked_tt = (getattr(linked, 'transaction_type', '') or '').strip().lower()
+
+                if linked_num in ('170', '1700', '7170', '71700') or linked_tt == 'gold' or bool(getattr(linked, 'tracks_weight', False)):
+                    account_id = None
+    except Exception:
+        # If parsing fails, fall back to auto-creation path.
+        account_id = None
     
     if not account_id:
         try:
@@ -14028,6 +14782,15 @@ def create_employee():
                 'error': f'فشل إنشاء الحساب التلقائي: {str(e)}',
                 'hint': 'تأكد من تشغيل seed_employee_accounts.py لإنشاء الحسابات التجميعية'
             }), 500
+
+    # Ensure the linked/selected personal account has a memo/weight parallel.
+    try:
+        if account_id:
+            acc = Account.query.get(int(account_id))
+            if acc:
+                ensure_memo_for_account(acc)
+    except Exception:
+        pass
 
     employee = Employee(
         employee_code=employee_code,
@@ -14140,12 +14903,8 @@ def create_employee():
             except Exception as exc:
                 return jsonify({'error': f'فشل إنشاء حسابات مستحقات الموظف: {str(exc)}'}), 500
 
-        # Optional: auto-create employee advance account (140xxx) at employee creation time.
-        # Default remains off to avoid chart clutter; enable by sending auto_create_advance_account=true.
+        # Employee advance accounts were removed by request (legacy 1400 and related logic).
         created_advance_account = None
-        if bool(data.get('auto_create_advance_account', False)):
-            created_by = data.get('created_by', 'system')
-            created_advance_account = get_or_create_employee_advance_account(employee.id, created_by)
         db.session.commit()
         
         result = employee.to_dict(include_details=True)
@@ -14173,14 +14932,7 @@ def create_employee():
                 'account_name': created_cash_safe_account.name if created_cash_safe_account else None,
             }
 
-        if 'created_advance_account' not in result and 'auto_create_advance_account' in data:
-            # Only include when explicitly requested.
-            if created_advance_account:
-                result['auto_created_advance_account'] = {
-                    'account_id': int(created_advance_account.id),
-                    'account_number': created_advance_account.account_number,
-                    'account_name': created_advance_account.name,
-                }
+        # (advance accounts removed)
 
         if created_payables_accounts:
             result['auto_created_payables_accounts'] = [
@@ -14378,39 +15130,14 @@ def get_employee_departments_summary():
 
 @api.route('/employees/<int:employee_id>/advance-account', methods=['GET'])
 def get_employee_advance_account(employee_id):
-    """الحصول على حساب السلفة الخاص بموظف"""
-    from advance_account_helpers import get_employee_advance_balance
-    
-    try:
-        advance_info = get_employee_advance_balance(employee_id)
-        return jsonify(advance_info)
-    except Exception as e:
-        return jsonify({'error': f'Failed to get employee advance account: {str(e)}'}), 500
+    """حسابات السلف تم إلغاؤها نهائياً."""
+    return jsonify({'error': 'Advance accounts feature has been removed'}), 410
 
 
 @api.route('/employees/<int:employee_id>/advance-account', methods=['POST'])
 def create_employee_advance_account(employee_id):
-    """إنشاء حساب سلفة لموظف"""
-    from advance_account_helpers import get_or_create_employee_advance_account
-    
-    data = request.get_json() or {}
-    created_by = data.get('created_by', 'system')
-    
-    try:
-        advance_account = get_or_create_employee_advance_account(employee_id, created_by)
-        db.session.commit()
-        
-        return jsonify({
-            'account_id': advance_account.id,
-            'account_number': advance_account.account_number,
-            'account_name': advance_account.name,
-            'employee_id': employee_id
-        }), 201
-    except ValueError as e:
-        return jsonify({'error': str(e)}), 400
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({'error': f'Failed to create advance account: {str(e)}'}), 500
+    """حسابات السلف تم إلغاؤها نهائياً."""
+    return jsonify({'error': 'Advance accounts feature has been removed'}), 410
 
 
 @api.route('/employees/<int:employee_id>/ensure-setup', methods=['POST'])
@@ -14433,6 +15160,8 @@ def ensure_employee_setup(employee_id):
         create_employee_account,
         ensure_employee_group_accounts,
         get_or_create_employee_payables_accounts,
+        EMPLOYEE_PERSONAL_PARENT_NUMBER,
+        ensure_memo_for_account,
     )
     from employee_account_naming import employee_personal_account_name
     from employee_gold_safe_helpers import create_employee_gold_safe, ensure_employee_gold_group_account
@@ -14478,16 +15207,20 @@ def ensure_employee_setup(employee_id):
 
         # 1) Ensure personal account is linked.
         if ensure_personal and not getattr(employee, 'account_id', None):
-            parent_1700 = Account.query.filter_by(account_number='1700').first()
+            parent_acc = Account.query.filter_by(account_number=str(EMPLOYEE_PERSONAL_PARENT_NUMBER)).first()
             expected_name = employee_personal_account_name(employee.name)
             existing = None
-            if parent_1700:
-                existing = Account.query.filter_by(parent_id=parent_1700.id, name=expected_name).first()
+            if parent_acc:
+                existing = Account.query.filter_by(parent_id=parent_acc.id, name=expected_name).first()
             if not existing:
                 # Fallback lookup by name only (in case parent linkage differs in older DBs)
                 existing = Account.query.filter_by(name=expected_name).order_by(Account.id.desc()).first()
 
             if existing:
+                try:
+                    ensure_memo_for_account(existing)
+                except Exception:
+                    pass
                 employee.account_id = existing.id
                 created['linked_personal_account'] = {
                     'account_id': int(existing.id),
@@ -14559,14 +15292,8 @@ def ensure_employee_setup(employee_id):
 @api.route('/advances/summary', methods=['GET'])
 @require_permission('employees.payroll')
 def get_all_advances_summary():
-    """الحصول على ملخص جميع السلف المستحقة"""
-    from advance_account_helpers import get_all_advances_summary as get_summary
-    
-    try:
-        summary = get_summary()
-        return jsonify(summary)
-    except Exception as e:
-        return jsonify({'error': f'Failed to get advances summary: {str(e)}'}), 500
+    """حسابات السلف تم إلغاؤها نهائياً."""
+    return jsonify({'error': 'Advance accounts feature has been removed'}), 410
 
 
 # ============================================================================
@@ -17182,6 +17909,17 @@ def create_safe_box():
     account = Account.query.get(data['account_id'])
     if not account:
         return jsonify({'error': 'الحساب المحدد غير موجود'}), 404
+
+    # Guardrail: cash/bank/clearing/check safes should have memo accounts for weight-ledger symmetry.
+    try:
+        safe_type_norm = (data.get('safe_type') or '').strip().lower()
+        if safe_type_norm in ('cash', 'bank', 'clearing', 'check'):
+            if not getattr(account, 'memo_account_id', None):
+                account.create_parallel_account()
+                db.session.flush()
+    except Exception:
+        # Non-fatal: will still allow creation, but postings may fall back.
+        pass
     
     # التحقق من خزينة الذهب: الحساب يجب أن يدعم تتبع الوزن (tracks_weight=True)
     karat = None
@@ -17261,6 +17999,16 @@ def update_safe_box(safe_box_id):
             if not account:
                 return jsonify({'error': 'الحساب المحدد غير موجود'}), 404
             safe_box.account_id = data['account_id']
+
+            # Guardrail: ensure memo account exists for cash-like safes.
+            try:
+                safe_type_norm = (safe_box.safe_type or '').strip().lower()
+                if safe_type_norm in ('cash', 'bank', 'clearing', 'check'):
+                    if not getattr(account, 'memo_account_id', None):
+                        account.create_parallel_account()
+                        db.session.flush()
+            except Exception:
+                pass
         
         if 'karat' in data:
             # ✅ في النظام الموحّد: خزائن الذهب متعددة العيارات دائماً (karat=None).
@@ -17837,6 +18585,58 @@ def create_clearing_settlement():
 
     if (bank_safe_box.safe_type or '').strip().lower() != 'bank':
         return jsonify({'error': 'bank_safe_box must be of type bank'}), 400
+
+    # HARD GUARD (anti double-deduction):
+    # If the clearing safe box is the default safe for one or more payment methods,
+    # and those methods record commission at invoice time, then fee must be zero here.
+    # This prevents counting commission twice (invoice + settlement).
+    if fee_amount > 0:
+        try:
+            matched_methods = (
+                PaymentMethod.query
+                .filter_by(default_safe_box_id=clearing_safe_box.id, is_active=True)
+                .all()
+            )
+        except Exception:
+            matched_methods = []
+
+        if matched_methods:
+            timings = set()
+            methods_payload = []
+            for pm in matched_methods:
+                try:
+                    t = str(getattr(pm, 'commission_timing', 'invoice') or 'invoice').strip().lower()
+                except Exception:
+                    t = 'invoice'
+                if t not in {'invoice', 'settlement'}:
+                    t = 'invoice'
+                timings.add(t)
+                methods_payload.append({
+                    'id': getattr(pm, 'id', None),
+                    'name': getattr(pm, 'name', None),
+                    'commission_timing': t,
+                })
+
+            # If policy is invoice (or ambiguous), we forbid fee in settlement.
+            if 'invoice' in timings:
+                error_code = (
+                    'fee_not_allowed_when_commission_timing_invoice'
+                    if timings == {'invoice'}
+                    else 'fee_not_allowed_due_to_ambiguous_commission_policy'
+                )
+                message = (
+                    'لا يمكن إرسال عمولة (fee) في التسوية لأن سياسة العمولة لهذه الخزينة '
+                    'تسجل العمولة ضمن الفاتورة (commission_timing=invoice) أو توجد سياسات متضاربة. '
+                    'لمنع خصم العمولة مرتين: اجعل fee=0 أو غيّر سياسة وسيلة الدفع إلى settlement '
+                    'أو استخدم خزينة مستحقات منفصلة لكل سياسة.'
+                )
+                return jsonify({
+                    'error': error_code,
+                    'message': message,
+                    'clearing_safe_box_id': clearing_safe_box.id,
+                    'fee_amount': round(float(fee_amount or 0.0), 2),
+                    'payment_methods': methods_payload,
+                }), 400
 
     clearing_account = clearing_safe_box.account
     bank_account = bank_safe_box.account
@@ -20591,9 +21391,13 @@ def get_admin_dashboard():
         last_shift_alert = None
 
     # --- Purchases today (posted only) ---
+    # Include both supplier purchases and scrap purchases from customers,
+    # and include return variants used in production.
     purchase_types = {
         'شراء': 1,
+        'شراء من عميل': 1,
         'مرتجع شراء': -1,
+        'مرتجع شراء (مورد)': -1,
     }
     today_purchases = (
         Invoice.query
@@ -20724,25 +21528,64 @@ def get_admin_dashboard():
                 (SafeBoxTransaction.direction == 'in', SafeBoxTransaction.amount_cash),
                 else_=-SafeBoxTransaction.amount_cash,
             )
+            sb_signed_w18 = case(
+                (SafeBoxTransaction.direction == 'in', SafeBoxTransaction.weight_18k),
+                else_=-SafeBoxTransaction.weight_18k,
+            )
             sb_signed_w21 = case(
                 (SafeBoxTransaction.direction == 'in', SafeBoxTransaction.weight_21k),
                 else_=-SafeBoxTransaction.weight_21k,
             )
+            sb_signed_w22 = case(
+                (SafeBoxTransaction.direction == 'in', SafeBoxTransaction.weight_22k),
+                else_=-SafeBoxTransaction.weight_22k,
+            )
+            sb_signed_w24 = case(
+                (SafeBoxTransaction.direction == 'in', SafeBoxTransaction.weight_24k),
+                else_=-SafeBoxTransaction.weight_24k,
+            )
             sb_row = (
                 db.session.query(
                     func.coalesce(func.sum(sb_signed_cash), 0.0).label('cash'),
+                    func.coalesce(func.sum(sb_signed_w18), 0.0).label('gold_18k'),
                     func.coalesce(func.sum(sb_signed_w21), 0.0).label('gold_21k'),
+                    func.coalesce(func.sum(sb_signed_w22), 0.0).label('gold_22k'),
+                    func.coalesce(func.sum(sb_signed_w24), 0.0).label('gold_24k'),
                 )
                 .filter(SafeBoxTransaction.safe_box_id == sb.id)
                 .first()
             )
+
+            g18 = float(getattr(sb_row, 'gold_18k', 0) or 0)
+            g21 = float(getattr(sb_row, 'gold_21k', 0) or 0)
+            g22 = float(getattr(sb_row, 'gold_22k', 0) or 0)
+            g24 = float(getattr(sb_row, 'gold_24k', 0) or 0)
+
+            total_main = 0.0
+            try:
+                mk = float(main_karat or 21)
+                if mk <= 0:
+                    mk = 21.0
+                total_main = (g18 * (18.0 / mk)) + g21 + (g22 * (22.0 / mk)) + (g24 * (24.0 / mk))
+            except Exception:
+                total_main = 0.0
             
             safe_boxes_summary.append({
                 'id': sb.id,
                 'name': sb.name,
                 'safe_type': sb.safe_type,
                 'balance_cash': round(float(getattr(sb_row, 'cash', 0) or 0), 2),
-                'balance_gold_21k': round(float(getattr(sb_row, 'gold_21k', 0) or 0), 3),
+                # Keep legacy single-field gold balance used by older UI.
+                'balance_gold_21k': round(g21, 3),
+                # New: detailed weights per karat (ledger-based) for richer UI.
+                'weight_balance': {
+                    '18k': round(g18, 3),
+                    '21k': round(g21, 3),
+                    '22k': round(g22, 3),
+                    '24k': round(g24, 3),
+                },
+                'total_weight_main_karat': round(float(total_main), 3),
+                'main_karat': int(main_karat or 21),
             })
     except Exception:
         safe_boxes_summary = []

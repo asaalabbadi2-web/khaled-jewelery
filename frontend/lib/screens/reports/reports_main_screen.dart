@@ -20,6 +20,7 @@ import 'gold_price_history_report_screen.dart';
 import 'gold_position_report_screen.dart';
 import 'gold_weight_trial_balance_report_screen.dart';
 import 'income_statement_report_screen.dart';
+import 'customer_gold_balances_report_screen.dart';
 import '../safe_boxes_screen.dart';
 import 'analytics_dashboard_screen.dart';
 import 'admin_dashboard_screen.dart';
@@ -363,6 +364,12 @@ class _ReportsMainScreenState extends State<ReportsMainScreen> {
         break;
       case 'customer_balances_aging':
         destination = CustomerBalancesAgingReportScreen(
+          api: widget.api,
+          isArabic: widget.isArabic,
+        );
+        break;
+      case 'customer_gold_balances':
+        destination = CustomerGoldBalancesReportScreen(
           api: widget.api,
           isArabic: widget.isArabic,
         );

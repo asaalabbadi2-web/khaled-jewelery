@@ -113,6 +113,7 @@ class _SafeBoxesDashboardScreenState extends State<SafeBoxesDashboardScreen> {
                   builder: (_) => SafeBoxesScreen(
                     initialFilterType: 'gold',
                     lockFilterType: true,
+                    balancesView: true,
                   ),
                 ),
               ).then((_) => _loadDashboardData());

@@ -71,6 +71,10 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
   // 🆕 Gold barter (scrap) inside payments
   bool _enableBarter = false;
   final List<_BarterLine> _barterLines = [];
+  // 🆕 Barter gold deposit safe (when employee has no linked gold safe)
+  List<SafeBoxModel> _barterGoldDepositSafeBoxes = [];
+  int? _selectedBarterGoldDepositSafeBoxId;
+  bool _isLoadingBarterGoldDepositSafeBoxes = false;
 
   // Safe Boxes - 🆕 الخزائن المتاحة للدفع
   List<SafeBoxModel> _safeBoxes = [];
@@ -109,6 +113,9 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
         line.dispose();
       }
       _barterLines.clear();
+      _barterGoldDepositSafeBoxes = [];
+      _selectedBarterGoldDepositSafeBoxId = null;
+      _isLoadingBarterGoldDepositSafeBoxes = false;
 
       _invoiceWeightMain = 0.0;
       _invoiceCostGoldComponent = 0.0;
@@ -116,6 +123,61 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
       _invoiceCostTotal = 0.0;
     });
     _smartInputFocus.requestFocus();
+  }
+
+  Future<void> _loadBarterGoldDepositSafeBoxesIfNeeded() async {
+    if (_isLoadingBarterGoldDepositSafeBoxes) return;
+
+    final employeeGoldSafesEnabled =
+        _settingsProvider.settings['employee_gold_safes_enabled'] == true;
+    if (!employeeGoldSafesEnabled) return;
+
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    final employeeGoldSafeId =
+        authProvider.currentUser?.employee?.goldSafeBoxId;
+
+    // If the employee has a linked gold safe, backend will deposit there.
+    if (employeeGoldSafeId != null) return;
+
+    setState(() {
+      _isLoadingBarterGoldDepositSafeBoxes = true;
+    });
+
+    try {
+      final apiService = ApiService();
+      final all = await apiService.getSafeBoxes();
+      final goldBoxes = all
+          .where((b) => b.safeType == 'gold' && b.id != null && b.isActive)
+          .toList();
+
+      int? picked = _selectedBarterGoldDepositSafeBoxId;
+      if (picked != null && goldBoxes.any((b) => b.id == picked)) {
+        // keep
+      } else {
+        final mainScrapIdRaw =
+            _settingsProvider.settings['main_scrap_gold_safe_box_id'];
+        final mainScrapId = mainScrapIdRaw is int
+            ? mainScrapIdRaw
+            : int.tryParse(mainScrapIdRaw?.toString() ?? '');
+        if (mainScrapId != null && goldBoxes.any((b) => b.id == mainScrapId)) {
+          picked = mainScrapId;
+        } else {
+          picked = goldBoxes.isNotEmpty ? goldBoxes.first.id : null;
+        }
+      }
+
+      if (!mounted) return;
+      setState(() {
+        _barterGoldDepositSafeBoxes = goldBoxes;
+        _selectedBarterGoldDepositSafeBoxId = picked;
+        _isLoadingBarterGoldDepositSafeBoxes = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _isLoadingBarterGoldDepositSafeBoxes = false;
+      });
+    }
   }
 
   @override
@@ -336,6 +398,17 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
 
       final paymentType = method['payment_type'] as String?;
       if (paymentType == null) return;
+
+      // Receivable methods represent on-account settlement; no safe box should be required.
+      if (paymentType == 'receivable') {
+        if (!mounted) return;
+        setState(() {
+          _safeBoxes = [];
+          _selectedSafeBoxId = null;
+          _showAdvancedPaymentOptions = false;
+        });
+        return;
+      }
 
       final defaultSafeBoxId = method['default_safe_box_id'];
 
@@ -1178,6 +1251,30 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
       builder: (dialogContext) {
         return StatefulBuilder(
           builder: (context, setDialogState) {
+            void submit() {
+              if (!(formKey.currentState?.validate() ?? false)) {
+                return;
+              }
+
+              final weight =
+                  tryParseOptionalDouble(weightController.text) ?? 0;
+              final wage = tryParseOptionalDouble(wageController.text) ?? 0;
+              final count = int.tryParse(countController.text) ?? 1;
+              final manualTotal = tryParseOptionalDouble(
+                totalController.text,
+              );
+
+              Navigator.pop(dialogContext, {
+                'name': nameController.text.trim(),
+                'barcode': barcodeController.text.trim(),
+                'count': count,
+                'karat': selectedKarat.toDouble(),
+                'weight': weight,
+                'wage': wage,
+                'total_with_tax': manualTotal,
+              });
+            }
+
             return AlertDialog(
               title: const Text('إضافة صنف يدوي'),
               content: SingleChildScrollView(
@@ -1299,12 +1396,14 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                         keyboardType: const TextInputType.numberWithOptions(
                           decimal: true,
                         ),
+                        textInputAction: TextInputAction.done,
                         inputFormatters: [
                           ArabicNumberTextInputFormatter(
                             allowDecimal: true,
                             allowNegative: false,
                           ),
                         ],
+                        onFieldSubmitted: (_) => submit(),
                         decoration: InputDecoration(
                           labelText: 'الإجمالي مع الضريبة (اختياري)',
                           prefixIcon: const Icon(Icons.attach_money),
@@ -1325,30 +1424,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                 FilledButton.icon(
                   icon: const Icon(Icons.check_circle_outline),
                   label: const Text('إضافة'),
-                  onPressed: () {
-                    if (!(formKey.currentState?.validate() ?? false)) {
-                      return;
-                    }
-
-                    final weight =
-                        tryParseOptionalDouble(weightController.text) ?? 0;
-                    final wage =
-                        tryParseOptionalDouble(wageController.text) ?? 0;
-                    final count = int.tryParse(countController.text) ?? 1;  // 🆕
-                    final manualTotal = tryParseOptionalDouble(
-                      totalController.text,
-                    );
-
-                    Navigator.pop(dialogContext, {
-                      'name': nameController.text.trim(),
-                      'barcode': barcodeController.text.trim(),
-                      'karat': selectedKarat.toDouble(),
-                      'weight': weight,
-                      'wage': wage,
-                      'count': count,  // 🆕
-                      'total_with_tax': manualTotal,
-                    });
-                  },
+                  onPressed: submit,
                 ),
               ],
             );
@@ -1423,27 +1499,19 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
       if (!mounted) return;
       setState(() {
         _categories = parsed;
+        _isLoadingCategories = false;
       });
     } catch (e) {
       if (!mounted) return;
       setState(() {
-        _categoriesLoadingError = 'فشل تحميل التصنيفات: $e';
-      });
-    } finally {
-      if (!mounted) return;
-      setState(() {
+        _categories = [];
         _isLoadingCategories = false;
+        _categoriesLoadingError = e.toString();
       });
     }
   }
 
   Future<void> _showCategoryLineDialog() async {
-    final allowManualItems = _settingsProvider.allowManualInvoiceItems;
-    if (!allowManualItems) {
-      _showManualItemFeatureGuide();
-      return;
-    }
-
     await _ensureCategoriesLoaded();
     if (!mounted) return;
 
@@ -1467,7 +1535,8 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
 
     final categoryId = result['categoryId'] as int?;
     final categoryName = result['categoryName'] as String? ?? '';
-    final selectedKarat = result['karat'] as int? ?? _settingsProvider.mainKarat;
+    final selectedKarat =
+        result['karat'] as int? ?? _settingsProvider.mainKarat;
     final weight = result['weight'] as double? ?? 0;
     final wage = result['wage'] as double? ?? 0;
 
@@ -1620,7 +1689,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
 
     await showDialog(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (dialogContext) => AlertDialog(
         title: const Text('توزيع تلقائي للمبلغ'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
@@ -1635,6 +1704,14 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
               keyboardType: const TextInputType.numberWithOptions(
                 decimal: true,
               ),
+              textInputAction: TextInputAction.done,
+              onSubmitted: (_) {
+                final target = double.tryParse(controller.text);
+                if (target != null && target > 0) {
+                  _distributeAmount(target);
+                  Navigator.pop(dialogContext);
+                }
+              },
               decoration: InputDecoration(
                 labelText: 'المبلغ المستهدف',
                 suffixText: _settingsProvider.currencySymbol,
@@ -1645,7 +1722,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
+            onPressed: () => Navigator.pop(dialogContext),
             child: const Text('إلغاء'),
           ),
           ElevatedButton(
@@ -1653,7 +1730,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
               final target = double.tryParse(controller.text);
               if (target != null && target > 0) {
                 _distributeAmount(target);
-                Navigator.pop(context);
+                Navigator.pop(dialogContext);
               }
             },
             child: const Text('توزيع'),
@@ -2022,7 +2099,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
 
         // الحصول على خزينة الذهب للموظف الحالي
         final employeeGoldSafeId =
-            authProvider.currentUser?.employee?.goldSafeBoxId;
+          authProvider.currentUser?.employee?.goldSafeBoxId;
 
         final scrapInvoiceData = {
           'customer_id': customerId,
@@ -2034,7 +2111,10 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
           if (sellerEmployeeId != null) 'employee_id': sellerEmployeeId,
           if (sellerEmployeeId != null)
             'scrap_holder_employee_id': sellerEmployeeId,
-          if (employeeGoldSafeId != null) 'safe_box_id': employeeGoldSafeId,
+          if (employeeGoldSafeId != null)
+            'safe_box_id': employeeGoldSafeId
+          else if (_selectedBarterGoldDepositSafeBoxId != null)
+            'safe_box_id': _selectedBarterGoldDepositSafeBoxId,
           'date': DateTime.now().toIso8601String(),
           'total': barterTotal,
           'total_weight': barterWeightNet,
@@ -2898,6 +2978,8 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
         final size = MediaQuery.of(context).size;
         final isWideLayout = size.width >= 1100;
 
+        final hasAnySettlement = _payments.isNotEmpty || _barterTotal > 0.01;
+
         final bodyContent = Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
@@ -2943,7 +3025,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                           child: FilledButton.icon(
                             onPressed:
                                 _items.isEmpty ||
-                                    _payments.isEmpty ||
+                                    !hasAnySettlement ||
                                     _remainingAmount > 0.01
                                 ? null
                                 : _submitInvoice,
@@ -2992,7 +3074,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                 child: FilledButton.icon(
                   onPressed:
                       _items.isEmpty ||
-                          _payments.isEmpty ||
+                          !hasAnySettlement ||
                           _remainingAmount > 0.01
                       ? null
                       : _submitInvoice,
@@ -4463,6 +4545,35 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
     final dividerColor = theme.dividerColor.withValues(alpha: 0.6);
     final isDark = theme.brightness == Brightness.dark;
 
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    final employeeGoldSafesEnabled =
+      _settingsProvider.settings['employee_gold_safes_enabled'] == true;
+    final employeeGoldSafeId =
+      authProvider.currentUser?.employee?.goldSafeBoxId;
+    final hideBarterGoldDepositSafe =
+      employeeGoldSafesEnabled && employeeGoldSafeId != null;
+    final showBarterGoldDepositSafeDropdown =
+      employeeGoldSafesEnabled && employeeGoldSafeId == null;
+
+    final mainScrapIdRaw = _settingsProvider.settings['main_scrap_gold_safe_box_id'];
+    final mainScrapGoldSafeBoxId = mainScrapIdRaw is int
+        ? mainScrapIdRaw
+        : int.tryParse(mainScrapIdRaw?.toString() ?? '');
+
+    String? safeNameById(int? id) {
+      if (id == null) return null;
+      for (final b in _barterGoldDepositSafeBoxes) {
+        if (b.id == id) return b.name;
+      }
+      return null;
+    }
+
+    final selectedDepositSafeName =
+        safeNameById(_selectedBarterGoldDepositSafeBoxId);
+    final mainScrapSafeName = safeNameById(mainScrapGoldSafeBoxId);
+    final resolvedDepositSafeName =
+        selectedDepositSafeName ?? mainScrapSafeName ?? 'الخزنة الرئيسية للكسر';
+
     return Card(
       elevation: 2,
       color: theme.cardColor,
@@ -4817,12 +4928,114 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                               _barterLines.clear();
                             }
                           });
+
+                          if (value) {
+                            _loadBarterGoldDepositSafeBoxesIfNeeded();
+                          }
                         },
                       ),
                     ],
                   ),
                   if (_enableBarter) ...[
                     const SizedBox(height: 12),
+                    if (hideBarterGoldDepositSafe)
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 10,
+                        ),
+                        decoration: BoxDecoration(
+                          color: theme.colorScheme.primaryContainer
+                              .withValues(alpha: isDark ? 0.25 : 0.35),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(
+                            color: theme.colorScheme.primary
+                                .withValues(alpha: 0.35),
+                          ),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(
+                              Icons.info_outline,
+                              size: 18,
+                              color: theme.colorScheme.primary,
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                'سيتم إيداع الذهب في خزنتك الشخصية تلقائياً',
+                                style: theme.textTheme.bodyMedium?.copyWith(
+                                  fontWeight: FontWeight.w600,
+                                  color: theme.colorScheme.onSurface,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    if (showBarterGoldDepositSafeDropdown) ...[
+                      if (!hideBarterGoldDepositSafe)
+                        const SizedBox(height: 10),
+                      if (_isLoadingBarterGoldDepositSafeBoxes)
+                        const LinearProgressIndicator(minHeight: 3),
+                      const SizedBox(height: 10),
+                      DropdownButtonFormField<int>(
+                        value: _selectedBarterGoldDepositSafeBoxId,
+                        decoration: const InputDecoration(
+                          labelText: 'خزينة إيداع ذهب المقايضة',
+                          border: OutlineInputBorder(),
+                        ),
+                        items: _barterGoldDepositSafeBoxes
+                            .where((b) => b.id != null)
+                            .map(
+                              (box) => DropdownMenuItem<int>(
+                                value: box.id!,
+                                child: Text(box.name),
+                              ),
+                            )
+                            .toList(),
+                        onChanged: (value) {
+                          setState(() {
+                            _selectedBarterGoldDepositSafeBoxId = value;
+                          });
+                        },
+                      ),
+                      const SizedBox(height: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 10,
+                        ),
+                        decoration: BoxDecoration(
+                          color: AppColors.warning.withValues(
+                            alpha: isDark ? 0.18 : 0.12,
+                          ),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(
+                            color: AppColors.warning.withValues(alpha: 0.35),
+                          ),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(
+                              Icons.warning_amber_rounded,
+                              size: 18,
+                              color: AppColors.warning,
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                'سيتم الإيداع في: $resolvedDepositSafeName لعدم وجود خزنة ذهب خاصة بك.',
+                                style: theme.textTheme.bodyMedium?.copyWith(
+                                  fontWeight: FontWeight.w600,
+                                  color: theme.colorScheme.onSurface,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                     Align(
                       alignment: Alignment.centerRight,
                       child: OutlinedButton.icon(

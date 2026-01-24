@@ -61,32 +61,7 @@ def create_employee_group_accounts():
             else:
                 print(f"ℹ️  الحساب التجميعي الفرعي موجود بالفعل: {acc_num} - {name_ar}")
 
-        # تحديث حساب السلف (تغيير الرقم من 1300 إلى 1400)
-        old_advances_account = Account.query.filter_by(account_number='1300').first()
-        if old_advances_account and old_advances_account.name == 'سلف موظفين':
-            # تحقق من عدم وجود حساب بالرقم الجديد
-            new_advances_account = Account.query.filter_by(account_number='1400').first()
-            if not new_advances_account:
-                old_advances_account.account_number = '1400'
-                old_advances_account.parent_id = None  # سيكون تحت 140
-                print("✅ تم تحديث رقم حساب سلف الموظفين من 1300 إلى 1400")
-            else:
-                print("⚠️  تحذير: يوجد حساب بالرقم 1400 بالفعل")
-
-        # إنشاء حساب السلف الجديد إن لم يكن موجوداً
-        advances_account = Account.query.filter_by(account_number='1400').first()
-        if not advances_account:
-            advances_account = Account(
-                account_number='1400',
-                name='سلف موظفين',
-                type='asset',
-                transaction_type='cash',
-                parent_id=None
-            )
-            db.session.add(advances_account)
-            print("✅ تم إنشاء حساب: 1400 - سلف موظفين (تجميعي)")
-        else:
-            print("ℹ️  حساب السلف موجود بالفعل: 1400")
+        # ملاحظة: حساب 1400 (سلف الموظفين) تم إلغاؤه نهائياً.
 
         try:
             db.session.commit()
@@ -105,11 +80,7 @@ def create_employee_group_accounts():
             print("       └─ نطاق الحسابات التفصيلية: 133000 - 133999")
             print("  1340 - موظفو المستودعات (حساب تجميعي فرعي)")
             print("       └─ نطاق الحسابات التفصيلية: 134000 - 134999")
-            print("\n  1400 - سلف موظفين")
-            print("="*60)
-            print("\n💡 ملاحظة: حسابات السلف التفصيلية (140000-149999)")
-            print("   يتم إنشاؤها تلقائياً عند صرف سلفة لموظف")
-            print("="*60)
+            # (حسابات السلف تم إلغاؤها نهائياً)
             
         except Exception as e:
             db.session.rollback()

@@ -599,9 +599,17 @@ class _ScrapPurchaseInvoiceScreenState
           break;
         case 'standing_weight':
           item.standingWeight = value;
+          item.updateWeightFromStandingAndStones();
+          if (item._hasManualTotal && item._targetTotal != null) {
+            _recalculateFieldsForTarget(item);
+          }
           break;
         case 'stones_weight':
           item.stonesWeight = value;
+          item.updateWeightFromStandingAndStones();
+          if (item._hasManualTotal && item._targetTotal != null) {
+            _recalculateFieldsForTarget(item);
+          }
           break;
         case 'quantity':
           item.quantity = value.round().clamp(1, 999999);
@@ -627,7 +635,7 @@ class _ScrapPurchaseInvoiceScreenState
     debugPrint(
       '   تكلفة الشراء/جرام: ${item.calculateDirectPurchaseCostPerGram().toStringAsFixed(2)}',
     );
-    debugPrint('   الوزن المحسوب: ${item.weight.toStringAsFixed(2)}');
+    debugPrint('   الوزن الصافي: ${item.weight.toStringAsFixed(2)}');
   }
 
   void _removeItem(int index) {
@@ -642,7 +650,7 @@ class _ScrapPurchaseInvoiceScreenState
 
     await showDialog(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (dialogContext) => AlertDialog(
         title: const Text('توزيع تلقائي للمبلغ'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
@@ -657,18 +665,26 @@ class _ScrapPurchaseInvoiceScreenState
               keyboardType: const TextInputType.numberWithOptions(
                 decimal: true,
               ),
+              textInputAction: TextInputAction.done,
               inputFormatters: [NormalizeNumberFormatter()],
               decoration: InputDecoration(
                 labelText: 'المبلغ المستهدف',
                 suffixText: _settingsProvider.currencySymbol,
                 border: const OutlineInputBorder(),
               ),
+              onSubmitted: (_) {
+                final target = double.tryParse(controller.text);
+                if (target != null && target > 0) {
+                  _distributeAmount(target);
+                  Navigator.pop(dialogContext);
+                }
+              },
             ),
           ],
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
+            onPressed: () => Navigator.pop(dialogContext),
             child: const Text('إلغاء'),
           ),
           ElevatedButton(
@@ -676,7 +692,7 @@ class _ScrapPurchaseInvoiceScreenState
               final target = double.tryParse(controller.text);
               if (target != null && target > 0) {
                 _distributeAmount(target);
-                Navigator.pop(context);
+                Navigator.pop(dialogContext);
               }
             },
             child: const Text('توزيع'),
@@ -806,6 +822,75 @@ class _ScrapPurchaseInvoiceScreenState
   }
 
   // ==================== Submit Invoice ====================
+  Future<void> _refreshLiveGoldPriceForValidation() async {
+    try {
+      final apiService = ApiService();
+      final priceData = await apiService.getGoldPrice();
+      if (!mounted) return;
+      final fetched = _parseDouble(priceData['price_24k']);
+      if (fetched > 0) {
+        setState(() {
+          _goldPrice24k = fetched;
+        });
+      }
+    } catch (_) {
+      // Ignore: we'll validate with whatever live price we already have.
+    }
+  }
+
+  bool _validateItemsAgainstLiveGoldPrice() {
+    final live24k = _goldPrice24k;
+    if (live24k <= 0) {
+      _showError('تعذر التحقق من السعر: سعر الذهب المباشر غير متاح حالياً');
+      return false;
+    }
+
+    // Allow a tiny tolerance for rounding / input entry.
+    const tolerancePct = 0.005; // 0.5%
+
+    for (final item in _items) {
+      // Ensure weight is always derived from standing - stones.
+      item.updateWeightFromStandingAndStones();
+
+      if (item.standingWeight <= 0) {
+        _showError('يرجى إدخال الوزن القائم لجميع الأصناف');
+        return false;
+      }
+      if (item.stonesWeight < 0) {
+        _showError('وزن الأحجار لا يمكن أن يكون سالباً');
+        return false;
+      }
+      if (item.stonesWeight > item.standingWeight + 0.0001) {
+        _showError(
+          'وزن الأحجار أكبر من الوزن القائم للصنف: ${item.name}',
+        );
+        return false;
+      }
+      if (item.weight <= 0) {
+        _showError(
+          'الوزن الصافي (القائم - الأحجار) يجب أن يكون أكبر من صفر للصنف: ${item.name}',
+        );
+        return false;
+      }
+
+      final livePerGram = live24k * (item.karat / 24.0);
+      final paidPerGram = item.net / item.weight;
+      final maxAllowed = livePerGram * (1 + tolerancePct);
+
+      if (livePerGram > 0 && paidPerGram > maxAllowed) {
+        _showError(
+          'سعر الشراء/جرام للصنف (${item.name}) أعلى من سعر الذهب المباشر\n'
+          'العيار: ${item.karat.toStringAsFixed(0)}\n'
+          'سعر الشراء/جرام: ${paidPerGram.toStringAsFixed(2)}\n'
+          'سعر الذهب المباشر/جرام: ${livePerGram.toStringAsFixed(2)}',
+        );
+        return false;
+      }
+    }
+
+    return true;
+  }
+
   Future<void> _submitInvoice() async {
     if (_items.isEmpty) {
       _showError('يرجى إضافة أصناف للفاتورة');
@@ -814,6 +899,12 @@ class _ScrapPurchaseInvoiceScreenState
 
     if (_selectedBranchId == null) {
       _showError('يرجى اختيار الفرع لإكمال الفاتورة.');
+      return;
+    }
+
+    // Ensure validation uses the latest live gold price.
+    await _refreshLiveGoldPriceForValidation();
+    if (!_validateItemsAgainstLiveGoldPrice()) {
       return;
     }
 
@@ -2444,7 +2535,7 @@ class _ScrapPurchaseInvoiceScreenState
 
     await showDialog(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (dialogContext) => AlertDialog(
         title: Text(title),
         content: TextField(
           controller: controller,
@@ -2452,15 +2543,23 @@ class _ScrapPurchaseInvoiceScreenState
           keyboardType: field == 'quantity'
               ? TextInputType.number
               : const TextInputType.numberWithOptions(decimal: true),
+          textInputAction: TextInputAction.done,
           inputFormatters: [NormalizeNumberFormatter()],
           decoration: InputDecoration(
             labelText: label,
             border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
           ),
+          onSubmitted: (_) {
+            final value = double.tryParse(controller.text);
+            if (value != null) {
+              _updateItem(index, field, value);
+              Navigator.pop(dialogContext);
+            }
+          },
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
+            onPressed: () => Navigator.pop(dialogContext),
             child: const Text('إلغاء'),
           ),
           ElevatedButton(
@@ -2468,7 +2567,7 @@ class _ScrapPurchaseInvoiceScreenState
               final value = double.tryParse(controller.text);
               if (value != null) {
                 _updateItem(index, field, value);
-                Navigator.pop(context);
+                Navigator.pop(dialogContext);
               }
             },
             style: ElevatedButton.styleFrom(
@@ -3779,17 +3878,19 @@ class InvoiceItem {
     return totalWithTax / standingWeight;
   }
 
-  // الوزن = الإجمالي / تكلفة الشراء (المباشرة للجرام)
+  // الوزن الديناميكي = الوزن القائم - وزن الأحجار
   void applyTargetTotalCalculations(double targetTotal) {
-    final costPerGram = calculateDirectPurchaseCostPerGram();
-    if (costPerGram > 0) {
-      weight = targetTotal / costPerGram;
-    } else {
-      weight = 0.0;
-    }
+    // NOTE: In scrap purchase, weight is derived from (standing - stones).
+    // Manual totals should NOT mutate weight; instead, adjust the per-line profit
+    // so that net matches the target.
+    final resolvedCost = cost;
+    profit = targetTotal - resolvedCost;
+  }
 
-    // شراء الكسر: لا نعتمد على الربح داخل السطر
-    profit = 0.0;
+  // تحديث الوزن الديناميكي (صافي الذهب) = القائم - الأحجار
+  void updateWeightFromStandingAndStones() {
+    final net = standingWeight - stonesWeight;
+    weight = net < 0 ? 0.0 : net;
   }
 
   // التكلفة = الوزن × تكلفة الشراء/جرام

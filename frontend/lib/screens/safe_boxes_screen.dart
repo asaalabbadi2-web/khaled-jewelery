@@ -20,7 +20,7 @@ class SafeBoxesScreen extends StatefulWidget {
     super.key,
     ApiService? api,
     this.isArabic = true,
-    this.balancesView = false,
+    this.balancesView = true,
     this.initialFilterType,
     this.lockFilterType = false,
     this.titleOverride,
@@ -37,6 +37,14 @@ class _SafeBoxesScreenState extends State<SafeBoxesScreen> {
   bool _activeOnly = false;
   bool _defaultOnly = false;
   bool _isLoading = false;
+
+  String _effectiveFilterType() {
+    if (widget.lockFilterType) {
+      final locked = (widget.initialFilterType ?? '').trim();
+      if (locked.isNotEmpty) return locked;
+    }
+    return _filterType;
+  }
 
   @override
   void initState() {
@@ -88,10 +96,14 @@ class _SafeBoxesScreenState extends State<SafeBoxesScreen> {
     final isEdit = safeBox != null;
     final isAr = widget.isArabic;
 
+    final effectiveType = _effectiveFilterType();
+    final lockTypeForAdd = !isEdit && effectiveType != 'all';
+
     // الحقول
     final nameController = TextEditingController(text: safeBox?.name ?? '');
     final nameEnController = TextEditingController(text: safeBox?.nameEn ?? '');
-    String selectedType = safeBox?.safeType ?? 'cash';
+    String selectedType =
+        safeBox?.safeType ?? (lockTypeForAdd ? effectiveType : 'cash');
     int? selectedAccountId = safeBox?.accountId;
     int? selectedKarat = safeBox?.karat;
     final bankNameController = TextEditingController(
@@ -234,16 +246,18 @@ class _SafeBoxesScreenState extends State<SafeBoxesScreen> {
                         child: Text(isAr ? 'شيكات' : 'Check'),
                       ),
                     ],
-                    onChanged: (value) {
-                      if (value == null) return;
-                      setDialogState(() {
-                        selectedType = value;
-                        // If not gold, clear karat selection.
-                        if (selectedType != 'gold') {
-                          selectedKarat = null;
-                        }
-                      });
-                    },
+                    onChanged: lockTypeForAdd
+                        ? null
+                        : (value) {
+                            if (value == null) return;
+                            setDialogState(() {
+                              selectedType = value;
+                              // If not gold, clear karat selection.
+                              if (selectedType != 'gold') {
+                                selectedKarat = null;
+                              }
+                            });
+                          },
                   ),
                   const SizedBox(height: 12),
 

@@ -528,7 +528,7 @@ class _ScrapSalesInvoiceScreenState extends State<ScrapSalesInvoiceScreen> {
 
     await showDialog(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (dialogContext) => AlertDialog(
         title: const Text('توزيع تلقائي للمبلغ'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
@@ -544,6 +544,14 @@ class _ScrapSalesInvoiceScreenState extends State<ScrapSalesInvoiceScreen> {
                 decimal: true,
               ),
               inputFormatters: [NormalizeNumberFormatter()],
+              textInputAction: TextInputAction.done,
+              onSubmitted: (_) {
+                final target = double.tryParse(controller.text);
+                if (target != null && target > 0) {
+                  _distributeAmount(target);
+                  Navigator.pop(dialogContext);
+                }
+              },
               decoration: InputDecoration(
                 labelText: 'المبلغ المستهدف',
                 suffixText: _settingsProvider.currencySymbol,
@@ -554,7 +562,7 @@ class _ScrapSalesInvoiceScreenState extends State<ScrapSalesInvoiceScreen> {
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
+            onPressed: () => Navigator.pop(dialogContext),
             child: const Text('إلغاء'),
           ),
           ElevatedButton(
@@ -562,7 +570,7 @@ class _ScrapSalesInvoiceScreenState extends State<ScrapSalesInvoiceScreen> {
               final target = double.tryParse(controller.text);
               if (target != null && target > 0) {
                 _distributeAmount(target);
-                Navigator.pop(context);
+                Navigator.pop(dialogContext);
               }
             },
             child: const Text('توزيع'),
@@ -1060,6 +1068,58 @@ class _ScrapSalesInvoiceScreenState extends State<ScrapSalesInvoiceScreen> {
     await showDialog<bool>(
       context: context,
       builder: (dialogContext) {
+        Future<void> submit() async {
+          if (nameController.text.trim().isEmpty) {
+            if (!mounted) return;
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: const Text('⚠️ يرجى إدخال اسم العميل'),
+                backgroundColor: AppColors.warning.withValues(alpha: 0.9),
+                behavior: SnackBarBehavior.floating,
+              ),
+            );
+            return;
+          }
+
+          try {
+            final apiService = ApiService();
+            final customerData = {
+              'name': nameController.text.trim(),
+              'phone': phoneController.text.trim(),
+              'address_line_1': addressController.text.trim(),
+              'active': true,
+            };
+
+            final response = await apiService.addCustomer(customerData);
+
+            if (!mounted) return;
+
+            setState(() {
+              widget.customers.add(response);
+              _selectedCustomerId = response['id'];
+            });
+
+            Navigator.pop(dialogContext, true);
+
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('✅ تم إضافة العميل: ${response['name']}'),
+                backgroundColor: AppColors.success,
+                behavior: SnackBarBehavior.floating,
+              ),
+            );
+          } catch (e) {
+            if (!mounted) return;
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('❌ فشل إضافة العميل: $e'),
+                backgroundColor: AppColors.error,
+                behavior: SnackBarBehavior.floating,
+              ),
+            );
+          }
+        }
+
         return AlertDialog(
           backgroundColor: colorScheme.surface,
           title: Row(
@@ -1090,6 +1150,7 @@ class _ScrapSalesInvoiceScreenState extends State<ScrapSalesInvoiceScreen> {
                 TextField(
                   controller: nameController,
                   autofocus: true,
+                  textInputAction: TextInputAction.next,
                   decoration: const InputDecoration(
                     labelText: 'اسم العميل *',
                     prefixIcon: Icon(Icons.person),
@@ -1099,6 +1160,7 @@ class _ScrapSalesInvoiceScreenState extends State<ScrapSalesInvoiceScreen> {
                 TextField(
                   controller: phoneController,
                   keyboardType: TextInputType.phone,
+                  textInputAction: TextInputAction.next,
                   decoration: const InputDecoration(
                     labelText: 'رقم الجوال',
                     prefixIcon: Icon(Icons.phone),
@@ -1108,6 +1170,8 @@ class _ScrapSalesInvoiceScreenState extends State<ScrapSalesInvoiceScreen> {
                 TextField(
                   controller: addressController,
                   maxLines: 2,
+                  textInputAction: TextInputAction.done,
+                  onSubmitted: (_) => submit(),
                   decoration: const InputDecoration(
                     labelText: 'العنوان',
                     prefixIcon: Icon(Icons.location_on),
@@ -1131,57 +1195,7 @@ class _ScrapSalesInvoiceScreenState extends State<ScrapSalesInvoiceScreen> {
               ),
             ),
             FilledButton.icon(
-              onPressed: () async {
-                if (nameController.text.trim().isEmpty) {
-                  if (!mounted) return;
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: const Text('⚠️ يرجى إدخال اسم العميل'),
-                      backgroundColor: AppColors.warning.withValues(alpha: 0.9),
-                      behavior: SnackBarBehavior.floating,
-                    ),
-                  );
-                  return;
-                }
-
-                try {
-                  final apiService = ApiService();
-                  final customerData = {
-                    'name': nameController.text.trim(),
-                    'phone': phoneController.text.trim(),
-                    'address_line_1': addressController.text.trim(),
-                    'active': true,
-                  };
-
-                  final response = await apiService.addCustomer(customerData);
-
-                  if (!mounted) return;
-
-                  setState(() {
-                    widget.customers.add(response);
-                    _selectedCustomerId = response['id'];
-                  });
-
-                  Navigator.pop(dialogContext, true);
-
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text('✅ تم إضافة العميل: ${response['name']}'),
-                      backgroundColor: AppColors.success,
-                      behavior: SnackBarBehavior.floating,
-                    ),
-                  );
-                } catch (e) {
-                  if (!mounted) return;
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text('❌ فشل إضافة العميل: $e'),
-                      backgroundColor: AppColors.error,
-                      behavior: SnackBarBehavior.floating,
-                    ),
-                  );
-                }
-              },
+              onPressed: submit,
               icon: const Icon(Icons.save),
               label: const Text('حفظ'),
               style: FilledButton.styleFrom(

@@ -65,6 +65,57 @@ def _compute_child_range_and_step(parent_account_number: str) -> tuple[int, int,
     return start, end, 1, parent_len + 1
 
 
+def _find_account_by_number(account_number: str) -> Optional[Account]:
+    digits = _digits_only(account_number)
+    if not digits:
+        return None
+    return Account.query.filter_by(account_number=digits).first()
+
+
+def _is_weight_parent(parent_account_number: str) -> bool:
+    parent = _find_account_by_number(parent_account_number)
+    return bool(parent and parent.tracks_weight)
+
+
+def _financial_parent_from_weight(parent_account_number: str) -> str:
+    parent_digits = _digits_only(parent_account_number)
+    if not parent_digits.startswith('7') or len(parent_digits) < 2:
+        raise ValueError('رقم الحساب الوزني الأب غير صالح')
+    return parent_digits[1:]
+
+
+def _suggest_next_weight_child_number(weight_parent_number: str) -> tuple[str, bool, dict]:
+    """Suggest next child number under a weight parent using rule: 7 + financial child number.
+
+    Returns (suggested_number, use_spacing, range_info)
+    """
+
+    financial_parent = _financial_parent_from_weight(weight_parent_number)
+    start_range, end_range, step, child_len = _compute_child_range_and_step(financial_parent)
+    use_spacing = step == 10
+
+    # Iterate the financial child range and pick first unused weight number.
+    for candidate in range(start_range, end_range + 1, step):
+        weight_candidate = f"7{candidate}"
+        if not _find_account_by_number(weight_candidate):
+            return (
+                weight_candidate,
+                use_spacing,
+                {
+                    'start': int(f"7{start_range}"),
+                    'end': int(f"7{end_range}"),
+                    'step': int(f"7{start_range + step}") - int(f"7{start_range}"),
+                    'child_len': child_len + 1,
+                    'mapped_financial_parent': financial_parent,
+                },
+            )
+
+    raise ValueError(
+        f"تجاوزت السعة المتاحة للحساب {weight_parent_number}. "
+        f"النطاق المسموح (وزني): 7{start_range} - 7{end_range}"
+    )
+
+
 def get_next_account_number(parent_account_number: str, use_spacing: bool = False) -> str:
     """
     توليد رقم الحساب التالي المتاح لحساب فرعي
@@ -113,6 +164,63 @@ def get_next_account_number(parent_account_number: str, use_spacing: bool = Fals
         )
     
     return str(next_number)
+
+
+def _first_unused_number_in_range(start_range: int, end_range: int, step: int = 1) -> str:
+    """Return the first unused account_number within an integer range."""
+
+    existing_numbers = {
+        int(row[0])
+        for row in (
+            Account.query.with_entities(Account.account_number)
+            .filter(
+                db.cast(Account.account_number, db.Integer) >= start_range,
+                db.cast(Account.account_number, db.Integer) <= end_range,
+            )
+            .all()
+        )
+        if row and str(row[0]).isdigit()
+    }
+
+    for candidate in range(start_range, end_range + 1, step):
+        if candidate not in existing_numbers:
+            return str(candidate)
+
+    raise ValueError(f"تجاوزت السعة المتاحة. النطاق المسموح: {start_range} - {end_range}")
+
+
+def get_next_party_account_number(parent_account_number: str) -> str:
+    """Generate the next detail account number for parties (customers/suppliers) under a parent.
+
+    For 3-digit parents (e.g. 210), the general chart rule creates only 10 spaced children
+    (2100, 2110, ..., 2190). Party accounts need higher capacity, so we allocate:
+    - First: 4-digit sequential range (2100..2199) if available
+    - Then: 6-digit sequential range (210000..210999)
+
+    For other parent lengths, fall back to the standard generator.
+    """
+
+    parent_digits = _digits_only(parent_account_number)
+    if not parent_digits:
+        raise ValueError('رقم الحساب الأب غير صالح')
+
+    if len(parent_digits) == 3:
+        parent_int = int(parent_digits)
+
+        # 1) Try 4-digit sequential (up to 100 accounts)
+        start_4 = parent_int * 10
+        end_4 = start_4 + 99
+        try:
+            return _first_unused_number_in_range(start_4, end_4, step=1)
+        except ValueError:
+            pass
+
+        # 2) Expand to 6-digit sequential (1000 accounts) while keeping the 3-digit prefix.
+        start_6 = parent_int * 1000
+        end_6 = start_6 + 999
+        return _first_unused_number_in_range(start_6, end_6, step=1)
+
+    return get_next_account_number(parent_digits, use_spacing=False)
 
 
 def get_customer_account_capacity(customer_category: str = '1200') -> dict:
@@ -189,10 +297,24 @@ def suggest_account_number_with_validation(parent_account_number: str) -> dict:
     """
     
     try:
-        start_range, end_range, step, child_len = _compute_child_range_and_step(parent_account_number)
+        parent_digits = _digits_only(parent_account_number)
+
+        # Weight accounts: follow financial numbering rules but prefix with '7'.
+        if parent_digits.startswith('7') and _is_weight_parent(parent_digits):
+            suggested_number, use_spacing, range_info = _suggest_next_weight_child_number(parent_digits)
+            return {
+                'suggested_number': suggested_number,
+                'is_valid': True,
+                'message': 'رقم الحساب متاح',
+                'use_spacing': use_spacing,
+                'capacity_info': None,
+                'range': range_info,
+            }
+
+        start_range, end_range, step, child_len = _compute_child_range_and_step(parent_digits)
 
         use_spacing = step == 10
-        suggested_number = get_next_account_number(parent_account_number, use_spacing=use_spacing)
+        suggested_number = get_next_account_number(parent_digits, use_spacing=use_spacing)
 
         capacity_info = None
         # التفصيلي تحت 4 خانات (مثل 1200/1210/1300..): أرجع معلومات السعة
@@ -257,7 +379,38 @@ def validate_account_number(
             'message': f'رقم الحساب {acc_digits} مستخدم بالفعل'
         }
 
-    # تحقق من النطاق/الطول/الخطوة وفق القاعدة
+    # Weight parent: validate using mapped financial rules.
+    if parent_digits.startswith('7') and _is_weight_parent(parent_digits):
+        if not acc_digits.startswith('7') or len(acc_digits) < 2:
+            return {'is_valid': False, 'message': 'رقم الحساب الوزني يجب أن يبدأ بـ 7'}
+
+        financial_parent = _financial_parent_from_weight(parent_digits)
+        financial_child = acc_digits[1:]
+
+        start, end, step, child_len = _compute_child_range_and_step(financial_parent)
+        account_num = int(financial_child)
+
+        if len(financial_child) != child_len:
+            return {
+                'is_valid': False,
+                'message': f'طول رقم الحساب غير صحيح. المتوقع {child_len + 1} خانات (وزني)'
+            }
+
+        if account_num < start or account_num > end:
+            return {
+                'is_valid': False,
+                'message': f'رقم الحساب خارج النطاق المسموح للحساب الأب (7{start} - 7{end})'
+            }
+
+        if (account_num - start) % step != 0:
+            return {
+                'is_valid': False,
+                'message': f'رقم الحساب لا يتبع قاعدة الترقيم (الخطوة {step})'
+            }
+
+        return {'is_valid': True, 'message': 'رقم الحساب صحيح ومتاح'}
+
+    # Normal (financial) parent: validate using standard rule.
     start, end, step, child_len = _compute_child_range_and_step(parent_digits)
     account_num = int(acc_digits)
 

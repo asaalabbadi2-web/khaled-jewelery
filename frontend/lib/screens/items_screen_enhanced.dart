@@ -8,6 +8,7 @@ import '../theme/app_theme.dart';
 import '../services/data_sync_bus.dart';
 import 'add_item_screen_enhanced.dart';
 import 'barcode_print_screen.dart';
+import 'category_opening_balance_screen.dart';
 import 'quick_add_items_screen.dart';
 import '../utils.dart';
 
@@ -286,6 +287,21 @@ class _ItemsScreenEnhancedState extends State<ItemsScreenEnhanced> {
             icon: const Icon(Icons.category_outlined),
             tooltip: 'إدارة التصنيفات',
             onPressed: _showCategoriesManagementDialog,
+          ),
+          IconButton(
+            icon: const Icon(Icons.scale_outlined),
+            tooltip: 'رصيد افتتاحي للتصنيفات (ذهب جديد)',
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => CategoryOpeningBalanceScreen(
+                    api: widget.api,
+                    initialCategories: categories,
+                  ),
+                ),
+              );
+            },
           ),
           IconButton(
             icon: const Icon(Icons.filter_list),

@@ -52,9 +52,19 @@ def resolve_gold_safe_box_id_for_invoice(invoice: Invoice, karat: Optional[float
     invoice_type = (getattr(invoice, 'invoice_type', None) or '').strip()
     gold_type = (getattr(invoice, 'gold_type', None) or 'new').strip() or 'new'
 
-    # Prefer employee gold custody safe for sales flows when enabled.
+    # Sales inventory location is always the sale gold safe.
+    # Employee gold safes are for custody/intake flows, not for where sale inventory lives.
     try:
-        if bool(getattr(settings_row, 'employee_gold_safes_enabled', False)) and invoice_type in ('بيع', 'مرتجع بيع'):
+        if invoice_type in ('بيع', 'مرتجع بيع'):
+            sb_id = getattr(settings_row, 'sale_gold_safe_box_id', None) if settings_row else None
+            if sb_id not in (None, '', 0, '0', False):
+                return int(sb_id)
+    except Exception:
+        pass
+
+    # Customer gold intake (scrap purchases): prefer employee custody gold safe when enabled.
+    try:
+        if invoice_type == 'شراء من عميل' and bool(getattr(settings_row, 'employee_gold_safes_enabled', False)):
             emp = getattr(invoice, 'employee', None)
             if not emp and getattr(invoice, 'employee_id', None):
                 emp = Employee.query.get(int(invoice.employee_id))
@@ -216,12 +226,21 @@ def record_category_weight_movements_for_invoice_payload(
 def get_category_weight_balances(
     safe_box_id: Optional[int] = None,
     category_id: Optional[int] = None,
+    karat: Optional[float] = None,
+    group_by_karat: bool = False,
+    gold_type: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
-    """Return balances aggregated by (safe_box, category)."""
+    """Return balances aggregated by (safe_box, category[, karat])."""
 
-    q = db.session.query(
+    select_cols = [
         CategoryWeightMovement.safe_box_id,
         CategoryWeightMovement.category_id,
+    ]
+    if group_by_karat:
+        select_cols.append(CategoryWeightMovement.karat)
+
+    q = db.session.query(
+        *select_cols,
         func.sum(CategoryWeightMovement.weight_delta_main_karat).label('main_total'),
         func.sum(CategoryWeightMovement.weight_delta_grams).label('grams_total'),
     )
@@ -230,24 +249,42 @@ def get_category_weight_balances(
         q = q.filter(CategoryWeightMovement.safe_box_id == int(safe_box_id))
     if category_id:
         q = q.filter(CategoryWeightMovement.category_id == int(category_id))
+    if gold_type:
+        gt = str(gold_type).strip()
+        if gt:
+            q = q.filter(CategoryWeightMovement.gold_type == gt)
+    if karat is not None:
+        k = _coerce_float(karat, 0.0)
+        # Compare with tolerance to avoid float equality issues.
+        q = q.filter(func.abs(CategoryWeightMovement.karat - k) < 0.001)
 
-    q = q.group_by(CategoryWeightMovement.safe_box_id, CategoryWeightMovement.category_id)
+    group_cols = [CategoryWeightMovement.safe_box_id, CategoryWeightMovement.category_id]
+    if group_by_karat:
+        group_cols.append(CategoryWeightMovement.karat)
+    q = q.group_by(*group_cols)
 
     rows = q.all() or []
     out: List[Dict[str, Any]] = []
 
-    for sb_id, cat_id, main_total, grams_total in rows:
+    for row in rows:
+        if group_by_karat:
+            sb_id, cat_id, k, main_total, grams_total = row
+        else:
+            sb_id, cat_id, main_total, grams_total = row
+            k = None
+
         sb = SafeBox.query.get(sb_id)
         cat = Category.query.get(cat_id)
-        out.append(
-            {
-                'safe_box_id': sb_id,
-                'safe_box_name': sb.name if sb else None,
-                'category_id': cat_id,
-                'category_name': cat.name if cat else None,
-                'weight_main_karat': round(float(main_total or 0.0), 6),
-                'weight_grams_signed': round(float(grams_total or 0.0), 6),
-            }
-        )
+        payload: Dict[str, Any] = {
+            'safe_box_id': sb_id,
+            'safe_box_name': sb.name if sb else None,
+            'category_id': cat_id,
+            'category_name': cat.name if cat else None,
+            'weight_main_karat': round(float(main_total or 0.0), 6),
+            'weight_grams_signed': round(float(grams_total or 0.0), 6),
+        }
+        if group_by_karat:
+            payload['karat'] = float(k) if k is not None else None
+        out.append(payload)
 
     return out

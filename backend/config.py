@@ -92,7 +92,8 @@ WEIGHT_SUPPORT_ACCOUNTS = [
 			'type': 'Asset',
 			'transaction_type': 'cash',
 			'tracks_weight': False,
-			'parent_number': '13',
+			# في مخطط الحسابات الحالي الأب هو 130 (المخزون) وليس 13.
+			'parent_number': '130',
 		},
 		'memo': {
 			'account_number': '7130000',
@@ -111,7 +112,8 @@ WEIGHT_SUPPORT_ACCOUNTS = [
 			'type': 'Asset',
 			'transaction_type': 'cash',
 			'tracks_weight': False,
-			'parent_number': '13',
+			# في مخطط الحسابات الحالي الأب هو 130 (المخزون) وليس 13.
+			'parent_number': '130',
 		},
 		'memo': {
 			'account_number': '7130001',
@@ -132,7 +134,8 @@ WEIGHT_SUPPORT_ACCOUNTS = [
 			'type': 'Asset',
 			'transaction_type': 'cash',
 			'tracks_weight': False,
-			'parent_number': '13',
+			# في مخطط الحسابات الحالي الأب هو 130 (المخزون) وليس 13.
+			'parent_number': '130',
 		},
 		'memo': {
 			'account_number': '71340',

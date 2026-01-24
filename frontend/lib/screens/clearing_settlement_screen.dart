@@ -40,9 +40,11 @@ class _ClearingSettlementScreenState extends State<ClearingSettlementScreen> {
 
   bool _autoCalcFee = true;
   bool _updatingFee = false;
+  bool _feeAlreadyAppliedInInvoice = true;
 
   List<SafeBoxModel> _safeBoxes = <SafeBoxModel>[];
   List<Map<String, dynamic>> _accounts = <Map<String, dynamic>>[];
+  List<Map<String, dynamic>> _paymentMethods = <Map<String, dynamic>>[];
 
   SafeBoxModel? _clearingSafe;
   SafeBoxModel? _bankSafe;
@@ -77,6 +79,16 @@ class _ClearingSettlementScreenState extends State<ClearingSettlementScreen> {
 
     try {
       final safeBoxes = await _api.getPaymentSafeBoxes();
+      List<Map<String, dynamic>> paymentMethods = <Map<String, dynamic>>[];
+      try {
+        final pmsRaw = await _api.getActivePaymentMethods();
+        paymentMethods = pmsRaw
+            .whereType<Map<String, dynamic>>()
+            .map((m) => Map<String, dynamic>.from(m))
+            .toList();
+      } catch (_) {
+        paymentMethods = <Map<String, dynamic>>[];
+      }
       final accountsRaw = await _api.getAccounts();
       final accounts = accountsRaw
           .whereType<Map<String, dynamic>>()
@@ -153,11 +165,27 @@ class _ClearingSettlementScreenState extends State<ClearingSettlementScreen> {
 
       setState(() {
         _safeBoxes = safeBoxes;
+        _paymentMethods = paymentMethods;
         _accounts = accounts;
         _clearingSafe = defaultClearing;
         _bankSafe = defaultBank;
         _loading = false;
       });
+
+      // Apply default fee policy based on the selected clearing safe (if it maps to a payment method).
+      _applyFeePolicyFromClearingSafe();
+
+      // Default policy: fee is already applied at invoice time, so don't double-deduct here.
+      if (_feeAlreadyAppliedInInvoice) {
+        setState(() {
+          _autoCalcFee = false;
+          _rateController.text = '0';
+          _fixedFeeController.text = '0';
+          _txCountController.text = '1';
+          _feeController.text = '0';
+          _feeAccount = null;
+        });
+      }
 
       // If enabled, compute fee based on current inputs.
       _recomputeFeeIfNeeded();
@@ -180,6 +208,7 @@ class _ClearingSettlementScreenState extends State<ClearingSettlementScreen> {
   }
 
   void _recomputeFeeIfNeeded() {
+    if (_feeAlreadyAppliedInInvoice) return;
     if (!_autoCalcFee || _updatingFee) return;
 
     final gross = _parseAmount(_grossController.text);
@@ -232,6 +261,49 @@ class _ClearingSettlementScreenState extends State<ClearingSettlementScreen> {
         _bankSafe = selected;
       }
     });
+
+    if (type == 'clearing') {
+      _applyFeePolicyFromClearingSafe();
+    }
+
+    // Nudge fee recalculation when changing context.
+    _recomputeFeeIfNeeded();
+  }
+
+  void _applyFeePolicyFromClearingSafe() {
+    final clearingId = _clearingSafe?.id;
+    if (clearingId == null) return;
+
+    Map<String, dynamic>? matched;
+    for (final pm in _paymentMethods) {
+      final rawSbId = pm['default_safe_box_id'];
+      final sbId = rawSbId is int ? rawSbId : int.tryParse(rawSbId?.toString() ?? '');
+      if (sbId != null && sbId == clearingId) {
+        matched = pm;
+        break;
+      }
+    }
+
+    if (matched == null) return;
+
+    final timing = (matched['commission_timing']?.toString().trim().toLowerCase() ?? 'invoice');
+    final shouldTreatAsAlreadyApplied = timing != 'settlement';
+
+    if (_feeAlreadyAppliedInInvoice == shouldTreatAsAlreadyApplied) return;
+
+    setState(() {
+      _feeAlreadyAppliedInInvoice = shouldTreatAsAlreadyApplied;
+      if (_feeAlreadyAppliedInInvoice) {
+        _autoCalcFee = false;
+        _rateController.text = '0';
+        _fixedFeeController.text = '0';
+        _txCountController.text = '1';
+        _feeController.text = '0';
+        _feeAccount = null;
+      }
+    });
+
+    _recomputeFeeIfNeeded();
   }
 
   Future<void> _pickFeeAccount() async {
@@ -270,11 +342,22 @@ class _ClearingSettlementScreenState extends State<ClearingSettlementScreen> {
     }
 
     final gross = _parseAmount(_grossController.text);
-    final fee = _parseAmount(_feeController.text);
+    final fee = _feeAlreadyAppliedInInvoice ? 0.0 : _parseAmount(_feeController.text);
     final net = gross - fee;
+
+    final availableClearing = _clearingSafe?.cashBalance ?? 0.0;
 
     if (gross <= 0) {
       _showSnack('أدخل مبلغ إجمالي صحيح', error: true);
+      return;
+    }
+
+    // Prevent obvious server-side rejection: cannot settle more than available in clearing.
+    if (availableClearing > 0 && gross > (availableClearing + 0.01)) {
+      _showSnack(
+        'الرصيد المتاح في خزينة المستحقات ${_formatMoney(availableClearing)} ولا يمكن تسوية مبلغ إجمالي ${_formatMoney(gross)}',
+        error: true,
+      );
       return;
     }
 
@@ -351,9 +434,24 @@ class _ClearingSettlementScreenState extends State<ClearingSettlementScreen> {
       String msg = e.toString();
       // Backend sometimes returns JSON as string.
       try {
+        if (msg.startsWith('Exception:')) {
+          msg = msg.substring('Exception:'.length).trim();
+        }
         final decoded = json.decode(msg);
         if (decoded is Map<String, dynamic>) {
-          msg = (decoded['message'] ?? decoded['error'] ?? msg).toString();
+          final err = (decoded['error'] ?? decoded['message'] ?? '').toString();
+          if (err == 'Clearing balance is insufficient for settlement') {
+            final cb = (decoded['clearing_balance'] as num?)?.toDouble();
+            final ga = (decoded['gross_amount'] as num?)?.toDouble();
+            if (cb != null && ga != null) {
+              msg =
+                  'الرصيد المتاح في خزينة المستحقات ${_formatMoney(cb)} ولا يمكن تسوية مبلغ إجمالي ${_formatMoney(ga)}';
+            } else {
+              msg = 'الرصيد المتاح في خزينة المستحقات غير كافٍ لتنفيذ التسوية';
+            }
+          } else {
+            msg = (decoded['message'] ?? decoded['error'] ?? msg).toString();
+          }
         }
       } catch (_) {}
 
@@ -369,8 +467,12 @@ class _ClearingSettlementScreenState extends State<ClearingSettlementScreen> {
     final isLight = themeData.brightness == Brightness.light;
 
     final gross = _parseAmount(_grossController.text);
-    final fee = _parseAmount(_feeController.text);
+    final fee = _feeAlreadyAppliedInInvoice ? 0.0 : _parseAmount(_feeController.text);
     final net = gross - fee;
+
+    final availableClearing = _clearingSafe?.cashBalance ?? 0.0;
+    final exceedsAvailable =
+      availableClearing > 0 && gross > (availableClearing + 0.01);
 
     return Scaffold(
       appBar: AppBar(
@@ -406,6 +508,26 @@ class _ClearingSettlementScreenState extends State<ClearingSettlementScreen> {
                               title: 'خزينة المستحقات (Clearing)',
                               value: _clearingSafe?.name,
                               icon: Icons.swap_horiz,
+                              trailing: (_clearingSafe == null)
+                                  ? null
+                                  : Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 10,
+                                        vertical: 6,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: theme.AppColors.primaryGold
+                                            .withValues(alpha: 0.18),
+                                        borderRadius:
+                                            BorderRadius.circular(999),
+                                      ),
+                                      child: Text(
+                                        _formatMoney(availableClearing),
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.w800,
+                                        ),
+                                      ),
+                                    ),
                               onTap: () => _pickSafeBox(type: 'clearing'),
                             ),
                             const SizedBox(height: 8),
@@ -435,10 +557,16 @@ class _ClearingSettlementScreenState extends State<ClearingSettlementScreen> {
                               controller: _grossController,
                               keyboardType: const TextInputType.numberWithOptions(decimal: true),
                               inputFormatters: [NormalizeNumberFormatter()],
-                              decoration: const InputDecoration(
+                              decoration: InputDecoration(
                                 labelText: 'الإجمالي (Gross)',
-                                prefixIcon: Icon(Icons.payments_outlined),
-                                border: OutlineInputBorder(),
+                                prefixIcon: const Icon(Icons.payments_outlined),
+                                border: const OutlineInputBorder(),
+                                helperText: (_clearingSafe == null)
+                                    ? null
+                                    : 'الحد الأقصى المتاح: ${_formatMoney(availableClearing)}',
+                                errorText: exceedsAvailable
+                                    ? 'الإجمالي يتجاوز الرصيد المتاح'
+                                    : null,
                               ),
                               onChanged: (_) {
                                 setState(() {});
@@ -446,12 +574,44 @@ class _ClearingSettlementScreenState extends State<ClearingSettlementScreen> {
                               },
                             ),
                             const SizedBox(height: 10),
+
                             SwitchListTile.adaptive(
-                              value: _autoCalcFee,
+                              value: _feeAlreadyAppliedInInvoice,
                               onChanged: (v) {
-                                setState(() => _autoCalcFee = v);
+                                setState(() {
+                                  _feeAlreadyAppliedInInvoice = v;
+                                  if (v) {
+                                    _autoCalcFee = false;
+                                    _rateController.text = '0';
+                                    _fixedFeeController.text = '0';
+                                    _txCountController.text = '1';
+                                    _feeController.text = '0';
+                                    _feeAccount = null;
+                                  } else {
+                                    _autoCalcFee = true;
+                                  }
+                                });
                                 _recomputeFeeIfNeeded();
                               },
+                              contentPadding: EdgeInsets.zero,
+                              title: const Text('العمولة محسوبة في الفاتورة (لا تخصم مرة أخرى)'),
+                              subtitle: Text(
+                                _feeAlreadyAppliedInInvoice
+                                    ? 'سيتم تحويل كامل المبلغ من خزينة المستحقات إلى خزينة البنك بدون خصم عمولة هنا.'
+                                    : 'سيتم احتساب/تسجيل العمولة أثناء التسوية (قد يخصمها البنك عند الإيداع).',
+                                style: TextStyle(color: Colors.grey.shade700),
+                              ),
+                            ),
+                            const SizedBox(height: 10),
+
+                            SwitchListTile.adaptive(
+                              value: _autoCalcFee,
+                              onChanged: _feeAlreadyAppliedInInvoice
+                                  ? null
+                                  : (v) {
+                                      setState(() => _autoCalcFee = v);
+                                      _recomputeFeeIfNeeded();
+                                    },
                               contentPadding: EdgeInsets.zero,
                               title: const Text('احتساب العمولة تلقائياً (نسبة + مبلغ ثابت)'),
                               subtitle: Text(
@@ -461,7 +621,7 @@ class _ClearingSettlementScreenState extends State<ClearingSettlementScreen> {
                                 style: TextStyle(color: Colors.grey.shade700),
                               ),
                             ),
-                            if (_autoCalcFee)
+                            if (_autoCalcFee && !_feeAlreadyAppliedInInvoice)
                               Column(
                                 children: [
                                   const SizedBox(height: 10),
@@ -472,6 +632,7 @@ class _ClearingSettlementScreenState extends State<ClearingSettlementScreen> {
                                           controller: _rateController,
                                           keyboardType: const TextInputType.numberWithOptions(decimal: true),
                                           inputFormatters: [NormalizeNumberFormatter()],
+                                          enabled: !_feeAlreadyAppliedInInvoice,
                                           decoration: const InputDecoration(
                                             labelText: 'نسبة العمولة %',
                                             prefixIcon: Icon(Icons.percent),
@@ -489,6 +650,7 @@ class _ClearingSettlementScreenState extends State<ClearingSettlementScreen> {
                                           controller: _fixedFeeController,
                                           keyboardType: const TextInputType.numberWithOptions(decimal: true),
                                           inputFormatters: [NormalizeNumberFormatter()],
+                                          enabled: !_feeAlreadyAppliedInInvoice,
                                           decoration: const InputDecoration(
                                             labelText: 'مبلغ ثابت/عملية',
                                             prefixIcon: Icon(Icons.attach_money),
@@ -507,6 +669,7 @@ class _ClearingSettlementScreenState extends State<ClearingSettlementScreen> {
                                     controller: _txCountController,
                                     keyboardType: TextInputType.number,
                                     inputFormatters: [NormalizeNumberFormatter()],
+                                    enabled: !_feeAlreadyAppliedInInvoice,
                                     decoration: const InputDecoration(
                                       labelText: 'عدد العمليات',
                                       prefixIcon: Icon(Icons.confirmation_number_outlined),
@@ -524,6 +687,7 @@ class _ClearingSettlementScreenState extends State<ClearingSettlementScreen> {
                                 controller: _feeController,
                                 keyboardType: const TextInputType.numberWithOptions(decimal: true),
                                 inputFormatters: [NormalizeNumberFormatter()],
+                                enabled: !_feeAlreadyAppliedInInvoice,
                                 decoration: const InputDecoration(
                                   labelText: 'العمولة (Fee)',
                                   prefixIcon: Icon(Icons.percent),
@@ -532,7 +696,7 @@ class _ClearingSettlementScreenState extends State<ClearingSettlementScreen> {
                                 onChanged: (_) => setState(() {}),
                               ),
 
-                            if (_autoCalcFee)
+                            if (_autoCalcFee && !_feeAlreadyAppliedInInvoice)
                               Padding(
                                 padding: const EdgeInsets.only(top: 10),
                                 child: TextField(
@@ -552,12 +716,17 @@ class _ClearingSettlementScreenState extends State<ClearingSettlementScreen> {
                                   ? null
                                   : '${_feeAccount?['account_number'] ?? ''} - ${_feeAccount?['name'] ?? ''}',
                               icon: Icons.receipt_long,
-                              onTap: _pickFeeAccount,
+                              onTap: () {
+                                if (_feeAlreadyAppliedInInvoice) return;
+                                _pickFeeAccount();
+                              },
                               trailing: _feeAccount == null
                                   ? null
                                   : IconButton(
                                       tooltip: 'مسح',
-                                      onPressed: () => setState(() => _feeAccount = null),
+                                      onPressed: _feeAlreadyAppliedInInvoice
+                                          ? null
+                                          : () => setState(() => _feeAccount = null),
                                       icon: const Icon(Icons.close),
                                     ),
                             ),

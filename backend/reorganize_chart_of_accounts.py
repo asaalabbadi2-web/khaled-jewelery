@@ -122,13 +122,7 @@ def fix_chart_of_accounts():
                 acc_140.type = 'Asset'
                 changes_made.append("✅ 140: تصحيح type إلى 'Asset'")
         
-        # 6. ضبط أب الحساب 1400 تحت 140
-        acc_1400 = Account.query.filter_by(account_number='1400').first()
-        if acc_1400:
-            parent_140 = Account.query.filter_by(account_number='140').first()
-            if parent_140 and acc_1400.parent_id != parent_140.id:
-                acc_1400.parent_id = parent_140.id
-                changes_made.append("✅ 1400: ربط الحساب تحت 140")
+        # 6. (removed) الحساب 1400 تم إلغاؤه نهائياً.
 
         # 7. تصحيح نوع حساب 1330 و 1340
         for acc_num in ['1330', '1340']:
