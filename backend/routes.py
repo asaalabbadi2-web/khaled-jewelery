@@ -6214,6 +6214,13 @@ def add_invoice():
                 payment.get('commission_rate', pm_obj.commission_rate if pm_obj else 0.0)
             )
 
+            pm_commission_fixed_amount = _to_float_request(
+                payment.get(
+                    'commission_fixed_amount',
+                    getattr(pm_obj, 'commission_fixed_amount', 0.0) if pm_obj else 0.0,
+                )
+            )
+
             if pm_commission_timing == 'settlement':
                 pm_commission_amount = 0.0
                 pm_commission_vat = 0.0
@@ -6221,7 +6228,10 @@ def add_invoice():
                 if 'commission_amount' in payment:
                     pm_commission_amount = _to_float_request(payment.get('commission_amount', 0.0))
                 else:
-                    pm_commission_amount = pm_amount * (pm_commission_rate / 100) if pm_commission_rate > 0 else 0.0
+                    pm_commission_amount = (
+                        (pm_commission_fixed_amount if pm_commission_fixed_amount > 0 else 0.0)
+                        + (pm_amount * (pm_commission_rate / 100) if pm_commission_rate > 0 else 0.0)
+                    )
 
                 pm_commission_vat = _to_float_request(
                     payment.get('commission_vat', pm_commission_amount * 0.15)
@@ -6255,8 +6265,20 @@ def add_invoice():
             pm_commission_timing = 'invoice'
 
         if pm_commission_timing != 'settlement':
-            if payment_method_obj.commission_rate and payment_method_obj.commission_rate > 0:
-                commission_amount = data_total * (payment_method_obj.commission_rate / 100)
+            try:
+                fixed_amount = float(getattr(payment_method_obj, 'commission_fixed_amount', 0.0) or 0.0)
+            except Exception:
+                fixed_amount = 0.0
+
+            rate_amount = 0.0
+            try:
+                if payment_method_obj.commission_rate and payment_method_obj.commission_rate > 0:
+                    rate_amount = data_total * (payment_method_obj.commission_rate / 100)
+            except Exception:
+                rate_amount = 0.0
+
+            commission_amount = (fixed_amount if fixed_amount > 0 else 0.0) + (rate_amount if rate_amount > 0 else 0.0)
+            if commission_amount > 0:
                 commission_vat_total = commission_amount * 0.15
                 net_amount = data_total - commission_amount - commission_vat_total
     
@@ -18512,6 +18534,205 @@ def create_safe_box_transfer_voucher():
 # =========================================================================
 
 
+def _create_clearing_settlement_voucher(
+    *,
+    clearing_safe_box_id,
+    bank_safe_box_id,
+    gross_amount,
+    fee_amount=0.0,
+    settlement_dt=None,
+    reference_number=None,
+    created_by='system',
+    fee_account_id=None,
+    description_override=None,
+    notes=None,
+    ensure_unique_reference: bool = False,
+):
+    """Core implementation for clearing settlement.
+
+    This is shared between the HTTP endpoint and the scheduler job.
+    """
+    if not clearing_safe_box_id or not bank_safe_box_id:
+        raise ValueError('missing_required_fields')
+
+    try:
+        gross_amount = float(gross_amount or 0.0)
+        fee_amount = float(fee_amount or 0.0)
+    except (TypeError, ValueError):
+        raise ValueError('invalid_amounts')
+
+    if gross_amount <= 0:
+        raise ValueError('gross_amount_must_be_positive')
+    if fee_amount < 0:
+        raise ValueError('fee_amount_must_be_non_negative')
+
+    net_amount = round(gross_amount - fee_amount, 2)
+    if net_amount < 0:
+        raise ValueError('fee_amount_exceeds_gross')
+
+    if settlement_dt is None:
+        settlement_dt = datetime.now()
+
+    clearing_safe_box = SafeBox.query.get(clearing_safe_box_id)
+    if not clearing_safe_box or not clearing_safe_box.is_active:
+        raise ValueError('not_found:clearing_safe_box')
+
+    bank_safe_box = SafeBox.query.get(bank_safe_box_id)
+    if not bank_safe_box or not bank_safe_box.is_active:
+        raise ValueError('not_found:bank_safe_box')
+
+    if (clearing_safe_box.safe_type or '').strip().lower() != 'clearing':
+        raise ValueError('invalid_safe_type:clearing')
+    if (bank_safe_box.safe_type or '').strip().lower() != 'bank':
+        raise ValueError('invalid_safe_type:bank')
+
+    # Optional idempotency for scheduler jobs
+    if ensure_unique_reference and reference_number:
+        existing = Voucher.query.filter_by(
+            reference_type='clearing_settlement',
+            reference_number=reference_number,
+        ).first()
+        if existing:
+            return {
+                'success': True,
+                'voucher': existing.to_dict(),
+                'balances': {},
+                'skipped': True,
+                'skip_reason': 'already_exists',
+            }
+
+    # HARD GUARD (anti double-deduction):
+    # If the clearing safe box is the default safe for one or more payment methods,
+    # and those methods record commission at invoice time, then fee must be zero here.
+    if fee_amount > 0:
+        try:
+            matched_methods = (
+                PaymentMethod.query
+                .filter_by(default_safe_box_id=clearing_safe_box.id, is_active=True)
+                .all()
+            )
+        except Exception:
+            matched_methods = []
+
+        if matched_methods:
+            timings = set()
+            for pm in matched_methods:
+                try:
+                    t = str(getattr(pm, 'commission_timing', 'invoice') or 'invoice').strip().lower()
+                except Exception:
+                    t = 'invoice'
+                if t not in {'invoice', 'settlement'}:
+                    t = 'invoice'
+                timings.add(t)
+
+            if 'invoice' in timings:
+                raise ValueError('fee_not_allowed_when_commission_timing_invoice')
+
+    clearing_account = clearing_safe_box.account
+    bank_account = bank_safe_box.account
+    if not clearing_account or not bank_account:
+        raise ValueError('safe_box_missing_account')
+
+    fee_account = None
+    if fee_amount > 0:
+        if not fee_account_id:
+            raise ValueError('fee_account_id_required')
+        fee_account = Account.query.get(fee_account_id)
+        if not fee_account:
+            raise ValueError('not_found:fee_account')
+
+    clearing_balance = float(getattr(clearing_account, 'balance_cash', 0.0) or 0.0)
+    if clearing_balance < gross_amount:
+        raise ValueError('insufficient_clearing_balance')
+
+    voucher_number = None
+    for _ in range(3):
+        candidate = generate_voucher_number('adjustment', year=settlement_dt.year)
+        if not Voucher.query.filter_by(voucher_number=candidate).first():
+            voucher_number = candidate
+            break
+    if not voucher_number:
+        raise RuntimeError('Failed to generate unique voucher number')
+
+    if description_override:
+        description = description_override
+    else:
+        description = (
+            f'تسوية مستحقات تحصيل: {clearing_safe_box.name} → {bank_safe_box.name} '
+            f'(إجمالي {gross_amount:.2f}، عمولة {fee_amount:.2f}، صافي {net_amount:.2f})'
+        )
+
+    voucher = Voucher(
+        voucher_number=voucher_number,
+        voucher_type='adjustment',
+        date=settlement_dt,
+        description=description,
+        reference_type='clearing_settlement',
+        reference_number=reference_number,
+        notes=(notes or '').strip() or None,
+        created_by=created_by,
+        status='approved',
+        approved_by=created_by,
+        approved_at=datetime.now(),
+        amount_cash=round(gross_amount, 2),
+        amount_gold=0.0,
+    )
+    db.session.add(voucher)
+    db.session.flush()
+
+    if net_amount > 0:
+        db.session.add(VoucherAccountLine(
+            voucher_id=voucher.id,
+            account_id=bank_account.id,
+            line_type='debit',
+            amount_type='cash',
+            amount=round(net_amount, 2),
+            description=f'إيداع صافي تسوية مستحقات إلى {bank_safe_box.name}',
+        ))
+
+    if fee_amount > 0 and fee_account:
+        db.session.add(VoucherAccountLine(
+            voucher_id=voucher.id,
+            account_id=fee_account.id,
+            line_type='debit',
+            amount_type='cash',
+            amount=round(fee_amount, 2),
+            description='عمولة تحصيل',
+        ))
+
+    db.session.add(VoucherAccountLine(
+        voucher_id=voucher.id,
+        account_id=clearing_account.id,
+        line_type='credit',
+        amount_type='cash',
+        amount=round(gross_amount, 2),
+        description='إقفال مستحقات التحصيل',
+    ))
+
+    db.session.flush()
+
+    journal_entry = create_journal_entry_from_voucher(voucher)
+    if journal_entry:
+        voucher.journal_entry_id = journal_entry.id
+
+    _append_safe_transactions_for_voucher(voucher, created_by=created_by)
+
+    clearing_account.update_balance(cash_amount=-gross_amount)
+    bank_account.update_balance(cash_amount=net_amount)
+    if fee_account:
+        fee_account.update_balance(cash_amount=fee_amount)
+
+    return {
+        'success': True,
+        'voucher': voucher.to_dict(),
+        'balances': {
+            'clearing_account_cash': round(float(getattr(clearing_account, 'balance_cash', 0.0) or 0.0), 2),
+            'bank_account_cash': round(float(getattr(bank_account, 'balance_cash', 0.0) or 0.0), 2),
+            **({'fee_account_cash': round(float(getattr(fee_account, 'balance_cash', 0.0) or 0.0), 2)} if fee_account else {}),
+        }
+    }
+
+
 @api.route('/clearing/settlements', methods=['POST'])
 @require_permission('vouchers.create')
 def create_clearing_settlement():
@@ -18541,25 +18762,6 @@ def create_clearing_settlement():
     reference_number = data.get('reference_number')
     description_override = (data.get('description') or '').strip() or None
 
-    try:
-        gross_amount = float(data.get('gross_amount') or data.get('amount') or 0.0)
-        fee_amount = float(data.get('fee_amount') or data.get('fee') or 0.0)
-    except (TypeError, ValueError):
-        return jsonify({'error': 'invalid gross_amount/fee_amount'}), 400
-
-    if not clearing_safe_box_id or not bank_safe_box_id:
-        return jsonify({'error': 'clearing_safe_box_id and bank_safe_box_id are required'}), 400
-
-    if gross_amount <= 0:
-        return jsonify({'error': 'gross_amount must be > 0'}), 400
-
-    if fee_amount < 0:
-        return jsonify({'error': 'fee_amount must be >= 0'}), 400
-
-    net_amount = round(gross_amount - fee_amount, 2)
-    if net_amount < 0:
-        return jsonify({'error': 'fee_amount cannot exceed gross_amount'}), 400
-
     # Parse settlement date
     settlement_date_raw = data.get('settlement_date') or data.get('date')
     settlement_dt = datetime.now()
@@ -18572,190 +18774,109 @@ def create_clearing_settlement():
         except Exception:
             return jsonify({'error': 'invalid settlement_date'}), 400
 
-    clearing_safe_box = SafeBox.query.get(clearing_safe_box_id)
-    if not clearing_safe_box or not clearing_safe_box.is_active:
-        return jsonify({'error': 'Clearing safe box not found or inactive'}), 404
+    try:
+        result = _create_clearing_settlement_voucher(
+            clearing_safe_box_id=clearing_safe_box_id,
+            bank_safe_box_id=bank_safe_box_id,
+            gross_amount=(data.get('gross_amount') or data.get('amount') or 0.0),
+            fee_amount=(data.get('fee_amount') or data.get('fee') or 0.0),
+            settlement_dt=settlement_dt,
+            reference_number=reference_number,
+            created_by=created_by,
+            fee_account_id=data.get('fee_account_id'),
+            description_override=description_override,
+            notes=(data.get('notes') or ''),
+        )
+        db.session.commit()
+        return jsonify(result), 201
 
-    bank_safe_box = SafeBox.query.get(bank_safe_box_id)
-    if not bank_safe_box or not bank_safe_box.is_active:
-        return jsonify({'error': 'Bank safe box not found or inactive'}), 404
+    except ValueError as exc:
+        db.session.rollback()
+        msg = str(exc)
+        if msg.startswith('not_found:'):
+            which = msg.split(':', 1)[1]
+            if which == 'clearing_safe_box':
+                return jsonify({'error': 'Clearing safe box not found or inactive'}), 404
+            if which == 'bank_safe_box':
+                return jsonify({'error': 'Bank safe box not found or inactive'}), 404
+            if which == 'fee_account':
+                return jsonify({'error': 'fee_account_id not found'}), 404
+            return jsonify({'error': 'not_found'}), 404
 
-    if (clearing_safe_box.safe_type or '').strip().lower() != 'clearing':
-        return jsonify({'error': 'clearing_safe_box must be of type clearing'}), 400
+        if msg == 'missing_required_fields':
+            return jsonify({'error': 'clearing_safe_box_id and bank_safe_box_id are required'}), 400
+        if msg == 'invalid_amounts':
+            return jsonify({'error': 'invalid gross_amount/fee_amount'}), 400
+        if msg == 'gross_amount_must_be_positive':
+            return jsonify({'error': 'gross_amount must be > 0'}), 400
+        if msg == 'fee_amount_must_be_non_negative':
+            return jsonify({'error': 'fee_amount must be >= 0'}), 400
+        if msg == 'fee_amount_exceeds_gross':
+            return jsonify({'error': 'fee_amount cannot exceed gross_amount'}), 400
+        if msg.startswith('invalid_safe_type:'):
+            which = msg.split(':', 1)[1]
+            if which == 'clearing':
+                return jsonify({'error': 'clearing_safe_box must be of type clearing'}), 400
+            if which == 'bank':
+                return jsonify({'error': 'bank_safe_box must be of type bank'}), 400
+            return jsonify({'error': 'invalid_safe_type'}), 400
+        if msg == 'safe_box_missing_account':
+            return jsonify({'error': 'Safe box must be linked to an account'}), 400
+        if msg == 'fee_account_id_required':
+            return jsonify({'error': 'fee_account_id is required for fee_amount > 0'}), 400
+        if msg == 'insufficient_clearing_balance':
+            try:
+                clearing_safe_box_id = data.get('clearing_safe_box_id') or data.get('from_safe_box_id')
+                clearing_safe_box = SafeBox.query.get(clearing_safe_box_id)
+                clearing_balance = float(getattr(getattr(clearing_safe_box, 'account', None), 'balance_cash', 0.0) or 0.0)
+            except Exception:
+                clearing_balance = 0.0
+            gross_amount = float(data.get('gross_amount') or data.get('amount') or 0.0)
+            return jsonify({
+                'error': 'Clearing balance is insufficient for settlement',
+                'clearing_balance': round(clearing_balance, 2),
+                'gross_amount': round(gross_amount, 2),
+            }), 400
 
-    if (bank_safe_box.safe_type or '').strip().lower() != 'bank':
-        return jsonify({'error': 'bank_safe_box must be of type bank'}), 400
-
-    # HARD GUARD (anti double-deduction):
-    # If the clearing safe box is the default safe for one or more payment methods,
-    # and those methods record commission at invoice time, then fee must be zero here.
-    # This prevents counting commission twice (invoice + settlement).
-    if fee_amount > 0:
-        try:
-            matched_methods = (
-                PaymentMethod.query
-                .filter_by(default_safe_box_id=clearing_safe_box.id, is_active=True)
-                .all()
-            )
-        except Exception:
-            matched_methods = []
-
-        if matched_methods:
-            timings = set()
+        if msg == 'fee_not_allowed_when_commission_timing_invoice':
+            # Preserve richer error payload for client UX
+            try:
+                clearing_safe_box = SafeBox.query.get(clearing_safe_box_id)
+            except Exception:
+                clearing_safe_box = None
             methods_payload = []
-            for pm in matched_methods:
-                try:
-                    t = str(getattr(pm, 'commission_timing', 'invoice') or 'invoice').strip().lower()
-                except Exception:
-                    t = 'invoice'
-                if t not in {'invoice', 'settlement'}:
-                    t = 'invoice'
-                timings.add(t)
-                methods_payload.append({
-                    'id': getattr(pm, 'id', None),
-                    'name': getattr(pm, 'name', None),
-                    'commission_timing': t,
-                })
+            try:
+                if clearing_safe_box:
+                    matched = (
+                        PaymentMethod.query
+                        .filter_by(default_safe_box_id=clearing_safe_box.id, is_active=True)
+                        .all()
+                    )
+                    for pm in matched:
+                        try:
+                            t = str(getattr(pm, 'commission_timing', 'invoice') or 'invoice').strip().lower()
+                        except Exception:
+                            t = 'invoice'
+                        if t not in {'invoice', 'settlement'}:
+                            t = 'invoice'
+                        methods_payload.append({'id': pm.id, 'name': pm.name, 'commission_timing': t})
+            except Exception:
+                methods_payload = []
 
-            # If policy is invoice (or ambiguous), we forbid fee in settlement.
-            if 'invoice' in timings:
-                error_code = (
-                    'fee_not_allowed_when_commission_timing_invoice'
-                    if timings == {'invoice'}
-                    else 'fee_not_allowed_due_to_ambiguous_commission_policy'
-                )
-                message = (
+            return jsonify({
+                'error': 'fee_not_allowed_when_commission_timing_invoice',
+                'message': (
                     'لا يمكن إرسال عمولة (fee) في التسوية لأن سياسة العمولة لهذه الخزينة '
                     'تسجل العمولة ضمن الفاتورة (commission_timing=invoice) أو توجد سياسات متضاربة. '
                     'لمنع خصم العمولة مرتين: اجعل fee=0 أو غيّر سياسة وسيلة الدفع إلى settlement '
                     'أو استخدم خزينة مستحقات منفصلة لكل سياسة.'
-                )
-                return jsonify({
-                    'error': error_code,
-                    'message': message,
-                    'clearing_safe_box_id': clearing_safe_box.id,
-                    'fee_amount': round(float(fee_amount or 0.0), 2),
-                    'payment_methods': methods_payload,
-                }), 400
+                ),
+                'clearing_safe_box_id': clearing_safe_box.id if clearing_safe_box else clearing_safe_box_id,
+                'fee_amount': round(float(data.get('fee_amount') or data.get('fee') or 0.0), 2),
+                'payment_methods': methods_payload,
+            }), 400
 
-    clearing_account = clearing_safe_box.account
-    bank_account = bank_safe_box.account
-    if not clearing_account or not bank_account:
-        return jsonify({'error': 'Safe box must be linked to an account'}), 400
-
-    fee_account = None
-    fee_account_id = data.get('fee_account_id')
-    if fee_amount > 0:
-        if not fee_account_id:
-            return jsonify({'error': 'fee_account_id is required for fee_amount > 0'}), 400
-        fee_account = Account.query.get(fee_account_id)
-        if not fee_account:
-            return jsonify({'error': 'fee_account_id not found'}), 404
-
-    # Balance check: prevent settling more than receivable tracked in system
-    clearing_balance = float(getattr(clearing_account, 'balance_cash', 0.0) or 0.0)
-    if clearing_balance < gross_amount:
-        return jsonify({
-            'error': 'Clearing balance is insufficient for settlement',
-            'clearing_balance': round(clearing_balance, 2),
-            'gross_amount': round(gross_amount, 2)
-        }), 400
-
-    try:
-        voucher_number = None
-        for _ in range(3):
-            candidate = generate_voucher_number('adjustment', year=settlement_dt.year)
-            if not Voucher.query.filter_by(voucher_number=candidate).first():
-                voucher_number = candidate
-                break
-        if not voucher_number:
-            return jsonify({'error': 'Failed to generate unique voucher number'}), 500
-
-        if description_override:
-            description = description_override
-        else:
-            description = (
-                f'تسوية مستحقات تحصيل: {clearing_safe_box.name} → {bank_safe_box.name} '
-                f'(إجمالي {gross_amount:.2f}، عمولة {fee_amount:.2f}، صافي {net_amount:.2f})'
-            )
-
-        voucher = Voucher(
-            voucher_number=voucher_number,
-            voucher_type='adjustment',
-            date=settlement_dt,
-            description=description,
-            reference_type='clearing_settlement',
-            reference_number=reference_number,
-            notes=(data.get('notes') or '').strip() or None,
-            created_by=created_by,
-            status='approved',
-            approved_by=created_by,
-            approved_at=datetime.now(),
-            amount_cash=round(gross_amount, 2),
-            amount_gold=0.0,
-        )
-        db.session.add(voucher)
-        db.session.flush()
-
-        lines = []
-        if net_amount > 0:
-            lines.append(VoucherAccountLine(
-                voucher_id=voucher.id,
-                account_id=bank_account.id,
-                line_type='debit',
-                amount_type='cash',
-                amount=round(net_amount, 2),
-                description=f'إيداع صافي تسوية مستحقات إلى {bank_safe_box.name}',
-            ))
-
-        if fee_amount > 0 and fee_account:
-            lines.append(VoucherAccountLine(
-                voucher_id=voucher.id,
-                account_id=fee_account.id,
-                line_type='debit',
-                amount_type='cash',
-                amount=round(fee_amount, 2),
-                description='عمولة تحصيل',
-            ))
-
-        lines.append(VoucherAccountLine(
-            voucher_id=voucher.id,
-            account_id=clearing_account.id,
-            line_type='credit',
-            amount_type='cash',
-            amount=round(gross_amount, 2),
-            description='إقفال مستحقات التحصيل',
-        ))
-
-        for line in lines:
-            db.session.add(line)
-
-        db.session.flush()
-
-        journal_entry = create_journal_entry_from_voucher(voucher)
-        if journal_entry:
-            voucher.journal_entry_id = journal_entry.id
-
-        # Ledger: create SafeBoxTransaction rows for the safe-box-targeting lines.
-        _append_safe_transactions_for_voucher(voucher, created_by=created_by)
-
-        # Update balances immediately (system tracks balances outside posting)
-        clearing_account.update_balance(cash_amount=-gross_amount)
-        bank_account.update_balance(cash_amount=net_amount)
-        if fee_account:
-            fee_account.update_balance(cash_amount=fee_amount)
-
-        db.session.commit()
-
-        return jsonify({
-            'success': True,
-            'voucher': voucher.to_dict(),
-            'balances': {
-                'clearing_account_cash': round(float(getattr(clearing_account, 'balance_cash', 0.0) or 0.0), 2),
-                'bank_account_cash': round(float(getattr(bank_account, 'balance_cash', 0.0) or 0.0), 2),
-                **({'fee_account_cash': round(float(getattr(fee_account, 'balance_cash', 0.0) or 0.0), 2)} if fee_account else {}),
-            }
-        }), 201
+        return jsonify({'error': 'validation_error', 'message': msg}), 400
 
     except Exception as exc:
         db.session.rollback()

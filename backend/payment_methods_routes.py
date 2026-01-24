@@ -190,6 +190,29 @@ def _normalize_commission_timing(raw_value: Any) -> str:
     raise ValueError('قيمة commission_timing غير مدعومة (invoice أو settlement)')
 
 
+def _normalize_settlement_schedule_type(raw_value: Any) -> str:
+    if raw_value is None:
+        return 'days'
+    value = str(raw_value).strip().lower()
+    if not value:
+        return 'days'
+    if value in {'days', 'weekday'}:
+        return value
+    raise ValueError('قيمة settlement_schedule_type غير مدعومة (days أو weekday)')
+
+
+def _normalize_weekday(raw_value: Any):
+    if raw_value in (None, '', False):
+        return None
+    try:
+        weekday = int(raw_value)
+    except Exception:
+        raise ValueError('قيمة settlement_weekday غير صالحة')
+    if weekday < 0 or weekday > 6:
+        raise ValueError('قيمة settlement_weekday يجب أن تكون بين 0 و 6')
+    return weekday
+
+
 DEFAULT_PAYMENT_TYPE_DEFINITIONS: List[Dict[str, Any]] = [
     {
         'code': 'cash',
@@ -406,6 +429,10 @@ def _sync_payment_methods_from_settings() -> None:
         payment_type = legacy.get('payment_type') or _infer_payment_type_from_name(name)
 
         commission_value = legacy.get('commission_rate', legacy.get('commission', 0))
+        fixed_commission_value = legacy.get(
+            'commission_fixed_amount',
+            legacy.get('fixed_commission_amount', legacy.get('fixed_commission', 0)),
+        )
         settlement_days = legacy.get('settlement_days', 0)
         display_order = legacy.get('display_order', index + 1)
         is_active = bool(legacy.get('is_active', True))
@@ -448,6 +475,7 @@ def _sync_payment_methods_from_settings() -> None:
                 'name': name,
                 'payment_type': payment_type,
                 'commission_rate': float(commission_value or 0.0),
+                'commission_fixed_amount': float(fixed_commission_value or 0.0),
                 'commission_timing': legacy_commission_timing,
                 'settlement_days': int(settlement_days or 0),
                 'display_order': int(display_order or (index + 1)),
@@ -462,7 +490,28 @@ def _sync_payment_methods_from_settings() -> None:
 
             payment_method.applicable_invoice_types = applicable_types
             changed = True
-        elif payment_method.applicable_invoice_types is None:
+        else:
+            # Keep existing rows in sync for critical numeric knobs.
+            # This is important for legacy Settings-driven deployments where Settings is the source of truth.
+            try:
+                desired_commission = float(commission_value or 0.0)
+            except Exception:
+                desired_commission = 0.0
+
+            try:
+                desired_fixed_commission = float(fixed_commission_value or 0.0)
+            except Exception:
+                desired_fixed_commission = 0.0
+
+            if float(getattr(payment_method, 'commission_rate', 0.0) or 0.0) != desired_commission:
+                payment_method.commission_rate = desired_commission
+                changed = True
+
+            if float(getattr(payment_method, 'commission_fixed_amount', 0.0) or 0.0) != desired_fixed_commission:
+                payment_method.commission_fixed_amount = desired_fixed_commission
+                changed = True
+
+        if payment_method.applicable_invoice_types is None:
             payment_method.applicable_invoice_types = applicable_types
             changed = True
 
@@ -547,6 +596,22 @@ def create_payment_method():
         # 🆕 دعم النظام الجديد (default_safe_box_id) والقديم (parent_account_id)
         default_safe_box_id = data.get('default_safe_box_id')
         parent_account_id = data.get('parent_account_id')
+
+        # 🆕 إعدادات التسوية التلقائية
+        auto_settlement_enabled = bool(data.get('auto_settlement_enabled', False))
+        try:
+            settlement_schedule_type = _normalize_settlement_schedule_type(
+                data.get('settlement_schedule_type')
+            )
+        except ValueError as exc:
+            return jsonify({'error': str(exc)}), 400
+        try:
+            settlement_weekday = _normalize_weekday(data.get('settlement_weekday'))
+        except ValueError as exc:
+            return jsonify({'error': str(exc)}), 400
+        settlement_bank_safe_box_id = data.get('settlement_bank_safe_box_id')
+        if settlement_bank_safe_box_id in (None, '', 0, '0', False):
+            settlement_bank_safe_box_id = None
         
         # التحقق من البيانات المطلوبة
         required_fields = ['payment_type', 'name']
@@ -558,6 +623,8 @@ def create_payment_method():
         # سيتم اختيار الخزينة عند إنشاء الفاتورة
         account_id_to_use = None
         
+        safe_box = None
+
         # التحقق من وجود الخزينة إذا تم تحديدها
         if default_safe_box_id:
             safe_box = SafeBox.query.get(default_safe_box_id)
@@ -573,6 +640,35 @@ def create_payment_method():
 
             # استخدام حساب الخزينة (اختياري)
             account_id_to_use = safe_box.account_id
+
+        # Validate auto settlement bank safe box
+        if settlement_bank_safe_box_id is not None:
+            try:
+                settlement_bank_safe_box_id = int(settlement_bank_safe_box_id)
+            except Exception:
+                return jsonify({'error': 'معرف الخزينة البنكية غير صالح'}), 400
+            bank_sb = SafeBox.query.get(settlement_bank_safe_box_id)
+            if not bank_sb:
+                return jsonify({'error': 'الخزينة البنكية غير موجودة'}), 404
+            try:
+                if (bank_sb.safe_type or '').strip().lower() != 'bank':
+                    return jsonify({'error': 'يجب اختيار خزينة من نوع بنك للتسوية التلقائية'}), 400
+            except Exception:
+                return jsonify({'error': 'يجب اختيار خزينة من نوع بنك للتسوية التلقائية'}), 400
+
+        # If enabled, ensure required fields exist
+        if auto_settlement_enabled:
+            if not default_safe_box_id:
+                return jsonify({'error': 'يجب تحديد خزينة مستحقات (clearing) لتمكين التسوية التلقائية'}), 400
+            try:
+                if safe_box and (safe_box.safe_type or '').strip().lower() != 'clearing':
+                    return jsonify({'error': 'يجب أن تكون الخزينة الافتراضية من نوع مستحقات تحصيل (clearing)'}), 400
+            except Exception:
+                return jsonify({'error': 'يجب أن تكون الخزينة الافتراضية من نوع مستحقات تحصيل (clearing)'}), 400
+            if settlement_bank_safe_box_id is None:
+                return jsonify({'error': 'يجب تحديد خزينة بنكية لتمكين التسوية التلقائية'}), 400
+            if settlement_schedule_type == 'weekday' and settlement_weekday is None:
+                return jsonify({'error': 'يجب تحديد يوم الأسبوع عند اختيار جدول (weekday)'}), 400
         
         try:
             applicable_invoice_types = _normalize_applicable_invoice_types(
@@ -587,6 +683,16 @@ def create_payment_method():
             )
         except ValueError as exc:
             return jsonify({'error': str(exc)}), 400
+
+        # عمولة ثابتة لكل عملية (اختياري)
+        commission_fixed_amount = 0.0
+        if 'commission_fixed_amount' in data and data.get('commission_fixed_amount') not in (None, '', False):
+            try:
+                commission_fixed_amount = float(data.get('commission_fixed_amount') or 0.0)
+            except Exception:
+                return jsonify({'error': 'قيمة العمولة الثابتة غير صالحة'}), 400
+            if commission_fixed_amount < 0:
+                return jsonify({'error': 'لا يمكن أن تكون العمولة الثابتة سالبة'}), 400
         
         # إنشاء وسيلة الدفع
         try:
@@ -594,8 +700,13 @@ def create_payment_method():
                 payment_type=data['payment_type'],
                 name=data['name'],
                 commission_rate=data.get('commission_rate', 0.0),
+                commission_fixed_amount=commission_fixed_amount,
                 commission_timing=commission_timing,
                 settlement_days=data.get('settlement_days', 0),
+                auto_settlement_enabled=auto_settlement_enabled,
+                settlement_schedule_type=settlement_schedule_type,
+                settlement_weekday=settlement_weekday,
+                settlement_bank_safe_box_id=settlement_bank_safe_box_id,
                 is_active=data.get('is_active', True),
                 applicable_invoice_types=applicable_invoice_types,
                 default_safe_box_id=default_safe_box_id  # اختياري
@@ -603,7 +714,7 @@ def create_payment_method():
         except TypeError as exc:
             db.session.rollback()
             message = str(exc)
-            outdated_keywords = {'applicable_invoice_types', 'parent_account_id'}
+            outdated_keywords = {'applicable_invoice_types', 'parent_account_id', 'commission_fixed_amount'}
             if any(keyword in message for keyword in outdated_keywords):
                 return jsonify({
                     'error': 'الخادم يعمل على نسخة قديمة من الكود. يرجى إعادة تشغيل السيرفر بعد سحب آخر التحديثات وتشغيل الترحيلات (alembic upgrade head).'
@@ -643,6 +754,36 @@ def update_payment_method(id):
             getattr(payment_method, 'default_safe_box_id', None),
         )
 
+        # Proposed auto settlement config
+        proposed_auto_settlement_enabled = (
+            bool(data.get('auto_settlement_enabled'))
+            if 'auto_settlement_enabled' in data
+            else bool(getattr(payment_method, 'auto_settlement_enabled', False))
+        )
+        try:
+            proposed_schedule_type = (
+                _normalize_settlement_schedule_type(data.get('settlement_schedule_type'))
+                if 'settlement_schedule_type' in data
+                else (_normalize_settlement_schedule_type(getattr(payment_method, 'settlement_schedule_type', 'days')))
+            )
+        except ValueError as exc:
+            return jsonify({'error': str(exc)}), 400
+
+        try:
+            proposed_weekday = (
+                _normalize_weekday(data.get('settlement_weekday'))
+                if 'settlement_weekday' in data
+                else getattr(payment_method, 'settlement_weekday', None)
+            )
+        except ValueError as exc:
+            return jsonify({'error': str(exc)}), 400
+
+        proposed_bank_safe_box_id = (
+            data.get('settlement_bank_safe_box_id', getattr(payment_method, 'settlement_bank_safe_box_id', None))
+        )
+        if 'settlement_bank_safe_box_id' in data and data.get('settlement_bank_safe_box_id') in (None, '', 0, '0', False):
+            proposed_bank_safe_box_id = None
+
         # Allow explicit null to clear the default safe box
         if 'default_safe_box_id' in data and data.get('default_safe_box_id') in (None, '', 0, '0', False):
             proposed_default_safe_box_id = None
@@ -679,6 +820,36 @@ def update_payment_method(id):
             except Exception:
                 proposed_parent_account_id = None
 
+        # Validate proposed bank safe box (for auto settlement)
+        if proposed_bank_safe_box_id not in (None, '', 0, '0', False):
+            try:
+                proposed_bank_safe_box_id = int(proposed_bank_safe_box_id)
+            except Exception:
+                return jsonify({'error': 'معرف الخزينة البنكية غير صالح'}), 400
+            bank_sb = SafeBox.query.get(proposed_bank_safe_box_id)
+            if not bank_sb:
+                return jsonify({'error': 'الخزينة البنكية غير موجودة'}), 404
+            try:
+                if (bank_sb.safe_type or '').strip().lower() != 'bank':
+                    return jsonify({'error': 'يجب اختيار خزينة من نوع بنك للتسوية التلقائية'}), 400
+            except Exception:
+                return jsonify({'error': 'يجب اختيار خزينة من نوع بنك للتسوية التلقائية'}), 400
+
+        # If enabling auto settlement, enforce required fields.
+        if proposed_auto_settlement_enabled:
+            if proposed_default_safe_box_id in (None, '', 0, '0', False):
+                return jsonify({'error': 'يجب تحديد خزينة مستحقات (clearing) لتمكين التسوية التلقائية'}), 400
+            try:
+                sb = SafeBox.query.get(int(proposed_default_safe_box_id))
+                if not sb or (sb.safe_type or '').strip().lower() != 'clearing':
+                    return jsonify({'error': 'يجب أن تكون الخزينة الافتراضية من نوع مستحقات تحصيل (clearing)'}), 400
+            except Exception:
+                return jsonify({'error': 'يجب أن تكون الخزينة الافتراضية من نوع مستحقات تحصيل (clearing)'}), 400
+            if proposed_bank_safe_box_id in (None, '', 0, '0', False):
+                return jsonify({'error': 'يجب تحديد خزينة بنكية لتمكين التسوية التلقائية'}), 400
+            if proposed_schedule_type == 'weekday' and proposed_weekday is None:
+                return jsonify({'error': 'يجب تحديد يوم الأسبوع عند اختيار جدول (weekday)'}), 400
+
         # Prevent duplicates: same payment_type under same parent account (when parent is known)
         if proposed_parent_account_id:
             duplicate_for_update = (
@@ -703,6 +874,17 @@ def update_payment_method(id):
             payment_method.name = data['name']
         if 'commission_rate' in data:
             payment_method.commission_rate = data['commission_rate']
+        if 'commission_fixed_amount' in data:
+            if data.get('commission_fixed_amount') in (None, '', False):
+                payment_method.commission_fixed_amount = 0.0
+            else:
+                try:
+                    fixed_val = float(data.get('commission_fixed_amount') or 0.0)
+                except Exception:
+                    return jsonify({'error': 'قيمة العمولة الثابتة غير صالحة'}), 400
+                if fixed_val < 0:
+                    return jsonify({'error': 'لا يمكن أن تكون العمولة الثابتة سالبة'}), 400
+                payment_method.commission_fixed_amount = fixed_val
         if 'commission_timing' in data:
             try:
                 payment_method.commission_timing = _normalize_commission_timing(
@@ -719,6 +901,14 @@ def update_payment_method(id):
             payment_method.is_active = data['is_active']
         if 'default_safe_box_id' in data:
             payment_method.default_safe_box_id = proposed_default_safe_box_id
+        if 'auto_settlement_enabled' in data:
+            payment_method.auto_settlement_enabled = proposed_auto_settlement_enabled
+        if 'settlement_schedule_type' in data:
+            payment_method.settlement_schedule_type = proposed_schedule_type
+        if 'settlement_weekday' in data:
+            payment_method.settlement_weekday = proposed_weekday
+        if 'settlement_bank_safe_box_id' in data:
+            payment_method.settlement_bank_safe_box_id = proposed_bank_safe_box_id
         if 'applicable_invoice_types' in data:
             try:
                 payment_method.applicable_invoice_types = _normalize_applicable_invoice_types(

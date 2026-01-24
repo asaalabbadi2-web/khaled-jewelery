@@ -28,6 +28,13 @@ def start_all_schedulers(app):
 	except Exception as exc:
 		print(f"[WARNING] Backup scheduler not started: {exc}")
 
+	# Clearing settlement scheduler
+	try:
+		from clearing_settlement_scheduler import start_clearing_settlement_scheduler
+		start_clearing_settlement_scheduler(app)
+	except Exception as exc:
+		print(f"[WARNING] Clearing settlement scheduler not started: {exc}")
+
 
 def run_forever(poll_seconds: float = 3600.0):
 	"""Keep the scheduler process alive."""

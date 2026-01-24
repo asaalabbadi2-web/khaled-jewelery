@@ -623,19 +623,22 @@ class _PaymentMethodsScreenEnhancedState
                   SizedBox(height: 8),
 
                   // معلومات إضافية
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceAround,
+                  Wrap(
+                    alignment: WrapAlignment.spaceAround,
+                    spacing: 18,
+                    runSpacing: 10,
                     children: [
                       _buildInfoChip(
                         Icons.percent,
-                        'العمولة',
+                        'العمولة (%)',
                         '${method['commission_rate'] ?? 0}%',
                         _warningColor,
                       ),
-                      Container(
-                        width: 1,
-                        height: 30,
-                        color: Colors.grey.shade300,
+                      _buildInfoChip(
+                        Icons.payments_outlined,
+                        'عمولة ثابتة',
+                        '${method['commission_fixed_amount'] ?? 0}',
+                        _warningColor,
                       ),
                       _buildInfoChip(
                         Icons.calendar_today,
@@ -795,9 +798,38 @@ class _PaymentMethodsScreenEnhancedState
     final commissionController = TextEditingController(
       text: (editingMethod?['commission_rate']?.toDouble() ?? 0.0).toString(),
     );
+    final commissionFixedController = TextEditingController(
+      text: (editingMethod?['commission_fixed_amount']?.toDouble() ?? 0.0).toString(),
+    );
     final settlementDaysController = TextEditingController(
       text: (editingMethod?['settlement_days'] ?? 0).toString(),
     );
+
+    final rawAutoSettlement = editingMethod?['auto_settlement_enabled'];
+    bool autoSettlementEnabled = rawAutoSettlement == true ||
+      (rawAutoSettlement?.toString().trim().toLowerCase() == 'true');
+
+    String settlementScheduleType =
+        (editingMethod?['settlement_schedule_type']?.toString().trim().toLowerCase() ?? 'days');
+    if (settlementScheduleType != 'days' && settlementScheduleType != 'weekday') {
+      settlementScheduleType = 'days';
+    }
+
+    int? settlementWeekday;
+    try {
+      final raw = editingMethod?['settlement_weekday'];
+      settlementWeekday = raw is int ? raw : int.tryParse(raw?.toString() ?? '');
+    } catch (_) {
+      settlementWeekday = null;
+    }
+
+    int? settlementBankSafeBoxId;
+    try {
+      final raw = editingMethod?['settlement_bank_safe_box_id'];
+      settlementBankSafeBoxId = raw is int ? raw : int.tryParse(raw?.toString() ?? '');
+    } catch (_) {
+      settlementBankSafeBoxId = null;
+    }
 
     String selectedCommissionTiming =
         (editingMethod?['commission_timing']?.toString().trim().toLowerCase() ?? 'invoice');
@@ -998,6 +1030,25 @@ class _PaymentMethodsScreenEnhancedState
 
                   SizedBox(height: 16),
 
+                  // عمولة ثابتة لكل عملية
+                  TextFormField(
+                    controller: commissionFixedController,
+                    decoration: InputDecoration(
+                      labelText: 'عمولة ثابتة لكل عملية',
+                      hintText: '0.0',
+                      prefixIcon:
+                          Icon(Icons.payments_outlined, color: _warningColor),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      filled: true,
+                      fillColor: Colors.grey.shade50,
+                    ),
+                    keyboardType: TextInputType.number,
+                  ),
+
+                  SizedBox(height: 16),
+
                   // متى تُسجل العمولة؟
                   DropdownButtonFormField<String>(
                     initialValue: selectedCommissionTiming,
@@ -1046,6 +1097,226 @@ class _PaymentMethodsScreenEnhancedState
                   ),
 
                   SizedBox(height: 16),
+
+                  // التسوية التلقائية
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: Colors.grey.shade50,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.grey.shade200),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        SwitchListTile(
+                          contentPadding: EdgeInsets.zero,
+                          title: const Text('تسوية تلقائية (مستحقات → بنك)'),
+                          subtitle: const Text(
+                            'تقوم الخدمة بإنشاء سند تسوية تلقائياً حسب الجدول.',
+                            textAlign: TextAlign.right,
+                          ),
+                          value: autoSettlementEnabled,
+                          activeColor: _successColor,
+                          onChanged: (value) {
+                            setDialogState(() {
+                              autoSettlementEnabled = value;
+                            });
+                          },
+                        ),
+                        if (autoSettlementEnabled) ...[
+                          const SizedBox(height: 12),
+                          DropdownButtonFormField<String>(
+                            initialValue: settlementScheduleType,
+                            decoration: InputDecoration(
+                              labelText: 'نوع الجدولة',
+                              prefixIcon: Icon(Icons.schedule, color: _infoColor),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              filled: true,
+                              fillColor: Colors.white,
+                            ),
+                            items: const [
+                              DropdownMenuItem(
+                                value: 'days',
+                                child: Text('بعد عدد أيام (Days)'),
+                              ),
+                              DropdownMenuItem(
+                                value: 'weekday',
+                                child: Text('يوم محدد بالأسبوع (Weekday)'),
+                              ),
+                            ],
+                            onChanged: (value) {
+                              setDialogState(() {
+                                settlementScheduleType = value ?? 'days';
+                                if (settlementScheduleType != 'weekday') {
+                                  settlementWeekday = null;
+                                }
+                              });
+                            },
+                          ),
+                          const SizedBox(height: 12),
+
+                          if (settlementScheduleType == 'weekday')
+                            DropdownButtonFormField<int>(
+                              initialValue: settlementWeekday,
+                              decoration: InputDecoration(
+                                labelText: 'يوم الأسبوع',
+                                prefixIcon: Icon(Icons.event, color: _infoColor),
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                filled: true,
+                                fillColor: Colors.white,
+                              ),
+                              items: const [
+                                DropdownMenuItem(value: 0, child: Text('الاثنين')),
+                                DropdownMenuItem(value: 1, child: Text('الثلاثاء')),
+                                DropdownMenuItem(value: 2, child: Text('الأربعاء')),
+                                DropdownMenuItem(value: 3, child: Text('الخميس')),
+                                DropdownMenuItem(value: 4, child: Text('الجمعة')),
+                                DropdownMenuItem(value: 5, child: Text('السبت')),
+                                DropdownMenuItem(value: 6, child: Text('الأحد')),
+                              ],
+                              onChanged: (value) {
+                                setDialogState(() {
+                                  settlementWeekday = value;
+                                });
+                              },
+                              validator: (value) {
+                                if (autoSettlementEnabled &&
+                                    settlementScheduleType == 'weekday' &&
+                                    value == null) {
+                                  return 'مطلوب';
+                                }
+                                return null;
+                              },
+                            ),
+
+                          if (settlementScheduleType == 'weekday')
+                            const SizedBox(height: 12),
+
+                          Builder(
+                            builder: (context) {
+                              SafeBoxModel? selectedBankSb;
+                              if (settlementBankSafeBoxId != null) {
+                                try {
+                                  selectedBankSb = _availableSafeBoxes.firstWhere(
+                                    (sb) => sb.id == settlementBankSafeBoxId,
+                                  );
+                                } catch (_) {
+                                  selectedBankSb = null;
+                                }
+                              }
+
+                              final bankBoxes = _availableSafeBoxes
+                                  .where(
+                                    (sb) => sb.safeType.trim().toLowerCase() == 'bank',
+                                  )
+                                  .toList();
+
+                              return Column(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  Align(
+                                    alignment: Alignment.centerRight,
+                                    child: Text(
+                                      'الخزينة البنكية المستهدفة *',
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        color: Colors.grey.shade700,
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 8),
+                                  InkWell(
+                                    onTap: bankBoxes.isEmpty
+                                        ? null
+                                        : () async {
+                                            final picked = await showDialog<SafeBoxModel>(
+                                              context: context,
+                                              builder: (_) => SafeBoxPickerDialog(
+                                                safeBoxes: bankBoxes,
+                                                selectedSafeBoxId: settlementBankSafeBoxId,
+                                                filterSafeType: 'bank',
+                                                excludeGold: true,
+                                              ),
+                                            );
+                                            if (picked != null) {
+                                              setDialogState(() {
+                                                settlementBankSafeBoxId = picked.id;
+                                              });
+                                            }
+                                          },
+                                    borderRadius: BorderRadius.circular(12),
+                                    child: InputDecorator(
+                                      decoration: InputDecoration(
+                                        labelText: 'خزينة البنك',
+                                        prefixIcon: Icon(
+                                          Icons.account_balance,
+                                          color: _accentColor,
+                                        ),
+                                        border: OutlineInputBorder(
+                                          borderRadius: BorderRadius.circular(12),
+                                        ),
+                                        filled: true,
+                                        fillColor: Colors.white,
+                                        suffixIcon: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            if (settlementBankSafeBoxId != null)
+                                              IconButton(
+                                                tooltip: 'مسح الربط',
+                                                onPressed: () => setDialogState(() {
+                                                  settlementBankSafeBoxId = null;
+                                                }),
+                                                icon: Icon(
+                                                  Icons.close,
+                                                  color: Colors.grey.shade700,
+                                                ),
+                                              ),
+                                            Icon(
+                                              Icons.arrow_drop_down,
+                                              color: bankBoxes.isEmpty
+                                                  ? Colors.grey.shade400
+                                                  : Colors.grey.shade700,
+                                            ),
+                                            const SizedBox(width: 6),
+                                          ],
+                                        ),
+                                      ),
+                                      child: Text(
+                                        selectedBankSb == null
+                                            ? (bankBoxes.isEmpty
+                                                ? 'لا توجد خزائن بنكية'
+                                                : 'اختر خزينة بنكية')
+                                            : '${selectedBankSb.name} (${selectedBankSb.typeNameAr})',
+                                        style: TextStyle(
+                                          color: selectedBankSb == null
+                                              ? Colors.grey.shade700
+                                              : Colors.black87,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 6),
+                                  Text(
+                                    'ملاحظة: يجب أن تكون الخزينة الافتراضية من نوع مستحقات تحصيل (clearing).',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: Colors.grey.shade600,
+                                    ),
+                                    textAlign: TextAlign.right,
+                                  ),
+                                ],
+                              );
+                            },
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
 
                   // الخزينة الافتراضية (اختياري)
                   Builder(
@@ -1341,9 +1612,28 @@ class _PaymentMethodsScreenEnhancedState
                     final name = nameController.text.trim();
                     final commissionRate =
                         double.tryParse(commissionController.text) ?? 0.0;
+                    final commissionFixedAmount =
+                      double.tryParse(commissionFixedController.text) ?? 0.0;
                     final settlementDays =
                         int.tryParse(settlementDaysController.text) ?? 0; // 🆕
                     final invoiceTypeList = selectedInvoiceTypes.toList();
+
+                    if (autoSettlementEnabled) {
+                      if (settlementBankSafeBoxId == null) {
+                        _showMessage(
+                          '⚠️ اختر خزينة بنكية للتسوية التلقائية',
+                          isError: true,
+                        );
+                        return;
+                      }
+                      if (settlementScheduleType == 'weekday' && settlementWeekday == null) {
+                        _showMessage(
+                          '⚠️ اختر يوم الأسبوع للتسوية التلقائية',
+                          isError: true,
+                        );
+                        return;
+                      }
+                    }
 
                     if (invoiceTypeList.isEmpty) {
                       setDialogState(() {
@@ -1360,8 +1650,13 @@ class _PaymentMethodsScreenEnhancedState
                         name: name,
                         defaultSafeBoxId: selectedDefaultSafeBoxId,
                         commissionRate: commissionRate,
+                        commissionFixedAmount: commissionFixedAmount,
                         commissionTiming: selectedCommissionTiming,
                         settlementDays: settlementDays, // 🆕
+                        autoSettlementEnabled: autoSettlementEnabled,
+                        settlementScheduleType: settlementScheduleType,
+                        settlementWeekday: settlementWeekday,
+                        settlementBankSafeBoxId: settlementBankSafeBoxId,
                         isActive: isActive,
                         applicableInvoiceTypes: invoiceTypeList,
                       );
@@ -1372,8 +1667,13 @@ class _PaymentMethodsScreenEnhancedState
                         paymentType: selectedType!,
                         name: name,
                         commissionRate: commissionRate,
+                        commissionFixedAmount: commissionFixedAmount,
                         commissionTiming: selectedCommissionTiming,
                         settlementDays: settlementDays,
+                        autoSettlementEnabled: autoSettlementEnabled,
+                        settlementScheduleType: settlementScheduleType,
+                        settlementWeekday: settlementWeekday,
+                        settlementBankSafeBoxId: settlementBankSafeBoxId,
                         isActive: isActive,
                         defaultSafeBoxId: selectedDefaultSafeBoxId,
                         applicableInvoiceTypes: invoiceTypeList,

@@ -2793,8 +2793,13 @@ class ApiService {
     int? parentAccountId, // 🆕 أصبح اختياري للتوافق
     int? defaultSafeBoxId, // 🆕 الخزينة الافتراضية
     double commissionRate = 0.0,
+    double commissionFixedAmount = 0.0,
     String commissionTiming = 'invoice',
     int settlementDays = 0, // 🆕
+    bool autoSettlementEnabled = false,
+    String settlementScheduleType = 'days',
+    int? settlementWeekday,
+    int? settlementBankSafeBoxId,
     bool isActive = true,
     List<String>? applicableInvoiceTypes,
   }) async {
@@ -2802,8 +2807,13 @@ class ApiService {
       'payment_type': paymentType,
       'name': name,
       'commission_rate': commissionRate,
+      'commission_fixed_amount': commissionFixedAmount,
       'commission_timing': commissionTiming,
       'settlement_days': settlementDays, // 🆕
+      'auto_settlement_enabled': autoSettlementEnabled,
+      'settlement_schedule_type': settlementScheduleType,
+      'settlement_weekday': settlementWeekday,
+      'settlement_bank_safe_box_id': settlementBankSafeBoxId,
       'is_active': isActive,
     };
 
@@ -2837,8 +2847,13 @@ class ApiService {
     required String paymentType,
     required String name,
     required double commissionRate,
+    double? commissionFixedAmount,
     String commissionTiming = 'invoice',
     int settlementDays = 0,
+    bool? autoSettlementEnabled,
+    String? settlementScheduleType,
+    int? settlementWeekday,
+    int? settlementBankSafeBoxId,
     required bool isActive,
     int? defaultSafeBoxId,
     List<String>? applicableInvoiceTypes,
@@ -2853,6 +2868,24 @@ class ApiService {
       // Always include to allow clearing (null) explicitly.
       'default_safe_box_id': defaultSafeBoxId,
     };
+
+    if (commissionFixedAmount != null) {
+      payload['commission_fixed_amount'] = commissionFixedAmount;
+    }
+
+    if (autoSettlementEnabled != null) {
+      payload['auto_settlement_enabled'] = autoSettlementEnabled;
+    }
+    if (settlementScheduleType != null) {
+      payload['settlement_schedule_type'] = settlementScheduleType;
+    }
+    if (settlementWeekday != null || settlementScheduleType == 'weekday') {
+      // Send weekday when provided, and allow clearing by sending null explicitly.
+      payload['settlement_weekday'] = settlementWeekday;
+    }
+    if (settlementBankSafeBoxId != null || (autoSettlementEnabled == true)) {
+      payload['settlement_bank_safe_box_id'] = settlementBankSafeBoxId;
+    }
 
     if (applicableInvoiceTypes != null && applicableInvoiceTypes.isNotEmpty) {
       payload['applicable_invoice_types'] = applicableInvoiceTypes;
