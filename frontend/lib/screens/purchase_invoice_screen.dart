@@ -2900,6 +2900,10 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
       child: DataTable(
+        headingRowHeight: 44,
+        dataRowMinHeight: 56,
+        dataRowMaxHeight: 120,
+        columnSpacing: 20,
         columns: const [
           DataColumn(label: Text('الصنف')),
           DataColumn(label: Text('العيار')),
@@ -4319,6 +4323,10 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
       child: DataTable(
+        headingRowHeight: 44,
+        dataRowMinHeight: 56,
+        dataRowMaxHeight: 100,
+        columnSpacing: 20,
         columns: const [
           DataColumn(label: Text('العيار')),
           DataColumn(label: Text('الوزن (جم)')),

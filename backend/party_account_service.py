@@ -320,6 +320,10 @@ def ensure_supplier_accounts(
         raise ValueError('supplier is required')
 
     memo_root_parent_id = _get_parent_id_hint_for_memo_root(memo_root_prefix_hint)
+    # If the memo prefix root itself exists (e.g. '72'), prefer using it as the parent.
+    memo_prefix_root = _find_account_by_number(memo_root_prefix_hint)
+    if memo_prefix_root:
+        memo_root_parent_id = memo_prefix_root.id
     memo_root = _ensure_account(
         account_number=memo_root_number,
         name=memo_root_name,
@@ -328,6 +332,11 @@ def ensure_supplier_accounts(
         tracks_weight=True,
         parent_id=memo_root_parent_id,
     )
+
+    # Best-effort: if we later discover a better parent (e.g. '72'), re-parent the memo root.
+    if memo_root_parent_id and memo_root.parent_id != memo_root_parent_id:
+        memo_root.parent_id = memo_root_parent_id
+        db.session.flush()
 
     def _resolve_supplier_posting_category(raw_category: Account | None) -> Account | None:
         """Prefer creating supplier posting accounts under 2100 (not directly under 210).
@@ -377,6 +386,26 @@ def ensure_supplier_accounts(
                 or _find_account_by_number('21100')
                 or _find_account_by_number('2110')
                 or _find_account_by_number('211')
+            )
+
+        # If the chart is missing supplier roots, bootstrap a minimal hierarchy.
+        # This keeps supplier invoices usable even on partial COA installs.
+        if not category:
+            category_210 = _ensure_account(
+                account_number='210',
+                name='حسابات الموردين',
+                type=memo_root_type,
+                transaction_type='cash',
+                tracks_weight=False,
+                parent_id=None,
+            )
+            category = _ensure_account(
+                account_number='2100',
+                name='حسابات موردو ذهب',
+                type=memo_root_type,
+                transaction_type='cash',
+                tracks_weight=False,
+                parent_id=category_210.id,
             )
 
         # If the resolved category is 210, normalize to 2100.

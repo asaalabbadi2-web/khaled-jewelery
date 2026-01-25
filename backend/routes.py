@@ -8815,6 +8815,26 @@ def add_invoice():
 
                 # حسابات أساسية
                 vat_receivable_acc_id = _mapping('vat_receivable')
+
+                # Root-fix: VAT receivable must exist if any VAT is present.
+                # Default chart uses account_number 1500 for VAT receivable.
+                if not vat_receivable_acc_id:
+                    try:
+                        vat_acc = Account.query.filter_by(account_number='1500').first()
+                        if not vat_acc:
+                            vat_acc = Account(
+                                account_number='1500',
+                                name='ضريبة القيمة المضافة (مدفوعة)',
+                                type='Asset',
+                                transaction_type='cash',
+                                tracks_weight=False,
+                                parent_id=None,
+                            )
+                            db.session.add(vat_acc)
+                            db.session.flush()
+                        vat_receivable_acc_id = vat_acc.id if vat_acc else None
+                    except Exception:
+                        vat_receivable_acc_id = vat_receivable_acc_id
                 wage_mode = _get_manufacturing_wage_mode()
                 wage_expense_acc_id = None
                 wage_inventory_acc_id = None
@@ -8848,44 +8868,28 @@ def add_invoice():
                             inventory_accounts[karat] = acc_id
 
                 # تحديد حساب المورد (يجب أن يتتبع الوزن دائماً)
-                supplier_account_id = None
-                supplier_account_obj = None
+                # Root-fix: supplier invoices must post to the supplier's own subledger account
+                # (financial + memo), not to an aggregated control account.
+                supplier_fin_account_id = None
+                supplier_fin_account_obj = None
+                supplier_memo_account_id = None
 
-                def _try_assign_supplier(account_id, *, auto_enable=False):
-                    nonlocal supplier_account_id, supplier_account_obj
-                    if not account_id:
-                        return False
-                    account = Account.query.get(account_id)
-                    if not account:
-                        return False
+                if new_invoice.supplier_id and party_account:
+                    supplier_fin_account_id = party_account.id
+                    supplier_fin_account_obj = party_account
+                    supplier_memo_account_id = party_account.memo_account_id
 
-                    if not account.tracks_weight and auto_enable:
-                        account.tracks_weight = True
-                        db.session.add(account)
-                        db.session.flush()
+                # If somehow we still don't have supplier accounts, fall back to mapping (control account)
+                # but keep weight postings on memo only when available.
+                if not supplier_fin_account_id:
+                    fallback_id = _mapping('suppliers') or _mapping('suppliers_weight')
+                    if fallback_id:
+                        supplier_fin_account_id = fallback_id
+                        supplier_fin_account_obj = Account.query.get(fallback_id)
+                        supplier_memo_account_id = getattr(supplier_fin_account_obj, 'memo_account_id', None)
 
-                    if account.tracks_weight:
-                        supplier_account_id = account.id
-                        supplier_account_obj = account
-                        return True
-                    return False
-
-                # الأولوية: حساب المورد المحدد يتتبع الوزن، ثم ربط suppliers_weight ثم suppliers، وأخيراً party_account (إن كان يدعم الوزن)
-                if party_account and party_account.tracks_weight:
-                    supplier_account_id = party_account.id
-                    supplier_account_obj = party_account
-                else:
-                    for candidate_id, auto_enable in [
-                        (_mapping('suppliers_weight'), True),
-                        (_mapping('suppliers'), True),
-                        (party_account.id if party_account else None, True),
-                    ]:
-                        if _try_assign_supplier(candidate_id, auto_enable=auto_enable):
-                            break
-
-                # إذا تعذر إيجاد حساب يتتبع الوزن، نتركه فارغاً الآن ليتم التعامل معه لاحقاً
-                if supplier_account_obj is None or not supplier_account_obj.tracks_weight:
-                    supplier_account_id = None
+                if supplier_memo_account_id:
+                    _ensure_weight_tracking_account(supplier_memo_account_id)
 
                 # تجميع أوزان المورد (يمكن تمريرها من الواجهة، وإلا نستخدم أوزان الأصناف)
                 supplier_gold_lines = data.get('supplier_gold_lines') or data.get('supplier_gold_weights')
@@ -9033,8 +9037,37 @@ def add_invoice():
                 posted_weight_debits = set()
                 
                 if valuation_cash_total > 0 or total_weight_for_allocation > 0:
-                    remaining_cash = valuation_cash_total
                     positive_karats = [k for k in valuation_weights if k in inventory_accounts and valuation_weights[k] > 0]
+
+                    # If we have explicit cash allocation by karat, normalize it to ALWAYS sum
+                    # to valuation_cash_total to avoid JE cash imbalance.
+                    cash_shares_by_karat = None
+                    if explicit_cash_by_karat and positive_karats:
+                        try:
+                            cash_shares_by_karat = {}
+                            for k in positive_karats:
+                                if k in explicit_cash_by_karat:
+                                    cash_shares_by_karat[k] = round(_to_float(explicit_cash_by_karat.get(k), 0.0), 2)
+
+                            explicit_sum = round(sum(cash_shares_by_karat.values()), 2)
+                            diff = round(valuation_cash_total - explicit_sum, 2)
+                            if abs(diff) > 0.01:
+                                # Absorb the remainder into the largest-weight karat to keep totals consistent.
+                                adjust_karat = max(
+                                    positive_karats,
+                                    key=lambda kk: float(valuation_weights.get(kk, 0.0) or 0.0),
+                                )
+                                cash_shares_by_karat[adjust_karat] = round(
+                                    float(cash_shares_by_karat.get(adjust_karat, 0.0) or 0.0) + diff,
+                                    2,
+                                )
+                                # If adjustment leads to a negative share, fall back to proportional allocation.
+                                if cash_shares_by_karat[adjust_karat] < 0:
+                                    cash_shares_by_karat = None
+                        except Exception:
+                            cash_shares_by_karat = None
+
+                    remaining_cash = valuation_cash_total
 
                     for index, karat in enumerate(positive_karats):
                         weight_value = valuation_weights[karat]
@@ -9042,11 +9075,9 @@ def add_invoice():
                         if not inv_account_id:
                             continue
 
-                        # 🆕 استخدام التوزيع النقدي الصريح إن وجد، وإلا التوزيع النسبي
-                        if explicit_cash_by_karat and karat in explicit_cash_by_karat:
-                            # استخدام القيمة الفعلية من سطور الفاتورة
-                            cash_share = round(explicit_cash_by_karat[karat], 2)
-                            remaining_cash = round(remaining_cash - cash_share, 2)
+                        # 🆕 استخدام التوزيع النقدي الصريح إن وجد (بعد التطبيع)، وإلا التوزيع النسبي
+                        if cash_shares_by_karat is not None:
+                            cash_share = round(_to_float(cash_shares_by_karat.get(karat, 0.0), 0.0), 2)
                         elif total_weight_for_allocation > 0 and index < len(positive_karats) - 1:
                             # التوزيع النسبي التقليدي (fallback)
                             cash_share = round(valuation_cash_total * (weight_value / total_weight_for_allocation), 2)
@@ -9202,6 +9233,12 @@ def add_invoice():
                 # --- 3) ضريبة القيمة المضافة ---
                 # ملاحظة: ضريبة الذهب تُضاف لقيمة المخزون، وضريبة الأجور تُسجل منفصلة
                 # لذا نسجل فقط ضريبة الأجور كقيد مستقل
+                if (wage_tax_total > 0 or gold_tax_total > 0) and not vat_receivable_acc_id:
+                    return jsonify({
+                        'error': 'vat_receivable_account_missing',
+                        'message': 'حساب ضريبة القيمة المضافة (مدفوعة) غير موجود. الرجاء إنشاء الحساب رقم 1500 أو ضبط mapping (شراء -> vat_receivable).',
+                    }), 400
+
                 if wage_tax_total > 0 and vat_receivable_acc_id:
                     create_dual_journal_entry(
                         journal_entry_id=journal_entry.id,
@@ -9285,23 +9322,15 @@ def add_invoice():
                 wage_payable_cash = round(wage_cash_liability + wage_tax_total, 2)
 
                 # --- 5) المورد دائن بالذهب (حسب العيارات) ---
-                if not supplier_account_id and supplier_gold_by_karat:
-                    fallback_candidates = [
-                        (get_account_id_for_mapping('شراء', 'suppliers_weight'), True),
-                        (get_account_id_for_mapping('شراء', 'suppliers'), True),
-                        (party_account.id if party_account else None, True),
-                    ]
+                # Weight postings are always on supplier memo account.
 
-                    for candidate_id, auto_enable in fallback_candidates:
-                        if _try_assign_supplier(candidate_id, auto_enable=auto_enable):
-                            break
-
-                if supplier_gold_by_karat and (not supplier_account_obj or not supplier_account_obj.tracks_weight):
+                if supplier_gold_by_karat and not supplier_memo_account_id:
                     return jsonify({
-                        'error': 'إعدادات الربط المحاسبي للمورد لا تتتبع الوزن. يرجى ضبط حساب مورد يتتبع الوزن ضمن الربط "suppliers" أو "suppliers_weight".'
+                        'error': 'supplier_memo_account_missing',
+                        'message': 'حساب المورد الوزني (memo) غير موجود أو غير مربوط. الرجاء إعادة ربط حساب المورد بوجود حساب مذكرة وزني.',
                     }), 400
 
-                if supplier_account_id and supplier_gold_by_karat:
+                if supplier_memo_account_id and supplier_gold_by_karat:
                     # 🆕 استخدام الأوزان الفعلية (بدون المصنعية) لقيد المورد الوزني
                     print(f"🟢 DEBUG supplier_weight_kwargs calculation:")
                     print(f"   actual_gold_weights_for_memo = {actual_gold_weights_for_memo}")
@@ -9339,17 +9368,17 @@ def add_invoice():
                         # سطر التزام المورد (ذهب)
                         create_dual_journal_entry(
                             journal_entry_id=journal_entry.id,
-                            account_id=supplier_account_id,
+                            account_id=supplier_memo_account_id,
                             apply_golden_rule=False,
                             description="التزام المورد - ذهب (وزن)",
                             **supplier_weight_kwargs,
                         )
 
                 # Supplier wage as gold (main karat)
-                if supplier_account_id and wage_gold_weight_main > 0 and wage_gold_weight_field:
+                if supplier_memo_account_id and wage_gold_weight_main > 0 and wage_gold_weight_field:
                         create_dual_journal_entry(
                             journal_entry_id=journal_entry.id,
-                            account_id=supplier_account_id,
+                            account_id=supplier_memo_account_id,
                             apply_golden_rule=False,
                             description="التزام المورد - أجور مصنعية (ذهب)",
                         **{wage_gold_weight_field: round(wage_gold_weight_main, 3)},
@@ -9363,10 +9392,10 @@ def add_invoice():
                             pass
 
                 # سطر التزام المورد (نقد) للأجور + ضريبة الأجور
-                if supplier_account_id and wage_payable_cash > 0:
+                if supplier_fin_account_id and wage_payable_cash > 0:
                     create_dual_journal_entry(
                         journal_entry_id=journal_entry.id,
-                        account_id=supplier_account_id,
+                        account_id=supplier_fin_account_id,
                         cash_credit=wage_payable_cash,
                         apply_golden_rule=False,
                         description="التزام المورد - أجور مصنعية + ضريبة الأجور",

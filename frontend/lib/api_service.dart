@@ -1078,6 +1078,20 @@ class ApiService {
       );
     }
 
+    if (errorCode == 'supplier_account_missing' || errorCode == 'customer_account_missing') {
+      final msg = (parsed?['message']?.toString().trim().isNotEmpty == true)
+          ? parsed!['message'].toString().trim()
+          : _errorMessageFromResponse(response);
+      final details = parsed?['details']?.toString().trim();
+
+      throw ApiException(
+        statusCode: response.statusCode,
+        code: errorCode!,
+        message: (details == null || details.isEmpty) ? msg : '$msg\n\nتفاصيل: $details',
+        details: parsed ?? const {},
+      );
+    }
+
     throw ApiException(
       statusCode: response.statusCode,
       code: (errorCode == null || errorCode.isEmpty) ? 'http_error' : errorCode,

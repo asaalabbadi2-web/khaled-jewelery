@@ -350,6 +350,33 @@ try:
 			print(f"[WARNING] Employee gold custody bootstrap skipped/failed: {exc}")
 
 		ensure_weight_closing_support_accounts()
+		# Ensure core VAT accounts exist (required by supplier purchase postings).
+		try:
+			from models import Account
+
+			def _ensure_account(account_number, name, acc_type):
+				acc = Account.query.filter_by(account_number=str(account_number)).first()
+				if acc:
+					return acc
+				acc = Account(
+					account_number=str(account_number),
+					name=str(name),
+					type=str(acc_type),
+					transaction_type='cash',
+					tracks_weight=False,
+					parent_id=None,
+				)
+				db.session.add(acc)
+				db.session.flush()
+				return acc
+
+			_ensure_account('1500', 'ضريبة القيمة المضافة (مدفوعة)', 'Asset')
+			_ensure_account('2210', 'ضريبة القيمة المضافة المستحقة', 'Liability')
+			_ensure_account('1501', 'ضريبة عمولات نقاط البيع (مدفوعة)', 'Asset')
+			db.session.commit()
+		except Exception as exc:
+			db.session.rollback()
+			print(f"[WARNING] VAT accounts bootstrap skipped/failed: {exc}")
 		try:
 			ensure_default_payment_types()
 		except Exception as exc:
