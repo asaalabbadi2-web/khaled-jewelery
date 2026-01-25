@@ -50,6 +50,7 @@ from models import (
     User,
     Category,
     AuditLog,
+    SupplierGoldTransaction,
 )
 from utils import normalize_number
 try:
@@ -10920,8 +10921,50 @@ def delete_journal_entry(id):
     """حذف نهائي للقيد (Hard Delete) - للاستخدام الإداري فقط"""
     entry = JournalEntry.query.get_or_404(id)
     try:
+        from models import (
+            WeightClosingOrder, WeightClosingExecution, 
+            SupplierGoldTransaction, InvoicePayment
+        )
+        
+        # حذف الأسطر أولاً (cascade)
+        for line in entry.lines[:]:
+            db.session.delete(line)
+        
+        # إزالة المراجع من الجداول الأخرى
+        # 1. الفواتير
+        invoices = Invoice.query.filter_by(journal_entry_id=entry.id).all()
+        for inv in invoices:
+            inv.journal_entry_id = None
+        
+        # 2. السندات
+        vouchers = Voucher.query.filter_by(journal_entry_id=entry.id).all()
+        for v in vouchers:
+            v.journal_entry_id = None
+        
+        # 3. أوامر إقفال الأوزان
+        weight_orders = WeightClosingOrder.query.filter_by(valuation_journal_entry_id=entry.id).all()
+        for wo in weight_orders:
+            wo.valuation_journal_entry_id = None
+        
+        # 4. تنفيذات إقفال الأوزان
+        weight_execs = WeightClosingExecution.query.filter_by(journal_entry_id=entry.id).all()
+        for we in weight_execs:
+            we.journal_entry_id = None
+        
+        # 5. معاملات الذهب مع الموردين
+        supp_txns = SupplierGoldTransaction.query.filter_by(journal_entry_id=entry.id).all()
+        for st in supp_txns:
+            st.journal_entry_id = None
+        
+        # 6. دفعات الفواتير
+        payments = InvoicePayment.query.filter_by(journal_entry_id=entry.id).all()
+        for pmt in payments:
+            pmt.journal_entry_id = None
+        
+        # الآن حذف القيد نفسه
         db.session.delete(entry)
         db.session.commit()
+        
         return jsonify({'result': 'success', 'message': 'تم الحذف النهائي للقيد'})
     except Exception as e:
         db.session.rollback()
@@ -18569,6 +18612,8 @@ def _create_clearing_settlement_voucher(
     bank_safe_box_id,
     gross_amount,
     fee_amount=0.0,
+    fee_is_net=True,
+    commission_vat_account_id=None,
     settlement_dt=None,
     reference_number=None,
     created_by='system',
@@ -18595,7 +18640,40 @@ def _create_clearing_settlement_voucher(
     if fee_amount < 0:
         raise ValueError('fee_amount_must_be_non_negative')
 
-    net_amount = round(gross_amount - fee_amount, 2)
+    # نحتسب ضريبة العمولة عند التسوية لأن النسبة المدخلة صافي ضريبة
+    # fee_is_net=True يعني أن fee_amount صافي بدون ضريبة قيمة مضافة
+    # إذا كانت الضريبة معطلة في الإعدادات، تكون zero
+    def _normalize_tax_rate(raw_value, fallback=0.15):
+        try:
+            val = float(raw_value)
+        except Exception:
+            val = float(fallback)
+        if val > 1.0:
+            val = val / 100.0
+        if val < 0:
+            val = abs(val)
+        return val
+
+    settings_row = None
+    try:
+        settings_row = Settings.query.first()
+    except Exception:
+        settings_row = None
+
+    tax_enabled = True
+    vat_rate = 0.15
+    try:
+        tax_enabled = bool(getattr(settings_row, 'tax_enabled', True)) if settings_row else True
+        vat_rate = _normalize_tax_rate(getattr(settings_row, 'tax_rate', 0.15) if settings_row else 0.15, fallback=0.15)
+    except Exception:
+        tax_enabled = True
+        vat_rate = 0.15
+
+    fee_vat = 0.0
+    if fee_is_net and tax_enabled and fee_amount > 0:
+        fee_vat = round(fee_amount * vat_rate, 2)
+
+    net_amount = round(gross_amount - fee_amount - fee_vat, 2)
     if net_amount < 0:
         raise ValueError('fee_amount_exceeds_gross')
 
@@ -18670,6 +18748,18 @@ def _create_clearing_settlement_voucher(
         if not fee_account:
             raise ValueError('not_found:fee_account')
 
+    commission_vat_account = None
+    if fee_vat > 0:
+        commission_vat_account_id = (
+            commission_vat_account_id
+            or get_account_id_for_mapping('بيع', 'commission_vat')
+            or _get_default_account_id('commission_vat')
+        )
+        if commission_vat_account_id:
+            commission_vat_account = Account.query.get(commission_vat_account_id)
+        if not commission_vat_account:
+            raise ValueError('commission_vat_account_not_found')
+
     clearing_balance = float(getattr(clearing_account, 'balance_cash', 0.0) or 0.0)
     if clearing_balance < gross_amount:
         raise ValueError('insufficient_clearing_balance')
@@ -18726,7 +18816,17 @@ def _create_clearing_settlement_voucher(
             line_type='debit',
             amount_type='cash',
             amount=round(fee_amount, 2),
-            description='عمولة تحصيل',
+            description='عمولة تحصيل (صافي)',
+        ))
+
+    if fee_vat > 0 and commission_vat_account:
+        db.session.add(VoucherAccountLine(
+            voucher_id=voucher.id,
+            account_id=commission_vat_account.id,
+            line_type='debit',
+            amount_type='cash',
+            amount=round(fee_vat, 2),
+            description='ضريبة قيمة مضافة على عمولة التحصيل',
         ))
 
     db.session.add(VoucherAccountLine(
@@ -18750,6 +18850,8 @@ def _create_clearing_settlement_voucher(
     bank_account.update_balance(cash_amount=net_amount)
     if fee_account:
         fee_account.update_balance(cash_amount=fee_amount)
+    if commission_vat_account:
+        commission_vat_account.update_balance(cash_amount=fee_vat)
 
     return {
         'success': True,
@@ -18758,6 +18860,7 @@ def _create_clearing_settlement_voucher(
             'clearing_account_cash': round(float(getattr(clearing_account, 'balance_cash', 0.0) or 0.0), 2),
             'bank_account_cash': round(float(getattr(bank_account, 'balance_cash', 0.0) or 0.0), 2),
             **({'fee_account_cash': round(float(getattr(fee_account, 'balance_cash', 0.0) or 0.0), 2)} if fee_account else {}),
+            **({'commission_vat_account_cash': round(float(getattr(commission_vat_account, 'balance_cash', 0.0) or 0.0), 2)} if commission_vat_account else {}),
         }
     }
 
@@ -18790,6 +18893,8 @@ def create_clearing_settlement():
     created_by = data.get('created_by', 'system')
     reference_number = data.get('reference_number')
     description_override = (data.get('description') or '').strip() or None
+    fee_is_net = bool(data.get('fee_is_net', True))
+    commission_vat_account_id = data.get('commission_vat_account_id')
 
     # Parse settlement date
     settlement_date_raw = data.get('settlement_date') or data.get('date')
@@ -18809,6 +18914,8 @@ def create_clearing_settlement():
             bank_safe_box_id=bank_safe_box_id,
             gross_amount=(data.get('gross_amount') or data.get('amount') or 0.0),
             fee_amount=(data.get('fee_amount') or data.get('fee') or 0.0),
+            fee_is_net=fee_is_net,
+            commission_vat_account_id=commission_vat_account_id,
             settlement_dt=settlement_dt,
             reference_number=reference_number,
             created_by=created_by,

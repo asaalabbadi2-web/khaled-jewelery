@@ -202,7 +202,10 @@ def _normalize_settlement_schedule_type(raw_value: Any) -> str:
 
 
 def _normalize_weekday(raw_value: Any):
-    if raw_value in (None, '', False):
+    # allow 0 (الاثنين) — do not treat it as falsy/null
+    if raw_value is None:
+        return None
+    if isinstance(raw_value, str) and raw_value.strip() == '':
         return None
     try:
         weekday = int(raw_value)
@@ -937,10 +940,7 @@ def delete_payment_method(id):
         if not payment_method:
             return jsonify({'error': 'وسيلة الدفع غير موجودة'}), 404
         
-        # NOTE:
-        # - Payment methods are referenced by invoice payments and other records.
-        # - Also, legacy sync from Settings can re-create deleted rows.
-        # So we treat DELETE as a safe "archive" (soft delete) by deactivating.
+        # نسمح بالحذف الفعلي إذا لم تُستخدم في أي دفعة فاتورة
         used_count = 0
         try:
             used_count = InvoicePayment.query.filter_by(
@@ -949,12 +949,22 @@ def delete_payment_method(id):
         except Exception:
             used_count = 0
 
-        # Always prefer soft delete to avoid FK errors + preserve history.
+        if used_count == 0:
+            db.session.delete(payment_method)
+            db.session.commit()
+            return jsonify({
+                'message': 'تم حذف وسيلة الدفع بنجاح (غير مرتبطة بدفعات)',
+                'deleted': True,
+                'deactivated': False,
+                'used_in_invoices': used_count,
+            }), 200
+
+        # إن كانت مستخدمة، نعطلها بدلاً من الحذف لتفادي قيود FK ولحفظ التاريخ
         payment_method.is_active = False
         db.session.commit()
 
         return jsonify({
-            'message': 'تم تعطيل وسيلة الدفع بنجاح' if used_count else 'تم حذف/تعطيل وسيلة الدفع بنجاح',
+            'message': 'تم تعطيل وسيلة الدفع لأنها مستخدمة في فواتير سابقة',
             'deleted': False,
             'deactivated': True,
             'used_in_invoices': used_count,
