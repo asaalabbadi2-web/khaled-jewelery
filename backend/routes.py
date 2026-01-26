@@ -2082,6 +2082,21 @@ def _reset_transactions():
         BonusInvoiceLink.query.delete()
         EmployeeBonus.query.delete()
 
+        # ✅ Weight-closing tables reference Invoice/JournalEntry via FK (PostgreSQL will enforce).
+        # IMPORTANT: query.delete() bypasses ORM cascades, so delete children first.
+        try:
+            WeightClosingExecution.query.delete()
+        except Exception:
+            pass
+        try:
+            WeightClosingOrder.query.delete()
+        except Exception:
+            pass
+        try:
+            InvoiceWeightSettlement.query.delete()
+        except Exception:
+            pass
+
         # حذف القيود المحاسبية وسطورها
         JournalEntryLine.query.delete()
         JournalEntry.query.delete()
