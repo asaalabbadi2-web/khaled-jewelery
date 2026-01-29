@@ -2735,6 +2735,52 @@ def _drive_sa_available() -> bool:
     return False
 
 
+def _drive_user_facing_error(exc: Exception) -> str:
+    """Return a concise Arabic message for common Google Drive errors.
+
+    In production, googleapiclient HttpError messages can be extremely verbose.
+    This helper keeps UI output readable and actionable.
+    """
+
+    try:
+        # Only import when available.
+        from googleapiclient.errors import HttpError  # type: ignore
+    except Exception:
+        HttpError = None  # type: ignore
+
+    # Best-effort parsing of HttpError JSON payload.
+    if HttpError is not None and isinstance(exc, HttpError):
+        try:
+            raw = getattr(exc, "content", None)
+            if isinstance(raw, (bytes, bytearray)):
+                raw = raw.decode("utf-8", errors="ignore")
+            payload = json.loads(raw) if isinstance(raw, str) and raw.strip() else {}
+            err = payload.get("error") if isinstance(payload, dict) else None
+            message = (err.get("message") if isinstance(err, dict) else None) or ""
+            errors = (err.get("errors") if isinstance(err, dict) else None) or []
+            reason = ""
+            if isinstance(errors, list) and errors:
+                first = errors[0] if isinstance(errors[0], dict) else {}
+                reason = (first.get("reason") or "") if isinstance(first, dict) else ""
+
+            # Common production blocker: Service Accounts have no personal Drive quota.
+            if reason == "storageQuotaExceeded" or ("Service Accounts do not have storage quota" in message):
+                return (
+                    "فشل رفع النسخة إلى Google Drive: حساب الخدمة (Service Account) لا يملك سعة تخزين على Google Drive. "
+                    "الحلول: استخدم Google Workspace Shared Drive وضمّ الحساب له، أو فعّل Domain-wide Delegation وحدد GOOGLE_DRIVE_IMPERSONATE_USER، "
+                    "أو استخدم طريقة OAuth/Rclone (Option D)."
+                )
+
+            if message:
+                return f"فشل عملية Google Drive: {message}"
+        except Exception:
+            # Fall through to generic error.
+            pass
+
+    # Default fallback.
+    return f"فشل عملية Google Drive: {exc}"
+
+
 @api.route('/system/backup/drive/status', methods=['GET'])
 @require_any_permission('system.backup', 'system.settings')
 def system_backup_drive_status():
@@ -2830,7 +2876,7 @@ def system_backup_drive_upload():
         return jsonify({
             'status': 'error',
             'error': 'drive_upload_failed',
-            'message': f'فشل رفع النسخة إلى Google Drive: {exc}',
+            'message': _drive_user_facing_error(exc),
         }), 500
 
     return jsonify({
@@ -2863,7 +2909,7 @@ def system_backup_drive_list():
         return jsonify({
             'status': 'error',
             'error': 'drive_list_failed',
-            'message': f'فشل جلب قائمة النسخ من Google Drive: {exc}',
+            'message': _drive_user_facing_error(exc),
         }), 500
 
     return jsonify({
@@ -2898,7 +2944,7 @@ def system_backup_drive_download(file_id: str):
         return jsonify({
             'status': 'error',
             'error': 'drive_download_failed',
-            'message': f'فشل تنزيل الملف من Google Drive: {exc}',
+            'message': _drive_user_facing_error(exc),
         }), 500
 
     name = (info.name or f'{file_id}.zip').strip() or f'{file_id}.zip'

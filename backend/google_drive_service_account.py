@@ -14,6 +14,27 @@ from googleapiclient.http import MediaIoBaseDownload, MediaInMemoryUpload
 _DRIVE_SCOPES = ["https://www.googleapis.com/auth/drive.file"]
 
 
+def _impersonate_user() -> str | None:
+    """Optional Google Workspace domain-wide delegation.
+
+    If set, Drive calls will be made on behalf of this user (uses their Drive quota).
+    Requires the service account to have Domain-wide Delegation enabled and authorized.
+    """
+
+    subject = (os.getenv("GOOGLE_DRIVE_IMPERSONATE_USER") or "").strip()
+    return subject or None
+
+
+def _shared_drive_id() -> str | None:
+    """Optional Google Workspace Shared Drive id.
+
+    When set, list queries will use corpora=drive and includeItemsFromAllDrives.
+    """
+
+    drive_id = (os.getenv("GOOGLE_DRIVE_SHARED_DRIVE_ID") or "").strip()
+    return drive_id or None
+
+
 @dataclass(frozen=True)
 class DriveFileInfo:
     id: str
@@ -71,6 +92,12 @@ def _drive_client():
     creds = service_account.Credentials.from_service_account_info(
         info, scopes=_DRIVE_SCOPES
     )
+
+    subject = _impersonate_user()
+    if subject:
+        # Note: this only works for Google Workspace with domain-wide delegation.
+        creds = creds.with_subject(subject)
+
     # cache_discovery=False avoids writing to disk and speeds startup.
     return build("drive", "v3", credentials=creds, cache_discovery=False)
 
@@ -79,17 +106,24 @@ def list_backups(page_size: int = 20) -> list[DriveFileInfo]:
     folder = _folder_id()
     svc = _drive_client()
 
+    shared_drive = _shared_drive_id()
+
     q = f"'{folder}' in parents and trashed=false"
-    res = (
-        svc.files()
-        .list(
-            q=q,
-            pageSize=max(1, min(int(page_size), 100)),
-            orderBy="createdTime desc",
-            fields="files(id,name,mimeType,createdTime,size)",
-        )
-        .execute()
-    )
+    list_kwargs: dict[str, Any] = {
+        "q": q,
+        "pageSize": max(1, min(int(page_size), 100)),
+        "orderBy": "createdTime desc",
+        "fields": "files(id,name,mimeType,createdTime,size)",
+        "supportsAllDrives": True,
+        "includeItemsFromAllDrives": True,
+    }
+    if shared_drive:
+        list_kwargs.update({
+            "corpora": "drive",
+            "driveId": shared_drive,
+        })
+
+    res = svc.files().list(**list_kwargs).execute()
 
     files = res.get("files") or []
     out: list[DriveFileInfo] = []
@@ -117,7 +151,12 @@ def upload_bytes(
 
     created = (
         svc.files()
-        .create(body=meta, media_body=media, fields="id,name,mimeType,createdTime,size")
+        .create(
+            body=meta,
+            media_body=media,
+            fields="id,name,mimeType,createdTime,size",
+            supportsAllDrives=True,
+        )
         .execute()
     )
 
@@ -135,7 +174,11 @@ def download_bytes(file_id: str) -> tuple[bytes, DriveFileInfo]:
 
     meta = (
         svc.files()
-        .get(fileId=file_id, fields="id,name,mimeType,createdTime,size")
+        .get(
+            fileId=file_id,
+            fields="id,name,mimeType,createdTime,size",
+            supportsAllDrives=True,
+        )
         .execute()
     )
     info = DriveFileInfo(
@@ -146,7 +189,7 @@ def download_bytes(file_id: str) -> tuple[bytes, DriveFileInfo]:
         size=int(meta["size"]) if meta.get("size") is not None else None,
     )
 
-    request = svc.files().get_media(fileId=file_id)
+    request = svc.files().get_media(fileId=file_id, supportsAllDrives=True)
     buf = io.BytesIO()
     downloader = MediaIoBaseDownload(buf, request)
     done = False

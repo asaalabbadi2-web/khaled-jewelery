@@ -119,6 +119,11 @@ Why this exists:
 Security note:
 - This mode is **not end-to-end encrypted** by default (unlike `rclone crypt`). If you require E2EE, keep using Option D (or add encryption before upload).
 
+Important limitation (storage quota):
+- On consumer Google accounts, a Service Account can fail with: "Service Accounts do not have storage quota".
+- This mode is intended for **Google Workspace** deployments using **Shared Drives** (recommended), or using Workspace **Domain-wide Delegation** to impersonate a user.
+- If you don't have Google Workspace, prefer Option D (`rclone` OAuth + `crypt`) for Google Drive uploads.
+
 #### Setup (one-time)
 1) In Google Cloud Console:
 - Create a Service Account.
@@ -139,6 +144,10 @@ Required environment variables for the backend:
 - One of:
   - `GOOGLE_DRIVE_SERVICE_ACCOUNT_FILE=/run/secrets/google_drive_sa.json`
   - `GOOGLE_DRIVE_SERVICE_ACCOUNT_JSON={...raw json...}`
+
+Optional (Google Workspace):
+- `GOOGLE_DRIVE_SHARED_DRIVE_ID` (if the folder is in a Shared Drive)
+- `GOOGLE_DRIVE_IMPERSONATE_USER=user@yourdomain.com` (Domain-wide Delegation)
 
 #### How to use
 - From the app UI: go to Backup/Restore screen → "Google Drive (على السيرفر - Service Account)".
