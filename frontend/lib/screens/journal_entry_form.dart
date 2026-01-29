@@ -182,6 +182,7 @@ class _AddEditJournalEntryScreenState extends State<AddEditJournalEntryScreen> {
   String _currencySymbol = 'ر.س';
   int _currencyDecimalPlaces = 2;
   bool _settingsSynced = false;
+  bool _calculatingTotals = false;
   String _selectedEntryType = 'عادي'; // نوع القيد
   String? _referenceType; // نوع المرجع
 
@@ -315,31 +316,48 @@ class _AddEditJournalEntryScreenState extends State<AddEditJournalEntryScreen> {
   }
 
   void _calculateTotals() {
-    double cashDebit = 0.0;
-    double cashCredit = 0.0;
-    double goldDebit = 0.0;
-    double goldCredit = 0.0;
+    // Guard against recursive/concurrent calls during build.
+    if (_calculatingTotals || !mounted) return;
+    _calculatingTotals = true;
 
-    for (var line in _lines) {
-      cashDebit += double.tryParse(line.cashDebitController.text) ?? 0.0;
-      cashCredit += double.tryParse(line.cashCreditController.text) ?? 0.0;
+    try {
+      double cashDebit = 0.0;
+      double cashCredit = 0.0;
+      double goldDebit = 0.0;
+      double goldCredit = 0.0;
 
-      for (var karat in _supportedKarats) {
-        final debitWeight =
-            double.tryParse(line.goldDebitControllers[karat]!.text) ?? 0.0;
-        final creditWeight =
-            double.tryParse(line.goldCreditControllers[karat]!.text) ?? 0.0;
-        goldDebit += _convertToMainKarat(debitWeight, karat);
-        goldCredit += _convertToMainKarat(creditWeight, karat);
+      for (var line in _lines) {
+        cashDebit += double.tryParse(line.cashDebitController.text) ?? 0.0;
+        cashCredit += double.tryParse(line.cashCreditController.text) ?? 0.0;
+
+        for (var karat in _supportedKarats) {
+          final debitWeight =
+              double.tryParse(line.goldDebitControllers[karat]!.text) ?? 0.0;
+          final creditWeight =
+              double.tryParse(line.goldCreditControllers[karat]!.text) ?? 0.0;
+          goldDebit += _convertToMainKarat(debitWeight, karat);
+          goldCredit += _convertToMainKarat(creditWeight, karat);
+        }
       }
-    }
 
-    setState(() {
-      _totalCashDebit = cashDebit;
-      _totalCashCredit = cashCredit;
-      _totalGoldDebit = goldDebit;
-      _totalGoldCredit = goldCredit;
-    });
+      if (!mounted) return;
+      const eps = 1e-9;
+      final changed =
+          (cashDebit - _totalCashDebit).abs() > eps ||
+          (cashCredit - _totalCashCredit).abs() > eps ||
+          (goldDebit - _totalGoldDebit).abs() > eps ||
+          (goldCredit - _totalGoldCredit).abs() > eps;
+      if (!changed) return;
+
+      setState(() {
+        _totalCashDebit = cashDebit;
+        _totalCashCredit = cashCredit;
+        _totalGoldDebit = goldDebit;
+        _totalGoldCredit = goldCredit;
+      });
+    } finally {
+      _calculatingTotals = false;
+    }
   }
 
   double _convertToMainKarat(double weight, int fromKarat) {
@@ -397,8 +415,8 @@ class _AddEditJournalEntryScreenState extends State<AddEditJournalEntryScreen> {
     setState(() {
       _lines[index].dispose();
       _lines.removeAt(index);
-      _calculateTotals();
     });
+    _calculateTotals();
   }
 
   void _onAccountChanged(JournalLine line, int? accountId) {
@@ -421,8 +439,8 @@ class _AddEditJournalEntryScreenState extends State<AddEditJournalEntryScreen> {
           _ensureDefaultGoldKaratSelections(line);
         }
       }
-      _calculateTotals();
     });
+    _calculateTotals();
   }
 
   // --- Balance Logic ---
@@ -454,10 +472,8 @@ class _AddEditJournalEntryScreenState extends State<AddEditJournalEntryScreen> {
 
     final finalWeight = (neededInMain * _mainKarat) / targetKarat;
 
-    setState(() {
-      targetController.text = finalWeight.toStringAsFixed(4);
-      _calculateTotals();
-    });
+    targetController.text = finalWeight.toStringAsFixed(4);
+    _calculateTotals();
   }
 
   // --- Save Logic ---
@@ -1229,6 +1245,7 @@ class _AddEditJournalEntryScreenState extends State<AddEditJournalEntryScreen> {
     final highlightColor = isDebit ? Colors.blue : Colors.orange;
 
     return TextFormField(
+      key: PageStorageKey<String>('gold_field_${karat}_${isDebit ? 'd' : 'c'}'),
       controller: controller,
       style: highlight
           ? TextStyle(color: highlightColor, fontWeight: FontWeight.bold)
@@ -1248,7 +1265,11 @@ class _AddEditJournalEntryScreenState extends State<AddEditJournalEntryScreen> {
       ),
       keyboardType: const TextInputType.numberWithOptions(decimal: true),
       inputFormatters: [ArabicNumberTextInputFormatter()],
-      onChanged: (_) => _calculateTotals(),
+      onChanged: (_) {
+        Future.microtask(() {
+          if (mounted) _calculateTotals();
+        });
+      },
     );
   }
 
