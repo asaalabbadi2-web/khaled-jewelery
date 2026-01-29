@@ -2399,147 +2399,120 @@ def _reset_factory_data():
 
 
 def _reset_full_system_wipe():
-    """Full System Wipe with strict ordering.
+    """Full System Wipe with strict ordering and proper transaction handling for PostgreSQL.
 
     Required order (as per safety spec):
       1) transactions/operations (invoices/journals/vouchers + SafeBoxTransaction)
       2) associations (customers/suppliers + inventory snapshots)
       3) structure (SafeBox -> Users/Employees (keep admin) -> Branch -> Office)
-            4) chart of accounts (AccountingMapping -> Account)
+      4) chart of accounts (AccountingMapping -> Account)
     """
+    from models import AppUser
+    from models import Category, Item, PaymentType
+
+    # Level 1 + 2
+    _reset_factory_data()
+
+    # Helper: safely execute delete with transaction recovery on failure
+    def safe_delete(model_class, filter_condition=None):
+        try:
+            if filter_condition is not None:
+                model_class.query.filter(filter_condition).delete(synchronize_session=False)
+            else:
+                model_class.query.delete(synchronize_session=False)
+            db.session.flush()  # Flush to catch constraint violations early
+        except Exception as e:
+            db.session.rollback()  # Critical: reset transaction on failure in PostgreSQL
+            print(f"⚠️ Failed to delete {model_class.__name__}: {e}")
+
+    # Helper: safely execute update with transaction recovery on failure
+    def safe_update(query_obj, values):
+        try:
+            query_obj.update(values, synchronize_session=False)
+            db.session.flush()  # Flush to catch constraint violations early
+        except Exception as e:
+            db.session.rollback()  # Critical: reset transaction on failure
+            print(f"⚠️ Failed to update: {e}")
+
+    # Inventory costing snapshots/config
+    safe_delete(InventoryCostingConfig)
+
+    # Payment methods must be cleared before SafeBox deletion because of ondelete=RESTRICT.
+    safe_delete(PaymentMethod)
+    safe_delete(PaymentType)
+
+    # Items/Categories (keep order: items first, then categories)
+    safe_delete(Item)
+    safe_delete(Category)
+
+    # Level 3: structure
+    # To respect ondelete=RESTRICT, null-out SafeBox references first
+    safe_update(
+        db.session.query(Employee),
+        {
+            Employee.gold_safe_box_id: None,
+            Employee.cash_safe_box_id: None,
+        }
+    )
+
+    # Settings may reference SafeBox ids; detach before deleting SafeBoxes.
+    safe_update(
+        db.session.query(Settings),
+        {
+            Settings.main_cash_safe_box_id: None,
+            Settings.sale_gold_safe_box_id: None,
+            Settings.main_scrap_gold_safe_box_id: None,
+        }
+    )
+
+    # Disable legacy payment-method auto-seeding after WIPE-ALL.
+    safe_update(
+        db.session.query(Settings),
+        {Settings.payment_methods: '[]'}
+    )
+
+    # AppUser may point to Employee (FK default RESTRICT). Detach before deleting employees.
+    safe_update(
+        db.session.query(AppUser),
+        {AppUser.employee_id: None}
+    )
+
+    # Detach safe box refs from payment methods
+    safe_update(
+        db.session.query(PaymentMethod),
+        {PaymentMethod.default_safe_box_id: None}
+    )
+
+    # Now safe to delete safe boxes, employees, users, branches, offices
+    safe_delete(SafeBox)
+    safe_delete(Employee)
+    safe_delete(User, User.is_admin.is_(False))
+    safe_delete(AppUser, func.lower(AppUser.role) != 'system_admin')
+
+    from models import Branch
+    safe_delete(Branch)
+    safe_delete(Office)
+
+    # Level 4: chart of accounts
+    safe_delete(AccountingMapping)
+
+    # Null self-referential FKs before deleting accounts
+    safe_update(
+        db.session.query(Account),
+        {
+            Account.parent_id: None,
+            Account.memo_account_id: None,
+        }
+    )
+
+    safe_delete(Account)
+
+    # Final commit
     try:
-        from models import AppUser
-        from models import Category, Item, PaymentType
-
-        # Level 1 + 2
-        _reset_factory_data()
-
-        # Inventory costing snapshots/config (may remain depending on feature flags)
-        try:
-            InventoryCostingConfig.query.delete()
-        except Exception:
-            pass
-
-        # Master data wipe (requested by WIPE-ALL)
-        # Payment methods must be cleared before SafeBox deletion because of ondelete=RESTRICT.
-        try:
-            PaymentMethod.query.delete()
-        except Exception:
-            pass
-
-        try:
-            PaymentType.query.delete()
-        except Exception:
-            pass
-
-        # Items/Categories (keep order: items first, then categories)
-        try:
-            Item.query.delete()
-        except Exception:
-            pass
-
-        try:
-            Category.query.delete()
-        except Exception:
-            pass
-
-        # Level 3: structure
-        # To respect ondelete=RESTRICT, null-out SafeBox references first (without deleting those rows yet)
-        try:
-            db.session.query(Employee).update({
-                Employee.gold_safe_box_id: None,
-                Employee.cash_safe_box_id: None,
-            }, synchronize_session=False)
-        except Exception:
-            pass
-
-        # Settings may reference SafeBox ids; detach before deleting SafeBoxes.
-        try:
-            db.session.query(Settings).update({
-                Settings.main_cash_safe_box_id: None,
-                Settings.sale_gold_safe_box_id: None,
-                Settings.main_scrap_gold_safe_box_id: None,
-            }, synchronize_session=False)
-        except Exception:
-            pass
-
-        # Disable legacy payment-method auto-seeding after WIPE-ALL.
-        # (payment_methods_routes.py treats explicit [] as "do not seed")
-        try:
-            db.session.query(Settings).update({
-                Settings.payment_methods: '[]',
-            }, synchronize_session=False)
-        except Exception:
-            pass
-
-        # AppUser may point to Employee (FK default RESTRICT). Detach before deleting employees.
-        try:
-            db.session.query(AppUser).update({
-                AppUser.employee_id: None,
-            }, synchronize_session=False)
-        except Exception:
-            pass
-
-        # In case any payment methods remain (or if delete was blocked for some reason), detach safe box refs.
-        try:
-            db.session.query(PaymentMethod).update({
-                PaymentMethod.default_safe_box_id: None,
-            }, synchronize_session=False)
-        except Exception:
-            pass
-
-        # Delete safe boxes
-        SafeBox.query.delete()
-
-        # Delete employees
-        Employee.query.delete()
-
-        # Delete users, but keep main admin(s)
-        try:
-            User.query.filter(User.is_admin.is_(False)).delete(synchronize_session=False)
-        except Exception:
-            pass
-
-        try:
-            AppUser.query.filter(func.lower(AppUser.role) != 'system_admin').delete(synchronize_session=False)
-        except Exception:
-            pass
-
-        # Branches then Offices (as requested)
-        try:
-            from models import Branch
-            Branch.query.delete()
-        except Exception:
-            pass
-
-        try:
-            Office.query.delete()
-        except Exception:
-            pass
-
-        # Level 4: chart of accounts
-        # Must delete mappings first, and null self-referential FKs before deleting accounts.
-        try:
-            AccountingMapping.query.delete()
-        except Exception:
-            pass
-
-        try:
-            db.session.query(Account).update({
-                Account.parent_id: None,
-                Account.memo_account_id: None,
-            }, synchronize_session=False)
-        except Exception:
-            pass
-
-        try:
-            Account.query.delete()
-        except Exception:
-            pass
-
         db.session.commit()
     except Exception as e:
         db.session.rollback()
+        print(f"❌ Failed to commit full wipe: {e}")
         raise e
 
 
