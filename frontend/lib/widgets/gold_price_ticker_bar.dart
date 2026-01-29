@@ -9,6 +9,15 @@ import '../theme/app_theme.dart';
 class GoldPriceTickerBar extends StatefulWidget {
   final bool isArabic;
 
+  /// Optional ounce price (USD/oz) provided by the parent.
+  /// When set, the ticker renders from this value and updates immediately
+  /// when it changes (useful after a manual refresh).
+  final double? ouncePriceUsd;
+
+  /// Optional opening ounce price (USD/oz) for today.
+  /// When set, the delta shown in the ticker is computed against this value.
+  final double? openingOuncePriceUsd;
+
   /// Refresh interval. If null, no auto refresh.
   final Duration? refreshInterval;
 
@@ -22,6 +31,8 @@ class GoldPriceTickerBar extends StatefulWidget {
   const GoldPriceTickerBar({
     super.key,
     required this.isArabic,
+    this.ouncePriceUsd,
+    this.openingOuncePriceUsd,
     this.refreshInterval,
     this.exchangeRate,
     this.currencySymbol = 'ر.س',
@@ -37,6 +48,7 @@ class _GoldPriceTickerBarState extends State<GoldPriceTickerBar>
 
   Timer? _timer;
   double? _ouncePriceUsd;
+  double? _openingOuncePriceUsd;
   String? _loadError;
 
   late final AnimationController _controller;
@@ -44,6 +56,7 @@ class _GoldPriceTickerBarState extends State<GoldPriceTickerBar>
   final Map<int, double> _lastPrices = {};
   final Map<int, double> _changeAbs = {};
   final Map<int, double> _changePct = {};
+  final Map<int, double> _openingPrices = {};
 
   final GlobalKey _measureKey = GlobalKey();
   double _measuredWidth = 0.0;
@@ -57,7 +70,16 @@ class _GoldPriceTickerBarState extends State<GoldPriceTickerBar>
       duration: const Duration(seconds: 18),
     )..repeat();
 
-    _load();
+    if (widget.openingOuncePriceUsd != null &&
+        widget.openingOuncePriceUsd! > 0) {
+      _applyOpeningOuncePrice(widget.openingOuncePriceUsd!);
+    }
+
+    if (widget.ouncePriceUsd != null && widget.ouncePriceUsd! > 0) {
+      _applyOuncePrice(widget.ouncePriceUsd!, resetError: true);
+    } else {
+      _load();
+    }
 
     final interval = widget.refreshInterval;
     if (interval != null) {
@@ -68,6 +90,24 @@ class _GoldPriceTickerBarState extends State<GoldPriceTickerBar>
   @override
   void didUpdateWidget(covariant GoldPriceTickerBar oldWidget) {
     super.didUpdateWidget(oldWidget);
+
+    final nextOpening = widget.openingOuncePriceUsd;
+    final prevOpening = oldWidget.openingOuncePriceUsd;
+    if (nextOpening != null && nextOpening > 0) {
+      if (prevOpening == null || (nextOpening - prevOpening).abs() > 1e-9) {
+        _applyOpeningOuncePrice(nextOpening);
+      }
+    }
+
+    final nextOunce = widget.ouncePriceUsd;
+    final prevOunce = oldWidget.ouncePriceUsd;
+    if (nextOunce != null && nextOunce > 0) {
+      // If parent drives the value, prefer it and update immediately.
+      if (prevOunce == null || (nextOunce - prevOunce).abs() > 1e-9) {
+        _applyOuncePrice(nextOunce, resetError: true);
+      }
+    }
+
     if (oldWidget.refreshInterval != widget.refreshInterval) {
       _timer?.cancel();
       _timer = null;
@@ -118,9 +158,103 @@ class _GoldPriceTickerBarState extends State<GoldPriceTickerBar>
     return baseUsdPerGram * _rate();
   }
 
+  void _applyOpeningOuncePrice(double openingOuncePriceUsd) {
+    _openingOuncePriceUsd = openingOuncePriceUsd;
+
+    final baseline = <int, double>{
+      24: _pricePerGramForKarat(24, openingOuncePriceUsd),
+      22: _pricePerGramForKarat(22, openingOuncePriceUsd),
+      21: _pricePerGramForKarat(21, openingOuncePriceUsd),
+      18: _pricePerGramForKarat(18, openingOuncePriceUsd),
+    };
+
+    setState(() {
+      _openingPrices
+        ..clear()
+        ..addAll(baseline);
+    });
+  }
+
+  void _applyOuncePrice(double ouncePriceUsd, {required bool resetError}) {
+    final prevOunce = _ouncePriceUsd;
+    _ouncePriceUsd = ouncePriceUsd;
+
+    final current = <int, double>{
+      24: _pricePerGramForKarat(24, ouncePriceUsd),
+      22: _pricePerGramForKarat(22, ouncePriceUsd),
+      21: _pricePerGramForKarat(21, ouncePriceUsd),
+      18: _pricePerGramForKarat(18, ouncePriceUsd),
+    };
+
+    Map<int, double>? prevSnapshot;
+    if (_openingPrices.isNotEmpty) {
+      // Preferred baseline: today's opening.
+      prevSnapshot = Map<int, double>.from(_openingPrices);
+    } else if (_openingOuncePriceUsd != null && _openingOuncePriceUsd! > 0) {
+      prevSnapshot = <int, double>{
+        24: _pricePerGramForKarat(24, _openingOuncePriceUsd!),
+        22: _pricePerGramForKarat(22, _openingOuncePriceUsd!),
+        21: _pricePerGramForKarat(21, _openingOuncePriceUsd!),
+        18: _pricePerGramForKarat(18, _openingOuncePriceUsd!),
+      };
+    } else if (_lastPrices.isNotEmpty) {
+      // Fallback baseline: previous ticker update.
+      prevSnapshot = Map<int, double>.from(_lastPrices);
+    } else if (prevOunce != null && prevOunce > 0) {
+      prevSnapshot = <int, double>{
+        24: _pricePerGramForKarat(24, prevOunce),
+        22: _pricePerGramForKarat(22, prevOunce),
+        21: _pricePerGramForKarat(21, prevOunce),
+        18: _pricePerGramForKarat(18, prevOunce),
+      };
+    }
+
+    final nextAbs = <int, double>{};
+    final nextPct = <int, double>{};
+    for (final entry in current.entries) {
+      final k = entry.key;
+      final v = entry.value;
+      final p = prevSnapshot?[k];
+      if (p != null && p.abs() > 1e-9) {
+        final d = v - p;
+        nextAbs[k] = d;
+        nextPct[k] = (d / p) * 100.0;
+      }
+    }
+
+    setState(() {
+      _lastPrices
+        ..clear()
+        ..addAll(current);
+      _changeAbs
+        ..clear()
+        ..addAll(nextAbs);
+      _changePct
+        ..clear()
+        ..addAll(nextPct);
+      if (resetError) _loadError = null;
+      if (_controller.isAnimating == false) {
+        _controller.repeat();
+      }
+    });
+  }
+
   Future<void> _load() async {
     try {
+      // If the parent is driving the value, avoid polling overrides.
+      if (widget.ouncePriceUsd != null && widget.ouncePriceUsd! > 0) {
+        return;
+      }
       final res = await _api.getGoldPricePublic();
+
+      final openingRaw = res['opening_price_usd_per_oz'];
+      final openingOunce = (openingRaw is String)
+          ? double.tryParse(openingRaw)
+          : (openingRaw as num?)?.toDouble();
+      if (openingOunce != null && openingOunce > 0) {
+        _applyOpeningOuncePrice(openingOunce);
+      }
+
       final raw = res['price_usd_per_oz'];
       final ounce = (raw is String)
           ? double.tryParse(raw)
@@ -139,57 +273,7 @@ class _GoldPriceTickerBarState extends State<GoldPriceTickerBar>
         return;
       }
 
-      final prevOunce = _ouncePriceUsd;
-      _ouncePriceUsd = ounce;
-
-      final current = <int, double>{
-        24: _pricePerGramForKarat(24, ounce),
-        22: _pricePerGramForKarat(22, ounce),
-        21: _pricePerGramForKarat(21, ounce),
-        18: _pricePerGramForKarat(18, ounce),
-      };
-
-      Map<int, double>? prevSnapshot;
-      if (_lastPrices.isNotEmpty) {
-        prevSnapshot = Map<int, double>.from(_lastPrices);
-      } else if (prevOunce != null && prevOunce > 0) {
-        prevSnapshot = <int, double>{
-          24: _pricePerGramForKarat(24, prevOunce),
-          22: _pricePerGramForKarat(22, prevOunce),
-          21: _pricePerGramForKarat(21, prevOunce),
-          18: _pricePerGramForKarat(18, prevOunce),
-        };
-      }
-
-      final nextAbs = <int, double>{};
-      final nextPct = <int, double>{};
-      for (final entry in current.entries) {
-        final k = entry.key;
-        final v = entry.value;
-        final p = prevSnapshot?[k];
-        if (p != null && p.abs() > 1e-9) {
-          final d = v - p;
-          nextAbs[k] = d;
-          nextPct[k] = (d / p) * 100.0;
-        }
-      }
-
-      setState(() {
-        _lastPrices
-          ..clear()
-          ..addAll(current);
-        _changeAbs
-          ..clear()
-          ..addAll(nextAbs);
-        _changePct
-          ..clear()
-          ..addAll(nextPct);
-        _loadError = null;
-
-        if (_controller.isAnimating == false) {
-          _controller.repeat();
-        }
-      });
+      _applyOuncePrice(ounce, resetError: true);
     } catch (_) {
       if (!mounted) return;
       setState(() {

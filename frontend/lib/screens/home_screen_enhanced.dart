@@ -78,6 +78,8 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced> {
   // Data
   double? goldPrice;
   DateTime? goldPriceDate;
+  double? goldPriceOpening;
+  DateTime? goldPriceOpeningDate;
   List customers = [];
   List items = [];
   List invoices = [];
@@ -147,32 +149,22 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced> {
   }
 
   void _syncGoldPriceAutoRefresh(SettingsProvider settings) {
-    final enabled = settings.settings['gold_price_auto_update_enabled'] == true;
-    final minutesRaw =
-        settings.settings['gold_price_auto_update_interval_minutes'];
-    final minutes = (minutesRaw is num)
-        ? minutesRaw.toInt()
-        : int.tryParse(minutesRaw?.toString() ?? '') ?? 60;
-
-    final safeMinutes = minutes < 1 ? 1 : minutes;
-    final fingerprint = '$enabled:$safeMinutes';
+    final interval = settings.goldPriceTickerRefreshInterval;
+    final fingerprint = '${interval?.inSeconds ?? 0}';
     if (_goldPriceAutoRefreshFingerprint == fingerprint) return;
     _goldPriceAutoRefreshFingerprint = fingerprint;
 
     _goldPriceAutoRefreshTimer?.cancel();
     _goldPriceAutoRefreshTimer = null;
 
-    if (!enabled) return;
+    if (interval == null) return;
 
-    _goldPriceAutoRefreshTimer = Timer.periodic(
-      Duration(minutes: safeMinutes),
-      (_) async {
-        if (!mounted) return;
-        final auth = context.read<AuthProvider>();
-        if (!auth.isAuthenticated) return;
-        await _loadGoldPrice();
-      },
-    );
+    _goldPriceAutoRefreshTimer = Timer.periodic(interval, (_) async {
+      if (!mounted) return;
+      final auth = context.read<AuthProvider>();
+      if (!auth.isAuthenticated) return;
+      await _loadGoldPrice();
+    });
   }
 
   @override
@@ -261,7 +253,9 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced> {
 
   Future<void> _loadGoldPrice() async {
     try {
-      final response = await api.getGoldPrice();
+      // Use the public endpoint for reading so the UI stays consistent with
+      // the ticker and doesn't get stuck if the auth token expires.
+      final response = await api.getGoldPricePublic();
       if (response['price_usd_per_oz'] != null) {
         setState(() {
           goldPrice = (response['price_usd_per_oz'] is String)
@@ -270,6 +264,22 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced> {
 
           if (response['date'] != null) {
             goldPriceDate = DateTime.parse(response['date']);
+          }
+
+          if (response['opening_price_usd_per_oz'] != null) {
+            goldPriceOpening = (response['opening_price_usd_per_oz'] is String)
+                ? double.tryParse(response['opening_price_usd_per_oz'])
+                : (response['opening_price_usd_per_oz'] as num?)?.toDouble();
+          } else {
+            goldPriceOpening = goldPrice;
+          }
+
+          if (response['opening_date'] != null) {
+            goldPriceOpeningDate = DateTime.tryParse(
+              response['opening_date'].toString(),
+            );
+          } else {
+            goldPriceOpeningDate = goldPriceDate;
           }
         });
       }
@@ -1674,6 +1684,8 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced> {
     final settings = context.watch<SettingsProvider>();
     return GoldPriceTickerBar(
       isArabic: widget.isArabic,
+      ouncePriceUsd: goldPrice,
+      openingOuncePriceUsd: goldPriceOpening,
       currencySymbol: settings.currencySymbol,
       exchangeRate: exchangeRate,
       refreshInterval: settings.goldPriceTickerRefreshInterval,

@@ -4748,13 +4748,31 @@ def get_gold_price():
     from datetime import datetime, timedelta
     
     latest = GoldPrice.query.order_by(GoldPrice.date.desc()).first()
+
+    def _get_today_opening(now: datetime):
+        try:
+            from datetime import time
+
+            start = datetime.combine(now.date(), time.min)
+            end = start + timedelta(days=1)
+            opening = (
+                GoldPrice.query.filter(GoldPrice.date >= start, GoldPrice.date < end)
+                .order_by(GoldPrice.date.asc())
+                .first()
+            )
+            return opening
+        except Exception:
+            return None
+
+    now = datetime.now()
+    opening = _get_today_opening(now)
     
     # إذا لم يكن هناك سعر أو السعر قديم (أكثر من 24 ساعة)
     should_update = False
     if not latest:
         print('[INFO] لا يوجد سعر ذهب في قاعدة البيانات - سيتم الجلب من API')
         should_update = True
-    elif (datetime.now() - latest.date) > timedelta(hours=24):
+    elif (now - latest.date) > timedelta(hours=24):
         print(f'[INFO] السعر المحفوظ قديم ({latest.date}) - سيتم التحديث')
         should_update = True
     
@@ -4783,8 +4801,10 @@ def get_gold_price():
                     'price_main_karat': round(price_main_karat, 2),
                     'main_karat': main_karat,
                     'price_usd_per_oz': price_usd,
+                    'opening_price_usd_per_oz': (opening.price if opening else price_usd),
+                    'opening_date': (opening.date.isoformat() if (opening and opening.date) else now.isoformat()),
                     'currency': 'ر.س',
-                    'date': datetime.now().isoformat(),
+                    'date': now.isoformat(),
                     'source': 'API'
                 })
         except Exception as e:
@@ -4800,6 +4820,8 @@ def get_gold_price():
                     'price_main_karat': round(price_main_karat, 2),
                     'main_karat': main_karat,
                     'price_usd_per_oz': latest.price,
+                    'opening_price_usd_per_oz': (opening.price if opening else latest.price),
+                    'opening_date': (opening.date.isoformat() if (opening and opening.date) else (latest.date.isoformat() if latest.date else None)),
                     'currency': 'ر.س',
                     'date': latest.date.isoformat() if latest.date else None,
                     'source': 'Database (Fallback)'
@@ -4816,6 +4838,8 @@ def get_gold_price():
             'price_main_karat': round(price_main_karat, 2),
             'main_karat': main_karat,
             'price_usd_per_oz': latest.price,
+            'opening_price_usd_per_oz': (opening.price if opening else latest.price),
+            'opening_date': (opening.date.isoformat() if (opening and opening.date) else (latest.date.isoformat() if latest.date else None)),
             'currency': 'ر.س',
             'date': latest.date.isoformat() if latest.date else None,
             'source': 'Database (Cached)'
