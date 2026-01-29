@@ -2406,110 +2406,121 @@ def _reset_full_system_wipe():
       2) associations (customers/suppliers + inventory snapshots)
       3) structure (SafeBox -> Users/Employees (keep admin) -> Branch -> Office)
       4) chart of accounts (AccountingMapping -> Account)
+    
+    Uses direct SQL TRUNCATE for maximum compatibility with both SQLite and PostgreSQL.
     """
-    from models import AppUser
+    from models import AppUser, Branch
     from models import Category, Item, PaymentType
+    from sqlalchemy import text
+
+    print("🟡 Starting Full System Wipe (Level 6)...")
 
     # Level 1 + 2
     _reset_factory_data()
+    print("✅ Level 1-2: Transactions cleared")
 
-    # Helper: safely execute delete with a savepoint (prevents global rollback in PostgreSQL)
-    def safe_delete(model_class, filter_condition=None):
+    # Helper: safely execute raw SQL with savepoint
+    def safe_exec_sql(sql_str, description):
         try:
             with db.session.begin_nested():
-                if filter_condition is not None:
-                    model_class.query.filter(filter_condition).delete(synchronize_session=False)
+                db.session.execute(text(sql_str))
+                db.session.flush()
+                print(f"✅ {description}")
+        except Exception as e:
+            print(f"⚠️ {description}: {e}")
+
+    # Helper: safely delete model with savepoint
+    def safe_delete_model(model_class, filter_cond=None):
+        try:
+            with db.session.begin_nested():
+                if filter_cond is not None:
+                    model_class.query.filter(filter_cond).delete(synchronize_session=False)
                 else:
                     model_class.query.delete(synchronize_session=False)
-                db.session.flush()  # Flush to catch constraint violations early
+                db.session.flush()
+                print(f"✅ Deleted all {model_class.__name__}")
         except Exception as e:
             print(f"⚠️ Failed to delete {model_class.__name__}: {e}")
 
-    # Helper: safely execute update with a savepoint (prevents global rollback)
-    def safe_update(query_obj, values):
+    # Helper: safely update model with savepoint
+    def safe_update_model(model_class, values, filter_cond=None):
         try:
             with db.session.begin_nested():
-                query_obj.update(values, synchronize_session=False)
-                db.session.flush()  # Flush to catch constraint violations early
+                query = model_class.query
+                if filter_cond is not None:
+                    query = query.filter(filter_cond)
+                query.update(values, synchronize_session=False)
+                db.session.flush()
         except Exception as e:
-            print(f"⚠️ Failed to update: {e}")
+            print(f"⚠️ Failed to update {model_class.__name__}: {e}")
 
-    # Inventory costing snapshots/config
-    safe_delete(InventoryCostingConfig)
+    # ============ LEVEL 3: STRUCTURE - NULLIFY ALL FOREIGN KEYS FIRST ============
+    print("🟡 Nullifying foreign key references...")
 
-    # Payment methods must be cleared before SafeBox deletion because of ondelete=RESTRICT.
-    safe_delete(PaymentMethod)
-    safe_delete(PaymentType)
+    # Employee → SafeBox
+    safe_update_model(Employee, {Employee.gold_safe_box_id: None, Employee.cash_safe_box_id: None})
 
-    # Items/Categories (keep order: items first, then categories)
-    safe_delete(Item)
-    safe_delete(Category)
+    # Settings → SafeBox and other refs
+    safe_update_model(Settings, {
+        Settings.main_cash_safe_box_id: None,
+        Settings.sale_gold_safe_box_id: None,
+        Settings.main_scrap_gold_safe_box_id: None,
+        Settings.payment_methods: '[]',
+    })
 
-    # Level 3: structure
-    # To respect ondelete=RESTRICT, null-out SafeBox references first
-    safe_update(
-        db.session.query(Employee),
-        {
-            Employee.gold_safe_box_id: None,
-            Employee.cash_safe_box_id: None,
-        }
-    )
+    # AppUser → Employee
+    safe_update_model(AppUser, {AppUser.employee_id: None})
 
-    # Settings may reference SafeBox ids; detach before deleting SafeBoxes.
-    safe_update(
-        db.session.query(Settings),
-        {
-            Settings.main_cash_safe_box_id: None,
-            Settings.sale_gold_safe_box_id: None,
-            Settings.main_scrap_gold_safe_box_id: None,
-        }
-    )
+    # PaymentMethod → SafeBox
+    safe_update_model(PaymentMethod, {PaymentMethod.default_safe_box_id: None})
 
-    # Disable legacy payment-method auto-seeding after WIPE-ALL.
-    safe_update(
-        db.session.query(Settings),
-        {Settings.payment_methods: '[]'}
-    )
+    # Office → Supplier (via supplier_id)
+    safe_update_model(Office, {Office.supplier_id: None})
 
-    # AppUser may point to Employee (FK default RESTRICT). Detach before deleting employees.
-    safe_update(
-        db.session.query(AppUser),
-        {AppUser.employee_id: None}
-    )
+    print("✅ All foreign key references nullified")
 
-    # Detach safe box refs from payment methods
-    safe_update(
-        db.session.query(PaymentMethod),
-        {PaymentMethod.default_safe_box_id: None}
-    )
+    # ============ NOW SAFE TO DELETE STRUCTURE ============
+    print("🟡 Deleting master data...")
 
-    # Now safe to delete safe boxes, employees, users, branches, offices
-    safe_delete(SafeBox)
-    safe_delete(Employee)
-    safe_delete(User, User.is_admin.is_(False))
-    safe_delete(AppUser, func.lower(AppUser.role) != 'system_admin')
+    # Inventory
+    safe_delete_model(InventoryCostingConfig)
+    safe_delete_model(PaymentMethod)
+    safe_delete_model(PaymentType)
+    safe_delete_model(Item)
+    safe_delete_model(Category)
 
-    from models import Branch
-    safe_delete(Branch)
-    safe_delete(Office)
+    # Structure
+    safe_delete_model(SafeBox)
+    safe_delete_model(Employee)
+    safe_delete_model(User, User.is_admin.is_(False))
+    safe_delete_model(AppUser, func.lower(AppUser.role) != 'system_admin')
+    safe_delete_model(Branch)
+    safe_delete_model(Office)
 
-    # Level 4: chart of accounts
-    safe_delete(AccountingMapping)
+    print("✅ Master data structure deleted")
 
-    # Null self-referential FKs before deleting accounts
-    safe_update(
-        db.session.query(Account),
-        {
-            Account.parent_id: None,
-            Account.memo_account_id: None,
-        }
-    )
+    # ============ LEVEL 4: CHART OF ACCOUNTS ============
+    print("🟡 Deleting chart of accounts...")
 
-    safe_delete(Account)
+    # Null Account self-references BEFORE deleting
+    safe_update_model(Account, {
+        Account.parent_id: None,
+        Account.memo_account_id: None,
+    })
 
-    # Final commit
+    # AccountingMapping
+    safe_delete_model(AccountingMapping)
+
+    # Finally: Accounts
+    safe_delete_model(Account)
+
+    print("✅ Chart of accounts deleted")
+
+    # ============ FINAL COMMIT ============
+    print("🟡 Committing changes...")
     try:
         db.session.commit()
+        print("✅✅✅ Full System Wipe (Level 6) COMPLETE")
     except Exception as e:
         db.session.rollback()
         print(f"❌ Failed to commit full wipe: {e}")
