@@ -15,9 +15,18 @@ class _AccountingMappingScreenEnhancedState
     with SingleTickerProviderStateMixin {
   final ApiService _apiService = ApiService();
 
+  static const String _defaultOperationType = 'افتراضي';
+
   late final TabController _tabController;
 
   final List<_OperationConfig> _operationConfigs = const [
+    _OperationConfig(
+      key: _defaultOperationType,
+      label: 'افتراضي',
+      description: 'قائمة ربط واحدة تُستخدم لكل الأنواع (يمكن تخصيص استثناءات لاحقاً).',
+      icon: Icons.link,
+      tone: _Tone.primary,
+    ),
     _OperationConfig(
       key: 'سندات',
       label: 'سندات',
@@ -270,8 +279,10 @@ class _AccountingMappingScreenEnhancedState
   }
 
   int? _getMappedAccountId(String operationType, String accountType) {
-    if (_pendingChanges.containsKey(operationType) &&
-        _pendingChanges[operationType]!.containsKey(accountType)) {
+    // 1) Explicit override for the operation (or pending change)
+    final hasPending =
+        _pendingChanges[operationType]?.containsKey(accountType) ?? false;
+    if (hasPending) {
       return _pendingChanges[operationType]![accountType];
     }
 
@@ -281,8 +292,49 @@ class _AccountingMappingScreenEnhancedState
           m['account_type'] == accountType,
       orElse: () => {},
     );
+    final explicitId = mapping['account_id'];
+    if (explicitId != null) return explicitId as int?;
 
-    return mapping['account_id'];
+    // 2) Inherit from default mapping if this operation has no override
+    if (operationType != _defaultOperationType) {
+      final inherited = _mappings.firstWhere(
+        (m) =>
+            m['operation_type'] == _defaultOperationType &&
+            m['account_type'] == accountType,
+        orElse: () => {},
+      );
+      return inherited['account_id'] as int?;
+    }
+
+    return null;
+  }
+
+  int? _getExplicitMappedAccountId(String operationType, String accountType) {
+    final hasPending =
+        _pendingChanges[operationType]?.containsKey(accountType) ?? false;
+    if (hasPending) {
+      return _pendingChanges[operationType]![accountType];
+    }
+    final mapping = _mappings.firstWhere(
+      (m) =>
+          m['operation_type'] == operationType &&
+          m['account_type'] == accountType,
+      orElse: () => {},
+    );
+    return mapping['account_id'] as int?;
+  }
+
+  int? _getExistingMappingRowId(String operationType, String accountType) {
+    final mapping = _mappings.firstWhere(
+      (m) =>
+          m['operation_type'] == operationType &&
+          m['account_type'] == accountType,
+      orElse: () => {},
+    );
+    final raw = mapping['id'];
+    if (raw is int) return raw;
+    if (raw is num) return raw.toInt();
+    return int.tryParse('${raw ?? ''}');
   }
 
   void _updateMapping(
@@ -339,6 +391,12 @@ class _AccountingMappingScreenEnhancedState
               accountType: accountType,
               accountId: accountId,
             );
+          } else {
+            // Null means "remove override" (or clear default mapping)
+            final mappingId = _getExistingMappingRowId(operationType, accountType);
+            if (mappingId != null) {
+              await _apiService.deleteAccountingMapping(mappingId);
+            }
           }
         }
       }
@@ -766,8 +824,12 @@ class _AccountingMappingScreenEnhancedState
     final tone =
         config.tone ?? _categoryTones[config.category] ?? _Tone.neutral;
     final color = _toneColor(tone);
-    final mappedAccountId = _getMappedAccountId(operationType, accountKey);
-    final hasMapping = mappedAccountId != null;
+    final explicitId = _getExplicitMappedAccountId(operationType, accountKey);
+    final effectiveId = _getMappedAccountId(operationType, accountKey);
+    final hasMapping = effectiveId != null;
+    final isInherited =
+      explicitId == null && hasMapping && operationType != _defaultOperationType;
+    final existingRowId = _getExistingMappingRowId(operationType, accountKey);
 
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
@@ -825,16 +887,16 @@ class _AccountingMappingScreenEnhancedState
                       ),
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
-                        children: const [
-                          Icon(
+                        children: [
+                          const Icon(
                             Icons.check_circle,
                             color: Colors.white,
                             size: 16,
                           ),
-                          SizedBox(width: 4),
+                          const SizedBox(width: 4),
                           Text(
-                            'مرتبط',
-                            style: TextStyle(
+                            isInherited ? 'افتراضي' : 'مرتبط',
+                            style: const TextStyle(
                               color: Colors.white,
                               fontSize: 12,
                               fontWeight: FontWeight.bold,
@@ -845,6 +907,22 @@ class _AccountingMappingScreenEnhancedState
                     ),
                 ],
               ),
+              if (hasMapping)
+                Padding(
+                  padding: const EdgeInsets.only(top: 6),
+                  child: Text(
+                    isInherited
+                        ? 'يستخدم الربط الافتراضي'
+                        : (operationType == _defaultOperationType
+                            ? 'ربط افتراضي'
+                            : 'ربط مخصص لهذا النوع'),
+                    style: TextStyle(
+                      color: _mutedTextColor,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
               const SizedBox(height: 16),
               Row(
                 children: [
@@ -859,7 +937,7 @@ class _AccountingMappingScreenEnhancedState
                                 accounts: _accounts,
                                 title: 'اختيار حساب',
                                 isArabic: true,
-                                selectedId: mappedAccountId,
+                                selectedId: effectiveId,
                                 showTransactionTypeFilter: true,
                                 showTracksWeightFilter: true,
                                 showLeafOnlyFilter: true,
@@ -901,9 +979,11 @@ class _AccountingMappingScreenEnhancedState
                           children: [
                             Expanded(
                               child: Text(
-                                mappedAccountId == null
+                                effectiveId == null
                                     ? 'اضغط للاختيار / بحث'
-                                    : _getAccountName(mappedAccountId),
+                                    : (isInherited
+                                        ? 'افتراضي: ${_getAccountName(effectiveId)}'
+                                        : _getAccountName(effectiveId)),
                                 overflow: TextOverflow.ellipsis,
                                 style: TextStyle(
                                   color: _strongTextColor,
@@ -920,7 +1000,7 @@ class _AccountingMappingScreenEnhancedState
                     ),
                   ),
                   const SizedBox(width: 8),
-                  if (mappedAccountId != null)
+                  if (existingRowId != null || explicitId != null)
                     IconButton(
                       tooltip: 'إزالة الربط',
                       icon: Icon(Icons.clear, color: _toneColor(_Tone.danger)),
@@ -954,7 +1034,7 @@ class _AccountingMappingScreenEnhancedState
                       const SizedBox(width: 8),
                       Expanded(
                         child: Text(
-                          'مرتبط بـ ${_getAccountName(mappedAccountId)}',
+                          'مرتبط بـ ${_getAccountName(effectiveId)}',
                           style: TextStyle(
                             fontWeight: FontWeight.w600,
                             color: _strongTextColor,

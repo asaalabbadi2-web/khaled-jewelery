@@ -5778,6 +5778,8 @@ def set_invoice_print_template(invoice_id: int):
 
 # ==================== دالة مساعدة للربط المحاسبي ====================
 
+DEFAULT_MAPPING_OPERATION_TYPE = 'افتراضي'
+
 def get_account_id_for_mapping(operation_type, account_type):
     """
     الحصول على معرف الحساب المحاسبي لعملية معينة
@@ -5795,7 +5797,7 @@ def get_account_id_for_mapping(operation_type, account_type):
     """
     from models import AccountingMapping
     
-    # 1. محاولة الحصول على الحساب من الإعدادات المخصصة
+    # 1. محاولة الحصول على الحساب من الإعدادات المخصصة (للعملية نفسها)
     mapping = db.session.query(AccountingMapping).filter_by(
         operation_type=operation_type,
         account_type=account_type,
@@ -5804,8 +5806,18 @@ def get_account_id_for_mapping(operation_type, account_type):
     
     if mapping:
         return mapping.account_id
+
+    # 2. محاولة fallback للربط الافتراضي العام (قائمة واحدة لكل الأنواع)
+    if operation_type != DEFAULT_MAPPING_OPERATION_TYPE:
+        default_mapping = db.session.query(AccountingMapping).filter_by(
+            operation_type=DEFAULT_MAPPING_OPERATION_TYPE,
+            account_type=account_type,
+            is_active=True
+        ).first()
+        if default_mapping:
+            return default_mapping.account_id
     
-    # تم تحديث الأرقام للترقيم القديم (1, 11, 110 للمالية و 7 للمذكرة)
+    # 3. fallback لأرقام افتراضية داخلية (عند عدم وجود أي ربط محفوظ)
     DEFAULT_ACCOUNTS = {
         # المخزون النقدي (حسب العيار)
         'inventory_18k': 1300,  # مخزون ذهب عيار 18
