@@ -67,6 +67,7 @@ class _BackupRestoreScreenState extends State<BackupRestoreScreen> {
   }
 
   Future<void> _loadRestoreSafety() async {
+    if (!mounted) return;
     setState(() {
       _restoreSafetyLoading = true;
       _restoreSafetyError = null;
@@ -75,6 +76,7 @@ class _BackupRestoreScreenState extends State<BackupRestoreScreen> {
       final info = await _api.getSystemResetInfo();
       final data = (info['data'] is Map) ? (info['data'] as Map) : <String, dynamic>{};
       final safety = (data['safety'] is Map) ? (data['safety'] as Map) : <String, dynamic>{};
+      if (!mounted) return;
       setState(() {
         _serverIsProduction = safety['is_production'] == true;
         _serverDangerousResetsAllowed = safety['dangerous_resets_allowed'] == true;
@@ -93,7 +95,10 @@ class _BackupRestoreScreenState extends State<BackupRestoreScreen> {
   @override
   void initState() {
     super.initState();
-    _loadRestoreSafety();
+    // Load restore safety settings asynchronously; errors are caught and displayed.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _loadRestoreSafety();
+    });
   }
 
   Future<_PasswordResult?> _promptBackupPassword({required String title}) async {
@@ -775,27 +780,40 @@ class _BackupRestoreScreenState extends State<BackupRestoreScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final settings = context.watch<SettingsProvider>();
-    final auth = context.watch<AuthProvider>();
-    final canRestore = !_restoreSafetyLoading && _restoreSafetyError == null && _canRestore(isSystemAdmin: auth.isSystemAdmin);
+    // Safely access providers with fallback handling.
+    SettingsProvider? settings;
+    AuthProvider? auth;
+    bool canRestore = false;
+    
+    try {
+      settings = context.watch<SettingsProvider>();
+      auth = context.watch<AuthProvider>();
+      canRestore = !_restoreSafetyLoading && _restoreSafetyError == null && _canRestore(isSystemAdmin: auth.isSystemAdmin);
+    } catch (e) {
+      // Provider not available; use safe defaults
+      debugPrint('Warning: Provider access failed in BackupRestoreScreen: $e');
+    }
 
-    final enabled = settings.settings['backup_auto_enabled'] == true;
-    final mode = (settings.settings['backup_auto_mode']?.toString() ?? 'daily')
+    // Safe default values for settings when provider is unavailable
+    final settingsMap = settings?.settings ?? <String, dynamic>{};
+
+    final enabled = settingsMap['backup_auto_enabled'] == true;
+    final mode = (settingsMap['backup_auto_mode']?.toString() ?? 'daily')
         .trim()
         .toLowerCase();
-    final time = (settings.settings['backup_auto_time']?.toString() ?? '02:00')
+    final time = (settingsMap['backup_auto_time']?.toString() ?? '02:00')
         .trim();
-    final interval = (settings.settings['backup_auto_interval_minutes'] is num)
-        ? (settings.settings['backup_auto_interval_minutes'] as num).toInt()
+    final interval = (settingsMap['backup_auto_interval_minutes'] is num)
+        ? (settingsMap['backup_auto_interval_minutes'] as num).toInt()
         : int.tryParse(
-              settings.settings['backup_auto_interval_minutes']?.toString() ??
+              settingsMap['backup_auto_interval_minutes']?.toString() ??
                   '',
             ) ??
             1440;
-    final retention = (settings.settings['backup_retention_count'] is num)
-        ? (settings.settings['backup_retention_count'] as num).toInt()
+    final retention = (settingsMap['backup_retention_count'] is num)
+        ? (settingsMap['backup_retention_count'] as num).toInt()
         : int.tryParse(
-              settings.settings['backup_retention_count']?.toString() ?? '',
+              settingsMap['backup_retention_count']?.toString() ?? '',
             ) ??
             7;
 
@@ -919,7 +937,7 @@ class _BackupRestoreScreenState extends State<BackupRestoreScreen> {
                 Padding(
                   padding: const EdgeInsets.only(top: 8),
                   child: Text(
-                    _restoreBlockedReason(isSystemAdmin: auth.isSystemAdmin),
+                    _restoreBlockedReason(isSystemAdmin: auth?.isSystemAdmin ?? false),
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
                 ),
@@ -1179,6 +1197,7 @@ class _BackupRestoreScreenState extends State<BackupRestoreScreen> {
                 onChanged: _busy
                     ? null
                     : (val) async {
+                        if (settings == null) return;
                         await settings.updateSettings({
                           'backup_auto_enabled': val,
                         });
@@ -1216,6 +1235,7 @@ class _BackupRestoreScreenState extends State<BackupRestoreScreen> {
                           },
                         );
                         if (picked == null) return;
+                        if (settings == null) return;
                         await settings.updateSettings({'backup_auto_mode': picked});
                       },
               ),
@@ -1236,6 +1256,7 @@ class _BackupRestoreScreenState extends State<BackupRestoreScreen> {
                             initialTime: current,
                           );
                           if (picked == null) return;
+                          if (settings == null) return;
                           final formatted =
                               '${picked.hour.toString().padLeft(2, '0')}:${picked.minute.toString().padLeft(2, '0')}';
                           await settings.updateSettings({'backup_auto_time': formatted});
@@ -1281,6 +1302,7 @@ class _BackupRestoreScreenState extends State<BackupRestoreScreen> {
                             },
                           );
                           if (picked == null) return;
+                          if (settings == null) return;
                           await settings.updateSettings({
                             'backup_auto_interval_minutes': picked,
                           });
@@ -1325,6 +1347,7 @@ class _BackupRestoreScreenState extends State<BackupRestoreScreen> {
                           },
                         );
                         if (picked == null) return;
+                        if (settings == null) return;
                         await settings.updateSettings({'backup_retention_count': picked});
                       },
               ),

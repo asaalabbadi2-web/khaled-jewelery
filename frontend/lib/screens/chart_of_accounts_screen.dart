@@ -14,15 +14,32 @@ class ChartOfAccountsScreen extends StatefulWidget {
   State<ChartOfAccountsScreen> createState() => _ChartOfAccountsScreenState();
 }
 
+enum _TransactionFilterType { all, cash, gold, both }
+
+enum _WeightFilterType { all, weightOnly, nonWeightOnly }
+
 class _ChartOfAccountsScreenState extends State<ChartOfAccountsScreen> {
   List<dynamic> _accounts = [];
   List<AccountNode> _accountTree = [];
   bool _isLoading = true;
+  
+  // Search and filter state
+  late TextEditingController _searchController;
+  _TransactionFilterType _txFilter = _TransactionFilterType.all;
+  _WeightFilterType _weightFilter = _WeightFilterType.all;
+  bool _showFilters = false;
 
   @override
   void initState() {
     super.initState();
+    _searchController = TextEditingController();
     _fetchAccounts();
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
   }
 
   Future<void> _fetchAccounts() async {
@@ -47,6 +64,91 @@ class _ChartOfAccountsScreenState extends State<ChartOfAccountsScreen> {
 
   void _showAddAccountDialog({Map<String, dynamic>? parentAccount}) {
     _showAccountDialog(parentAccount: parentAccount);
+  }
+
+  /// Flatten account tree into a list for filtering/search
+  List<Map<String, dynamic>> _flattenAccountTree() {
+    final result = <Map<String, dynamic>>[];
+    
+    void addAccountAndChildren(Map<String, dynamic> account) {
+      result.add(account);
+      final children = _accounts.where((acc) => acc['parent_id'] == account['id']).toList();
+      children.sort((a, b) => (a['account_number'] as String).compareTo(b['account_number'] as String));
+      for (final child in children) {
+        addAccountAndChildren(child);
+      }
+    }
+    
+    // Get all root accounts
+    final roots = _accounts.where((acc) => acc['parent_id'] == null).toList();
+    roots.sort((a, b) => (a['account_number'] as String).compareTo(b['account_number'] as String));
+    
+    for (final root in roots) {
+      addAccountAndChildren(root);
+    }
+    
+    return result;
+  }
+
+  /// Apply search and filter to accounts
+  List<Map<String, dynamic>> _applyFilters(String query) {
+    final q = query.trim().toLowerCase();
+    final flat = _flattenAccountTree();
+    final result = <Map<String, dynamic>>[];
+    
+    for (final acc in flat) {
+      // Search filter
+      if (q.isNotEmpty) {
+        final number = (acc['account_number'] ?? '').toString().toLowerCase();
+        final name = (acc['name'] ?? '').toString().toLowerCase();
+        final matches = number.contains(q) || name.contains(q);
+        if (!matches) continue;
+      }
+      
+      // Transaction type filter
+      final txType = (acc['transaction_type'] ?? 'both').toString().toLowerCase();
+      switch (_txFilter) {
+        case _TransactionFilterType.all:
+          break;
+        case _TransactionFilterType.cash:
+          if (txType != 'cash') continue;
+        case _TransactionFilterType.gold:
+          if (txType != 'gold') continue;
+        case _TransactionFilterType.both:
+          if (txType != 'both') continue;
+      }
+      
+      // Weight tracking filter
+      final tracksWeight = acc['tracks_weight'] == true;
+      switch (_weightFilter) {
+        case _WeightFilterType.all:
+          break;
+        case _WeightFilterType.weightOnly:
+          if (!tracksWeight) continue;
+        case _WeightFilterType.nonWeightOnly:
+          if (tracksWeight) continue;
+      }
+      
+      result.add(acc);
+    }
+    
+    return result;
+  }
+
+  bool _isFilterActive() {
+    return _searchController.text.trim().isNotEmpty ||
+        _txFilter != _TransactionFilterType.all ||
+        _weightFilter != _WeightFilterType.all;
+  }
+
+  void _clearFilters() {
+    if (!mounted) return;
+    setState(() {
+      _searchController.clear();
+      _txFilter = _TransactionFilterType.all;
+      _weightFilter = _WeightFilterType.all;
+      _showFilters = false;
+    });
   }
 
   void _showEditAccountDialog(Map<String, dynamic> account) {
@@ -419,6 +521,9 @@ class _ChartOfAccountsScreenState extends State<ChartOfAccountsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final isFilterActive = _isFilterActive();
+    final filteredAccounts = isFilterActive ? _applyFilters(_searchController.text) : <Map<String, dynamic>>[];
+
     return Scaffold(
       appBar: AppBar(
         title: Text('شجرة الحسابات'),
@@ -439,13 +544,191 @@ class _ChartOfAccountsScreenState extends State<ChartOfAccountsScreen> {
           ? Center(child: CircularProgressIndicator())
           : RefreshIndicator(
               onRefresh: _fetchAccounts,
-              child: AccountTreeView(
-                roots: _accountTree,
-                onEdit: _showEditAccountDialog,
-                onDelete: _deleteAccount,
-                onAddChild: (parentAccount) =>
-                    _showAddAccountDialog(parentAccount: parentAccount),
-                onAccountTap: (account) {
+              child: Column(
+                children: [
+                  // Search field
+                  Padding(
+                    padding: EdgeInsets.all(12.0),
+                    child: TextField(
+                      controller: _searchController,
+                      onChanged: (value) {
+                        if (!mounted) return;
+                        setState(() {});
+                      },
+                      decoration: InputDecoration(
+                        hintText: 'بحث عن حساب (الرقم أو الاسم)',
+                        prefixIcon: Icon(Icons.search),
+                        suffixIcon: _searchController.text.isNotEmpty
+                            ? IconButton(
+                                icon: Icon(Icons.clear),
+                                onPressed: () {
+                                  if (!mounted) return;
+                                  setState(() => _searchController.clear());
+                                },
+                              )
+                            : null,
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
+                    ),
+                  ),
+                  // Filter toggles and chips
+                  Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0),
+                    child: Column(
+                      children: [
+                        // Show/hide filters button
+                        Align(
+                          alignment: Alignment.centerRight,
+                          child: TextButton.icon(
+                            onPressed: () {
+                              if (!mounted) return;
+                              setState(() => _showFilters = !_showFilters);
+                            },
+                            icon: Icon(Icons.filter_list),
+                            label: Text(_showFilters ? 'إخفاء الفلاتر' : 'عرض الفلاتر'),
+                          ),
+                        ),
+                        // Filter chips (shown when _showFilters is true or when a filter is active)
+                        if (_showFilters || isFilterActive)
+                          Wrap(
+                            spacing: 8,
+                            children: [
+                              // Transaction type chips
+                              FilterChip(
+                                selected: _txFilter == _TransactionFilterType.cash,
+                                label: Text('نقدي'),
+                                onSelected: (_) {
+                                  if (!mounted) return;
+                                  setState(() {
+                                    _txFilter = _txFilter == _TransactionFilterType.cash
+                                        ? _TransactionFilterType.all
+                                        : _TransactionFilterType.cash;
+                                  });
+                                },
+                              ),
+                              FilterChip(
+                                selected: _txFilter == _TransactionFilterType.gold,
+                                label: Text('ذهبي'),
+                                onSelected: (_) {
+                                  if (!mounted) return;
+                                  setState(() {
+                                    _txFilter = _txFilter == _TransactionFilterType.gold
+                                        ? _TransactionFilterType.all
+                                        : _TransactionFilterType.gold;
+                                  });
+                                },
+                              ),
+                              FilterChip(
+                                selected: _txFilter == _TransactionFilterType.both,
+                                label: Text('كلاهما'),
+                                onSelected: (_) {
+                                  if (!mounted) return;
+                                  setState(() {
+                                    _txFilter = _txFilter == _TransactionFilterType.both
+                                        ? _TransactionFilterType.all
+                                        : _TransactionFilterType.both;
+                                  });
+                                },
+                              ),
+                              SizedBox(width: double.infinity),
+                              // Weight tracking chips
+                              FilterChip(
+                                selected: _weightFilter == _WeightFilterType.weightOnly,
+                                label: Text('يتتبع الوزن فقط'),
+                                onSelected: (_) {
+                                  if (!mounted) return;
+                                  setState(() {
+                                    _weightFilter = _weightFilter == _WeightFilterType.weightOnly
+                                        ? _WeightFilterType.all
+                                        : _WeightFilterType.weightOnly;
+                                  });
+                                },
+                              ),
+                              FilterChip(
+                                selected: _weightFilter == _WeightFilterType.nonWeightOnly,
+                                label: Text('لا يتتبع الوزن فقط'),
+                                onSelected: (_) {
+                                  if (!mounted) return;
+                                  setState(() {
+                                    _weightFilter = _weightFilter == _WeightFilterType.nonWeightOnly
+                                        ? _WeightFilterType.all
+                                        : _WeightFilterType.nonWeightOnly;
+                                  });
+                                },
+                              ),
+                              // Clear button
+                              if (isFilterActive)
+                                FilterChip(
+                                  avatar: Icon(Icons.close, size: 18),
+                                  label: Text('مسح الفلاتر'),
+                                  onSelected: (_) => _clearFilters(),
+                                ),
+                            ],
+                          ),
+                      ],
+                    ),
+                  ),
+                  // Content: tree view or filtered list
+                  Expanded(
+                    child: isFilterActive
+                        ? _buildFilteredList(filteredAccounts)
+                        : AccountTreeView(
+                            roots: _accountTree,
+                            onEdit: _showEditAccountDialog,
+                            onDelete: _deleteAccount,
+                            onAddChild: (parentAccount) =>
+                                _showAddAccountDialog(parentAccount: parentAccount),
+                            onAccountTap: (account) {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (context) => AccountStatementScreen(
+                                    accountId: account['id'],
+                                    accountName: account['name'] ?? 'N/A',
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                  ),
+                ],
+              ),
+            ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: () => _showAddAccountDialog(),
+        tooltip: 'إضافة حساب رئيسي',
+        child: Icon(Icons.add),
+      ),
+    );
+  }
+
+  /// Build a flat list view of filtered accounts with hover-based context menu
+  Widget _buildFilteredList(List<Map<String, dynamic>> accounts) {
+    if (accounts.isEmpty) {
+      return Center(
+        child: Text('لم يتم العثور على حسابات مطابقة'),
+      );
+    }
+
+    return ListView.builder(
+      itemCount: accounts.length,
+      itemBuilder: (context, index) {
+        final account = accounts[index];
+        final txType = (account['transaction_type'] ?? 'both').toString();
+        final tracksWeight = account['tracks_weight'] == true;
+        
+        return ListTile(
+          title: Text('${account['account_number']} - ${account['name']}'),
+          subtitle: Text(
+            '$txType | ${tracksWeight ? 'يتتبع الوزن' : 'لا يتتبع الوزن'}',
+          ),
+          trailing: PopupMenuButton(
+            itemBuilder: (context) => [
+              PopupMenuItem(
+                child: Text('عرض الحساب'),
+                onTap: () {
                   Navigator.push(
                     context,
                     MaterialPageRoute(
@@ -457,12 +740,39 @@ class _ChartOfAccountsScreenState extends State<ChartOfAccountsScreen> {
                   );
                 },
               ),
-            ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: () => _showAddAccountDialog(),
-        tooltip: 'إضافة حساب رئيسي', // No parent, adds a root account
-        child: Icon(Icons.add),
-      ),
+              PopupMenuItem(
+                child: Text('تعديل'),
+                onTap: () {
+                  _showEditAccountDialog(account);
+                },
+              ),
+              PopupMenuItem(
+                child: Text('إضافة حساب فرعي'),
+                onTap: () {
+                  _showAddAccountDialog(parentAccount: account);
+                },
+              ),
+              PopupMenuItem(
+                child: Text('حذف'),
+                onTap: () {
+                  _deleteAccount(account['id']);
+                },
+              ),
+            ],
+          ),
+          onTap: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => AccountStatementScreen(
+                  accountId: account['id'],
+                  accountName: account['name'] ?? 'N/A',
+                ),
+              ),
+            );
+          },
+        );
+      },
     );
   }
 

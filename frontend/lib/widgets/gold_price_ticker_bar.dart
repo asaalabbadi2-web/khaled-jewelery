@@ -600,30 +600,35 @@ class _GoldPriceTickerBarState extends State<GoldPriceTickerBar>
                     Widget chunk() {
                       return SizedBox(
                         width: cycleWidth,
-                        child: UnconstrainedBox(
-                          constrainedAxis: Axis.vertical,
+                        child: Align(
                           alignment: widget.isArabic
                               ? Alignment.centerRight
                               : Alignment.centerLeft,
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Padding(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: horizontalPad,
-                                ),
-                                child: Directionality(
-                                  textDirection: widget.isArabic
-                                      ? TextDirection.rtl
-                                      : TextDirection.ltr,
-                                  child: DefaultTextStyle(
-                                    style: effectiveStyle,
-                                    child: buildContent(),
+                          child: SingleChildScrollView(
+                            scrollDirection: Axis.horizontal,
+                            reverse: widget.isArabic,
+                            physics: const NeverScrollableScrollPhysics(),
+                            clipBehavior: Clip.hardEdge,
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: horizontalPad,
+                                  ),
+                                  child: Directionality(
+                                    textDirection: widget.isArabic
+                                        ? TextDirection.rtl
+                                        : TextDirection.ltr,
+                                    child: DefaultTextStyle(
+                                      style: effectiveStyle,
+                                      child: buildContent(),
+                                    ),
                                   ),
                                 ),
-                              ),
-                              const SizedBox(width: gap),
-                            ],
+                                const SizedBox(width: gap),
+                              ],
+                            ),
                           ),
                         ),
                       );

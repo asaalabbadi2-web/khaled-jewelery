@@ -267,6 +267,13 @@
 			"type": "shell",
 			"command": "cd frontend && dart format lib/screens/journal_entry_form.dart lib/screens/recurring_template_form.dart lib/screens/add_voucher_screen.dart lib/screens/clearing_settlement_screen.dart lib/widgets/account_picker_sheet.dart",
 			"isBackground": false
+		},
+		{
+			"label": "Seed: Create Test Vaults & Payment Methods",
+			"type": "shell",
+			"command": "export DATABASE_URL=\"sqlite:///../app.db\"; cd backend && ( [ -x venv/bin/python ] && PY=venv/bin/python || PY=python3; \"$PY\" seed_test_vaults_and_payments.py )",
+			"isBackground": false,
+			"problemMatcher": []
 		}
 	]
 }
