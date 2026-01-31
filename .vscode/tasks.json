@@ -18,7 +18,7 @@
 		{
 			"label": "Run Backend Server",
 			"type": "shell",
-			"command": "export DATABASE_URL=\"sqlite:///../app.db\"; pids=$(lsof -ti tcp:8001 2>/dev/null || true); if [ -n \"$pids\" ]; then echo 'Killing backend (8001)...'; kill -TERM $pids 2>/dev/null || true; sleep 1; kill -KILL $pids 2>/dev/null || true; fi; if [ -x \"${workspaceFolder}/backend/venv/bin/python\" ]; then \"${workspaceFolder}/backend/venv/bin/python\" app.py; else python3 app.py; fi",
+			"command": "export DATABASE_URL=\"sqlite:///../app.db\"; PORT=8001; pids=\"$(lsof -ti tcp:${PORT} 2>/dev/null || true)\"; if [ -n \"${pids}\" ]; then echo \"Killing backend (${PORT})...\"; kill -TERM ${pids} 2>/dev/null || true; sleep 0.5; pids=\"$(lsof -ti tcp:${PORT} 2>/dev/null || true)\"; if [ -n \"${pids}\" ]; then echo \"Force killing backend (${PORT})...\"; kill -KILL ${pids} 2>/dev/null || true; fi; for i in $(seq 1 30); do sleep 0.2; pids=\"$(lsof -ti tcp:${PORT} 2>/dev/null || true)\"; [ -z \"${pids}\" ] && break; done; fi; pids=\"$(lsof -ti tcp:${PORT} 2>/dev/null || true)\"; if [ -n \"${pids}\" ]; then echo \"ERROR: Port ${PORT} still in use; cannot start backend.\"; lsof -nP -iTCP:${PORT} -sTCP:LISTEN || true; exit 1; fi; echo \"Starting backend...\"; if [ -x \"./venv/bin/gunicorn\" ]; then ./venv/bin/gunicorn -b 0.0.0.0:${PORT} --workers 1 --threads 4 --timeout 120 app:app; elif [ -x \"./venv/bin/python\" ]; then ./venv/bin/python app.py; else python3 app.py; fi",
 			"options": {
 				"cwd": "${workspaceFolder}/backend"
 			},
@@ -28,7 +28,7 @@
 		{
 			"label": "Restart All Services",
 			"type": "shell",
-			"command": "export DATABASE_URL=\"sqlite:///../app.db\"; PORT=8001; pids=\"$(lsof -ti tcp:${PORT} 2>/dev/null || true)\"; if [ -n \"${pids}\" ]; then echo \"Killing backend (${PORT})...\"; kill -TERM ${pids} 2>/dev/null || true; for i in $(seq 1 20); do sleep 0.2; pids=\"$(lsof -ti tcp:${PORT} 2>/dev/null || true)\"; [ -z \"${pids}\" ] && break; done; pids=\"$(lsof -ti tcp:${PORT} 2>/dev/null || true)\"; if [ -n \"${pids}\" ]; then echo \"Force killing backend (${PORT})...\"; kill -KILL ${pids} 2>/dev/null || true; fi; fi; echo \"Starting backend...\"; if [ -x \"${workspaceFolder}/backend/venv/bin/python\" ]; then \"${workspaceFolder}/backend/venv/bin/python\" app.py; else python3 app.py; fi",
+			"command": "export DATABASE_URL=\"sqlite:///../app.db\"; PORT=8001; pids=\"$(lsof -ti tcp:${PORT} 2>/dev/null || true)\"; if [ -n \"${pids}\" ]; then echo \"Killing backend (${PORT})...\"; kill -TERM ${pids} 2>/dev/null || true; sleep 0.5; pids=\"$(lsof -ti tcp:${PORT} 2>/dev/null || true)\"; if [ -n \"${pids}\" ]; then echo \"Force killing backend (${PORT})...\"; kill -KILL ${pids} 2>/dev/null || true; fi; for i in $(seq 1 30); do sleep 0.2; pids=\"$(lsof -ti tcp:${PORT} 2>/dev/null || true)\"; [ -z \"${pids}\" ] && break; done; fi; pids=\"$(lsof -ti tcp:${PORT} 2>/dev/null || true)\"; if [ -n \"${pids}\" ]; then echo \"ERROR: Port ${PORT} still in use; cannot restart backend.\"; lsof -nP -iTCP:${PORT} -sTCP:LISTEN || true; exit 1; fi; echo \"Starting backend...\"; if [ -x \"./venv/bin/gunicorn\" ]; then ./venv/bin/gunicorn -b 0.0.0.0:${PORT} --workers 1 --threads 4 --timeout 120 app:app; elif [ -x \"./venv/bin/python\" ]; then ./venv/bin/python app.py; else python3 app.py; fi",
 			"options": {
 				"cwd": "${workspaceFolder}/backend"
 			},
@@ -311,6 +311,20 @@
 			"label": "Flutter: Analyze",
 			"type": "shell",
 			"command": "cd frontend && flutter analyze",
+			"isBackground": false,
+			"problemMatcher": []
+		},
+		{
+			"label": "Flutter: Analyze (after invoice auth fix)",
+			"type": "shell",
+			"command": "cd frontend && flutter analyze",
+			"isBackground": false,
+			"problemMatcher": []
+		},
+		{
+			"label": "Backend: Restart (foreground for warnings)",
+			"type": "shell",
+			"command": "cd backend && export DATABASE_URL=\"sqlite:///../app.db\"; PORT=8001; pids=\"$(lsof -ti tcp:${PORT} 2>/dev/null || true)\"; if [ -n \"$pids\" ]; then echo \"Killing backend (${PORT})...\"; kill -TERM $pids 2>/dev/null || true; sleep 1; pids=\"$(lsof -ti tcp:${PORT} 2>/dev/null || true)\"; if [ -n \"$pids\" ]; then echo \"Force killing backend (${PORT})...\"; kill -KILL $pids 2>/dev/null || true; fi; fi; echo \"Starting backend...\"; if [ -x \"./venv/bin/gunicorn\" ]; then ./venv/bin/gunicorn -b 0.0.0.0:${PORT} --workers 1 --threads 4 --timeout 120 app:app; elif [ -x \"./venv/bin/python\" ]; then ./venv/bin/python app.py; else python3 app.py; fi",
 			"isBackground": false,
 			"problemMatcher": []
 		}

@@ -1,5 +1,13 @@
 import sys
 import os
+import warnings
+
+# Silence a common macOS dev warning when Python is compiled against LibreSSL.
+# This warning is noisy but not actionable for local development.
+warnings.filterwarnings(
+	"ignore",
+	message=r"urllib3 v2 only supports OpenSSL 1\.1\.1\+.*LibreSSL.*",
+)
 # Load environment variables from project root if available (optional).
 try:
 	from dotenv import load_dotenv
@@ -81,7 +89,9 @@ try:
 	if _log_startup_imports:
 		print("DEBUG: Imported bonus_bp blueprint")
 except ImportError as exc:
-	print(f"[WARNING] Bonus routes disabled: {exc}")
+	# Bonus routes are optional; avoid noisy warnings on every startup.
+	if _log_startup_imports:
+		print(f"[WARNING] Bonus routes disabled: {exc}")
 from schema_guard import (
 	ensure_profit_weight_columns,
 	ensure_invoice_item_scrap_columns,

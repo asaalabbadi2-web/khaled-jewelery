@@ -302,6 +302,34 @@ class ApiService {
     return response;
   }
 
+  Future<http.Response> _authedPatch(
+    Uri uri, {
+    Map<String, String>? headers,
+    Object? body,
+  }) async {
+    var token = await _requireAuthToken();
+    var response = await http.patch(
+      uri,
+      headers: {
+        ..._jsonHeaders(token: token),
+        ...?headers,
+      },
+      body: body,
+    );
+    if (response.statusCode == 401) {
+      token = await _refreshAccessTokenFromStorage();
+      response = await http.patch(
+        uri,
+        headers: {
+          ..._jsonHeaders(token: token),
+          ...?headers,
+        },
+        body: body,
+      );
+    }
+    return response;
+  }
+
   Future<http.Response> _authedMultipartPost(
     Uri uri, {
     required Map<String, String> fields,
@@ -1101,12 +1129,12 @@ class ApiService {
   }
 
   Future<void> deleteInvoice(int invoiceId) async {
-    final response = await http.delete(
+    final response = await _authedDelete(
       Uri.parse('$_baseUrl/invoices/$invoiceId'),
     );
 
     if (response.statusCode != 200) {
-      throw Exception('Failed to delete invoice: ${response.body}');
+      throw Exception(_errorMessageFromResponse(response));
     }
   }
 
@@ -1114,19 +1142,18 @@ class ApiService {
     int invoiceId,
     String status,
   ) async {
-    final response = await http.patch(
+    final response = await _authedPatch(
       Uri.parse('$_baseUrl/invoices/$invoiceId/status'),
-      headers: {'Content-Type': 'application/json; charset=UTF-8'},
       body: json.encode({'status': status}),
     );
 
     if (response.statusCode == 200) {
-      return json.decode(utf8.decode(response.bodyBytes));
-    } else {
-      throw Exception(
-        'Failed to update invoice status: ${response.statusCode} ${response.body}',
-      );
+      final decoded = json.decode(utf8.decode(response.bodyBytes));
+      if (decoded is Map<String, dynamic>) return decoded;
+      if (decoded is Map) return Map<String, dynamic>.from(decoded);
+      throw Exception('Invalid server response');
     }
+    throw Exception(_errorMessageFromResponse(response));
   }
 
   /// Add a payment to an existing invoice (used for settling remaining amounts)

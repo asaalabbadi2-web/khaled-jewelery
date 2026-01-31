@@ -1,3 +1,7 @@
 {
-    "cmake.sourceDirectory": "/Users/salehalabbadi/yasargold/frontend/linux"
+    "cmake.sourceDirectory": "/Users/salehalabbadi/yasargold/frontend/linux",
+    "python.defaultInterpreterPath": "${workspaceFolder}/backend/venv/bin/python",
+    "python.analysis.extraPaths": [
+        "${workspaceFolder}/backend"
+    ]
 }
