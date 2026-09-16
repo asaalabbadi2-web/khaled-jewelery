@@ -1433,6 +1433,54 @@ def test_other_reason_requires_manager_approval(service, supplier, policy, settl
     assert sad.approved_by_manager is True
 
 
+def test_string_values_fit_their_columns():
+    """Every fixed string SAD writes must fit the column it lands in.
+
+    SQLite ignores VARCHAR length; PostgreSQL rejects an over-length value with
+    StringDataRightTruncation. Without this test the whole suite passes on
+    SQLite while the first real posting fails in production — which is exactly
+    what happened with reference_type ('supplier_settlement_adjustment', 30
+    chars) against Voucher.reference_type String(20).
+    """
+    from models import Voucher
+    from services.supplier_settlement_adjustment_service import (
+        SETTLEMENT_OPERATION_TYPE, VOUCHER_REFERENCE_TYPE,
+    )
+
+    checks = [
+        ('Voucher.reference_type', VOUCHER_REFERENCE_TYPE,
+         Voucher.__table__.c.reference_type.type.length),
+        ('Voucher.voucher_type', 'adjustment',
+         Voucher.__table__.c.voucher_type.type.length),
+        ('AccountingMapping.operation_type', SETTLEMENT_OPERATION_TYPE,
+         AccountingMapping.__table__.c.operation_type.type.length),
+        ('SupplierSettlementAdjustment.status',
+         SupplierSettlementAdjustment.STATUS_APPROVED,
+         SupplierSettlementAdjustment.__table__.c.status.type.length),
+    ]
+    for label, value, limit in checks:
+        assert len(value) <= limit, (
+            f'{label}: {value!r} is {len(value)} chars but the column holds {limit}'
+        )
+
+    # Reason codes are written to SupplierSettlementAdjustment.reason_code.
+    reason_limit = SupplierSettlementAdjustment.__table__.c.reason_code.type.length
+    for reason in SupplierSettlementAdjustment.VALID_REASON_CODES:
+        assert len(reason) <= reason_limit, (
+            f'reason_code {reason!r} is {len(reason)} chars, column holds {reason_limit}'
+        )
+
+    # Account type keys are written to AccountingMapping.account_type.
+    account_type_limit = AccountingMapping.__table__.c.account_type.type.length
+    for key in (
+        ACCOUNT_TYPE_SETTLEMENT_EXPENSE, ACCOUNT_TYPE_SETTLEMENT_INCOME,
+        ACCOUNT_TYPE_WEIGHT_SETTLEMENT_EXPENSE, ACCOUNT_TYPE_WEIGHT_SETTLEMENT_INCOME,
+    ):
+        assert len(key) <= account_type_limit, (
+            f'account_type {key!r} is {len(key)} chars, column holds {account_type_limit}'
+        )
+
+
 def test_purchase_discount_is_not_a_settlement_reason():
     """Purchase discounts affect inventory/cost/VAT and must not enter via SAD."""
     assert 'PURCHASE_DISCOUNT' not in SupplierSettlementAdjustment.VALID_REASON_CODES

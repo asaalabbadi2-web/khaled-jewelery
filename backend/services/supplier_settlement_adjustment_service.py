@@ -111,6 +111,13 @@ WEIGHT_EPSILON = 0.001   # grams — matches je_engine_v2's balance tolerance
 CASH_PRECISION = 2
 WEIGHT_PRECISION = 3
 
+# Written to Voucher.reference_type, which is String(20) — shorter than the
+# document's own name. PostgreSQL rejects an over-length value outright while
+# SQLite silently accepts it, so the limit is enforced by a test rather than
+# discovered on first posting. Widening the shared column for one domain would
+# be the wrong trade.
+VOUCHER_REFERENCE_TYPE = 'supplier_settlement'
+
 # AccountingMapping coordinates. The GL accounts themselves are configuration:
 # this module never hardcodes an account number.
 SETTLEMENT_OPERATION_TYPE = 'تسوية_مورد'
@@ -738,7 +745,7 @@ class SupplierSettlementAdjustmentService:
             party_name=supplier.name,
             amount_cash=cash_amount,
             amount_gold=round(sum(a for _, _, a in karat_amounts), WEIGHT_PRECISION),
-            reference_type='supplier_settlement_adjustment',
+            reference_type=VOUCHER_REFERENCE_TYPE,
             reference_id=sad.id,
             reference_number=sad.adjustment_number,
             created_by=posted_by,
