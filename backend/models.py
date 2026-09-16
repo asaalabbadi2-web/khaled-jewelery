@@ -5296,3 +5296,298 @@ class ReconciliationFinding(db.Model):
     )
 
 
+# ── Supplier Settlement Adjustment (SAD) ──────────────────────────────────────
+
+class SupplierSettlementPolicy(db.Model):
+    """Effective-dated limits governing SupplierSettlementAdjustment.
+
+    This is POLICY (data), not LAW (code): finance changes these numbers without
+    a deploy.  Rows are effective-dated and treated as immutable once a SAD has
+    referenced them — correcting a limit means closing the current row
+    (effective_to) and inserting a new one, never editing history.
+
+    Read LIVE at post() time (the limit in force at the moment of the accounting
+    decision governs), then the resolved id is frozen onto the SAD for audit.
+    See architecture-v1.md §13.
+    """
+
+    __tablename__ = 'supplier_settlement_policy'
+
+    id = db.Column(db.Integer, primary_key=True)
+
+    # Per-operation ceiling: a single SAD may not exceed these.
+    tolerance_cash = db.Column(db.Float, nullable=False)
+    tolerance_weight = db.Column(db.Float, nullable=False)
+
+    # Cumulative ceiling per supplier per Gregorian calendar month.
+    period_cap_cash = db.Column(db.Float, nullable=False)
+    period_cap_weight = db.Column(db.Float, nullable=False)
+
+    # Hard stop: a residual above this is never a settlement difference.
+    review_threshold_cash = db.Column(db.Float, nullable=False)
+
+    effective_from = db.Column(db.DateTime, nullable=False, index=True)
+    effective_to = db.Column(db.DateTime, nullable=True, index=True)
+
+    notes = db.Column(db.Text, nullable=True)
+    created_by = db.Column(db.String(100), nullable=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=db.func.now())
+
+    @classmethod
+    def in_effect_at(cls, moment):
+        """Return the single policy in force at `moment`, or None.
+
+        Half-open interval [effective_from, effective_to) so that a row closed
+        at T and its successor starting at T never both match.
+        """
+        return (
+            cls.query
+            .filter(cls.effective_from <= moment)
+            .filter(db.or_(cls.effective_to.is_(None), cls.effective_to > moment))
+            .order_by(cls.effective_from.desc(), cls.id.desc())
+            .first()
+        )
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'tolerance_cash': self.tolerance_cash,
+            'tolerance_weight': self.tolerance_weight,
+            'period_cap_cash': self.period_cap_cash,
+            'period_cap_weight': self.period_cap_weight,
+            'review_threshold_cash': self.review_threshold_cash,
+            'effective_from': self.effective_from.isoformat() if self.effective_from else None,
+            'effective_to': self.effective_to.isoformat() if self.effective_to else None,
+            'notes': self.notes,
+            'created_by': self.created_by,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+class SupplierSettlementAdjustment(db.Model):
+    """Closes a small justified residual on a supplier's GL-derived balance.
+
+    This is NOT a "zero the supplier" button.  It writes no balance directly:
+    the only accounting effect is produced by the canonical Voucher pipeline
+    (Voucher → VoucherAccountLine → create_journal_entry_from_voucher), and
+    JournalEntry/JournalEntryLine remains the sole source of accounting truth.
+
+    Lifecycle: draft → approved → posted → reversed
+               draft/approved → cancelled
+    A posted adjustment is never edited or deleted; it is corrected by posting
+    a reversing adjustment that carries reversal_of_id.
+    """
+
+    __tablename__ = 'supplier_settlement_adjustment'
+
+    # Machine-checked settlement reasons.  PURCHASE_DISCOUNT is deliberately
+    # absent: a real purchase discount affects inventory/cost/VAT and must go
+    # through the purchase path, not through a settlement difference.
+    REASON_ROUNDING_DIFFERENCE = 'ROUNDING_DIFFERENCE'
+    REASON_FINAL_SETTLEMENT_DIFFERENCE = 'FINAL_SETTLEMENT_DIFFERENCE'
+    REASON_WEIGHT_DIFFERENCE = 'WEIGHT_DIFFERENCE'
+    REASON_DOCUMENTED_SUPPLIER_WAIVER = 'DOCUMENTED_SUPPLIER_WAIVER'
+    REASON_OTHER = 'OTHER'
+
+    VALID_REASON_CODES = frozenset({
+        REASON_ROUNDING_DIFFERENCE,
+        REASON_FINAL_SETTLEMENT_DIFFERENCE,
+        REASON_WEIGHT_DIFFERENCE,
+        REASON_DOCUMENTED_SUPPLIER_WAIVER,
+        REASON_OTHER,
+    })
+
+    # OTHER is an escape hatch, so it costs more: a written note and a manager.
+    REASONS_REQUIRING_MANAGER_APPROVAL = frozenset({REASON_OTHER})
+
+    STATUS_DRAFT = 'draft'
+    STATUS_APPROVED = 'approved'
+    STATUS_POSTED = 'posted'
+    STATUS_REVERSED = 'reversed'
+    STATUS_CANCELLED = 'cancelled'
+
+    # approved → draft is the kick-back path: post() found the supplier balance
+    # moved since the snapshot, so the document returns to a recalculable state.
+    _VALID_TRANSITIONS = {
+        STATUS_DRAFT: {STATUS_APPROVED, STATUS_CANCELLED},
+        STATUS_APPROVED: {STATUS_POSTED, STATUS_DRAFT, STATUS_CANCELLED},
+        STATUS_POSTED: {STATUS_REVERSED},
+        STATUS_REVERSED: set(),
+        STATUS_CANCELLED: set(),
+    }
+
+    SNAPSHOT_SCHEMA_VERSION = 1
+
+    id = db.Column(db.Integer, primary_key=True)
+    adjustment_number = db.Column(db.String(50), unique=True, nullable=False, index=True)
+
+    supplier_id = db.Column(
+        db.Integer,
+        db.ForeignKey('supplier.id', name='fk_ssa_supplier'),
+        nullable=False,
+        index=True,
+    )
+    supplier = db.relationship('Supplier', foreign_keys=[supplier_id])
+
+    status = db.Column(db.String(20), nullable=False, default=STATUS_DRAFT, index=True)
+
+    reason_code = db.Column(db.String(50), nullable=False)
+    note = db.Column(db.Text, nullable=True)
+
+    # ── Snapshot captured at draft creation / recalculation ───────────────────
+    snapshot_schema_version = db.Column(db.Integer, nullable=False, default=SNAPSHOT_SCHEMA_VERSION)
+    balance_before_financial = db.Column(db.Float, nullable=False, default=0.0)
+    # JSON object keyed by karat: {"18": 0.0, "21": -0.003, "22": 0.0, "24": 0.0}
+    balance_before_weight = db.Column(db.Text, nullable=True)
+    snapshot_captured_at = db.Column(db.DateTime, nullable=True)
+
+    # ── What was actually posted (set at post()) ──────────────────────────────
+    posted_amount_cash = db.Column(db.Float, nullable=True)
+    posted_amount_weight = db.Column(db.Text, nullable=True)  # same JSON shape
+
+    # Policy in force at post() time, frozen here for audit.
+    policy_id = db.Column(
+        db.Integer,
+        db.ForeignKey('supplier_settlement_policy.id', name='fk_ssa_policy'),
+        nullable=True,
+    )
+    policy = db.relationship('SupplierSettlementPolicy', foreign_keys=[policy_id])
+
+    # Gregorian calendar month key 'YYYY-MM' used for the cumulative cap.
+    period_key = db.Column(db.String(7), nullable=True, index=True)
+
+    # ── Accounting effect (populated only when posted) ────────────────────────
+    # voucher_id is UNIQUE: the database itself refuses a second posting of the
+    # same adjustment even if two transactions race past the row lock.
+    voucher_id = db.Column(
+        db.Integer,
+        db.ForeignKey('voucher.id', name='fk_ssa_voucher'),
+        nullable=True,
+        unique=True,
+    )
+    voucher = db.relationship('Voucher', foreign_keys=[voucher_id])
+
+    journal_entry_id = db.Column(
+        db.Integer,
+        db.ForeignKey('journal_entry.id', name='fk_ssa_journal_entry'),
+        nullable=True,
+    )
+    journal_entry = db.relationship('JournalEntry', foreign_keys=[journal_entry_id])
+
+    # ── Reversal chain ────────────────────────────────────────────────────────
+    # UNIQUE: an adjustment can be reversed at most once.
+    reversal_of_id = db.Column(
+        db.Integer,
+        db.ForeignKey('supplier_settlement_adjustment.id', name='fk_ssa_reversal_of'),
+        nullable=True,
+        unique=True,
+    )
+    reversal_of = db.relationship('SupplierSettlementAdjustment', remote_side=[id])
+
+    # ── Audit trail ───────────────────────────────────────────────────────────
+    created_by = db.Column(db.String(100), nullable=False)
+    created_at = db.Column(db.DateTime, nullable=False, default=db.func.now())
+
+    approved_by = db.Column(db.String(100), nullable=True)
+    approved_at = db.Column(db.DateTime, nullable=True)
+    approved_by_manager = db.Column(db.Boolean, nullable=False, default=False)
+
+    posted_by = db.Column(db.String(100), nullable=True)
+    posted_at = db.Column(db.DateTime, nullable=True)
+
+    reversed_by = db.Column(db.String(100), nullable=True)
+    reversed_at = db.Column(db.DateTime, nullable=True)
+    reversal_reason = db.Column(db.Text, nullable=True)
+
+    cancelled_by = db.Column(db.String(100), nullable=True)
+    cancelled_at = db.Column(db.DateTime, nullable=True)
+    cancellation_reason = db.Column(db.Text, nullable=True)
+
+    __table_args__ = (
+        db.Index('idx_ssa_supplier_status', 'supplier_id', 'status'),
+        db.Index('idx_ssa_supplier_period', 'supplier_id', 'period_key'),
+    )
+
+    # ── State machine ─────────────────────────────────────────────────────────
+
+    def _transition(self, new_status: str) -> None:
+        current = self.status or self.STATUS_DRAFT
+        allowed = self._VALID_TRANSITIONS.get(current, set())
+        if new_status not in allowed:
+            raise ValueError(
+                f'انتقال غير مسموح: {current} → {new_status}. '
+                f'المسموح من "{current}": {sorted(allowed) or "لا شيء (حالة نهائية)"}'
+            )
+        self.status = new_status
+
+    @property
+    def is_terminal(self) -> bool:
+        return not self._VALID_TRANSITIONS.get(self.status or self.STATUS_DRAFT, set())
+
+    # ── Weight JSON helpers ───────────────────────────────────────────────────
+
+    @staticmethod
+    def _load_weight(raw):
+        if not raw:
+            return {}
+        try:
+            parsed = json.loads(raw)
+        except (TypeError, ValueError):
+            return {}
+        return {str(k): float(v) for k, v in (parsed or {}).items()}
+
+    @staticmethod
+    def _dump_weight(mapping):
+        return json.dumps(
+            {str(k): round(float(v), 6) for k, v in (mapping or {}).items()},
+            ensure_ascii=False,
+            sort_keys=True,
+        )
+
+    @property
+    def balance_before_weight_by_karat(self) -> dict:
+        return self._load_weight(self.balance_before_weight)
+
+    @property
+    def posted_amount_weight_by_karat(self) -> dict:
+        return self._load_weight(self.posted_amount_weight)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'adjustment_number': self.adjustment_number,
+            'supplier_id': self.supplier_id,
+            'supplier_name': self.supplier.name if self.supplier else None,
+            'status': self.status,
+            'reason_code': self.reason_code,
+            'note': self.note,
+            'snapshot_schema_version': self.snapshot_schema_version,
+            'balance_before_financial': self.balance_before_financial,
+            'balance_before_weight': self.balance_before_weight_by_karat,
+            'snapshot_captured_at': self.snapshot_captured_at.isoformat() if self.snapshot_captured_at else None,
+            'posted_amount_cash': self.posted_amount_cash,
+            'posted_amount_weight': self.posted_amount_weight_by_karat,
+            'policy_id': self.policy_id,
+            'period_key': self.period_key,
+            'voucher_id': self.voucher_id,
+            'journal_entry_id': self.journal_entry_id,
+            'reversal_of_id': self.reversal_of_id,
+            'created_by': self.created_by,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'approved_by': self.approved_by,
+            'approved_at': self.approved_at.isoformat() if self.approved_at else None,
+            'approved_by_manager': self.approved_by_manager,
+            'posted_by': self.posted_by,
+            'posted_at': self.posted_at.isoformat() if self.posted_at else None,
+            'reversed_by': self.reversed_by,
+            'reversed_at': self.reversed_at.isoformat() if self.reversed_at else None,
+            'reversal_reason': self.reversal_reason,
+            'cancelled_by': self.cancelled_by,
+            'cancelled_at': self.cancelled_at.isoformat() if self.cancelled_at else None,
+            'cancellation_reason': self.cancellation_reason,
+        }
+
+    def __repr__(self):
+        return f'<SupplierSettlementAdjustment {self.adjustment_number} - {self.status}>'
+
+

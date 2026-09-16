@@ -52,6 +52,7 @@ try:
 	from routes.pricing import pricing_bp
 	from routes.customers import customers_bp
 	from routes.suppliers import suppliers_bp
+	from routes.supplier_settlement_adjustments import supplier_settlement_adjustments_bp
 	from routes.accounts import accounts_bp
 	from routes.invoices import invoices_bp
 	from routes.employees import employees_bp
@@ -330,6 +331,12 @@ def bypass_auth_for_development():
 	if not bypass_enabled:
 		return
 
+	# Defence in depth: the boot guard below already refuses to start a
+	# production process with the bypass on, but never apply it in production
+	# even if that guard is somehow circumvented.
+	if _is_production():
+		return
+
 	if not request.path.startswith('/api/'):
 		return
 
@@ -344,6 +351,32 @@ def bypass_auth_for_development():
 	admin = User.query.filter_by(username='admin').first()
 	if admin:
 		g.current_user = admin
+
+
+def _assert_auth_bypass_not_in_production() -> None:
+	"""Refuse to boot a production process with authentication disabled.
+
+	BYPASS_AUTH_FOR_DEVELOPMENT serves any /api/ request that carries no
+	Authorization header as `admin`, which defeats authentication and every
+	permission check built on top of it. In development that is a deliberate
+	convenience; in production it is a total authorization bypass.
+
+	Failing at boot is the same fail-closed choice the platform makes for
+	financial adapters: a refused start is immediately visible, whereas a
+	silently unauthenticated API is invisible until it is abused.
+	"""
+	bypass_enabled = os.getenv('BYPASS_AUTH_FOR_DEVELOPMENT', '0') in ('1', 'true', 'True')
+	if bypass_enabled and _is_production():
+		raise RuntimeError(
+			'BYPASS_AUTH_FOR_DEVELOPMENT=1 is set while running in production '
+			f"(YASAR_ENV/FLASK_ENV={_env_str('YASAR_ENV', '') or _env_str('FLASK_ENV', '')!r}). "
+			'This serves unauthenticated /api/ requests as admin and disables every '
+			'permission check. Unset BYPASS_AUTH_FOR_DEVELOPMENT (or set it to 0) '
+			'in the production environment before starting the application.'
+		)
+
+
+_assert_auth_bypass_not_in_production()
 
 with app.app_context():
 	ensure_profit_weight_columns(db.engine)
@@ -394,6 +427,7 @@ app.register_blueprint(inventory_bp)               # Inventory Engine (/api/inve
 app.register_blueprint(pricing_bp, url_prefix='/api')    # Pricing domain (gold price + costing)
 app.register_blueprint(customers_bp, url_prefix='/api')  # Customers domain
 app.register_blueprint(suppliers_bp, url_prefix='/api')  # Suppliers domain
+app.register_blueprint(supplier_settlement_adjustments_bp, url_prefix='/api')  # SAD (ADR-025)
 app.register_blueprint(accounts_bp, url_prefix='/api')   # Accounts domain
 app.register_blueprint(invoices_bp, url_prefix='/api')   # Invoices domain
 app.register_blueprint(employees_bp, url_prefix='/api')  # Employees domain

@@ -101,6 +101,17 @@ ACCOUNTING_PERMISSIONS = {
     'vouchers.create': 'إنشاء سندات',
     'vouchers.edit': 'تعديل السندات',
     'vouchers.delete': 'حذف سندات',
+
+    # Supplier Settlement Adjustments (تسويات فروقات حسابات الموردين) — ADR-025
+    # approve_other هي عتبة الاعتماد الإداري للسبب OTHER، وليست دوراً جديداً:
+    # تُمنح لدور manager ولا تُمنح للمحاسب.
+    'supplier_settlement_adjustments.view': 'عرض تسويات فروقات الموردين',
+    'supplier_settlement_adjustments.create': 'إنشاء تسويات فروقات الموردين',
+    'supplier_settlement_adjustments.approve': 'اعتماد تسويات فروقات الموردين',
+    'supplier_settlement_adjustments.approve_other': 'اعتماد تسوية بسبب «أخرى» (اعتماد إداري)',
+    'supplier_settlement_adjustments.post': 'ترحيل تسويات فروقات الموردين',
+    'supplier_settlement_adjustments.reverse': 'عكس تسويات فروقات الموردين',
+    'supplier_settlement_adjustments.cancel': 'إلغاء تسويات فروقات الموردين',
 }
 
 # 7. التقارير
@@ -165,6 +176,15 @@ ROLE_PERMISSIONS = {
         'safe_boxes.view', 'safe_boxes.create', 'safe_boxes.edit', 'safe_boxes.delete',
         'journal.view', 'journal.create', 'journal.edit', 'journal.post',
         'vouchers.view', 'vouchers.create', 'vouchers.edit',
+
+        # تسويات فروقات الموردين — المدير وحده يملك عتبة الاعتماد الإداري
+        'supplier_settlement_adjustments.view',
+        'supplier_settlement_adjustments.create',
+        'supplier_settlement_adjustments.approve',
+        'supplier_settlement_adjustments.approve_other',
+        'supplier_settlement_adjustments.post',
+        'supplier_settlement_adjustments.reverse',
+        'supplier_settlement_adjustments.cancel',
         
         # التقارير
         'reports.financial', 'reports.inventory', 'reports.sales', 'reports.purchases',
@@ -193,6 +213,14 @@ ROLE_PERMISSIONS = {
         'safe_boxes.view',
         'journal.view', 'journal.create', 'journal.edit', 'journal.post',
         'vouchers.view', 'vouchers.create', 'vouchers.edit',
+
+        # تسويات فروقات الموردين — بلا approve_other: السبب «أخرى» يستلزم مديراً
+        'supplier_settlement_adjustments.view',
+        'supplier_settlement_adjustments.create',
+        'supplier_settlement_adjustments.approve',
+        'supplier_settlement_adjustments.post',
+        'supplier_settlement_adjustments.reverse',
+        'supplier_settlement_adjustments.cancel',
         
         # التقارير المالية
         'reports.financial', 'reports.sales', 'reports.purchases',
