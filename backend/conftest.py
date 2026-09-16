@@ -59,25 +59,49 @@ def initialize_db():
 
         # Seed essential accounts with fixed IDs used in tests
         # Use explicit ids so tests referencing account numbers work reliably
+        #
+        # transaction_type is set explicitly rather than left to the column's
+        # server_default ('both'). Accounts 15/400/521/1200/1220 are the five the
+        # P4.2 migration corrects (ADR-026): they are the financial (SAR) side of
+        # the dual system, and their historical transaction_type='both' plus
+        # tracks_weight=True came from a name-based misclassification, not from
+        # their accounting role. Seeding the pre-migration state here would leave
+        # the whole suite running in a world the migration has already corrected,
+        # so no test could catch a regression caused by the correction.
+        #
+        # Weight-side coverage belongs on 7xxx accounts, which the dual-chart
+        # helpers create as the memo pair of a financial account.
+        #
+        # (id, name, type, transaction_type, tracks_weight)
         accounts = [
-            (15, 'صندوق النقدية', 'Asset', False),
-            (400, 'مبيعات ذهب جديد', 'Revenue', True),
-            (521, 'تكلفة مبيعات الذهب', 'Expense', True),
-            (1200, 'مخزون ذهب عيار 24', 'Asset', True),
-            (1220, 'مخزون ذهب عيار 21', 'Asset', True),
-            # Unified inventory fallbacks used by _resolve_inventory_account_id_for_invoice
-            (1300, 'مخزون ذهب معروض للبيع (موحد)', 'Asset', True),
-            (1310, 'مخزون ذهب كسر (موحد)', 'Asset', True),
+            (15, 'صندوق النقدية', 'Asset', 'cash', False),
+            (400, 'مبيعات ذهب جديد', 'Revenue', 'cash', False),
+            (521, 'تكلفة مبيعات الذهب', 'Expense', 'cash', False),
+            (1200, 'مخزون ذهب عيار 24', 'Asset', 'cash', False),
+            (1220, 'مخزون ذهب عيار 21', 'Asset', 'cash', False),
+            # Unified inventory fallbacks used by _resolve_inventory_account_id_for_invoice.
+            # Left as-is: these are not P4.2 targets and several tests depend on
+            # their current shape.
+            (1300, 'مخزون ذهب معروض للبيع (موحد)', 'Asset', 'both', True),
+            (1310, 'مخزون ذهب كسر (موحد)', 'Asset', 'both', True),
         ]
 
-        for acc_id, name, acc_type, tracks_weight in accounts:
+        for acc_id, name, acc_type, transaction_type, tracks_weight in accounts:
             existing = Account.query.get(acc_id)
             if existing:
                 existing.name = name
                 existing.type = acc_type
+                existing.transaction_type = transaction_type
                 existing.tracks_weight = tracks_weight
             else:
-                a = Account(id=acc_id, account_number=str(acc_id), name=name, type=acc_type, tracks_weight=tracks_weight)
+                a = Account(
+                    id=acc_id,
+                    account_number=str(acc_id),
+                    name=name,
+                    type=acc_type,
+                    transaction_type=transaction_type,
+                    tracks_weight=tracks_weight,
+                )
                 # initialize balances to known values if needed
                 if acc_id == 15:
                     a.balance_cash = 10000.0
