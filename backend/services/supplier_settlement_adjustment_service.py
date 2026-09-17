@@ -129,6 +129,24 @@ ACCOUNT_TYPE_WEIGHT_SETTLEMENT_INCOME = 'supplier_weight_settlement_income'
 # compute_live_supplier_balances() key -> VoucherAccountLine.karat
 _KARAT_KEYS = {'18k': 18.0, '21k': 21.0, '22k': 22.0, '24k': 24.0}
 
+# The eligibility check that is not "ineligible pending cleanup" but a refusal
+# to use this instrument at all. Named once because two callers depend on it
+# being the same check: post() raises on it before anything else, and preview()
+# reports it before anything else.
+REVIEW_GATE_CHECK = 'below_review_threshold'
+
+# Reported by preview() when the stored snapshot no longer matches the ledger.
+# It is not an EligibilityCheck — post() refuses on it separately — so it
+# borrows the route layer's existing error string rather than a new name.
+REASON_SNAPSHOT_MISMATCH = 'snapshot_mismatch'
+
+# Statuses in which the stored snapshot is still a promise post() must honour.
+# In any other status the comparison is moot: post() will never run again.
+_SNAPSHOT_HONOURED_STATUSES = frozenset({
+    SupplierSettlementAdjustment.STATUS_DRAFT,
+    SupplierSettlementAdjustment.STATUS_APPROVED,
+})
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Errors
@@ -267,6 +285,100 @@ class EligibilityResult:
         return not self.failed
 
 
+@dataclass(frozen=True)
+class SettlementPreview:
+    """What post() would decide right now, computed without writing anything.
+
+    Every figure is carried, not derived here: the snapshot comes from
+    recalculate(), the verdict from check_eligibility(), the normalised weight
+    from _main_karat_equivalent(), the month's usage from the same period
+    helpers the cap check uses. This object is a report, not a second engine.
+
+    `snapshot` is the LIVE reading — the one post() would act on — not the
+    document's stored snapshot. The two are compared in `stored_snapshot_matches`
+    so a caller can see drift before it becomes a refusal.
+    """
+    adjustment_id: int
+    supplier_id: int
+    status: str
+    computed_at: datetime
+    snapshot: SettlementSnapshot
+    main_karat_equivalent: float
+    stored_snapshot_matches: bool
+    eligibility: EligibilityResult
+    cash_consumed: float
+    weight_consumed: float
+    # Carried from the service's _period_key(), never re-derived here: the
+    # month boundary is a business rule and it has one owner.
+    period_key: str
+    policy: SupplierSettlementPolicy | None = None
+    blocking_reason: tuple | None = None
+
+    @property
+    def is_eligible(self) -> bool:
+        """Eligible means nothing blocks a post, drift included."""
+        return self.blocking_reason is None
+
+    @property
+    def remaining_cash_cap(self) -> float | None:
+        """Unclamped on purpose: a negative figure means a policy change left
+        the month already over its ceiling, which the reader must see."""
+        if self.policy is None:
+            return None
+        return round(
+            float(self.policy.period_cap_cash) - self.cash_consumed, CASH_PRECISION
+        )
+
+    @property
+    def remaining_weight_cap(self) -> float | None:
+        if self.policy is None:
+            return None
+        return round(float(self.policy.period_cap_weight) - self.weight_consumed, 6)
+
+    def to_dict(self) -> dict:
+        code, message = self.blocking_reason or (None, None)
+        return {
+            'adjustment_id': self.adjustment_id,
+            'supplier_id': self.supplier_id,
+            'status': self.status,
+            'computed_at': self.computed_at.isoformat(),
+            'period_key': self.period_key,
+
+            # Live balance — debit-positive, exactly as the ledger reports it.
+            'balance_before_financial': self.snapshot.financial,
+            'balance_before_weight': dict(self.snapshot.by_karat),
+            'main_karat_equivalent': self.main_karat_equivalent,
+
+            'stored_snapshot_matches': self.stored_snapshot_matches,
+
+            'eligibility': {
+                'eligible': self.is_eligible,
+                'blocking_reason': (
+                    None if code is None else {'code': code, 'message': message}
+                ),
+                # The full ordered verdict, so a caller can show every gate
+                # rather than only the first one that failed.
+                'checks': [
+                    {'name': c.name, 'passed': c.passed, 'detail': c.detail}
+                    for c in self.eligibility.checks
+                ],
+            },
+
+            'policy': None if self.policy is None else {
+                'policy_id': self.policy.id,
+                'tolerance_cash': float(self.policy.tolerance_cash),
+                'tolerance_weight': float(self.policy.tolerance_weight),
+                'period_cap_cash': float(self.policy.period_cap_cash),
+                'period_cap_weight': float(self.policy.period_cap_weight),
+                'review_threshold_cash': float(self.policy.review_threshold_cash),
+                'cash_consumed': self.cash_consumed,
+                'weight_consumed': self.weight_consumed,
+                'remaining_cash_cap': self.remaining_cash_cap,
+                'remaining_weight_cap': self.remaining_weight_cap,
+            },
+        }
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Service
 # ─────────────────────────────────────────────────────────────────────────────
@@ -345,6 +457,61 @@ class SupplierSettlementAdjustmentService:
             snapshot=snapshot,
             checks=checks,
             policy=policy,
+        )
+
+    def preview(
+        self,
+        *,
+        sad: SupplierSettlementAdjustment,
+        now: datetime,
+    ) -> SettlementPreview:
+        """Answer "what would post() decide right now?" — writing nothing.
+
+        Every figure comes from the same calls post() makes under its row lock:
+        check_eligibility() for the verdict, _main_karat_equivalent() for the
+        normalised weight, _period_consumption()/_period_weight_consumption()
+        for the month's allowance, _snapshot_drift() for the snapshot
+        comparison, and _blocking_reason() for the order those refusals are
+        decided in. Nothing is computed a second way here, so a preview that
+        says "eligible" and a post() that refuses cannot disagree unless the
+        ledger itself moved between the two calls.
+
+        Read-only in the strict sense: no voucher, no journal entry, no state
+        transition, no snapshot refresh, no allowance consumed. A snapshot
+        drift in particular is reported and never acted on — post() remains the
+        only place that kicks a document back to draft.
+        """
+        supplier = sad.supplier
+        result = self.check_eligibility(
+            supplier,
+            now=now,
+            exclude_adjustment_id=sad.id,
+        )
+        current = result.snapshot
+
+        # Only meaningful while post() could still run against this document.
+        drift = (
+            self._snapshot_drift(sad, current)
+            if sad.status in _SNAPSHOT_HONOURED_STATUSES
+            else None
+        )
+
+        return SettlementPreview(
+            adjustment_id=int(sad.id),
+            supplier_id=int(supplier.id),
+            status=sad.status,
+            computed_at=now,
+            snapshot=current,
+            # The same quantity the tolerance and cap checks compare against —
+            # open karats only, magnitudes summed after conversion.
+            main_karat_equivalent=self._main_karat_equivalent(current.open_karats),
+            stored_snapshot_matches=(drift is None),
+            eligibility=result,
+            cash_consumed=self._period_consumption(supplier, now, sad.id),
+            weight_consumed=self._period_weight_consumption(supplier, now, sad.id),
+            period_key=self._period_key(now),
+            policy=result.policy,
+            blocking_reason=self._blocking_reason(result, drift),
         )
 
     # ── Lifecycle ────────────────────────────────────────────────────────────
@@ -496,21 +663,10 @@ class SupplierSettlementAdjustmentService:
         # "recalculate", and the document must land back in a state where that is
         # possible. A general eligibility failure, by contrast, leaves the
         # document approved: its snapshot is still valid, the blocker is elsewhere.
-        if abs(current.financial - float(sad.balance_before_financial or 0.0)) > CASH_EPSILON:
+        drift = self._snapshot_drift(sad, current)
+        if drift is not None:
             self._kick_back_to_draft(sad)
-            raise SnapshotMismatchError(
-                'تغير رصيد المورد منذ إنشاء التسوية. أعد حساب الرصيد ثم أعد الترحيل. '
-                f'(اللقطة: {sad.balance_before_financial}، الحالي: {current.financial})'
-            )
-
-        stored_weight = sad.balance_before_weight_by_karat
-        for key, value in current.by_karat.items():
-            if abs(value - float(stored_weight.get(key, 0.0))) > WEIGHT_EPSILON:
-                self._kick_back_to_draft(sad)
-                raise SnapshotMismatchError(
-                    'تغير رصيد الوزن للمورد منذ إنشاء التسوية. أعد حساب الرصيد ثم أعد الترحيل. '
-                    f'(العيار {key} — اللقطة: {stored_weight.get(key, 0.0)}، الحالي: {value})'
-                )
+            raise SnapshotMismatchError(drift)
 
         if not result.is_eligible:
             raise NotEligibleError(
@@ -1055,16 +1211,78 @@ class SupplierSettlementAdjustmentService:
             6,
         )
 
+    @staticmethod
+    def _review_gate_failure(result: EligibilityResult) -> EligibilityCheck | None:
+        """The review-threshold check, if and only if it failed.
+
+        Looked up by name rather than by position, so reordering the check list
+        cannot silently change which refusal takes precedence. post() raises on
+        it; preview() reports it; both ask this one question.
+        """
+        by_name = {c.name: c for c in result.checks}
+        check = by_name.get(REVIEW_GATE_CHECK)
+        return check if (check is not None and not check.passed) else None
+
+    @staticmethod
+    def _snapshot_drift(
+        sad: SupplierSettlementAdjustment,
+        current: SettlementSnapshot,
+    ) -> str | None:
+        """Describe how the live balance moved away from the stored snapshot.
+
+        Returns None while the snapshot still holds. What a drift *means* is the
+        caller's decision — post() kicks the document back to draft and refuses,
+        preview() only reports it — but the comparison itself lives here once,
+        so both answers come from the same reading and the same epsilons.
+        """
+        if abs(current.financial - float(sad.balance_before_financial or 0.0)) > CASH_EPSILON:
+            return (
+                'تغير رصيد المورد منذ إنشاء التسوية. أعد حساب الرصيد ثم أعد الترحيل. '
+                f'(اللقطة: {sad.balance_before_financial}، الحالي: {current.financial})'
+            )
+
+        stored_weight = sad.balance_before_weight_by_karat
+        for key, value in current.by_karat.items():
+            if abs(value - float(stored_weight.get(key, 0.0))) > WEIGHT_EPSILON:
+                return (
+                    'تغير رصيد الوزن للمورد منذ إنشاء التسوية. أعد حساب الرصيد ثم أعد الترحيل. '
+                    f'(العيار {key} — اللقطة: {stored_weight.get(key, 0.0)}، الحالي: {value})'
+                )
+        return None
+
+    def _blocking_reason(
+        self,
+        result: EligibilityResult,
+        drift: str | None,
+    ) -> tuple | None:
+        """The single refusal a caller should act on, in post()'s own order.
+
+        post() refuses in exactly this sequence: the review gate first (the
+        wrong instrument entirely), then a snapshot that no longer holds
+        (recalculate, then retry), then the general eligibility verdict. Stating
+        the order here once is what keeps preview() and post() from drifting
+        into two opinions about which blocker matters.
+        """
+        review = self._review_gate_failure(result)
+        if review is not None:
+            return review.name, review.detail
+
+        if drift is not None:
+            return REASON_SNAPSHOT_MISMATCH, drift
+
+        failed = result.failed
+        if failed:
+            return failed[0].name, failed[0].detail
+        return None
+
     def _raise_if_review_required(self, result: EligibilityResult) -> None:
         """Turn the "wrong instrument" verdict into a typed, structured refusal.
 
         It refuses before anything is written: no workflow starts, no balance
         moves, no residual is reduced. It only names what a human must look at.
         """
-        by_name = {c.name: c for c in result.checks}
-
-        review = by_name.get('below_review_threshold')
-        if review is not None and not review.passed:
+        review = self._review_gate_failure(result)
+        if review is not None:
             raise SupplierAccountReviewRequiredError(
                 review.detail,
                 supplier_id=result.supplier_id,

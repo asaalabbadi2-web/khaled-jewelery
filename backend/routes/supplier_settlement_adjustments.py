@@ -279,6 +279,39 @@ def get_settlement_adjustment(sad_id):
 
 
 @supplier_settlement_adjustments_bp.route(
+    '/supplier-settlement-adjustments/<int:sad_id>/preview', methods=['GET'])
+@require_auth
+@require_permission('supplier_settlement_adjustments.view')
+def preview_settlement_adjustment(sad_id):
+    """What post() would decide right now. Reads the ledger, writes nothing.
+
+    A sub-resource rather than extra keys on GET /<id> for two reasons: the
+    verdict costs several aggregate queries that a caller fetching the document
+    should not pay for, and the existing response shape stays untouched for the
+    clients already parsing it.
+
+    Deliberately not routed through _run(): that helper commits, and there is
+    nothing here to commit. The session is rolled back on both paths so a read
+    can never leave an open transaction behind.
+    """
+    sad, error = _get_or_404(sad_id)
+    if error:
+        return error
+
+    try:
+        preview = _service.preview(sad=sad, now=_now())
+        body = preview.to_dict()
+    except Exception as exc:
+        db.session.rollback()
+        return _error(exc)
+    finally:
+        # No write is intended, and none is allowed to escape by accident.
+        db.session.rollback()
+
+    return jsonify({'success': True, 'preview': body}), 200
+
+
+@supplier_settlement_adjustments_bp.route(
     '/supplier-settlement-adjustments/<int:sad_id>/recalculate', methods=['POST'])
 @require_auth
 @require_permission('supplier_settlement_adjustments.create')
