@@ -73,6 +73,80 @@ def _add_ledger_line(supplier_id, **line_kwargs):
     db.session.commit()
 
 
+def _ensure_settlement_accounts():
+    """The four GL accounts and their AccountingMapping rows.
+
+    Account numbers here are test fixtures, not the production chart: the
+    service resolves accounts through AccountingMapping and never hardcodes a
+    number, so what matters is that the four mapping keys exist and that the
+    weight accounts are paired to memo accounts that can carry grams.
+    """
+    from account_pair_service import link_accounts
+    from models import Account, AccountingMapping
+    from services.supplier_settlement_adjustment_service import (
+        ACCOUNT_TYPE_SETTLEMENT_EXPENSE,
+        ACCOUNT_TYPE_SETTLEMENT_INCOME,
+        ACCOUNT_TYPE_WEIGHT_SETTLEMENT_EXPENSE,
+        ACCOUNT_TYPE_WEIGHT_SETTLEMENT_INCOME,
+        SETTLEMENT_OPERATION_TYPE,
+    )
+
+    if AccountingMapping.query.filter_by(
+            operation_type=SETTLEMENT_OPERATION_TYPE).first() is not None:
+        return
+
+    def _account(number, name, type_, tracks_weight=False):
+        existing = Account.query.filter_by(account_number=number).first()
+        if existing is not None:
+            return existing
+        account = Account(account_number=number, name=name, type=type_,
+                          tracks_weight=tracks_weight)
+        db.session.add(account)
+        return account
+
+    expense = _account('5901', 'مصروف فروقات تسوية موردين', 'Expense')
+    income = _account('4901', 'إيراد فروقات تسوية موردين', 'Revenue')
+    w_expense = _account('5902', 'مصروف فروقات تسوية وزن', 'Expense')
+    w_income = _account('4902', 'إيراد فروقات تسوية وزن', 'Revenue')
+    w_expense_memo = _account('75902', 'مذكرة مصروف وزن', 'Expense', True)
+    w_income_memo = _account('74902', 'مذكرة إيراد وزن', 'Revenue', True)
+    db.session.flush()
+
+    link_accounts(w_expense, w_expense_memo, created_by='test')
+    link_accounts(w_income, w_income_memo, created_by='test')
+    db.session.flush()
+
+    for account_type, account in (
+        (ACCOUNT_TYPE_SETTLEMENT_EXPENSE, expense),
+        (ACCOUNT_TYPE_SETTLEMENT_INCOME, income),
+        (ACCOUNT_TYPE_WEIGHT_SETTLEMENT_EXPENSE, w_expense),
+        (ACCOUNT_TYPE_WEIGHT_SETTLEMENT_INCOME, w_income),
+    ):
+        db.session.add(AccountingMapping(
+            operation_type=SETTLEMENT_OPERATION_TYPE,
+            account_type=account_type,
+            account_id=account.id,
+            is_active=True,
+        ))
+    db.session.commit()
+
+
+def _clear_settlement_mappings():
+    """Return the install to its out-of-the-box state: no settlement accounts.
+
+    Stated explicitly rather than assumed, so a test that depends on the
+    mappings being absent says so and cannot be broken by the order it runs in.
+    """
+    from models import AccountingMapping
+    from services.supplier_settlement_adjustment_service import (
+        SETTLEMENT_OPERATION_TYPE,
+    )
+
+    AccountingMapping.query.filter_by(
+        operation_type=SETTLEMENT_OPERATION_TYPE).delete()
+    db.session.commit()
+
+
 def _ledger_counts():
     return (
         Voucher.query.count(),
@@ -86,6 +160,7 @@ def _ledger_counts():
 def test_preview_for_an_eligible_supplier_reports_no_blocker():
     with app.app_context():
         _ensure_policy()
+        _ensure_settlement_accounts()
         supplier_id = _supplier_with_residual(cash=3.00)
         _, headers = _headers_for(ALL_SAD_PERMISSIONS)
 
@@ -335,6 +410,96 @@ def test_preview_requires_the_view_permission(monkeypatch):
         resp = client.get(
             f"/api/supplier-settlement-adjustments/{sad['id']}/preview")
         assert resp.status_code == 401
+
+
+# ── 9. Configuration readiness ───────────────────────────────────────────────
+
+def test_preview_refuses_to_promise_a_post_that_has_no_accounts():
+    """A verdict of "eligible" must mean post() would actually succeed.
+
+    The four AccountingMapping rows are a finance decision and are absent from
+    a fresh install. Without them post() raises MissingAccountingMappingError
+    at the moment it builds the voucher — so a preview that reports "eligible"
+    here is promising something the ledger will refuse. The whole value of this
+    endpoint is that the two agree.
+    """
+    with app.app_context():
+        _ensure_policy()
+        _clear_settlement_mappings()
+        supplier_id = _supplier_with_residual(cash=3.00)
+        _, headers = _headers_for(ALL_SAD_PERMISSIONS)
+
+    with app.test_client() as client:
+        sad = _create_draft(client, headers, supplier_id).get_json()['adjustment']
+
+        preview = _preview(client, headers, sad['id']).get_json()['preview']
+
+        assert preview['eligibility']['eligible'] is False, (
+            'preview reported "eligible" for a document that cannot be posted: '
+            'the settlement accounts are not configured'
+        )
+        assert preview['eligibility']['blocking_reason']['code'] == \
+            'accounting_configured'
+
+        # And post() does refuse, which is the behaviour being mirrored.
+        client.post(f"/api/supplier-settlement-adjustments/{sad['id']}/approve",
+                    json={}, headers=headers)
+        resp = client.post(f"/api/supplier-settlement-adjustments/{sad['id']}/post",
+                           json={}, headers=headers)
+        assert resp.status_code == 400
+        assert resp.get_json()['error'] == 'missing_accounting_mapping'
+
+
+def test_preview_names_only_the_mappings_this_document_actually_needs():
+    """The check is scoped to what post() would look up, nothing more.
+
+    A cash residual the supplier owes us settles against the expense account
+    alone. Naming the income or weight mappings here would be noise — worse,
+    it would refuse a document that post() would happily accept once one row
+    exists.
+    """
+    with app.app_context():
+        _ensure_policy()
+        _clear_settlement_mappings()
+        supplier_id = _supplier_with_residual(cash=3.00)  # positive → expense side
+        _, headers = _headers_for(ALL_SAD_PERMISSIONS)
+
+    with app.test_client() as client:
+        sad = _create_draft(client, headers, supplier_id).get_json()['adjustment']
+        preview = _preview(client, headers, sad['id']).get_json()['preview']
+
+        check = next(c for c in preview['eligibility']['checks']
+                     if c['name'] == 'accounting_configured')
+        assert check['passed'] is False
+        assert 'supplier_settlement_expense' in check['detail']
+        for irrelevant in (
+            'supplier_settlement_income',
+            'supplier_weight_settlement_expense',
+            'supplier_weight_settlement_income',
+        ):
+            assert irrelevant not in check['detail'], (
+                f'{irrelevant} is not needed by a cash-only settlement in this '
+                'direction, so naming it would misdirect the operator'
+            )
+
+
+def test_preview_requires_the_weight_mappings_only_when_karats_are_open():
+    """Add a karat residual and the weight mapping becomes required."""
+    with app.app_context():
+        _ensure_policy()
+        supplier_id = _supplier_with_residual(cash=1.00)
+        _clear_settlement_mappings()
+        _add_ledger_line(supplier_id, debit_21k=0.010)
+        _, headers = _headers_for(ALL_SAD_PERMISSIONS)
+
+    with app.test_client() as client:
+        sad = _create_draft(client, headers, supplier_id).get_json()['adjustment']
+        preview = _preview(client, headers, sad['id']).get_json()['preview']
+
+        check = next(c for c in preview['eligibility']['checks']
+                     if c['name'] == 'accounting_configured')
+        assert check['passed'] is False
+        assert 'supplier_weight_settlement_expense' in check['detail']
 
 
 def test_preview_of_a_missing_document_is_404():

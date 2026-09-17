@@ -489,6 +489,22 @@ class SupplierSettlementAdjustmentService:
         )
         current = result.snapshot
 
+        # post() discovers an unconfigured GL account late — at voucher build,
+        # after every eligibility gate has passed. Reporting it here keeps the
+        # preview's promise honest, and appending it last preserves that order:
+        # _blocking_reason surfaces the first failure, so a genuine eligibility
+        # problem still outranks a configuration one.
+        #
+        # It is added to preview's own copy of the verdict, never to
+        # check_eligibility() — that method is shared with post() and
+        # create_draft(), and their behaviour is not this task's to change.
+        result = EligibilityResult(
+            supplier_id=result.supplier_id,
+            snapshot=current,
+            checks=list(result.checks) + [self._check_accounting_configured(current)],
+            policy=result.policy,
+        )
+
         # Only meaningful while post() could still run against this document.
         drift = (
             self._snapshot_drift(sad, current)
@@ -946,8 +962,7 @@ class SupplierSettlementAdjustmentService:
                 amount=cash_amount,
                 amount_type='cash',
                 counter_account_id=self._resolve_settlement_account_id(
-                    ACCOUNT_TYPE_SETTLEMENT_EXPENSE if residual_cash > 0
-                    else ACCOUNT_TYPE_SETTLEMENT_INCOME
+                    self._cash_account_type(residual_cash)
                 ),
                 label='تسوية نقدية',
             )
@@ -958,8 +973,7 @@ class SupplierSettlementAdjustmentService:
                 amount=amount,
                 amount_type='gold',
                 counter_account_id=self._resolve_weight_settlement_account_id(
-                    ACCOUNT_TYPE_WEIGHT_SETTLEMENT_EXPENSE if signed > 0
-                    else ACCOUNT_TYPE_WEIGHT_SETTLEMENT_INCOME
+                    self._weight_account_type(signed)
                 ),
                 karat=karat,
                 label=f'تسوية وزن عيار {int(karat)}',
@@ -1078,6 +1092,71 @@ class SupplierSettlementAdjustmentService:
                 f'خرق invariant التسوية [{context}]: بقي رصيد وزني بعد الترحيل '
                 f'{still_open}. أُلغيت العملية بالكامل.',
             )
+
+    @staticmethod
+    def _cash_account_type(residual_cash: float) -> str:
+        """Which counter account a cash residual settles against.
+
+        Extracted so the readiness check and the voucher builder ask the same
+        question. If they ever disagreed, preview() would promise a posting the
+        ledger refuses — which is the one thing preview() exists to prevent.
+        """
+        return (ACCOUNT_TYPE_SETTLEMENT_EXPENSE if residual_cash > 0
+                else ACCOUNT_TYPE_SETTLEMENT_INCOME)
+
+    @staticmethod
+    def _weight_account_type(signed_weight: float) -> str:
+        """The weight counterpart of _cash_account_type, per karat."""
+        return (ACCOUNT_TYPE_WEIGHT_SETTLEMENT_EXPENSE if signed_weight > 0
+                else ACCOUNT_TYPE_WEIGHT_SETTLEMENT_INCOME)
+
+    def _check_accounting_configured(
+        self,
+        snapshot: SettlementSnapshot,
+    ) -> EligibilityCheck:
+        """Can this particular residual reach a configured GL account?
+
+        Read-only, and deliberately scoped to what THIS document needs: a
+        cash-only settlement is not blocked by absent weight mappings, because
+        post() would never look them up. The same resolvers post() uses are
+        called here — including the weight resolver's proof that the mapped
+        account can actually carry grams — so a pass here means the lookup
+        post() performs will find the same rows.
+
+        The four AccountingMapping rows are configuration, not code: this
+        module names the keys it needs and never a GL account number.
+        """
+        required: list[str] = []
+
+        if round(abs(float(snapshot.financial or 0.0)), CASH_PRECISION) > 0:
+            required.append(self._cash_account_type(snapshot.financial))
+
+        weight_types = {
+            self._weight_account_type(signed)
+            for signed in snapshot.open_karats.values()
+        }
+        required.extend(sorted(weight_types))
+
+        missing: list[str] = []
+        for account_type in required:
+            resolver = (
+                self._resolve_weight_settlement_account_id
+                if account_type.startswith('supplier_weight_')
+                else self._resolve_settlement_account_id
+            )
+            try:
+                resolver(account_type)
+            except MissingAccountingMappingError as exc:
+                missing.append(f'{account_type}: {exc}')
+
+        return EligibilityCheck(
+            name='accounting_configured',
+            passed=not missing,
+            detail='' if not missing else (
+                'لا يمكن ترحيل هذه التسوية: الحسابات المحاسبية غير مهيأة. '
+                + ' · '.join(missing)
+            ),
+        )
 
     def _resolve_settlement_account_id(self, account_type: str) -> int:
         """Resolve a settlement GL account from configuration. Never guesses."""

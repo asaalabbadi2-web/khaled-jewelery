@@ -341,6 +341,8 @@ String settlementBlockingLabel(String? code, {bool isArabic = true}) {
       return 'يتجاوز سقف الفترة';
     case 'policy_configured':
       return 'لا توجد سياسة نافذة';
+    case 'accounting_configured':
+      return 'الحسابات المحاسبية غير مهيأة';
     default:
       return code;
   }

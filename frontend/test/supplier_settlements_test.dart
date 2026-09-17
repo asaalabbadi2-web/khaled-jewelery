@@ -600,6 +600,28 @@ void main() {
       expect(find.text('مراجعة'), findsNothing);
     });
 
+    testWidgets('يعرض أن الحسابات المحاسبية غير مهيأة', (tester) async {
+      // إعداد ناقص في الخادم، لا خطأ في المستند — والمحاسب يحتاج أن يعرف
+      // أي ربط ينقص قبل أن يحاول الترحيل.
+      final api = _FakeApi(rows: [_row(status: 'draft')])
+        ..previewBody = _previewJson(
+          eligible: false,
+          blockingCode: 'accounting_configured',
+          blockingMessage: 'لا يمكن ترحيل هذه التسوية: الحسابات المحاسبية غير '
+              'مهيأة. supplier_settlement_expense: لا يوجد حساب محاسبي مربوط',
+        );
+      await _pump(tester,
+          api: api,
+          permissions: const {'supplier_settlement_adjustments.view'});
+
+      await tester.tap(find.text('مراجعة'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('الحسابات المحاسبية غير مهيأة'), findsOneWidget);
+      // اسم الربط الناقص يبقى ظاهرًا كما أرسله الخادم.
+      expect(find.textContaining('supplier_settlement_expense'), findsOneWidget);
+    });
+
     testWidgets('خطأ المعاينة يُعرض ولا يُخفى', (tester) async {
       final api = _FakeApi(rows: [_row(status: 'draft')])
         ..previewError = ApiException(
