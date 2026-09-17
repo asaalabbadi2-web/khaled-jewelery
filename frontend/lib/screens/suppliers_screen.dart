@@ -10,6 +10,7 @@ import 'add_supplier_screen.dart';
 import 'add_voucher_screen.dart';
 import 'purchase_invoice_screen.dart';
 import 'supplier_ledger_screen.dart';
+import 'supplier_settlements_screen.dart';
 
 enum _SuppliersViewMode { cards, compact }
 
@@ -618,6 +619,22 @@ class SuppliersScreenState extends State<SuppliersScreen> {
     );
   }
 
+  Future<void> _openSupplierSettlements(Map<String, dynamic> supplier) async {
+    final supplierId = supplier['id'] as int?;
+    if (supplierId == null) return;
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => SupplierSettlementsScreen(
+          api: widget.api,
+          supplierId: supplierId,
+          supplierName: _supplierName(supplier),
+          isArabic: widget.isArabic,
+        ),
+      ),
+    );
+  }
+
   Future<void> _openSupplierStatement(Map<String, dynamic> supplier) async {
     final supplierId = supplier['id'] as int?;
     if (supplierId == null) return;
@@ -1042,6 +1059,8 @@ class SuppliersScreenState extends State<SuppliersScreen> {
       await _openSupplierStatement(supplier);
     } else if (value == 'ledger') {
       await _openSupplierLedger(supplier);
+    } else if (value == 'settlements') {
+      await _openSupplierSettlements(supplier);
     } else if (value == 'edit') {
       await _navigateToAddSupplier(supplier: supplier);
     } else if (value == 'delete') {
@@ -1069,6 +1088,10 @@ class SuppliersScreenState extends State<SuppliersScreen> {
         PopupMenuItem(
           value: 'ledger',
           child: Text(widget.isArabic ? 'حركات المورد' : 'Supplier ledger'),
+        ),
+        PopupMenuItem(
+          value: 'settlements',
+          child: Text(widget.isArabic ? 'التسويات' : 'Settlements'),
         ),
         PopupMenuItem(
           value: 'edit',

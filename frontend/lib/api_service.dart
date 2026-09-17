@@ -572,6 +572,143 @@ class ApiService {
     return const {'result': 'success'};
   }
 
+  // ── Supplier Settlement Adjustments (تسويات فروقات الموردين) ─────────────
+  //
+  // كل قرار محاسبي يتخذه الخادم: الاتجاه والمبالغ والحسابات والحدود. الواجهة
+  // ترسل السبب والملاحظة فقط، وتعرض ما يعود. رموز الأخطاء تُمرَّر كما هي في
+  // ApiException.code ليقرر مستدعيها كيف يعرضها.
+
+  /// يرفع ApiException حاملًا رمز الخطأ من الخادم كما هو.
+  Never _throwSettlementError(http.Response response) {
+    Map<String, dynamic>? parsed;
+    try {
+      final decoded = json.decode(utf8.decode(response.bodyBytes));
+      if (decoded is Map<String, dynamic>) parsed = decoded;
+    } catch (_) {
+      parsed = null;
+    }
+    final code = parsed?['error']?.toString();
+    throw ApiException(
+      statusCode: response.statusCode,
+      code: (code == null || code.isEmpty) ? 'http_error' : code,
+      message: _errorMessageFromResponse(response),
+      details: parsed ?? const {},
+    );
+  }
+
+  Map<String, dynamic> _decodeSettlementResponse(http.Response response) {
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      _throwSettlementError(response);
+    }
+    final decoded = json.decode(utf8.decode(response.bodyBytes));
+    if (decoded is Map<String, dynamic>) return decoded;
+    return const {};
+  }
+
+  Future<List<dynamic>> getSupplierSettlementAdjustments(
+    int supplierId, {
+    String? status,
+  }) async {
+    final uri = Uri.parse(
+      '$_baseUrl/suppliers/$supplierId/settlement-adjustments',
+    ).replace(
+      queryParameters: (status == null || status.isEmpty)
+          ? null
+          : {'status': status},
+    );
+    final body = _decodeSettlementResponse(await _authedGet(uri));
+    final rows = body['adjustments'];
+    return rows is List ? rows : const [];
+  }
+
+  /// ينشئ مسودة. السبب والملاحظة فقط — كل ما عداهما يقرره الخادم.
+  Future<Map<String, dynamic>> createSupplierSettlementAdjustment(
+    int supplierId, {
+    required String reasonCode,
+    String? note,
+  }) async {
+    final payload = <String, dynamic>{'reason_code': reasonCode};
+    if (note != null && note.trim().isNotEmpty) {
+      payload['note'] = note.trim();
+    }
+    final response = await _authedPost(
+      Uri.parse('$_baseUrl/suppliers/$supplierId/settlement-adjustments'),
+      body: json.encode(payload),
+    );
+    return _decodeSettlementResponse(response);
+  }
+
+  Future<Map<String, dynamic>> getSupplierSettlementAdjustment(int id) async {
+    final response = await _authedGet(
+      Uri.parse('$_baseUrl/supplier-settlement-adjustments/$id'),
+    );
+    return _decodeSettlementResponse(response);
+  }
+
+  /// ما الذي سيقرره الترحيل الآن — دون أن يكتب شيئًا.
+  ///
+  /// الخادم هو من يحسب المكافئ بالعيار الرئيسي وحدود السياسة والمستهلك من
+  /// الفترة وحالة الأهلية. الواجهة تعرضها كما وصلت ولا تشتق أيًّا منها.
+  Future<Map<String, dynamic>> getSupplierSettlementPreview(int id) async {
+    final response = await _authedGet(
+      Uri.parse('$_baseUrl/supplier-settlement-adjustments/$id/preview'),
+    );
+    return _decodeSettlementResponse(response);
+  }
+
+  /// يعيد قراءة الرصيد الحي داخل اللقطة. للمسودة فقط.
+  Future<Map<String, dynamic>> recalculateSupplierSettlementAdjustment(
+    int id,
+  ) async {
+    final response = await _authedPost(
+      Uri.parse('$_baseUrl/supplier-settlement-adjustments/$id/recalculate'),
+      body: json.encode(const {}),
+    );
+    return _decodeSettlementResponse(response);
+  }
+
+  /// صلاحية الاعتماد الإداري للسبب OTHER تُشتق في الخادم من هوية المستخدم.
+  Future<Map<String, dynamic>> approveSupplierSettlementAdjustment(
+    int id,
+  ) async {
+    final response = await _authedPost(
+      Uri.parse('$_baseUrl/supplier-settlement-adjustments/$id/approve'),
+      body: json.encode(const {}),
+    );
+    return _decodeSettlementResponse(response);
+  }
+
+  Future<Map<String, dynamic>> postSupplierSettlementAdjustment(int id) async {
+    final response = await _authedPost(
+      Uri.parse('$_baseUrl/supplier-settlement-adjustments/$id/post'),
+      body: json.encode(const {}),
+    );
+    return _decodeSettlementResponse(response);
+  }
+
+  /// يعكس تسوية مرحّلة بوثيقة جديدة. القيد الأصلي لا يُعدَّل.
+  Future<Map<String, dynamic>> reverseSupplierSettlementAdjustment(
+    int id, {
+    required String reason,
+  }) async {
+    final response = await _authedPost(
+      Uri.parse('$_baseUrl/supplier-settlement-adjustments/$id/reverse'),
+      body: json.encode({'reason': reason}),
+    );
+    return _decodeSettlementResponse(response);
+  }
+
+  Future<Map<String, dynamic>> cancelSupplierSettlementAdjustment(
+    int id, {
+    required String reason,
+  }) async {
+    final response = await _authedPost(
+      Uri.parse('$_baseUrl/supplier-settlement-adjustments/$id/cancel'),
+      body: json.encode({'reason': reason}),
+    );
+    return _decodeSettlementResponse(response);
+  }
+
   // Office Methods (مكاتب تسكير الذهب)
   Future<List<dynamic>> getOffices({bool? activeOnly}) async {
     final uri = Uri.parse('$_baseUrl/offices').replace(
