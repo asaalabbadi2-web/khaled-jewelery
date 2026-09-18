@@ -1052,6 +1052,10 @@ def update_unposted_invoice(invoice_id: int):
     original_type_id = invoice.invoice_type_id
     original_invoice_type = invoice.invoice_type
     original_date = invoice.date
+    # Preserve who the invoice actually belongs to — editing must not
+    # re-attribute it to whichever user happens to perform the edit.
+    original_employee_id = invoice.employee_id
+    original_posted_by = invoice.posted_by
 
     # --- 1. Delete all related entities ---
     try:
@@ -1162,7 +1166,10 @@ def update_unposted_invoice(invoice_id: int):
         '/api/invoices', method='POST',
         json=create_data, headers=headers,
     ):
-        rv = add_invoice()
+        rv = add_invoice(
+            preserve_employee_id=original_employee_id,
+            preserve_posted_by=original_posted_by,
+        )
 
     status_code = 200
     resp_obj = None
@@ -3296,7 +3303,14 @@ def calculate_profit_in_gold(items_sold):
     }
 
 @invoices_bp.route('/invoices', methods=['POST'])
-def add_invoice():
+def add_invoice(preserve_employee_id=None, preserve_posted_by=None):
+    """Create a new invoice.
+
+    preserve_employee_id / preserve_posted_by: internal-use only (never taken
+    from the request body). Set by update_unposted_invoice()'s delete+recreate
+    edit flow so an edited invoice keeps its original creator's attribution
+    instead of being re-attributed to whichever user performed the edit.
+    """
     data = request.get_json(silent=True)
     if not isinstance(data, dict):
         return jsonify({'error': 'Invalid or missing JSON body'}), 400
@@ -4195,7 +4209,21 @@ def add_invoice():
             allow_employee_override = bool(data.get('allow_employee_override', False))
         except Exception:
             allow_employee_override = False
-        if current_user:
+
+        if preserve_employee_id is not None or preserve_posted_by is not None:
+            # Internal edit-recreate flow (update_unposted_invoice): keep the
+            # original invoice's creator attribution regardless of which user
+            # is performing the edit.
+            employee_id_for_invoice = preserve_employee_id
+            posted_by_username = preserve_posted_by
+            if not posted_by_username and employee_id_for_invoice:
+                try:
+                    emp = Employee.query.get(employee_id_for_invoice)
+                    if emp and emp.name:
+                        posted_by_username = emp.name
+                except Exception:
+                    pass
+        elif current_user:
             employee_display_name = None
 
             # 1) Direct relationship: current_user.employee (AppUser)

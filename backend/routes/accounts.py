@@ -626,11 +626,14 @@ def get_accounts():
                 except Exception:
                     account_dict['safe_box_name'] = None
 
-        live = live_by_id.get(int(acc.id)) if getattr(acc, 'id', None) is not None else None
-        live = live if isinstance(live, dict) else {'cash': 0.0, '18k': 0.0, '21k': 0.0, '22k': 0.0, '24k': 0.0}
-        account_dict['balances'] = {
-            'cash': round(float(live.get('cash') or 0.0), 2),
-        }
+        if skip_balances:
+            account_dict['balances'] = None
+        else:
+            live = live_by_id.get(int(acc.id)) if getattr(acc, 'id', None) is not None else None
+            live = live if isinstance(live, dict) else {'cash': 0.0, '18k': 0.0, '21k': 0.0, '22k': 0.0, '24k': 0.0}
+            account_dict['balances'] = {
+                'cash': round(float(live.get('cash') or 0.0), 2),
+            }
         if not skip_balances and bool(getattr(acc, 'tracks_weight', False)):
             w18 = float(live.get('18k') or 0.0)
             w21 = float(live.get('21k') or 0.0)
