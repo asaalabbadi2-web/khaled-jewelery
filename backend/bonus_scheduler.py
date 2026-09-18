@@ -72,7 +72,6 @@ class BonusScheduler:
                 bonuses = BonusCalculator.calculate_all_bonuses_for_period(
                     period_start=period_start,
                     period_end=period_end,
-                    goal_period_filter='daily',
                 )
                 pending = [b for b in bonuses if b.status == 'pending']
                 print(f'[BonusScheduler] ✓ {len(pending)} مكافأة يومية pending')
@@ -95,7 +94,6 @@ class BonusScheduler:
                 bonuses = BonusCalculator.calculate_all_bonuses_for_period(
                     period_start=period_start,
                     period_end=period_end,
-                    goal_period_filter='weekly',
                 )
                 pending = [b for b in bonuses if b.status == 'pending']
                 print(f'[BonusScheduler] ✓ {len(pending)} مكافأة أسبوعية pending')
@@ -122,7 +120,6 @@ class BonusScheduler:
                 bonuses = BonusCalculator.calculate_all_bonuses_for_period(
                     period_start=period_start,
                     period_end=period_end,
-                    goal_period_filter='monthly',
                 )
                 pending = [b for b in bonuses if b.status == 'pending']
                 total = sum(b.amount for b in pending)

@@ -496,7 +496,7 @@ class BonusCalculator:
         return bonus
 
     @staticmethod
-    def calculate_all_bonuses_for_period(period_start, period_end, employee_ids=None, rule_ids=None, refresh_results=True, goal_period_filter=None):
+    def calculate_all_bonuses_for_period(period_start, period_end, employee_ids=None, rule_ids=None, refresh_results=True):
         """
         الاحتساب التلقائي للمكافآت — Scheduler هو المصدر الوحيد لاستدعاء هذه الدالة.
 
@@ -505,6 +505,15 @@ class BonusCalculator:
           • مكافأة مرفوضة (rejected) → قرار إداري معتمد. لا تُعاد.
           • مكافأة معلقة (pending) → يُعاد احتسابها (تحديث للمبلغ).
           • جميع المكافآت الجديدة تُنشأ بحالة pending دائماً.
+
+        لا يوجد فلتر بحسب "نوع الفترة" (يومي/أسبوعي/شهري): BonusRule لا يحمل هذا
+        المفهوم في أي عمود — القاعدة تُقيَّم بحرفية period_start/period_end التي
+        يُمرّرها المستدعي، أيًّا كان نوعها. محاولة سابقة (٢٠٢٦-٠٥-٣١) افترضت عمود
+        BonusRule.goal_period لم يوجد قط، فكانت كل استدعاءات المجدول (اليومي
+        والأسبوعي والشهري) تتحطم بـ AttributeError منذ ذلك التاريخ — أربعة أشهر
+        بلا احتساب تلقائي واحد ناجح. أُزيل الفلتر المعطوب بدل تعطيله شرطيًا: بناء
+        حقل فترة حقيقي على BonusRule قرار منتج منفصل (migration + واجهة اختيار +
+        سياسة القيم الافتراضية للقواعد القائمة)، لا إصلاح عطل.
         """
         bonuses = []
         processed_bonus_ids = []
@@ -517,8 +526,6 @@ class BonusCalculator:
         rules_query = BonusRule.query.filter_by(is_active=True)
         if rule_ids:
             rules_query = rules_query.filter(BonusRule.id.in_(rule_ids))
-        if goal_period_filter:
-            rules_query = rules_query.filter(BonusRule.goal_period == goal_period_filter)
         rules = rules_query.all()
 
         def _sync_invoice_links(bonus_obj, invoice_ids):
