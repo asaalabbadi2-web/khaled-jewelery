@@ -111,20 +111,20 @@ def consolidated_je_with_two_payments():
         yield ids
 
         # Teardown: everything this test created, by id, nothing else.
+        # Deletion order follows the real FK chain: JournalEntryLine.source_
+        # voucher_id -> Voucher.id -> Voucher.journal_entry_id -> JournalEntry.id.
+        # Lines must go first (they reference both the voucher and the entry),
+        # then vouchers (they reference the entry), then the entries themselves.
         v_a_id, v_b_id, je_id = ids
+        related_je_ids = [je_id] + [
+            r.id for r in JournalEntry.query.filter_by(reference_type='voucher_reversal').all()
+            if r.reference_id in (v_a_id, v_b_id)
+        ]
         JournalEntryLine.query.filter(
-            JournalEntryLine.journal_entry_id.in_(
-                [je_id] + [
-                    r.id for r in JournalEntry.query.filter_by(reference_type='voucher_reversal').all()
-                    if r.reference_id in (v_a_id, v_b_id)
-                ]
-            )
-        ).delete(synchronize_session=False)
-        JournalEntry.query.filter(
-            (JournalEntry.id == je_id) |
-            ((JournalEntry.reference_type == 'voucher_reversal') & (JournalEntry.reference_id.in_([v_a_id, v_b_id])))
+            JournalEntryLine.journal_entry_id.in_(related_je_ids)
         ).delete(synchronize_session=False)
         Voucher.query.filter(Voucher.id.in_([v_a_id, v_b_id])).delete(synchronize_session=False)
+        JournalEntry.query.filter(JournalEntry.id.in_(related_je_ids)).delete(synchronize_session=False)
         db.session.commit()
 
 
