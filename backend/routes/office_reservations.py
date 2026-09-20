@@ -13,10 +13,12 @@ from models import (
     Account,
     Invoice,
     InvoiceKaratLine,
+    InvoicePayment,
     JournalEntry,
     JournalEntryLine,
     Office,
     OfficeReservation,
+    PaymentMethod,
     SafeBox,
     SafeBoxTransaction,
     Voucher,
@@ -25,6 +27,7 @@ from models import (
 
 from core.number_helpers import _coerce_float
 from auth_decorators import require_permission
+from services.invoice_payment_state_service import InvoicePaymentStateService
 
 from pricing.karat_service import convert_to_main_karat, get_main_karat
 from accounting.voucher_engine import (
@@ -170,6 +173,23 @@ def create_office_reservation():
         else:
             payment_status = 'pending'
 
+    # Phase 9C: payment_method_id is required whenever a deposit is being
+    # recorded — matches add_invoice_payment's own validation exactly (same
+    # error shape), so the deposit can later become a real InvoicePayment
+    # at settlement time. safe_box_id is derived from it below, not
+    # accepted independently — a client sending a mismatched safe_box_id
+    # can no longer make the accounting disagree with the chosen method.
+    payment_method = None
+    if paid_amount > 0:
+        pm_id = data.get('payment_method_id')
+        try:
+            pm_id = int(pm_id)
+        except Exception:
+            return jsonify({'error': 'invalid_payment_method_id'}), 400
+        payment_method = PaymentMethod.query.get(pm_id)
+        if not payment_method:
+            return jsonify({'error': 'invalid_payment_method_id'}), 400
+
     settings = _load_weight_closing_settings()
 
     try:
@@ -224,6 +244,7 @@ def create_office_reservation():
             weight_consumed_main_karat=0.0,
             weight_remaining_main_karat=weight_main_karat,
             purchase_invoice_id=None,
+            payment_method_id=payment_method.id if payment_method else None,
         )
         db.session.add(reservation)
         db.session.flush()
@@ -231,11 +252,12 @@ def create_office_reservation():
         if paid_amount > 0:
             # Create a real Payment Voucher (سند صرف) for the paid amount.
             # This reflects money leaving the safe immediately, even if the gold is not received yet.
-            resolved_payment_safe_box_id = (
-                _normalize_fk_ref(data.get('safe_box_id'))
-                or _normalize_fk_ref(data.get('cash_safe_box_id'))
-                or _normalize_fk_ref(settings.get('cash_safe_box_id'))
-            )
+            # Phase 9C: safe_box_id is derived from the required
+            # payment_method_id (matching add_invoice_payment's own
+            # PaymentMethod -> SafeBox convention) — no longer accepted as
+            # an independent client field, so a mismatched value can't
+            # disagree with the chosen method.
+            resolved_payment_safe_box_id = _normalize_fk_ref(payment_method.default_safe_box_id)
 
             safe_box = None
             cash_account = None
@@ -465,12 +487,23 @@ def settle_office_reservation(reservation_id: int):
         if total_amount <= 0:
             total_amount = round(float(reservation.weight_grams or 0.0) * float(reservation.price_per_gram or 0.0), 2)
 
-        invoice_status = 'unpaid'
-        if paid_amount >= total_amount and total_amount > 0:
-            invoice_status = 'paid'
-        elif paid_amount > 0:
-            invoice_status = 'partially_paid'
+        # Phase 9C: a deposit can only become a real InvoicePayment if a
+        # payment_method_id was captured at creation time. A reservation
+        # from before this feature existed has none — refused explicitly
+        # rather than guessed (no invented payment method, no silent
+        # fallback to the old direct-write behavior).
+        if paid_amount > 0 and not reservation.payment_method_id:
+            return jsonify({
+                'error': 'legacy_deposit_missing_payment_method',
+                'message': (
+                    'هذا الحجز يحمل عربونًا مسجَّلاً قبل ربط وسيلة الدفع بالحجوزات — '
+                    'لا يمكن تسويته تلقائيًا دون تحديد وسيلة الدفع يدويًا أولاً.'
+                ),
+            }), 400
 
+        # Invoice.amount_paid/status are no longer written directly here —
+        # InvoicePaymentStateService.recompute() sets them below, from the
+        # real InvoicePayment this function now creates for the deposit.
         purchase_invoice = Invoice(
             invoice_type_id=next_invoice_type_id,
             supplier_id=supplier.id,
@@ -478,13 +511,13 @@ def settle_office_reservation(reservation_id: int):
             date=settlement_date,
             total=total_amount,
             invoice_type='شراء',
-            status=invoice_status,
+            status='unpaid',
             total_weight=float(reservation.weight_main_karat or 0.0),
             gold_subtotal=total_amount,
             wage_subtotal=0.0,
             gold_tax_total=0.0,
             wage_tax_total=0.0,
-            amount_paid=paid_amount,
+            amount_paid=0.0,
             gold_type='scrap',
         )
         db.session.add(purchase_invoice)
@@ -506,6 +539,7 @@ def settle_office_reservation(reservation_id: int):
         db.session.add(reservation)
 
         # Relink prior payment vouchers from reservation -> invoice for better traceability.
+        deposit_voucher = None
         try:
             linked = Voucher.query.filter_by(reference_type='office_reservation', reference_id=reservation.id).all()
             for v in linked:
@@ -513,8 +547,28 @@ def settle_office_reservation(reservation_id: int):
                 v.reference_id = purchase_invoice.id
                 v.reference_number = str(purchase_invoice.id)
                 db.session.add(v)
+                deposit_voucher = v
         except Exception:
             pass
+
+        # Phase 9C: represent the deposit as a real InvoicePayment
+        # (source_voucher_id -> the deposit voucher, relinked just above),
+        # then let the canonical service derive amount_paid/status — the
+        # same single source of truth every other payment path already
+        # uses. Only the real accounting event (the voucher/JE/
+        # SafeBoxTransaction, already posted at reservation-creation time)
+        # is not duplicated here; this only adds the representation layer.
+        if paid_amount > 0 and deposit_voucher is not None:
+            db.session.add(InvoicePayment(
+                invoice_id=purchase_invoice.id,
+                payment_method_id=reservation.payment_method_id,
+                amount=paid_amount,
+                net_amount=paid_amount,
+                source_voucher_id=deposit_voucher.id,
+            ))
+            db.session.flush()
+
+        InvoicePaymentStateService().recompute(purchase_invoice)
 
         gold_entry = JournalEntry(
             entry_number=_generate_journal_entry_number('WGT'),
@@ -645,15 +699,20 @@ def reverse_office_reservation_settlement_for_invoice(invoice, *, created_by=Non
          original and its reversal stay visible for audit.
       2. weight-closing consumption — via the standalone
          reverse_weight_closing_executions_for_invoice primitive.
-      3. the deposit voucher — re-tagged from reference_type='invoice' back
+      3. the InvoicePayment this settlement created for the deposit
+         (Phase 9C) — removed entirely, not kept: it represents the
+         settlement attempt being undone, not an independent historical
+         event (see the removal step's own comment for why this differs
+         from gold_entry's audit-preserving treatment).
+      4. the deposit voucher — re-tagged from reference_type='invoice' back
          to 'office_reservation', so settle_office_reservation's own
          existing relink query picks it up again on the next settle,
          without needing new relink logic.
 
     Idempotent: every step below is independently a no-op the second time
     (no unreversed gold_entry found; no WeightClosingExecution rows left;
-    voucher already retagged) — safe to call more than once for the same
-    invoice.
+    no InvoicePayment left to remove; voucher already retagged) — safe to
+    call more than once for the same invoice.
 
     Returns a summary dict for the caller to log/assert on.
     """
@@ -663,6 +722,7 @@ def reverse_office_reservation_settlement_for_invoice(invoice, *, created_by=Non
         'invoice_id': invoice.id,
         'gold_entry_reversed': None,
         'weight_closing': None,
+        'invoice_payment_removed': None,
         'voucher_retagged': None,
     }
 
@@ -724,6 +784,25 @@ def reverse_office_reservation_settlement_for_invoice(invoice, *, created_by=Non
     deposit_voucher = Voucher.query.filter_by(
         reference_type='invoice', reference_id=invoice.id
     ).first()
+
+    # Phase 9C: remove the InvoicePayment this same settlement created for
+    # the rejected invoice — it represents a settlement attempt that is
+    # being fully undone, not an independent historical payment (unlike
+    # gold_entry, kept for audit: InvoicePayment has no accounting effect
+    # of its own to preserve — see the "zero event listeners" finding in
+    # Phase 8B). Matched precisely by both invoice_id and source_voucher_id
+    # so an unrelated InvoicePayment is never touched. Left unremoved, it
+    # would double-count this deposit the moment a resettle creates a
+    # fresh InvoicePayment for the new invoice.
+    if deposit_voucher is not None:
+        stale_payment = InvoicePayment.query.filter_by(
+            invoice_id=invoice.id, source_voucher_id=deposit_voucher.id,
+        ).first()
+        if stale_payment is not None:
+            summary['invoice_payment_removed'] = stale_payment.id
+            db.session.delete(stale_payment)
+            db.session.flush()
+
     if deposit_voucher is not None:
         deposit_voucher.reference_type = 'office_reservation'
         deposit_voucher.reference_id = reservation.id

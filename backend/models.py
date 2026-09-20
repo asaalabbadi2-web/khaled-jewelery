@@ -714,6 +714,14 @@ class OfficeReservation(db.Model):
     total_amount = db.Column(db.Float, nullable=False)
     paid_amount = db.Column(db.Float, default=0.0)
     payment_status = db.Column(db.String(20), default='pending')
+    # The payment method used for the deposit, if any. Required by the
+    # creation route whenever paid_amount > 0 (nullable here only for
+    # historical rows that predate this column — no backfill; see the
+    # Phase 9C migration and settle_office_reservation's own explicit
+    # refusal for a legacy row with a deposit but no payment_method_id).
+    # Populated at creation time and read again at settlement time to
+    # build the real InvoicePayment.
+    payment_method_id = db.Column(db.Integer, db.ForeignKey('payment_method.id'), nullable=True)
     status = db.Column(db.String(20), default='approved')
     contact_person = db.Column(db.String(100))
     contact_phone = db.Column(db.String(50))

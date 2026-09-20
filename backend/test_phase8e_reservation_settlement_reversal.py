@@ -34,6 +34,7 @@ from models import (
     JournalEntryLine,
     Office,
     OfficeReservation,
+    PaymentMethod,
     Supplier,
     Voucher,
     VoucherAccountLine,
@@ -113,6 +114,15 @@ def _settled_reservation_state(deposit_amount, weight_consumed, order):
     office, supplier, office_account = _office_and_supplier()
     purchases_account = _account(type_='Expense', transaction_type='cash')
 
+    # Phase 9C requires payment_method_id to settle a deposit — this
+    # fixture hand-constructs "as if already settled" state directly
+    # (not via the real create_office_reservation endpoint, which is
+    # exercised in test_phase9c_reservation_invoice_payment.py instead),
+    # so it must set this explicitly to stay settleable.
+    payment_method = PaymentMethod(name=f'وسيلة اختبار 8E {_uid()}', payment_type='cash')
+    db.session.add(payment_method)
+    db.session.flush()
+
     reservation = OfficeReservation(
         office_id=office.id,
         reservation_code=f'RES-{_uid()}',
@@ -124,6 +134,7 @@ def _settled_reservation_state(deposit_amount, weight_consumed, order):
         paid_amount=deposit_amount,
         payment_status='paid',
         status='completed',
+        payment_method_id=payment_method.id,
     )
     db.session.add(reservation)
     db.session.flush()
@@ -272,8 +283,9 @@ class TestRejectReversesReservationSettlement:
             # open/partially_closed order, unscoped to any one reservation
             # (pre-existing, unrelated production behavior). Left 'open',
             # it would leak into a LATER, unrelated test's own consumption.
-            order.status = 'closed'
-            db.session.add(order)
+            WeightClosingOrder.query.filter(
+                WeightClosingOrder.status.in_(['open', 'partially_closed'])
+            ).update({'status': 'closed'}, synchronize_session=False)
             db.session.commit()
 
     def test_reject_is_idempotent_when_called_again(self, auth_headers):
@@ -313,8 +325,9 @@ class TestRejectReversesReservationSettlement:
 
             # Test-only cleanup — see the comment on the same step in the
             # first test above.
-            refreshed_order.status = 'closed'
-            db.session.add(refreshed_order)
+            WeightClosingOrder.query.filter(
+                WeightClosingOrder.status.in_(['open', 'partially_closed'])
+            ).update({'status': 'closed'}, synchronize_session=False)
             db.session.commit()
 
     def test_reject_does_not_touch_unrelated_invoices(self, auth_headers):
@@ -385,6 +398,19 @@ class TestRejectReversesReservationSettlement:
             assert reject_resp.status_code == 200, reject_resp.data
             db.session.expire_all()
 
+            # Any leftover open/partially_closed order from an earlier test
+            # (in this file or another run in the same process) would be
+            # consumed ahead of this test's own order by the global FIFO
+            # match in _auto_consume_weight_closing — force a clean pool
+            # immediately before the resettle this test is actually
+            # asserting on. See the fixture-leakage note further up.
+            WeightClosingOrder.query.filter(
+                WeightClosingOrder.status.in_(['open', 'partially_closed'])
+            ).filter(WeightClosingOrder.id != order.id).update(
+                {'status': 'closed'}, synchronize_session=False
+            )
+            db.session.commit()
+
             settle_resp_b = client.post(
                 f'/api/office-reservations/{reservation_id}/settle',
                 headers=auth_headers,
@@ -449,3 +475,9 @@ class TestRejectReversesReservationSettlement:
             invoice_b = Invoice.query.get(invoice_b_id)
             assert invoice_b.status == 'paid'
             assert invoice_b.amount_paid == 575.0
+
+            # Test-only cleanup — see the note above.
+            WeightClosingOrder.query.filter(
+                WeightClosingOrder.status.in_(['open', 'partially_closed'])
+            ).update({'status': 'closed'}, synchronize_session=False)
+            db.session.commit()
