@@ -2039,6 +2039,14 @@ class JournalEntryLine(db.Model):
     gold_transaction = db.relationship('SupplierGoldTransaction', backref='journal_lines')
     gold_weight_equiv = db.Column(db.Float, nullable=True)
     gold_price_applied = db.Column(db.Float, nullable=True)
+
+    # Which Voucher this line's amount came from, when several vouchers post
+    # into one shared/consolidated JournalEntry (see
+    # _add_payment_lines_to_consolidated_je in routes/invoices.py). NULL for
+    # every line created any other way — the vast majority. Exists solely so
+    # a voucher's own reversal can select its own lines instead of mirroring
+    # the whole shared entry (see _reverse_voucher_journal_entry).
+    source_voucher_id = db.Column(db.Integer, db.ForeignKey('voucher.id'), nullable=True)
     
     # Cash
     cash_debit = db.Column(db.Float, default=0.0)
@@ -2941,7 +2949,24 @@ class InvoicePayment(db.Model):
     
     # ملاحظات خاصة بهذه الدفعة
     notes = db.Column(db.Text)
-    
+
+    # The Voucher that actually created this payment — set ONLY by the three
+    # receipt-creating paths (add_invoice_payment; add_invoice's two payment
+    # branches). NULL for rows produced by payment-method correction/split
+    # (_correct_invoice_payment_method_multi_split, correct_invoice_payment_method):
+    # those reclassify money already received, they do not receive it, so
+    # there is no "creating voucher" to record. NULL is also what every
+    # historical row keeps — no backfill is attempted.
+    #
+    # This is the canonical replacement for inferring the link through
+    # SafeBoxTransaction.ref_id, which is not reliable: some code paths wrote
+    # ref_id=voucher.id, others wrote ref_id=invoice_payment.id, and the two
+    # can coincide by pure numeric accident — a real production example is
+    # pinned in test_invoice_payment_state_service.py's collision test. No
+    # ondelete clause on purpose — a cancelled voucher must remain queryable
+    # and must never cascade-delete the payment record that references it.
+    source_voucher_id = db.Column(db.Integer, db.ForeignKey('voucher.id'), nullable=True)
+
     # تاريخ الإنشاء
     created_at = db.Column(db.DateTime, default=db.func.now())
     

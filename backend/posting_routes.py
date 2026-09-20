@@ -43,6 +43,10 @@ from models import (
 from sqlalchemy import func, case, or_, and_
 import json
 from auth_decorators import require_permission, optional_auth, require_auth
+from services.invoice_payment_state_service import (
+    InvoicePaymentStateService,
+    sync_invoice_payment_state_after_voucher_approval,
+)
 
 posting_bp = Blueprint('posting', __name__)
 
@@ -2245,24 +2249,10 @@ def approve_large_discount_invoice(invoice_id):
         invoice.posted_at = datetime.now()
         invoice.posted_by = approved_by
 
-        # Restore basic payment status based on persisted payments.
+        # Restore basic payment status based on persisted payments — canonical,
+        # from SUM(InvoicePayment) + barter (see InvoicePaymentStateService).
         try:
-            payments = list(getattr(invoice, 'payments', []) or [])
-            total_paid = 0.0
-            for pay in payments:
-                try:
-                    total_paid += float(getattr(pay, 'amount', 0.0) or 0.0)
-                except Exception:
-                    pass
-            invoice.amount_paid = round(total_paid, 2)
-
-            inv_total = float(getattr(invoice, 'total', 0.0) or 0.0)
-            if total_paid <= 0.0:
-                invoice.status = 'unpaid'
-            elif inv_total > 0 and (total_paid + 0.01) < inv_total:
-                invoice.status = 'partially_paid'
-            else:
-                invoice.status = 'paid'
+            InvoicePaymentStateService().recompute(invoice)
         except Exception:
             pass
 
@@ -3464,13 +3454,14 @@ def approve_voucher(voucher_id):
                 _je.posted_by = approved_by
             # إنشاء وترحيل قيود فرق العيار
             _create_and_post_karat_diff_entries_for_voucher(voucher, approved_by)
+            sync_invoice_payment_state_after_voucher_approval(voucher)
             db.session.commit()
             return jsonify({
                 'success': True,
                 'message': 'تم الموافقة على السند بنجاح',
                 'voucher': voucher.to_dict()
             }), 200
-        
+
         # Canonical behavior: approving a voucher posts it (creates JournalEntry + SafeBoxTransaction).
         journal_entry = create_journal_entry_from_voucher(voucher)
         if not journal_entry:
@@ -3494,6 +3485,8 @@ def approve_voucher(voucher_id):
 
         # إنشاء وترحيل قيود فرق العيار فور الاعتماد
         _create_and_post_karat_diff_entries_for_voucher(voucher, approved_by)
+
+        sync_invoice_payment_state_after_voucher_approval(voucher)
 
         # تسجيل العملية
         AuditLog.log_action(
@@ -3689,6 +3682,8 @@ def approve_vouchers_batch():
 
                 # إنشاء وترحيل قيود فرق العيار
                 _create_and_post_karat_diff_entries_for_voucher(voucher, approved_by)
+
+                sync_invoice_payment_state_after_voucher_approval(voucher)
 
                 db.session.commit()
                 approved_count += 1

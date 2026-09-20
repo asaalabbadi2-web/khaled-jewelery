@@ -73,6 +73,7 @@ from dual_system_helpers import (
 from gold_costing_service import GoldCostingService, ScrapCostingService
 from office_supplier_service import ensure_office_supplier
 from party_account_service import ensure_customer_accounts, ensure_supplier_accounts
+from services.invoice_payment_state_service import InvoicePaymentStateService
 from services.journals import create_wage_weight_release_journal
 from services.weight_execution import list_weight_profiles, resolve_weight_profile
 from settlement_state_service import get_settled_amounts, is_locked
@@ -2150,21 +2151,10 @@ def approve_invoice(invoice_id: int):
         if not invoice.posted_by:
             invoice.posted_by = approved_by
 
-        # 3. Sync payment status
+        # 3. Sync payment status — canonical, from SUM(InvoicePayment) + barter,
+        # not from invoice.amount_paid itself (see InvoicePaymentStateService).
         try:
-            total_amount = float(invoice.total or 0.0)
-            paid_amount = float(invoice.amount_paid or 0.0)
-            barter_total = float(getattr(invoice, 'barter_total', 0.0) or 0.0)
-            total_settled = paid_amount + barter_total
-            eps = 0.01
-            if total_amount <= eps:
-                invoice.status = 'paid' if total_settled > eps else 'unpaid'
-            elif total_settled <= eps:
-                invoice.status = 'unpaid'
-            elif total_settled >= total_amount - eps:
-                invoice.status = 'paid'
-            else:
-                invoice.status = 'partially_paid'
+            InvoicePaymentStateService().recompute(invoice)
         except Exception:
             pass
 
@@ -2253,6 +2243,16 @@ def reject_invoice(invoice_id: int):
     rejection_reason = (data.get('reason') or '').strip()
 
     try:
+        rejected_by = getattr(getattr(g, 'current_user', None), 'username', None)
+
+        from routes.office_reservations import reverse_office_reservation_settlement_for_invoice
+
+        # ── التراجع الكامل عن آثار settle_office_reservation المحاسبية
+        # (قيد الشراء + استهلاك weight-closing + ربط سند العربون) — يجب أن
+        # يسبق تصفير purchase_invoice_id، لأن هذا الاستدعاء نفسه يحتاج أن
+        # يجد الحجز عبره أولاً. عملية واحدة ذرّية ضمن هذه المعاملة نفسها.
+        reverse_office_reservation_settlement_for_invoice(invoice, created_by=rejected_by)
+
         # ── إعادة الحجز المرتبط إلى pending ────────────────────────────────
         linked_reservation = OfficeReservation.query.filter_by(
             purchase_invoice_id=invoice_id
@@ -2447,19 +2447,24 @@ def _add_payment_lines_to_consolidated_je(
         db.session.add(consolidated_je)
         db.session.flush()
 
-    # Add lines for this payment
+    # Add lines for this payment. source_voucher_id tags each line with the
+    # voucher that produced it — several vouchers share this one JE, and
+    # without the tag, cancelling any one of them would reverse every line,
+    # including other payments' (see _reverse_voucher_journal_entry).
     if direction == 'in':
         db.session.add(JournalEntryLine(
             journal_entry_id=consolidated_je.id,
             account_id=int(safe_account_id),
             cash_debit=float(amount),
             description=f'استلام نقد - دفعة #{payment_id} ({voucher_number})',
+            source_voucher_id=voucher.id,
         ))
         db.session.add(JournalEntryLine(
             journal_entry_id=consolidated_je.id,
             account_id=int(party_account_id),
             cash_credit=float(amount),
             description=f'تسوية ذمم - دفعة #{payment_id} ({voucher_number})',
+            source_voucher_id=voucher.id,
         ))
     else:
         db.session.add(JournalEntryLine(
@@ -2467,12 +2472,14 @@ def _add_payment_lines_to_consolidated_je(
             account_id=int(party_account_id),
             cash_debit=float(amount),
             description=f'تسوية ذمم - دفعة #{payment_id} ({voucher_number})',
+            source_voucher_id=voucher.id,
         ))
         db.session.add(JournalEntryLine(
             journal_entry_id=consolidated_je.id,
             account_id=int(safe_account_id),
             cash_credit=float(amount),
             description=f'صرف نقد - دفعة #{payment_id} ({voucher_number})',
+            source_voucher_id=voucher.id,
         ))
 
     # Update description with all voucher numbers
@@ -2949,6 +2956,12 @@ def add_invoice_payment(invoice_id: int):
         db.session.add(voucher)
         db.session.flush()
 
+        # This voucher is the one that actually creates the payment — the
+        # canonical source_voucher_id link InvoicePaymentStateService relies
+        # on to exclude a cancelled payment, in place of the unreliable
+        # SafeBoxTransaction.ref_id convention.
+        payment.source_voucher_id = voucher.id
+
         safe_line_type = 'debit' if direction == 'in' else 'credit'
         party_line_type = 'credit' if direction == 'in' else 'debit'
 
@@ -2991,12 +3004,7 @@ def add_invoice_payment(invoice_id: int):
 
         _append_safe_transactions_for_voucher(voucher, created_by=voucher.approved_by)
 
-        new_paid = paid_amount + amount
-        invoice.amount_paid = round(new_paid, 2)
-        if invoice.amount_paid >= total_amount - eps:
-            invoice.status = 'paid'
-        else:
-            invoice.status = 'partially_paid'
+        InvoicePaymentStateService().recompute(invoice)
 
         db.session.commit()
     except Exception as e:
@@ -5358,6 +5366,10 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None):
                     db.session.add(voucher)
                     db.session.flush()
 
+                    # This voucher is the one that actually creates the
+                    # payment — see the identical comment in add_invoice_payment.
+                    payment_row.source_voucher_id = voucher.id
+
                     safe_line_type = 'debit' if direction == 'in' else 'credit'
                     party_line_type = 'credit' if direction == 'in' else 'debit'
 
@@ -5601,6 +5613,12 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None):
                 )
                 db.session.add(voucher)
                 db.session.flush()
+
+                # This voucher is the one that actually creates the payment —
+                # see the identical comment in add_invoice_payment.
+                # payment_row cannot be None here: this whole block only runs
+                # under `if payment_row is not None and ...` above.
+                payment_row.source_voucher_id = voucher.id
 
                 safe_line_type = 'debit' if direction == 'in' else 'credit'
                 party_line_type = 'credit' if direction == 'in' else 'debit'
@@ -8651,21 +8669,10 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None):
                 journal_entry.posted_by = None
 
             # 🧾 Sync payment status for unposted invoices too (UI correctness)
+            # — canonical, from SUM(InvoicePayment) + barter, not amount_paid
+            # itself (see InvoicePaymentStateService).
             try:
-                total_amount = float(new_invoice.total or 0.0)
-                paid_amount = float(new_invoice.amount_paid or 0.0)
-                barter_total_status = float(getattr(new_invoice, 'barter_total', 0.0) or 0.0)
-                total_settled = paid_amount + barter_total_status
-                eps = 0.01
-                if total_amount <= eps:
-                    # Edge-case: zero-total invoices; consider any settlement as paid.
-                    new_invoice.status = 'paid' if total_settled > eps else 'unpaid'
-                elif total_settled <= eps:
-                    new_invoice.status = 'unpaid'
-                elif total_settled >= total_amount - eps:
-                    new_invoice.status = 'paid'
-                else:
-                    new_invoice.status = 'partially_paid'
+                InvoicePaymentStateService().recompute(new_invoice)
             except Exception:
                 pass
 
@@ -8853,19 +8860,10 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None):
         if not new_invoice.posted_by:
             new_invoice.posted_by = posted_by_username or 'system'
 
-        # 🧾 Sync payment status from amount_paid vs total
+        # 🧾 Sync payment status — canonical, from SUM(InvoicePayment) + barter
+        # (see InvoicePaymentStateService).
         try:
-            total_amount = float(new_invoice.total or 0.0)
-            paid_amount = float(new_invoice.amount_paid or 0.0)
-            barter_total_status = float(getattr(new_invoice, 'barter_total', 0.0) or 0.0)
-            total_settled = paid_amount + barter_total_status
-            eps = 0.01
-            if total_settled <= eps:
-                new_invoice.status = 'unpaid'
-            elif total_settled >= total_amount - eps:
-                new_invoice.status = 'paid'
-            else:
-                new_invoice.status = 'partially_paid'
+            InvoicePaymentStateService().recompute(new_invoice)
         except Exception:
             pass
 

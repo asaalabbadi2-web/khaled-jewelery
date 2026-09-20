@@ -1,6 +1,7 @@
 """Office-reservations domain routes — office_reservations_bp registered under /api in app.py."""
 from __future__ import annotations
 
+import json
 from datetime import datetime, date, timedelta
 
 from flask import Blueprint, g, jsonify, request
@@ -626,6 +627,124 @@ def settle_office_reservation(reservation_id: int):
         db.session.rollback()
         print(f"❌ Failed to settle office reservation: {exc}")
         return jsonify({'error': f'فشل تنفيذ الحجز: {exc}'}), 500
+
+
+def reverse_office_reservation_settlement_for_invoice(invoice, *, created_by=None):
+    """The one atomic reversal workflow for undoing settle_office_reservation's
+    effects on `invoice` — called by reject_invoice, which owns the
+    transaction boundary (this function only flushes, never commits, so a
+    failure partway through rolls back cleanly with the invoice's own
+    status change).
+
+    Reverses, in order:
+      1. gold_entry — the purchase-recognition JournalEntry
+         ('تنفيذ حجز ذهب...') settle_office_reservation created for this
+         invoice. Mirrored with debit/credit swapped on each line (the same
+         technique cancel_office_reservation already uses for the
+         weight-transfer entry) rather than deleted or mutated, so both the
+         original and its reversal stay visible for audit.
+      2. weight-closing consumption — via the standalone
+         reverse_weight_closing_executions_for_invoice primitive.
+      3. the deposit voucher — re-tagged from reference_type='invoice' back
+         to 'office_reservation', so settle_office_reservation's own
+         existing relink query picks it up again on the next settle,
+         without needing new relink logic.
+
+    Idempotent: every step below is independently a no-op the second time
+    (no unreversed gold_entry found; no WeightClosingExecution rows left;
+    voucher already retagged) — safe to call more than once for the same
+    invoice.
+
+    Returns a summary dict for the caller to log/assert on.
+    """
+    from accounting.weight_closing import reverse_weight_closing_executions_for_invoice
+
+    summary = {
+        'invoice_id': invoice.id,
+        'gold_entry_reversed': None,
+        'weight_closing': None,
+        'voucher_retagged': None,
+    }
+
+    reservation = OfficeReservation.query.filter_by(purchase_invoice_id=invoice.id).first()
+    if reservation is None:
+        # Not a reservation-sourced invoice — nothing for this workflow to do.
+        return summary
+
+    gold_entry = (
+        JournalEntry.query
+        .filter_by(reference_type='office_reservation', reference_id=reservation.id)
+        .filter(JournalEntry.description.like('تنفيذ حجز ذهب%'))
+        .filter(JournalEntry.is_deleted == False)
+        .first()
+    )
+    already_reversed = JournalEntry.query.filter_by(
+        reference_type='office_reservation_settlement_reversal', reference_id=invoice.id,
+    ).first()
+
+    if gold_entry is not None and already_reversed is None:
+        original_lines = JournalEntryLine.query.filter_by(journal_entry_id=gold_entry.id).all()
+        reversal_entry = JournalEntry(
+            entry_number=_generate_journal_entry_number('WGT'),
+            date=datetime.now(),
+            description=f'عكس تسوية حجز ({reservation.reservation_code}) — رفض الفاتورة {invoice.id}',
+            reference_type='office_reservation_settlement_reversal',
+            reference_id=invoice.id,
+            is_posted=True,
+            posted_at=datetime.now(),
+            posted_by=created_by or 'system',
+        )
+        db.session.add(reversal_entry)
+        db.session.flush()
+
+        affected_account_ids = set()
+        for orig in original_lines:
+            db.session.add(JournalEntryLine(
+                journal_entry_id=reversal_entry.id,
+                account_id=orig.account_id,
+                cash_debit=orig.cash_credit or 0.0,
+                cash_credit=orig.cash_debit or 0.0,
+                description=f'عكس: {orig.description}' if orig.description else 'عكس تسوية حجز',
+            ))
+            affected_account_ids.add(orig.account_id)
+        db.session.flush()
+
+        if affected_account_ids:
+            try:
+                _recalculate_account_balances_for_accounts(list(affected_account_ids))
+            except Exception as _rc_exc:
+                print(f"⚠️ recalculate balances after settlement reversal skipped: {_rc_exc}")
+
+        summary['gold_entry_reversed'] = gold_entry.id
+
+    summary['weight_closing'] = reverse_weight_closing_executions_for_invoice(
+        invoice.id, created_by=created_by,
+    )
+
+    deposit_voucher = Voucher.query.filter_by(
+        reference_type='invoice', reference_id=invoice.id
+    ).first()
+    if deposit_voucher is not None:
+        deposit_voucher.reference_type = 'office_reservation'
+        deposit_voucher.reference_id = reservation.id
+        deposit_voucher.reference_number = str(reservation.reservation_code)
+        db.session.add(deposit_voucher)
+        summary['voucher_retagged'] = deposit_voucher.id
+
+    try:
+        from models import AuditLog
+        AuditLog.log_action(
+            user_name=created_by or 'system',
+            action='reverse_office_reservation_settlement',
+            entity_type='invoice',
+            entity_id=invoice.id,
+            details=json.dumps(summary, ensure_ascii=False),
+            success=True,
+        )
+    except Exception:
+        pass
+
+    return summary
 
 @office_reservations_bp.route('/office-reservations/<int:reservation_id>/cancel', methods=['POST'])
 @require_permission('journal.post')

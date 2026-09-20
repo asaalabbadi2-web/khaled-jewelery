@@ -14,6 +14,7 @@ from models import (
     AuditLog,
     Customer,
     Employee,
+    Invoice,
     JournalEntry,
     JournalEntryLine,
     PaymentMethod,
@@ -36,6 +37,10 @@ from accounting.voucher_engine import (
     _update_account_balances_from_journal_lines,
 )
 from allocation_service import AllocationService
+from services.invoice_payment_state_service import (
+    InvoicePaymentStateService,
+    sync_invoice_payment_state_after_voucher_approval,
+)
 from accounting.wages import _ensure_gold24k_commission_revenue_account
 from routes import (
     _resolve_account_id_for_amount_type,
@@ -996,6 +1001,11 @@ def approve_voucher(voucher_id):
         except Exception as _rc_exc:
             print(f"⚠️ recalculate balances after voucher approve skipped: {_rc_exc}")
 
+        # Sync the linked invoice's payment status — see
+        # sync_invoice_payment_state_after_voucher_approval's own docstring
+        # for exactly which shape this does and does not fix.
+        sync_invoice_payment_state_after_voucher_approval(voucher)
+
         # Audit log
         try:
             AuditLog.log_action(
@@ -1084,10 +1094,24 @@ def _reverse_voucher_journal_entry(voucher, cancelled_by='system', reason=None):
     db.session.add(reversal_entry)
     db.session.flush()
 
-    for line in original_entry.lines:
-        if getattr(line, 'is_deleted', False):
-            continue
+    # If ANY line in this entry is tagged with source_voucher_id, the entry
+    # is shared across several vouchers (add_invoice_payment consolidates
+    # every payment for one invoice into a single JE — see
+    # _add_payment_lines_to_consolidated_je). Reverse only THIS voucher's
+    # lines in that case; mirroring the whole entry would also reverse other
+    # vouchers' payments that were never cancelled.
+    #
+    # Untagged lines (every line predating this column, and every JE that
+    # was never part of a consolidation) still reverse in full — the
+    # original, correct behaviour for a JE one voucher owns outright.
+    entry_lines = [l for l in original_entry.lines if not getattr(l, 'is_deleted', False)]
+    is_consolidated = any(getattr(l, 'source_voucher_id', None) is not None for l in entry_lines)
+    lines_to_reverse = (
+        [l for l in entry_lines if l.source_voucher_id == voucher.id]
+        if is_consolidated else entry_lines
+    )
 
+    for line in lines_to_reverse:
         line_description = line.description or reversal_description
         reversal_line = JournalEntryLine(
             journal_entry_id=reversal_entry.id,
@@ -1161,6 +1185,20 @@ def cancel_voucher(voucher_id):
         # حادثة إنتاجية: AV-2026-00223 (2026-06-29) -- 5 دفعات، 21,770 ريال معلَّقة.
         if voucher.reference_type == 'clearing_settlement':
             AllocationService().unallocate(voucher)
+
+        # Same class of bug as AV-2026-00223 above, for reference_type='invoice'
+        # instead: cancel_voucher reverses the JE and SafeBox but never told the
+        # invoice. InvoicePaymentStateService excludes this voucher's
+        # InvoicePayment from the sum on its own (via the SafeBoxTransaction
+        # link this cancellation just reversed), so recomputing here is enough
+        # — no row is deleted, the historical InvoicePayment stays intact.
+        if voucher.reference_type == 'invoice' and voucher.reference_id:
+            try:
+                linked_invoice = Invoice.query.get(int(voucher.reference_id))
+                if linked_invoice is not None:
+                    InvoicePaymentStateService().recompute(linked_invoice)
+            except Exception as _sync_exc:
+                print(f"⚠️ invoice payment-state sync after voucher cancel skipped: {_sync_exc}")
 
         # Audit log
         try:
