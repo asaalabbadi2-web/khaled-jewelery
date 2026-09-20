@@ -1298,39 +1298,6 @@ def delete_unposted_invoice(invoice_id: int):
         db.session.rollback()
         return jsonify({'error': 'delete_failed', 'message': str(exc)}), 500
 
-@invoices_bp.route('/invoices/<int:invoice_id>/status', methods=['PATCH'])
-@require_permission('invoice.edit')
-def update_invoice_status(invoice_id: int):
-    """Update invoice payment status.
-
-    Flutter uses this endpoint from the invoices list screen.
-    Allowed statuses: unpaid, partially_paid, paid.
-    """
-
-    invoice = Invoice.query.get(invoice_id)
-    if not invoice:
-        return jsonify({'error': 'not_found', 'message': 'الفاتورة غير موجودة'}), 404
-
-    data = request.get_json(silent=True) or {}
-    status = str(data.get('status') or '').strip().lower()
-
-    allowed = {'unpaid', 'partially_paid', 'paid'}
-    if status not in allowed:
-        return jsonify({
-            'error': 'invalid_status',
-            'message': 'حالة الفاتورة غير صالحة',
-            'allowed': sorted(list(allowed)),
-        }), 400
-
-    try:
-        invoice.status = status
-        db.session.commit()
-    except Exception as exc:
-        db.session.rollback()
-        return jsonify({'error': 'update_failed', 'message': str(exc)}), 500
-
-    return jsonify(invoice.to_dict()), 200
-
 @invoices_bp.route('/invoices/<int:invoice_id>/reassign-employee', methods=['PATCH'])
 @require_permission('manager')
 def reassign_invoice_employee(invoice_id: int):

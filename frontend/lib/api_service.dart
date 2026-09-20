@@ -1471,24 +1471,6 @@ class ApiService {
     }
   }
 
-  Future<Map<String, dynamic>> updateInvoiceStatus(
-    int invoiceId,
-    String status,
-  ) async {
-    final response = await _authedPatch(
-      Uri.parse('$_baseUrl/invoices/$invoiceId/status'),
-      body: json.encode({'status': status}),
-    );
-
-    if (response.statusCode == 200) {
-      final decoded = json.decode(utf8.decode(response.bodyBytes));
-      if (decoded is Map<String, dynamic>) return decoded;
-      if (decoded is Map) return Map<String, dynamic>.from(decoded);
-      throw Exception('Invalid server response');
-    }
-    throw Exception(_errorMessageFromResponse(response));
-  }
-
   /// Add a payment to an existing invoice (used for settling remaining amounts)
   Future<Map<String, dynamic>> addInvoicePayment({
     required int invoiceId,

@@ -41,7 +41,7 @@ enum _InvoiceCreationTarget {
 
 enum _InvoiceListView { table, cards }
 
-enum _InvoiceRowAction { view, editContent, updateStatus, print, changeEmployee, post, unpost, delete }
+enum _InvoiceRowAction { view, editContent, print, changeEmployee, post, unpost, delete }
 
 class _InvoiceTabConfig {
   final String labelAr;
@@ -514,57 +514,6 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
         .where((item) => _parseStock(item['stock']) >= 1)
         .map((item) => Map<String, dynamic>.from(item))
         .toList();
-  }
-
-  Future<String?> _showStatusUpdateSheet(String currentStatus) async {
-    final isAr = widget.isArabic;
-    final options = [
-      {'value': 'paid', 'label': isAr ? 'مدفوعة' : 'Paid'},
-      {
-        'value': 'partially_paid',
-        'label': isAr ? 'مدفوعة جزئياً' : 'Partially Paid',
-      },
-      {'value': 'unpaid', 'label': isAr ? 'غير مدفوعة' : 'Unpaid'},
-    ];
-
-    return showModalBottomSheet<String>(
-      context: context,
-      builder: (ctx) {
-        return SafeArea(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const SizedBox(height: 12),
-              Text(
-                isAr ? 'تحديث حالة الفاتورة' : 'Update Invoice Status',
-                style: Theme.of(ctx).textTheme.titleMedium,
-              ),
-              const Divider(),
-              for (final option in options)
-                Card(
-                  margin: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 6,
-                  ),
-                  child: ListTile(
-                    leading: Icon(
-                      currentStatus == option['value']
-                          ? Icons.check_circle
-                          : Icons.radio_button_unchecked,
-                      color: currentStatus == option['value']
-                          ? Colors.green
-                          : Theme.of(ctx).colorScheme.onSurfaceVariant,
-                    ),
-                    title: Text(option['label']!),
-                    onTap: () => Navigator.pop(ctx, option['value']),
-                  ),
-                ),
-              const SizedBox(height: 12),
-            ],
-          ),
-        );
-      },
-    );
   }
 
   void _applyFilters() {
@@ -2782,12 +2731,6 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
           enabled: canEditContent,
         ),
         item(
-          value: _InvoiceRowAction.updateStatus,
-          icon: Icons.sync_alt,
-          label: isAr ? 'تحديث الحالة' : 'Update Status',
-          enabled: !isCancelled,
-        ),
-        item(
           value: _InvoiceRowAction.print,
           icon: Icons.print_outlined,
           label: isAr ? 'طباعة' : 'Print',
@@ -2841,9 +2784,6 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
         break;
       case _InvoiceRowAction.editContent:
         await _editInvoiceContent(invoice);
-        break;
-      case _InvoiceRowAction.updateStatus:
-        await _editInvoice(invoice);
         break;
       case _InvoiceRowAction.print:
         await _viewInvoiceDetails(invoice, autoPrint: true);
@@ -5201,50 +5141,6 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
           isAr
               ? 'فشل تحميل بيانات الفاتورة: $e'
               : 'Failed to load invoice data: $e',
-          isError: true,
-        );
-      }
-    }
-  }
-
-  Future<void> _editInvoice(Map<String, dynamic> invoice) async {
-    final invoiceIdValue = invoice['id'];
-    final invoiceId = invoiceIdValue is int
-        ? invoiceIdValue
-        : int.tryParse(invoiceIdValue?.toString() ?? '');
-
-    if (invoiceId == null) {
-      _showSnackBar(
-        widget.isArabic ? 'معرف الفاتورة غير صالح' : 'Invalid invoice id',
-        isError: true,
-      );
-      return;
-    }
-
-    final currentStatus = _normalizeStatus(
-      (invoice['status'] ?? '').toString(),
-    );
-    final selectedStatus = await _showStatusUpdateSheet(currentStatus);
-
-    if (selectedStatus == null || selectedStatus == currentStatus) {
-      return;
-    }
-
-    try {
-      await _apiService.updateInvoiceStatus(invoiceId, selectedStatus);
-      if (!mounted) return;
-      _showSnackBar(
-        widget.isArabic ? 'تم تحديث حالة الفاتورة' : 'Invoice status updated',
-        isError: false,
-      );
-      _invalidateInvoiceCache();
-      await _loadInvoices(forceRefresh: true);
-    } catch (e) {
-      if (mounted) {
-        _showSnackBar(
-          widget.isArabic
-              ? 'فشل تحديث الحالة: $e'
-              : 'Failed to update status: $e',
           isError: true,
         );
       }
