@@ -5,7 +5,6 @@ import '../models/safe_box_model.dart';
 import '../theme/app_theme.dart';
 import 'weight_closing_settings_screen.dart';
 import '../utils.dart';
-import '../widgets/safe_box_picker_dialog.dart';
 import '../providers/settings_provider.dart';
 import 'package:provider/provider.dart';
 
@@ -54,7 +53,8 @@ class _GoldReservationScreenState extends State<GoldReservationScreen> {
   // بيانات
   List<Map<String, dynamic>> _offices = []; // قائمة المكاتب
   List<SafeBoxModel> _cashBankSafeBoxes = const [];
-  int? _paymentSafeBoxId;
+  List<Map<String, dynamic>> _paymentMethods = []; // وسائل الدفع الفعالة
+  int? _selectedPaymentMethodId;
   bool _isLoading = false;
   double _currentGoldPrice = 0.0;
   int? _selectedSupplierId;
@@ -122,9 +122,14 @@ class _GoldReservationScreenState extends State<GoldReservationScreen> {
                   : a.safeType.compareTo(b.safeType),
             );
 
+      // تحميل وسائل الدفع الفعالة — الخزينة التي سيُقيَّد فيها العربون تُشتق
+      // من وسيلة الدفع (default_safe_box_id) في الـbackend، وليست اختيارًا حرًا
+      final paymentMethods = await widget.api.getActivePaymentMethods();
+
       setState(() {
         _offices = offices.cast<Map<String, dynamic>>();
         _cashBankSafeBoxes = cashBankSafes;
+        _paymentMethods = paymentMethods.cast<Map<String, dynamic>>();
       });
     } catch (e) {
       _showMessage('خطأ في تحميل البيانات: $e', isError: true);
@@ -142,23 +147,24 @@ class _GoldReservationScreenState extends State<GoldReservationScreen> {
     return '$typeLabel - ${sb.name}';
   }
 
-  Future<void> _pickPaymentSafeBox() async {
-    if (_cashBankSafeBoxes.isEmpty) {
-      _showMessage('لا توجد خزائن نقد/بنك فعالة', isError: true);
-      return;
-    }
+  String _paymentMethodNameById(int? id) {
+    if (id == null) return '';
+    final found = _paymentMethods.where((m) => m['id'] == id).toList();
+    return found.isEmpty ? '' : (found.first['name']?.toString() ?? '');
+  }
 
-    final chosen = await showDialog<SafeBoxModel>(
-      context: context,
-      builder: (_) => SafeBoxPickerDialog(
-        safeBoxes: _cashBankSafeBoxes,
-        selectedSafeBoxId: _paymentSafeBoxId,
-        excludeGold: true,
-      ),
-    );
-
-    if (!mounted || chosen == null) return;
-    setState(() => _paymentSafeBoxId = chosen.id);
+  // الخزينة الفعلية التي سيُقيَّد فيها العربون — تُشتق من
+  // PaymentMethod.default_safe_box_id في الـbackend (Phase 9C)، وتُعرض هنا
+  // للشفافية فقط، وليست قابلة للاختيار مباشرة.
+  int? get _resolvedSafeBoxId {
+    if (_selectedPaymentMethodId == null) return null;
+    final found = _paymentMethods
+        .where((m) => m['id'] == _selectedPaymentMethodId)
+        .toList();
+    if (found.isEmpty) return null;
+    final raw = found.first['default_safe_box_id'];
+    if (raw == null) return null;
+    return raw is int ? raw : int.tryParse(raw.toString());
   }
 
   // Weight changed → recompute total from price (price is the source of truth)
@@ -239,10 +245,12 @@ class _GoldReservationScreenState extends State<GoldReservationScreen> {
       return;
     }
 
-    // Enforce payment safe box selection when any amount is paid.
-    if (_paidAmount > 0 && _paymentSafeBoxId == null) {
+    // Enforce payment method selection when any amount is paid -- the
+    // backend now requires payment_method_id whenever paid_amount > 0
+    // (Phase 9C) and derives the settling safe box from it.
+    if (_paidAmount > 0 && _selectedPaymentMethodId == null) {
       _showMessage(
-        'الرجاء اختيار خزينة الدفع عند إدخال مبلغ مدفوع',
+        'الرجاء اختيار وسيلة الدفع عند إدخال مبلغ مدفوع',
         isError: true,
       );
       return;
@@ -265,7 +273,8 @@ class _GoldReservationScreenState extends State<GoldReservationScreen> {
         'total_amount': _totalAmount,
         'paid_amount': _paidAmount,
         'payment_status': _paymentStatus,
-        if (_paymentSafeBoxId != null) 'safe_box_id': _paymentSafeBoxId,
+        if (_selectedPaymentMethodId != null)
+          'payment_method_id': _selectedPaymentMethodId,
         'contact_person': _contactPersonController.text.trim().isEmpty
             ? null
             : _contactPersonController.text.trim(),
@@ -335,10 +344,14 @@ class _GoldReservationScreenState extends State<GoldReservationScreen> {
                 context.read<SettingsProvider>().buildText(
                   '${isAr ? "المبلغ المدفوع" : "Paid"}: ${_paidAmount.toStringAsFixed(2)} $_currencySymbol',
                 ),
-                if (_paidAmount > 0)
+                if (_paidAmount > 0) ...[
                   Text(
-                    '${isAr ? "خزينة الدفع" : "Payment Safe"}: ${_safeNameById(_paymentSafeBoxId)}',
+                    '${isAr ? "وسيلة الدفع" : "Payment Method"}: ${_paymentMethodNameById(_selectedPaymentMethodId)}',
                   ),
+                  Text(
+                    '${isAr ? "ستُقيَّد في خزينة" : "Will settle to safe"}: ${_safeNameById(_resolvedSafeBoxId)}',
+                  ),
+                ],
                 if (_totalAmount - _paidAmount > 0)
                   context.read<SettingsProvider>().buildText(
                     '${isAr ? "المتبقي" : "Remaining"}: ${(_totalAmount - _paidAmount).toStringAsFixed(2)} $_currencySymbol',
@@ -737,39 +750,51 @@ class _GoldReservationScreenState extends State<GoldReservationScreen> {
                               inputFormatters: [NormalizeNumberFormatter()],
                             ),
                             const SizedBox(height: 12),
-                            // خزينة الدفع
-                            ListTile(
-                              contentPadding: EdgeInsets.zero,
-                              leading: const Icon(
-                                Icons.account_balance_wallet_outlined,
+                            // وسيلة الدفع — إلزامية عند وجود مبلغ مدفوع
+                            // (Phase 9C: الخزينة تُشتق منها في الـbackend،
+                            // وليست اختيارًا منفصلاً)
+                            DropdownButtonFormField<int>(
+                              key: ValueKey(
+                                'payment-method-${_selectedPaymentMethodId ?? 'none'}',
                               ),
-                              title: Text(
-                                isAr
-                                    ? 'خزينة الدفع: ${_safeNameById(_paymentSafeBoxId)}'
-                                    : 'Payment Safe: ${_safeNameById(_paymentSafeBoxId)}',
+                              initialValue: _selectedPaymentMethodId,
+                              decoration: InputDecoration(
+                                labelText: isAr
+                                    ? 'وسيلة الدفع'
+                                    : 'Payment Method',
+                                border: const OutlineInputBorder(),
+                                prefixIcon: const Icon(
+                                  Icons.account_balance_wallet_outlined,
+                                ),
                               ),
-                              subtitle: Text(
-                                isAr
-                                    ? 'اختياري: لتحديد خزينة/حساب خروج الدفعة لهذه العملية'
-                                    : 'Optional: choose which safe/account pays this amount',
-                              ),
-                              trailing: Wrap(
-                                spacing: 8,
-                                children: [
-                                  TextButton(
-                                    onPressed: _pickPaymentSafeBox,
-                                    child: Text(isAr ? 'اختيار' : 'Pick'),
-                                  ),
-                                  if (_paymentSafeBoxId != null)
-                                    TextButton(
-                                      onPressed: () => setState(
-                                        () => _paymentSafeBoxId = null,
-                                      ),
-                                      child: Text(isAr ? 'مسح' : 'Clear'),
-                                    ),
-                                ],
-                              ),
+                              isExpanded: true,
+                              items: _paymentMethods.map((method) {
+                                return DropdownMenuItem<int>(
+                                  value: method['id'],
+                                  child: Text(method['name']?.toString() ?? ''),
+                                );
+                              }).toList(),
+                              onChanged: (value) {
+                                setState(() => _selectedPaymentMethodId = value);
+                              },
+                              validator: (value) {
+                                if (_paidAmount > 0 && value == null) {
+                                  return isAr
+                                      ? 'الرجاء اختيار وسيلة الدفع'
+                                      : 'Please select a payment method';
+                                }
+                                return null;
+                              },
                             ),
+                            if (_selectedPaymentMethodId != null) ...[
+                              const SizedBox(height: 6),
+                              Text(
+                                isAr
+                                    ? 'ستُقيَّد في خزينة: ${_safeNameById(_resolvedSafeBoxId)}'
+                                    : 'Will settle to safe: ${_safeNameById(_resolvedSafeBoxId)}',
+                                style: theme.textTheme.bodySmall,
+                              ),
+                            ],
                             const SizedBox(height: 12),
                             // المتبقي
                             if (_totalAmount - _paidAmount > 0)
