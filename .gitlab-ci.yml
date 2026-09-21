@@ -149,6 +149,7 @@ deploy-production:
     - cd C:\khaled-jewelery
     - docker compose -f docker-compose.prod.gitlab.yml --env-file .env.production pull
     - docker compose -f docker-compose.prod.gitlab.yml --env-file .env.production up -d --remove-orphans
+    - docker compose -f docker-compose.prod.gitlab.yml --env-file .env.production exec -T backend bash -c "cd /app/backend && alembic upgrade head"
     - echo "Deploy completed successfully"
   environment:
     name: production
