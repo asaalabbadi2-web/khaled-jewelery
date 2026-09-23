@@ -848,6 +848,9 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
           if (normalized == 'cancelled') return sum;
 
           final total = _tryParseDouble(invoice['total']);
+          final cashObligation = invoice.containsKey('cash_obligation')
+              ? _tryParseDouble(invoice['cash_obligation'])
+              : total;
           final paidCash = _tryParseDouble(
             invoice['amount_paid'] ?? invoice['total_payments_amount'],
           );
@@ -858,7 +861,10 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
           final totalSettled = hasTotalSettledKey
               ? _tryParseDouble(invoice['total_settled_amount'])
               : (paidCash + barterTotal);
-          final remaining = (total - totalSettled).clamp(0.0, double.infinity);
+          final remaining = (cashObligation - totalSettled).clamp(
+            0.0,
+            double.infinity,
+          );
           return sum + remaining;
         } catch (e) {
           return sum;
@@ -3709,6 +3715,15 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
     final total = _tryParseDouble(invoice['total']);
     final tax = _tryParseDouble(invoice['total_tax']);
     final subtotal = (total - tax).clamp(0.0, double.infinity);
+    // For invoice_type='شراء', `total` also carries the raw gold value
+    // itself — a barter/inventory concept, never a cash debt on the
+    // supplier. `cash_obligation` (backend, Invoice.cash_obligation) is the
+    // real cash ceiling; falls back to `total` when absent (every other
+    // invoice_type, or an older cached response) since the two are
+    // identical there.
+    final cashObligation = invoice.containsKey('cash_obligation')
+        ? _tryParseDouble(invoice['cash_obligation'])
+        : total;
 
     final paidCash = _tryParseDouble(
       invoice['amount_paid'] ?? invoice['total_payments_amount'],
@@ -3719,7 +3734,10 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
         ? _tryParseDouble(invoice['total_settled_amount'])
         : (paidCash + barterTotal);
     final paid = totalSettled;
-    final remaining = (total - totalSettled).clamp(0.0, double.infinity);
+    final remaining = (cashObligation - totalSettled).clamp(
+      0.0,
+      double.infinity,
+    );
     final canSettle = !isCancelled && remaining > 0.01;
 
     final invoiceNumber = _getInvoiceDisplayNumber(invoice);

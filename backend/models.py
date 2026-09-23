@@ -1216,6 +1216,37 @@ class Invoice(db.Model):
             except Exception:
                 return "INV"
 
+    @property
+    def cash_obligation(self) -> float:
+        """The real cash-payable ceiling for this invoice.
+
+        For every invoice_type except 'شراء', this is just `total`. For a
+        registered-supplier purchase ('شراء'), `total` also includes the raw
+        gold value itself — a barter/inventory concept, never a cash debt on
+        the supplier (see routes/invoices.py's own "ليست التزامًا على
+        المورد" comment on the memo-account gold posting). The real cash
+        ceiling is only the manufacturing wage (when the supplier is paid in
+        cash, not gold) plus its VAT plus any gold-value VAT — Phase 12A-12C
+        of the invoice-payment audit.
+        """
+        if (self.invoice_type or '').strip() != 'شراء':
+            return float(self.total or 0.0)
+
+        wage_cash = float(self.wage_subtotal or 0.0)
+        wage_type = 'cash'
+        try:
+            if self.supplier is not None:
+                wage_type = self.supplier.default_wage_type or 'cash'
+        except Exception:
+            wage_type = 'cash'
+        if str(wage_type).strip().lower() == 'gold':
+            wage_cash = 0.0
+
+        return round(
+            wage_cash + float(self.wage_tax_total or 0.0) + float(self.gold_tax_total or 0.0),
+            2,
+        )
+
     def to_dict(self):
         invoice_type_value = (self.invoice_type or '').strip()
         if 'مورد' in invoice_type_value and 'شراء' in invoice_type_value:
@@ -1275,6 +1306,7 @@ class Invoice(db.Model):
             'wage_subtotal': self.wage_subtotal,
             'gold_tax_total': self.gold_tax_total,
             'wage_tax_total': self.wage_tax_total,
+            'cash_obligation': self.cash_obligation,
             'apply_gold_tax': self.apply_gold_tax,
             'avg_cost_per_gram_snapshot': self.avg_cost_per_gram_snapshot,
             'avg_cost_gold_component': self.avg_cost_gold_component,

@@ -25,6 +25,16 @@ SINGLE SOURCE OF TRUTH
     what let amount_paid and the real InvoicePayment rows drift apart in
     production).
 
+WHAT amount_paid IS COMPARED AGAINST (Phase 13)
+    invoice.cash_obligation (models.py), not invoice.total — for every
+    invoice_type except 'شراء' the two are identical, so this only changes
+    anything for registered-supplier purchases. Invoice.total there also
+    carries the raw gold value itself, which is a barter/inventory concept
+    and never a cash debt on the supplier (routes/invoices.py's own "ليست
+    التزامًا على المورد" comment on the memo-account gold posting) — see the
+    invoice-payment audit's Phase 12A-12C. amount_paid itself is untouched by
+    this: it still only ever counts real InvoicePayment rows.
+
 CANCELLATION IS EXCLUDED BY A DIRECT FK, NEVER BY DELETING THE ROW
     cancel_voucher (routes/vouchers.py) reverses the JournalEntry and
     SafeBoxTransaction for a payment voucher but has never touched
@@ -107,6 +117,7 @@ class InvoicePaymentState:
     re-deriving it from the invoice object afterward."""
     invoice_id: int
     total: float
+    obligation_ceiling: float
     amount_paid: float
     status: str
     changed: bool
@@ -125,12 +136,14 @@ class InvoicePaymentStateService:
             return InvoicePaymentState(
                 invoice_id=int(invoice.id),
                 total=float(invoice.total or 0.0),
+                obligation_ceiling=float(invoice.cash_obligation),
                 amount_paid=float(invoice.amount_paid or 0.0),
                 status=invoice.status,
                 changed=False,
             )
 
         total = float(invoice.total or 0.0)
+        obligation_ceiling = float(invoice.cash_obligation)
         paid = self._sum_invoice_payments(invoice.id)
         barter = float(getattr(invoice, 'barter_total', 0.0) or 0.0)
         total_settled = round(paid + barter, 2)
@@ -141,13 +154,14 @@ class InvoicePaymentStateService:
         )
 
         invoice.amount_paid = total_settled
-        invoice.status = self._status_for(total=total, total_settled=total_settled)
+        invoice.status = self._status_for(total=obligation_ceiling, total_settled=total_settled)
 
         after = (total_settled, invoice.status)
 
         return InvoicePaymentState(
             invoice_id=int(invoice.id),
             total=total,
+            obligation_ceiling=obligation_ceiling,
             amount_paid=total_settled,
             status=invoice.status,
             changed=(before != after),
