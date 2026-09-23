@@ -21,6 +21,7 @@ from models import (
     SafeBox,
     SafeBoxTransaction,
     Supplier,
+    SupplierGoldAdvance,
     Voucher,
     VoucherAccountLine,
 )
@@ -40,6 +41,10 @@ from allocation_service import AllocationService
 from services.invoice_payment_state_service import (
     InvoicePaymentStateService,
     sync_invoice_payment_state_after_voucher_approval,
+)
+from services.gold_allocation_service import (
+    GoldAllocationService,
+    sync_gold_advance_after_voucher_approval,
 )
 from accounting.wages import _ensure_gold24k_commission_revenue_account
 from routes import (
@@ -1005,6 +1010,7 @@ def approve_voucher(voucher_id):
         # sync_invoice_payment_state_after_voucher_approval's own docstring
         # for exactly which shape this does and does not fix.
         sync_invoice_payment_state_after_voucher_approval(voucher)
+        sync_gold_advance_after_voucher_approval(voucher)
 
         # Audit log
         try:
@@ -1185,6 +1191,14 @@ def cancel_voucher(voucher_id):
         # حادثة إنتاجية: AV-2026-00223 (2026-06-29) -- 5 دفعات، 21,770 ريال معلَّقة.
         if voucher.reference_type == 'clearing_settlement':
             AllocationService().unallocate(voucher)
+
+        # Same class of bug as AV-2026-00223, for reference_type='gold_advance':
+        # a cancelled advance's SupplierGoldAdvance row(s) must have their
+        # GoldAllocation rows freed too, or the weight they consumed stays
+        # invisibly locked against invoices it no longer really covers.
+        if voucher.reference_type == 'gold_advance':
+            for advance in SupplierGoldAdvance.query.filter_by(source_voucher_id=voucher.id).all():
+                GoldAllocationService().unallocate(advance_id=advance.id)
 
         # Same class of bug as AV-2026-00223 above, for reference_type='invoice'
         # instead: cancel_voucher reverses the JE and SafeBox but never told the

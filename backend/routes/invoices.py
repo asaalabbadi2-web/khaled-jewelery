@@ -74,6 +74,10 @@ from gold_costing_service import GoldCostingService, ScrapCostingService
 from office_supplier_service import ensure_office_supplier
 from party_account_service import ensure_customer_accounts, ensure_supplier_accounts
 from services.invoice_payment_state_service import InvoicePaymentStateService
+from services.gold_allocation_service import (
+    create_gold_obligations_for_invoice,
+    reverse_gold_allocations_for_invoice,
+)
 from services.journals import create_wage_weight_release_journal
 from services.weight_execution import list_weight_profiles, resolve_weight_profile
 from settlement_state_service import get_settled_amounts, is_locked
@@ -8833,6 +8837,24 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None):
             InvoicePaymentStateService().recompute(new_invoice)
         except Exception:
             pass
+
+        # Phase 15C: Gold Advance auto-FIFO. A real 'شراء' purchase just
+        # posted — normalize its own recorded gold weight (InvoiceKaratLine
+        # or InvoiceItem, whichever it used — see create_gold_obligations_
+        # for_invoice's own docstring, Phase 15A-Correction) into
+        # InvoiceGoldObligation rows and immediately try to satisfy them
+        # from any open, same-karat SupplierGoldAdvance for this supplier.
+        # A 'مرتجع شراء (مورد)' return instead FREES whatever the ORIGINAL
+        # invoice had already consumed (see reverse_gold_allocations_for_
+        # invoice's own docstring — same reasoning as
+        # reverse_weight_closing_executions_for_invoice, applied here).
+        if invoice_type == 'شراء':
+            try:
+                create_gold_obligations_for_invoice(new_invoice)
+            except Exception as _gold_alloc_exc:
+                print(f"⚠️ gold allocation after invoice post skipped: {_gold_alloc_exc}")
+        elif invoice_type == 'مرتجع شراء (مورد)' and getattr(new_invoice, 'original_invoice_id', None):
+            reverse_gold_allocations_for_invoice(new_invoice.original_invoice_id)
 
         journal_entry.is_posted = True
         journal_entry.is_draft = False

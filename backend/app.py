@@ -62,6 +62,7 @@ try:
 	from routes.journals import journals_bp
 	from routes.vouchers import vouchers_bp
 	from routes.clearing import clearing_bp
+	from routes.gold_advances import gold_advances_bp
 	from routes.office_reservations import office_reservations_bp
 	from routes.admin import admin_bp
 	from routes.system import system_bp
@@ -437,6 +438,7 @@ app.register_blueprint(safe_boxes_bp, url_prefix='/api') # Safe-boxes domain
 app.register_blueprint(journals_bp, url_prefix='/api')  # Journal-entries domain
 app.register_blueprint(vouchers_bp, url_prefix='/api')  # Vouchers domain
 app.register_blueprint(clearing_bp, url_prefix='/api')  # Clearing & weight-closing domain
+app.register_blueprint(gold_advances_bp, url_prefix='/api')  # Gold Advance & Allocation domain (Phase 15C)
 app.register_blueprint(office_reservations_bp, url_prefix='/api')  # Office reservations domain
 app.register_blueprint(admin_bp, url_prefix='/api')     # Admin & temp-pdf domain
 app.register_blueprint(system_bp, url_prefix='/api')    # System domain (debug, settings, reset, backup)

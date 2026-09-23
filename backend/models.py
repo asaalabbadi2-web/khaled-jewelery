@@ -1667,6 +1667,157 @@ class InvoiceKaratLine(db.Model):
         }
 
 
+class InvoiceGoldObligation(db.Model):
+    """The real gold debt a 'شراء' purchase invoice creates, normalized into
+    one row per real karat — Phase 15A-Correction.
+
+    Deliberately NOT InvoiceKaratLine and NOT InvoiceItem: both of those
+    describe how the invoice recorded its own line items (an input/UI
+    concern — Phase 15A-Discovery.2 proved real purchase invoices use EITHER
+    one, 147/180 via InvoiceItem, only 33/180 via InvoiceKaratLine, and the
+    4 invoices carrying both have identical per-karat totals in each —
+    duplicates of the same fact, never two separate obligations). This table
+    is the single, source-agnostic ledger GoldAllocation actually matches
+    against, so a future third representation of "how a purchase invoice
+    records its items" would only require a new populator here, never a
+    schema or GoldAllocation change.
+
+    Precedence when normalizing (matches the existing GL-posting fallback in
+    posting_routes.py exactly): if the invoice has InvoiceKaratLine rows, use
+    those exclusively; otherwise derive from InvoiceItem (weight * quantity,
+    falling back to the linked Item's own karat/weight when the InvoiceItem's
+    own fields are blank — a real code path, though never exercised in
+    production data). Group by karat (rounded to the nearest int, default 21
+    for anything unmapped) and sum the weight into one row per karat.
+
+    karat/weight are the REAL, aggregated karat and weight — never converted.
+    weight_remaining_main_karat is the running balance, in main-karat-
+    equivalent (see the Phase 14/15A karat rule: obligations and settlements
+    keep their own real karat, only a running balance is ever converted,
+    because subtracting across differing karats needs a common unit).
+    """
+    __tablename__ = 'invoice_gold_obligation'
+
+    id = db.Column(db.Integer, primary_key=True)
+    invoice_id = db.Column(db.Integer, db.ForeignKey('invoice.id'), nullable=False, index=True)
+    karat = db.Column(db.Float, nullable=False)
+    weight = db.Column(db.Float, nullable=False)
+    weight_remaining_main_karat = db.Column(db.Float, nullable=False)
+    created_at = db.Column(db.DateTime, default=db.func.now())
+
+    invoice = db.relationship(
+        'Invoice', foreign_keys=[invoice_id],
+        backref=db.backref('gold_obligations', lazy='dynamic'),
+    )
+
+    __table_args__ = (
+        db.UniqueConstraint('invoice_id', 'karat', name='_invoice_gold_obligation_invoice_karat_uc'),
+    )
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'invoice_id': self.invoice_id,
+            'karat': self.karat,
+            'weight': self.weight,
+            'weight_remaining_main_karat': self.weight_remaining_main_karat,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+class SupplierGoldAdvance(db.Model):
+    """A gold payment to a supplier not (yet) tied to any specific invoice.
+
+    Phase 12F/14: created from the general voucher path with
+    Voucher.reference_type='gold_advance' (no new voucher_type — reference_type
+    is the existing semantic-purpose discriminator on Voucher; voucher_type
+    only describes receipt/payment/adjustment). One row per (voucher, karat) —
+    a single voucher paying multiple karats produces multiple rows, mirroring
+    VoucherAccountLine's own established one-row-per-karat pattern (confirmed
+    empirically: 97.3% of real gold-bearing JournalEntryLine rows carry one
+    karat, 2.7% carry two on a single line — the multi-karat-per-voucher case
+    is real and already handled at the VoucherAccountLine/JournalEntryLine
+    layer this way).
+
+    karat/weight are the REAL karat this advance was actually paid in — never
+    converted. weight_remaining_main_karat is the running unapplied balance,
+    in main-karat-equivalent (see InvoiceKaratLine.weight_remaining_main_karat
+    for why). Whether this advance is still valid is NOT stored here — join
+    source_voucher.status, mirroring AllocationService.build_allocation_plan's
+    own established pattern (it filters Voucher.status=='approved' rather
+    than duplicating status onto SettlementLine).
+
+    No invoice_id: that is the entire point of an Advance (Phase 12F).
+    """
+    __tablename__ = 'supplier_gold_advance'
+
+    id = db.Column(db.Integer, primary_key=True)
+    supplier_id = db.Column(db.Integer, db.ForeignKey('supplier.id'), nullable=False, index=True)
+    source_voucher_id = db.Column(db.Integer, db.ForeignKey('voucher.id'), nullable=False, index=True)
+    karat = db.Column(db.Float, nullable=False)
+    weight = db.Column(db.Float, nullable=False)
+    weight_remaining_main_karat = db.Column(db.Float, nullable=False)
+    created_at = db.Column(db.DateTime, default=db.func.now())
+
+    supplier = db.relationship('Supplier', foreign_keys=[supplier_id])
+    source_voucher = db.relationship('Voucher', foreign_keys=[source_voucher_id])
+
+    __table_args__ = (
+        db.UniqueConstraint('source_voucher_id', 'karat', name='_gold_advance_voucher_karat_uc'),
+    )
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'supplier_id': self.supplier_id,
+            'source_voucher_id': self.source_voucher_id,
+            'karat': self.karat,
+            'weight': self.weight,
+            'weight_remaining_main_karat': self.weight_remaining_main_karat,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+class GoldAllocation(db.Model):
+    """One FIFO (or explicit-override) match: this much of one
+    SupplierGoldAdvance applied against one InvoiceGoldObligation. Append-only,
+    mirroring AllocationService/SettlementLine's own documented invariant —
+    no in-place UPDATE outside a named repair script; correcting an
+    allocation means adding a new row (and, in Phase 15C, a reversal path),
+    never editing amount in place.
+
+    weight_applied_main_karat is the only weight field here, deliberately —
+    this row IS a balance-reduction event, and per Phase 14's rule a balance
+    is only ever main-karat-equivalent. The real karat on each side is never
+    duplicated here; it lives one hop away via advance/obligation.
+
+    No uniqueness constraint on (advance_id, obligation_id): the same pair
+    may legitimately gain a second row if a later allocation pass (or an
+    explicit override) covers more of the same obligation from the same
+    advance — same reasoning as SettlementLine allowing multiple rows per
+    voucher.
+    """
+    __tablename__ = 'gold_allocation'
+
+    id = db.Column(db.Integer, primary_key=True)
+    advance_id = db.Column(db.Integer, db.ForeignKey('supplier_gold_advance.id'), nullable=False, index=True)
+    obligation_id = db.Column(db.Integer, db.ForeignKey('invoice_gold_obligation.id'), nullable=False, index=True)
+    weight_applied_main_karat = db.Column(db.Float, nullable=False)
+    created_at = db.Column(db.DateTime, default=db.func.now())
+
+    advance = db.relationship('SupplierGoldAdvance', backref=db.backref('allocations', lazy='dynamic'))
+    obligation = db.relationship('InvoiceGoldObligation', backref=db.backref('allocations', lazy='dynamic'))
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'advance_id': self.advance_id,
+            'obligation_id': self.obligation_id,
+            'weight_applied_main_karat': self.weight_applied_main_karat,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+        }
+
+
 class WeightClosingLog(db.Model):
     __tablename__ = 'weight_closing_log'
 
