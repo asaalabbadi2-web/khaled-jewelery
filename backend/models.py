@@ -1108,6 +1108,22 @@ class Invoice(db.Model):
     gold24k_commission_total = db.Column(db.Float, default=0.0)     # إجمالي العمولة
 
     # عمولة / رسوم فرق العيار (شاملة — تدعم الاتجاهين)
+    # Does this invoice's gold side count towards its payment status?
+    #
+    # True only for purchase invoices created once payment intent began being
+    # recorded (Phase A). For everything older it stays False, and that is a
+    # statement of fact, not a defect: attribution was never captured for those,
+    # so their gold dimension is UNTRACKED — deliberately not "unsettled".
+    # Measured before this shipped: of 149 real invoices carrying a gold
+    # obligation only 21 had attributable settlement, so treating the other 128
+    # as unpaid would have marked genuinely settled invoices unpaid, including
+    # suppliers whose ledger balance is zero.
+    #
+    # Write-once at creation. No normal operation may flip it False -> True,
+    # because doing so would make an invoice's meaning depend on when someone
+    # happened to link a payment to it. Enforced by a ratchet test.
+    gold_settlement_tracked = db.Column(db.Boolean, default=False, nullable=False,
+                                        server_default='false')
     karat_diff_settlement = db.Column(db.Boolean, default=False)
     karat_diff_owed_karat = db.Column(db.Float, default=0.0)
     karat_diff_paid_karat = db.Column(db.Float, default=0.0)

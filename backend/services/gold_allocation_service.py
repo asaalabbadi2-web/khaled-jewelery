@@ -442,6 +442,7 @@ class GoldAllocationService:
         )
         db.session.add(allocation)
         db.session.flush()
+        _resync_invoice_status(obligation.invoice_id)
         return allocation
 
     def unallocate(self, *, advance_id: int = None, obligation_id: int = None) -> int:
@@ -463,9 +464,15 @@ class GoldAllocationService:
             query = query.filter_by(obligation_id=obligation_id)
 
         rows = query.all()
+        touched_invoice_ids = set()
         for row in rows:
+            obligation = InvoiceGoldObligation.query.get(row.obligation_id)
+            if obligation is not None:
+                touched_invoice_ids.add(obligation.invoice_id)
             db.session.delete(row)
         db.session.flush()
+        for invoice_id in touched_invoice_ids:
+            _resync_invoice_status(invoice_id)
         return len(rows)
 
 
@@ -540,6 +547,8 @@ def create_gold_obligations_for_invoice(invoice: Invoice) -> list[InvoiceGoldObl
         db.session.flush()
         obligations.append(obligation)
 
+    if obligations:
+        _resync_invoice_status(invoice.id)
     return obligations
 
 
@@ -602,6 +611,32 @@ def sync_gold_advance_after_voucher_approval(voucher: Voucher) -> None:
             db.session.flush()
     except Exception as _sync_exc:
         print(f"⚠️ gold advance sync after voucher approve skipped: {_sync_exc}")
+
+
+def _resync_invoice_status(invoice_id: int) -> None:
+    """Recompute the invoice's payment status after a gold event.
+
+    Invoice.status is a stored column read by lists, filters and reports, and it
+    now depends on the gold side too — so every gold event that can change what
+    is attributed MUST land here, or the column drifts. That is the fourth cache
+    in this codebase, so the trigger set is deliberately small and enumerable:
+    attribution written or removed, an allocation applied or freed, obligations
+    created. A ratchet test asserts each of those paths calls this.
+
+    Imported lazily to avoid an import cycle, and best-effort on purpose: the
+    real accounting is already committed by the time a gold event lands, and a
+    status refresh failing must not roll it back. A drifted status is
+    recoverable by recomputing; a lost GL entry is not.
+    """
+    if not invoice_id:
+        return
+    try:
+        from services.invoice_payment_state_service import InvoicePaymentStateService
+        invoice = Invoice.query.get(invoice_id)
+        if invoice is not None:
+            InvoicePaymentStateService().recompute(invoice)
+    except Exception as exc:
+        print(f"⚠️ invoice #{invoice_id} status resync after a gold event skipped: {exc}")
 
 
 def invoice_open_gold_obligation(invoice_id: int) -> float:
@@ -685,6 +720,7 @@ def attribute_gold_to_invoice(
     )
     db.session.add(row)
     db.session.flush()
+    _resync_invoice_status(invoice_id)
     return row
 
 
@@ -764,9 +800,12 @@ def remove_attributions_for_voucher(voucher_id: int) -> int:
     it (the AV-2026-00223 lesson). Returns the count removed. Caller commits.
     """
     rows = VoucherInvoiceGoldAttribution.query.filter_by(voucher_id=voucher_id).all()
+    invoice_ids = {row.invoice_id for row in rows}
     for row in rows:
         db.session.delete(row)
     db.session.flush()
+    for invoice_id in invoice_ids:
+        _resync_invoice_status(invoice_id)
     return len(rows)
 
 

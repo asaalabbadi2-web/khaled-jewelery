@@ -75,6 +75,7 @@ from office_supplier_service import ensure_office_supplier
 from party_account_service import ensure_customer_accounts, ensure_supplier_accounts
 from services.invoice_payment_state_service import InvoicePaymentStateService
 from services.gold_allocation_service import (
+    is_gold_obligation_eligible,
     create_gold_obligations_for_invoice,
     reverse_gold_allocations_for_invoice,
 )
@@ -8851,6 +8852,14 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None):
         if invoice_type == 'شراء':
             try:
                 create_gold_obligations_for_invoice(new_invoice)
+                # THE one place this is ever written. From here on this invoice's
+                # gold counts towards its payment status; every invoice created
+                # before this shipped stays False, because attribution was never
+                # captured for them and their gold side is untracked rather than
+                # unsettled. A ratchet test forbids assigning it anywhere else,
+                # and nothing may flip an existing invoice False -> True.
+                if is_gold_obligation_eligible(new_invoice):
+                    new_invoice.gold_settlement_tracked = True
             except Exception as _gold_alloc_exc:
                 print(f"⚠️ gold allocation after invoice post skipped: {_gold_alloc_exc}")
         elif invoice_type == 'مرتجع شراء (مورد)' and getattr(new_invoice, 'original_invoice_id', None):

@@ -110,6 +110,10 @@ from models import Invoice, InvoicePayment, Voucher, db
 
 CASH_EPSILON = 0.01
 
+# Weight tolerance, matching gold_allocation_service.WEIGHT_EPSILON so the two
+# modules cannot disagree about whether an obligation is closed.
+GOLD_EPSILON = 0.005
+
 
 @dataclass(frozen=True)
 class InvoicePaymentState:
@@ -121,6 +125,11 @@ class InvoicePaymentState:
     amount_paid: float
     status: str
     changed: bool
+    # The gold dimension, None when this invoice's gold is UNTRACKED (every
+    # invoice predating Phase A). None means "not part of the status decision",
+    # never "nothing settled".
+    gold_required_main_karat: float = None
+    gold_attributed_main_karat: float = None
 
 
 class InvoicePaymentStateService:
@@ -153,8 +162,17 @@ class InvoicePaymentStateService:
             invoice.status,
         )
 
+        gold_required, gold_settled = self._gold_dimension(invoice)
+
+        # amount_paid stays CASH ONLY — it is a currency field, and the gold
+        # dimension has its own quantities rather than being folded into it.
         invoice.amount_paid = total_settled
-        invoice.status = self._status_for(total=obligation_ceiling, total_settled=total_settled)
+        invoice.status = self._status_for(
+            total=obligation_ceiling,
+            total_settled=total_settled,
+            gold_required=gold_required,
+            gold_settled=gold_settled,
+        )
 
         after = (total_settled, invoice.status)
 
@@ -165,6 +183,8 @@ class InvoicePaymentStateService:
             amount_paid=total_settled,
             status=invoice.status,
             changed=(before != after),
+            gold_required_main_karat=gold_required,
+            gold_attributed_main_karat=gold_settled,
         )
 
     @staticmethod
@@ -190,15 +210,89 @@ class InvoicePaymentStateService:
         return round(float(total or 0.0), 2)
 
     @staticmethod
-    def _status_for(*, total: float, total_settled: float) -> str:
-        if total <= CASH_EPSILON:
-            # Zero-total invoices: any settlement at all counts as paid.
-            return 'paid' if total_settled > CASH_EPSILON else 'unpaid'
-        if total_settled <= CASH_EPSILON:
-            return 'unpaid'
-        if total_settled >= total - CASH_EPSILON:
+    def _status_for(
+        *,
+        total: float,
+        total_settled: float,
+        gold_required: float = None,
+        gold_settled: float = None,
+    ) -> str:
+        """The invoice's status from BOTH obligations.
+
+        `gold_required is None` means this invoice's gold is UNTRACKED, and the
+        answer is then exactly what it has always been — cash alone. That is
+        what keeps every invoice predating Phase A bit-for-bit unchanged.
+
+        When gold IS tracked, 'paid' requires both sides. A purchase invoice can
+        owe 5,000 SAR and 200 g; paying the cash and 120 g of the gold leaves it
+        partially paid with 80 g outstanding, and calling that 'paid' because the
+        cash cleared would be the same half-truth this whole audit began with.
+        """
+        cash_touched = total_settled > CASH_EPSILON
+
+        if gold_required is None:
+            if total <= CASH_EPSILON:
+                # Zero-total invoices: any settlement at all counts as paid.
+                return 'paid' if cash_touched else 'unpaid'
+            if not cash_touched:
+                return 'unpaid'
+            return 'paid' if total_settled >= total - CASH_EPSILON else 'partially_paid'
+
+        # A zero CASH obligation is SATISFIED, not merely untouched. This is a
+        # real shape, not a corner case: Phase 13 gives a purchase invoice a
+        # cash_obligation of 0 when the supplier's wage is paid in gold
+        # (default_wage_type='gold'), so its entire obligation is the gold. The
+        # legacy zero-total rule above ("paid only if something was paid")
+        # belongs to a cash-only world; applied here it would hold such an
+        # invoice at partially_paid forever with its gold fully settled.
+        cash_paid = total <= CASH_EPSILON or total_settled >= total - CASH_EPSILON
+
+        gold_required = float(gold_required or 0.0)
+        gold_settled = float(gold_settled or 0.0)
+        # No gold obligation at all: the gold side is vacuously satisfied and
+        # must not drag an otherwise paid invoice down to partial.
+        gold_paid = gold_required <= GOLD_EPSILON or gold_settled >= gold_required - GOLD_EPSILON
+        gold_touched = gold_settled > GOLD_EPSILON
+
+        if total <= CASH_EPSILON and gold_required <= GOLD_EPSILON:
+            return 'paid' if (cash_touched or gold_touched) else 'unpaid'
+        if cash_paid and gold_paid:
             return 'paid'
+        if not cash_touched and not gold_touched:
+            return 'unpaid'
         return 'partially_paid'
+
+    @staticmethod
+    def _gold_dimension(invoice):
+        """(required, attributed) in main-karat-equivalent, or (None, None) when
+        this invoice's gold is untracked.
+
+        Imported lazily: invoice_payment_state_service is imported very early and
+        gold_allocation_service imports models that would close the cycle.
+        """
+        if not getattr(invoice, 'gold_settlement_tracked', False):
+            return None, None
+        try:
+            from services.gold_allocation_service import (
+                direct_linked_settlement_for_invoice,
+                obligation_attributed_remaining,
+            )
+            from models import InvoiceGoldObligation
+            from pricing.karat_service import convert_to_main_karat
+
+            obligations = InvoiceGoldObligation.query.filter_by(
+                invoice_id=invoice.id
+            ).all()
+            required = sum(
+                float(convert_to_main_karat(float(o.weight or 0.0), o.karat))
+                for o in obligations
+            )
+            remaining = sum(obligation_attributed_remaining(o) for o in obligations)
+            return round(required, 2), round(required - remaining, 2)
+        except Exception as exc:
+            # A tracked invoice whose gold cannot be read must NOT silently
+            # become cash-only — that would quietly re-introduce the half-truth.
+            raise
 
 
 def sync_invoice_payment_state_after_voucher_approval(voucher) -> None:
