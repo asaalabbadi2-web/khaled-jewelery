@@ -1815,6 +1815,56 @@ class ApiService {
     throw Exception(_errorMessageFromResponse(response));
   }
 
+  /// What a voucher's gold currently settles, and how much is unattributed.
+  Future<Map<String, dynamic>> getVoucherGoldAttribution(int voucherId) async {
+    final response = await _authedGet(
+      Uri.parse('$_baseUrl/vouchers/$voucherId/gold-attribution'),
+    );
+    if (response.statusCode == 200) {
+      return Map<String, dynamic>.from(
+        json.decode(utf8.decode(response.bodyBytes)) as Map,
+      );
+    }
+    throw Exception(_errorMessageFromResponse(response));
+  }
+
+  /// Correct a classification after approval: attribute this voucher's gold to
+  /// a stated invoice. The caller states the invoice; nothing is inferred.
+  Future<Map<String, dynamic>> attributeVoucherGold(
+    int voucherId, {
+    required int invoiceId,
+    required double karat,
+    required double weight,
+  }) async {
+    final response = await _authedPost(
+      Uri.parse('$_baseUrl/vouchers/$voucherId/gold-attribution'),
+      headers: {'Content-Type': 'application/json; charset=UTF-8'},
+      body: json.encode({
+        'invoice_id': invoiceId,
+        'karat': karat,
+        'weight': weight,
+      }),
+    );
+    if (response.statusCode == 201) {
+      return Map<String, dynamic>.from(
+        json.decode(utf8.decode(response.bodyBytes)) as Map,
+      );
+    }
+    throw Exception(_errorMessageFromResponse(response));
+  }
+
+  Future<void> removeVoucherGoldAttribution(
+    int voucherId,
+    int attributionId,
+  ) async {
+    final response = await _authedDelete(
+      Uri.parse('$_baseUrl/vouchers/$voucherId/gold-attribution/$attributionId'),
+    );
+    if (response.statusCode != 200) {
+      throw Exception(_errorMessageFromResponse(response));
+    }
+  }
+
   Future<Map<String, dynamic>> getSupplierLedger(
     int supplierId, {
     int page = 1,

@@ -771,6 +771,16 @@ def sync_gold_attribution_after_voucher_approval(voucher) -> int:
     if VoucherInvoiceGoldAttribution.query.filter_by(voucher_id=voucher.id).first() is not None:
         return 0
 
+    # An explicit distribution across several invoices wins over the single
+    # invoice on reference_id: reference_id is one integer and cannot express
+    # «سداد متبقيات سابقة + باقي قيمة حجز», which real vouchers do express.
+    splits = _declared_gold_splits(voucher)
+    if splits:
+        return len(attribute_gold_across_invoices(
+            voucher=voucher, splits=splits,
+            created_by=getattr(voucher, 'created_by', None),
+        ))
+
     by_karat: dict[float, float] = {}
     for line in voucher.account_lines.all():
         if line.amount_type == 'gold' and line.line_type == 'debit' and line.karat:
@@ -792,6 +802,73 @@ def sync_gold_attribution_after_voucher_approval(voucher) -> int:
         )
         created += 1
     return created
+
+
+
+def _declared_gold_splits(voucher):
+    """The distribution the employee declared, read from the voucher's own notes.
+
+    Carried in notes because it must survive between creating the voucher and
+    approving it, while no attribution row may exist until approval. Voucher
+    notes already carry structured JSON on the invoice-creation path
+    (`{"source": "invoice_gold_settlement", ...}`), so this follows an existing
+    shape rather than adding a column for control data that lives for one
+    request. Malformed notes mean "no declaration", never a guess.
+    """
+    raw = getattr(voucher, 'notes', None)
+    if not raw:
+        return []
+    try:
+        import json
+        payload = json.loads(raw)
+    except Exception:
+        return []
+    if not isinstance(payload, dict):
+        return []
+    splits = payload.get('gold_invoice_splits')
+    return splits if isinstance(splits, list) and splits else []
+
+
+def attribute_gold_across_invoices(*, voucher, splits, created_by: str = None) -> list:
+    """One payment, several invoices — declared, not inferred.
+
+    This is the shape Phase 11 found to be common in real data: a single voucher
+    described as «سداد متبقيات سابقة بمبلغ ٤٧٢٥ + باقي قيمة حجز», deliberately
+    covering more than one thing. `Voucher.reference_id` is a single integer and
+    cannot express it, which is exactly why the attribution table exists.
+
+    *splits* is a sequence of {'invoice_id', 'karat', 'weight'} — the employee's
+    own distribution. Nothing here decides the split; a wrong total fails rather
+    than being silently adjusted.
+
+    ALL OR NOTHING. Each split is validated by attribute_gold_to_invoice against
+    the voucher's own gold capacity and each invoice's shared remaining
+    obligation, and because the rows are added within one flush a later failure
+    raises before the caller commits. A half-applied distribution would be worse
+    than a rejected one: it would report part of a payment as attributed and
+    leave the rest invisible.
+    """
+    if voucher is None:
+        raise ValueError('voucher_required')
+    if not splits:
+        raise ValueError('splits_required')
+
+    rows = []
+    for index, split in enumerate(splits):
+        try:
+            invoice_id = int(split['invoice_id'])
+            karat = float(split['karat'])
+            weight = float(split['weight'])
+        except (KeyError, TypeError, ValueError):
+            raise ValueError(f'invalid_split_at_index:{index}')
+        rows.append(attribute_gold_to_invoice(
+            voucher=voucher,
+            invoice_id=invoice_id,
+            karat=karat,
+            weight=weight,
+            created_by=created_by,
+        ))
+    return rows
 
 
 def remove_attributions_for_voucher(voucher_id: int) -> int:

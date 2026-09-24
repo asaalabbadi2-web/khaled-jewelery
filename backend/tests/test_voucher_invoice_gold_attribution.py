@@ -541,3 +541,91 @@ class TestCorrectingAClassification:
             attribute_gold_to_invoice(
                 voucher=second, invoice_id=invoice.id, karat=21.0, weight=70.0,
             )
+
+
+# ======================================================================
+# One payment, several invoices
+# ======================================================================
+
+class TestSplitAcrossInvoices:
+    """Phase 11 found this is the common real shape, not an edge case: a single
+    voucher described as «سداد متبقيات سابقة بمبلغ ٤٧٢٥ + باقي قيمة حجز»,
+    covering more than one thing deliberately. reference_id is one integer and
+    cannot say it."""
+
+    def test_splits_across_two_invoices(self):
+        from services.gold_allocation_service import attribute_gold_across_invoices
+
+        supplier = _supplier()
+        inv_a = _invoice(supplier.id)
+        inv_b = _invoice(supplier.id)
+        ob_a = _obligation(inv_a.id, karat=21.0, weight=60.0)
+        ob_b = _obligation(inv_b.id, karat=21.0, weight=60.0)
+
+        voucher = _gold_voucher(
+            supplier.id, lines=[(21.0, 100.0)], reference_type='gold_supplier',
+        )
+        rows = attribute_gold_across_invoices(voucher=voucher, splits=[
+            {'invoice_id': inv_a.id, 'karat': 21.0, 'weight': 60.0},
+            {'invoice_id': inv_b.id, 'karat': 21.0, 'weight': 40.0},
+        ])
+
+        assert len(rows) == 2
+        assert obligation_attributed_remaining(ob_a) == 0.0
+        assert obligation_attributed_remaining(ob_b) == 20.0
+
+    def test_a_distribution_exceeding_the_voucher_is_rejected_entirely(self):
+        """All or nothing: a half-applied distribution would report part of a
+        payment as attributed and leave the rest invisible."""
+        from services.gold_allocation_service import attribute_gold_across_invoices
+
+        supplier = _supplier()
+        inv_a = _invoice(supplier.id)
+        inv_b = _invoice(supplier.id)
+        _obligation(inv_a.id, karat=21.0, weight=100.0)
+        _obligation(inv_b.id, karat=21.0, weight=100.0)
+
+        voucher = _gold_voucher(
+            supplier.id, lines=[(21.0, 100.0)], reference_type='gold_supplier',
+        )
+        with pytest.raises(ValueError, match='exceeds_voucher_gold'):
+            attribute_gold_across_invoices(voucher=voucher, splits=[
+                {'invoice_id': inv_a.id, 'karat': 21.0, 'weight': 60.0},
+                {'invoice_id': inv_b.id, 'karat': 21.0, 'weight': 60.0},
+            ])
+
+    def test_a_declared_distribution_in_notes_is_used_at_approval(self):
+        import json
+
+        supplier = _supplier()
+        inv_a = _invoice(supplier.id)
+        inv_b = _invoice(supplier.id)
+        ob_a = _obligation(inv_a.id, karat=21.0, weight=50.0)
+        ob_b = _obligation(inv_b.id, karat=21.0, weight=50.0)
+
+        voucher = _gold_voucher(supplier.id, lines=[(21.0, 80.0)], reference_id=inv_a.id)
+        voucher.notes = json.dumps({'gold_invoice_splits': [
+            {'invoice_id': inv_a.id, 'karat': 21.0, 'weight': 50.0},
+            {'invoice_id': inv_b.id, 'karat': 21.0, 'weight': 30.0},
+        ]})
+        db.session.flush()
+
+        created = sync_gold_attribution_after_voucher_approval(voucher)
+
+        assert created == 2, 'the declared distribution wins over reference_id'
+        assert obligation_attributed_remaining(ob_a) == 0.0
+        assert obligation_attributed_remaining(ob_b) == 20.0
+
+    def test_malformed_notes_mean_no_declaration_not_a_guess(self):
+        supplier = _supplier()
+        invoice = _invoice(supplier.id)
+        ob = _obligation(invoice.id, karat=21.0, weight=100.0)
+
+        voucher = _gold_voucher(supplier.id, lines=[(21.0, 40.0)], reference_id=invoice.id)
+        voucher.notes = 'ملاحظة حرة ليست JSON'
+        db.session.flush()
+
+        created = sync_gold_attribution_after_voucher_approval(voucher)
+
+        assert created == 1, 'falls back to reference_id, never to a guess'
+        assert obligation_attributed_remaining(ob) == 60.0

@@ -296,6 +296,160 @@ class _VoucherDetailsScreenState extends State<VoucherDetailsScreen> {
     } catch (_) {}
   }
 
+  bool _hasGoldLines(Map<String, dynamic> voucher) {
+    final lines = voucher['account_lines'];
+    if (lines is! List) return false;
+    return lines.any((l) => (l is Map) && l['amount_type'] == 'gold');
+  }
+
+  /// Correcting a classification after approval. A payment declared a general
+  /// supplier settlement records no attribution — correct by design, but it left
+  /// the invoice with no way back, its gold side unsettled even when the amount
+  /// matched exactly. The employee states the invoice here; nothing is inferred.
+  Future<void> _openGoldAttributionSheet() async {
+    final voucher = _voucher;
+    if (voucher == null) return;
+    final supplierId = voucher['supplier_id'];
+    if (supplierId is! int) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('النسب متاح لسندات الموردين فقط')),
+      );
+      return;
+    }
+
+    Map<String, dynamic>? current;
+    List<Map<String, dynamic>> candidates = const [];
+    try {
+      current = await _apiService.getVoucherGoldAttribution(widget.voucherId);
+      candidates = await _apiService.getSupplierOpenGoldObligations(supplierId);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('تعذّر جلب بيانات النسب: $e')),
+      );
+      return;
+    }
+    if (!mounted) return;
+
+    final unattributed =
+        (current['unattributed_main_karat'] as num?)?.toDouble() ?? 0.0;
+    final existing =
+        (current['attributions'] as List?)?.cast<Map<String, dynamic>>() ??
+            const <Map<String, dynamic>>[];
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (sheetContext) => Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'نسب ذهب السند إلى فاتورة',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'غير المنسوب من هذا السند: ${unattributed.toStringAsFixed(2)} جم',
+              style: const TextStyle(fontSize: 12, color: Colors.black54),
+            ),
+            const SizedBox(height: 12),
+            if (existing.isNotEmpty) ...[
+              const Text('منسوب حاليًا', style: TextStyle(fontWeight: FontWeight.w600)),
+              ...existing.map((row) => ListTile(
+                    dense: true,
+                    title: Text(
+                      'فاتورة #${row['invoice_id']} · '
+                      '${(row['weight'] as num?)?.toStringAsFixed(2) ?? '?'} جم '
+                      'عيار ${row['karat']}',
+                      style: const TextStyle(fontSize: 13),
+                    ),
+                    trailing: IconButton(
+                      icon: const Icon(Icons.delete_outline, size: 20),
+                      tooltip: 'إلغاء هذا النسب',
+                      onPressed: () async {
+                        try {
+                          await _apiService.removeVoucherGoldAttribution(
+                            widget.voucherId,
+                            (row['id'] as num).toInt(),
+                          );
+                          if (!sheetContext.mounted) return;
+                          Navigator.of(sheetContext).pop();
+                          await _loadVoucher();
+                        } catch (e) {
+                          if (!sheetContext.mounted) return;
+                          ScaffoldMessenger.of(sheetContext).showSnackBar(
+                            SnackBar(content: Text('فشل الإلغاء: $e')),
+                          );
+                        }
+                      },
+                    ),
+                  )),
+              const Divider(),
+            ],
+            if (unattributed <= 0.005)
+              const Text(
+                'لا يوجد ذهب غير منسوب في هذا السند',
+                style: TextStyle(fontSize: 12, color: Colors.black54),
+              )
+            else if (candidates.isEmpty)
+              const Text(
+                'لا توجد فواتير لهذا المورد عليها التزام ذهب مفتوح',
+                style: TextStyle(fontSize: 12, color: Colors.redAccent),
+              )
+            else
+              ...candidates.map((row) {
+                final id = (row['invoice_id'] as num).toInt();
+                final open = (row['open_main_karat'] as num?)?.toDouble() ?? 0.0;
+                final amount = unattributed < open ? unattributed : open;
+                return ListTile(
+                  dense: true,
+                  title: Text('فاتورة #$id · متبقٍ ${open.toStringAsFixed(2)} جم',
+                      style: const TextStyle(fontSize: 13)),
+                  trailing: TextButton(
+                    child: Text('انسب ${amount.toStringAsFixed(2)} جم'),
+                    onPressed: () async {
+                      try {
+                        await _apiService.attributeVoucherGold(
+                          widget.voucherId,
+                          invoiceId: id,
+                          karat: _firstGoldKarat(voucher),
+                          weight: amount,
+                        );
+                        if (!sheetContext.mounted) return;
+                        Navigator.of(sheetContext).pop();
+                        await _loadVoucher();
+                      } catch (e) {
+                        if (!sheetContext.mounted) return;
+                        ScaffoldMessenger.of(sheetContext).showSnackBar(
+                          SnackBar(content: Text('فشل النسب: $e')),
+                        );
+                      }
+                    },
+                  ),
+                );
+              }),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// The real karat on the voucher's gold lines — never a converted equivalent.
+  double _firstGoldKarat(Map<String, dynamic> voucher) {
+    final lines = voucher['account_lines'];
+    if (lines is List) {
+      for (final l in lines) {
+        if (l is Map && l['amount_type'] == 'gold' && l['karat'] != null) {
+          return (l['karat'] as num).toDouble();
+        }
+      }
+    }
+    return 21.0;
+  }
+
   @override
   Widget build(BuildContext context) {
     context.watch<SettingsProvider>();
@@ -384,6 +538,12 @@ class _VoucherDetailsScreenState extends State<VoucherDetailsScreen> {
           tooltip: 'حذف السند',
         ),
       ],
+      if ((voucher['status'] ?? '') == 'approved' && _hasGoldLines(voucher))
+        IconButton(
+          icon: const Icon(Icons.link),
+          onPressed: _openGoldAttributionSheet,
+          tooltip: 'نسب ذهب السند إلى فاتورة',
+        ),
       if (!isCancelled && (voucher['status'] ?? '') != 'approved')
         IconButton(
           icon: const Icon(Icons.check_circle_outline),
