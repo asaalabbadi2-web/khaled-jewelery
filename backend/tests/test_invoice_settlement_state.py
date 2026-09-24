@@ -32,7 +32,11 @@ from models import (
     db,
 )
 from party_account_service import ensure_supplier_accounts
-from services.gold_allocation_service import attribute_gold_to_invoice
+from services.gold_allocation_service import (
+    attribute_gold_to_invoice,
+    create_gold_obligations_for_invoice,
+    is_gold_obligation_eligible,
+)
 from services.invoice_payment_state_service import InvoicePaymentStateService
 
 
@@ -363,3 +367,112 @@ class TestGoldEventsAreWiredToResync:
             assert 'resync_invoice_status(' in body, (
                 f'{func.strip("def (")} does not resync the invoice status'
             )
+
+
+# ======================================================================
+# The three trades, end to end
+# ======================================================================
+
+class TestTheThreeTradeShapes:
+    """Phase B's rule has to be right for each trade this business actually
+    does, not for "a purchase invoice" in the abstract. The ceiling and the gold
+    dimension differ per trade, and getting either wrong silently mislabels a
+    real obligation.
+
+        worked-gold supplier, wage in cash : ceiling = wage + taxes · gold tracked
+        worked-gold supplier, wage in gold : ceiling = 0            · gold tracked
+        closing office                     : ceiling = total        · no gold at all
+    """
+
+    def _supplier_with_wage_type(self, wage_type):
+        s = Supplier(
+            supplier_code=f'SUP-{_uid()}', name=f'مورد {_uid()}',
+            default_wage_type=wage_type,
+        )
+        db.session.add(s)
+        db.session.flush()
+        ensure_supplier_accounts(s)
+        db.session.flush()
+        return s
+
+    def _invoice_for(self, supplier_id, *, office_id=None, total=100000.0,
+                     wage=0.0, wage_tax=0.0, gold_tax=0.0, tracked=False):
+        inv = Invoice(
+            invoice_type_id=int(_uid(), 16) % 900000 + 1, invoice_type='شراء',
+            supplier_id=supplier_id, office_id=office_id, date=datetime.now(),
+            total=total, wage_subtotal=wage, wage_tax_total=wage_tax,
+            gold_tax_total=gold_tax, status='unpaid', amount_paid=0.0,
+            is_posted=True, gold_settlement_tracked=tracked,
+        )
+        db.session.add(inv)
+        db.session.flush()
+        return inv
+
+    # ---- 1) worked-gold supplier, wage paid in cash ----
+
+    def test_supplier_cash_wage_needs_both_the_wage_and_the_gold(self):
+        supplier = self._supplier_with_wage_type('cash')
+        invoice = self._invoice_for(
+            supplier.id, total=99999.0, wage=1000.0, wage_tax=150.0,
+            gold_tax=250.0, tracked=True,
+        )
+        assert invoice.cash_obligation == 1400.0, 'the gold value is not a cash debt'
+        _obligation(invoice.id, karat=21.0, weight=200.0)
+
+        _pay_cash(invoice, 1400.0)
+        assert _status(invoice) == 'partially_paid', 'the gold is still owed'
+
+        _pay_gold(invoice, karat=21.0, weight=200.0)
+        assert _status(invoice) == 'paid'
+
+    # ---- 2) worked-gold supplier, wage paid in gold ----
+
+    def test_supplier_gold_wage_is_decided_by_the_gold_alone(self):
+        """cash_obligation is 0 here by Phase 13's rule, so the gold is the whole
+        obligation — and a zero cash debt must read as satisfied rather than
+        holding the invoice at partial forever."""
+        supplier = self._supplier_with_wage_type('gold')
+        invoice = self._invoice_for(
+            supplier.id, total=99999.0, wage=1000.0, tracked=True,
+        )
+        assert invoice.cash_obligation == 0.0
+        _obligation(invoice.id, karat=21.0, weight=150.0)
+
+        assert _status(invoice) == 'unpaid'
+
+        _pay_gold(invoice, karat=21.0, weight=150.0)
+        assert _status(invoice) == 'paid', \
+            'nothing is owed in cash, so the settled gold settles the invoice'
+
+    # ---- 3) closing office ----
+
+    def test_office_invoice_is_decided_by_cash_against_total(self):
+        supplier = self._supplier_with_wage_type('cash')
+        invoice = self._invoice_for(
+            supplier.id, office_id=4, total=175100.0, wage=0.0,
+        )
+        assert invoice.cash_obligation == 175100.0, 'gold is bought from the office FOR cash'
+        assert is_gold_obligation_eligible(invoice) is False
+
+        _pay_cash(invoice, 175100.0)
+        assert _status(invoice) == 'paid'
+
+    def test_a_partly_settled_office_invoice_reads_partial(self):
+        supplier = self._supplier_with_wage_type('cash')
+        invoice = self._invoice_for(
+            supplier.id, office_id=4, total=170349.0, wage=0.0,
+        )
+        _pay_cash(invoice, 150000.0)
+        assert _status(invoice) == 'partially_paid'
+
+    def test_an_office_invoice_is_never_gold_tracked(self):
+        """Its gold dimension must stay absent, not empty: there is no gold debt
+        to a closing office, so nothing should ever be waiting on one."""
+        supplier = self._supplier_with_wage_type('cash')
+        invoice = self._invoice_for(supplier.id, office_id=4, total=50000.0)
+
+        created = create_gold_obligations_for_invoice(invoice)
+        assert created == []
+
+        state = InvoicePaymentStateService().recompute(invoice)
+        assert state.gold_required_main_karat is None
