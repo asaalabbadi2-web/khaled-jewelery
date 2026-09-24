@@ -18,6 +18,7 @@ import 'chart_of_accounts_screen.dart';
 import 'gold_price_manual_screen_enhanced.dart';
 import 'backup_restore_screen.dart';
 import 'system_reset_screen.dart';
+import 'supplier_settlement_policy_screen.dart';
 import 'weight_closing_settings_screen.dart';
 import 'weight_closing_execute_screen.dart';
 import '../utils.dart';
@@ -1761,6 +1762,26 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
         ),
         const SizedBox(height: 20),
         _buildSectionCard(
+          icon: Icons.rule,
+          iconColor: _accentColor,
+          title: 'حدود تسوية فروقات الموردين',
+          children: [
+            Text(
+              'ثلاثة حدود تحكم كل تسوية: حدّ العملية الواحدة، وحدّ المراجعة، '
+              'والسقف الشهري لكل مورد — نقدًا ووزنًا بمكافئ العيار الرئيسي. '
+              'ولكل سبب حدوده الخاصة، فلا يُقاس تنازل موثّق بحدّ التقريب.',
+              style: Theme.of(context).textTheme.bodyMedium,
+            ),
+            const SizedBox(height: 16),
+            FilledButton.icon(
+              onPressed: _openSupplierSettlementPolicy,
+              icon: const Icon(Icons.tune),
+              label: const Text('فتح حدود التسوية'),
+            ),
+          ],
+        ),
+        const SizedBox(height: 20),
+        _buildSectionCard(
           icon: Icons.backup_outlined,
           iconColor: _primaryColor,
           title: 'النسخ الاحتياطي والاستعادة',
@@ -1959,6 +1980,15 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
     await Navigator.push(
       context,
       MaterialPageRoute(builder: (_) => const WeightClosingSettingsScreen()),
+    );
+  }
+
+  Future<void> _openSupplierSettlementPolicy() async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => SupplierSettlementPolicyScreen(api: _apiService),
+      ),
     );
   }
 

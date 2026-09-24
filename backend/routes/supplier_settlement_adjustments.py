@@ -25,7 +25,13 @@ from datetime import datetime
 from flask import Blueprint, g, jsonify, request
 
 from auth_decorators import require_auth, require_permission
-from models import SupplierSettlementAdjustment, Supplier, db
+from models import (
+    SupplierSettlementAdjustment,
+    SupplierSettlementPolicy,
+    SupplierSettlementReasonLimit,
+    Supplier,
+    db,
+)
 from services.supplier_settlement_adjustment_service import (
     ManagerApprovalRequiredError,
     MissingAccountingMappingError,
@@ -470,3 +476,229 @@ def cancel_settlement_adjustment(sad_id):
         'message': 'تم إلغاء التسوية',
         'adjustment': sad.to_dict(),
     }), 200
+
+
+# ======================================================================
+# Policy — the limits themselves
+# ======================================================================
+
+@supplier_settlement_adjustments_bp.route('/supplier-settlement-policy', methods=['GET'])
+@require_auth
+@require_permission('supplier_settlement_adjustments.view')
+def get_supplier_settlement_policy():
+    """The limits in force, with each reason's own ceilings.
+
+    These numbers are POLICY — the model says finance changes them without a
+    deploy — but until now there was no surface to change them through, so the
+    only way in was hand-written SQL. That is also why a documented waiver was
+    stuck behind a 5 SAR rounding limit: nobody could raise it.
+
+    Reasons with no row of their own report the policy's global limits, which is
+    exactly what governs them.
+    """
+    policy = SupplierSettlementPolicy.in_effect_at(datetime.now())
+    if policy is None:
+        return jsonify({
+            'success': True, 'policy': None,
+            'message': 'لا توجد سياسة تسوية سارية — لا يمكن إجراء أي تسوية قبل تحديدها',
+        }), 200
+
+    payload = policy.to_dict()
+    payload['reason_limits'] = []
+    for code in sorted(SupplierSettlementAdjustment.VALID_REASON_CODES):
+        limits = policy.limits_for_reason(code)
+        always = code in SupplierSettlementAdjustment.REASONS_REQUIRING_MANAGER_APPROVAL
+        payload['reason_limits'].append({
+            'reason_code': code,
+            # Effective values: what actually governs this reason right now,
+            # whether it came from its own row or from the global fallback. The
+            # screen shows the number in force, never a blank the reader has to
+            # resolve themselves.
+            'tolerance_cash': limits.tolerance_cash,
+            'tolerance_weight_main_karat': limits.tolerance_weight,
+            'review_threshold_cash': limits.review_threshold_cash,
+            'period_cap_cash': limits.period_cap_cash,
+            'period_cap_weight_main_karat': limits.period_cap_weight,
+            'requires_manager_approval': bool(
+                limits.requires_manager_approval
+                if limits.requires_manager_approval is not None
+                else always
+            ),
+            'is_explicit': limits.is_explicit,
+            'always_requires_manager': always,
+        })
+    return jsonify({'success': True, 'policy': payload}), 200
+
+
+@supplier_settlement_adjustments_bp.route('/supplier-settlement-policy', methods=['POST'])
+@require_auth
+@require_permission('supplier_settlement_adjustments.approve')
+def create_supplier_settlement_policy():
+    """Put new limits into force, by CLOSING the current row and inserting one.
+
+    Never an UPDATE. A posted settlement froze the policy id it was judged
+    against, so editing that row in place would rewrite the basis of an
+    accounting decision already taken. The model states the rule; this endpoint
+    is what makes following it possible without SQL.
+
+    Body: the five global limits, plus optional per-reason entries carrying
+    {reason_code, tolerance_cash, tolerance_weight_main_karat} and, optionally,
+    {review_threshold_cash, period_cap_cash, period_cap_weight_main_karat,
+    requires_manager_approval}. A per-reason ceiling left out — or sent null —
+    inherits the global one; a reason left out entirely inherits all five.
+    """
+    data = request.get_json(silent=True) or {}
+
+    required = (
+        'tolerance_cash', 'tolerance_weight',
+        'period_cap_cash', 'period_cap_weight', 'review_threshold_cash',
+    )
+    missing = [k for k in required if data.get(k) is None]
+    if missing:
+        return jsonify({
+            'success': False, 'error': 'missing_fields',
+            'message': f'الحدود المطلوبة ناقصة: {", ".join(missing)}',
+        }), 400
+
+    try:
+        values = {k: float(data[k]) for k in required}
+    except (TypeError, ValueError):
+        return jsonify({
+            'success': False, 'error': 'invalid_numbers',
+            'message': 'كل الحدود يجب أن تكون أرقامًا',
+        }), 400
+    if any(v < 0 for v in values.values()):
+        return jsonify({
+            'success': False, 'error': 'negative_limit',
+            'message': 'لا يمكن أن يكون أي حد سالبًا',
+        }), 400
+
+    # Same defect class as the per-reason check below: a per-operation tolerance
+    # above its own monthly cap can never be reached, because the cap refuses
+    # first. It is checked here too rather than only per-reason, since the globals
+    # govern every reason that has no row of its own.
+    for tolerance_key, cap_key, label in (
+        ('tolerance_cash', 'period_cap_cash', 'النقد'),
+        ('tolerance_weight', 'period_cap_weight', 'الوزن'),
+    ):
+        if values[tolerance_key] > values[cap_key]:
+            return jsonify({
+                'success': False, 'error': 'unreachable_limit',
+                'message': (
+                    f'حد العملية العام لـ{label} ({values[tolerance_key]}) أكبر من '
+                    f'السقف الشهري ({values[cap_key]}) — لن يُستخدم أبدًا لأن السقف '
+                    'يرفض أولًا'
+                ),
+            }), 400
+
+    reason_rows = data.get('reason_limits') or []
+    if not isinstance(reason_rows, list):
+        return jsonify({
+            'success': False, 'error': 'invalid_reason_limits',
+            'message': 'reason_limits يجب أن تكون قائمة',
+        }), 400
+    parsed = []
+    for entry in reason_rows:
+        if not isinstance(entry, dict):
+            return jsonify({
+                'success': False, 'error': 'invalid_reason_limits',
+                'message': 'كل عنصر في reason_limits يجب أن يكون كائنًا',
+            }), 400
+        code = str(entry.get('reason_code') or '')
+        if code not in SupplierSettlementAdjustment.VALID_REASON_CODES:
+            return jsonify({
+                'success': False, 'error': 'invalid_reason_code',
+                'message': f'سبب غير صالح: {code}',
+            }), 400
+        # The two tolerances are required; the other three gates are optional
+        # overrides, and absent means "keep using the global" — which is why they
+        # are nullable columns rather than copies of the policy's numbers.
+        fields = {}
+        try:
+            fields['tolerance_cash'] = float(entry['tolerance_cash'])
+            fields['tolerance_weight_main_karat'] = float(
+                entry['tolerance_weight_main_karat'])
+        except (KeyError, TypeError, ValueError):
+            return jsonify({
+                'success': False, 'error': 'invalid_reason_limits',
+                'message': f'حدود السبب {code} يجب أن تكون أرقامًا',
+            }), 400
+        for optional in ('review_threshold_cash', 'period_cap_cash',
+                         'period_cap_weight_main_karat'):
+            raw = entry.get(optional)
+            if raw is None:
+                fields[optional] = None
+                continue
+            try:
+                fields[optional] = float(raw)
+            except (TypeError, ValueError):
+                return jsonify({
+                    'success': False, 'error': 'invalid_reason_limits',
+                    'message': f'حد {optional} للسبب {code} يجب أن يكون رقمًا',
+                }), 400
+        if any(v is not None and v < 0 for v in fields.values()):
+            return jsonify({
+                'success': False, 'error': 'negative_limit',
+                'message': f'حدود السبب {code} لا يمكن أن تكون سالبة',
+            }), 400
+
+        # A per-operation tolerance above the monthly cap can never be reached —
+        # the cap refuses first. Silently accepting it would show finance a limit
+        # the mechanism ignores.
+        cap_cash = fields['period_cap_cash']
+        if cap_cash is not None and fields['tolerance_cash'] > cap_cash:
+            return jsonify({
+                'success': False, 'error': 'unreachable_limit',
+                'message': (
+                    f'حد العملية للسبب {code} ({fields["tolerance_cash"]}) أكبر من '
+                    f'سقفه الشهري ({cap_cash}) — لن يُستخدم أبدًا لأن السقف يرفض أولًا'
+                ),
+            }), 400
+        cap_weight = fields['period_cap_weight_main_karat']
+        if cap_weight is not None and fields['tolerance_weight_main_karat'] > cap_weight:
+            return jsonify({
+                'success': False, 'error': 'unreachable_limit',
+                'message': (
+                    f'حد وزن العملية للسبب {code} '
+                    f'({fields["tolerance_weight_main_karat"]}) أكبر من سقفه الشهري '
+                    f'({cap_weight}) — لن يُستخدم أبدًا لأن السقف يرفض أولًا'
+                ),
+            }), 400
+
+        fields['requires_manager_approval'] = bool(
+            entry.get('requires_manager_approval'))
+        parsed.append((code, fields))
+
+    now = datetime.now()
+    actor = _actor()
+    try:
+        current = SupplierSettlementPolicy.in_effect_at(now)
+        if current is not None:
+            current.effective_to = now
+
+        policy = SupplierSettlementPolicy(
+            effective_from=now,
+            notes=(data.get('notes') or None),
+            created_by=actor,
+            **values,
+        )
+        db.session.add(policy)
+        db.session.flush()
+
+        for code, fields in parsed:
+            db.session.add(SupplierSettlementReasonLimit(
+                policy_id=policy.id, reason_code=code, **fields,
+            ))
+        db.session.commit()
+    except Exception as exc:
+        db.session.rollback()
+        return jsonify({
+            'success': False, 'error': 'policy_not_created', 'message': str(exc),
+        }), 400
+
+    return jsonify({
+        'success': True,
+        'message': 'تم تحديد حدود التسوية الجديدة، وأُغلقت السابقة',
+        'policy_id': policy.id,
+        'closed_policy_id': current.id if current is not None else None,
+    }), 201

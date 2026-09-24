@@ -709,6 +709,50 @@ class ApiService {
     return _decodeSettlementResponse(response);
   }
 
+  /// حدود التسوية السارية، وحدّ كل سبب على حدة.
+  ///
+  /// الخادم يُرجع **القيمة النافذة** لكل سبب — سواء جاءت من صفّه الخاص أو
+  /// بالوراثة من الحدّ العام — مع `is_explicit` للتمييز بينهما. الواجهة تعرض
+  /// ما وصل ولا تشتق أي حدّ ولا ترجّح بين صفّين.
+  Future<Map<String, dynamic>> getSupplierSettlementPolicy() async {
+    final response = await _authedGet(
+      Uri.parse('$_baseUrl/supplier-settlement-policy'),
+    );
+    return _decodeSettlementResponse(response);
+  }
+
+  /// يضع حدودًا جديدة: يُغلق الصفّ الساري ويُدرج صفًّا جديدًا — لا تعديل مكانه.
+  ///
+  /// تسوية مرحّلة جمّدت رقم السياسة التي حُكم عليها بها، فتعديل الصفّ نفسه
+  /// يُعيد كتابة أساس قرار محاسبي اتُّخذ فعلًا. الأرقام كلها من المستخدم:
+  /// الواجهة لا تقترح قيمة ولا تكملها.
+  Future<Map<String, dynamic>> createSupplierSettlementPolicy({
+    required double toleranceCash,
+    required double toleranceWeight,
+    required double periodCapCash,
+    required double periodCapWeight,
+    required double reviewThresholdCash,
+    List<Map<String, dynamic>> reasonLimits = const [],
+    String? notes,
+  }) async {
+    final payload = <String, dynamic>{
+      'tolerance_cash': toleranceCash,
+      'tolerance_weight': toleranceWeight,
+      'period_cap_cash': periodCapCash,
+      'period_cap_weight': periodCapWeight,
+      'review_threshold_cash': reviewThresholdCash,
+      'reason_limits': reasonLimits,
+    };
+    if (notes != null && notes.trim().isNotEmpty) {
+      payload['notes'] = notes.trim();
+    }
+    final response = await _authedPost(
+      Uri.parse('$_baseUrl/supplier-settlement-policy'),
+      body: json.encode(payload),
+    );
+    return _decodeSettlementResponse(response);
+  }
+
   // Office Methods (مكاتب تسكير الذهب)
   Future<List<dynamic>> getOffices({bool? activeOnly}) async {
     final uri = Uri.parse('$_baseUrl/offices').replace(

@@ -7,6 +7,7 @@ except ImportError:  # Local scripts running from backend/ directory
 from datetime import datetime, date, time
 import json
 import logging
+from typing import NamedTuple, Optional
 from flask_sqlalchemy import SQLAlchemy
 from werkzeug.security import check_password_hash, generate_password_hash
 from sqlalchemy import event, text
@@ -5650,6 +5651,29 @@ class ReconciliationFinding(db.Model):
 
 # ── Supplier Settlement Adjustment (SAD) ──────────────────────────────────────
 
+class ReasonLimits(NamedTuple):
+    """The complete set of ceilings that govern one settlement reason.
+
+    Named rather than a bare tuple because it grew from two numbers to five, and
+    a caller unpacking positionally would silently read a cap as a tolerance.
+
+    `requires_manager_approval` is None when the reason has no row of its own —
+    "no opinion", distinct from an explicit False, so the hard-coded floor in
+    SupplierSettlementAdjustment.REASONS_REQUIRING_MANAGER_APPROVAL stays the one
+    that decides for reasons policy has not spoken about.
+    """
+    tolerance_cash: float
+    tolerance_weight: float
+    review_threshold_cash: float
+    period_cap_cash: float
+    period_cap_weight: float
+    # Optional[...] rather than `bool | None`: NamedTuple annotations are evaluated
+    # at class-creation time and this module has no `from __future__ import
+    # annotations`, so the 3.10 syntax would break the import on 3.9.
+    requires_manager_approval: Optional[bool]
+    is_explicit: bool
+
+
 class SupplierSettlementPolicy(db.Model):
     """Effective-dated limits governing SupplierSettlementAdjustment.
 
@@ -5685,6 +5709,83 @@ class SupplierSettlementPolicy(db.Model):
     created_by = db.Column(db.String(100), nullable=True)
     created_at = db.Column(db.DateTime, nullable=False, default=db.func.now())
 
+    reason_limits = db.relationship(
+        'SupplierSettlementReasonLimit',
+        back_populates='policy',
+        lazy='dynamic',
+        cascade='all, delete-orphan',
+    )
+
+    def limits_for_reason(self, reason_code):
+        """Every ceiling governing ONE reason, in both dimensions.
+
+        Three independent gates stand between a residual and a settlement — the
+        per-operation tolerance, the review threshold, and the monthly cap — and a
+        reason that changes the meaning of one changes the meaning of all three.
+        Giving a documented waiver its own tolerance while the review threshold
+        still measured it as a rounding error left it refused anyway, which is why
+        this returns the whole set rather than one pair.
+
+        Each per-reason number is independently optional: a NULL falls back to this
+        policy's global value, so a row may raise the tolerance and leave the cap
+        alone. A reason with no row at all keeps exactly the limits it had before
+        this table existed.
+
+        Returns ReasonLimits.
+        """
+        row = self.reason_limits.filter_by(reason_code=reason_code).first()
+
+        def _or_global(value, fallback):
+            return float(fallback if value is None else value)
+
+        return ReasonLimits(
+            tolerance_cash=_or_global(
+                row and row.tolerance_cash, self.tolerance_cash),
+            tolerance_weight=_or_global(
+                row and row.tolerance_weight_main_karat, self.tolerance_weight),
+            review_threshold_cash=_or_global(
+                row and row.review_threshold_cash, self.review_threshold_cash),
+            period_cap_cash=_or_global(
+                row and row.period_cap_cash, self.period_cap_cash),
+            period_cap_weight=_or_global(
+                row and row.period_cap_weight_main_karat, self.period_cap_weight),
+            requires_manager_approval=(
+                None if row is None else bool(row.requires_manager_approval)),
+            is_explicit=row is not None,
+        )
+
+    def period_budget_scope(self, reason_code, *, dimension):
+        """Which reasons draw on the SAME monthly budget as this one.
+
+        A cap is only meaningful together with what counts against it. Once a
+        waiver has its own 25,000 monthly cap, its settlements must stop counting
+        against the 50 that governs rounding — otherwise one waiver exhausts the
+        rounding allowance for the month and the per-reason cap creates a new
+        blockage while relieving the old one.
+
+        So each budget counts exactly what draws on it: a reason with its own cap
+        in this dimension is its own budget; every reason without one shares the
+        global budget and they count each other.
+
+        Returns None for "count every reason", which is the state while no
+        per-reason cap exists anywhere — and therefore preserves the original
+        behaviour exactly.
+        """
+        field = {
+            'cash': 'period_cap_cash',
+            'weight': 'period_cap_weight_main_karat',
+        }[dimension]
+
+        own = {
+            row.reason_code for row in self.reason_limits.all()
+            if getattr(row, field) is not None
+        }
+        if not own:
+            return None
+        if reason_code in own:
+            return frozenset({reason_code})
+        return frozenset(SupplierSettlementAdjustment.VALID_REASON_CODES) - own
+
     @classmethod
     def in_effect_at(cls, moment):
         """Return the single policy in force at `moment`, or None.
@@ -5713,6 +5814,71 @@ class SupplierSettlementPolicy(db.Model):
             'notes': self.notes,
             'created_by': self.created_by,
             'created_at': self.created_at.isoformat() if self.created_at else None,
+        }
+
+
+class SupplierSettlementReasonLimit(db.Model):
+    """One reason's ceilings, in BOTH dimensions this business settles in.
+
+    A settlement difference is not one kind of decision. Rounding a riyal and
+    waiving twenty thousand are different acts with different authority, and the
+    single `tolerance_cash` on the parent policy could not tell them apart — so a
+    documented waiver was being refused by a rounding limit of 5 SAR, which is
+    what made the mechanism unusable for the cases it was most needed for.
+
+    TWO dimensions, always: cash in riyals, and gold as MAIN-KARAT-EQUIVALENT
+    weight. The gold ceiling governs how much weight a single settlement may
+    write off, and that quantity only has meaning once karats are normalised —
+    the same rule the tolerance check already applied, and the same unit the rest
+    of this codebase compares gold in.
+
+    POLICY, not LAW: these are numbers finance sets. They hang off an
+    effective-dated policy row rather than carrying their own dates, so history
+    is corrected the one way the parent allows — close the policy and insert a
+    new one with its limits — never by editing a row a posted settlement relied
+    on.
+    """
+    __tablename__ = 'supplier_settlement_reason_limit'
+
+    id = db.Column(db.Integer, primary_key=True)
+    policy_id = db.Column(
+        db.Integer, db.ForeignKey('supplier_settlement_policy.id'),
+        nullable=False, index=True,
+    )
+    reason_code = db.Column(db.String(50), nullable=False)
+
+    # Per-operation ceiling for this reason.
+    tolerance_cash = db.Column(db.Float, nullable=False)
+    tolerance_weight_main_karat = db.Column(db.Float, nullable=False)
+
+    # The other two gates, each NULL-means-use-the-global. They are here because
+    # a reason that redefines what a difference IS redefines all three gates at
+    # once: a documented waiver whose tolerance was raised to 25,000 was still
+    # refused by a 500 review threshold and a 50 monthly cap, so raising only the
+    # tolerance changed nothing that a user could see.
+    review_threshold_cash = db.Column(db.Float, nullable=True)
+    period_cap_cash = db.Column(db.Float, nullable=True)
+    period_cap_weight_main_karat = db.Column(db.Float, nullable=True)
+
+    requires_manager_approval = db.Column(db.Boolean, nullable=False, default=False)
+
+    policy = db.relationship('SupplierSettlementPolicy', back_populates='reason_limits')
+
+    __table_args__ = (
+        db.UniqueConstraint('policy_id', 'reason_code', name='_settlement_reason_limit_uc'),
+    )
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'policy_id': self.policy_id,
+            'reason_code': self.reason_code,
+            'tolerance_cash': self.tolerance_cash,
+            'tolerance_weight_main_karat': self.tolerance_weight_main_karat,
+            'review_threshold_cash': self.review_threshold_cash,
+            'period_cap_cash': self.period_cap_cash,
+            'period_cap_weight_main_karat': self.period_cap_weight_main_karat,
+            'requires_manager_approval': self.requires_manager_approval,
         }
 
 

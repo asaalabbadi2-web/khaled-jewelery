@@ -81,6 +81,7 @@ from models import (
     Invoice,
     JournalEntry,
     JournalEntryLine,
+    ReasonLimits,
     Supplier,
     SupplierSettlementAdjustment,
     SupplierSettlementPolicy,
@@ -421,11 +422,18 @@ class SupplierSettlementAdjustmentService:
         now: datetime,
         exclude_adjustment_id: int | None = None,
         policy: SupplierSettlementPolicy | None = None,
+        reason_code: str | None = None,
     ) -> EligibilityResult:
         """Run every eligibility check. Writes nothing.
 
         At draft time this is advisory; post() re-runs it under a row lock and
         that run is the one that decides.
+
+        *reason_code* selects which ceiling governs. Rounding a riyal and waiving
+        twenty thousand are different decisions, and measuring both against one
+        number is what made a documented waiver fail on a 5 SAR rounding limit.
+        Omitted, the policy's global limits apply — the behaviour before per-reason
+        ceilings existed.
         """
         snapshot = self.recalculate(supplier, now=now)
         if policy is None:
@@ -440,10 +448,17 @@ class SupplierSettlementAdjustmentService:
         ]
 
         if policy is not None:
+            # One resolution, three gates. Each of them used to read the policy's
+            # global numbers directly, which is how a waiver could clear the
+            # tolerance it was given and still be refused twice over.
+            limits = policy.limits_for_reason(reason_code)
             checks.extend([
-                self._check_below_review_threshold(snapshot, policy),
-                self._check_within_operation_tolerance(snapshot, policy),
-                self._check_within_period_cap(supplier, snapshot, policy, now, exclude_adjustment_id),
+                self._check_below_review_threshold(snapshot, limits),
+                self._check_within_operation_tolerance(snapshot, limits),
+                self._check_within_period_cap(
+                    supplier, snapshot, policy, limits, now, exclude_adjustment_id,
+                    reason_code=reason_code,
+                ),
             ])
         else:
             checks.append(EligibilityCheck(
@@ -482,10 +497,15 @@ class SupplierSettlementAdjustmentService:
         only place that kicks a document back to draft.
         """
         supplier = sad.supplier
+        # The document's own reason, because that is what post() will judge it by.
+        # Omitting it here made the preview answer with the policy's global limits
+        # while post() applied the reason's — the one disagreement this method
+        # exists to make impossible.
         result = self.check_eligibility(
             supplier,
             now=now,
             exclude_adjustment_id=sad.id,
+            reason_code=sad.reason_code,
         )
         current = result.snapshot
 
@@ -523,8 +543,18 @@ class SupplierSettlementAdjustmentService:
             main_karat_equivalent=self._main_karat_equivalent(current.open_karats),
             stored_snapshot_matches=(drift is None),
             eligibility=result,
-            cash_consumed=self._period_consumption(supplier, now, sad.id),
-            weight_consumed=self._period_weight_consumption(supplier, now, sad.id),
+            # Scoped to the budget this reason draws on, so the figure shown is
+            # the one the cap check actually compared.
+            cash_consumed=self._period_consumption(
+                supplier, now, sad.id,
+                None if result.policy is None else result.policy.period_budget_scope(
+                    sad.reason_code, dimension='cash'),
+            ),
+            weight_consumed=self._period_weight_consumption(
+                supplier, now, sad.id,
+                None if result.policy is None else result.policy.period_budget_scope(
+                    sad.reason_code, dimension='weight'),
+            ),
             period_key=self._period_key(now),
             policy=result.policy,
             blocking_reason=self._blocking_reason(result, drift),
@@ -551,7 +581,7 @@ class SupplierSettlementAdjustmentService:
             if not (note or '').strip():
                 raise ValueError(f'السبب {reason_code} يستلزم ملاحظة مكتوبة.')
 
-        result = self.check_eligibility(supplier, now=now)
+        result = self.check_eligibility(supplier, now=now, reason_code=reason_code)
         # Same typed refusals as post(): a residual needing review is not a
         # draft waiting for cleanup, and the caller must be able to tell them
         # apart without reading a message.
@@ -606,7 +636,7 @@ class SupplierSettlementAdjustmentService:
         is_manager: bool = False,
     ) -> SupplierSettlementAdjustment:
         """Approve a draft. Still writes no accounting."""
-        if sad.reason_code in SupplierSettlementAdjustment.REASONS_REQUIRING_MANAGER_APPROVAL:
+        if self._requires_manager(sad.reason_code, now=now):
             if not is_manager:
                 raise ManagerApprovalRequiredError(
                     f'السبب {sad.reason_code} يستلزم اعتماد مدير.'
@@ -665,6 +695,7 @@ class SupplierSettlementAdjustmentService:
             now=now,
             exclude_adjustment_id=sad.id,
             policy=policy,
+            reason_code=sad.reason_code,
         )
 
         # A residual above the review threshold is a separate refusal: it is not
@@ -1236,11 +1267,15 @@ class SupplierSettlementAdjustmentService:
         supplier: Supplier,
         now: datetime,
         exclude_adjustment_id: int | None,
+        reason_codes=None,
     ) -> list:
         """Adjustments that consumed allowance this calendar month.
 
         Reversed originals and reversal documents are both excluded: a posted
         adjustment that was later reversed consumed no net allowance.
+
+        *reason_codes* narrows the count to the reasons that draw on one budget;
+        None counts every reason, which is what a single shared cap means.
         """
         query = (
             SupplierSettlementAdjustment.query
@@ -1249,6 +1284,9 @@ class SupplierSettlementAdjustmentService:
             .filter(SupplierSettlementAdjustment.status == SupplierSettlementAdjustment.STATUS_POSTED)
             .filter(SupplierSettlementAdjustment.reversal_of_id.is_(None))
         )
+        if reason_codes is not None:
+            query = query.filter(
+                SupplierSettlementAdjustment.reason_code.in_(list(reason_codes)))
         if exclude_adjustment_id is not None:
             query = query.filter(SupplierSettlementAdjustment.id != int(exclude_adjustment_id))
         return query.order_by(SupplierSettlementAdjustment.id.asc()).all()
@@ -1258,12 +1296,14 @@ class SupplierSettlementAdjustmentService:
         supplier: Supplier,
         now: datetime,
         exclude_adjustment_id: int | None,
+        reason_codes=None,
     ) -> float:
         """Cash already written off for this supplier in this calendar month."""
         return round(
             sum(
                 abs(float(row.posted_amount_cash or 0.0))
-                for row in self._posted_in_period(supplier, now, exclude_adjustment_id)
+                for row in self._posted_in_period(
+                    supplier, now, exclude_adjustment_id, reason_codes)
             ),
             CASH_PRECISION,
         )
@@ -1273,6 +1313,7 @@ class SupplierSettlementAdjustmentService:
         supplier: Supplier,
         now: datetime,
         exclude_adjustment_id: int | None,
+        reason_codes=None,
     ) -> float:
         """Weight already written off this month, in Main Karat equivalent.
 
@@ -1285,7 +1326,8 @@ class SupplierSettlementAdjustmentService:
         return round(
             sum(
                 self._main_karat_equivalent(row.posted_amount_weight_by_karat)
-                for row in self._posted_in_period(supplier, now, exclude_adjustment_id)
+                for row in self._posted_in_period(
+                    supplier, now, exclude_adjustment_id, reason_codes)
             ),
             6,
         )
@@ -1449,10 +1491,16 @@ class SupplierSettlementAdjustmentService:
     def _check_below_review_threshold(
         self,
         snapshot: SettlementSnapshot,
-        policy: SupplierSettlementPolicy,
+        limits: ReasonLimits,
     ) -> EligibilityCheck:
+        """Above the threshold a residual is not a settlement difference at all.
+
+        Which is a statement about evidence, not about size — and a documented
+        waiver already carries the evidence this gate exists to demand. So the
+        threshold is one of the numbers a reason may redefine.
+        """
         residual = abs(snapshot.financial)
-        threshold = float(policy.review_threshold_cash)
+        threshold = float(limits.review_threshold_cash)
         passed = residual <= threshold
         return EligibilityCheck(
             name='below_review_threshold',
@@ -1463,10 +1511,27 @@ class SupplierSettlementAdjustmentService:
             ),
         )
 
+    def _requires_manager(self, reason_code: str, *, now: datetime) -> bool:
+        """Does this reason need a manager?
+
+        Two sources, and the policy row wins when it speaks. The hard-coded set
+        is the floor: OTHER always needs a manager. Beyond that, raising a
+        reason's ceiling is exactly when finance may want to require authority for
+        it — a waiver limit of twenty thousand without an approver would be a
+        worse arrangement than the 5 SAR that blocked everything. So the flag
+        lives next to the number it governs, set in the same screen.
+        """
+        if reason_code in SupplierSettlementAdjustment.REASONS_REQUIRING_MANAGER_APPROVAL:
+            return True
+        policy = self._resolve_policy(now)
+        if policy is None:
+            return False
+        return bool(policy.limits_for_reason(reason_code).requires_manager_approval)
+
     def _check_within_operation_tolerance(
         self,
         snapshot: SettlementSnapshot,
-        policy: SupplierSettlementPolicy,
+        limits: ReasonLimits,
     ) -> EligibilityCheck:
         """Cash against its limit; total weight, in Main Karat, against its own.
 
@@ -1476,17 +1541,20 @@ class SupplierSettlementAdjustmentService:
         """
         breaches = []
 
+        cash_limit = float(limits.tolerance_cash)
+        weight_limit = float(limits.tolerance_weight)
+
         residual = abs(snapshot.financial)
-        if residual > float(policy.tolerance_cash):
+        if residual > cash_limit:
             breaches.append(
-                f'النقد {residual} يتجاوز حد العملية {float(policy.tolerance_cash)}'
+                f'النقد {residual} يتجاوز حد العملية {cash_limit}'
             )
 
         equivalent = self._main_karat_equivalent(snapshot.open_karats)
-        if equivalent > float(policy.tolerance_weight):
+        if equivalent > weight_limit:
             breaches.append(
                 f'الوزن المكافئ للعيار الرئيسي {round(equivalent, WEIGHT_PRECISION)} '
-                f'يتجاوز حد العملية {float(policy.tolerance_weight)} '
+                f'يتجاوز حد العملية {weight_limit} '
                 f'(الخام: {snapshot.open_karats})'
             )
 
@@ -1501,27 +1569,43 @@ class SupplierSettlementAdjustmentService:
         supplier: Supplier,
         snapshot: SettlementSnapshot,
         policy: SupplierSettlementPolicy,
+        limits: ReasonLimits,
         now: datetime,
         exclude_adjustment_id: int | None,
+        *,
+        reason_code: str | None = None,
     ) -> EligibilityCheck:
+        """The month's accumulation, measured against the budget it draws on.
+
+        Cap and consumption are one decision: a reason with its own cap has its
+        own budget, and counting its settlements against the shared one as well
+        would make a single large waiver exhaust the rounding allowance for the
+        rest of the month. policy.period_budget_scope() answers which reasons
+        share a budget; None means all of them, which is the state while no
+        per-reason cap exists.
+        """
         period = self._period_key(now)
         breaches = []
 
-        consumed = self._period_consumption(supplier, now, exclude_adjustment_id)
+        cash_scope = policy.period_budget_scope(reason_code, dimension='cash')
+        consumed = self._period_consumption(
+            supplier, now, exclude_adjustment_id, reason_codes=cash_scope)
         projected = consumed + abs(snapshot.financial)
-        if projected > float(policy.period_cap_cash):
+        if projected > float(limits.period_cap_cash):
             breaches.append(
                 f'النقد: التراكم للفترة {period} سيصبح {round(projected, CASH_PRECISION)} '
-                f'ويتجاوز {float(policy.period_cap_cash)} (المستهلك {round(consumed, CASH_PRECISION)})'
+                f'ويتجاوز {float(limits.period_cap_cash)} (المستهلك {round(consumed, CASH_PRECISION)})'
             )
 
-        weight_consumed = self._period_weight_consumption(supplier, now, exclude_adjustment_id)
+        weight_scope = policy.period_budget_scope(reason_code, dimension='weight')
+        weight_consumed = self._period_weight_consumption(
+            supplier, now, exclude_adjustment_id, reason_codes=weight_scope)
         weight_projected = weight_consumed + self._main_karat_equivalent(snapshot.open_karats)
-        if weight_projected > float(policy.period_cap_weight):
+        if weight_projected > float(limits.period_cap_weight):
             breaches.append(
                 f'الوزن (مكافئ العيار الرئيسي): التراكم للفترة {period} سيصبح '
                 f'{round(weight_projected, WEIGHT_PRECISION)} ويتجاوز '
-                f'{float(policy.period_cap_weight)} '
+                f'{float(limits.period_cap_weight)} '
                 f'(المستهلك {round(weight_consumed, WEIGHT_PRECISION)})'
             )
 

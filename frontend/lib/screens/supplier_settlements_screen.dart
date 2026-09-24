@@ -8,6 +8,7 @@ import '../api_service.dart';
 import '../models/supplier_settlement_model.dart';
 import '../providers/auth_provider.dart';
 import '../providers/settings_provider.dart';
+import 'supplier_settlement_policy_screen.dart';
 
 /// تسويات فروقات حساب المورد.
 ///
@@ -675,6 +676,21 @@ class _SupplierSettlementsScreenState extends State<SupplierSettlementsScreen> {
             ar ? 'تسويات: ${widget.supplierName}' : 'Settlements: ${widget.supplierName}',
           ),
           actions: [
+            // الحدود تُفتح من هنا لأن هذا هو المكان الذي يُرفض فيه المستخدم:
+            // رسالة الرفض تذكر حدًّا، وهذا الزرّ يوصل إليه.
+            IconButton(
+              tooltip: ar ? 'حدود التسوية' : 'Settlement limits',
+              onPressed: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => SupplierSettlementPolicyScreen(
+                    api: widget.api,
+                    isArabic: ar,
+                  ),
+                ),
+              ),
+              icon: const Icon(Icons.rule),
+            ),
             IconButton(
               tooltip: ar ? 'تحديث' : 'Refresh',
               onPressed: _isLoading ? null : _load,
