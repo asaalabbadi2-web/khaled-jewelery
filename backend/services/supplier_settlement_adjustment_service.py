@@ -1415,16 +1415,48 @@ class SupplierSettlementAdjustmentService:
     # ── Eligibility checks ───────────────────────────────────────────────────
 
     def _check_no_unpaid_invoices(self, supplier: Supplier) -> EligibilityCheck:
+        """Refuse while an invoice under invoice-level enforcement is still open.
+
+        The qualifier is not decoration. This gate used to read Invoice.status for
+        EVERY invoice, and for invoices created before invoice-level settlement
+        existed that field is stale by construction: their payments were made
+        through vouchers that were never linked to an invoice (168 approved
+        supplier vouchers carry no reference_type at all), and ADR-028 forbids
+        inferring the link. Production-copy measurement: those invoices claimed
+        1,834,663 SAR and 20,692 g open while the ledger carried 90,439 SAR and
+        1,309 g — and the gate blocked 22 of 27 suppliers on that claim.
+
+        A status nothing can correct cannot be a control. So the gate now asks
+        only about invoices whose status IS maintained, and the obligation of the
+        rest is represented where it actually lives — the ledger, which is the
+        single source of truth per ADR-028. An untracked invoice that is genuinely
+        open still leaves its obligation in the supplier's balance, where the
+        review threshold and the operation tolerance meet it; the protection moves
+        rather than disappears, which
+        tests/test_settlement_gate_tracked_invoices.py::TestTheLedgerStillGuards
+        is there to prove.
+
+        SCOPE, deliberately narrow: gold_settlement_tracked is read here as the
+        forward-only marker for THIS gate — the flag happens to divide invoices at
+        exactly the line where invoice-level status became maintained. It is NOT a
+        general cash qualifier and must not be reused as one. An office invoice is
+        untracked while carrying a real CASH obligation, so a future settlement
+        engine needs cash_settlement_eligible() and gold_settlement_eligible()
+        separately, per dimension. That work is out of scope here.
+        """
         count = (
             Invoice.query
             .filter(Invoice.supplier_id == int(supplier.id))
             .filter(Invoice.status.in_(['unpaid', 'partially_paid']))
+            .filter(Invoice.gold_settlement_tracked.is_(True))
             .count()
         )
         return EligibilityCheck(
             name='no_unpaid_invoices',
             passed=count == 0,
-            detail='' if count == 0 else f'يوجد {count} فاتورة غير مسددة أو مسددة جزئياً.',
+            detail='' if count == 0 else (
+                f'يوجد {count} فاتورة متتبَّعة غير مسددة أو مسددة جزئياً.'
+            ),
         )
 
     def _check_no_unposted_journal_entries(self, supplier: Supplier) -> EligibilityCheck:
