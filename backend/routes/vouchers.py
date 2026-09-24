@@ -45,6 +45,8 @@ from services.invoice_payment_state_service import (
 from services.gold_allocation_service import (
     GoldAllocationService,
     sync_gold_advance_after_voucher_approval,
+    sync_gold_attribution_after_voucher_approval,
+    remove_attributions_for_voucher,
 )
 from accounting.wages import _ensure_gold24k_commission_revenue_account
 from routes import (
@@ -1011,6 +1013,10 @@ def approve_voucher(voucher_id):
         # for exactly which shape this does and does not fix.
         sync_invoice_payment_state_after_voucher_approval(voucher)
         sync_gold_advance_after_voucher_approval(voucher)
+        # Same transaction as the approval on purpose: a failure here must
+        # fail the approval rather than leave a posted settlement with no
+        # attribution. Not wrapped in try/except for that reason.
+        sync_gold_attribution_after_voucher_approval(voucher)
 
         # Audit log
         try:
@@ -1199,6 +1205,11 @@ def cancel_voucher(voucher_id):
         if voucher.reference_type == 'gold_advance':
             for advance in SupplierGoldAdvance.query.filter_by(source_voucher_id=voucher.id).all():
                 GoldAllocationService().unallocate(advance_id=advance.id)
+
+        # An attribution must never outlive the payment that evidences it — the
+        # same class of bug as AV-2026-00223. Safe to call unconditionally: a
+        # voucher with no attribution rows removes none.
+        remove_attributions_for_voucher(voucher.id)
 
         # Same class of bug as AV-2026-00223 above, for reference_type='invoice'
         # instead: cancel_voucher reverses the JE and SafeBox but never told the

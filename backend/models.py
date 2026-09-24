@@ -1837,6 +1837,89 @@ class GoldAllocation(db.Model):
         }
 
 
+class VoucherInvoiceGoldAttribution(db.Model):
+    """A human said: this much of this voucher's gold settles THIS invoice.
+
+    Phase A. The only way an invoice gold settlement becomes attributed going
+    forward. Before this table the sole invoice-level evidence was derived from
+    `Voucher.reference_type='invoice'` plus the GL (Phase 12E "mechanism A"),
+    and that derivation is now frozen to vouchers at or below the boundary in
+    GoldAttributionBoundary — new vouchers must carry their attribution here,
+    so there is exactly one answer per voucher rather than two.
+
+    KARAT (Phase 14's rule, and the reason both columns exist): `karat`/`weight`
+    are the REAL karat and weight actually handed over, never flattened —
+    Phase 16A found 8 of 34 real settlements paid a karat the invoice never
+    contained, so "18k paid against a 21k obligation" is a fact worth keeping.
+    `weight_main_karat` is the same payment expressed in main-karat-equivalent,
+    and is the ONLY figure used for balancing against an obligation or
+    aggregating across karats.
+
+    Append-only, with no uniqueness on (voucher_id, invoice_id): one voucher
+    may legitimately settle several invoices, and a correction adds a row
+    rather than editing one — same invariant as GoldAllocation and
+    SettlementLine.
+
+    Never created automatically. There is no FIFO, no "oldest invoice first",
+    no inference from a falling supplier balance: Phase 16B proved attribution
+    was genuinely ambiguous at payment time (only 11 of 124 real payments had a
+    single candidate invoice) and that 0 of 113 vouchers ever named one. A row
+    here exists because a person chose it, or because the invoice-creation flow
+    recorded its own immediate settlement.
+    """
+    __tablename__ = 'voucher_invoice_gold_attribution'
+
+    id = db.Column(db.Integer, primary_key=True)
+    voucher_id = db.Column(db.Integer, db.ForeignKey('voucher.id'), nullable=False, index=True)
+    invoice_id = db.Column(db.Integer, db.ForeignKey('invoice.id'), nullable=False, index=True)
+    karat = db.Column(db.Float, nullable=False)
+    weight = db.Column(db.Float, nullable=False)
+    weight_main_karat = db.Column(db.Float, nullable=False)
+    created_at = db.Column(db.DateTime, default=db.func.now())
+    created_by = db.Column(db.String(100), nullable=True)
+
+    voucher = db.relationship(
+        'Voucher', foreign_keys=[voucher_id],
+        backref=db.backref('gold_attributions', lazy='dynamic'),
+    )
+    invoice = db.relationship(
+        'Invoice', foreign_keys=[invoice_id],
+        backref=db.backref('gold_attributions', lazy='dynamic'),
+    )
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'voucher_id': self.voucher_id,
+            'invoice_id': self.invoice_id,
+            'karat': self.karat,
+            'weight': self.weight,
+            'weight_main_karat': self.weight_main_karat,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'created_by': self.created_by,
+        }
+
+
+class GoldAttributionBoundary(db.Model):
+    """The frozen line between derived historical attribution and recorded
+    attribution. One row, written once by its migration, never recomputed.
+
+    Vouchers with `id <= max_historical_voucher_id` may have their invoice gold
+    attribution DERIVED from `Voucher.reference_type='invoice'` plus the GL.
+    Above it, only VoucherInvoiceGoldAttribution counts. Storing the boundary
+    as data rather than deriving it per read is deliberate: a date would
+    misclassify a back-dated invoice or voucher, and recomputing `MAX(id)` on
+    every read would silently move the line forward and re-open the very
+    "two answers" problem this replaces.
+    """
+    __tablename__ = 'gold_attribution_boundary'
+
+    id = db.Column(db.Integer, primary_key=True)
+    max_historical_voucher_id = db.Column(db.Integer, nullable=False)
+    captured_at = db.Column(db.DateTime, default=db.func.now())
+    note = db.Column(db.String(255), nullable=True)
+
+
 class WeightClosingLog(db.Model):
     __tablename__ = 'weight_closing_log'
 

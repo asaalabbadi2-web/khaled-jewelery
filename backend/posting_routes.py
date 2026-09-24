@@ -47,7 +47,10 @@ from services.invoice_payment_state_service import (
     InvoicePaymentStateService,
     sync_invoice_payment_state_after_voucher_approval,
 )
-from services.gold_allocation_service import sync_gold_advance_after_voucher_approval
+from services.gold_allocation_service import (
+    sync_gold_advance_after_voucher_approval,
+    sync_gold_attribution_after_voucher_approval,
+)
 
 posting_bp = Blueprint('posting', __name__)
 
@@ -3457,6 +3460,7 @@ def approve_voucher(voucher_id):
             _create_and_post_karat_diff_entries_for_voucher(voucher, approved_by)
             sync_invoice_payment_state_after_voucher_approval(voucher)
             sync_gold_advance_after_voucher_approval(voucher)
+            sync_gold_attribution_after_voucher_approval(voucher)
             db.session.commit()
             return jsonify({
                 'success': True,
@@ -3490,6 +3494,7 @@ def approve_voucher(voucher_id):
 
         sync_invoice_payment_state_after_voucher_approval(voucher)
         sync_gold_advance_after_voucher_approval(voucher)
+        sync_gold_attribution_after_voucher_approval(voucher)
 
         # تسجيل العملية
         AuditLog.log_action(
@@ -3688,6 +3693,7 @@ def approve_vouchers_batch():
 
                 sync_invoice_payment_state_after_voucher_approval(voucher)
                 sync_gold_advance_after_voucher_approval(voucher)
+                sync_gold_attribution_after_voucher_approval(voucher)
 
                 db.session.commit()
                 approved_count += 1

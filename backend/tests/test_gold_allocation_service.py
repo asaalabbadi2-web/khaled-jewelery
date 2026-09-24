@@ -24,6 +24,7 @@ import pytest
 from app import app as flask_app
 from models import (
     GoldAllocation,
+    GoldAttributionBoundary,
     Invoice,
     InvoiceItem,
     InvoiceKaratLine,
@@ -66,6 +67,15 @@ def rollback_after_each(app):
     transaction = connection.begin()
     db.session.bind = connection
     nested = connection.begin_nested()
+
+    # Production gets this row from migration 20260924_voucher_invoice_gold_attr;
+    # a create_all() test database has to seed it, because
+    # historical_attribution_boundary() fails CLOSED at 0 — deriving nothing
+    # rather than risking a stale answer. Seeded high so every voucher a test
+    # creates counts as historical, which is what the derived-path tests mean.
+    if GoldAttributionBoundary.query.first() is None:
+        db.session.add(GoldAttributionBoundary(max_historical_voucher_id=10 ** 9))
+        db.session.flush()
 
     yield
 
