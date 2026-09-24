@@ -360,6 +360,6 @@ class TestGoldEventsAreWiredToResync:
             nxt_method = source.find('\n    def ', start + 1)
             end = min(x for x in (nxt, nxt_method, len(source)) if x > 0)
             body = source[start:end]
-            assert '_resync_invoice_status(' in body, (
+            assert 'resync_invoice_status(' in body, (
                 f'{func.strip("def (")} does not resync the invoice status'
             )

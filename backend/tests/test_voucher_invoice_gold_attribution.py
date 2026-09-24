@@ -459,3 +459,85 @@ class TestNoInference:
         assert recorded_attribution_for_invoice(invoice.id) == 0.0
         assert obligation_attributed_remaining(obligation) == 100.0
         assert GoldAllocation.query.filter_by(obligation_id=obligation.id).count() == 0
+
+
+# ======================================================================
+# Correcting a classification after the fact
+# ======================================================================
+
+class TestCorrectingAClassification:
+    """A payment declared a general supplier settlement records no attribution,
+    which is correct — but until this path existed the invoice had no way back:
+    its gold side stayed unsettled even when the amount matched the obligation
+    exactly. The capability was always in the service; it had no route."""
+
+    def test_a_general_settlement_can_be_reattributed_later(self):
+        supplier = _supplier()
+        invoice = _invoice(supplier.id)
+        obligation = _obligation(invoice.id, karat=21.0, weight=100.0)
+
+        # Declared as a general settlement: no attribution, invoice untouched.
+        voucher = _gold_voucher(
+            supplier.id, lines=[(21.0, 100.0)], reference_type='gold_supplier',
+        )
+        sync_gold_attribution_after_voucher_approval(voucher)
+        assert obligation_attributed_remaining(obligation) == 100.0
+
+        # Someone realises it was for this invoice and says so.
+        attribute_gold_to_invoice(
+            voucher=voucher, invoice_id=invoice.id, karat=21.0, weight=100.0,
+        )
+
+        assert obligation_attributed_remaining(obligation) == 0.0
+        assert recorded_attribution_for_invoice(invoice.id) == 100.0
+
+    def test_a_correction_cannot_exceed_what_the_voucher_carries(self):
+        supplier = _supplier()
+        invoice = _invoice(supplier.id)
+        _obligation(invoice.id, karat=21.0, weight=500.0)
+        voucher = _gold_voucher(
+            supplier.id, lines=[(21.0, 40.0)], reference_type='gold_supplier',
+        )
+
+        with pytest.raises(ValueError, match='exceeds_voucher_gold'):
+            attribute_gold_to_invoice(
+                voucher=voucher, invoice_id=invoice.id, karat=21.0, weight=60.0,
+            )
+
+    def test_a_correction_can_be_undone_and_frees_the_obligation(self):
+        supplier = _supplier()
+        invoice = _invoice(supplier.id)
+        obligation = _obligation(invoice.id, karat=21.0, weight=100.0)
+        voucher = _gold_voucher(
+            supplier.id, lines=[(21.0, 60.0)], reference_type='gold_supplier',
+        )
+        row = attribute_gold_to_invoice(
+            voucher=voucher, invoice_id=invoice.id, karat=21.0, weight=60.0,
+        )
+        assert obligation_attributed_remaining(obligation) == 40.0
+
+        db.session.delete(row)
+        db.session.flush()
+
+        assert obligation_attributed_remaining(obligation) == 100.0
+
+    def test_correcting_twice_respects_the_shared_ceiling(self):
+        """Two corrections against the same invoice draw from one budget."""
+        supplier = _supplier()
+        invoice = _invoice(supplier.id)
+        _obligation(invoice.id, karat=21.0, weight=100.0)
+
+        first = _gold_voucher(
+            supplier.id, lines=[(21.0, 70.0)], reference_type='gold_supplier',
+        )
+        attribute_gold_to_invoice(
+            voucher=first, invoice_id=invoice.id, karat=21.0, weight=70.0,
+        )
+
+        second = _gold_voucher(
+            supplier.id, lines=[(21.0, 70.0)], reference_type='gold_supplier',
+        )
+        with pytest.raises(ValueError, match='exceeds_invoice_obligation_remaining'):
+            attribute_gold_to_invoice(
+                voucher=second, invoice_id=invoice.id, karat=21.0, weight=70.0,
+            )

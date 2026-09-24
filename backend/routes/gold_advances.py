@@ -27,6 +27,8 @@ from flask import Blueprint, g, jsonify, request
 from auth_decorators import require_auth, require_permission
 from models import (
     GoldAllocation,
+    Voucher,
+    VoucherInvoiceGoldAttribution,
     Invoice,
     InvoiceGoldObligation,
     Supplier,
@@ -37,6 +39,9 @@ from services.gold_allocation_service import (
     GoldAllocationService,
     WEIGHT_EPSILON,
     advance_remaining,
+    attribute_gold_to_invoice,
+    resync_invoice_status,
+    voucher_gold_capacity_main_karat,
     obligation_attributed_remaining,
     obligation_attributed_settlement,
     reconcile_supplier,
@@ -160,6 +165,126 @@ def get_supplier_gold_reconciliation(supplier_id):
         'success': True,
         'reconciliation': reconcile_supplier(supplier),
     }), 200
+
+
+@gold_advances_bp.route('/vouchers/<int:voucher_id>/gold-attribution', methods=['GET'])
+@require_auth
+@require_permission('gold_advances.view')
+def get_voucher_gold_attribution(voucher_id):
+    """What this voucher's gold currently settles, and how much of it is still
+    unattributed — the information needed before correcting a classification."""
+    voucher = Voucher.query.get(voucher_id)
+    if voucher is None:
+        return jsonify({
+            'success': False,
+            'message': f'السند #{voucher_id} غير موجود',
+            'error': 'not_found',
+        }), 404
+
+    rows = VoucherInvoiceGoldAttribution.query.filter_by(voucher_id=voucher.id).all()
+    attributed = round(sum(float(r.weight_main_karat or 0.0) for r in rows), 2)
+    capacity = voucher_gold_capacity_main_karat(voucher)
+    return jsonify({
+        'success': True,
+        'voucher_id': voucher.id,
+        'reference_type': voucher.reference_type,
+        'gold_capacity_main_karat': capacity,
+        'attributed_main_karat': attributed,
+        'unattributed_main_karat': round(capacity - attributed, 2),
+        'attributions': [r.to_dict() for r in rows],
+    }), 200
+
+
+@gold_advances_bp.route('/vouchers/<int:voucher_id>/gold-attribution', methods=['POST'])
+@require_auth
+@require_permission('gold_advances.allocate')
+def attribute_voucher_gold(voucher_id):
+    """Correct a classification after the fact: attribute this approved
+    voucher's gold to an invoice.
+
+    Exists because the choice made at payment time can be wrong, or made before
+    the invoice was known. A payment declared a general supplier settlement
+    records no attribution by design — which is correct, but left the invoice
+    with no way back: the gold side stays unsettled even when the amount matches
+    the obligation exactly. The capability was always in the service; it simply
+    had no route.
+
+    Body: {"invoice_id": int, "karat": float, "weight": float}. `karat` and
+    `weight` are what was actually handed over; the main-karat-equivalent is
+    derived for balancing. Every existing guard applies unchanged — the
+    voucher's own gold capacity, the invoice's shared remaining obligation,
+    supplier match, and approved status.
+
+    Deliberately NOT a silent auto-close. The caller states the invoice; nothing
+    here infers it.
+    """
+    voucher = Voucher.query.get(voucher_id)
+    if voucher is None:
+        return jsonify({
+            'success': False,
+            'message': f'السند #{voucher_id} غير موجود',
+            'error': 'not_found',
+        }), 404
+
+    data = request.get_json(silent=True) or {}
+    invoice_id = data.get('invoice_id')
+    karat = data.get('karat')
+    weight = data.get('weight')
+    if not invoice_id or karat in (None, '') or weight in (None, ''):
+        return jsonify({
+            'success': False,
+            'message': 'invoice_id و karat و weight مطلوبة',
+            'error': 'missing_fields',
+        }), 400
+
+    try:
+        row = attribute_gold_to_invoice(
+            voucher=voucher,
+            invoice_id=int(invoice_id),
+            karat=float(karat),
+            weight=float(weight),
+            created_by=_actor(),
+        )
+    except ValueError as exc:
+        db.session.rollback()
+        return jsonify({
+            'success': False,
+            'message': str(exc),
+            'error': str(exc).split(':', 1)[0],
+        }), 400
+
+    db.session.commit()
+    return jsonify({
+        'success': True,
+        'message': 'تم نسب ذهب السند إلى الفاتورة',
+        'attribution': row.to_dict(),
+    }), 201
+
+
+@gold_advances_bp.route(
+    '/vouchers/<int:voucher_id>/gold-attribution/<int:attribution_id>', methods=['DELETE']
+)
+@require_auth
+@require_permission('gold_advances.allocate')
+def remove_voucher_gold_attribution(voucher_id, attribution_id):
+    """Undo one attribution — the other half of being able to correct a
+    mistake. Frees the invoice's obligation again and resyncs its status."""
+    row = VoucherInvoiceGoldAttribution.query.filter_by(
+        id=attribution_id, voucher_id=voucher_id
+    ).first()
+    if row is None:
+        return jsonify({
+            'success': False,
+            'message': 'النسب غير موجود لهذا السند',
+            'error': 'not_found',
+        }), 404
+
+    invoice_id = row.invoice_id
+    db.session.delete(row)
+    db.session.flush()
+    resync_invoice_status(invoice_id)
+    db.session.commit()
+    return jsonify({'success': True, 'message': 'تم إلغاء النسب'}), 200
 
 
 @gold_advances_bp.route('/suppliers/<int:supplier_id>/open-gold-obligations', methods=['GET'])

@@ -442,7 +442,7 @@ class GoldAllocationService:
         )
         db.session.add(allocation)
         db.session.flush()
-        _resync_invoice_status(obligation.invoice_id)
+        resync_invoice_status(obligation.invoice_id)
         return allocation
 
     def unallocate(self, *, advance_id: int = None, obligation_id: int = None) -> int:
@@ -472,7 +472,7 @@ class GoldAllocationService:
             db.session.delete(row)
         db.session.flush()
         for invoice_id in touched_invoice_ids:
-            _resync_invoice_status(invoice_id)
+            resync_invoice_status(invoice_id)
         return len(rows)
 
 
@@ -548,7 +548,7 @@ def create_gold_obligations_for_invoice(invoice: Invoice) -> list[InvoiceGoldObl
         obligations.append(obligation)
 
     if obligations:
-        _resync_invoice_status(invoice.id)
+        resync_invoice_status(invoice.id)
     return obligations
 
 
@@ -613,7 +613,7 @@ def sync_gold_advance_after_voucher_approval(voucher: Voucher) -> None:
         print(f"⚠️ gold advance sync after voucher approve skipped: {_sync_exc}")
 
 
-def _resync_invoice_status(invoice_id: int) -> None:
+def resync_invoice_status(invoice_id: int) -> None:
     """Recompute the invoice's payment status after a gold event.
 
     Invoice.status is a stored column read by lists, filters and reports, and it
@@ -696,7 +696,7 @@ def attribute_gold_to_invoice(
     already_attributed = db.session.query(
         db.func.coalesce(db.func.sum(VoucherInvoiceGoldAttribution.weight_main_karat), 0.0)
     ).filter(VoucherInvoiceGoldAttribution.voucher_id == voucher.id).scalar() or 0.0
-    voucher_capacity = _voucher_gold_capacity_main_karat(voucher)
+    voucher_capacity = voucher_gold_capacity_main_karat(voucher)
     if round(float(already_attributed) + weight_main_karat, 2) > voucher_capacity + WEIGHT_EPSILON:
         raise ValueError(
             f'exceeds_voucher_gold:requested={weight_main_karat},'
@@ -720,11 +720,11 @@ def attribute_gold_to_invoice(
     )
     db.session.add(row)
     db.session.flush()
-    _resync_invoice_status(invoice_id)
+    resync_invoice_status(invoice_id)
     return row
 
 
-def _voucher_gold_capacity_main_karat(voucher) -> float:
+def voucher_gold_capacity_main_karat(voucher) -> float:
     """How much gold this voucher actually moved, main-karat-equivalent, read
     from its own gold debit lines — the same lines the Advance path reads."""
     total = 0.0
@@ -805,7 +805,7 @@ def remove_attributions_for_voucher(voucher_id: int) -> int:
         db.session.delete(row)
     db.session.flush()
     for invoice_id in invoice_ids:
-        _resync_invoice_status(invoice_id)
+        resync_invoice_status(invoice_id)
     return len(rows)
 
 
