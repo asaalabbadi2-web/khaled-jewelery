@@ -440,23 +440,21 @@ def create_dual_journal_entry(journal_entry_id, account_id, cash_debit=0, cash_c
         # If account update fails, log it but don't fail the entry creation
         print(f"Warning: Could not update account balance for account {account_id}: {e}")
     
-    # 🆕 Update supplier/customer balance in their own table
+    # A SUPPLIER balance is deliberately NOT updated here.
+    #
+    # This block used to do `supplier.balance_gold_21k += (debit - credit)` and
+    # the same for cash and the other karats. That incremental cache drifted
+    # from the ledger by 21,121.06 g across 24 suppliers in real production:
+    # every GL write that bypassed this helper, every write with an unresolved
+    # supplier_id, and every reversal or deletion widened the gap, while
+    # compute_live_supplier_balances() — the declared Single Source — read the
+    # journal with additional rules of its own. A supplier balance is now
+    # derived on read from that one function and stored nowhere.
+    # Enforced by tests/test_supplier_balance_is_derived_ratchet.py.
+    #
+    # Customer is intentionally left as-is: same defect, but its own consumers,
+    # and an explicitly deferred decision.
     try:
-        if resolved_supplier_id:
-            from models import Supplier
-            supplier = db.session.query(Supplier).filter_by(id=resolved_supplier_id).first()
-            if supplier:
-                print(f"🔍 Updating supplier {resolved_supplier_id} balance:")
-                print(f"   Before: cash={supplier.balance_cash}, 18k={supplier.balance_gold_18k}, 21k={supplier.balance_gold_21k}")
-                supplier.balance_cash += (cash_debit - cash_credit)
-                supplier.balance_gold_18k += (weight_18k_debit - weight_18k_credit)
-                supplier.balance_gold_21k += (weight_21k_debit - weight_21k_credit)
-                supplier.balance_gold_22k += (weight_22k_debit - weight_22k_credit)
-                supplier.balance_gold_24k += (weight_24k_debit - weight_24k_credit)
-                print(f"   After: cash={supplier.balance_cash}, 18k={supplier.balance_gold_18k}, 21k={supplier.balance_gold_21k}")
-            else:
-                print(f"⚠️ Supplier {resolved_supplier_id} not found!")
-        
         if resolved_customer_id:
             from models import Customer
             customer = db.session.query(Customer).filter_by(id=resolved_customer_id).first()

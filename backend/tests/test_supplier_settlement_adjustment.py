@@ -787,7 +787,9 @@ def test_review_refusal_writes_absolutely_nothing(service, supplier, policy, set
     voucher_before = Voucher.query.count()
     sad_before = SupplierSettlementAdjustment.query.count()
     balance_before = _balance(supplier)['cash']
-    supplier_cols_before = (supplier.balance_cash, supplier.gold_balance_weight)
+    # balance_cash was deleted (a supplier balance is derived now); the
+    # gold-costing columns remain and are still none of SAD's business.
+    supplier_cols_before = (supplier.gold_balance_weight,)
 
     with pytest.raises(SupplierAccountReviewRequiredError):
         service.create_draft(
@@ -802,7 +804,7 @@ def test_review_refusal_writes_absolutely_nothing(service, supplier, policy, set
     assert SupplierSettlementAdjustment.query.count() == sad_before
     # The residual is neither reduced nor recalculated away.
     assert _balance(supplier)['cash'] == balance_before
-    assert (supplier.balance_cash, supplier.gold_balance_weight) == supplier_cols_before
+    assert (supplier.gold_balance_weight,) == supplier_cols_before
 
 
 def test_review_threshold_refusal_at_post_is_typed(service, supplier, policy, settlement_accounts):
@@ -1492,7 +1494,6 @@ def test_denormalised_balances_are_never_touched(service, supplier, policy, sett
     """SAD writes the ledger only; cached balance columns are not its business."""
     _give_residual(supplier, cash=3.00)
     before = (
-        supplier.balance_cash,
         supplier.gold_balance_weight,
         supplier.gold_balance_cash_equivalent,
     )
@@ -1500,7 +1501,6 @@ def test_denormalised_balances_are_never_touched(service, supplier, policy, sett
     _post_adjustment(service, supplier)
 
     assert (
-        supplier.balance_cash,
         supplier.gold_balance_weight,
         supplier.gold_balance_cash_equivalent,
     ) == before

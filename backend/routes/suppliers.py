@@ -27,6 +27,7 @@ from core.responses import _wrap_api_exceptions
 from auth_decorators import require_permission
 from party_account_service import ensure_supplier_accounts
 from pricing.gold_price_service import get_current_gold_price
+from services.party_live_balances import compute_live_supplier_balances
 from pricing.karat_service import convert_to_main_karat, get_main_karat
 from accounting.statement_verification import (
     _build_statement_qr_signed_payload,
@@ -49,6 +50,53 @@ def get_next_supplier_code():
         'total_suppliers': stats['total_suppliers'],
         'remaining_capacity': stats['remaining_capacity']
     })
+
+BALANCE_KEYS_BY_KARAT = (
+    ('balance_cash', 'cash', 2),
+    ('balance_gold_18k', '18k', 3),
+    ('balance_gold_21k', '21k', 3),
+    ('balance_gold_22k', '22k', 3),
+    ('balance_gold_24k', '24k', 3),
+)
+
+
+def _live_balance_payload(supplier, *, prefetched=None) -> dict:
+    """The supplier's cash/gold balance, derived from the ledger.
+
+    The ONE place that produces these five JSON keys. They used to be columns
+    on Supplier, incremented by create_dual_journal_entry(); that cache drifted
+    from the ledger by 21,121.06 g across 24 suppliers in real production, so
+    the columns are gone and every consumer reads this instead. The key names
+    are unchanged on purpose — frontend/lib/screens/suppliers_screen.dart reads
+    them as-is.
+
+    Pass *prefetched* (the dict returned by compute_live_supplier_balances for
+    a batch) to avoid one query per supplier in list endpoints.
+    """
+    if prefetched is None:
+        prefetched = compute_live_supplier_balances([supplier])
+    bal = prefetched.get(int(supplier.id)) or {}
+    return {
+        key: round(float(bal.get(source, 0.0) or 0.0), digits)
+        for key, source, digits in BALANCE_KEYS_BY_KARAT
+    }
+
+
+def _current_balance_payload(supplier) -> dict:
+    """The same derived balance under the ledger endpoint's key names
+    ('cash', 'gold_18k', ...). Same single source, one query — it exists so a
+    statement response can carry the authoritative balance next to the
+    period-scoped movement without the two being confused.
+    """
+    live = _live_balance_payload(supplier)
+    return {
+        'cash': live['balance_cash'],
+        'gold_18k': live['balance_gold_18k'],
+        'gold_21k': live['balance_gold_21k'],
+        'gold_22k': live['balance_gold_22k'],
+        'gold_24k': live['balance_gold_24k'],
+    }
+
 
 @suppliers_bp.route('/suppliers', methods=['GET'])
 def get_suppliers():
@@ -74,8 +122,6 @@ def get_suppliers():
     except Exception:
         office_by_supplier_id = {}
 
-    from services.party_live_balances import compute_live_supplier_balances
-
     results = []
     balances_by_supplier = compute_live_supplier_balances(suppliers)
 
@@ -96,140 +142,11 @@ def get_suppliers():
             data['is_closing_office'] = False
             data['closing_office_id'] = None
             data['closing_office_code'] = None
-        try:
-            sid = int(s.id)
-            bal = balances_by_supplier.get(sid)
-            if bal is None:
-                bal = {'cash': 0.0, '18k': 0.0, '21k': 0.0, '22k': 0.0, '24k': 0.0}
-
-            data['balance_cash'] = round(float(bal.get('cash', 0.0) or 0.0), 2)
-            data['balance_gold_18k'] = round(float(bal.get('18k', 0.0) or 0.0), 3)
-            data['balance_gold_21k'] = round(float(bal.get('21k', 0.0) or 0.0), 3)
-            data['balance_gold_22k'] = round(float(bal.get('22k', 0.0) or 0.0), 3)
-            data['balance_gold_24k'] = round(float(bal.get('24k', 0.0) or 0.0), 3)
-        except Exception:
-            pass
+        data.update(_live_balance_payload(s, prefetched=balances_by_supplier))
 
         results.append(data)
 
     return jsonify(results)
-
-@suppliers_bp.route('/suppliers/<int:supplier_id>/repair-historical-balances', methods=['POST'])
-@_wrap_api_exceptions('supplier_repair_failed', 'Failed to repair supplier balances')
-def repair_supplier_historical_balances(supplier_id):
-    """Recalculate and persist supplier cached balances from the ledger."""
-
-    supplier = Supplier.query.get_or_404(supplier_id)
-    payload = request.get_json(silent=True) or {}
-
-    def _boolish(value, default: bool = True) -> bool:
-        if value is None:
-            return default
-        if isinstance(value, bool):
-            return value
-        if isinstance(value, (int, float)):
-            return bool(value)
-        if isinstance(value, str):
-            return value.strip().lower() in ('1', 'true', 'yes', 'y', 'on')
-        return bool(value)
-
-    ensure_accounts = _boolish(payload.get('ensure_accounts', True), default=True)
-    if request.args.get('ensure_accounts') is not None:
-        ensure_accounts = _boolish(request.args.get('ensure_accounts'), default=True)
-
-    if ensure_accounts:
-        ensure_supplier_accounts(supplier)
-
-    supplier_fin_account_id = getattr(supplier, 'account_id', None)
-    supplier_memo_account_id = None
-    try:
-        fin_acc = Account.query.get(int(supplier_fin_account_id)) if supplier_fin_account_id else None
-        supplier_memo_account_id = getattr(fin_acc, 'memo_account_id', None) if fin_acc else None
-    except Exception:
-        supplier_memo_account_id = None
-
-    allowed_ids = []
-    try:
-        if supplier_fin_account_id not in (None, '', 0, '0', False):
-            allowed_ids.append(int(supplier_fin_account_id))
-    except Exception:
-        pass
-    try:
-        if supplier_memo_account_id not in (None, '', 0, '0', False):
-            allowed_ids.append(int(supplier_memo_account_id))
-    except Exception:
-        pass
-
-    payable_filter = and_(Account.type == 'Liability', Account.account_number.like('21%'))
-    account_filter = payable_filter
-    if allowed_ids:
-        account_filter = or_(Account.id.in_(allowed_ids), payable_filter)
-
-    supplier_line_filter = (JournalEntryLine.supplier_id == supplier_id)
-    if allowed_ids:
-        supplier_line_filter = or_(
-            supplier_line_filter,
-            and_(
-                JournalEntryLine.account_id.in_(allowed_ids),
-                JournalEntryLine.customer_id == None,  # noqa: E711
-            ),
-        )
-
-    jl_filters = [
-        JournalEntry.is_deleted == False,
-        JournalEntryLine.is_deleted == False,
-    ]
-    if _db_has_column('journal_entry', 'is_posted'):
-        jl_filters.append(JournalEntry.is_posted == True)
-    if _db_has_column('journal_entry', 'is_draft'):
-        jl_filters.append(JournalEntry.is_draft == False)
-
-    rows = (
-        db.session.query(
-            (func.coalesce(func.sum(JournalEntryLine.cash_debit), 0.0) - func.coalesce(func.sum(JournalEntryLine.cash_credit), 0.0)).label('cash'),
-            (func.coalesce(func.sum(JournalEntryLine.debit_18k), 0.0) - func.coalesce(func.sum(JournalEntryLine.credit_18k), 0.0)).label('b18'),
-            (func.coalesce(func.sum(JournalEntryLine.debit_21k), 0.0) - func.coalesce(func.sum(JournalEntryLine.credit_21k), 0.0)).label('b21'),
-            (func.coalesce(func.sum(JournalEntryLine.debit_22k), 0.0) - func.coalesce(func.sum(JournalEntryLine.credit_22k), 0.0)).label('b22'),
-            (func.coalesce(func.sum(JournalEntryLine.debit_24k), 0.0) - func.coalesce(func.sum(JournalEntryLine.credit_24k), 0.0)).label('b24'),
-            func.max(JournalEntry.date).label('last_dt'),
-        )
-        .join(JournalEntry)
-        .join(Account, JournalEntryLine.account_id == Account.id)
-        .filter(supplier_line_filter)
-        .filter(*jl_filters)
-        .filter(account_filter)
-        .first()
-    )
-
-    cash = float(getattr(rows, 'cash', 0.0) or 0.0)
-    b18 = float(getattr(rows, 'b18', 0.0) or 0.0)
-    b21 = float(getattr(rows, 'b21', 0.0) or 0.0)
-    b22 = float(getattr(rows, 'b22', 0.0) or 0.0)
-    b24 = float(getattr(rows, 'b24', 0.0) or 0.0)
-    last_dt = getattr(rows, 'last_dt', None)
-
-    supplier.balance_cash = round(cash, 2)
-    supplier.balance_gold_18k = round(b18, 3)
-    supplier.balance_gold_21k = round(b21, 3)
-    supplier.balance_gold_22k = round(b22, 3)
-    supplier.balance_gold_24k = round(b24, 3)
-    if last_dt is not None:
-        supplier.last_gold_transaction_date = last_dt
-
-    db.session.add(supplier)
-    db.session.commit()
-
-    return jsonify({
-        'message': 'تم إصلاح الأرصدة التاريخية بنجاح',
-        'supplier_id': supplier.id,
-        'balances': {
-            'balance_cash': supplier.balance_cash,
-            'balance_gold_18k': supplier.balance_gold_18k,
-            'balance_gold_21k': supplier.balance_gold_21k,
-            'balance_gold_22k': supplier.balance_gold_22k,
-            'balance_gold_24k': supplier.balance_gold_24k,
-        },
-    }), 200
 
 @suppliers_bp.route('/suppliers', methods=['POST'])
 def add_supplier():
@@ -433,7 +350,9 @@ def update_supplier(id):
 
     try:
         db.session.commit()
-        return jsonify(supplier.to_dict())
+        payload = supplier.to_dict()
+        payload.update(_live_balance_payload(supplier))
+        return jsonify(payload)
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': f'Failed to update supplier: {str(e)}'}), 500
@@ -442,12 +361,18 @@ def update_supplier(id):
 def delete_supplier(id):
     supplier = Supplier.query.get_or_404(id)
     try:
-        cash_balance = float(supplier.balance_cash or 0.0)
+        # Eligibility is decided on the ledger, never on a cached column. This
+        # deliberately changes which suppliers can be deleted: one whose stored
+        # balance read 0 while the ledger disagreed is now correctly blocked,
+        # and one whose stale column was non-zero while the ledger is settled
+        # is now correctly deletable.
+        live = _live_balance_payload(supplier)
+        cash_balance = float(live['balance_cash'])
         gold_balances = [
-            float(supplier.balance_gold_18k or 0.0),
-            float(supplier.balance_gold_21k or 0.0),
-            float(supplier.balance_gold_22k or 0.0),
-            float(supplier.balance_gold_24k or 0.0),
+            float(live['balance_gold_18k']),
+            float(live['balance_gold_21k']),
+            float(live['balance_gold_22k']),
+            float(live['balance_gold_24k']),
         ]
 
         has_cash_balance = abs(cash_balance) > 0.01
@@ -770,6 +695,13 @@ def get_supplier_ledger(supplier_id):
             'gold_22k': round((d22 or 0.0) - (c22 or 0.0), 3),
             'gold_24k': round((d24 or 0.0) - (c24 or 0.0), 3),
         },
+        # The period's movement above ('total_debits'/'total_credits'/'net') is a
+        # different question from the supplier's balance: it is scoped to the
+        # requested date range. 'current_balance' is the authoritative answer,
+        # from the same canonical function the suppliers list and
+        # gold-reconciliation use — never a third query. Do not present 'net'
+        # as the supplier's balance.
+        'current_balance': _current_balance_payload(supplier),
         'last_transaction_date': last_transaction_date,
         'filters': {
             'date_from': date_from_value.isoformat() if date_from_value else None,
@@ -1146,11 +1078,15 @@ def get_supplier_weight_summary(supplier_id):
         '24': round(price_24k, 2),
     }
 
+    # Derived, not cached: this endpoint multiplies these weights by live gold
+    # prices to produce monetary valuations, so a stale weight became a wrong
+    # money figure on screen.
+    live = _live_balance_payload(supplier)
     balances = {
-        'weight_18k': round(float(supplier.balance_gold_18k or 0.0), 3),
-        'weight_21k': round(float(supplier.balance_gold_21k or 0.0), 3),
-        'weight_22k': round(float(supplier.balance_gold_22k or 0.0), 3),
-        'weight_24k': round(float(supplier.balance_gold_24k or 0.0), 3),
+        'weight_18k': live['balance_gold_18k'],
+        'weight_21k': live['balance_gold_21k'],
+        'weight_22k': live['balance_gold_22k'],
+        'weight_24k': live['balance_gold_24k'],
     }
 
     valuations = {

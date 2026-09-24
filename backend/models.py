@@ -802,12 +802,17 @@ class Supplier(db.Model):
     account_id = db.Column(db.Integer, db.ForeignKey('account.id', name='fk_supplier_account_id'), nullable=True)
     account = db.relationship('Account', foreign_keys=[account_id], backref='supplier_old', uselist=False)
     
-    # الأرصدة (لتسريع الاستعلامات)
-    balance_cash = db.Column(db.Float, default=0.0)
-    balance_gold_18k = db.Column(db.Float, default=0.0)
-    balance_gold_21k = db.Column(db.Float, default=0.0)
-    balance_gold_22k = db.Column(db.Float, default=0.0)
-    balance_gold_24k = db.Column(db.Float, default=0.0)
+    # No cached cash/gold balance here, deliberately. Those five columns
+    # (balance_cash, balance_gold_18k/21k/22k/24k) existed "to speed up
+    # queries" and drifted from the ledger by 21,121.06 g across 24 suppliers
+    # in real production. A supplier balance is DERIVED on read, from the one
+    # canonical function: services.party_live_balances.compute_live_supplier_balances.
+    # The API still exposes the same JSON keys — the endpoints fill them from
+    # that function. Guarded by tests/test_supplier_balance_is_derived_ratchet.py.
+    #
+    # gold_balance_weight / gold_balance_cash_equivalent below are a different
+    # quantity (the gold-costing subsystem in supplier_gold_service.py, which
+    # both writes and reads them), left untouched on purpose.
     gold_balance_weight = db.Column(db.Float, default=0.0)
     gold_balance_cash_equivalent = db.Column(db.Float, default=0.0)
     last_gold_transaction_date = db.Column(db.DateTime, nullable=True)
@@ -839,11 +844,10 @@ class Supplier(db.Model):
             'account_category_name': self.account_category.name if self.account_category else None,
             'account_id': self.account_id,
             'account_name': self.account.name if self.account else None,
-            'balance_cash': self.balance_cash,
-            'balance_gold_18k': self.balance_gold_18k,
-            'balance_gold_21k': self.balance_gold_21k,
-            'balance_gold_22k': self.balance_gold_22k,
-            'balance_gold_24k': self.balance_gold_24k,
+            # balance_cash and balance_gold_* are NOT emitted here: a supplier
+            # balance is derived, and this model cannot query the ledger. The
+            # keys still exist on the wire — routes/suppliers.py adds them via
+            # _live_balance_payload() so suppliers_screen.dart keeps working.
             'gold_balance_weight': self.gold_balance_weight,
             'gold_balance_cash_equivalent': self.gold_balance_cash_equivalent,
             'last_gold_transaction_date': self.last_gold_transaction_date.isoformat() if self.last_gold_transaction_date else None,

@@ -1793,31 +1793,6 @@ class ApiService {
     }
   }
 
-  Future<Map<String, dynamic>> repairSupplierHistoricalBalances(
-    int supplierId, {
-    bool ensureAccounts = true,
-  }) async {
-    final uri =
-        Uri.parse(
-          '$_baseUrl/suppliers/$supplierId/repair-historical-balances',
-        ).replace(
-          queryParameters: ensureAccounts ? {'ensure_accounts': '1'} : null,
-        );
-
-    final response = await _authedPost(
-      uri,
-      headers: {'Content-Type': 'application/json; charset=UTF-8'},
-      body: json.encode({}),
-    );
-    if (response.statusCode == 200) {
-      final decoded = json.decode(utf8.decode(response.bodyBytes));
-      return decoded is Map<String, dynamic>
-          ? decoded
-          : Map<String, dynamic>.from(decoded as Map);
-    }
-    throw Exception(_errorMessageFromResponse(response));
-  }
-
   Future<Map<String, dynamic>> getSupplierLedger(
     int supplierId, {
     int page = 1,

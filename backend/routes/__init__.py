@@ -1167,7 +1167,6 @@ def _generate_employee_code():
 
 # Suppliers domain → routes/suppliers.py
 # (GET /suppliers/next-code, GET /suppliers,
-#  POST /suppliers/<id>/repair-historical-balances,
 #  POST /suppliers, PUT /suppliers/<id>, DELETE /suppliers/<id>,
 #  GET /suppliers/<id>/ledger, GET /suppliers/<id>/statement,
 #  GET /suppliers/<id>/weight-summary, POST /suppliers/<id>/send-gold)

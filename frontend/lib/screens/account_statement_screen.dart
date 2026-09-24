@@ -60,7 +60,6 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
   int? _filterKarat; // null=all, 18, 21, 22, 24
   // int? _expandedTransactionId; // Removed: unused
 
-  bool _isRepairingBalances = false;
 
   final ScrollController _contentScrollController = ScrollController();
   final ScrollController _horizontalController = ScrollController();
@@ -422,126 +421,6 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
         return 'كشف حساب العميل: ${widget.accountName}';
       default:
         return 'كشف حساب ${widget.accountName}';
-    }
-  }
-
-  Future<void> _confirmAndRepairSupplierBalances() async {
-    if (widget.entityType != 'supplier') return;
-    if (_isRepairingBalances) return;
-
-    var ensureAccounts = true;
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) {
-        return StatefulBuilder(
-          builder: (context, setStateDialog) {
-            return AlertDialog(
-              title: const Text('إصلاح الأرصدة التاريخية'),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'سيقوم هذا الإجراء بإعادة احتساب الأرصدة المخزنة للمورد من دفتر الأستاذ وقد يساعد في تصحيح البيانات القديمة.',
-                  ),
-                  const SizedBox(height: 12),
-                  CheckboxListTile(
-                    contentPadding: EdgeInsets.zero,
-                    value: ensureAccounts,
-                    onChanged: (value) {
-                      setStateDialog(() {
-                        ensureAccounts = value ?? true;
-                      });
-                    },
-                    title: const Text(
-                      'تأكد من إنشاء حسابات المورد (مالي + مذكرة)',
-                    ),
-                  ),
-                ],
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.of(context).pop(false),
-                  child: const Text('إلغاء'),
-                ),
-                ElevatedButton.icon(
-                  onPressed: () => Navigator.of(context).pop(true),
-                  icon: const Icon(Icons.build_circle_outlined),
-                  label: const Text('تنفيذ'),
-                ),
-              ],
-            );
-          },
-        );
-      },
-    );
-
-    if (confirmed != true || !mounted) return;
-
-    setState(() {
-      _isRepairingBalances = true;
-    });
-
-    final rootNavigator = Navigator.of(context, rootNavigator: true);
-    showDialog<void>(
-      context: context,
-      barrierDismissible: false,
-      useRootNavigator: true,
-      builder: (context) {
-        return const AlertDialog(
-          content: Row(
-            children: [
-              SizedBox(
-                width: 22,
-                height: 22,
-                child: CircularProgressIndicator(strokeWidth: 2.5),
-              ),
-              SizedBox(width: 16),
-              Expanded(child: Text('جارٍ إصلاح الأرصدة...')),
-            ],
-          ),
-        );
-      },
-    );
-
-    try {
-      final result = await ApiService().repairSupplierHistoricalBalances(
-        widget.accountId,
-        ensureAccounts: ensureAccounts,
-      );
-
-      if (!mounted) return;
-      if (rootNavigator.canPop()) {
-        rootNavigator.pop();
-      }
-
-      final message = (result['message'] is String)
-          ? result['message'] as String
-          : 'تم إصلاح الأرصدة بنجاح';
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(message), backgroundColor: Colors.green),
-      );
-
-      await _fetchAccountStatement();
-    } catch (e) {
-      if (!mounted) return;
-      if (rootNavigator.canPop()) {
-        rootNavigator.pop();
-      }
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('فشل إصلاح الأرصدة: $e'),
-          backgroundColor: Colors.red,
-        ),
-      );
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isRepairingBalances = false;
-        });
-      }
     }
   }
 
@@ -1292,14 +1171,6 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
             icon: const Icon(Icons.refresh),
             onPressed: _fetchAccountStatement,
           ),
-          if (widget.entityType == 'supplier')
-            IconButton(
-              icon: const Icon(Icons.build_circle_outlined),
-              tooltip: 'إصلاح الأرصدة',
-              onPressed: (_isLoading || _isRepairingBalances)
-                  ? null
-                  : _confirmAndRepairSupplierBalances,
-            ),
         ],
       ),
       body: SafeArea(

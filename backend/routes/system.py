@@ -1371,13 +1371,10 @@ def _reset_transactions():
             Customer.balance_gold_24k: 0.0,
         }, synchronize_session=False)
 
-        db.session.query(Supplier).update({
-            Supplier.balance_cash: 0.0,
-            Supplier.balance_gold_18k: 0.0,
-            Supplier.balance_gold_21k: 0.0,
-            Supplier.balance_gold_22k: 0.0,
-            Supplier.balance_gold_24k: 0.0,
-        }, synchronize_session=False)
+        # No supplier balance to reset: a supplier's cash/gold balance is
+        # derived from the ledger (compute_live_supplier_balances), so zeroing
+        # the journal above already zeroes it. Customer still has its own
+        # cached columns and is reset just above.
 
         db.session.commit()
 
@@ -1458,13 +1455,10 @@ def _reset_nuclear_transactions():
             Customer.balance_gold_24k: 0.0,
         }, synchronize_session=False)
 
-        db.session.query(Supplier).update({
-            Supplier.balance_cash: 0.0,
-            Supplier.balance_gold_18k: 0.0,
-            Supplier.balance_gold_21k: 0.0,
-            Supplier.balance_gold_22k: 0.0,
-            Supplier.balance_gold_24k: 0.0,
-        }, synchronize_session=False)
+        # No supplier balance to reset: a supplier's cash/gold balance is
+        # derived from the ledger (compute_live_supplier_balances), so zeroing
+        # the journal above already zeroes it. Customer still has its own
+        # cached columns and is reset just above.
 
         db.session.commit()
 

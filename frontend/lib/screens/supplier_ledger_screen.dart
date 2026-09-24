@@ -30,7 +30,6 @@ class _SupplierLedgerScreenState extends State<SupplierLedgerScreen> {
   String? _errorMessage;
   Map<String, dynamic>? _ledgerData;
 
-  bool _isRepairingBalances = false;
 
   DateTime? _startDate;
   DateTime? _endDate;
@@ -108,139 +107,6 @@ class _SupplierLedgerScreenState extends State<SupplierLedgerScreen> {
       _page = 1;
     });
     await _loadLedger();
-  }
-
-  Future<void> _confirmAndRepairHistoricalBalances() async {
-    if (_isRepairingBalances) return;
-
-    var ensureAccounts = true;
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) {
-        return StatefulBuilder(
-          builder: (context, setStateDialog) {
-            return AlertDialog(
-              title: Text(
-                _t('إصلاح الأرصدة التاريخية', 'Repair historical balances'),
-              ),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    _t(
-                      'سيقوم هذا الإجراء بإعادة احتساب الأرصدة المخزنة للمورد من دفتر الأستاذ وقد يساعد في تصحيح البيانات القديمة.',
-                      'This will recompute the supplier cached balances from the ledger and can help fix legacy/stale data.',
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  CheckboxListTile(
-                    contentPadding: EdgeInsets.zero,
-                    value: ensureAccounts,
-                    onChanged: (value) {
-                      setStateDialog(() {
-                        ensureAccounts = value ?? true;
-                      });
-                    },
-                    title: Text(
-                      _t(
-                        'تأكد من إنشاء حسابات المورد (مالي + مذكرة)',
-                        'Ensure supplier accounts (financial + memo)',
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.of(context).pop(false),
-                  child: Text(_t('إلغاء', 'Cancel')),
-                ),
-                ElevatedButton.icon(
-                  onPressed: () => Navigator.of(context).pop(true),
-                  icon: const Icon(Icons.build_circle_outlined),
-                  label: Text(_t('تنفيذ', 'Run')),
-                ),
-              ],
-            );
-          },
-        );
-      },
-    );
-
-    if (confirmed != true || !mounted) return;
-
-    setState(() {
-      _isRepairingBalances = true;
-    });
-
-    final rootNavigator = Navigator.of(context, rootNavigator: true);
-    showDialog<void>(
-      context: context,
-      barrierDismissible: false,
-      useRootNavigator: true,
-      builder: (context) {
-        return AlertDialog(
-          content: Row(
-            children: [
-              const SizedBox(
-                width: 22,
-                height: 22,
-                child: CircularProgressIndicator(strokeWidth: 2.5),
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Text(
-                  _t('جارٍ إصلاح الأرصدة...', 'Repairing balances...'),
-                ),
-              ),
-            ],
-          ),
-        );
-      },
-    );
-
-    try {
-      final result = await widget.api.repairSupplierHistoricalBalances(
-        widget.supplierId,
-        ensureAccounts: ensureAccounts,
-      );
-
-      if (!mounted) return;
-      if (rootNavigator.canPop()) {
-        rootNavigator.pop();
-      }
-
-      final message = (result['message'] is String)
-          ? result['message'] as String
-          : _t('تم إصلاح الأرصدة بنجاح', 'Balances repaired successfully');
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(message), backgroundColor: Colors.green),
-      );
-
-      await _loadLedger();
-    } catch (e) {
-      if (!mounted) return;
-      if (rootNavigator.canPop()) {
-        rootNavigator.pop();
-      }
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            _t('فشل إصلاح الأرصدة: $e', 'Failed to repair balances: $e'),
-          ),
-          backgroundColor: Colors.red,
-        ),
-      );
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isRepairingBalances = false;
-        });
-      }
-    }
   }
 
   Future<void> _pickDateRange() async {
@@ -1036,13 +902,6 @@ class _SupplierLedgerScreenState extends State<SupplierLedgerScreen> {
           ],
         ),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.build_circle_outlined),
-            tooltip: _t('إصلاح الأرصدة', 'Repair balances'),
-            onPressed: (_isLoading || _isRepairingBalances)
-                ? null
-                : _confirmAndRepairHistoricalBalances,
-          ),
           IconButton(
             icon: const Icon(Icons.date_range),
             tooltip: _t('تحديد الفترة', 'Select period'),
