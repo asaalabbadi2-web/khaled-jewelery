@@ -1,16 +1,19 @@
-"""Phase 15B/15A-Correction/15D — GoldAllocationService: the matching/
-bookkeeping engine, create_gold_obligations_for_invoice: the InvoiceKaratLine/
-InvoiceItem -> InvoiceGoldObligation normalizer, sync_gold_advance_after_
-voucher_approval: the Advance side of the trigger, and
-reverse_gold_allocations_for_invoice: the reversal mechanism.
+"""Phase 16C — the Gold Advance/Obligation model under the corrected contract.
 
-Scope, deliberately narrow (see the Phase 15 sub-phase plan in project
-memory): the service and its module-level functions, called directly — no
-routes (see test_gold_advance_allocation_integration.py for the HTTP-level
-proof), no karat-mismatch cash fee (explicitly out of scope for the AUTO
-path — see the service's own docstring; test_allows_cross_karat_unlike_
-auto_allocation proves the override path deliberately does not share that
-restriction).
+GL is the Single Source of Truth; the (supplier x karat) position derived from
+it is always authoritative; invoice attribution exists ONLY where it can be
+evidenced (an explicit GoldAllocation, or a direct-linked settlement voucher);
+everything else is named UNATTRIBUTED and never imputed to an invoice.
+
+The load-bearing test here is TestReconciliationIdentityGate. It is a gate,
+not an ordinary test: it proves that a real settlement with no attribution
+keeps the GL correct AND does not get converted into a fabricated invoice
+allocation. Without it, nothing stops a future change from closing the
+reconciliation gap by inventing attribution — which is exactly the defect
+Phase 16A measured (31,407g of "remaining" against a 3,446g real position).
+
+Run:
+    python -m pytest tests/test_gold_allocation_service.py -v
 """
 
 import uuid
@@ -26,15 +29,25 @@ from models import (
     InvoiceKaratLine,
     InvoiceGoldObligation,
     Item,
+    JournalEntry,
+    JournalEntryLine,
     Supplier,
     SupplierGoldAdvance,
     Voucher,
     VoucherAccountLine,
     db,
 )
+from party_account_service import ensure_supplier_accounts
+from pricing.karat_service import convert_to_main_karat
 from services.gold_allocation_service import (
     GoldAllocationService,
+    advance_remaining,
     create_gold_obligations_for_invoice,
+    direct_linked_settlement_for_invoice,
+    is_gold_obligation_eligible,
+    obligation_attributed_remaining,
+    obligation_attributed_settlement,
+    reconcile_supplier,
     reverse_gold_allocations_for_invoice,
     sync_gold_advance_after_voucher_approval,
 )
@@ -66,30 +79,40 @@ def _uid():
     return uuid.uuid4().hex[:8]
 
 
-def _supplier():
+def _supplier(*, with_accounts=False):
     s = Supplier(supplier_code=f'SUP-{_uid()}', name=f'مورد اختبار {_uid()}')
     db.session.add(s)
     db.session.flush()
+    if with_accounts:
+        ensure_supplier_accounts(s)
+        db.session.flush()
     return s
 
 
-def _voucher(supplier_id):
+def _account():
+    from models import Account
+    a = Account(account_number=f'9{_uid()[:5]}', name=f'حساب اختبار {_uid()}', type='Liability')
+    db.session.add(a)
+    db.session.flush()
+    return a
+
+
+def _voucher(supplier_id, *, reference_type='gold_advance', reference_id=None, status='approved'):
     v = Voucher(
         voucher_number=f'V-{_uid()}', voucher_type='payment', date=datetime.now(),
-        party_type='supplier', supplier_id=supplier_id, reference_type='gold_advance',
-        status='approved', created_by='test',
+        party_type='supplier', supplier_id=supplier_id, reference_type=reference_type,
+        reference_id=reference_id, status=status, created_by='test',
     )
     db.session.add(v)
     db.session.flush()
     return v
 
 
-def _advance(supplier_id, *, karat=21.0, weight=100.0, remaining=None, created_at=None):
+def _advance(supplier_id, *, karat=21.0, weight=100.0, created_at=None):
     voucher = _voucher(supplier_id)
     a = SupplierGoldAdvance(
         supplier_id=supplier_id, source_voucher_id=voucher.id,
         karat=karat, weight=weight,
-        weight_remaining_main_karat=remaining if remaining is not None else weight,
     )
     if created_at:
         a.created_at = created_at
@@ -98,450 +121,660 @@ def _advance(supplier_id, *, karat=21.0, weight=100.0, remaining=None, created_a
     return a
 
 
-def _invoice(supplier_id, *, date=None):
+def _invoice(supplier_id, *, date=None, invoice_type='شراء', office_id=None):
     inv = Invoice(
-        invoice_type_id=int(_uid(), 16) % 900000 + 1, invoice_type='شراء',
+        invoice_type_id=int(_uid(), 16) % 900000 + 1, invoice_type=invoice_type,
         supplier_id=supplier_id, date=date or datetime.now(), total=1000.0,
-        status='unpaid', amount_paid=0.0, is_posted=True,
+        status='unpaid', amount_paid=0.0, is_posted=True, office_id=office_id,
     )
     db.session.add(inv)
     db.session.flush()
     return inv
 
 
-def _obligation(invoice_id, *, karat=21.0, weight=100.0, remaining=None):
-    ob = InvoiceGoldObligation(
-        invoice_id=invoice_id, karat=karat, weight=weight,
-        weight_remaining_main_karat=remaining if remaining is not None else weight,
-    )
+def _obligation(invoice_id, *, karat=21.0, weight=100.0):
+    ob = InvoiceGoldObligation(invoice_id=invoice_id, karat=karat, weight=weight)
     db.session.add(ob)
     db.session.flush()
     return ob
 
 
-class TestAutoAllocateForAdvance:
+def _post_supplier_gold(supplier, *, karat=21, credit=0.0, debit=0.0, voucher=None):
+    """Post a real supplier-tagged gold line to the GL.
 
-    def test_fifo_covers_older_invoice_first_then_spills_to_newer(self):
-        supplier = _supplier()
-        older = _invoice(supplier.id, date=datetime(2026, 1, 1))
-        newer = _invoice(supplier.id, date=datetime(2026, 6, 1))
-        older_ob = _obligation(older.id, karat=21.0, weight=30.0)
-        newer_ob = _obligation(newer.id, karat=21.0, weight=100.0)
-        advance = _advance(supplier.id, karat=21.0, weight=50.0)
+    credit increases the supplier's gold liability (an invoice obliging us),
+    debit reduces it (a payment) — the direction verified empirically in
+    Phase 12E. When *voucher* is given the entry is tagged as that voucher's
+    own posting, which is what makes a settlement direct-linked.
+    """
+    accounts = ensure_supplier_accounts(supplier)
+    je = JournalEntry(
+        entry_number=f'JE-{_uid()}',
+        date=datetime.now() - timedelta(days=1),
+        description='قيد اختباري',
+        entry_type='عادي',
+        is_posted=True,
+        is_draft=False,
+        created_by='test',
+        reference_type='voucher' if voucher is not None else None,
+        reference_id=voucher.id if voucher is not None else None,
+    )
+    db.session.add(je)
+    db.session.flush()
 
-        plan = GoldAllocationService().auto_allocate_for_advance(advance)
-        db.session.commit()
+    line_kwargs = {
+        'journal_entry_id': je.id,
+        'account_id': accounts.financial.id,
+        'supplier_id': supplier.id,
+        'description': 'قيد اختباري',
+    }
+    if credit:
+        line_kwargs[f'credit_{karat}k'] = credit
+    if debit:
+        line_kwargs[f'debit_{karat}k'] = debit
+    db.session.add(JournalEntryLine(**line_kwargs))
+    db.session.flush()
+    return je
 
-        assert plan.total_allocated == 50.0
-        assert plan.unallocated_remainder == 0.0
-        assert InvoiceGoldObligation.query.get(older_ob.id).weight_remaining_main_karat == 0.0
-        assert InvoiceGoldObligation.query.get(newer_ob.id).weight_remaining_main_karat == 80.0
-        assert SupplierGoldAdvance.query.get(advance.id).weight_remaining_main_karat == 0.0
 
-        rows = GoldAllocation.query.filter_by(advance_id=advance.id).order_by(GoldAllocation.id).all()
-        assert [r.obligation_id for r in rows] == [older_ob.id, newer_ob.id]
-        assert [r.weight_applied_main_karat for r in rows] == [30.0, 20.0]
+# ======================================================================
+# THE GATE
+# ======================================================================
 
-    def test_advance_smaller_than_single_obligation_leaves_it_open(self):
-        supplier = _supplier()
-        inv = _invoice(supplier.id)
-        ob = _obligation(inv.id, karat=21.0, weight=100.0)
+class TestReconciliationIdentityGate:
+    """gross_obligation - attributed_settlement - unattributed_settlement
+    == gl_position, in main-karat-equivalent.
+
+    The comparison is in main-karat-equivalent while every stored detail keeps
+    its own real karat — Phase 14's rule.
+    """
+
+    def test_unattributed_payment_keeps_gl_true_and_invents_no_allocation(self):
+        """A real gold payment that names no invoice must (a) be fully
+        reflected in the GL position, (b) be reported as UNATTRIBUTED by name,
+        and (c) produce no GoldAllocation whatsoever.
+
+        This is the exact shape of the 115 real vouchers Phase 16B found: real
+        settlement, zero invoice attribution. The old model had no way to
+        express it and so reported the obligation as fully open while the GL
+        said otherwise.
+        """
+        supplier = _supplier(with_accounts=True)
+        invoice = _invoice(supplier.id)
+        obligation = _obligation(invoice.id, karat=21.0, weight=100.0)
+
+        # The invoice's own liability, then a generic payment of 40g against it.
+        _post_supplier_gold(supplier, karat=21, credit=100.0)
+        _post_supplier_gold(supplier, karat=21, debit=40.0)
+
+        rec = reconcile_supplier(supplier)
+
+        assert rec['unit'] == 'main_karat_equivalent'
+        assert rec['gross_obligation'] == 100.0
+        assert rec['attributed_settlement'] == 0.0, 'nothing is evidenced against the invoice'
+        assert rec['gl_position'] == 60.0, 'the GL knows 40g was really paid'
+        assert rec['unattributed_settlement'] == 40.0, 'the residual must be NAMED, not hidden'
+
+        # The identity itself.
+        assert round(
+            rec['gross_obligation'] - rec['attributed_settlement']
+            - rec['unattributed_settlement'], 2
+        ) == rec['gl_position']
+
+        # (c) nothing was invented to close the gap.
+        assert GoldAllocation.query.filter_by(obligation_id=obligation.id).count() == 0
+
+        # The invoice-level figure stays an upper bound, explicitly not "owed".
+        assert obligation_attributed_remaining(obligation) == 100.0
+
+    def test_identity_holds_once_attribution_exists(self):
+        """With an explicit allocation, the same weight moves from the
+        unattributed residual into attributed_settlement — the identity is
+        unchanged, only the explanation improves."""
+        supplier = _supplier(with_accounts=True)
+        invoice = _invoice(supplier.id)
+        obligation = _obligation(invoice.id, karat=21.0, weight=100.0)
         advance = _advance(supplier.id, karat=21.0, weight=40.0)
 
-        plan = GoldAllocationService().auto_allocate_for_advance(advance)
-        db.session.commit()
+        _post_supplier_gold(supplier, karat=21, credit=100.0)
+        _post_supplier_gold(supplier, karat=21, debit=40.0)
 
-        assert plan.total_allocated == 40.0
-        assert InvoiceGoldObligation.query.get(ob.id).weight_remaining_main_karat == 60.0
-        assert SupplierGoldAdvance.query.get(advance.id).weight_remaining_main_karat == 0.0
+        GoldAllocationService().allocate(
+            advance_id=advance.id, obligation_id=obligation.id, weight_main_karat=40.0,
+        )
 
-    def test_advance_exceeding_all_open_obligations_leaves_unallocated_remainder(self):
+        rec = reconcile_supplier(supplier)
+        assert rec['gross_obligation'] == 100.0
+        assert rec['attributed_settlement'] == 40.0
+        assert rec['unattributed_settlement'] == 0.0
+        assert rec['gl_position'] == 60.0
+        assert round(
+            rec['gross_obligation'] - rec['attributed_settlement']
+            - rec['unattributed_settlement'], 2
+        ) == rec['gl_position']
+
+    def test_unallocated_advance_is_reported_without_touching_any_invoice(self):
+        supplier = _supplier(with_accounts=True)
+        _invoice(supplier.id)
+        advance = _advance(supplier.id, karat=21.0, weight=75.0)
+
+        rec = reconcile_supplier(supplier)
+        assert rec['unallocated_advances'] == 75.0
+        assert rec['attributed_settlement'] == 0.0
+        assert GoldAllocation.query.filter_by(advance_id=advance.id).count() == 0
+
+
+# ======================================================================
+# No automatic attribution, anywhere
+# ======================================================================
+
+class TestNoAutomaticAttribution:
+
+    def test_creating_obligations_does_not_consume_an_open_advance(self):
+        """Phase 15 auto-allocated here. Phase 16C must not: an older advance
+        is not evidence that it paid this new invoice."""
         supplier = _supplier()
-        inv = _invoice(supplier.id)
-        _obligation(inv.id, karat=21.0, weight=30.0)
         advance = _advance(supplier.id, karat=21.0, weight=100.0)
+        invoice = _invoice(supplier.id)
+        db.session.add(InvoiceKaratLine(invoice_id=invoice.id, karat=21.0, weight_grams=60.0))
+        db.session.flush()
 
-        plan = GoldAllocationService().auto_allocate_for_advance(advance)
-        db.session.commit()
+        obligations = create_gold_obligations_for_invoice(invoice)
 
-        assert plan.total_allocated == 30.0
-        assert plan.unallocated_remainder == 70.0
-        assert SupplierGoldAdvance.query.get(advance.id).weight_remaining_main_karat == 70.0
+        assert len(obligations) == 1
+        assert GoldAllocation.query.filter_by(advance_id=advance.id).count() == 0
+        assert advance_remaining(advance) == 100.0
+        assert obligation_attributed_remaining(obligations[0]) == 60.0
 
-    def test_different_karat_obligation_is_never_touched(self):
-        """Same supplier, different real karat — the deliberate Phase 15B
-        boundary (no auto karat-diff bridging) must leave this untouched."""
+    def test_advance_creation_does_not_consume_an_open_obligation(self):
         supplier = _supplier()
-        inv = _invoice(supplier.id)
-        ob_18k = _obligation(inv.id, karat=18.0, weight=100.0)
-        advance_21k = _advance(supplier.id, karat=21.0, weight=50.0)
+        invoice = _invoice(supplier.id)
+        obligation = _obligation(invoice.id, karat=21.0, weight=100.0)
 
-        plan = GoldAllocationService().auto_allocate_for_advance(advance_21k)
-        db.session.commit()
+        voucher = _voucher(supplier.id)
+        db.session.add(VoucherAccountLine(
+            voucher_id=voucher.id, account_id=_account().id, line_type='debit',
+            amount_type='gold', amount=40.0, karat=21.0,
+        ))
+        db.session.flush()
 
-        assert plan.lines == []
-        assert plan.unallocated_remainder == 50.0
-        assert InvoiceGoldObligation.query.get(ob_18k.id).weight_remaining_main_karat == 100.0
-        assert SupplierGoldAdvance.query.get(advance_21k.id).weight_remaining_main_karat == 50.0
+        sync_gold_advance_after_voucher_approval(voucher)
 
-    def test_different_supplier_obligation_is_never_touched(self):
-        supplier_a = _supplier()
-        supplier_b = _supplier()
-        inv_b = _invoice(supplier_b.id)
-        ob_b = _obligation(inv_b.id, karat=21.0, weight=100.0)
-        advance_a = _advance(supplier_a.id, karat=21.0, weight=50.0)
+        advance = SupplierGoldAdvance.query.filter_by(source_voucher_id=voucher.id).first()
+        assert advance is not None, 'the advance itself is still recorded'
+        assert GoldAllocation.query.filter_by(advance_id=advance.id).count() == 0, \
+            'but it attributes itself to nothing'
+        assert advance_remaining(advance) == 40.0
+        assert obligation_attributed_remaining(obligation) == 100.0
 
-        plan = GoldAllocationService().auto_allocate_for_advance(advance_a)
-        db.session.commit()
-
-        assert plan.lines == []
-        assert InvoiceGoldObligation.query.get(ob_b.id).weight_remaining_main_karat == 100.0
-        assert SupplierGoldAdvance.query.get(advance_a.id).weight_remaining_main_karat == 50.0
-
-    def test_calling_twice_does_not_double_allocate(self):
-        supplier = _supplier()
-        inv = _invoice(supplier.id)
-        ob = _obligation(inv.id, karat=21.0, weight=100.0)
-        advance = _advance(supplier.id, karat=21.0, weight=40.0)
-
+    def test_service_exposes_no_auto_allocation_api(self):
         svc = GoldAllocationService()
-        svc.auto_allocate_for_advance(advance)
-        db.session.commit()
-        second_plan = svc.auto_allocate_for_advance(advance)
-        db.session.commit()
-
-        assert second_plan.lines == [], 'a spent advance must find nothing left to allocate'
-        assert InvoiceGoldObligation.query.get(ob.id).weight_remaining_main_karat == 60.0
-        rows = GoldAllocation.query.filter_by(advance_id=advance.id).all()
-        assert len(rows) == 1, 'the second call must not create a second allocation row'
+        for removed in ('auto_allocate_for_advance', 'auto_allocate_for_obligation',
+                        'build_plan_for_advance', 'build_plan_for_obligation', 'apply_plan'):
+            assert not hasattr(svc, removed), f'{removed} must not exist under Phase 16C'
 
 
-class TestAutoAllocateForObligation:
+# ======================================================================
+# Eligibility gate
+# ======================================================================
 
-    def test_fifo_covers_older_advance_first_then_spills_to_newer(self):
+class TestEligibility:
+
+    def test_office_reservation_invoice_creates_no_obligation(self):
+        """Phase 16A: such an invoice posts cash only to the GL, so an
+        obligation row would be a phantom (29 existed in a local copy)."""
         supplier = _supplier()
-        older_advance = _advance(
-            supplier.id, karat=21.0, weight=30.0,
-            created_at=datetime.now() - timedelta(days=10),
-        )
-        newer_advance = _advance(
-            supplier.id, karat=21.0, weight=100.0,
-            created_at=datetime.now(),
-        )
-        inv = _invoice(supplier.id)
-        ob = _obligation(inv.id, karat=21.0, weight=50.0)
+        invoice = _invoice(supplier.id, office_id=7)
+        db.session.add(InvoiceKaratLine(invoice_id=invoice.id, karat=21.0, weight_grams=50.0))
+        db.session.flush()
 
-        plan = GoldAllocationService().auto_allocate_for_obligation(ob)
-        db.session.commit()
+        assert is_gold_obligation_eligible(invoice) is False
+        assert create_gold_obligations_for_invoice(invoice) == []
+        assert InvoiceGoldObligation.query.filter_by(invoice_id=invoice.id).count() == 0
 
-        assert plan.total_allocated == 50.0
-        assert plan.unallocated_remainder == 0.0
-        assert SupplierGoldAdvance.query.get(older_advance.id).weight_remaining_main_karat == 0.0
-        assert SupplierGoldAdvance.query.get(newer_advance.id).weight_remaining_main_karat == 80.0
-        assert InvoiceGoldObligation.query.get(ob.id).weight_remaining_main_karat == 0.0
-
-
-class TestManualAllocate:
-
-    def test_writes_row_and_decrements_both_balances(self):
+    def test_regular_purchase_invoice_is_eligible(self):
         supplier = _supplier()
-        inv = _invoice(supplier.id)
-        ob = _obligation(inv.id, karat=21.0, weight=100.0)
+        invoice = _invoice(supplier.id)
+        assert is_gold_obligation_eligible(invoice) is True
+
+    def test_non_purchase_invoice_is_not_eligible(self):
+        supplier = _supplier()
+        invoice = _invoice(supplier.id, invoice_type='مرتجع شراء (مورد)')
+        assert is_gold_obligation_eligible(invoice) is False
+        assert create_gold_obligations_for_invoice(invoice) == []
+
+
+# ======================================================================
+# Derived remaining — the two different kinds
+# ======================================================================
+
+class TestAdvanceRemainingIsExact:
+
+    def test_full_weight_when_never_allocated(self):
+        supplier = _supplier()
+        advance = _advance(supplier.id, karat=21.0, weight=100.0)
+        assert advance_remaining(advance) == 100.0
+
+    def test_reduced_by_each_allocation(self):
+        supplier = _supplier()
+        invoice = _invoice(supplier.id)
+        obligation = _obligation(invoice.id, karat=21.0, weight=100.0)
+        advance = _advance(supplier.id, karat=21.0, weight=100.0)
+        svc = GoldAllocationService()
+
+        svc.allocate(advance_id=advance.id, obligation_id=obligation.id, weight_main_karat=30.0)
+        assert advance_remaining(advance) == 70.0
+
+        svc.allocate(advance_id=advance.id, obligation_id=obligation.id, weight_main_karat=20.0)
+        assert advance_remaining(advance) == 50.0
+
+    def test_converted_to_main_karat(self):
+        supplier = _supplier()
+        advance = _advance(supplier.id, karat=18.0, weight=100.0)
+        assert advance_remaining(advance) == round(convert_to_main_karat(100.0, 18.0), 2)
+
+    def test_restored_by_unallocate(self):
+        supplier = _supplier()
+        invoice = _invoice(supplier.id)
+        obligation = _obligation(invoice.id, karat=21.0, weight=100.0)
+        advance = _advance(supplier.id, karat=21.0, weight=100.0)
+        svc = GoldAllocationService()
+        svc.allocate(advance_id=advance.id, obligation_id=obligation.id, weight_main_karat=40.0)
+
+        assert svc.unallocate(advance_id=advance.id) == 1
+        assert advance_remaining(advance) == 100.0
+
+
+class TestObligationAttributedRemaining:
+
+    def test_full_gross_when_nothing_is_evidenced(self):
+        supplier = _supplier()
+        invoice = _invoice(supplier.id)
+        obligation = _obligation(invoice.id, karat=21.0, weight=100.0)
+        assert obligation_attributed_settlement(obligation) == 0.0
+        assert obligation_attributed_remaining(obligation) == 100.0
+
+    def test_reduced_by_an_explicit_allocation(self):
+        supplier = _supplier()
+        invoice = _invoice(supplier.id)
+        obligation = _obligation(invoice.id, karat=21.0, weight=100.0)
+        advance = _advance(supplier.id, karat=21.0, weight=100.0)
+        GoldAllocationService().allocate(
+            advance_id=advance.id, obligation_id=obligation.id, weight_main_karat=25.0,
+        )
+        assert obligation_attributed_remaining(obligation) == 75.0
+
+    def test_reduced_by_a_direct_linked_settlement_voucher(self):
+        """Phase 12E mechanism A: a voucher naming this invoice IS evidence,
+        and is derived from the GL rather than stored in a table of its own."""
+        supplier = _supplier(with_accounts=True)
+        invoice = _invoice(supplier.id)
+        obligation = _obligation(invoice.id, karat=21.0, weight=100.0)
+
+        voucher = _voucher(supplier.id, reference_type='invoice', reference_id=invoice.id)
+        _post_supplier_gold(supplier, karat=21, debit=30.0, voucher=voucher)
+
+        assert direct_linked_settlement_for_invoice(invoice.id) == 30.0
+        assert obligation_attributed_settlement(obligation) == 30.0
+        assert obligation_attributed_remaining(obligation) == 70.0
+
+    def test_direct_linked_settlement_in_a_karat_the_invoice_never_had(self):
+        """Phase 16A found 8 of 34 real mechanism-A vouchers settle a karat the
+        invoice never contained (invoice 52: all items 21k, voucher settled
+        18k). Same-karat matching would miss them entirely, so the settlement
+        is netted in main-karat-equivalent instead."""
+        supplier = _supplier(with_accounts=True)
+        invoice = _invoice(supplier.id)
+        obligation = _obligation(invoice.id, karat=21.0, weight=100.0)
+
+        voucher = _voucher(supplier.id, reference_type='invoice', reference_id=invoice.id)
+        _post_supplier_gold(supplier, karat=18, debit=30.0, voucher=voucher)
+
+        expected = round(convert_to_main_karat(30.0, 18), 2)
+        assert direct_linked_settlement_for_invoice(invoice.id) == expected
+        assert obligation_attributed_settlement(obligation) == expected
+
+    def test_direct_linked_settlement_splits_across_the_invoices_karats(self):
+        """reference_id proves the INVOICE, not a karat — so the evidence is
+        shared proportionally rather than assigned to one karat row."""
+        supplier = _supplier(with_accounts=True)
+        invoice = _invoice(supplier.id)
+        ob_21 = _obligation(invoice.id, karat=21.0, weight=75.0)
+        ob_18 = _obligation(invoice.id, karat=18.0, weight=100.0)
+
+        voucher = _voucher(supplier.id, reference_type='invoice', reference_id=invoice.id)
+        _post_supplier_gold(supplier, karat=21, debit=40.0, voucher=voucher)
+
+        gross_21 = convert_to_main_karat(75.0, 21.0)
+        gross_18 = convert_to_main_karat(100.0, 18.0)
+        total = gross_21 + gross_18
+        assert obligation_attributed_settlement(ob_21) == round(40.0 * gross_21 / total, 2)
+        assert obligation_attributed_settlement(ob_18) == round(40.0 * gross_18 / total, 2)
+
+    def test_an_unapproved_settlement_voucher_is_not_evidence(self):
+        supplier = _supplier(with_accounts=True)
+        invoice = _invoice(supplier.id)
+        obligation = _obligation(invoice.id, karat=21.0, weight=100.0)
+
+        voucher = _voucher(
+            supplier.id, reference_type='invoice', reference_id=invoice.id, status='pending',
+        )
+        _post_supplier_gold(supplier, karat=21, debit=30.0, voucher=voucher)
+
+        assert direct_linked_settlement_for_invoice(invoice.id) == 0.0
+        assert obligation_attributed_remaining(obligation) == 100.0
+
+    def test_never_reports_negative_remaining(self):
+        supplier = _supplier(with_accounts=True)
+        invoice = _invoice(supplier.id)
+        obligation = _obligation(invoice.id, karat=21.0, weight=50.0)
+
+        voucher = _voucher(supplier.id, reference_type='invoice', reference_id=invoice.id)
+        _post_supplier_gold(supplier, karat=21, debit=500.0, voucher=voucher)
+
+        assert obligation_attributed_remaining(obligation) == 0.0
+
+
+# ======================================================================
+# allocate() — the only writer
+# ======================================================================
+
+class TestAllocate:
+
+    def test_writes_one_row_and_reports_both_sides(self):
+        supplier = _supplier()
+        invoice = _invoice(supplier.id)
+        obligation = _obligation(invoice.id, karat=21.0, weight=100.0)
         advance = _advance(supplier.id, karat=21.0, weight=60.0)
 
-        allocation = GoldAllocationService().manual_allocate(
-            advance_id=advance.id, obligation_id=ob.id, weight_main_karat=25.0,
+        allocation = GoldAllocationService().allocate(
+            advance_id=advance.id, obligation_id=obligation.id, weight_main_karat=25.0,
         )
-        db.session.commit()
 
+        assert allocation.id is not None
         assert allocation.weight_applied_main_karat == 25.0
-        assert SupplierGoldAdvance.query.get(advance.id).weight_remaining_main_karat == 35.0
-        assert InvoiceGoldObligation.query.get(ob.id).weight_remaining_main_karat == 75.0
+        assert advance_remaining(advance) == 35.0
+        assert obligation_attributed_remaining(obligation) == 75.0
 
-    def test_allows_cross_karat_unlike_auto_allocation(self):
-        """The override path is deliberately NOT restricted to same-karat —
-        a human decides the karat_diff fee elsewhere; this only proves the
-        weight-matching side of an already-decided cross-karat settlement
-        is representable."""
+    def test_rejects_more_than_the_advance_has(self):
         supplier = _supplier()
-        inv = _invoice(supplier.id)
-        ob_18k = _obligation(inv.id, karat=18.0, weight=100.0)
-        advance_21k = _advance(supplier.id, karat=21.0, weight=50.0)
-
-        allocation = GoldAllocationService().manual_allocate(
-            advance_id=advance_21k.id, obligation_id=ob_18k.id, weight_main_karat=20.0,
-        )
-        db.session.commit()
-
-        assert allocation.weight_applied_main_karat == 20.0
-        assert SupplierGoldAdvance.query.get(advance_21k.id).weight_remaining_main_karat == 30.0
-        assert InvoiceGoldObligation.query.get(ob_18k.id).weight_remaining_main_karat == 80.0
-
-    def test_rejects_cross_supplier_override(self):
-        """Unlike auto-FIFO (which never crosses suppliers by construction —
-        its own candidate query filters on Invoice.supplier_id ==
-        advance.supplier_id), manual_allocate takes raw ids directly, so this
-        must be checked explicitly."""
-        supplier_a = _supplier()
-        supplier_b = _supplier()
-        inv_b = _invoice(supplier_b.id)
-        ob_b = _obligation(inv_b.id, karat=21.0, weight=100.0)
-        advance_a = _advance(supplier_a.id, karat=21.0, weight=50.0)
-
-        with pytest.raises(ValueError, match='supplier_mismatch'):
-            GoldAllocationService().manual_allocate(
-                advance_id=advance_a.id, obligation_id=ob_b.id, weight_main_karat=20.0,
-            )
-
-    def test_rejects_exceeding_advance_remaining(self):
-        supplier = _supplier()
-        inv = _invoice(supplier.id)
-        ob = _obligation(inv.id, karat=21.0, weight=100.0)
-        advance = _advance(supplier.id, karat=21.0, weight=10.0)
+        invoice = _invoice(supplier.id)
+        obligation = _obligation(invoice.id, karat=21.0, weight=100.0)
+        advance = _advance(supplier.id, karat=21.0, weight=30.0)
 
         with pytest.raises(ValueError, match='exceeds_advance_remaining'):
-            GoldAllocationService().manual_allocate(
-                advance_id=advance.id, obligation_id=ob.id, weight_main_karat=20.0,
+            GoldAllocationService().allocate(
+                advance_id=advance.id, obligation_id=obligation.id, weight_main_karat=40.0,
             )
 
-    def test_rejects_exceeding_invoice_obligation_remaining(self):
+    def test_rejects_more_than_the_obligation_can_evidence(self):
         supplier = _supplier()
-        inv = _invoice(supplier.id)
-        ob = _obligation(inv.id, karat=21.0, weight=10.0)
+        invoice = _invoice(supplier.id)
+        obligation = _obligation(invoice.id, karat=21.0, weight=20.0)
         advance = _advance(supplier.id, karat=21.0, weight=100.0)
 
         with pytest.raises(ValueError, match='exceeds_invoice_obligation_remaining'):
-            GoldAllocationService().manual_allocate(
-                advance_id=advance.id, obligation_id=ob.id, weight_main_karat=20.0,
+            GoldAllocationService().allocate(
+                advance_id=advance.id, obligation_id=obligation.id, weight_main_karat=50.0,
             )
+
+    def test_rejects_crossing_suppliers(self):
+        supplier_a = _supplier()
+        supplier_b = _supplier()
+        invoice_b = _invoice(supplier_b.id)
+        obligation_b = _obligation(invoice_b.id, karat=21.0, weight=100.0)
+        advance_a = _advance(supplier_a.id, karat=21.0, weight=100.0)
+
+        with pytest.raises(ValueError, match='supplier_mismatch'):
+            GoldAllocationService().allocate(
+                advance_id=advance_a.id, obligation_id=obligation_b.id, weight_main_karat=10.0,
+            )
+
+    def test_rejects_non_positive_weight(self):
+        supplier = _supplier()
+        invoice = _invoice(supplier.id)
+        obligation = _obligation(invoice.id, karat=21.0, weight=100.0)
+        advance = _advance(supplier.id, karat=21.0, weight=100.0)
+
+        with pytest.raises(ValueError, match='weight_main_karat_must_be_positive'):
+            GoldAllocationService().allocate(
+                advance_id=advance.id, obligation_id=obligation.id, weight_main_karat=0.0,
+            )
+
+    def test_allows_cross_karat_because_a_human_decided_it(self):
+        """Both sides are compared in main-karat-equivalent, mirroring the real
+        karat_diff_* mechanism where a human specifies a cross-karat
+        settlement. What is forbidden is inventing the decision, not making
+        it."""
+        supplier = _supplier()
+        invoice = _invoice(supplier.id)
+        obligation_18 = _obligation(invoice.id, karat=18.0, weight=100.0)
+        advance_21 = _advance(supplier.id, karat=21.0, weight=50.0)
+
+        allocation = GoldAllocationService().allocate(
+            advance_id=advance_21.id, obligation_id=obligation_18.id, weight_main_karat=20.0,
+        )
+        assert allocation.id is not None
+        assert advance_remaining(advance_21) == 30.0
+
+    def test_rejects_unknown_ids(self):
+        svc = GoldAllocationService()
+        with pytest.raises(ValueError, match='gold_advance_not_found'):
+            svc.allocate(advance_id=99999999, obligation_id=1, weight_main_karat=1.0)
+
+        supplier = _supplier()
+        advance = _advance(supplier.id)
+        with pytest.raises(ValueError, match='invoice_gold_obligation_not_found'):
+            svc.allocate(advance_id=advance.id, obligation_id=99999999, weight_main_karat=1.0)
 
 
 class TestUnallocate:
 
-    def test_by_advance_id_restores_both_balances_and_deletes_rows(self):
-        supplier = _supplier()
-        inv = _invoice(supplier.id)
-        ob = _obligation(inv.id, karat=21.0, weight=100.0)
-        advance = _advance(supplier.id, karat=21.0, weight=40.0)
-        GoldAllocationService().auto_allocate_for_advance(advance)
-        db.session.commit()
-        assert InvoiceGoldObligation.query.get(ob.id).weight_remaining_main_karat == 60.0
-
-        deleted = GoldAllocationService().unallocate(advance_id=advance.id)
-        db.session.commit()
-
-        assert deleted == 1
-        assert GoldAllocation.query.filter_by(advance_id=advance.id).count() == 0
-        assert SupplierGoldAdvance.query.get(advance.id).weight_remaining_main_karat == 40.0
-        assert InvoiceGoldObligation.query.get(ob.id).weight_remaining_main_karat == 100.0
-
-    def test_requires_at_least_one_filter(self):
+    def test_requires_a_filter(self):
         with pytest.raises(ValueError, match='unallocate_requires_at_least_one_filter'):
             GoldAllocationService().unallocate()
 
+    def test_deletes_rows_and_restores_derived_values(self):
+        supplier = _supplier()
+        invoice = _invoice(supplier.id)
+        obligation = _obligation(invoice.id, karat=21.0, weight=100.0)
+        advance = _advance(supplier.id, karat=21.0, weight=100.0)
+        svc = GoldAllocationService()
+        svc.allocate(advance_id=advance.id, obligation_id=obligation.id, weight_main_karat=40.0)
+
+        assert svc.unallocate(obligation_id=obligation.id) == 1
+        assert GoldAllocation.query.filter_by(obligation_id=obligation.id).count() == 0
+        assert advance_remaining(advance) == 100.0
+        assert obligation_attributed_remaining(obligation) == 100.0
+
+    def test_is_a_noop_when_nothing_is_allocated(self):
+        supplier = _supplier()
+        advance = _advance(supplier.id)
+        assert GoldAllocationService().unallocate(advance_id=advance.id) == 0
+
+
+# ======================================================================
+# create_gold_obligations_for_invoice — the normalizer, now attribution-free
+# ======================================================================
 
 class TestCreateGoldObligationsForInvoice:
-    """The InvoiceKaratLine/InvoiceItem -> InvoiceGoldObligation normalizer —
-    the load-bearing logic this whole correction exists for."""
 
-    def test_from_karat_lines(self):
+    def test_uses_karat_lines_when_present(self):
         supplier = _supplier()
-        inv = _invoice(supplier.id)
-        db.session.add(InvoiceKaratLine(invoice_id=inv.id, karat=21.0, weight_grams=100.0))
-        db.session.add(InvoiceKaratLine(invoice_id=inv.id, karat=18.0, weight_grams=50.0))
-        db.session.commit()
-
-        obligations = create_gold_obligations_for_invoice(inv)
-        db.session.commit()
-
-        by_karat = {ob.karat: ob.weight for ob in obligations}
-        assert by_karat == {21.0: 100.0, 18.0: 50.0}
-        assert all(ob.weight_remaining_main_karat > 0 for ob in obligations)
-
-    def test_from_items_only_with_quantity(self):
-        supplier = _supplier()
-        inv = _invoice(supplier.id)
-        db.session.add(InvoiceItem(
-            invoice_id=inv.id, quantity=2, price=0.0, karat=21.0, weight=10.0,
-        ))
-        db.session.commit()
-
-        obligations = create_gold_obligations_for_invoice(inv)
-        db.session.commit()
-
-        assert len(obligations) == 1
-        assert obligations[0].karat == 21.0
-        assert obligations[0].weight == 20.0, 'weight * quantity, matching the real GL-posting convention'
-
-    def test_from_items_two_karats_produces_two_obligations(self):
-        supplier = _supplier()
-        inv = _invoice(supplier.id)
-        db.session.add(InvoiceItem(invoice_id=inv.id, quantity=1, price=0.0, karat=21.0, weight=50.0))
-        db.session.add(InvoiceItem(invoice_id=inv.id, quantity=1, price=0.0, karat=18.0, weight=30.0))
-        db.session.commit()
-
-        obligations = create_gold_obligations_for_invoice(inv)
-        db.session.commit()
-
-        by_karat = {ob.karat: ob.weight for ob in obligations}
-        assert by_karat == {21.0: 50.0, 18.0: 30.0}
-
-    def test_item_falls_back_to_linked_item_karat_and_weight_when_blank(self):
-        supplier = _supplier()
-        inv = _invoice(supplier.id)
-        catalog_item = Item(item_code=f'ITM-{_uid()}', name='قطعة اختبار', karat=21.0, weight=15.0, price=0.0)
-        db.session.add(catalog_item)
+        invoice = _invoice(supplier.id)
+        db.session.add_all([
+            InvoiceKaratLine(invoice_id=invoice.id, karat=21.0, weight_grams=40.0),
+            InvoiceKaratLine(invoice_id=invoice.id, karat=21.0, weight_grams=10.0),
+            InvoiceKaratLine(invoice_id=invoice.id, karat=18.0, weight_grams=25.0),
+        ])
         db.session.flush()
-        db.session.add(InvoiceItem(
-            invoice_id=inv.id, item_id=catalog_item.id, quantity=1, price=0.0,
-            karat=None, weight=None,
-        ))
-        db.session.commit()
 
-        obligations = create_gold_obligations_for_invoice(inv)
-        db.session.commit()
+        obligations = create_gold_obligations_for_invoice(invoice)
+
+        by_karat = {ob.karat: ob.weight for ob in obligations}
+        assert by_karat == {21.0: 50.0, 18.0: 25.0}
+
+    def test_falls_back_to_items_multiplying_quantity(self):
+        supplier = _supplier()
+        invoice = _invoice(supplier.id)
+        db.session.add_all([
+            InvoiceItem(invoice_id=invoice.id, karat=21.0, weight=10.0, quantity=3, price=0.0),
+            InvoiceItem(invoice_id=invoice.id, karat=21.0, weight=5.0, quantity=1, price=0.0),
+        ])
+        db.session.flush()
+
+        obligations = create_gold_obligations_for_invoice(invoice)
 
         assert len(obligations) == 1
         assert obligations[0].karat == 21.0
-        assert obligations[0].weight == 15.0
+        assert obligations[0].weight == 35.0
 
-    def test_both_sources_present_uses_karat_lines_only_no_double_count(self):
-        """Phase 15A-Discovery.2's key real-data finding: the 4 real invoices
-        carrying both sources have IDENTICAL per-karat totals in each — they
-        must never be summed together."""
+    def test_item_fallback_reads_the_linked_items_karat_and_weight(self):
         supplier = _supplier()
-        inv = _invoice(supplier.id)
-        db.session.add(InvoiceKaratLine(invoice_id=inv.id, karat=21.0, weight_grams=100.0))
-        db.session.add(InvoiceItem(invoice_id=inv.id, quantity=1, price=0.0, karat=21.0, weight=100.0))
-        db.session.commit()
+        item = Item(
+            item_code=f'ITM-{_uid()}', name='صنف اختبار', karat=18.0, weight=12.0, price=0.0,
+        )
+        db.session.add(item)
+        db.session.flush()
 
-        obligations = create_gold_obligations_for_invoice(inv)
-        db.session.commit()
+        invoice = _invoice(supplier.id)
+        db.session.add(InvoiceItem(invoice_id=invoice.id, item_id=item.id, quantity=2, price=0.0))
+        db.session.flush()
+
+        obligations = create_gold_obligations_for_invoice(invoice)
 
         assert len(obligations) == 1
-        assert obligations[0].weight == 100.0, 'must use karat_lines only, not sum both sources to 200'
+        assert obligations[0].karat == 18.0
+        assert obligations[0].weight == 24.0
 
-    def test_idempotent_second_call_creates_nothing(self):
+    def test_karat_lines_take_priority_over_items(self):
         supplier = _supplier()
-        inv = _invoice(supplier.id)
-        db.session.add(InvoiceKaratLine(invoice_id=inv.id, karat=21.0, weight_grams=100.0))
-        db.session.commit()
+        invoice = _invoice(supplier.id)
+        db.session.add_all([
+            InvoiceKaratLine(invoice_id=invoice.id, karat=21.0, weight_grams=100.0),
+            InvoiceItem(invoice_id=invoice.id, karat=21.0, weight=100.0, quantity=1, price=0.0),
+        ])
+        db.session.flush()
 
-        create_gold_obligations_for_invoice(inv)
-        db.session.commit()
-        second = create_gold_obligations_for_invoice(inv)
-        db.session.commit()
+        obligations = create_gold_obligations_for_invoice(invoice)
 
+        assert len(obligations) == 1
+        assert obligations[0].weight == 100.0, 'must not double-count the same fact'
+
+    def test_is_idempotent(self):
+        supplier = _supplier()
+        invoice = _invoice(supplier.id)
+        db.session.add(InvoiceKaratLine(invoice_id=invoice.id, karat=21.0, weight_grams=40.0))
+        db.session.flush()
+
+        first = create_gold_obligations_for_invoice(invoice)
+        second = create_gold_obligations_for_invoice(invoice)
+
+        assert len(first) == 1
         assert second == []
-        assert InvoiceGoldObligation.query.filter_by(invoice_id=inv.id).count() == 1
+        assert InvoiceGoldObligation.query.filter_by(invoice_id=invoice.id).count() == 1
 
-    def test_auto_allocates_immediately_against_an_open_advance(self):
+    def test_skips_zero_and_negative_weight(self):
         supplier = _supplier()
-        advance = _advance(supplier.id, karat=21.0, weight=40.0)
-        inv = _invoice(supplier.id)
-        db.session.add(InvoiceKaratLine(invoice_id=inv.id, karat=21.0, weight_grams=100.0))
-        db.session.commit()
+        invoice = _invoice(supplier.id)
+        db.session.add_all([
+            InvoiceKaratLine(invoice_id=invoice.id, karat=21.0, weight_grams=0.0),
+            InvoiceKaratLine(invoice_id=invoice.id, karat=18.0, weight_grams=30.0),
+        ])
+        db.session.flush()
 
-        obligations = create_gold_obligations_for_invoice(inv)
-        db.session.commit()
-
-        assert len(obligations) == 1
-        assert obligations[0].weight_remaining_main_karat == 60.0
-        assert SupplierGoldAdvance.query.get(advance.id).weight_remaining_main_karat == 0.0
+        obligations = create_gold_obligations_for_invoice(invoice)
+        assert [ob.karat for ob in obligations] == [18.0]
 
 
-def _gold_advance_voucher(supplier_id, *, karat=21.0, weight=40.0, reference_type='gold_advance'):
-    """A voucher shaped like sync_gold_advance_after_voucher_approval expects:
-    real VoucherAccountLine rows, amount_type='gold', line_type='debit' (the
-    party/supplier side — Phase 12E's empirically verified direction)."""
-    v = Voucher(
-        voucher_number=f'V-{_uid()}', voucher_type='payment', date=datetime.now(),
-        party_type='supplier', supplier_id=supplier_id, reference_type=reference_type,
-        status='approved', created_by='test',
-    )
-    db.session.add(v)
-    db.session.flush()
-    db.session.add(VoucherAccountLine(
-        voucher_id=v.id, account_id=1, line_type='debit', amount_type='gold',
-        amount=weight, karat=karat,
-    ))
-    db.session.add(VoucherAccountLine(
-        voucher_id=v.id, account_id=1, line_type='credit', amount_type='gold',
-        amount=weight, karat=karat,
-    ))
-    db.session.commit()
-    return v
-
+# ======================================================================
+# sync_gold_advance_after_voucher_approval
+# ======================================================================
 
 class TestSyncGoldAdvanceAfterVoucherApproval:
 
-    def test_creates_advance_from_gold_debit_lines(self):
+    def _gold_voucher(self, supplier_id, lines):
+        voucher = _voucher(supplier_id)
+        for karat, amount in lines:
+            db.session.add(VoucherAccountLine(
+                voucher_id=voucher.id, account_id=_account().id, line_type='debit',
+                amount_type='gold', amount=amount, karat=karat,
+            ))
+        db.session.flush()
+        return voucher
+
+    def test_creates_one_advance_per_karat(self):
         supplier = _supplier()
-        voucher = _gold_advance_voucher(supplier.id, karat=21.0, weight=40.0)
+        voucher = self._gold_voucher(supplier.id, [(21.0, 50.0), (18.0, 30.0)])
 
         sync_gold_advance_after_voucher_approval(voucher)
-        db.session.commit()
 
-        advance = SupplierGoldAdvance.query.filter_by(source_voucher_id=voucher.id).first()
-        assert advance is not None
-        assert advance.karat == 21.0
-        assert advance.weight == 40.0
+        advances = SupplierGoldAdvance.query.filter_by(source_voucher_id=voucher.id).all()
+        assert {a.karat: a.weight for a in advances} == {21.0: 50.0, 18.0: 30.0}
 
-    def test_calling_twice_for_the_same_voucher_creates_nothing_new(self):
+    def test_is_idempotent(self):
         supplier = _supplier()
-        voucher = _gold_advance_voucher(supplier.id, karat=21.0, weight=40.0)
+        voucher = self._gold_voucher(supplier.id, [(21.0, 50.0)])
 
         sync_gold_advance_after_voucher_approval(voucher)
-        db.session.commit()
-        first_count = SupplierGoldAdvance.query.filter_by(source_voucher_id=voucher.id).count()
-
         sync_gold_advance_after_voucher_approval(voucher)
-        db.session.commit()
-        second_count = SupplierGoldAdvance.query.filter_by(source_voucher_id=voucher.id).count()
 
-        assert first_count == 1
-        assert second_count == 1, 'a retried call must not create a second Advance row for the same karat'
+        assert SupplierGoldAdvance.query.filter_by(source_voucher_id=voucher.id).count() == 1
 
     def test_ignores_a_non_gold_advance_voucher(self):
-        """Guards the no-backfill rule at its source: any voucher whose
-        reference_type is not literally 'gold_advance' — including every one
-        of the 289 real historical gold vouchers from Phase 12E, all
-        predating this column's very existence — must never get swept into
-        SupplierGoldAdvance, no matter how much real gold weight it moved."""
+        """The 115 real historical manual payment vouchers carry
+        reference_type=None. They must never be silently reinterpreted as
+        advances — Phase 16B proved they are supplier-level settlements whose
+        invoice attribution is unknown."""
         supplier = _supplier()
-        historical_voucher = _gold_advance_voucher(
-            supplier.id, karat=21.0, weight=500.0, reference_type=None,
-        )
+        voucher = _voucher(supplier.id, reference_type=None)
+        db.session.add(VoucherAccountLine(
+            voucher_id=voucher.id, account_id=_account().id, line_type='debit',
+            amount_type='gold', amount=90.0, karat=21.0,
+        ))
+        db.session.flush()
 
-        sync_gold_advance_after_voucher_approval(historical_voucher)
-        db.session.commit()
+        sync_gold_advance_after_voucher_approval(voucher)
 
-        assert SupplierGoldAdvance.query.filter_by(source_voucher_id=historical_voucher.id).count() == 0
+        assert SupplierGoldAdvance.query.filter_by(source_voucher_id=voucher.id).count() == 0
 
+    def test_ignores_credit_side_gold_lines(self):
+        supplier = _supplier()
+        voucher = _voucher(supplier.id)
+        db.session.add(VoucherAccountLine(
+            voucher_id=voucher.id, account_id=_account().id, line_type='credit',
+            amount_type='gold', amount=50.0, karat=21.0,
+        ))
+        db.session.flush()
+
+        sync_gold_advance_after_voucher_approval(voucher)
+
+        assert SupplierGoldAdvance.query.filter_by(source_voucher_id=voucher.id).count() == 0
+
+
+# ======================================================================
+# reverse_gold_allocations_for_invoice
+# ======================================================================
 
 class TestReverseGoldAllocationsForInvoice:
 
-    def test_frees_a_real_allocation_and_restores_both_balances(self):
+    def test_frees_allocations_but_keeps_the_original_obligation(self):
         supplier = _supplier()
-        inv = _invoice(supplier.id)
-        ob = _obligation(inv.id, karat=21.0, weight=100.0)
-        advance = _advance(supplier.id, karat=21.0, weight=40.0)
-        GoldAllocationService().auto_allocate_for_advance(advance)
-        db.session.commit()
-        assert InvoiceGoldObligation.query.get(ob.id).weight_remaining_main_karat == 60.0
+        invoice = _invoice(supplier.id)
+        obligation = _obligation(invoice.id, karat=21.0, weight=100.0)
+        advance = _advance(supplier.id, karat=21.0, weight=100.0)
+        GoldAllocationService().allocate(
+            advance_id=advance.id, obligation_id=obligation.id, weight_main_karat=40.0,
+        )
 
-        freed = reverse_gold_allocations_for_invoice(inv.id)
-        db.session.commit()
+        freed = reverse_gold_allocations_for_invoice(invoice.id)
 
         assert freed == 1
-        assert InvoiceGoldObligation.query.get(ob.id).weight_remaining_main_karat == 100.0
-        assert SupplierGoldAdvance.query.get(advance.id).weight_remaining_main_karat == 40.0
-        assert GoldAllocation.query.filter_by(obligation_id=ob.id).count() == 0
+        assert advance_remaining(advance) == 100.0
+        assert InvoiceGoldObligation.query.get(obligation.id) is not None, \
+            'the original obligation remains historically true'
 
     def test_is_a_noop_for_an_invoice_with_no_obligations(self):
         supplier = _supplier()
-        inv = _invoice(supplier.id)
-
-        freed = reverse_gold_allocations_for_invoice(inv.id)
-
-        assert freed == 0
+        invoice = _invoice(supplier.id)
+        assert reverse_gold_allocations_for_invoice(invoice.id) == 0

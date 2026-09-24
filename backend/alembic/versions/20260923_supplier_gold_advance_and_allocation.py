@@ -1,11 +1,22 @@
-"""supplier gold advance and allocation (Phase 15A-Correction — schema only)
+"""supplier gold advance and allocation (Phase 16C contract — schema only)
 
 Phase 12F/14 of the invoice-payment audit: a gold payment to a supplier not
-tied to a specific invoice is a Supplier Gold Advance, matched against a
-purchase invoice's outstanding gold obligation via GoldAllocation (FIFO,
-immediate, with explicit override — Phase 14's decided contract). This
-migration adds ONLY the data contract: no route or trigger-wiring logic is
-migrated here (that lives in application code, Phase 15C).
+tied to a specific invoice is a Supplier Gold Advance, which may later be
+attributed to a purchase invoice's gold obligation via an EXPLICIT
+GoldAllocation. This migration adds ONLY the data contract: no route or
+trigger-wiring logic is migrated here (that lives in application code).
+
+PHASE 16C (this file was corrected before ever reaching a production
+database — the commit carrying its first version was never pushed):
+neither supplier_gold_advance nor invoice_gold_obligation carries a
+weight_remaining_main_karat column. Phase 16A measured the original stored
+balance drifting to 31,407g against a real GL position of 3,446g, because the
+dominant real settlement mechanism (115 untagged manual gold-payment
+vouchers) never wrote to it. Remaining weight is now DERIVED
+(gold_allocation_service.advance_remaining /
+obligation_attributed_remaining), and the authoritative supplier position
+comes from the GL via compute_live_supplier_balances(). invoice_gold_
+obligation is therefore an immutable record of the ORIGINAL gross obligation.
 
 CORRECTION (same day, before this ever reached a real database — see project
 memory): the first version of this migration added
@@ -62,10 +73,50 @@ branch_labels = None
 depends_on = None
 
 
+def _assert_no_stale_phase15_schema(inspector, existing_tables):
+    """Fail LOUDLY if this database carries the pre-Phase-16C shape.
+
+    The table-existence guards below exist so a partially-migrated database
+    can be brought forward, but a guard that silently skips creation would
+    leave a WRONG schema in place and report success. Two shapes must never
+    pass: gold_allocation.invoice_karat_line_id (the abandoned Phase 15A
+    design, found present in a local copy), and a supplier_gold_advance or
+    invoice_gold_obligation that still carries weight_remaining_main_karat
+    (the mutable balance Phase 16C removed). Both mean the database needs a
+    deliberate manual reconciliation, not an automatic pass-through.
+    """
+    if 'gold_allocation' in existing_tables:
+        cols = {c['name'] for c in inspector.get_columns('gold_allocation')}
+        if 'invoice_karat_line_id' in cols:
+            raise RuntimeError(
+                'stale_schema:gold_allocation.invoice_karat_line_id exists — this '
+                'database carries the abandoned Phase 15A design. Drop '
+                'gold_allocation (and invoice_gold_obligation / '
+                'supplier_gold_advance if present) before upgrading.'
+            )
+        if 'obligation_id' not in cols:
+            raise RuntimeError(
+                'stale_schema:gold_allocation exists without obligation_id — '
+                'unexpected shape, refusing to continue.'
+            )
+
+    for table in ('supplier_gold_advance', 'invoice_gold_obligation'):
+        if table in existing_tables:
+            cols = {c['name'] for c in inspector.get_columns(table)}
+            if 'weight_remaining_main_karat' in cols:
+                raise RuntimeError(
+                    f'stale_schema:{table}.weight_remaining_main_karat exists — '
+                    'this database predates Phase 16C (which removed the stored '
+                    'balance). Drop the Phase 15 tables before upgrading.'
+                )
+
+
 def upgrade():
     conn = op.get_bind()
     inspector = sa.inspect(conn)
     existing_tables = set(inspector.get_table_names())
+
+    _assert_no_stale_phase15_schema(inspector, existing_tables)
 
     # --- supplier_gold_advance -------------------------------------------------
     if 'supplier_gold_advance' not in existing_tables:
@@ -76,7 +127,6 @@ def upgrade():
             sa.Column('source_voucher_id', sa.Integer(), sa.ForeignKey('voucher.id'), nullable=False),
             sa.Column('karat', sa.Float(), nullable=False),
             sa.Column('weight', sa.Float(), nullable=False),
-            sa.Column('weight_remaining_main_karat', sa.Float(), nullable=False),
             sa.Column('created_at', sa.DateTime(), server_default=sa.func.now()),
             sa.UniqueConstraint('source_voucher_id', 'karat', name='_gold_advance_voucher_karat_uc'),
         )
@@ -95,7 +145,6 @@ def upgrade():
             sa.Column('invoice_id', sa.Integer(), sa.ForeignKey('invoice.id'), nullable=False),
             sa.Column('karat', sa.Float(), nullable=False),
             sa.Column('weight', sa.Float(), nullable=False),
-            sa.Column('weight_remaining_main_karat', sa.Float(), nullable=False),
             sa.Column('created_at', sa.DateTime(), server_default=sa.func.now()),
             sa.UniqueConstraint('invoice_id', 'karat', name='_invoice_gold_obligation_invoice_karat_uc'),
         )
@@ -146,10 +195,15 @@ def _backfill_invoice_gold_obligations(conn):
     Karat is rounded to the nearest int, defaulting to 21 for anything
     unmapped — matching the existing aggregation convention in
     posting_routes.py exactly.
-    """
-    main_karat_row = conn.execute(sa.text('SELECT main_karat FROM settings LIMIT 1')).fetchone()
-    main_karat = float(main_karat_row[0]) if main_karat_row and main_karat_row[0] else 21.0
 
+    ELIGIBILITY (Phase 16C): office_id IS NULL is applied here as raw SQL,
+    mirroring gold_allocation_service.is_gold_obligation_eligible() — the one
+    definition both paths must agree on. Phase 16A proved at code level that
+    an office-reservation settlement invoice posts CASH ONLY to the GL, so an
+    obligation row for it would be a phantom (29 such rows / 5,521.81g were
+    created in a local copy by the pre-16C version of this backfill; no
+    production database ever ran it).
+    """
     already_seeded = {
         row[0] for row in conn.execute(
             sa.text('SELECT DISTINCT invoice_id FROM invoice_gold_obligation')
@@ -158,7 +212,10 @@ def _backfill_invoice_gold_obligations(conn):
 
     purchase_invoice_ids = [
         row[0] for row in conn.execute(
-            sa.text("SELECT id FROM invoice WHERE invoice_type = 'شراء'")
+            sa.text(
+                "SELECT id FROM invoice "
+                "WHERE invoice_type = 'شراء' AND office_id IS NULL"
+            )
         ).fetchall()
         if row[0] not in already_seeded
     ]
@@ -212,18 +269,16 @@ def _backfill_invoice_gold_obligations(conn):
         weight = round(weight, 3)
         if weight <= 0:
             continue
-        weight_remaining_main_karat = round((weight * karat) / main_karat, 6) if main_karat else 0.0
         conn.execute(
             sa.text(
                 'INSERT INTO invoice_gold_obligation '
-                '(invoice_id, karat, weight, weight_remaining_main_karat, created_at) '
-                'VALUES (:invoice_id, :karat, :weight, :remaining, now())'
+                '(invoice_id, karat, weight, created_at) '
+                'VALUES (:invoice_id, :karat, :weight, now())'
             ),
             {
                 'invoice_id': invoice_id,
                 'karat': karat,
                 'weight': weight,
-                'remaining': weight_remaining_main_karat,
             },
         )
 

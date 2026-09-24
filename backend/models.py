@@ -1691,10 +1691,15 @@ class InvoiceGoldObligation(db.Model):
     for anything unmapped) and sum the weight into one row per karat.
 
     karat/weight are the REAL, aggregated karat and weight — never converted.
-    weight_remaining_main_karat is the running balance, in main-karat-
-    equivalent (see the Phase 14/15A karat rule: obligations and settlements
-    keep their own real karat, only a running balance is ever converted,
-    because subtracting across differing karats needs a common unit).
+
+    IMMUTABLE (Phase 16C): this row records the ORIGINAL gross obligation and
+    nothing else. It carries no remaining-balance column: the authoritative
+    "what do we still owe this supplier" answer is derived from the GL per
+    (supplier, karat) via compute_live_supplier_balances(), and the only
+    invoice-level figure that exists is *attributed* remaining — gross minus
+    what can be PROVEN to have settled this specific invoice (an explicit
+    GoldAllocation, or a direct-linked settlement voucher). See
+    gold_allocation_service.obligation_attributed_remaining.
     """
     __tablename__ = 'invoice_gold_obligation'
 
@@ -1702,7 +1707,6 @@ class InvoiceGoldObligation(db.Model):
     invoice_id = db.Column(db.Integer, db.ForeignKey('invoice.id'), nullable=False, index=True)
     karat = db.Column(db.Float, nullable=False)
     weight = db.Column(db.Float, nullable=False)
-    weight_remaining_main_karat = db.Column(db.Float, nullable=False)
     created_at = db.Column(db.DateTime, default=db.func.now())
 
     invoice = db.relationship(
@@ -1720,7 +1724,6 @@ class InvoiceGoldObligation(db.Model):
             'invoice_id': self.invoice_id,
             'karat': self.karat,
             'weight': self.weight,
-            'weight_remaining_main_karat': self.weight_remaining_main_karat,
             'created_at': self.created_at.isoformat() if self.created_at else None,
         }
 
@@ -1740,14 +1743,20 @@ class SupplierGoldAdvance(db.Model):
     layer this way).
 
     karat/weight are the REAL karat this advance was actually paid in — never
-    converted. weight_remaining_main_karat is the running unapplied balance,
-    in main-karat-equivalent (see InvoiceKaratLine.weight_remaining_main_karat
-    for why). Whether this advance is still valid is NOT stored here — join
+    converted. Whether this advance is still valid is NOT stored here — join
     source_voucher.status, mirroring AllocationService.build_allocation_plan's
     own established pattern (it filters Voucher.status=='approved' rather
     than duplicating status onto SettlementLine).
 
     No invoice_id: that is the entire point of an Advance (Phase 12F).
+
+    UNALLOCATED BY DEFAULT (Phase 16C): creating an Advance never attributes
+    it to any invoice. It becomes attributed only through an explicit
+    GoldAllocation. Its remaining weight carries no column either — unlike an
+    obligation's, an advance's remaining is EXACTLY derivable and complete
+    (weight - sum of its own allocations), because an allocation is the only
+    way an advance can ever be consumed. See
+    gold_allocation_service.advance_remaining.
     """
     __tablename__ = 'supplier_gold_advance'
 
@@ -1756,7 +1765,6 @@ class SupplierGoldAdvance(db.Model):
     source_voucher_id = db.Column(db.Integer, db.ForeignKey('voucher.id'), nullable=False, index=True)
     karat = db.Column(db.Float, nullable=False)
     weight = db.Column(db.Float, nullable=False)
-    weight_remaining_main_karat = db.Column(db.Float, nullable=False)
     created_at = db.Column(db.DateTime, default=db.func.now())
 
     supplier = db.relationship('Supplier', foreign_keys=[supplier_id])
@@ -1773,14 +1781,21 @@ class SupplierGoldAdvance(db.Model):
             'source_voucher_id': self.source_voucher_id,
             'karat': self.karat,
             'weight': self.weight,
-            'weight_remaining_main_karat': self.weight_remaining_main_karat,
             'created_at': self.created_at.isoformat() if self.created_at else None,
         }
 
 
 class GoldAllocation(db.Model):
-    """One FIFO (or explicit-override) match: this much of one
-    SupplierGoldAdvance applied against one InvoiceGoldObligation. Append-only,
+    """One EXPLICIT match: this much of one SupplierGoldAdvance applied
+    against one InvoiceGoldObligation.
+
+    Phase 16C: there is no automatic (FIFO) path that creates these rows. A
+    GoldAllocation exists only because a human declared this attribution, so
+    every row here is evidence — never an inference. An advance with no
+    allocation is simply unallocated, and an obligation with no allocation is
+    simply unattributed; neither state is filled in by guesswork.
+
+    Append-only,
     mirroring AllocationService/SettlementLine's own documented invariant —
     no in-place UPDATE outside a named repair script; correcting an
     allocation means adding a new row (and, in Phase 15C, a reversal path),

@@ -1,8 +1,18 @@
 # ADR-027: دفعات الذهب المقدَّمة للمورد وتخصيصها (Gold Advance & Allocation)
 
-**Status:** Accepted
+**Status:** ⚠️ **Superseded in part by [ADR-028](ADR-028-supplier-gold-position-attribution.md)**
 **Date:** 2026-09-24
 **Sprint:** ERP — Invoice Payment Status Audit, Phase 15
+
+> **تنبيه قبل القراءة.** اكتشاف Phase 16A أثبت على بيانات إنتاج حقيقية أن
+> النموذج التشغيلي الموصوف هنا منفصل عن الدفتر بنحو 9 أضعاف (31,407 g مُسجَّلة
+> مقابل 3,446 g حقيقية)، لأن الآلية اليومية الفعلية للتسوية (115 قسيمة دفع يدوي
+> غير موسومة) لم تكن مرئية له. البنود المنسوخة: **auto-FIFO**،
+> **`weight_remaining_main_karat` كرصيد مخزَّن**، **`GoldAllocation` كنموذج
+> تسوية المورد**، و**`manual_allocate` كـoverride**. ما يبقى قائمًا: Single
+> Writer، append-only، عزل الموردين، `reference_type='gold_advance'`،
+> `InvoiceGoldObligation` بدل `InvoiceKaratLine`/`InvoiceItem`، ولا backfill
+> تاريخي. الجدول الكامل لما نُسخ وما بقي في ADR-028 §«ما يُنسخ من ADR-027».
 
 ---
 
