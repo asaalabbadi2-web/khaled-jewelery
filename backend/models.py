@@ -1248,8 +1248,26 @@ class Invoice(db.Model):
         ceiling is only the manufacturing wage (when the supplier is paid in
         cash, not gold) plus its VAT plus any gold-value VAT — Phase 12A-12C
         of the invoice-payment audit.
+
+        A CLOSING OFFICE invoice is the opposite trade and keeps `total`. Raw
+        gold is reserved FROM the office and settled IN CASH, so the invoice's
+        whole value is the cash debt and there is no gold to settle in gold —
+        which is why is_gold_obligation_eligible() already excludes these
+        invoices, Phase 16A having proved their journal entries post cash only
+        and never touch a weight column. The Phase 13 rule above was correct for
+        the trade it was written for and too wide for the discriminator it used:
+        it keyed on invoice_type='شراء' alone and so treated every purchase as a
+        worked-gold supplier. The trade is what decides, and office_id is what
+        names it. Real data before this was corrected: all 29 office invoices had
+        wage_subtotal 0, so the formula gave them a ceiling of 0 while `total`
+        matched their recorded settlements to the riyal — 175,100 paid against a
+        175,100 total, 150,000 against 170,349. The stored figures were coherent;
+        the ceiling was not.
         """
         if (self.invoice_type or '').strip() != 'شراء':
+            return float(self.total or 0.0)
+
+        if self.office_id is not None:
             return float(self.total or 0.0)
 
         wage_cash = float(self.wage_subtotal or 0.0)
