@@ -40,6 +40,7 @@ from accounting.voucher_engine import (
 from allocation_service import AllocationService
 from services.invoice_payment_state_service import (
     InvoicePaymentStateService,
+    sync_invoice_cash_payment_after_voucher_approval,
     sync_invoice_payment_state_after_voucher_approval,
 )
 from services.gold_allocation_service import (
@@ -1017,6 +1018,9 @@ def approve_voucher(voucher_id):
         # fail the approval rather than leave a posted settlement with no
         # attribution. Not wrapped in try/except for that reason.
         sync_gold_attribution_after_voucher_approval(voucher)
+        # The cash half, so both sides of "paid = cash AND gold" prove
+        # settlement with equal force. Idempotent on source_voucher_id.
+        sync_invoice_cash_payment_after_voucher_approval(voucher)
 
         # Audit log
         try:

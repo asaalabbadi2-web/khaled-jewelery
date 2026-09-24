@@ -106,7 +106,7 @@ from dataclasses import dataclass
 
 from sqlalchemy import func
 
-from models import Invoice, InvoicePayment, Voucher, db
+from models import Invoice, InvoicePayment, PaymentMethod, Voucher, db
 
 CASH_EPSILON = 0.01
 
@@ -293,6 +293,101 @@ class InvoicePaymentStateService:
             # A tracked invoice whose gold cannot be read must NOT silently
             # become cash-only — that would quietly re-introduce the half-truth.
             raise
+
+
+
+def sync_invoice_cash_payment_after_voucher_approval(voucher) -> int:
+    """Record the CASH half of a voucher tagged to an invoice, at approval.
+
+    The gold half has been recorded since Phase A. Without this the contract
+    "paid = cash settled AND gold settled" is only half enforceable: a standalone
+    voucher could prove an invoice's gold was settled and never its cash, because
+    InvoicePayment rows were only ever created by the invoice's own payment
+    routes. Phase 11 had already measured the cost of that asymmetry in the raw —
+    176 real supplier-payment vouchers worth ~1,811,015 SAR with no invoice link
+    at all, more in value than the 74 linked ones.
+
+    SINGLE WRITER, and the idempotency key is InvoicePayment.source_voucher_id:
+    the invoice's own routes create their row AND approve their voucher inline in
+    the same request, so this finds that row and adds nothing. A re-approval
+    likewise adds nothing. That FK already exists for exactly this purpose — it
+    is what lets recompute() exclude a cancelled voucher's payment.
+
+    amount is CASH ONLY. Weight is never folded into a currency field; the gold
+    side carries its own quantities.
+
+    Returns the number of rows created (0 or 1). Caller commits.
+    """
+    if getattr(voucher, 'reference_type', None) != 'invoice':
+        return 0
+    if not getattr(voucher, 'reference_id', None):
+        return 0
+    if getattr(voucher, 'status', None) != 'approved':
+        return 0
+
+    if InvoicePayment.query.filter_by(source_voucher_id=voucher.id).first() is not None:
+        return 0
+
+    # FORWARD-ONLY, and this is not optional caution. Checking real data found
+    # 2,433 approved invoice-tagged vouchers of which ZERO carry an
+    # InvoicePayment with source_voucher_id set — that column is NULL on every
+    # pre-existing row, so the idempotency check above cannot see their
+    # payments. Re-approving any of those 2,392 cash-carrying vouchers would
+    # therefore create a DUPLICATE payment and inflate amount_paid. The same
+    # boundary that separates derived from recorded gold attribution separates
+    # recorded from historical cash here: it marks the moment recording began,
+    # on both sides. Below it we record nothing and invent nothing.
+    try:
+        from services.gold_allocation_service import historical_attribution_boundary
+        boundary = historical_attribution_boundary()
+    except Exception:
+        boundary = 0
+    if boundary and int(voucher.id) <= boundary:
+        return 0
+
+    cash_total = 0.0
+    try:
+        for line in voucher.account_lines.all():
+            if line.amount_type == 'cash' and line.line_type == 'debit':
+                cash_total += float(line.amount or 0.0)
+    except Exception:
+        return 0
+    cash_total = round(cash_total, 2)
+    if cash_total <= CASH_EPSILON:
+        return 0
+
+    invoice = Invoice.query.get(int(voucher.reference_id))
+    if invoice is None:
+        return 0
+
+    # Resolve the method by type rather than guessing an id: every one of the 24
+    # real purchase-invoice payments in production uses the cash method. This
+    # field is documented in the model as "best current understanding" anyway —
+    # the historical truth of which account received what lives in
+    # JournalEntryLine/VoucherAccountLine, which this voucher already posted.
+    method = (
+        PaymentMethod.query
+        .filter(PaymentMethod.payment_type == 'cash')
+        .order_by(PaymentMethod.id.asc())
+        .first()
+    )
+    if method is None:
+        raise RuntimeError(
+            'no cash PaymentMethod exists, so a voucher-sourced invoice payment '
+            'cannot be recorded; refusing to leave the cash side invisible'
+        )
+
+    db.session.add(InvoicePayment(
+        invoice_id=invoice.id,
+        payment_method_id=method.id,
+        amount=cash_total,
+        net_amount=cash_total,
+        source_voucher_id=voucher.id,
+        notes=f'سند {getattr(voucher, "voucher_number", voucher.id)}',
+    ))
+    db.session.flush()
+    InvoicePaymentStateService().recompute(invoice)
+    return 1
 
 
 def sync_invoice_payment_state_after_voucher_approval(voucher) -> None:

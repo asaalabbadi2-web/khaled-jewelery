@@ -296,16 +296,20 @@ class TestTrackedFlagIsWriteOnce:
 
         backend = Path(__file__).resolve().parent.parent
         pattern = re.compile(r'gold_settlement_tracked\s*=\s*(?!=)')
+        # The rule guards PRODUCTION code. Test fixtures legitimately construct
+        # invoices on both sides of the line — that is how the four status
+        # quadrants get exercised at all.
         allowed = {
             'models.py',                                   # the column itself
             'routes/invoices.py',                          # the one writer
-            'tests/test_invoice_settlement_state.py',       # this file
             'alembic/versions/20260924_invoice_gold_settlement_tracked.py',
         }
         offenders = []
         for path in backend.rglob('*.py'):
             rel = path.relative_to(backend).as_posix()
-            if rel in allowed or rel.startswith(('venv/', 'devtools/', 'tools/')):
+            if rel in allowed or rel.startswith(
+                ('venv/', 'devtools/', 'tools/', 'tests/')
+            ) or rel.startswith('test_'):
                 continue
             for line_no, line in enumerate(
                 path.read_text(encoding='utf-8', errors='ignore').splitlines(), start=1

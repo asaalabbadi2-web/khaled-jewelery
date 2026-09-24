@@ -44,6 +44,9 @@ from sqlalchemy import func, case, or_, and_
 import json
 from auth_decorators import require_permission, optional_auth, require_auth
 from services.invoice_payment_state_service import (
+    sync_invoice_cash_payment_after_voucher_approval,
+)
+from services.invoice_payment_state_service import (
     InvoicePaymentStateService,
     sync_invoice_payment_state_after_voucher_approval,
 )
@@ -3461,6 +3464,7 @@ def approve_voucher(voucher_id):
             sync_invoice_payment_state_after_voucher_approval(voucher)
             sync_gold_advance_after_voucher_approval(voucher)
             sync_gold_attribution_after_voucher_approval(voucher)
+            sync_invoice_cash_payment_after_voucher_approval(voucher)
             db.session.commit()
             return jsonify({
                 'success': True,
@@ -3495,6 +3499,7 @@ def approve_voucher(voucher_id):
         sync_invoice_payment_state_after_voucher_approval(voucher)
         sync_gold_advance_after_voucher_approval(voucher)
         sync_gold_attribution_after_voucher_approval(voucher)
+        sync_invoice_cash_payment_after_voucher_approval(voucher)
 
         # تسجيل العملية
         AuditLog.log_action(
@@ -3694,6 +3699,7 @@ def approve_vouchers_batch():
                 sync_invoice_payment_state_after_voucher_approval(voucher)
                 sync_gold_advance_after_voucher_approval(voucher)
                 sync_gold_attribution_after_voucher_approval(voucher)
+                sync_invoice_cash_payment_after_voucher_approval(voucher)
 
                 db.session.commit()
                 approved_count += 1
