@@ -162,6 +162,57 @@ def get_supplier_gold_reconciliation(supplier_id):
     }), 200
 
 
+@gold_advances_bp.route('/suppliers/<int:supplier_id>/open-gold-obligations', methods=['GET'])
+@require_auth
+@require_permission('gold_advances.view')
+def list_supplier_open_gold_obligations(supplier_id):
+    """The invoices an employee can pick when declaring a gold payment.
+
+    Exists because attribution must be a CHOICE, and a choice needs visible
+    candidates: Phase 16B found employees faced two or more plausible invoices
+    61% of the time and 21 or more in 19 cases, with nothing on screen to help.
+    Returns each eligible invoice with what it still has room to evidence, so
+    the pick is informed rather than a guess.
+
+    Ordered oldest first as a convenience for reading — NOT as a default
+    selection. Nothing here allocates or attributes anything.
+    """
+    supplier = Supplier.query.get(supplier_id)
+    if supplier is None:
+        return jsonify({
+            'success': False,
+            'message': f'المورد #{supplier_id} غير موجود',
+            'error': 'not_found',
+        }), 404
+
+    rows = (
+        InvoiceGoldObligation.query
+        .join(Invoice, Invoice.id == InvoiceGoldObligation.invoice_id)
+        .filter(Invoice.supplier_id == supplier_id)
+        .order_by(Invoice.date.asc(), Invoice.id.asc())
+        .all()
+    )
+
+    by_invoice = {}
+    for obligation in rows:
+        entry = by_invoice.setdefault(obligation.invoice_id, {
+            'invoice_id': obligation.invoice_id,
+            'date': obligation.invoice.date.isoformat() if obligation.invoice.date else None,
+            'karats': [],
+            'open_main_karat': 0.0,
+        })
+        remaining = obligation_attributed_remaining(obligation)
+        entry['karats'].append({
+            'karat': obligation.karat,
+            'gross_weight': obligation.weight,
+            'attributed_remaining_main_karat': remaining,
+        })
+        entry['open_main_karat'] = round(entry['open_main_karat'] + remaining, 2)
+
+    invoices = [e for e in by_invoice.values() if e['open_main_karat'] > WEIGHT_EPSILON]
+    return jsonify({'success': True, 'invoices': invoices}), 200
+
+
 @gold_advances_bp.route('/gold-advances/<int:advance_id>/allocate', methods=['POST'])
 @require_auth
 @require_permission('gold_advances.allocate')

@@ -233,6 +233,17 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
 
   int? _selectedCustomerId;
   int? _selectedSupplierId;
+
+  /// What a gold payment to a supplier is FOR. Recorded at payment time
+  /// because it cannot be recovered later: of 113 historical gold vouchers not
+  /// one named an invoice, and at payment time 61% of them had two or more
+  /// plausible candidates. 'supplier' (a general settlement on account) is a
+  /// legitimate answer and stays the default — the employee is never pushed
+  /// into inventing a link to an invoice.
+  String _goldPaymentPurpose = 'supplier'; // 'invoice' | 'advance' | 'supplier'
+  int? _goldPurposeInvoiceId;
+  List<Map<String, dynamic>> _goldPurposeCandidates = const [];
+  bool _loadingGoldPurposeCandidates = false;
   int? _selectedEmployeeId;
   int? _selectedOtherAccountId;
 
@@ -2455,6 +2466,146 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
     );
   }
 
+  /// Only asked when the question is real: a gold payment to a supplier.
+  /// A cash-only voucher, or one with no supplier, has nothing to attribute.
+  bool get _showGoldPurposeSelector =>
+      _partyType == 'supplier' &&
+      _selectedSupplierId != null &&
+      _accountLines.any((l) => l.amountType == 'gold');
+
+  Future<void> _loadGoldPurposeCandidates() async {
+    final supplierId = _selectedSupplierId;
+    if (supplierId == null) return;
+    setState(() => _loadingGoldPurposeCandidates = true);
+    try {
+      final rows = await _apiService.getSupplierOpenGoldObligations(supplierId);
+      if (!mounted) return;
+      setState(() {
+        _goldPurposeCandidates = rows;
+        _loadingGoldPurposeCandidates = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      // A failed lookup must not block recording the payment: the employee can
+      // still declare it a general supplier settlement, which is the truthful
+      // answer in most cases anyway.
+      setState(() {
+        _goldPurposeCandidates = const [];
+        _loadingGoldPurposeCandidates = false;
+      });
+    }
+  }
+
+  Widget _buildGoldPurposeCard() {
+    return Card(
+      elevation: 2,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(color: AppColors.lightGold.withValues(alpha: 0.4)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.call_split, color: AppColors.primaryGold),
+                const SizedBox(width: 8),
+                const Text(
+                  'هذه الدفعة الذهبية تخص',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            const Text(
+              'يُسجَّل الاختيار الآن لأنه لا يمكن استرجاعه لاحقًا',
+              style: TextStyle(fontSize: 12, color: Colors.black54),
+            ),
+            const SizedBox(height: 8),
+            RadioListTile<String>(
+              value: 'invoice',
+              groupValue: _goldPaymentPurpose,
+              dense: true,
+              title: const Text('فاتورة محددة'),
+              onChanged: (v) {
+                setState(() => _goldPaymentPurpose = v ?? 'supplier');
+                if (_goldPurposeCandidates.isEmpty) {
+                  _loadGoldPurposeCandidates();
+                }
+              },
+            ),
+            if (_goldPaymentPurpose == 'invoice')
+              Padding(
+                padding: const EdgeInsets.only(right: 32, bottom: 8),
+                child: _loadingGoldPurposeCandidates
+                    ? const LinearProgressIndicator()
+                    : (_goldPurposeCandidates.isEmpty
+                        ? const Text(
+                            'لا توجد فواتير لهذا المورد عليها التزام ذهب مفتوح',
+                            style: TextStyle(fontSize: 12, color: Colors.redAccent),
+                          )
+                        : DropdownButtonFormField<int>(
+                            initialValue: _goldPurposeInvoiceId,
+                            isExpanded: true,
+                            decoration: const InputDecoration(
+                              labelText: 'الفاتورة',
+                              border: OutlineInputBorder(),
+                              isDense: true,
+                            ),
+                            items: _goldPurposeCandidates.map((row) {
+                              final id = (row['invoice_id'] as num).toInt();
+                              final open = (row['open_main_karat'] as num?)?.toDouble() ?? 0.0;
+                              final date = (row['date'] ?? '').toString();
+                              final shortDate =
+                                  date.length >= 10 ? date.substring(0, 10) : date;
+                              return DropdownMenuItem<int>(
+                                value: id,
+                                child: Text(
+                                  'فاتورة #$id  ·  $shortDate  ·  متبقٍ ${open.toStringAsFixed(2)} جم',
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              );
+                            }).toList(),
+                            onChanged: (v) =>
+                                setState(() => _goldPurposeInvoiceId = v),
+                          )),
+              ),
+            RadioListTile<String>(
+              value: 'advance',
+              groupValue: _goldPaymentPurpose,
+              dense: true,
+              title: const Text('سلفة ذهب'),
+              subtitle: const Text(
+                'تُسجَّل كسلفة، ولا تُنسب لأي فاتورة تلقائيًا',
+                style: TextStyle(fontSize: 11),
+              ),
+              onChanged: (v) => setState(() {
+                _goldPaymentPurpose = v ?? 'supplier';
+                _goldPurposeInvoiceId = null;
+              }),
+            ),
+            RadioListTile<String>(
+              value: 'supplier',
+              groupValue: _goldPaymentPurpose,
+              dense: true,
+              title: const Text('تسوية مورد عامة'),
+              subtitle: const Text(
+                'على حساب المورد، بلا نسب لفاتورة — وهي حالة صحيحة',
+                style: TextStyle(fontSize: 11),
+              ),
+              onChanged: (v) => setState(() {
+                _goldPaymentPurpose = v ?? 'supplier';
+                _goldPurposeInvoiceId = null;
+              }),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildDescriptionCard() {
     return Card(
       elevation: 2,
@@ -3707,6 +3858,15 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
             ? _receiverNameController.text
             : null,
         'account_lines': allAccountLines,
+        // The employee's declared purpose. 'invoice' keeps the existing
+        // discriminator, which the cash side relies on in seven places; the
+        // backend records the gold attribution at approval from it.
+        if (_showGoldPurposeSelector) ...{
+          'reference_type': _goldPaymentPurpose == 'invoice'
+              ? 'invoice'
+              : (_goldPaymentPurpose == 'advance' ? 'gold_advance' : 'gold_supplier'),
+          if (_goldPaymentPurpose == 'invoice') 'reference_id': _goldPurposeInvoiceId,
+        },
       };
 
       // عمولة / رسوم فرق العيار — احتساب per-line
@@ -4390,6 +4550,12 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
       leftColumn
         ..add(const SizedBox(height: 10))
         ..add(partyInfo);
+    }
+
+    if (_showGoldPurposeSelector) {
+      leftColumn
+        ..add(const SizedBox(height: 12))
+        ..add(_buildGoldPurposeCard());
     }
 
     leftColumn.addAll([

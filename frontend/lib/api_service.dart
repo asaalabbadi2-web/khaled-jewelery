@@ -1793,6 +1793,28 @@ class ApiService {
     }
   }
 
+  /// Invoices of this supplier that still have room to evidence a gold
+  /// settlement. Used to let the employee PICK an invoice when declaring what a
+  /// gold payment is for — attribution is a choice, and a choice needs visible
+  /// candidates.
+  Future<List<Map<String, dynamic>>> getSupplierOpenGoldObligations(
+    int supplierId,
+  ) async {
+    final response = await _authedGet(
+      Uri.parse('$_baseUrl/suppliers/$supplierId/open-gold-obligations'),
+    );
+    if (response.statusCode == 200) {
+      final decoded = json.decode(utf8.decode(response.bodyBytes));
+      final list = (decoded is Map<String, dynamic>)
+          ? (decoded['invoices'] as List<dynamic>? ?? const [])
+          : const [];
+      return list
+          .map((e) => Map<String, dynamic>.from(e as Map))
+          .toList(growable: false);
+    }
+    throw Exception(_errorMessageFromResponse(response));
+  }
+
   Future<Map<String, dynamic>> getSupplierLedger(
     int supplierId, {
     int page = 1,
