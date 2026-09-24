@@ -148,8 +148,23 @@ deploy-production:
   script:
     - cd C:\khaled-jewelery
     - docker compose -f docker-compose.prod.gitlab.yml --env-file .env.production pull
+    # Migrate BEFORE starting the new app version. Two reasons, both learned
+    # from a real incident (see docs/runbooks and the Phase 16C deploy):
+    #   1. backend/app.py calls db.create_all() at import time (for gunicorn),
+    #      so an app that boots first creates new tables straight from the
+    #      models. The schema then looks correct while alembic_version stays
+    #      behind, and anything only a migration can do -- above all a backfill
+    #      -- silently never runs. That is exactly how Phase 16C reached
+    #      production with its tables present and 0 of 153 obligations
+    #      backfilled.
+    #   2. A half-migrated schema must never serve traffic.
+    # `run --rm` rather than `exec`, so this does not depend on the app
+    # container already being up; compose starts db first and waits for its
+    # healthcheck through backend's depends_on: service_healthy.
+    # A non-zero exit fails the job here, leaving the previous version running.
+    - docker compose -f docker-compose.prod.gitlab.yml --env-file .env.production run --rm backend bash -c "cd /app/backend && alembic upgrade head"
+    - docker compose -f docker-compose.prod.gitlab.yml --env-file .env.production run --rm backend bash -c "cd /app/backend && alembic current"
     - docker compose -f docker-compose.prod.gitlab.yml --env-file .env.production up -d --remove-orphans
-    - docker compose -f docker-compose.prod.gitlab.yml --env-file .env.production exec -T backend bash -c "cd /app/backend && alembic upgrade head"
     - echo "Deploy completed successfully"
   environment:
     name: production

@@ -84,32 +84,33 @@ Recommended steps for each release:
     - If building on the server:
        - `docker compose -f docker-compose.prod.yml --env-file .env.production run --rm backend alembic upgrade head`
 
-## 3.1) Auto-Deploy (GitHub Actions -> SSH -> VPS)
-This repo includes an optional production auto-deploy workflow: `.github/workflows/deploy-prod.yml`.
+## 3.1) Auto-Deploy
 
-Important notes:
-- Keep runtime secrets on the VPS only (e.g. `.env.production` with `JWT_SECRET_KEY`, `POSTGRES_PASSWORD`).
-- For private GHCR images, the VPS must authenticate to GHCR to pull images.
-- Do one manual deploy first to validate `.env.production` and database connectivity.
+Production runs on the shop's own Windows machine — there is no VPS. Deployment
+goes through **GitLab**:
 
-### Required GitHub Secrets
-Add these in: Settings -> Secrets and variables -> Actions -> Secrets
-- `SSH_PRIVATE_KEY`: SSH private key that can access the VPS
-- `VPS_HOST`: VPS IP/hostname
-- `VPS_USER`: SSH username (prefer a limited user with Docker permissions)
-- `GHCR_PAT`: Personal Access Token with `read:packages` (for pulling private images)
+- Images are built and pushed to `registry.gitlab.com/sasalabbadi/khaledjewels`
+  by `.gitlab-ci.yml` on every push to `main` (those jobs run on GitLab's
+  shared runners and work today).
+- The `deploy-production` job then pulls, **runs `alembic upgrade head`, and
+  only afterwards starts the services**. It requires a self-hosted runner
+  tagged `windows-docker` on that machine; until one is registered the job sits
+  in "pending, no matching runners available" and never deploys.
+- `update-prod.bat` is the manual fallback and performs the same ordered steps.
 
-### Required GitHub Variable
-Add this in: Settings -> Secrets and variables -> Actions -> Variables
-- `PROJECT_PATH`: path on the VPS where this repo (and `docker-compose.prod.images.yml`) lives, e.g. `/var/www/yasargold`
+Migrations run BEFORE the app starts, deliberately: `backend/app.py` calls
+`db.create_all()` at import (gunicorn never executes `__main__`), so an app that
+boots first creates new tables straight from the models. The schema then looks
+correct while `alembic_version` stays behind and anything only a migration can
+do — a backfill above all — silently never happens. That is exactly how one
+release reached production with its tables present and none of its data
+backfilled.
 
-### What the workflow does
-On merge/push to `main`:
-1. Builds & pushes images to GHCR (via `.github/workflows/docker-images.yml`)
-2. SSH into the VPS
-3. `docker login ghcr.io` using `GHCR_PAT`
-4. `docker compose pull` then `up -d`
-5. Runs migrations: `alembic upgrade head`
+The previous GitHub Actions path (`deploy-prod.yml` + `docker-images.yml`,
+SSH to a VPS, images on ghcr.io) was deleted: the VPS never existed, its
+registry was the wrong one, and it ran `alembic` from `/app` while `alembic.ini`
+lives in `/app/backend`. It failed on every run while appearing to be a working
+deployment route.
 
 ## 4) HTTPS
 For production HTTPS, use a reverse proxy with automatic certificates (Caddy/Traefik) or terminate TLS at Nginx.
