@@ -52,6 +52,29 @@ erp-seam-ratchet:
         - scripts/erp_seam_ratchet.py
 
 # ─────────────────────────────────────────────
+# launchd plist guard
+# A literal && inside a <string> once made both macOS backup agents invalid XML,
+# so launchctl could not load them at all and the scheduled backup was silently
+# uninstallable.  Runs when a plist or the guard changes.
+# NOTE: plutil on macOS is lenient (it accepts `--` inside an XML comment, which
+# is illegal XML); this guard uses Python's strict parser deliberately.
+# ─────────────────────────────────────────────
+plist-guard:
+  stage: test
+  image: python:3.12-slim
+  script:
+    - python scripts/plist_guard.py
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+      changes:
+        - backend/ops/**/*.plist
+        - scripts/plist_guard.py
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      changes:
+        - backend/ops/**/*.plist
+        - scripts/plist_guard.py
+
+# ─────────────────────────────────────────────
 # Web (Next.js storefront) — 7 CI gates
 # Runs only when apps/web/** or packages/contracts/** change.
 # DO NOT modify Python/backend jobs above or below.
