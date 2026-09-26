@@ -9,7 +9,7 @@
   <array>
     <string>/bin/bash</string>
     <string>-lc</string>
-    <string>cd "$HOME/yasargold" && ./backend/backup_postgres.sh</string>
+    <string>cd "$HOME/yasargold" &amp;&amp; ./backend/backup_postgres.sh</string>
   </array>
 
   <key>StartInterval</key>

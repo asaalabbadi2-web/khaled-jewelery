@@ -9,7 +9,7 @@
   <array>
     <string>/bin/bash</string>
     <string>-lc</string>
-    <string>cd "$HOME/yasargold" && ./backend/backup_sqlite.sh</string>
+    <string>cd "$HOME/yasargold" &amp;&amp; ./backend/backup_sqlite.sh</string>
   </array>
 
   <key>StartInterval</key>
