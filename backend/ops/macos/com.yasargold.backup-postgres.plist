@@ -12,6 +12,17 @@
     <string>cd "$HOME/yasargold" &amp;&amp; ./backend/backup_postgres.sh</string>
   </array>
 
+  <!-- PG_BIN is the bin DIRECTORY of the PostgreSQL client tools whose major
+       version matches the server.  backup_postgres.sh refuses to create a
+       backup when the majors differ, so this value is load-bearing, not a
+       convenience: PATH on this machine resolves pg_dump to 14 while the
+       server is 16.  Change it when the server major changes. -->
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PG_BIN</key>
+    <string>/opt/homebrew/opt/postgresql@16/bin</string>
+  </dict>
+
   <key>StartInterval</key>
   <integer>3600</integer>
 
