@@ -146,7 +146,13 @@ deploy-production:
   before_script:
     - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" "$CI_REGISTRY"
   script:
-    - cd C:\khaled-jewelery
+    # Production lives at C:\Projects\khaledjewels since the 2026-09-26 rebuild
+    # (docs/runbooks/recovery-snapshot-2026-09-26.md).  The old C:\khaled-jewelery is
+    # NOT production: Compose derives its project name from the folder, so that path
+    # resolves to a different volume namespace (khaled-jewelery_postgres_data rather
+    # than khaledjewels_postgres_data) -- a deploy from there would not touch
+    # production's database at all.
+    - cd C:\Projects\khaledjewels
     - docker compose -f docker-compose.prod.gitlab.yml --env-file .env.production pull
     # Migrate BEFORE starting the new app version. Two reasons, both learned
     # from a real incident (see docs/runbooks and the Phase 16C deploy):

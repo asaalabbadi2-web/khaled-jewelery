@@ -2,7 +2,17 @@
 echo ============================================
 echo   Khaled-Jewelery Production Update
 echo ============================================
-cd /d "C:\Khaled-Jewelery"
+REM === Production lives at C:\Projects\khaledjewels since the 2026-09-26 rebuild
+REM    (docs/runbooks/recovery-snapshot-2026-09-26.md).  The old C:\Khaled-Jewelery
+REM    is NOT production: Compose derives its project name from the folder, so that
+REM    path resolves to a different volume namespace (khaled-jewelery_postgres_data
+REM    instead of khaledjewels_postgres_data).  Deploying from there would not touch
+REM    production's database at all.
+cd /d "C:\Projects\khaledjewels"
+if %ERRORLEVEL% neq 0 (
+    echo ERROR: production folder C:\Projects\khaledjewels not found - ABORTED.
+    pause & exit /b 1
+)
 
 REM === Production runs on the GitLab Container Registry, so this script uses
 REM    docker-compose.prod.gitlab.yml -- the only compose file whose image
