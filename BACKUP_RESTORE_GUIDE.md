@@ -171,9 +171,14 @@ Restore safety:
   - The script terminates sessions connected to the temporary database only; it does not restore over the live database.
 
 ## Suggested schedule (baseline)
-- Hourly: PostgreSQL dump (or every 30–60 minutes depending on RPO)
-- Daily: Full dump + offsite upload
+- Daily: PostgreSQL dump + offsite upload
 - Retention: 14 daily, 8 weekly, 12 monthly (adjust)
+
+The cadence is **daily, not hourly**, because that is the cadence the retention
+policy above can express: an hourly run against a 14-*day* window keeps roughly
+336 archives, which is a different policy than "14 daily". Retention itself is
+deliberately **not** implemented in the shell scripts or the launchd plists —
+`BackupService` will own it, along with the canonical artifact contract.
 
 ## Scheduling on Linux (cron) (common for on-prem servers)
 Example: run hourly, using a minimal environment.
@@ -191,18 +196,58 @@ Environment handling:
 - You can export `DATABASE_URL` and `RCLONE_REMOTE` in the crontab, or source them from a root-readable env file.
 
 ## Scheduling on macOS (launchd)
-Templates:
-- `backend/ops/macos/com.yasargold.backup-postgres.plist`
-- `backend/ops/macos/com.yasargold.backup-sqlite.plist`
 
-Steps:
-1. Copy the plist to `~/Library/LaunchAgents/` and edit the project path if needed (the template assumes `~/yasargold`).
-2. Ensure the scripts are executable (`chmod +x backend/backup_*.sh`).
-3. Set environment variables for launchd (recommended for secrets):
-   - `launchctl setenv DATABASE_URL 'postgresql://USER@HOST:5432/DBNAME'`
-   - Use `.pgpass` for the password (recommended) instead of embedding it.
-4. Load the job:
-   - `launchctl load -w ~/Library/LaunchAgents/com.yasargold.backup-postgres.plist`
+Source of truth (edit these, never the installed copy):
+- `backend/ops/macos/com.yasargold.backup-postgres.plist` — daily at 02:30
+- `backend/ops/macos/com.yasargold.backup-sqlite.plist` — legacy SQLite path
+
+The plist carries `PG_BIN`, the bin directory of the PostgreSQL client tools.
+It is load-bearing: `backup_postgres.sh` refuses to create a backup unless the
+client's major version equals the server's, so a wrong `PG_BIN` produces no
+archive rather than a bad one. Update it when the server major changes.
+
+`DATABASE_URL` is **not** set here. The script takes it from the environment and,
+finding none (launchd jobs inherit almost nothing), reads that one value out of
+`backend/.env`. Do not use `launchctl setenv` for it: that leaks the value into
+every process in the login session.
+
+### Install / reinstall
+
+Idempotent — run the same four commands after any change to the plist:
+
+```bash
+cp backend/ops/macos/com.yasargold.backup-postgres.plist \
+   "$HOME/Library/LaunchAgents/com.yasargold.backup-postgres.plist"
+
+launchctl bootout gui/$(id -u)/com.yasargold.backup-postgres 2>/dev/null || true
+
+launchctl bootstrap gui/$(id -u) \
+   "$HOME/Library/LaunchAgents/com.yasargold.backup-postgres.plist"
+
+launchctl kickstart -k gui/$(id -u)/com.yasargold.backup-postgres
+```
+
+### Verify — bootstrap succeeding is not the same as a backup existing
+
+```bash
+launchctl print gui/$(id -u)/com.yasargold.backup-postgres | grep -E "last exit code|PG_BIN"
+cat /tmp/yasargold-backup-postgres.out.log
+ls -lt backups/postgres | head -3
+```
+
+It passes only when all four hold:
+1. `last exit code = 0`
+2. the log shows the DATABASE_URL source, the version match, and `OK: created backup:`
+3. a new archive exists, mode `-rw-------`
+4. `pg_restore -l <archive>` exits 0
+
+Anything less means launchd accepted the plist and nothing else.
+
+### Uninstall
+
+```bash
+launchctl bootout gui/$(id -u)/com.yasargold.backup-postgres
+```
 
 Logs:
 - `/tmp/yasargold-backup-postgres.out.log`

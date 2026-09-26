@@ -23,8 +23,22 @@
     <string>/opt/homebrew/opt/postgresql@16/bin</string>
   </dict>
 
-  <key>StartInterval</key>
-  <integer>3600</integer>
+  <!-- Daily, not hourly.  The retention policy this feeds is Daily/Weekly/Monthly,
+       which an hourly cadence cannot express: hourly runs against a 14 DAY
+       retention window keep about 336 archives.  Retention itself stays out of
+       this file and out of backup_postgres.sh; BackupService will own it.
+       02:30 and not 02:00 on purpose, because the in-app BackupScheduler
+       defaults backup_auto_time to "02:00", and two engines dumping the same
+       database in the same minute would contend.
+       launchd runs a missed StartCalendarInterval as soon as the machine wakes,
+       so a laptop asleep at 02:30 still gets its backup. -->
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Hour</key>
+    <integer>2</integer>
+    <key>Minute</key>
+    <integer>30</integer>
+  </dict>
 
   <key>RunAtLoad</key>
   <true/>
