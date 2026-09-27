@@ -1294,6 +1294,16 @@ def delete_unposted_invoice(invoice_id: int):
         InvoicePayment.query.filter_by(invoice_id=invoice_id).delete()
         InvoiceKaratLine.query.filter_by(invoice_id=invoice_id).delete()
 
+        # The gold tables from Phase 15/16C/A. Listed here explicitly even though
+        # the relationships now cascade, because THIS function is the checklist a
+        # reader consults for "what must go with an invoice" -- and the two tables
+        # being absent from it is precisely how deleting a cancelled invoice came
+        # to fail with a NotNullViolation on invoice_gold_obligation.invoice_id.
+        # A future table added to Invoice belongs here too.
+        from models import InvoiceGoldObligation, VoucherInvoiceGoldAttribution
+        VoucherInvoiceGoldAttribution.query.filter_by(invoice_id=invoice_id).delete()
+        InvoiceGoldObligation.query.filter_by(invoice_id=invoice_id).delete()
+
         db.session.delete(invoice)
         db.session.commit()
 
@@ -2234,6 +2244,13 @@ def reject_invoice(invoice_id: int):
             linked_reservation.status = 'pending'
             db.session.add(linked_reservation)
 
+        # ── سحب دليل الذهب: الفاتورة لم تبقَ قائمة ─────────────────────────
+        # النسب تُحذف (الذهب سُلّم فعلًا ويبقى سنده، لكن نسبته لهذه الفاتورة
+        # صارت دعوى غير صحيحة فيعود «غير منسوب»)، والتخصيصات تُحرَّر، وصفوف
+        # الالتزام تبقى — سجل ADR-028 الثابت.
+        from services.gold_allocation_service import release_invoice_gold_evidence
+        release_invoice_gold_evidence(invoice_id)
+
         # ── وضع علامة رفض على الفاتورة ─────────────────────────────────────
         invoice.status = 'rejected'
         if rejection_reason:
@@ -2347,6 +2364,14 @@ def unpost_invoice(invoice_id: int):
         # 4. Unpost the invoice
         invoice.is_posted = False
         invoice.posted_at = None
+
+        # 4b. Withdraw the gold evidence with the posting that created it.
+        # create_gold_obligations_for_invoice() runs in the POSTING path, so its
+        # counterpart belongs here. Attributions are removed and allocations
+        # freed; the obligation rows are kept (ADR-028's frozen record), so a
+        # re-post restores them instead of having to invent them again.
+        from services.gold_allocation_service import release_invoice_gold_evidence
+        release_invoice_gold_evidence(invoice_id)
 
         # 5. Remove category-weight movements (only valid for posted invoices)
         try:

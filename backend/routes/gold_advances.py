@@ -40,6 +40,9 @@ from services.gold_allocation_service import (
     WEIGHT_EPSILON,
     advance_remaining,
     attribute_gold_to_invoice,
+    invoice_obligation_is_live,
+    live_obligations_for_supplier,
+    recorded_obligations_for_invoice,
     resync_invoice_status,
     voucher_gold_capacity_main_karat,
     obligation_attributed_remaining,
@@ -127,7 +130,10 @@ def list_invoice_gold_obligations(invoice_id):
             'error': 'not_found',
         }), 404
 
-    obligations = InvoiceGoldObligation.query.filter_by(invoice_id=invoice.id).all()
+    # The RECORD of one named invoice, through the named reader. 'live' says
+    # whether it still stands, so a retracted invoice's rows are shown as the
+    # history they are rather than presented as owed.
+    obligations = recorded_obligations_for_invoice(invoice.id)
     result = []
     for ob in obligations:
         payload = _obligation_payload(ob)
@@ -136,7 +142,11 @@ def list_invoice_gold_obligations(invoice_id):
         ]
         result.append(payload)
 
-    return jsonify({'success': True, 'obligations': result}), 200
+    return jsonify({
+        'success': True,
+        'obligations': result,
+        'live': invoice_obligation_is_live(invoice),
+    }), 200
 
 
 @gold_advances_bp.route('/suppliers/<int:supplier_id>/gold-reconciliation', methods=['GET'])
@@ -310,13 +320,11 @@ def list_supplier_open_gold_obligations(supplier_id):
             'error': 'not_found',
         }), 404
 
-    rows = (
-        InvoiceGoldObligation.query
-        .join(Invoice, Invoice.id == InvoiceGoldObligation.invoice_id)
-        .filter(Invoice.supplier_id == supplier_id)
-        .order_by(Invoice.date.asc(), Invoice.id.asc())
-        .all()
-    )
+    # Through the funnel. This query used to read the model directly and so
+    # bypassed the standing test, offering a rejected invoice at its full 200 g
+    # while the ceiling that governs the write reported 0 -- a phantom candidate
+    # that failed only after the employee picked it.
+    rows = live_obligations_for_supplier(supplier_id)
 
     by_invoice = {}
     for obligation in rows:

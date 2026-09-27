@@ -1748,9 +1748,19 @@ class InvoiceGoldObligation(db.Model):
     weight = db.Column(db.Float, nullable=False)
     created_at = db.Column(db.DateTime, default=db.func.now())
 
+    # delete-orphan is load-bearing, not tidiness. invoice_id is NOT NULL, and
+    # SQLAlchemy's DEFAULT behaviour on parent delete is to DE-ASSOCIATE the
+    # children -- UPDATE invoice_gold_obligation SET invoice_id = NULL -- which
+    # the column forbids. Deleting a cancelled invoice therefore failed with
+    # NotNullViolation (sqlstate 23502) on this column, never reaching
+    # DELETE FROM invoice at all. That is why it presented as an unnamed
+    # constraint failure and why adding ondelete='CASCADE' would not have fixed
+    # it: the FK is never consulted. The same shape already protects
+    # Invoice.payments, karat_lines and weight_settlements.
     invoice = db.relationship(
         'Invoice', foreign_keys=[invoice_id],
-        backref=db.backref('gold_obligations', lazy='dynamic'),
+        backref=db.backref('gold_obligations', lazy='dynamic',
+                           cascade='all, delete-orphan'),
     )
 
     __table_args__ = (
@@ -1917,9 +1927,14 @@ class VoucherInvoiceGoldAttribution(db.Model):
         'Voucher', foreign_keys=[voucher_id],
         backref=db.backref('gold_attributions', lazy='dynamic'),
     )
+    # delete-orphan on the INVOICE side only, for the same NOT NULL reason as
+    # InvoiceGoldObligation. Not on the voucher side: an attribution is removed
+    # with its voucher through remove_attributions_for_voucher(), which is
+    # explicit and already the single writer for that direction.
     invoice = db.relationship(
         'Invoice', foreign_keys=[invoice_id],
-        backref=db.backref('gold_attributions', lazy='dynamic'),
+        backref=db.backref('gold_attributions', lazy='dynamic',
+                           cascade='all, delete-orphan'),
     )
 
     def to_dict(self):

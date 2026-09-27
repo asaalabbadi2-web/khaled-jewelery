@@ -111,6 +111,116 @@ def is_gold_obligation_eligible(invoice) -> bool:
     return True
 
 
+# 'rejected' is the only one the invoice lifecycle actually writes (reject_invoice);
+# the others are here because routes/invoices.py already treats them as retracted
+# when it aggregates a summary, and a reader of gold that disagreed with a reader
+# of totals about whether a document stands would be the harder bug to find.
+# Real data carries none of them: invoice statuses are paid, unpaid,
+# partially_paid and rejected.
+RETRACTED_INVOICE_STATUSES = frozenset({'rejected', 'cancelled', 'ملغاة'})
+
+
+def invoice_obligation_is_live(invoice) -> bool:
+    """Does this invoice still STAND, so its recorded obligation is a position?
+
+    Deliberately separate from is_gold_obligation_eligible(), which answers a
+    different question: that one is about the invoice's SHAPE (a purchase, not an
+    office settlement) and decides whether an obligation is created at all. This
+    one is about the document's STANDING, and decides whether an obligation
+    already recorded still counts as owed.
+
+    Conflating them is what produced the defect. The posting path creates
+    obligations; unpost and reject were never extended to match, so a rejected
+    invoice reported its full 200 g through invoice_open_gold_obligation(), was
+    counted in reconcile_supplier()'s gross_obligation, and accepted 50 g of
+    attribution with no objection -- gold evidenced against a document that no
+    longer exists.
+
+    The row itself is never touched. ADR-028 makes InvoiceGoldObligation a frozen
+    record of what the invoice originally obliged, and
+    reverse_gold_allocations_for_invoice() keeps it deliberately. So this changes
+    what reads as LIVE, never what is recorded, and re-posting restores the
+    obligation instead of having to invent it again.
+
+    Standing means posted and not retracted. `is_posted` is the ledger's own
+    answer -- ADR-028 makes the GL the single source of truth, and an unposted
+    invoice has no GL entry, so it has no position either.
+
+    Measured before this was written: all 157 obligation rows in the
+    production copy belong to invoices with is_posted=true and status in
+    (paid, partially_paid, unpaid). Zero belong to a retracted one, so this
+    predicate changes no existing quantity.
+    """
+    if invoice is None:
+        return False
+    if not bool(getattr(invoice, 'is_posted', False)):
+        return False
+    status = (getattr(invoice, 'status', None) or '').strip().lower()
+    return status not in RETRACTED_INVOICE_STATUSES
+
+
+# ======================================================================
+# THE FUNNEL -- the only place a POSITION is read from InvoiceGoldObligation
+#
+# The first attempt at this fix put the standing test at each reader. There are
+# eleven direct InvoiceGoldObligation.query sites; three were guarded; the FOURTH
+# -- the picker endpoint an employee chooses an invoice from -- still offered a
+# rejected invoice at 200 g while the guarded ceiling reported 0. A filter that
+# has to be remembered at every reader gets forgotten at the next one.
+#
+# So the distinction is named instead, and a ratchet
+# (tests/test_invoice_lifecycle_gold_cleanup.py::TestObligationReadsAreFunnelled)
+# forbids reading the model directly outside this module:
+#
+#   live_obligations_for_*      a POSITION -- what is still owed. Standing only.
+#   recorded_obligations_for_*  the RECORD -- what the invoice once obliged.
+#
+# Both exist because both questions are legitimate; conflating them is the bug.
+# ======================================================================
+
+def _standing_invoice_filter(query):
+    """Narrow an obligation query to invoices that still stand."""
+    return (
+        query
+        .filter(Invoice.is_posted.is_(True))
+        .filter(db.func.lower(db.func.coalesce(Invoice.status, ''))
+                .notin_(list(RETRACTED_INVOICE_STATUSES)))
+    )
+
+
+def live_obligations_for_invoice(invoice_id: int) -> list:
+    """This invoice's obligations, or nothing at all if it no longer stands."""
+    return _standing_invoice_filter(
+        InvoiceGoldObligation.query
+        .join(Invoice, Invoice.id == InvoiceGoldObligation.invoice_id)
+        .filter(InvoiceGoldObligation.invoice_id == int(invoice_id))
+    ).all()
+
+
+def live_obligations_for_supplier(supplier_id: int) -> list:
+    """Every standing obligation of one supplier, oldest invoice first.
+
+    Oldest first is a reading convenience, never a default selection -- there is
+    no FIFO in this module (ADR-028).
+    """
+    return _standing_invoice_filter(
+        InvoiceGoldObligation.query
+        .join(Invoice, Invoice.id == InvoiceGoldObligation.invoice_id)
+        .filter(Invoice.supplier_id == int(supplier_id))
+    ).order_by(Invoice.date.asc(), Invoice.id.asc()).all()
+
+
+def recorded_obligations_for_invoice(invoice_id: int) -> list:
+    """What this invoice obliged, standing or not -- the frozen record.
+
+    For inspecting ONE named invoice, where hiding the rows would misrepresent
+    the document rather than protect the reader. Never for a position: callers
+    showing these must say whether the invoice still stands, which
+    invoice_obligation_is_live() answers.
+    """
+    return InvoiceGoldObligation.query.filter_by(invoice_id=int(invoice_id)).all()
+
+
 # ======================================================================
 # Derived quantities -- nothing below is ever stored
 # ======================================================================
@@ -335,12 +445,12 @@ def reconcile_supplier(supplier) -> dict:
         if raw:
             gl_position += float(convert_to_main_karat(-raw, karat))
 
-    obligations = (
-        InvoiceGoldObligation.query
-        .join(Invoice, Invoice.id == InvoiceGoldObligation.invoice_id)
-        .filter(Invoice.supplier_id == supplier.id)
-        .all()
-    )
+    # Through the funnel. A retracted invoice here would report a liability the
+    # GL does not carry, and unattributed_settlement -- computed as
+    # gross - attributed - gl_position -- would absorb the difference as a
+    # phantom residual. That residual is the one quantity this function exists to
+    # name honestly, so it must not be polluted by documents that no longer stand.
+    obligations = live_obligations_for_supplier(supplier.id)
 
     gross = 0.0
     attributed = 0.0
@@ -416,6 +526,15 @@ class GoldAllocationService:
             raise ValueError(
                 f'supplier_mismatch:advance_supplier_id={advance.supplier_id},'
                 f'obligation_supplier_id={getattr(obligation_invoice, "supplier_id", None)}'
+            )
+        # The invoice was already loaded to check the supplier, and its standing
+        # was never asked about -- so an advance could be allocated against a
+        # rejected invoice's obligation. Same defect as the attribution writer.
+        if not invoice_obligation_is_live(obligation_invoice):
+            raise ValueError(
+                f'invoice_not_standing:id={obligation_invoice.id},'
+                f'is_posted={bool(obligation_invoice.is_posted)},'
+                f'status={obligation_invoice.status}'
             )
 
         weight_main_karat = round(float(weight_main_karat), 2)
@@ -648,7 +767,11 @@ def invoice_open_gold_obligation(invoice_id: int) -> float:
     ceiling is how a 60g advance plus a 60g attribution would "settle" a 100g
     obligation, so every bound check goes through here.
     """
-    obligations = InvoiceGoldObligation.query.filter_by(invoice_id=invoice_id).all()
+    # Through the funnel: a retracted invoice yields no obligations and therefore
+    # no ceiling, so gold cannot be evidenced against a document that no longer
+    # stands. Measured before the funnel existed: a rejected invoice reported
+    # 200.0 here and accepted 50 g of attribution.
+    obligations = live_obligations_for_invoice(invoice_id)
     return round(sum(obligation_attributed_remaining(o) for o in obligations), 2)
 
 
@@ -669,9 +792,10 @@ def attribute_gold_to_invoice(
     *karat* and *weight* are what was actually handed over and are stored as
     given; the main-karat-equivalent is derived from them for balancing only.
 
-    Raises on: an unapproved voucher, a supplier mismatch, a non-positive
-    weight, more weight than the voucher itself carries, and more than the
-    invoice's remaining obligation can evidence. Caller commits.
+    Raises on: an unapproved voucher, an invoice that no longer stands
+    (unposted or rejected), a supplier mismatch, a non-positive weight, more
+    weight than the voucher itself carries, and more than the invoice's remaining
+    obligation can evidence. Caller commits.
     """
     if voucher is None:
         raise ValueError('voucher_required')
@@ -681,6 +805,16 @@ def attribute_gold_to_invoice(
     invoice = Invoice.query.get(invoice_id)
     if invoice is None:
         raise ValueError(f'invoice_not_found:{invoice_id}')
+    # Named explicitly rather than left to the ceiling. The ceiling already
+    # returns 0 for a retracted invoice, so this would fail anyway -- as
+    # "exceeds_invoice_obligation", which would send the reader looking for a
+    # settled obligation instead of a rejected document.
+    if not invoice_obligation_is_live(invoice):
+        raise ValueError(
+            f'invoice_not_standing:id={invoice_id},'
+            f'is_posted={bool(getattr(invoice, "is_posted", False))},'
+            f'status={getattr(invoice, "status", None)}'
+        )
     if voucher.supplier_id and invoice.supplier_id != voucher.supplier_id:
         raise ValueError(
             f'supplier_mismatch:voucher_supplier_id={voucher.supplier_id},'
@@ -884,6 +1018,60 @@ def remove_attributions_for_voucher(voucher_id: int) -> int:
     for invoice_id in invoice_ids:
         resync_invoice_status(invoice_id)
     return len(rows)
+
+
+def release_invoice_gold_evidence(invoice_id: int) -> dict:
+    """Withdraw the gold EVIDENCE of an invoice that no longer stands.
+
+    Called from the two retraction paths, reject_invoice() and unpost_invoice().
+    Their absence was the root of both regressions: posting creates gold rows
+    (create_gold_obligations_for_invoice, from add_invoice's post-commit tail) and
+    neither retraction path mentioned those tables at all, so a document that had
+    been unmade kept acting like one.
+
+    WHAT IS WITHDRAWN -- the attributions. An attribution asserts "this much of
+    this voucher's gold settles THIS invoice", and once the invoice is retracted
+    that sentence is false, not merely historical. The codebase already states the
+    mirror of this rule: remove_attributions_for_voucher() exists because an
+    attribution must never outlive the payment that proves it. Nor the invoice it
+    settles.
+
+    The gold was still handed over -- the voucher and its GL lines are untouched
+    -- so what returns is not the gold but its classification: it becomes
+    UNATTRIBUTED settlement, which is precisely the quantity reconcile_supplier()
+    exists to name rather than hide.
+
+    "Append-only" on VoucherInvoiceGoldAttribution means no row is ever EDITED --
+    a correction adds a row. It has never meant rows are never removed; the
+    voucher-side helper deletes them for the same reason.
+
+    WHAT IS KEPT -- the obligation rows. ADR-028 makes InvoiceGoldObligation a
+    frozen record of what the invoice originally obliged, and
+    reverse_gold_allocations_for_invoice() preserves it deliberately. Re-posting
+    therefore restores the obligation instead of having to invent it again, and
+    the standing funnel above is what keeps the kept record from reading as a
+    live position.
+
+    Allocations are freed through the existing helper, so an advance is not left
+    spent on an invoice that no longer stands.
+
+    Caller commits. Returns what was done, for the caller to log.
+    """
+    attributions = VoucherInvoiceGoldAttribution.query.filter_by(
+        invoice_id=int(invoice_id)
+    ).all()
+    for row in attributions:
+        db.session.delete(row)
+
+    freed = reverse_gold_allocations_for_invoice(invoice_id)
+
+    return {
+        'invoice_id': int(invoice_id),
+        'attributions_removed': len(attributions),
+        'allocations_freed': freed,
+        'obligations_preserved': InvoiceGoldObligation.query.filter_by(
+            invoice_id=int(invoice_id)).count(),
+    }
 
 
 def reverse_gold_allocations_for_invoice(invoice_id: int) -> int:
