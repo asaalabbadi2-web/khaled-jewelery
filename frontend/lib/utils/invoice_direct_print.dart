@@ -175,7 +175,7 @@ Future<void> shareInvoiceWhatsApp({
 
   final response = await http.post(
     uploadUri,
-    headers: {'Content-Type': 'application/pdf'},
+    headers: await ApiService().sessionHeaders(contentType: 'application/pdf'),
     body: bytes,
   );
 

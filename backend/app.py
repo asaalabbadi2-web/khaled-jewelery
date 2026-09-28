@@ -379,6 +379,12 @@ def _assert_auth_bypass_not_in_production() -> None:
 
 _assert_auth_bypass_not_in_production()
 
+# Deny by default: every /api request needs a session unless its route is listed
+# as public in api_auth_guard.py. Registered AFTER the development bypass above,
+# so a bypassed request already carries its user when the guard runs.
+import api_auth_guard
+api_auth_guard.install(app)
+
 with app.app_context():
 	ensure_profit_weight_columns(db.engine)
 	ensure_invoice_item_scrap_columns(db.engine)

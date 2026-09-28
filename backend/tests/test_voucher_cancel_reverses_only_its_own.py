@@ -38,7 +38,7 @@ from datetime import datetime
 from app import app
 from models import (
     Account, Invoice, InvoicePayment, JournalEntry, JournalEntryLine, PaymentMethod,
-    SafeBox, SafeBoxTransaction, Voucher, db,
+    SafeBox, SafeBoxTransaction, User, Voucher, db,
 )
 
 
@@ -91,8 +91,13 @@ def _entry(lines, *, reference_type='invoice_payments'):
 
 
 def _cancel(voucher_id):
+    # Every /api request needs a session (api_auth_guard, ADR-031). This route used
+    # to answer anonymous requests only because it was open; sign in as the seeded admin.
+    from auth_decorators import generate_token
+    token = generate_token(User.query.filter_by(username='admin').first())
     return app.test_client().post(f'/api/vouchers/{voucher_id}/cancel',
-                                  json={'reason': 'test', 'cancelled_by': 't'})
+                                  json={'reason': 'test', 'cancelled_by': 't'},
+                                  headers={'Authorization': f'Bearer {token}'})
 
 
 def _reversal_entry(voucher_id):

@@ -47,9 +47,13 @@ def _mock_availability(available: bool, reserved_until: str | None = None) -> Ma
 # ── Fixtures ──────────────────────────────────────────────────────────────────
 
 @pytest.fixture()
-def client():
+def client(access_token):
+    """Signed in as the seeded admin. Every /api request needs a session
+    (api_auth_guard, ADR-031); POST /api/invoices used to answer anonymous
+    requests only because it was open."""
     flask_app.config["TESTING"] = True
     with flask_app.test_client() as c:
+        c.environ_base["HTTP_AUTHORIZATION"] = f"Bearer {access_token}"
         yield c
 
 

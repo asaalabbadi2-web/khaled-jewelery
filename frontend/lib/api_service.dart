@@ -915,7 +915,10 @@ class ApiService {
   }
 
   Future<Map<String, dynamic>> getOfficeBalance(int id) async {
-    final response = await http.get(Uri.parse('$_baseUrl/offices/$id/balance'));
+    final response = await http.get(
+          Uri.parse('$_baseUrl/offices/$id/balance'),
+          headers: _jsonHeaders(token: await _requireAuthToken()),
+    );
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
@@ -924,7 +927,10 @@ class ApiService {
   }
 
   Future<Map<String, dynamic>> getOfficesStatistics() async {
-    final response = await http.get(Uri.parse('$_baseUrl/offices/statistics'));
+    final response = await http.get(
+          Uri.parse('$_baseUrl/offices/statistics'),
+          headers: _jsonHeaders(token: await _requireAuthToken()),
+    );
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
@@ -3151,7 +3157,10 @@ class ApiService {
 
   /// Get next available customer code (C-000001, C-000002, ...)
   Future<Map<String, dynamic>> getNextCustomerCode() async {
-    final response = await http.get(Uri.parse('$_baseUrl/customers/next-code'));
+    final response = await http.get(
+          Uri.parse('$_baseUrl/customers/next-code'),
+          headers: _jsonHeaders(token: await _requireAuthToken()),
+    );
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
@@ -3161,7 +3170,10 @@ class ApiService {
 
   /// Get next available supplier code (S-000001, S-000002, ...)
   Future<Map<String, dynamic>> getNextSupplierCode() async {
-    final response = await http.get(Uri.parse('$_baseUrl/suppliers/next-code'));
+    final response = await http.get(
+          Uri.parse('$_baseUrl/suppliers/next-code'),
+          headers: _jsonHeaders(token: await _requireAuthToken()),
+    );
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
@@ -3621,7 +3633,10 @@ class ApiService {
 
   /// جلب جميع وسائل الدفع
   Future<List<dynamic>> getPaymentMethods() async {
-    final response = await http.get(Uri.parse('$_baseUrl/payment-methods'));
+    final response = await http.get(
+          Uri.parse('$_baseUrl/payment-methods'),
+          headers: _jsonHeaders(token: await _requireAuthToken()),
+    );
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
@@ -3633,6 +3648,7 @@ class ApiService {
   Future<List<dynamic>> getActivePaymentMethods() async {
     final response = await http.get(
       Uri.parse('$_baseUrl/payment-methods/active'),
+      headers: _jsonHeaders(token: await _requireAuthToken()),
     );
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
@@ -3705,6 +3721,7 @@ class ApiService {
   Future<List<dynamic>> getBankAccounts() async {
     final response = await http.get(
       Uri.parse('$_baseUrl/payment-methods/bank-accounts'),
+      headers: _jsonHeaders(token: await _requireAuthToken()),
     );
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
@@ -3717,6 +3734,7 @@ class ApiService {
   Future<Map<String, dynamic>> getPaymentInvoiceTypeOptions() async {
     final response = await http.get(
       Uri.parse('$_baseUrl/payment-methods/invoice-types'),
+      headers: _jsonHeaders(token: await _requireAuthToken()),
     );
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
@@ -3782,7 +3800,7 @@ class ApiService {
 
     final response = await http.post(
       Uri.parse('$_baseUrl/payment-methods'),
-      headers: {'Content-Type': 'application/json; charset=UTF-8'},
+      headers: _jsonHeaders(token: await _requireAuthToken()),
       body: json.encode(payload),
     );
     if (response.statusCode == 201) {
@@ -3858,7 +3876,7 @@ class ApiService {
 
     final response = await http.put(
       Uri.parse('$_baseUrl/payment-methods/$id'),
-      headers: {'Content-Type': 'application/json; charset=UTF-8'},
+      headers: _jsonHeaders(token: await _requireAuthToken()),
       body: json.encode(payload),
     );
     if (response.statusCode == 200) {
@@ -3906,7 +3924,7 @@ class ApiService {
 
     final response = await http.put(
       Uri.parse('$_baseUrl/payment-methods/update-order'),
-      headers: {'Content-Type': 'application/json; charset=UTF-8'},
+      headers: _jsonHeaders(token: await _requireAuthToken()),
       body: json.encode({'methods': updates}),
     );
 
@@ -3921,7 +3939,7 @@ class ApiService {
   Future<List<dynamic>> getPaymentTypes() async {
     final response = await http.get(
       Uri.parse('$_baseUrl/payment-types'),
-      headers: {'Content-Type': 'application/json; charset=UTF-8'},
+      headers: _jsonHeaders(token: await _requireAuthToken()),
     );
 
     if (response.statusCode == 200) {
@@ -5754,11 +5772,11 @@ class ApiService {
   // Posting Management Methods
   // =========================================
 
-  /// Get posting statistics (no auth required)
+  /// Get posting statistics. Needs a session like every /api route (backend/api_auth_guard.py).
   Future<Map<String, dynamic>> getPostingStats() async {
     final response = await http.get(
       Uri.parse('$_baseUrl/posting/stats'),
-      headers: {'Content-Type': 'application/json; charset=UTF-8'},
+      headers: _jsonHeaders(token: await _requireAuthToken()),
     );
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
@@ -7016,6 +7034,16 @@ class ApiService {
       return token;
     }
     return null;
+  }
+
+  /// Headers carrying the signed-in session, for callers outside this class
+  /// (e.g. uploading the direct-print PDF). Every /api route needs a session
+  /// unless the server lists it as public in backend/api_auth_guard.py.
+  Future<Map<String, String>> sessionHeaders({
+    String contentType = 'application/json; charset=UTF-8',
+  }) async {
+    final token = await _requireAuthToken();
+    return {'Content-Type': contentType, 'Authorization': 'Bearer $token'};
   }
 
   Map<String, String> _jsonHeaders({String? token}) {
