@@ -22,7 +22,7 @@ from datetime import date, datetime, time, timedelta
 from threading import Thread
 
 import schedule
-from sqlalchemy import case, func
+from sqlalchemy import case, func, select
 
 from models import db, Invoice, PaymentMethod, SafeBoxTransaction, Voucher, InvoicePayment, SettlementLine
 from services.gold_allocation_service import RETRACTED_INVOICE_STATUSES
@@ -111,10 +111,18 @@ class ClearingSettlementScheduler:
         reliable than SettlementLine-only approach when legacy settlements exist
         (SBT records without matching SettlementLine entries).
         """
+        # Through the ONE settleable rule. Summing every payment of the box by
+        # method alone counted rejected invoice 3123's 2,150 as money due — the
+        # same defect as routes/clearing.py::_compute_clearing_due_amount, which
+        # this function's own docstring says it mirrors.
+        _settleable_ids = (
+            settleable_payments_query(safe_box_id)
+            .with_entities(InvoicePayment.id)
+            .subquery()
+        )
         ip_in = (
             db.session.query(func.coalesce(func.sum(InvoicePayment.amount), 0.0))
-            .join(PaymentMethod, PaymentMethod.id == InvoicePayment.payment_method_id)
-            .filter(PaymentMethod.default_safe_box_id == safe_box_id)
+            .filter(InvoicePayment.id.in_(select(_settleable_ids.c.id)))
             .scalar()
         ) or 0.0
 
@@ -694,9 +702,16 @@ class ClearingSettlementScheduler:
                             InvoicePayment.id,
                             InvoicePayment.created_at,
                         )
-                        .join(PaymentMethod, PaymentMethod.id == InvoicePayment.payment_method_id)
                         .outerjoin(SettlementLine, SettlementLine.invoice_payment_id == InvoicePayment.id)
-                        .filter(PaymentMethod.default_safe_box_id == clearing_sb.id)
+                        # Through the ONE settleable rule. A dead payment is never
+                        # settled, so selecting it here made it the oldest
+                        # "unsettled" payment forever and pinned range_start to
+                        # its day — every run re-examined 26 Sep for invoice 3123.
+                        .filter(InvoicePayment.id.in_(select(
+                            settleable_payments_query(clearing_sb.id)
+                            .with_entities(InvoicePayment.id)
+                            .subquery().c.id
+                        )))
                         .group_by(InvoicePayment.id)
                         .having(
                             InvoicePayment.amount - func.coalesce(func.sum(SettlementLine.amount_settled), 0.0) > 0.005

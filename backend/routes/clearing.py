@@ -125,15 +125,16 @@ def _compute_clearing_due_amount(safe_box_id):
         due = pending_sl + net_transfer_in
     """
     # ── Primary: SL-based pending ────────────────────────────────────────────
-    # All IPs for this safe box
+    # Through the ONE settleable rule. This used to select every InvoicePayment
+    # of the box by payment method alone, so a rejected invoice's payment — never
+    # settled, because the scheduler and the pending list already excluded it —
+    # sat here forever as "pending". Measured on the 28 Sep production snapshot:
+    # due shown 5,940.00, due real 3,790.00, difference 2,150.00 = invoice 3123's
+    # Mada payment exactly. fe8ffc6 unified three readers and missed this fourth
+    # one; TestNoFifthSettleableReader now stops the next.
+    from clearing_settlement_scheduler import settleable_payments_query
     all_ip_ids: list[int] = [
-        r[0]
-        for r in (
-            db.session.query(InvoicePayment.id)
-            .join(PaymentMethod, PaymentMethod.id == InvoicePayment.payment_method_id)
-            .filter(PaymentMethod.default_safe_box_id == safe_box_id)
-            .all()
-        )
+        ip.id for ip in settleable_payments_query(safe_box_id).all()
     ]
 
     if not all_ip_ids:

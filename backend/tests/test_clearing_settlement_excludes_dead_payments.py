@@ -41,7 +41,10 @@ from datetime import datetime, timedelta
 import pytest
 
 from app import app as flask_app
-from clearing_settlement_scheduler import ClearingSettlementScheduler
+from clearing_settlement_scheduler import (
+    ClearingSettlementScheduler,
+    settleable_payments_query,
+)
 from models import (
     Account,
     Invoice,
@@ -283,3 +286,149 @@ class TestThePendingScreenAndManualSettlement:
         db.session.flush()
         got = {t.invoice_id for t in _unsettled_invoice_payment_sbts(box.id)}
         assert dead_inv.id not in got and live_inv.id in got
+
+
+# ======================================================================
+# THE FOURTH READER — the due balance the screen shows
+#
+# fe8ffc6 unified the settleable rule across three readers and its docstring
+# says "EVERY selection of settleable payments starts here". A fourth was
+# missed, in another file: routes/clearing.py::_compute_clearing_due_amount,
+# which selected ALL InvoicePayments of the box by payment method alone.
+#
+# Measured on the 28 Sep 09:48 production snapshot (safe box 32, Mada):
+#     due balance shown   5,940.00
+#     should be           3,790.00
+#     difference          2,150.00   = rejected invoice 3123's payment, exactly
+#
+# Reported by the user from the screen: "رصيد التسوية المستحق لا زال يقرأها".
+# ======================================================================
+
+class TestTheDueBalanceUsesTheSameRule:
+
+    def _replay(self, pm):
+        return TestIncident3123()._replay(pm)
+
+    def test_the_due_balance_excludes_a_retracted_invoice_payment(self, app, mada):
+        """The screen's figure. A rejected invoice's payment is not money waiting
+        to be settled — it is money that never stood."""
+        from routes.clearing import _compute_clearing_due_amount
+
+        box, pm = mada
+        dead, live = self._replay(pm)
+
+        assert _compute_clearing_due_amount(box.id) == 4380.0, (
+            'due balance must equal the live payments only — the rejected '
+            "invoice's 2,150 was being counted as pending"
+        )
+
+    def test_the_due_balance_excludes_a_cancelled_voucher_payment(self, app, mada):
+        from routes.clearing import _compute_clearing_due_amount
+
+        box, pm = mada
+        _sale_paid_by(pm, 700.0, at=DAY.replace(hour=10), voucher_status='cancelled')
+        _, live = _sale_paid_by(pm, 300.0, at=DAY.replace(hour=11))
+
+        assert _compute_clearing_due_amount(box.id) == 300.0
+
+    def test_the_due_balance_agrees_with_the_payments_it_would_settle(self, app, mada):
+        """The agreement that makes 'no_days_had_due_amount' impossible: the
+        figure on the screen and the payments behind it come from one rule."""
+        from routes.clearing import _compute_clearing_due_amount
+
+        box, pm = mada
+        dead, live = self._replay(pm)
+        settleable = {ip.id for ip in settleable_payments_query(box.id).all()}
+
+        assert dead.id not in settleable
+        assert _compute_clearing_due_amount(box.id) == _amounts(settleable)
+
+
+class TestNoFifthSettleableReader:
+    """THE RATCHET. Three readers were fixed, then a fourth was found in another
+    file. Selecting InvoicePayments by a safe box's payment method is the
+    signature of a settleable-payments reader, and it may only happen inside
+    settleable_payments_query()."""
+
+    # (file, enclosing function) -> why it may select every payment of a box.
+    # Keyed on the FUNCTION, not the file, so a new reader added next to one of
+    # these is still caught.
+    ALLOWED = {
+        ('clearing_settlement_scheduler.py', 'settleable_payments_query'):
+            'the unified rule itself',
+        ('payment_methods_routes.py', 'update_payment_method'):
+            'a duplicate check joining PaymentMethod to SafeBox; selects no payments',
+        ('routes/safe_boxes.py', 'delete_safe_box'):
+            'counts payment methods linked to a box before deleting it; selects no payments',
+        # ── KNOWN DEBT — same defect class, deliberately not changed here ────
+        # Each selects every payment of the box, dead ones included. They are
+        # manual admin tools, and changing a repair tool's selection without
+        # re-deriving what it repairs could break the repair itself. Recorded
+        # so they are visible and so this ratchet still fails on a NEW reader.
+        ('routes/admin.py', 'clearing_gap_report'):
+            'DEBT: reports a rejected invoice payment as a "true gap" (false alarm)',
+        ('allocation_repair_service.py', 'repair_safe_box'):
+            'DEBT: could allocate settlement to a dead payment if run',
+        ('routes/admin.py', 'repair_voucher_date_bounded'):
+            'DEBT: could allocate settlement to a dead payment if run',
+    }
+
+    def test_only_the_unified_rule_selects_payments_by_clearing_box(self):
+        import ast
+        import re
+        from pathlib import Path
+
+        backend = Path(__file__).resolve().parent.parent
+        signature = re.compile(r'default_safe_box_id\s*==')
+        offenders = []
+        for path in backend.rglob('*.py'):
+            rel = path.relative_to(backend).as_posix()
+            if rel.startswith(('venv/', 'devtools/', 'tools/', 'tests/', 'alembic/')) \
+                    or rel.startswith('test_'):
+                continue
+            src = path.read_text(encoding='utf-8', errors='ignore')
+            if 'default_safe_box_id' not in src:
+                continue
+            try:
+                tree = ast.parse(src)
+            except SyntaxError:
+                continue
+            spans = [
+                (n.lineno, getattr(n, 'end_lineno', n.lineno), n.name)
+                for n in ast.walk(tree)
+                if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+            ]
+            for line_no, line in enumerate(src.splitlines(), 1):
+                if not signature.search(line.split('#', 1)[0]):
+                    continue
+                enclosing = [s for s in spans if s[0] <= line_no <= s[1]]
+                fn = min(enclosing, key=lambda s: s[1] - s[0])[2] if enclosing else '<module>'
+                if (rel, fn) not in self.ALLOWED:
+                    offenders.append(f'{rel}:{line_no} in {fn}(): {line.strip()}')
+        assert not offenders, (
+            'select settleable payments through settleable_payments_query(); a '
+            'parallel copy is how the due balance kept counting invoice 3123:\n  '
+            + '\n  '.join(offenders)
+        )
+
+    def test_the_allowlist_has_no_stale_entries(self):
+        """A debt entry whose function no longer matches means the debt was paid
+        (or the code moved) — the entry must be removed, not left to excuse a
+        future reader of the same name."""
+        import ast
+        import re
+        from pathlib import Path
+
+        backend = Path(__file__).resolve().parent.parent
+        signature = re.compile(r'default_safe_box_id\s*==')
+        stale = []
+        for (rel, fn), _why in self.ALLOWED.items():
+            src = (backend / rel).read_text(encoding='utf-8', errors='ignore')
+            tree = ast.parse(src)
+            node = next((n for n in ast.walk(tree)
+                         if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+                         and n.name == fn), None)
+            body = ast.get_source_segment(src, node) if node else ''
+            if not node or not signature.search(body or ''):
+                stale.append(f'{rel}::{fn}')
+        assert not stale, 'remove paid-off entries: ' + ', '.join(stale)
