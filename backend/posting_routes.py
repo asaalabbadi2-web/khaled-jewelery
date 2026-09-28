@@ -937,44 +937,6 @@ def _append_safe_transactions_for_invoice_gold(invoice: Invoice, created_by: str
     return created
 
 
-def _append_safe_reversal_transactions_for_voucher(voucher, created_by=None, reason=None):
-    """Append reversing SafeBoxTransaction rows for a previously-approved voucher (payment/receipt)."""
-    if not voucher or not getattr(voucher, 'id', None):
-        return []
-    existing_reversal = (
-        SafeBoxTransaction.query.filter_by(ref_type='voucher_reversal', ref_id=voucher.id)
-        .order_by(SafeBoxTransaction.id.desc())
-        .first()
-    )
-    if existing_reversal:
-        return []
-    original = SafeBoxTransaction.query.filter(
-        SafeBoxTransaction.ref_id == voucher.id,
-        SafeBoxTransaction.ref_type.in_(['voucher', 'invoice_payment']),
-    ).all()
-    if not original:
-        return []
-    created = []
-    for tx in original:
-        rev = SafeBoxTransaction(
-            safe_box_id=tx.safe_box_id,
-            ref_type='voucher_reversal',
-            ref_id=voucher.id,
-            payment_method_id=tx.payment_method_id,
-            direction='out' if (tx.direction or 'in') == 'in' else 'in',
-            amount_cash=float(tx.amount_cash or 0.0),
-            weight_18k=float(tx.weight_18k or 0.0),
-            weight_21k=float(tx.weight_21k or 0.0),
-            weight_22k=float(tx.weight_22k or 0.0),
-            weight_24k=float(tx.weight_24k or 0.0),
-            notes=(reason or f"Reversal for voucher {voucher.voucher_number}"),
-            created_by=created_by or getattr(voucher, 'created_by', 'system'),
-        )
-        db.session.add(rev)
-        created.append(rev)
-    return created
-
-
 def _restore_scrap_provisional_sbts(invoice: Invoice, created_by: str = None) -> None:
     """إعادة إنشاء SBTs المؤقتة (invoice_scrap_receipt) لفاتورة شراء الكسر بعد إلغاء الترحيل.
 
@@ -1067,26 +1029,32 @@ def _restore_scrap_provisional_sbts(invoice: Invoice, created_by: str = None) ->
 def _append_safe_reversal_transactions_for_invoice_gold(invoice: Invoice, created_by: str = None, reason: str = None):
     """Append reversing SafeBoxTransaction rows for invoice gold + stones — يعتمد على الرصيد الصافي.
 
-    يحسب (invoice_gold - invoice_gold_reversal) لكل خزينة ويُنشئ عكساً للصافي فقط.
-    يشمل أوزان الذهب والفصوص (stones).
-    يدعم دورات إعادة الترحيل وإلغائه بشكل صحيح.
+    يحسب الصافي لكل خزينة ويُنشئ عكساً للصافي فقط، فيدعم دورات إعادة الترحيل
+    وإلغائه ويُعاد تشغيله بأمان. يشمل أوزان الذهب والفصوص (stones).
+
+    Two families, each reversed with its own ref_type so neither changes meaning:
+      - invoice_gold, reversed by invoice_gold_reversal -- unchanged. The posting
+        writer (_append_safe_transactions_for_invoice_gold) reads exactly this
+        pair to decide whether a re-post must write gold again.
+      - invoice_sale_gold_movement -- the movement a sale writes when it is
+        CREATED -- reversed by the same ref_type in the opposite direction.
+        This family used to be ignored entirely, and the function opened with
+        `if not all_gold: return []`, so an ordinary sale (which carries only
+        this movement) was never reversed at all. Incident: 3123, 2026-09-26 --
+        unposted and rejected, its 3.3 g of 22k stayed "out" of the display box
+        while its replacement 3124 moved the same 3.3 g. Measured on production:
+        1,440 sale movements against 166 invoice_gold rows. See
+        tests/test_unpost_reverses_sale_gold_movement.py.
     """
     if not invoice or not getattr(invoice, 'id', None):
         return []
 
     invoice_id     = invoice.id
     invoice_number = getattr(invoice, 'invoice_number', None) or str(invoice_id)
-
-    all_gold = SafeBoxTransaction.query.filter_by(ref_type='invoice_gold',          ref_id=invoice_id).all()
-    all_rev  = SafeBoxTransaction.query.filter_by(ref_type='invoice_gold_reversal', ref_id=invoice_id).all()
-
-    if not all_gold:
-        return []
-
-    # net[safe_box_id] = [w18, w21, w22, w24, s_total, s18, s21, s22, s24]
-    net: dict = {}
+    note = reason or f'إلغاء ترحيل فاتورة {invoice_number}'
 
     def _add(d, sb, sign, tx):
+        # net[safe_box_id] = [w18, w21, w22, w24, s_total, s18, s21, s22, s24]
         if sb not in d:
             d[sb] = [0.0] * 9
         d[sb][0] += sign * float(tx.weight_18k   or 0.0)
@@ -1099,47 +1067,67 @@ def _append_safe_reversal_transactions_for_invoice_gold(invoice: Invoice, create
         d[sb][7] += sign * float(getattr(tx, 'stones_22k',    0.0) or 0.0)
         d[sb][8] += sign * float(getattr(tx, 'stones_24k',    0.0) or 0.0)
 
-    for tx in all_gold:
-        _add(net, tx.safe_box_id, 1.0 if (tx.direction or 'in') == 'in' else -1.0, tx)
-    for tx in all_rev:
-        _add(net, tx.safe_box_id, 1.0 if (tx.direction or 'out') == 'in' else -1.0, tx)
+    def _emit(net: dict, ref_type: str) -> list:
+        """One reversing row per safe box for whatever *net* still holds."""
+        rows = []
+        for sb_id, vals in net.items():
+            w18, w21, w22, w24, st, s18, s21, s22, s24 = vals
+            gold_net   = w18 + w21 + w22 + w24
+            stones_net = st
+            if not any(abs(v) > 1e-6 for v in (w18, w21, w22, w24, st, s18, s21, s22, s24)):
+                continue
+
+            rev_dir = 'out' if (gold_net + stones_net) > 0 else 'in'
+            rev = SafeBoxTransaction(
+                safe_box_id=sb_id,
+                ref_type=ref_type,
+                ref_id=invoice_id,
+                invoice_id=invoice_id,
+                direction=rev_dir,
+                amount_cash=0.0,
+                weight_18k=round(abs(w18), 6),
+                weight_21k=round(abs(w21), 6),
+                weight_22k=round(abs(w22), 6),
+                weight_24k=round(abs(w24), 6),
+                notes=note,
+                created_by=created_by,
+            )
+            # إضافة حقول الفصوص إذا كانت متاحة في النموذج
+            try:
+                rev.stones_weight = round(abs(st),  6)
+                rev.stones_18k    = round(abs(s18), 6)
+                rev.stones_21k    = round(abs(s21), 6)
+                rev.stones_22k    = round(abs(s22), 6)
+                rev.stones_24k    = round(abs(s24), 6)
+            except Exception:
+                pass
+            db.session.add(rev)
+            rows.append(rev)
+        return rows
 
     created = []
-    note = reason or f'إلغاء ترحيل فاتورة {invoice_number}'
 
-    for sb_id, vals in net.items():
-        w18, w21, w22, w24, st, s18, s21, s22, s24 = vals
-        gold_net   = w18 + w21 + w22 + w24
-        stones_net = st
-        if not any(abs(v) > 1e-6 for v in (w18, w21, w22, w24, st, s18, s21, s22, s24)):
-            continue
+    # ── invoice_gold, reversed by invoice_gold_reversal (behaviour unchanged) ──
+    all_gold = SafeBoxTransaction.query.filter_by(ref_type='invoice_gold',          ref_id=invoice_id).all()
+    if all_gold:
+        all_rev = SafeBoxTransaction.query.filter_by(ref_type='invoice_gold_reversal', ref_id=invoice_id).all()
+        net_gold: dict = {}
+        for tx in all_gold:
+            _add(net_gold, tx.safe_box_id, 1.0 if (tx.direction or 'in') == 'in' else -1.0, tx)
+        for tx in all_rev:
+            _add(net_gold, tx.safe_box_id, 1.0 if (tx.direction or 'out') == 'in' else -1.0, tx)
+        created += _emit(net_gold, 'invoice_gold_reversal')
 
-        rev_dir = 'out' if (gold_net + stones_net) > 0 else 'in'
-        rev = SafeBoxTransaction(
-            safe_box_id=sb_id,
-            ref_type='invoice_gold_reversal',
-            ref_id=invoice_id,
-            invoice_id=invoice_id,
-            direction=rev_dir,
-            amount_cash=0.0,
-            weight_18k=round(abs(w18), 6),
-            weight_21k=round(abs(w21), 6),
-            weight_22k=round(abs(w22), 6),
-            weight_24k=round(abs(w24), 6),
-            notes=note,
-            created_by=created_by,
-        )
-        # إضافة حقول الفصوص إذا كانت متاحة في النموذج
-        try:
-            rev.stones_weight = round(abs(st),  6)
-            rev.stones_18k    = round(abs(s18), 6)
-            rev.stones_21k    = round(abs(s21), 6)
-            rev.stones_22k    = round(abs(s22), 6)
-            rev.stones_24k    = round(abs(s24), 6)
-        except Exception:
-            pass
-        db.session.add(rev)
-        created.append(rev)
+    # ── invoice_sale_gold_movement, reversed by itself in the other direction ──
+    # Its earlier reversals are rows of the same ref_type, so netting every row
+    # of it is what makes a second call write nothing.
+    sale_moves = SafeBoxTransaction.query.filter_by(
+        ref_type='invoice_sale_gold_movement', ref_id=invoice_id).all()
+    if sale_moves:
+        net_sale: dict = {}
+        for tx in sale_moves:
+            _add(net_sale, tx.safe_box_id, 1.0 if (tx.direction or 'out') == 'in' else -1.0, tx)
+        created += _emit(net_sale, 'invoice_sale_gold_movement')
 
     return created
 
@@ -2465,10 +2453,37 @@ def unpost_invoice(invoice_id):
                 user_agent=request.headers.get('User-Agent')
             )
             return jsonify({
-                'success': False, 
+                'success': False,
                 'message': 'الفاتورة غير مرحلة أصلاً'
             }), 400
-        
+
+        # Refused while a payment stands, before anything is written. This
+        # route used to take the payments along -- reverse their safe-box rows,
+        # unpost their JEs, set them 'pending' -- and re-posting never wrote the
+        # safe-box rows back: 1641/1779/2204/2478 read 92,385.00 short in the
+        # cash and Mada statements. See services/invoice_retraction_guard.py.
+        from services.invoice_retraction_guard import live_payments_message, live_payments_of
+        standing = live_payments_of(invoice_id)
+        if standing:
+            message = live_payments_message('إلغاء ترحيل', standing)
+            AuditLog.log_action(
+                user_name=posted_by,
+                action='unpost',
+                entity_type='invoice',
+                entity_id=invoice_id,
+                entity_number=(getattr(invoice, 'invoice_number', None) or str(invoice_id)),
+                success=False,
+                error_message=message,
+                ip_address=request.remote_addr,
+                user_agent=request.headers.get('User-Agent')
+            )
+            return jsonify({
+                'success': False,
+                'error': 'has_live_payments',
+                'message': message,
+                'payments': standing,
+            }), 409
+
         # Append reversal ledger movements (append-only)
         _append_safe_reversal_transactions_for_invoice_gold(
             invoice,
@@ -2488,37 +2503,9 @@ def unpost_invoice(invoice_id):
         except Exception:
             pass
 
-        # إلغاء ترحيل السندات المرتبطة (وعكس حركات الخزينة النقدية)
-        try:
-            linked_vouchers = Voucher.query.filter_by(
-                reference_type='invoice', reference_id=invoice_id
-            ).all()
-            for v in linked_vouchers:
-                # عكس SafeBoxTransactions النقدية للسند
-                try:
-                    _append_safe_reversal_transactions_for_voucher(
-                        v,
-                        created_by=posted_by,
-                        reason=f"Unpost invoice #{invoice_id} — reverse voucher {v.voucher_number}",
-                    )
-                except Exception:
-                    pass
-                # إلغاء ترحيل قيد السند
-                if v.journal_entry_id:
-                    _vje = JournalEntry.query.get(v.journal_entry_id)
-                    if _vje and _vje.is_posted:
-                        _vje.is_posted = False
-                        _vje.posted_at = None
-                        _vje.posted_by = None
-                for _vje2 in JournalEntry.query.filter_by(
-                    reference_type='voucher', reference_id=v.id, is_posted=True
-                ).all():
-                    _vje2.is_posted = False
-                    _vje2.posted_at = None
-                    _vje2.posted_by = None
-                v.status = 'pending'
-        except Exception:
-            pass
+        # السندات المرتبطة لا تُلمس: الحارس أعلاه لا يترك إلا الملغاة، والسداد
+        # الملغى وإلغاؤه واقعتان قائمتان أيًّا كان مصير الفاتورة — وإعادتها إلى
+        # «معلّق» هنا كانت تجعل الترحيل التالي يعتمدها من جديد.
 
         # إلغاء الترحيل
         invoice.is_posted = False
@@ -2917,6 +2904,25 @@ def unpost_invoices_batch():
         invoices = Invoice.query.filter(Invoice.id.in_(invoice_ids), Invoice.is_posted == True).all()
         unposted_count = 0
 
+        # All or nothing, asked before anything is written: one invoice with a
+        # standing payment stops the batch, and the reply names it.
+        from services.invoice_retraction_guard import live_payments_message, live_payments_of
+        blocked = {}
+        for invoice in invoices:
+            standing = live_payments_of(invoice.id)
+            if standing:
+                blocked[str(invoice.id)] = standing
+        if blocked:
+            return jsonify({
+                'success': False,
+                'error': 'has_live_payments',
+                'message': live_payments_message(
+                    'إلغاء ترحيل',
+                    [f'#{inv_id} ({"، ".join(labels)})' for inv_id, labels in blocked.items()],
+                ),
+                'blocked': blocked,
+            }), 409
+
         for invoice in invoices:
             _append_safe_reversal_transactions_for_invoice_gold(
                 invoice, created_by=posted_by,
@@ -2932,33 +2938,7 @@ def unpost_invoices_batch():
                     _je.posted_by = None
             except Exception:
                 pass
-            # إلغاء السندات وقيودها وعكس حركات الخزينة النقدية
-            try:
-                for _v in Voucher.query.filter_by(
-                    reference_type='invoice', reference_id=invoice.id
-                ).all():
-                    try:
-                        _append_safe_reversal_transactions_for_voucher(
-                            _v, created_by=posted_by,
-                            reason=f"Batch unpost invoice #{invoice.id} — reverse voucher {_v.voucher_number}",
-                        )
-                    except Exception:
-                        pass
-                    if _v.journal_entry_id:
-                        _vje = JournalEntry.query.get(_v.journal_entry_id)
-                        if _vje and _vje.is_posted:
-                            _vje.is_posted = False
-                            _vje.posted_at = None
-                            _vje.posted_by = None
-                    for _vje2 in JournalEntry.query.filter_by(
-                        reference_type='voucher', reference_id=_v.id, is_posted=True
-                    ).all():
-                        _vje2.is_posted = False
-                        _vje2.posted_at = None
-                        _vje2.posted_by = None
-                    _v.status = 'pending'
-            except Exception:
-                pass
+            # السندات المرتبطة لا تُلمس — انظر إلغاء الترحيل المفرد أعلاه.
 
             invoice.is_posted = False
             invoice.posted_at = None

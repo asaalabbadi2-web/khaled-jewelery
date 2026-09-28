@@ -1232,6 +1232,23 @@ def delete_unposted_invoice(invoice_id: int):
             'message': 'لا يمكن حذف فاتورة مرحّلة.',
         }), 400
 
+    # A document with history is rejected, not deleted. Deleting one destroyed
+    # a real gold payment and orphaned a reversal JE (3132), or crashed on
+    # fk_invoice_payment_source_voucher (3123). Refused up front, before
+    # anything below touches the database -- so everything below removes only
+    # rows the invoice wrote itself (REFERENCES in the guard says which).
+    from services.invoice_retraction_guard import OWN_MOVEMENT_TYPES, financial_history_of
+    history = financial_history_of(invoice_id)
+    if history:
+        return jsonify({
+            'error': 'has_financial_history',
+            'message': (
+                'لا يمكن حذف فاتورة لها سجل سداد أو سندات: ' + '، '.join(history) + '. '
+                'ارفضها بدلًا من حذفها، ليبقى أثرها المحاسبي قابلًا للمراجعة.'
+            ),
+            'records': history,
+        }), 409
+
     try:
         # Journal entries
         linked_jes = JournalEntry.query.filter_by(
@@ -1241,33 +1258,12 @@ def delete_unposted_invoice(invoice_id: int):
             JournalEntryLine.query.filter_by(journal_entry_id=je.id).delete()
             db.session.delete(je)
 
-        # Vouchers + their JEs + their SBTs — all cleaned atomically
-        linked_vouchers = Voucher.query.filter_by(
-            reference_type='invoice', reference_id=invoice_id
-        ).all()
-        for v in linked_vouchers:
-            # Collect all JE IDs linked to this voucher (via FK + reference_type)
-            vje_ids: set = set()
-            if v.journal_entry_id:
-                vje_ids.add(v.journal_entry_id)
-            for vje in JournalEntry.query.filter_by(
-                reference_type='voucher', reference_id=v.id
-            ).all():
-                vje_ids.add(vje.id)
-            for vje_id in vje_ids:
-                JournalEntryLine.query.filter_by(journal_entry_id=vje_id).delete()
-                vje_obj = JournalEntry.query.get(vje_id)
-                if vje_obj:
-                    db.session.delete(vje_obj)
-            # Delete SBTs for this voucher (including any stray reversal rows)
-            SafeBoxTransaction.query.filter(
-                SafeBoxTransaction.ref_type.in_(['voucher', 'voucher_reversal']),
-                SafeBoxTransaction.ref_id == v.id,
-            ).delete(synchronize_session=False)
-            VoucherAccountLine.query.filter_by(voucher_id=v.id).delete()
-            db.session.delete(v)
-
-        SafeBoxTransaction.query.filter_by(invoice_id=invoice_id).delete()
+        # Its own movements only. A row of any other type carrying this
+        # invoice's id was written by something else, and the guard refused.
+        SafeBoxTransaction.query.filter(
+            SafeBoxTransaction.invoice_id == invoice_id,
+            SafeBoxTransaction.ref_type.in_(OWN_MOVEMENT_TYPES),
+        ).delete(synchronize_session=False)
         CategoryWeightMovement.query.filter_by(invoice_id=invoice_id).delete()
 
         try:
@@ -1279,29 +1275,23 @@ def delete_unposted_invoice(invoice_id: int):
         except Exception:
             pass
 
-        # WeightClosingOrder has invoice_id NOT NULL — must delete before invoice
-        try:
-            from models import WeightClosingOrder, WeightClosingExecution
-            wco = WeightClosingOrder.query.filter_by(invoice_id=invoice_id).first()
-            if wco:
-                WeightClosingExecution.query.filter_by(order_id=wco.id).delete()
-                db.session.delete(wco)
-                db.session.flush()
-        except Exception:
-            pass
+        # WeightClosingOrder has invoice_id NOT NULL — must delete before invoice.
+        # Its executions were written by the invoices that closed it; while any
+        # exists the guard refused, so the order goes alone.
+        from models import WeightClosingOrder
+        wco = WeightClosingOrder.query.filter_by(invoice_id=invoice_id).first()
+        if wco:
+            db.session.delete(wco)
+            db.session.flush()
 
         InvoiceItem.query.filter_by(invoice_id=invoice_id).delete()
-        InvoicePayment.query.filter_by(invoice_id=invoice_id).delete()
         InvoiceKaratLine.query.filter_by(invoice_id=invoice_id).delete()
 
-        # The gold tables from Phase 15/16C/A. Listed here explicitly even though
-        # the relationships now cascade, because THIS function is the checklist a
-        # reader consults for "what must go with an invoice" -- and the two tables
-        # being absent from it is precisely how deleting a cancelled invoice came
-        # to fail with a NotNullViolation on invoice_gold_obligation.invoice_id.
-        # A future table added to Invoice belongs here too.
-        from models import InvoiceGoldObligation, VoucherInvoiceGoldAttribution
-        VoucherInvoiceGoldAttribution.query.filter_by(invoice_id=invoice_id).delete()
+        # Obligations are written by the invoice's own posting. Attributions and
+        # allocations against them are evidence, refused above. Which table is
+        # which is decided in services/invoice_retraction_guard.REFERENCES, not
+        # here: a table added later is refused until someone classifies it.
+        from models import InvoiceGoldObligation
         InvoiceGoldObligation.query.filter_by(invoice_id=invoice_id).delete()
 
         db.session.delete(invoice)
@@ -2244,6 +2234,23 @@ def reject_invoice(invoice_id: int):
             linked_reservation.status = 'pending'
             db.session.add(linked_reservation)
 
+        # ── لا رفض والسداد قائم ──────────────────────────────────────────────
+        # Asked HERE, after the office-reservation reversal above: that reversal
+        # deletes the deposit's InvoicePayment and retags the deposit voucher
+        # itself (Phase 8E), so what remains is exactly what rejecting would
+        # leave dangling. Refusal rolls the whole transaction back, 8E included.
+        # Incidents 3123/3132: see services/invoice_retraction_guard.py.
+        db.session.flush()
+        from services.invoice_retraction_guard import live_payments_message, live_payments_of
+        standing = live_payments_of(invoice_id)
+        if standing:
+            db.session.rollback()
+            return jsonify({
+                'error': 'has_live_payments',
+                'message': live_payments_message('رفض', standing),
+                'payments': standing,
+            }), 409
+
         # ── سحب دليل الذهب: الفاتورة لم تبقَ قائمة ─────────────────────────
         # النسب تُحذف (الذهب سُلّم فعلًا ويبقى سنده، لكن نسبته لهذه الفاتورة
         # صارت دعوى غير صحيحة فيعود «غير منسوب»)، والتخصيصات تُحرَّر، وصفوف
@@ -2297,6 +2304,20 @@ def unpost_invoice(invoice_id: int):
     if not invoice.is_posted:
         return jsonify({'error': 'not_posted', 'message': 'الفاتورة غير مرحّلة أصلاً'}), 400
 
+    # Same rule as reject, asked before anything is written. Unpost used to
+    # sweep the payments along -- and re-post never gave their safe-box rows
+    # back (1641/1779/2204/2478, 92,385.00). See invoice_retraction_guard.
+    from services.invoice_retraction_guard import (
+        OWN_MOVEMENT_TYPES, live_payments_message, live_payments_of,
+    )
+    standing = live_payments_of(invoice_id)
+    if standing:
+        return jsonify({
+            'error': 'has_live_payments',
+            'message': live_payments_message('إلغاء ترحيل', standing),
+            'payments': standing,
+        }), 409
+
     data = request.get_json(silent=True) or {}
     unposted_by = (
         (getattr(getattr(g, 'current_user', None), 'username', None))
@@ -2324,42 +2345,18 @@ def unpost_invoice(invoice_id: int):
             je.posted_at = None
             je.posted_by = None
 
-        # 2. Cascade: reset linked payment vouchers + their JEs atomically
-        linked_vouchers = Voucher.query.filter_by(
-            reference_type='invoice', reference_id=invoice_id
-        ).all()
-        voucher_ids = [v.id for v in linked_vouchers]
-        for v in linked_vouchers:
-            # Unpost the voucher JE via FK
-            if v.journal_entry_id:
-                vje = JournalEntry.query.get(v.journal_entry_id)
-                if vje and vje.is_posted:
-                    affected_account_ids.update(l.account_id for l in vje.lines if l.account_id)
-                    vje.is_posted = False
-                    vje.posted_at = None
-                    vje.posted_by = None
-            # Unpost any additional voucher JEs via reference_type link
-            for vje2 in JournalEntry.query.filter_by(
-                reference_type='voucher', reference_id=v.id, is_posted=True
-            ).all():
-                affected_account_ids.update(l.account_id for l in vje2.lines if l.account_id)
-                vje2.is_posted = False
-                vje2.posted_at = None
-                vje2.posted_by = None
-            # Reset voucher to pending so it can be reposted if needed
-            v.status = 'pending'
+        # 2. Linked vouchers are not touched. The guard above leaves only
+        # cancelled ones, and a cancelled payment and its cancellation are both
+        # facts that stand whatever happens to the invoice: resetting it to
+        # 'pending' here let the next post approve it again.
 
-        # 3. Atomically delete ALL SafeBoxTransactions linked to this invoice.
-        # Using direct DELETE rather than append-only reversal rows avoids orphan
-        # voucher_reversal SBTs that have no matching GL reversal JE.
+        # 3. Delete the invoice's own safe-box movements. Only its own: a
+        # cancelled payment's rows (and their reversals) are the payment's
+        # history, and deleting the originals alone left reversals orphaned.
         SafeBoxTransaction.query.filter(
-            SafeBoxTransaction.invoice_id == invoice_id
+            SafeBoxTransaction.invoice_id == invoice_id,
+            SafeBoxTransaction.ref_type.in_(OWN_MOVEMENT_TYPES),
         ).delete(synchronize_session=False)
-        if voucher_ids:
-            SafeBoxTransaction.query.filter(
-                SafeBoxTransaction.ref_type.in_(['voucher', 'voucher_reversal']),
-                SafeBoxTransaction.ref_id.in_(voucher_ids),
-            ).delete(synchronize_session=False)
 
         # 4. Unpost the invoice
         invoice.is_posted = False

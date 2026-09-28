@@ -3601,7 +3601,7 @@ class ApiService {
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
-      throw Exception('Failed to cancel voucher: ${response.body}');
+      throw Exception(_errorMessageFromResponse(response));
     }
   }
 
@@ -5888,7 +5888,7 @@ class ApiService {
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
-      throw Exception('Failed to unpost invoice: ${response.body}');
+      throw Exception(_errorMessageFromResponse(response));
     }
   }
 
@@ -5901,7 +5901,7 @@ class ApiService {
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
-      throw Exception('Failed to unpost invoices batch: ${response.body}');
+      throw Exception(_errorMessageFromResponse(response));
     }
   }
 

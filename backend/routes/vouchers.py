@@ -15,6 +15,7 @@ from models import (
     Customer,
     Employee,
     Invoice,
+    InvoicePayment,
     JournalEntry,
     JournalEntryLine,
     PaymentMethod,
@@ -56,6 +57,30 @@ from routes import (
 
 vouchers_bp = Blueprint('vouchers', __name__)
 
+def _is_own_safe_box_row(voucher: Voucher, tx: SafeBoxTransaction) -> bool:
+    """Whether *tx* is a safe-box row this voucher wrote -- shown, not assumed.
+
+    An 'invoice_payment' row's ref_id is EITHER a voucher id OR an
+    invoice_payment id (_validate_safe_box_transaction_or_raise). A row keyed
+    by a payment belongs to this voucher only when that payment names it as
+    its source, or the voucher's notes declare that payment; a matching number
+    proves nothing. Cancelling voucher 638, a 5,000.00 bank payment, once
+    reversed payment #638 -- another invoice's 30,400.00 cash receipt.
+    """
+    if tx.ref_type == 'voucher':
+        return True
+    if tx.invoice_payment_id != tx.ref_id:
+        return True  # keyed by the voucher; the validator checked the pairing
+    payment = InvoicePayment.query.get(tx.invoice_payment_id)
+    if payment is not None and payment.source_voucher_id == voucher.id:
+        return True
+    try:
+        declared = json.loads(voucher.notes).get('invoice_payment_id') if voucher.notes else None
+        return declared is not None and int(declared) == int(tx.invoice_payment_id)
+    except (ValueError, TypeError, AttributeError):
+        return False
+
+
 def _append_safe_reversal_transactions_for_voucher(voucher: Voucher, created_by=None, reason=None):
     """Append reversing SafeBoxTransaction rows for a previously-approved voucher."""
     if not voucher or not getattr(voucher, 'id', None):
@@ -70,10 +95,13 @@ def _append_safe_reversal_transactions_for_voucher(voucher: Voucher, created_by=
     if existing_reversal:
         return []
 
-    original = SafeBoxTransaction.query.filter(
-        SafeBoxTransaction.ref_id == voucher.id,
-        SafeBoxTransaction.ref_type.in_(['voucher', 'invoice_payment']),
-    ).all()
+    original = [
+        tx for tx in SafeBoxTransaction.query.filter(
+            SafeBoxTransaction.ref_id == voucher.id,
+            SafeBoxTransaction.ref_type.in_(['voucher', 'invoice_payment']),
+        ).all()
+        if _is_own_safe_box_row(voucher, tx)
+    ]
     if not original:
         return []
 
@@ -1109,8 +1137,19 @@ def approve_voucher(voucher_id):
         traceback.print_exc()
         return jsonify({'error': f'فشل ترحيل السند: {str(e)}'}), 500
 
+class VoucherLinesNotIsolable(Exception):
+    """The voucher's journal lines cannot be told apart from other vouchers'."""
+
+    def __init__(self, sharers):
+        self.sharers = [v.voucher_number or f'سند #{v.id}' for v in sharers]
+        super().__init__(', '.join(self.sharers))
+
+
 def _reverse_voucher_journal_entry(voucher, cancelled_by='system', reason=None):
-    """Create a reversing journal entry for a voucher if one exists."""
+    """Create a reversing journal entry for a voucher if one exists.
+
+    Raises VoucherLinesNotIsolable, before writing anything, when the entry is
+    shared and its lines do not say which are this voucher's."""
     if not voucher or not voucher.journal_entry_id:
         return None
 
@@ -1125,6 +1164,30 @@ def _reverse_voucher_journal_entry(voucher, cancelled_by='system', reason=None):
     original_entry = JournalEntry.query.get(voucher.journal_entry_id)
     if not original_entry:
         return None
+
+    # If ANY line in this entry is tagged with source_voucher_id, the entry
+    # is shared across several vouchers (add_invoice_payment consolidates
+    # every payment for one invoice into a single JE — see
+    # _add_payment_lines_to_consolidated_je). Reverse only THIS voucher's
+    # lines in that case; mirroring the whole entry would also reverse other
+    # vouchers' payments that were never cancelled.
+    #
+    # Untagged lines reverse in full only when the voucher owns the entry
+    # outright. Consolidation began 2026-04-10 and the tag 2026-09-21: 236
+    # entries in between are shared by 513 vouchers with nothing saying which
+    # line is whose. Those cannot be split, and are refused rather than
+    # guessed -- mirroring the whole entry reversed every sibling payment.
+    entry_lines = [l for l in original_entry.lines if not getattr(l, 'is_deleted', False)]
+    is_consolidated = any(getattr(l, 'source_voucher_id', None) is not None for l in entry_lines)
+    if is_consolidated:
+        lines_to_reverse = [l for l in entry_lines if l.source_voucher_id == voucher.id]
+    else:
+        lines_to_reverse = entry_lines
+    sharers = Voucher.query.filter(
+        Voucher.journal_entry_id == original_entry.id, Voucher.id != voucher.id
+    ).order_by(Voucher.id).all()
+    if sharers and (not is_consolidated or not lines_to_reverse):
+        raise VoucherLinesNotIsolable(sharers)
 
     description_parts = [f'عكس سند #{voucher.voucher_number}']
     if reason:
@@ -1147,23 +1210,6 @@ def _reverse_voucher_journal_entry(voucher, cancelled_by='system', reason=None):
 
     db.session.add(reversal_entry)
     db.session.flush()
-
-    # If ANY line in this entry is tagged with source_voucher_id, the entry
-    # is shared across several vouchers (add_invoice_payment consolidates
-    # every payment for one invoice into a single JE — see
-    # _add_payment_lines_to_consolidated_je). Reverse only THIS voucher's
-    # lines in that case; mirroring the whole entry would also reverse other
-    # vouchers' payments that were never cancelled.
-    #
-    # Untagged lines (every line predating this column, and every JE that
-    # was never part of a consolidation) still reverse in full — the
-    # original, correct behaviour for a JE one voucher owns outright.
-    entry_lines = [l for l in original_entry.lines if not getattr(l, 'is_deleted', False)]
-    is_consolidated = any(getattr(l, 'source_voucher_id', None) is not None for l in entry_lines)
-    lines_to_reverse = (
-        [l for l in entry_lines if l.source_voucher_id == voucher.id]
-        if is_consolidated else entry_lines
-    )
 
     for line in lines_to_reverse:
         line_description = line.description or reversal_description
@@ -1206,11 +1252,23 @@ def cancel_voucher(voucher_id):
     try:
         reversal_entry = None
         if voucher.journal_entry_id:
-            reversal_entry = _reverse_voucher_journal_entry(
-                voucher,
-                cancelled_by=cancelled_by,
-                reason=reason
-            )
+            try:
+                reversal_entry = _reverse_voucher_journal_entry(
+                    voucher,
+                    cancelled_by=cancelled_by,
+                    reason=reason
+                )
+            except VoucherLinesNotIsolable as exc:
+                db.session.rollback()
+                return jsonify({
+                    'error': 'cannot_isolate_voucher_lines',
+                    'message': (
+                        'لا يمكن إلغاء هذا السند وحده: قيده المحاسبي مشترك مع '
+                        + '، '.join(exc.sharers) + '، وسطوره لا تُبيّن أيّها لأيّ سند، '
+                        'فعكسه يعكس تلك الدفعات معه. صحّح بمستند مقابل بدل الإلغاء.'
+                    ),
+                    'shared_with': exc.sharers,
+                }), 409
 
         # Reverse SafeBox ledger movements only when a matching GL reversal JE was
         # created.  If the voucher was never posted (no JE) we must NOT append
