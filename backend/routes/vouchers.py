@@ -868,6 +868,44 @@ def create_voucher():
                 _tb.print_exc()
                 print(f'[create_voucher] auto-approve failed, left as pending: {_ae}')
 
+        # ── The approval's consequences, for BOTH approval paths ───────────────
+        # These two hooks used to live only in approve_voucher(). With
+        # Settings.voucher_auto_post ON — which it is in production — approval
+        # happens above and the hooks were never reached. Measured across seven
+        # production snapshots (24 Sep → 28 Sep): 2,544 approved invoice-linked
+        # vouchers, 34 of them carrying a gold debit line, and ZERO rows in
+        # voucher_invoice_gold_attribution. Ever.
+        #
+        # What that made impossible: invoice_open_gold_obligation() — THE shared
+        # ceiling — reads GoldAllocation and the attribution table. With no
+        # attributions it is blind, so nothing could refuse a SECOND payment
+        # against an already-settled obligation. Invoice 3132: 24.2 g of 18k paid
+        # twice, from two different safes. The cash counterpart,
+        # sync_invoice_cash_payment_after_voucher_approval, was equally inert, so
+        # a standalone voucher created no InvoicePayment either.
+        #
+        # DELIBERATELY NOT SWALLOWED, unlike the karat-diff and balance-refresh
+        # calls above. The gold hook's own contract says a posted settlement with
+        # no attribution is precisely the state that made 81% of the historical
+        # data unattributable — so if the attribution cannot be written, the
+        # voucher must not exist. The refusal is returned with its reason rather
+        # than as a 500, because the most common reason is a legitimate one the
+        # employee needs to read: the invoice's obligation is already evidenced.
+        if voucher.status == 'approved':
+            try:
+                sync_gold_attribution_after_voucher_approval(voucher)
+                sync_invoice_cash_payment_after_voucher_approval(voucher)
+            except Exception as _sync_exc:
+                db.session.rollback()
+                return jsonify({
+                    'error': 'settlement_not_recordable',
+                    'reason': str(_sync_exc),
+                    'message': (
+                        'لا يمكن تسجيل أثر هذا السند على الفاتورة، فلم يُنشأ. '
+                        f'السبب: {_sync_exc}'
+                    ),
+                }), 400
+
         db.session.commit()
 
         return jsonify(voucher.to_dict()), 201
