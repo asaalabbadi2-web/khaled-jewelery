@@ -108,6 +108,24 @@ from sqlalchemy import func
 
 from models import Invoice, InvoicePayment, PaymentMethod, Voucher, db
 
+
+def payment_voucher_not_cancelled():
+    """The one definition of "this payment's evidence still stands".
+
+    A payment counts unless the voucher that created it was cancelled
+    (source_voucher_id NULL -- deferred payments and rows predating the column --
+    cannot be judged this way and are kept). The query using it must
+    outerjoin Voucher on InvoicePayment.source_voucher_id.
+
+    Shared on purpose. clearing_settlement_scheduler selected payments without
+    this rule and settled a cancelled one (AV-2026-00436, 2026-09-27); a second
+    copy of the condition is how that happened.
+    """
+    return db.or_(
+        InvoicePayment.source_voucher_id.is_(None),
+        Voucher.status != 'cancelled',
+    )
+
 CASH_EPSILON = 0.01
 
 # Weight tolerance, matching gold_allocation_service.WEIGHT_EPSILON so the two
@@ -200,10 +218,7 @@ class InvoicePaymentStateService:
             .outerjoin(Voucher, Voucher.id == InvoicePayment.source_voucher_id)
             .filter(
                 InvoicePayment.invoice_id == invoice_id,
-                db.or_(
-                    InvoicePayment.source_voucher_id.is_(None),
-                    Voucher.status != 'cancelled',
-                ),
+                payment_voucher_not_cancelled(),
             )
             .scalar()
         )
