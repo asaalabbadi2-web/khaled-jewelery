@@ -201,3 +201,85 @@ class TestLivePaymentsAreUnaffected:
         sched = ClearingSettlementScheduler(app)
         assert sched._get_unsettled_ip_ids_up_to(box.id, DAY_END) == [ip.id]
         assert sched._get_unsettled_ip_ids_for_day(box.id, DAY, DAY_END) == [ip.id]
+
+
+class TestAmountAndPaymentsComeFromOneRule:
+    """The invariant the first version of this fix broke.
+
+    The per-day run takes its AMOUNT from _compute_due_for_day and its PAYMENTS
+    from _get_unsettled_ip_ids_for_day. The first fix corrected the second and
+    missed the first -- 30 lines away in the same file -- so after AV-2026-00436
+    was reversed in production the scheduler computed 6,530.00 due, selected
+    4,380.00 of payments, and refused to settle at all
+    ('no_days_had_due_amount'). Safe, but Sep 26 was left unsettled.
+
+    Testing each selector alone could not see that. This asserts the agreement.
+    """
+
+    def _replay(self, pm):
+        _sale_paid_by(pm, 2150.0, at=DAY.replace(hour=8, minute=42),
+                      invoice_status='rejected', voucher_status='pending')
+        _sale_paid_by(pm, 2150.0, at=DAY.replace(hour=8, minute=49))
+        _sale_paid_by(pm, 1000.0, at=DAY.replace(hour=15, minute=35))
+        _sale_paid_by(pm, 1230.0, at=DAY.replace(hour=15, minute=46))
+
+    def test_day_amount_equals_the_payments_it_will_settle(self, app, mada):
+        box, pm = mada
+        self._replay(pm)
+        sched = ClearingSettlementScheduler(app)
+        amount = sched._compute_due_for_day(box.id, DAY, DAY_END)
+        payments = _amounts(sched._get_unsettled_ip_ids_for_day(box.id, DAY, DAY_END))
+        assert amount == payments == 4380.0
+
+    def test_agreement_holds_for_live_payments_too(self, app, mada):
+        box, pm = mada
+        _sale_paid_by(pm, 900.0, at=DAY.replace(hour=12))
+        _sale_paid_by(pm, 300.0, at=DAY.replace(hour=13), with_voucher=False)
+        sched = ClearingSettlementScheduler(app)
+        assert sched._compute_due_for_day(box.id, DAY, DAY_END) == \
+            _amounts(sched._get_unsettled_ip_ids_for_day(box.id, DAY, DAY_END)) == 1200.0
+
+
+class TestThePendingScreenAndManualSettlement:
+    """The settlement screen had its own copy of the selection: after the
+    reversal it listed 3123's dead 2,150.00 next to 3124's, and a manual
+    settlement accepted whatever payment ids the user ticked."""
+
+    def test_pending_list_does_not_offer_a_dead_payment(self, app, mada):
+        box, pm = mada
+        _, dead = _sale_paid_by(pm, 2150.0, at=DAY.replace(hour=8, minute=42),
+                                invoice_status='rejected', voucher_status='pending')
+        _, live = _sale_paid_by(pm, 2150.0, at=DAY.replace(hour=8, minute=49))
+        from routes.clearing import _settleable_ip_ids_for_box
+        ids = _settleable_ip_ids_for_box(box.id)
+        assert dead.id not in ids and live.id in ids
+
+    def test_manual_settlement_refuses_a_dead_payment(self, app, mada):
+        box, pm = mada
+        _, dead = _sale_paid_by(pm, 2150.0, at=DAY.replace(hour=8, minute=42),
+                                invoice_status='rejected', voucher_status='pending')
+        _, live = _sale_paid_by(pm, 2150.0, at=DAY.replace(hour=8, minute=49))
+        from routes.clearing import _refuse_unsettleable_payment_ids
+        refused = _refuse_unsettleable_payment_ids(box.id, [dead.id, live.id])
+        assert refused == [dead.id]
+        assert _refuse_unsettleable_payment_ids(box.id, [live.id]) == []
+
+    def test_per_transaction_settlement_skips_a_retracted_invoice(self, app, mada):
+        """The legacy per-transaction path selects SafeBoxTransaction rows, not
+        InvoicePayment, so it gets the invoice rule only (the known gap)."""
+        from models import SafeBoxTransaction
+        from routes.clearing import _unsettled_invoice_payment_sbts
+        box, pm = mada
+        dead_inv, dead_ip = _sale_paid_by(pm, 2150.0, at=DAY.replace(hour=8, minute=42),
+                                          invoice_status='rejected', voucher_status='pending')
+        live_inv, live_ip = _sale_paid_by(pm, 2150.0, at=DAY.replace(hour=8, minute=49))
+        # As in production for 3123: ref_id is the receipt voucher, and the model
+        # requires the invoice_payment link on every invoice_payment movement.
+        for inv, ip in ((dead_inv, dead_ip), (live_inv, live_ip)):
+            db.session.add(SafeBoxTransaction(
+                safe_box_id=box.id, ref_type='invoice_payment', ref_id=ip.source_voucher_id,
+                invoice_id=inv.id, invoice_payment_id=ip.id, direction='in',
+                amount_cash=2150.0, created_at=inv.date, created_by='t'))
+        db.session.flush()
+        got = {t.invoice_id for t in _unsettled_invoice_payment_sbts(box.id)}
+        assert dead_inv.id not in got and live_inv.id in got

@@ -52,6 +52,62 @@ from routes import (
 
 clearing_bp = Blueprint('clearing', __name__)
 
+
+# ---------------------------------------------------------------------------
+# Which payments may be settled -- ONE rule, owned by the scheduler module.
+# This screen used to carry its own copy of the selection: after AV-2026-00436
+# was reversed it listed rejected invoice 3123's 2,150.00 next to 3124's, and a
+# manual settlement accepted whatever payment ids were ticked.
+# ---------------------------------------------------------------------------
+
+def _settleable_ip_ids_for_box(safe_box_id) -> list[int]:
+    """Ids of every payment into *safe_box_id* that may still be settled.
+    Whether each is ALREADY settled is a separate question (SettlementLine)."""
+    from clearing_settlement_scheduler import settleable_payments_query
+    return [ip.id for ip in settleable_payments_query(int(safe_box_id)).all()]
+
+
+def _refuse_unsettleable_payment_ids(safe_box_id, ids) -> list[int]:
+    """The subset of *ids* that must not be settled into *safe_box_id*: a payment
+    on a retracted invoice, one whose voucher was cancelled, or one that does
+    not belong to this clearing box at all."""
+    wanted = [int(i) for i in (ids or [])]
+    if not wanted:
+        return []
+    from clearing_settlement_scheduler import settleable_payments_query
+    allowed = {
+        ip.id for ip in settleable_payments_query(int(safe_box_id))
+        .filter(InvoicePayment.id.in_(wanted)).all()
+    }
+    return [i for i in wanted if i not in allowed]
+
+
+def _unsettled_invoice_payment_sbts(clearing_safe_box_id):
+    """Per-transaction settlement's candidates: incoming invoice_payment movements
+    into the clearing box, excluding those of a retracted invoice.
+
+    Narrower than settleable_payments_query on purpose: this legacy path is
+    driven by SafeBoxTransaction, not InvoicePayment, so only the invoice rule
+    can be applied here without the consolidation recorded as a known gap.
+    """
+    from services.gold_allocation_service import RETRACTED_INVOICE_STATUSES
+    return (
+        SafeBoxTransaction.query
+        .outerjoin(Invoice, Invoice.id == SafeBoxTransaction.invoice_id)
+        .filter(
+            SafeBoxTransaction.safe_box_id == clearing_safe_box_id,
+            SafeBoxTransaction.ref_type == 'invoice_payment',
+            SafeBoxTransaction.direction == 'in',
+            or_(
+                SafeBoxTransaction.invoice_id.is_(None),
+                func.lower(func.coalesce(Invoice.status, '')).notin_(
+                    list(RETRACTED_INVOICE_STATUSES)),
+            ),
+        )
+        .order_by(SafeBoxTransaction.created_at.asc())
+        .all()
+    )
+
 def _compute_clearing_due_amount(safe_box_id):
     """Compute how much is actually pending in a clearing safe box.
 
@@ -543,6 +599,16 @@ def create_clearing_settlement():
         except Exception:
             return jsonify({'error': 'invalid settlement_date'}), 400
 
+    if clearing_safe_box_id and data.get('invoice_payment_ids'):
+        refused = _refuse_unsettleable_payment_ids(clearing_safe_box_id, data.get('invoice_payment_ids'))
+        if refused:
+            return jsonify({
+                'error': 'unsettleable_payments',
+                'message': 'لا يمكن تسوية دفعات تخص فاتورة ملغاة أو سندًا ملغى أو خزينة أخرى. '
+                           'أزلها من التحديد ثم أعد المحاولة.',
+                'invoice_payment_ids': refused,
+            }), 400
+
     try:
         result = _create_clearing_settlement_voucher(
             clearing_safe_box_id=clearing_safe_box_id,
@@ -748,16 +814,7 @@ def create_per_transaction_clearing_settlement():
     # An invoice_payment SafeBoxTransaction is "unsettled" if no clearing_settlement
     # voucher has created a corresponding 'out' transaction referencing it.
     try:
-        unsettled_txs = (
-            SafeBoxTransaction.query
-            .filter_by(
-                safe_box_id=clearing_safe_box_id,
-                ref_type='invoice_payment',
-                direction='in',
-            )
-            .order_by(SafeBoxTransaction.created_at.asc())
-            .all()
-        )
+        unsettled_txs = _unsettled_invoice_payment_sbts(clearing_safe_box_id)
     except Exception as exc:
         return jsonify({'error': f'Failed to query transactions: {exc}'}), 500
 
@@ -935,10 +992,9 @@ def get_pending_settlement_transactions():
         # Source payments from InvoicePayment (always authoritative) rather than
         # SafeBoxTransaction, because historical SBTs may carry the wrong
         # safe_box_id (multi-payment invoice routing bug fixed Apr 2026).
+        from clearing_settlement_scheduler import settleable_payments_query
         all_ips = (
-            InvoicePayment.query
-            .join(PaymentMethod, PaymentMethod.id == InvoicePayment.payment_method_id)
-            .filter(PaymentMethod.default_safe_box_id == clearing_safe_box_id)
+            settleable_payments_query(int(clearing_safe_box_id))
             .order_by(InvoicePayment.created_at.asc())
             .all()
         )

@@ -32,6 +32,42 @@ from settlement_state_service import get_settled_amounts
 from allocation_repair_service import AllocationRepairService
 
 
+def settleable_payments_query(safe_box_id: int):
+    """Payments into *safe_box_id* that can still be settled.
+
+    EVERY selection of settleable payments starts here -- the scheduler's
+    amount (_compute_due_for_day) and its payments (_get_unsettled_ip_ids_*),
+    the settlement screen's pending list, and the manual-settlement check in
+    routes/clearing.py. The first version of this fix corrected two of those
+    and missed the amount, 30 lines away: the scheduler then computed 6,530.00
+    due against 4,380.00 of payments and refused to settle at all. A payment is NOT settleable when:
+      - its creating voucher was cancelled -- the rule InvoicePaymentStateService
+        already applies, reused rather than restated; or
+      - its invoice was retracted (RETRACTED_INVOICE_STATUSES). Needed on its
+        own: rejecting an invoice resets its receipt voucher to 'pending', not
+        'cancelled', so the voucher rule alone misses exactly that case.
+    Deliberately NOT the full "standing invoice" test (posted and not
+    retracted): an unposted invoice awaiting approval can carry a real card
+    payment, and that money does arrive at the bank.
+
+    Incident: AV-2026-00436 settled 6,530.00 for 4,380.00 of real Mada
+    payments -- rejected invoice 3123's 2,150.00 was selected by method and
+    time alone. See tests/test_clearing_settlement_excludes_dead_payments.py.
+    """
+    return (
+        InvoicePayment.query
+        .join(PaymentMethod, PaymentMethod.id == InvoicePayment.payment_method_id)
+        .join(Invoice, Invoice.id == InvoicePayment.invoice_id)
+        .outerjoin(Voucher, Voucher.id == InvoicePayment.source_voucher_id)
+        .filter(
+            PaymentMethod.default_safe_box_id == safe_box_id,
+            payment_voucher_not_cancelled(),
+            func.lower(func.coalesce(Invoice.status, '')).notin_(
+                list(RETRACTED_INVOICE_STATUSES)),
+        )
+    )
+
+
 @dataclass
 class _DueAmounts:
     payments_up_to_cutoff: float
@@ -239,10 +275,8 @@ class ClearingSettlementScheduler:
         to correctly handle partial settlements.
         """
         ips = (
-            InvoicePayment.query
-            .join(PaymentMethod, PaymentMethod.id == InvoicePayment.payment_method_id)
+            settleable_payments_query(safe_box_id)
             .filter(
-                PaymentMethod.default_safe_box_id == safe_box_id,
                 InvoicePayment.created_at >= day_start,
                 InvoicePayment.created_at <= day_end,
             )
@@ -262,35 +296,7 @@ class ClearingSettlementScheduler:
         return round(total, 2)
 
     def _settleable_payments_query(self, safe_box_id: int):
-        """Payments into *safe_box_id* that can still be settled.
-
-        Both selectors below start here, so the rule cannot be fixed in one and
-        forgotten in the other. A payment is NOT settleable when:
-          - its creating voucher was cancelled -- the rule InvoicePaymentStateService
-            already applies, reused rather than restated; or
-          - its invoice was retracted (RETRACTED_INVOICE_STATUSES). Needed on its
-            own: rejecting an invoice resets its receipt voucher to 'pending', not
-            'cancelled', so the voucher rule alone misses exactly that case.
-        Deliberately NOT the full "standing invoice" test (posted and not
-        retracted): an unposted invoice awaiting approval can carry a real card
-        payment, and that money does arrive at the bank.
-
-        Incident: AV-2026-00436 settled 6,530.00 for 4,380.00 of real Mada
-        payments -- rejected invoice 3123's 2,150.00 was selected by method and
-        time alone. See tests/test_clearing_settlement_excludes_dead_payments.py.
-        """
-        return (
-            InvoicePayment.query
-            .join(PaymentMethod, PaymentMethod.id == InvoicePayment.payment_method_id)
-            .join(Invoice, Invoice.id == InvoicePayment.invoice_id)
-            .outerjoin(Voucher, Voucher.id == InvoicePayment.source_voucher_id)
-            .filter(
-                PaymentMethod.default_safe_box_id == safe_box_id,
-                payment_voucher_not_cancelled(),
-                func.lower(func.coalesce(Invoice.status, '')).notin_(
-                    list(RETRACTED_INVOICE_STATUSES)),
-            )
-        )
+        return settleable_payments_query(safe_box_id)
 
     def _get_unsettled_ip_ids_for_day(self, safe_box_id: int, day_start: datetime, day_end: datetime) -> list[int]:
         """Return invoice_payment IDs with unsettled balance in the given day window."""
