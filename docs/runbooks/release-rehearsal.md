@@ -40,6 +40,20 @@ cd C:\Projects\khaledjewels
 
 The CI job `deploy-production` is manual only: a runner registered one day must not turn a push into a deploy.
 
+## Automatic backups — `copy-backups.ps1` on the server
+
+The app writes `yasargold-backup-<UTC stamp>.zip` every night at 02:00 (Asia/Riyadh) into the Docker volume behind `/data/backups` and keeps the last 7. A Windows scheduled task copies each one to the external drive:
+
+```powershell
+# once (as the user Docker Desktop runs under):
+powershell -NoProfile -ExecutionPolicy Bypass -File C:\Projects\khaledjewels\copy-backups.ps1 -Install
+Start-ScheduledTask -TaskName yasargold-backup-copy          # run it now
+Get-ScheduledTaskInfo -TaskName yasargold-backup-copy        # LastTaskResult 0 = success
+Get-Content C:\Projects\khaledjewels\logs\backup-copy.log -Tail 20
+```
+
+Daily at 03:15 into `D:\yasargold-recovery\auto`: each copy is checked (a zip whose `database.dump` starts with `PGDMP`) before it takes its name; 30 days are kept, never fewer than the newest 7. The run fails — `LastTaskResult` 1 and a `PROBLEM:` line in the log — if the drive is missing, Docker is unreachable, an archive is broken, or the newest backup is more than 26 hours old. `backend/tests/test_copy_backups_script.py` (7).
+
 ## What it does — all on the Mac, hermetic
 
 1. Restores the backup into scratch databases (the oldest `pg_restore` that can read it), then `ANALYZE` — production has planner statistics, a fresh restore does not.
