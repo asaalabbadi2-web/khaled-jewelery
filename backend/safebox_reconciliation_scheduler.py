@@ -19,6 +19,11 @@ from threading import Thread
 import schedule
 
 
+SOURCE = "safebox_reconciliation"
+VOUCHER_ENTRY_UNPOSTED = "VOUCHER_ENTRY_UNPOSTED_ON_POSTED_INVOICE"
+SAFEBOX_ROW_BACKFILLED = "SAFEBOX_ROW_BACKFILLED"
+
+
 class SafeboxReconciliationScheduler:
     """Daily reconciliation scheduler for SafeBoxTransaction sub-ledger."""
 
@@ -40,12 +45,24 @@ class SafeboxReconciliationScheduler:
 
         now = datetime.utcnow()
         approved_by = "scheduler"
-        voucher_je_fixed = 0
+        voucher_je_reported = 0
         sbt_fixed = 0
         errors = []
 
         try:
-            # ── Phase A: Post unposted voucher JEs for posted invoices ──
+            # ── Phase A: REPORT unposted voucher JEs for posted invoices ──
+            # This phase used to POST them: is_posted=True, posted_by='scheduler',
+            # with no look at the voucher's own status. A pending payment, or a
+            # cancelled one, would have reached the ledger at 02:30 with nobody's
+            # approval -- tests/test_books_invariants.py::TestSafeboxJobReports
+            # InsteadOfPosting witnessed it posting a pending voucher's entry.
+            # No such write was found in production (all 191 'scheduler'-posted
+            # voucher entries were clearing settlements posted at creation), so
+            # the defect was latent -- but a job that silently "heals" a
+            # divergence also destroys the evidence that a writer is wrong. It now
+            # reports each such entry as a finding and posts nothing.
+            from services.books_invariants import Fact, reconcile_findings
+
             posted_invoice_ids = [
                 int(r[0])
                 for r in Invoice.query.filter(
@@ -53,17 +70,18 @@ class SafeboxReconciliationScheduler:
                 ).with_entities(Invoice.id).all()
             ]
 
+            facts = []
             if posted_invoice_ids:
                 linked_vouchers = Voucher.query.filter(
                     Voucher.reference_type == "invoice",
                     Voucher.reference_id.in_(posted_invoice_ids),
                 ).all()
-                voucher_ids = [v.id for v in linked_vouchers]
+                voucher_by_id = {v.id: v for v in linked_vouchers}
 
-                if voucher_ids:
+                if voucher_by_id:
                     unposted_voucher_jes = JournalEntry.query.filter(
                         JournalEntry.reference_type == "voucher",
-                        JournalEntry.reference_id.in_(voucher_ids),
+                        JournalEntry.reference_id.in_(list(voucher_by_id)),
                         func.coalesce(JournalEntry.is_deleted, False) == False,  # noqa: E712
                         or_(
                             JournalEntry.is_posted == False,  # noqa: E712
@@ -72,16 +90,18 @@ class SafeboxReconciliationScheduler:
                     ).all()
 
                     for vje in unposted_voucher_jes:
-                        try:
-                            vje.is_posted = True
-                            vje.is_draft = False
-                            if not getattr(vje, "posted_at", None):
-                                vje.posted_at = now
-                            if not getattr(vje, "posted_by", None):
-                                vje.posted_by = approved_by
-                            voucher_je_fixed += 1
-                        except Exception as exc:
-                            errors.append(f"Phase A JE {vje.id}: {exc}")
+                        v = voucher_by_id.get(vje.reference_id)
+                        facts.append(Fact(
+                            VOUCHER_ENTRY_UNPOSTED, f"journal_entry:{vje.id}", None, {
+                                "entry_number": vje.entry_number,
+                                "voucher_id": vje.reference_id,
+                                "voucher_number": getattr(v, "voucher_number", None),
+                                "voucher_status": getattr(v, "status", None),
+                                "invoice_id": getattr(v, "reference_id", None),
+                            }))
+
+            reconcile_findings(VOUCHER_ENTRY_UNPOSTED, SOURCE, facts, now)
+            voucher_je_reported = len(facts)
 
         except Exception as exc:
             errors.append(f"Phase A failed: {exc}")
@@ -130,6 +150,24 @@ class SafeboxReconciliationScheduler:
                     )
                     if created:
                         sbt_fixed += len(created)
+                        # This phase still writes -- the business may rely on it
+                        # -- but no longer silently: every row it creates is an
+                        # open finding a person reviews and resolves.
+                        from services.books_invariants import record_event
+                        db.session.flush()
+                        for tx in created:
+                            record_event(
+                                SAFEBOX_ROW_BACKFILLED, SOURCE,
+                                f"safe_box_transaction:{tx.id}",
+                                metric=float(getattr(tx, "amount_cash", 0.0) or 0.0),
+                                detail={
+                                    "safe_box_id": tx.safe_box_id,
+                                    "invoice_id": invoice_id,
+                                    "journal_entry_id": je.id,
+                                    "direction": tx.direction,
+                                },
+                                now=now,
+                            )
                 except Exception as exc:
                     errors.append(f"Phase B invoice {invoice_id}: {exc}")
 
@@ -145,7 +183,7 @@ class SafeboxReconciliationScheduler:
 
         return {
             "ran_at": now.isoformat() + "Z",
-            "voucher_je_fixed": voucher_je_fixed,
+            "voucher_je_reported": voucher_je_reported,
             "sbt_rows_created": sbt_fixed,
             "errors": errors,
         }
@@ -163,13 +201,13 @@ class SafeboxReconciliationScheduler:
                 if result["errors"]:
                     print(
                         f"{tag} Finished with {len(result['errors'])} error(s). "
-                        f"voucher_je_fixed={result['voucher_je_fixed']} "
+                        f"voucher_je_reported={result['voucher_je_reported']} "
                         f"sbt_rows_created={result['sbt_rows_created']} "
                         f"errors={result['errors']}"
                     )
                 else:
                     print(
-                        f"{tag} OK — voucher_je_fixed={result['voucher_je_fixed']} "
+                        f"{tag} OK — voucher_je_reported={result['voucher_je_reported']} "
                         f"sbt_rows_created={result['sbt_rows_created']}"
                     )
             except Exception as exc:

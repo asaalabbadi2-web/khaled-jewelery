@@ -5,7 +5,7 @@ import traceback
 from datetime import datetime, timedelta
 
 from flask import Blueprint, g, jsonify, request
-from sqlalchemy import func, and_, or_, case, cast, Integer
+from sqlalchemy import func, or_
 
 from models import (
     db,
@@ -13,7 +13,6 @@ from models import (
     Employee,
     Invoice,
     JournalEntry,
-    JournalEntryLine,
     PaymentMethod,
     SafeBox,
     SafeBoxTransaction,
@@ -36,6 +35,12 @@ from accounting.voucher_engine import (
     _append_safe_transactions_for_voucher,
 )
 from accounting.safe_boxes import _ensure_safe_box_transactions_for_invoice_je
+from services.safebox_subledger import (
+    DEFAULT_IGNORED_REF_TYPES,
+    DRIFT_THRESHOLD,
+    subledger_keyed_breakdown,
+    subledger_totals_by_box,
+)
 
 safe_boxes_bp = Blueprint('safe_boxes', __name__)
 
@@ -251,7 +256,7 @@ def safe_boxes_reconciliation():
       - safe_box_id: optional; when provided and include_keyed=true, includes keyed breakdown
       - include_keyed: true/false (default false)
       - ignore_ref_types: comma-separated list of SafeBoxTransaction.ref_type values to ignore
-      - threshold: numeric diff threshold (default 0.01)
+      - threshold: numeric diff threshold (default DRIFT_THRESHOLD, 0.01)
     """
 
     safe_type = (request.args.get('safe_type') or request.args.get('type') or '').strip().lower()
@@ -264,12 +269,12 @@ def safe_boxes_reconciliation():
         return jsonify({'error': 'invalid_safe_box_id'}), 400
 
     try:
-        threshold = float(request.args.get('threshold', 0.01))
+        threshold = float(request.args.get('threshold', DRIFT_THRESHOLD))
     except Exception:
-        threshold = 0.01
+        threshold = DRIFT_THRESHOLD
     threshold = max(0.0, threshold)
 
-    raw_ignore = (request.args.get('ignore_ref_types') or 'shift_closing_settlement,journal_entry').strip()
+    raw_ignore = (request.args.get('ignore_ref_types') or ','.join(DEFAULT_IGNORED_REF_TYPES)).strip()
     ignore_ref_types = [x.strip().lower() for x in raw_ignore.replace(';', ',').split(',') if x.strip()]
 
     q_safes = SafeBox.query
@@ -295,57 +300,16 @@ def safe_boxes_reconciliation():
             'keyed': [],
         })
 
-    sb_ref_type_norm = func.lower(func.trim(func.coalesce(SafeBoxTransaction.ref_type, '')))
-    ignore_filter = sb_ref_type_norm.notin_(ignore_ref_types) if ignore_ref_types else True
-
-    sb_signed = func.sum(
-        case(
-            (SafeBoxTransaction.direction == 'in', func.coalesce(SafeBoxTransaction.amount_cash, 0.0)),
-            else_=-func.coalesce(SafeBoxTransaction.amount_cash, 0.0),
-        )
-    )
-    gl_signed = func.sum(
-        func.coalesce(JournalEntryLine.cash_debit, 0.0) - func.coalesce(JournalEntryLine.cash_credit, 0.0)
-    )
-
-    sb_rows = (
-        db.session.query(
-            SafeBoxTransaction.safe_box_id.label('safe_box_id'),
-            sb_signed.label('sb_total'),
-        )
-        .filter(SafeBoxTransaction.safe_box_id.in_(safe_ids))
-        .filter(ignore_filter)
-        .group_by(SafeBoxTransaction.safe_box_id)
-        .all()
-    )
-    sb_totals = {int(r.safe_box_id): float(r.sb_total or 0.0) for r in sb_rows if r.safe_box_id is not None}
-
-    gl_rows = (
-        db.session.query(
-            SafeBox.id.label('safe_box_id'),
-            gl_signed.label('gl_total'),
-        )
-        .select_from(JournalEntryLine)
-        .join(JournalEntry, JournalEntry.id == JournalEntryLine.journal_entry_id)
-        .join(SafeBox, SafeBox.account_id == JournalEntryLine.account_id)
-        .filter(SafeBox.id.in_(safe_ids))
-        .filter(func.coalesce(JournalEntryLine.is_deleted, False) == False)  # noqa: E712
-        .filter(func.coalesce(JournalEntry.is_deleted, False) == False)  # noqa: E712
-        .filter(func.coalesce(JournalEntry.is_draft, False) == False)  # noqa: E712
-        .filter(func.coalesce(JournalEntry.is_posted, True) == True)  # noqa: E712
-        # Exclude manual JEs — they have no SBT counterpart by design (Fix 2b).
-        .filter(func.lower(func.trim(func.coalesce(JournalEntry.reference_type, ''))).notin_(
-            ['', 'manual', 'journal_entry']
-        ))
-        .group_by(SafeBox.id)
-        .all()
-    )
-    gl_totals = {int(r.safe_box_id): float(r.gl_total or 0.0) for r in gl_rows if r.safe_box_id is not None}
+    # The computation lives in services/safebox_subledger.py, shared with the
+    # nightly books invariants, so this screen and that check cannot disagree
+    # about what drift is. Moved verbatim; output compared byte-for-byte on a
+    # production snapshot before and after.
+    totals = subledger_totals_by_box(safe_ids, ignore_ref_types)
 
     summary = []
     for sid in safe_ids:
-        sb_total = float(sb_totals.get(sid, 0.0))
-        gl_total = float(gl_totals.get(sid, 0.0))
+        sb_total = float(totals[sid]['sb_total'])
+        gl_total = float(totals[sid]['gl_total'])
         diff = sb_total - gl_total
         meta = safe_meta.get(sid, {})
         summary.append({
@@ -363,87 +327,7 @@ def safe_boxes_reconciliation():
 
     keyed = []
     if include_keyed and safe_box_id is not None:
-        sid = int(safe_box_id)
-
-        je_ref_type_raw = func.lower(func.trim(func.coalesce(JournalEntry.reference_type, '')))
-        je_ref_type_norm = case((je_ref_type_raw == '', 'journal_entry'), else_=je_ref_type_raw)
-        je_ref_id_norm = case(
-            (or_(je_ref_type_raw == '', func.coalesce(JournalEntry.reference_id, 0) == 0), JournalEntry.id),
-            else_=cast(JournalEntry.reference_id, Integer),
-        )
-
-        gl_keyed_rows = (
-            db.session.query(
-                je_ref_type_norm.label('ref_type'),
-                je_ref_id_norm.label('ref_id'),
-                gl_signed.label('gl_signed'),
-            )
-            .select_from(JournalEntryLine)
-            .join(JournalEntry, JournalEntry.id == JournalEntryLine.journal_entry_id)
-            .join(SafeBox, SafeBox.account_id == JournalEntryLine.account_id)
-            .filter(SafeBox.id == sid)
-            .filter(func.coalesce(JournalEntryLine.is_deleted, False) == False)  # noqa: E712
-            .filter(func.coalesce(JournalEntry.is_deleted, False) == False)  # noqa: E712
-            .filter(func.coalesce(JournalEntry.is_draft, False) == False)  # noqa: E712
-            .filter(func.coalesce(JournalEntry.is_posted, True) == True)  # noqa: E712
-            # Exclude manual JEs — no SBT counterpart by design.
-            .filter(func.lower(func.trim(func.coalesce(JournalEntry.reference_type, ''))).notin_(
-                ['', 'manual', 'journal_entry']
-            ))
-            .group_by(je_ref_type_norm, je_ref_id_norm)
-            .all()
-        )
-        gl_keyed = {}
-        for r in gl_keyed_rows:
-            key = (str(r.ref_type or ''), int(r.ref_id or 0))
-            gl_keyed[key] = float(r.gl_signed or 0.0)
-
-        legacy_invoice_payment = and_(
-            sb_ref_type_norm == 'invoice_payment',
-            func.coalesce(SafeBoxTransaction.invoice_payment_id, 0) != 0,
-            func.coalesce(SafeBoxTransaction.ref_id, 0) != 0,
-            SafeBoxTransaction.ref_id != SafeBoxTransaction.invoice_payment_id,
-        )
-        sb_ref_type_key = case((legacy_invoice_payment, 'voucher'), else_=sb_ref_type_norm)
-        sb_ref_id_key = case(
-            (legacy_invoice_payment, cast(SafeBoxTransaction.ref_id, Integer)),
-            else_=cast(SafeBoxTransaction.ref_id, Integer),
-        )
-
-        sb_keyed_rows = (
-            db.session.query(
-                sb_ref_type_key.label('ref_type'),
-                sb_ref_id_key.label('ref_id'),
-                sb_signed.label('sb_signed'),
-            )
-            .filter(SafeBoxTransaction.safe_box_id == sid)
-            .filter(ignore_filter)
-            .group_by(sb_ref_type_key, sb_ref_id_key)
-            .all()
-        )
-        sb_keyed = {}
-        for r in sb_keyed_rows:
-            key = (str(r.ref_type or ''), int(r.ref_id or 0))
-            sb_keyed[key] = float(r.sb_signed or 0.0)
-
-        all_keys = set(sb_keyed.keys()) | set(gl_keyed.keys())
-        for (rt, rid) in all_keys:
-            sb_val = float(sb_keyed.get((rt, rid), 0.0))
-            gl_val = float(gl_keyed.get((rt, rid), 0.0))
-            d = sb_val - gl_val
-            if abs(d) <= threshold:
-                continue
-            keyed.append({
-                'ref_type': rt,
-                'ref_id': rid,
-                'sb_signed': round(sb_val, 2),
-                'gl_signed': round(gl_val, 2),
-                'diff': round(d, 2),
-                'abs_diff': round(abs(d), 2),
-            })
-
-        keyed.sort(key=lambda r: r.get('abs_diff', 0.0), reverse=True)
-        keyed = keyed[:200]
+        keyed = subledger_keyed_breakdown(safe_box_id, ignore_ref_types, threshold)
 
     return jsonify({
         'generated_at': datetime.now().isoformat() + 'Z',

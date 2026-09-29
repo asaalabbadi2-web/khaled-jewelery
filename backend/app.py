@@ -53,6 +53,7 @@ try:
 	from routes.customers import customers_bp
 	from routes.suppliers import suppliers_bp
 	from routes.supplier_settlement_adjustments import supplier_settlement_adjustments_bp
+	from routes.reconciliation_findings import reconciliation_findings_bp
 	from routes.accounts import accounts_bp
 	from routes.invoices import invoices_bp
 	from routes.employees import employees_bp
@@ -435,6 +436,7 @@ app.register_blueprint(pricing_bp, url_prefix='/api')    # Pricing domain (gold 
 app.register_blueprint(customers_bp, url_prefix='/api')  # Customers domain
 app.register_blueprint(suppliers_bp, url_prefix='/api')  # Suppliers domain
 app.register_blueprint(supplier_settlement_adjustments_bp, url_prefix='/api')  # SAD (ADR-025)
+app.register_blueprint(reconciliation_findings_bp, url_prefix='/api')  # books invariants (ADR-030)
 app.register_blueprint(accounts_bp, url_prefix='/api')   # Accounts domain
 app.register_blueprint(invoices_bp, url_prefix='/api')   # Invoices domain
 app.register_blueprint(employees_bp, url_prefix='/api')  # Employees domain

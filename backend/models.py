@@ -5641,6 +5641,20 @@ class ReconciliationFinding(db.Model):
     Kinds (extensible, add new kinds as new jobs emit here):
       STALE_SETTLEMENT — no auto_settlement voucher produced within the
                          expected window; written by ClearingSettlementScheduler.
+      ORPHAN_POSTED_ENTRY, UNPOSTED_ENTRY_IN_LIMBO, GOLD_ATTRIBUTION_MISSING,
+      SAFEBOX_SUBLEDGER_DRIFT — the books invariants, services/books_invariants.py.
+      VOUCHER_ENTRY_UNPOSTED_ON_POSTED_INVOICE, SAFEBOX_ROW_BACKFILLED —
+                         the safe-box reconciliation job, which now reports
+                         what it used to repair silently.
+
+    subject_key / metric (2026-09-28): a finding used to exist once per KIND,
+    which is all STALE_SETTLEMENT needs. The books invariants need one per
+    SUBJECT -- 'safe_box:38' drifting is a different fact from 'safe_box:37'
+    -- so subject_key names what the finding is about, and at most one finding
+    per (kind, subject_key) may be open. metric is the magnitude at detection,
+    so a CHANGE is visible: a drift that moves is a writer still at work
+    tonight, while one that sits still is known history. Both nullable, so the
+    existing per-kind findings are untouched.
 
     Lifecycle: created by the detecting job, resolved manually or by the job
     itself when the condition clears (resolved_at set to a non-NULL timestamp).
@@ -5658,9 +5672,18 @@ class ReconciliationFinding(db.Model):
     check_count = db.Column(db.Integer, nullable=False, default=1)
     created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
     resolved_at = db.Column(db.DateTime, nullable=True)
+    subject_key = db.Column(db.String(120), nullable=True)
+    metric = db.Column(db.Float, nullable=True)
 
     __table_args__ = (
         db.Index('idx_rf_kind_open', 'kind', 'resolved_at'),
+        # One OPEN finding per (kind, subject). Resolved rows keep the history
+        # of every magnitude a subject passed through.
+        db.Index(
+            'uq_rf_open_subject', 'kind', 'subject_key', unique=True,
+            postgresql_where=db.text('resolved_at IS NULL AND subject_key IS NOT NULL'),
+            sqlite_where=db.text('resolved_at IS NULL AND subject_key IS NOT NULL'),
+        ),
     )
 
 
