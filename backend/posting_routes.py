@@ -2104,7 +2104,7 @@ def post_invoice(invoice_id):
         # ✅ قيود السداد بذهب صافي عيار 24 — قديم، يُبقى للتوافق
         if getattr(invoice, 'gold24k_settlement', False):
             try:
-                from routes import _create_gold24k_settlement_entries
+                from routes.invoices import _create_gold24k_settlement_entries  # not `routes`: moved in July (POST-001)
                 _create_gold24k_settlement_entries(invoice, posted_by=posted_by)
             except Exception as _g24_err:
                 print(f"[post_invoice] خطأ في قيود السداد بذهب صافي: {_g24_err}")
@@ -2114,7 +2114,7 @@ def post_invoice(invoice_id):
         _kd_pay = float(getattr(invoice, 'karat_diff_pay_total', 0) or 0)
         if _kd_earn > 0 or _kd_pay > 0:
             try:
-                from routes import _create_karat_diff_settlement_entries
+                from routes.invoices import _create_karat_diff_settlement_entries  # not `routes`: moved in July (POST-001)
                 _create_karat_diff_settlement_entries(invoice, posted_by=posted_by)
             except Exception as _kd_err:
                 print(f"[post_invoice] خطأ في قيود فرق العيار: {_kd_err}")

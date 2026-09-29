@@ -94,8 +94,10 @@ class BackupScheduler:
             pass
 
     def _create_backup_zip(self) -> Path | None:
-        # Import lazily to avoid circular imports.
-        from routes import (
+        # Import lazily to avoid circular imports. From routes.system, where these
+        # live since the July 2026 routes migration: importing them from `routes`
+        # raised ImportError on every scheduled run until 2026-09-29 (BACKUP-001).
+        from routes.system import (
             _create_postgres_backup_to_file,
             _create_sqlite_backup_to_file,
             _is_postgres_database,
