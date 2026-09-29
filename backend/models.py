@@ -5159,6 +5159,22 @@ class BonusCalculationLog(db.Model):
         }
 
 
+class SchedulerHeartbeat(db.Model):
+    """"I am alive", written by the scheduler process (the backend reads it).
+
+    One row per scheduler: 'erp-scheduler' (the process, each minute) and
+    'clearing_settlement' (the settlement loop, each wake). A silent one keeps a
+    critical 'scheduler_down' alert open in the bell -- services/scheduler_heartbeat.py
+    (SCHED-004, RESTART-001).
+    """
+    __tablename__ = 'scheduler_heartbeats'
+
+    name = db.Column(db.String(50), primary_key=True)
+    beat_at = db.Column(db.DateTime, nullable=False)   # UTC
+    pid = db.Column(db.Integer, nullable=True)
+    host = db.Column(db.String(100), nullable=True)
+
+
 class SystemAlert(db.Model):
     """Persistent in-app alerts for managers (MVP).
 

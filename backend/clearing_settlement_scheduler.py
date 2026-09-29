@@ -1183,9 +1183,15 @@ class ClearingSettlementScheduler:
                     # S3: interruptible wait — stop() sets _stop_event so
                     # the thread wakes immediately instead of sleeping 60s
                     self._stop_event.wait(timeout=60)
-                    # S5: the overdue alarm, on each cycle inside app context
+                    # S5: the heartbeat, then the overdue alarm, on each cycle
                     if self.is_running and not self._stop_event.is_set():
                         with self.app.app_context():
+                            try:
+                                from services.scheduler_heartbeat import beat
+                                beat('clearing_settlement')
+                            except Exception as _exc:
+                                db.session.rollback()
+                                print(f'[ClearingSettlementScheduler] heartbeat failed: {_exc}', flush=True)
                             try:
                                 self._emit_overdue_findings()
                             except Exception as _exc:

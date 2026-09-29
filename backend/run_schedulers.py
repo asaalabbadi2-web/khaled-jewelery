@@ -39,7 +39,19 @@ def main():
     # S2: pass CRITICAL schedulers (those with a _failed event) so
     # run_forever() can detect unexpected thread death via liveness polling.
     critical = [s for s in schedulers if hasattr(s, '_failed')]
-    run_forever(critical_schedulers=critical)
+
+    def _heartbeat():
+        from models import db
+        from services.scheduler_heartbeat import beat
+        with app.app_context():
+            try:
+                beat('erp-scheduler')
+            except Exception:
+                db.session.rollback()
+                raise
+
+    _heartbeat()
+    run_forever(critical_schedulers=critical, on_tick=_heartbeat)
 
     # ── Graceful shutdown sequence (S4) ──────────────────────────────────────
     # run_forever() has returned (SIGTERM or SIGINT received, or liveness

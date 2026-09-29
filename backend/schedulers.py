@@ -105,7 +105,7 @@ def start_all_schedulers(app) -> list:
     return started
 
 
-def run_forever(critical_schedulers: list = (), poll_seconds: float = 60.0) -> None:
+def run_forever(critical_schedulers: list = (), poll_seconds: float = 60.0, on_tick=None) -> None:
     """Block until SIGTERM or SIGINT, polling critical-scheduler liveness every
     poll_seconds seconds.
 
@@ -130,6 +130,13 @@ def run_forever(critical_schedulers: list = (), poll_seconds: float = 60.0) -> N
     print('[erp-scheduler] running; send SIGTERM or SIGINT to stop', flush=True)
 
     while not stop.wait(timeout=poll_seconds):
+        # The process heartbeat (SCHED-004): the backend reads it, so a
+        # scheduler that dies -- or keeps restarting -- shows in the alert bell.
+        if on_tick is not None:
+            try:
+                on_tick()
+            except Exception as exc:
+                print(f'[erp-scheduler] heartbeat failed: {exc}', flush=True)
         # Liveness check for every CRITICAL scheduler thread
         for s in critical_schedulers:
             t = getattr(s, '_thread', None)

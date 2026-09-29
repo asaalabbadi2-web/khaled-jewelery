@@ -463,7 +463,9 @@ class _AlertsDialogState extends State<AlertsDialog> {
         offset: isDone ? const Offset(0.4, 0) : Offset.zero,
         child: isInvoiceType
             ? _buildInvoiceAlertRow(alert, isDark, isAr)
-            : _buildShiftAlertRow(alert, isDark, isAr),
+            : alertType == 'scheduler_down'
+                ? _buildSchedulerAlertRow(alert, isDark, isAr)
+                : _buildShiftAlertRow(alert, isDark, isAr),
       ),
     );
   }
@@ -679,6 +681,53 @@ class _AlertsDialogState extends State<AlertsDialog> {
             onTap: isReviewing ? null : () => _markReviewed(alertId),
           ),
         ],
+      ),
+    );
+  }
+
+  // ── scheduler down (SCHED-004) ────────────────────────────────────────────
+  // Opened and closed by the server from the scheduler's heartbeat: it closes
+  // by itself once the scheduler beats again, and a review would only reopen
+  // while it is still silent -- so it has no "mark reviewed" action.
+
+  Widget _buildSchedulerAlertRow(Map<String, dynamic> alert, bool isDark, bool isAr) {
+    final alertId = _asInt(alert['id']) ?? 0;
+    final isExpanded = _expandedAlertId == alertId;
+    final theme = Theme.of(context);
+    final message = (alert['message'] ?? '').toString();
+    final createdAt = alert['created_at']?.toString();
+
+    return _AlertRowShell(
+      isDark: isDark,
+      accentColor: AppColors.error,
+      badgeIcon: Icons.power_off_rounded,
+      badgeLabel: isAr ? 'تشغيل' : 'System',
+      title: (alert['title'] ?? (isAr ? 'المجدول متوقف' : 'Scheduler down')).toString(),
+      subtitle: message,
+      createdBy: '',
+      relativeTime: _relativeTime(createdAt),
+      isExpanded: isExpanded,
+      onExpandTap: () => setState(
+        () => _expandedAlertId = isExpanded ? null : alertId,
+      ),
+      expandedContent: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _detailRow(
+            theme,
+            isDark,
+            isAr ? 'ما العمل' : 'What to do',
+            isAr
+                ? 'على الخادم: docker ps -a ثم docker logs yasargold-scheduler --tail 50'
+                : 'On the server: docker ps -a, then docker logs yasargold-scheduler --tail 50',
+          ),
+          if (createdAt != null && createdAt.isNotEmpty)
+            _detailRow(theme, isDark, isAr ? 'منذ' : 'Since', _formatDate(createdAt)),
+        ],
+      ),
+      actions: Text(
+        isAr ? 'يُغلق وحده حين يعود المجدول' : 'Closes by itself when the scheduler is back',
+        style: theme.textTheme.bodySmall,
       ),
     );
   }

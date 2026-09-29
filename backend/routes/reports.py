@@ -7051,6 +7051,9 @@ def get_admin_dashboard():
             inventory_value = None
 
     # --- Critical alerts (unreviewed) ---
+    # A silent scheduler is an open critical alert (SCHED-004): refresh it first.
+    from services.scheduler_heartbeat import refresh_bell
+    refresh_bell()
     critical_unreviewed_count = 0
     critical_latest = None
     try:
