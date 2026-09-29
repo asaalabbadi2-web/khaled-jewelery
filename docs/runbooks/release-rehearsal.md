@@ -40,6 +40,17 @@ cd C:\Projects\khaledjewels
 
 The CI job `deploy-production` is manual only: a runner registered one day must not turn a push into a deploy.
 
+## Restart policy — every container comes back on its own
+
+`docker-compose.prod.gitlab.yml` gives every service `restart: unless-stopped` (RESTART-001). Containers created before that carry no policy; apply it once, without recreating anything:
+
+```powershell
+docker update --restart unless-stopped yasargold-db yasargold-backend yasargold-scheduler yasargold-nginx
+docker inspect -f "{{.Name}} {{.HostConfig.RestartPolicy.Name}}" yasargold-db yasargold-backend yasargold-scheduler yasargold-nginx
+```
+
+It only helps if Docker Desktop itself starts: *Settings → General → Start Docker Desktop when you sign in*, and the machine signs in after a reboot.
+
 ## Automatic backups — `copy-backups.ps1` on the server
 
 The app writes `yasargold-backup-<UTC stamp>.zip` every night at 02:00 (Asia/Riyadh) into the Docker volume behind `/data/backups` and keeps the last 7. A Windows scheduled task copies each one to the external drive:

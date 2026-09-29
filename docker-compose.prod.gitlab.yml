@@ -6,10 +6,14 @@
 #   docker compose -f docker-compose.prod.gitlab.yml --env-file .env.production up -d
 #   docker compose -f docker-compose.prod.gitlab.yml --env-file .env.production run --rm backend alembic upgrade head
 
+# Every service: restart: unless-stopped -- a container that dies (the scheduler
+# exits on purpose when a critical scheduler fails) or a machine that reboots
+# comes back on its own. tests/test_production_compose.py
 services:
   db:
     image: postgres:16
     container_name: yasargold-db
+    restart: unless-stopped
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-yasargold}
       POSTGRES_USER: ${POSTGRES_USER:-yasargold}
@@ -29,6 +33,7 @@ services:
   backend:
     image: registry.gitlab.com/sasalabbadi/khaledjewels/backend:${IMAGE_TAG:-latest}
     container_name: yasargold-backend
+    restart: unless-stopped
     env_file: .env.production
     environment:
       DATABASE_URL: ${DATABASE_URL:-postgresql://yasargold:change_me@db:5432/yasargold}
@@ -47,6 +52,7 @@ services:
   scheduler:
     image: registry.gitlab.com/sasalabbadi/khaledjewels/backend:${IMAGE_TAG:-latest}
     container_name: yasargold-scheduler
+    restart: unless-stopped
     env_file: .env.production
     environment:
       DATABASE_URL: ${DATABASE_URL:-postgresql://yasargold:change_me@db:5432/yasargold}
@@ -65,6 +71,7 @@ services:
   nginx:
     image: registry.gitlab.com/sasalabbadi/khaledjewels/web:${IMAGE_TAG:-latest}
     container_name: yasargold-nginx
+    restart: unless-stopped
     # No env_file: nginx serves a static config baked into the image and needs
     # none of the app's secrets.
     ports:

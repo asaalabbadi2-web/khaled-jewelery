@@ -43,3 +43,14 @@ def test_the_app_containers_still_read_it():
     services = _services()
     for name in ('backend', 'scheduler'):
         assert services[name].get('env_file') == '.env.production', name
+
+
+def test_every_service_comes_back_on_its_own():
+    """No service had a restart policy (found 29 Sep 2026). The scheduler exits
+    on purpose when a critical scheduler fails (fail-closed, S1/S2) -- designed
+    for an orchestrator that restarts it; with none it stayed dead, silently.
+    And after the machine restarted, nothing came back until someone ran
+    `docker compose up`. `unless-stopped`: a container that dies, or a machine
+    that reboots, comes back; one stopped on purpose stays stopped."""
+    for name, service in _services().items():
+        assert service.get('restart') == 'unless-stopped', name
