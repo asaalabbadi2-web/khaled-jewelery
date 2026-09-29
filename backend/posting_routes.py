@@ -23,6 +23,7 @@ from datetime import datetime, timedelta
 from models import (
     db,
     Invoice,
+    InvoiceItem,
     InvoicePayment,
     JournalEntry,
     JournalEntryLine,
@@ -2006,6 +2007,113 @@ def delete_unposted_journal_entry(entry_id: int):
 # ✅ ترحيل الفواتير
 # ==========================================
 
+def post_invoice_document(invoice: Invoice, posted_by: str) -> None:
+    """Post one unposted invoice completely. The ONE posting (APPROVE-001).
+
+    «✓ ترحيل», «اعتماد وترحيل», the batch and the API approve all call this, so
+    an approval-gated invoice ends the same whichever button is pressed. They
+    had diverged: one never posted the invoice's own entry, one never created
+    its payment entry, one never closed the approval alert, and the batch
+    skipped the karat-difference and 24k-settlement entries.
+
+    In order: the invoice; its gold safe-box rows; its entries and those of
+    its vouchers; the entries and safe-box rows of payments saved while it was
+    unposted; its settlement entries; its payment state; its category-weight
+    movements and inventory ledger (both idempotent -- written at creation for
+    an invoice posted at once, never for one that waited); its approval alert
+    closed; the cached balances of every account its entries touch.
+    Caller checks is_posted first and commits.
+    """
+    now = datetime.now()
+    invoice.is_posted = True
+    invoice.posted_at = now
+    invoice.posted_by = posted_by or (invoice.posted_by or 'system')
+
+    _append_safe_transactions_for_invoice_gold(invoice, created_by=posted_by)
+
+    def _post_entry(je):
+        if je is not None and not je.is_posted and not getattr(je, 'is_deleted', False):
+            je.is_posted = True
+            je.is_draft = False
+            je.posted_at = now
+            je.posted_by = posted_by
+
+    try:
+        for je in JournalEntry.query.filter_by(reference_type='invoice', reference_id=invoice.id,
+                                               is_posted=False).filter(JournalEntry.is_deleted == False).all():
+            _post_entry(je)
+        for v in Voucher.query.filter_by(reference_type='invoice', reference_id=invoice.id).all():
+            if v.journal_entry_id:
+                _post_entry(JournalEntry.query.get(v.journal_entry_id))
+            for je in JournalEntry.query.filter_by(reference_type='voucher', reference_id=v.id,
+                                                   is_posted=False).filter(JournalEntry.is_deleted == False).all():
+                _post_entry(je)
+            if v.status == 'pending':
+                v.status = 'approved'
+    except Exception as exc:
+        print(f"[post_invoice_document] posting the entries of invoice {invoice.id} failed: {exc}")
+
+    try:
+        _create_deferred_payment_entries(invoice, posted_by=posted_by)
+    except Exception as exc:
+        print(f"[post_invoice_document] deferred payment entries of invoice {invoice.id} failed: {exc}")
+
+    kd_earn = float(getattr(invoice, 'karat_diff_earn_total', 0) or 0)
+    kd_pay = float(getattr(invoice, 'karat_diff_pay_total', 0) or 0)
+    if getattr(invoice, 'gold24k_settlement', False):
+        try:
+            from routes.invoices import _create_gold24k_settlement_entries  # not `routes`: moved in July (POST-001)
+            _create_gold24k_settlement_entries(invoice, posted_by=posted_by)
+        except Exception as exc:
+            print(f"[post_invoice_document] 24k settlement entries of invoice {invoice.id} failed: {exc}")
+    if kd_earn > 0 or kd_pay > 0:
+        try:
+            from routes.invoices import _create_karat_diff_settlement_entries  # not `routes`: moved in July (POST-001)
+            _create_karat_diff_settlement_entries(invoice, posted_by=posted_by)
+        except Exception as exc:
+            print(f"[post_invoice_document] karat-difference entries of invoice {invoice.id} failed: {exc}")
+    for je in JournalEntry.query.filter_by(reference_type='invoice', reference_id=invoice.id,
+                                           is_posted=False).filter(JournalEntry.is_deleted == False).all():
+        _post_entry(je)   # the settlement entries just created
+
+    try:
+        InvoicePaymentStateService().recompute(invoice)
+    except Exception as exc:
+        print(f"[post_invoice_document] payment state of invoice {invoice.id} failed: {exc}")
+
+    db.session.flush()
+    try:
+        from category_weight_tracking import record_category_weight_movements_for_invoice_payload
+        items = [{'item_id': ii.item_id, 'weight': float(ii.weight or 0.0)}
+                 for ii in InvoiceItem.query.filter_by(invoice_id=invoice.id).all() if ii.item_id]
+        record_category_weight_movements_for_invoice_payload(invoice_id=invoice.id, items_payload=items or None)
+    except Exception as exc:
+        print(f"[post_invoice_document] category weights of invoice {invoice.id} skipped: {exc}")
+    try:
+        from services.inventory_posting_service import InventoryPostingService
+        InventoryPostingService.post(invoice)
+    except Exception as exc:
+        print(f"[post_invoice_document] inventory ledger of invoice {invoice.id} skipped: {exc}")
+
+    try:
+        SystemAlert.query.filter_by(entity_type='Invoice', entity_id=invoice.id, is_reviewed=False).update(
+            {'is_reviewed': True, 'reviewed_by': posted_by, 'reviewed_at': now}, synchronize_session=False)
+    except Exception as exc:
+        print(f"[post_invoice_document] closing the approval alert of invoice {invoice.id} failed: {exc}")
+
+    try:
+        from accounting.balances import _recalculate_account_balances_for_accounts
+        touched = {line.account_id
+                   for je in JournalEntry.query.filter(
+                       JournalEntry.reference_id == invoice.id,
+                       JournalEntry.reference_type.in_(['invoice', 'invoice_payments'])).all()
+                   for line in (je.lines or []) if line.account_id}
+        if touched:
+            _recalculate_account_balances_for_accounts(touched)
+    except Exception as exc:
+        print(f"[post_invoice_document] cached balances after invoice {invoice.id} skipped: {exc}")
+
+
 @posting_bp.route('/invoices/post/<int:invoice_id>', methods=['POST'])
 @require_permission('invoice.post')
 def post_invoice(invoice_id):
@@ -2049,86 +2157,7 @@ def post_invoice(invoice_id):
                 'message': 'الفاتورة مرحلة بالفعل'
             }), 400
         
-        # ترحيل الفاتورة
-        invoice.is_posted = True
-        invoice.posted_at = datetime.now()
-        invoice.posted_by = posted_by or (invoice.posted_by or 'system')
-
-        # Append gold inventory movements into SafeBox ledger (append-only)
-        _append_safe_transactions_for_invoice_gold(invoice, created_by=posted_by)
-
-        # ✅ ترحيل جميع القيود المرتبطة بالفاتورة (مباشرة + عبر السندات)
-        now_ts = datetime.now()
-        try:
-            # 1) قيود مرتبطة مباشرةً بالفاتورة
-            linked_jes = JournalEntry.query.filter_by(
-                reference_type='invoice', reference_id=invoice_id, is_posted=False
-            ).filter(JournalEntry.is_deleted == False).all()
-            for _je in linked_jes:
-                _je.is_posted = True
-                _je.posted_at = now_ts
-                _je.posted_by = posted_by
-
-            # 2) قيود السندات المرتبطة بالفاتورة (reference_type='voucher')
-            linked_vouchers = Voucher.query.filter_by(
-                reference_type='invoice', reference_id=invoice_id
-            ).all()
-            for _v in linked_vouchers:
-                # قيد السند عبر journal_entry_id
-                if _v.journal_entry_id:
-                    _vje = JournalEntry.query.get(_v.journal_entry_id)
-                    if _vje and not _vje.is_posted and not getattr(_vje, 'is_deleted', False):
-                        _vje.is_posted = True
-                        _vje.posted_at = now_ts
-                        _vje.posted_by = posted_by
-                # قيود مرتبطة بالسند عبر reference_type='voucher'
-                for _vje2 in JournalEntry.query.filter_by(
-                    reference_type='voucher', reference_id=_v.id, is_posted=False
-                ).filter(JournalEntry.is_deleted == False).all():
-                    _vje2.is_posted = True
-                    _vje2.posted_at = now_ts
-                    _vje2.posted_by = posted_by
-                # تحديث حالة السند
-                if _v.status == 'pending':
-                    _v.status = 'approved'
-        except Exception as _je_err:
-            print(f"[post_invoice] خطأ في ترحيل القيود المرتبطة: {_je_err}")
-
-        # ✅ إنشاء حركات الخزينة وقيود التسوية للدفعات المؤجلة (unposted_mode invoices)
-        # يضمن دخول النقد للخزينة وصفر ذمم العميل بعد الترحيل.
-        try:
-            _create_deferred_payment_entries(invoice, posted_by=posted_by)
-        except Exception as _def_err:
-            print(f"[post_invoice] خطأ في إنشاء قيود الدفع المؤجل: {_def_err}")
-
-        # ✅ قيود السداد بذهب صافي عيار 24 — قديم، يُبقى للتوافق
-        if getattr(invoice, 'gold24k_settlement', False):
-            try:
-                from routes.invoices import _create_gold24k_settlement_entries  # not `routes`: moved in July (POST-001)
-                _create_gold24k_settlement_entries(invoice, posted_by=posted_by)
-            except Exception as _g24_err:
-                print(f"[post_invoice] خطأ في قيود السداد بذهب صافي: {_g24_err}")
-
-        # ✅ قيود عمولة / رسوم فرق العيار — per-line
-        _kd_earn = float(getattr(invoice, 'karat_diff_earn_total', 0) or 0)
-        _kd_pay = float(getattr(invoice, 'karat_diff_pay_total', 0) or 0)
-        if _kd_earn > 0 or _kd_pay > 0:
-            try:
-                from routes.invoices import _create_karat_diff_settlement_entries  # not `routes`: moved in July (POST-001)
-                _create_karat_diff_settlement_entries(invoice, posted_by=posted_by)
-            except Exception as _kd_err:
-                print(f"[post_invoice] خطأ في قيود فرق العيار: {_kd_err}")
-
-        # ترحيل أي قيود أُنشئت للتو (عمولات / رسوم)
-        if getattr(invoice, 'gold24k_settlement', False) or _kd_earn > 0 or _kd_pay > 0:
-            now_ts2 = datetime.now()
-            new_jes = JournalEntry.query.filter_by(
-                reference_type='invoice', reference_id=invoice_id, is_posted=False
-            ).filter(JournalEntry.is_deleted == False).all()
-            for _je2 in new_jes:
-                _je2.is_posted = True
-                _je2.posted_at = now_ts2
-                _je2.posted_by = posted_by
+        post_invoice_document(invoice, posted_by)
 
         db.session.commit()
 
@@ -2239,24 +2268,8 @@ def approve_large_discount_invoice(invoice_id):
         if getattr(invoice, 'is_posted', False):
             return jsonify({'success': False, 'message': 'الفاتورة مرحلة بالفعل'}), 400
 
-        # Mark invoice as posted (approval implies posting).
-        invoice.is_posted = True
-        invoice.posted_at = datetime.now()
-        invoice.posted_by = approved_by
-
-        # Restore basic payment status based on persisted payments — canonical,
-        # from SUM(InvoicePayment) + barter (see InvoicePaymentStateService).
-        try:
-            InvoicePaymentStateService().recompute(invoice)
-        except Exception:
-            pass
-
-        # Append gold inventory movements into SafeBox ledger (append-only)
-        _append_safe_transactions_for_invoice_gold(invoice, created_by=approved_by)
-
-        # ✅ إنشاء SafeBoxTransaction + قيود التسوية للدفعات المؤجلة
-        # (مشترك مع post_invoice - يضمن دخول النقد للخزينة وصفر ذمم الطرف)
-        _create_deferred_payment_entries(invoice, posted_by=approved_by)
+        # The ONE posting (APPROVE-001): the same result as «✓ ترحيل».
+        post_invoice_document(invoice, approved_by)
 
         db.session.commit()
 
@@ -2311,43 +2324,8 @@ def post_invoices_batch():
         
         for invoice in invoices:
             if not invoice.is_posted:
-                invoice.is_posted = True
-                invoice.posted_at = datetime.now()
-                invoice.posted_by = posted_by
+                post_invoice_document(invoice, posted_by)
                 posted_count += 1
-
-                # Append gold inventory movements into SafeBox ledger (append-only)
-                _append_safe_transactions_for_invoice_gold(invoice, created_by=posted_by)
-
-                # ✅ ترحيل جميع القيود المرتبطة (مباشرة + عبر السندات)
-                try:
-                    _now = datetime.now()
-                    linked_jes = JournalEntry.query.filter_by(
-                        reference_type='invoice', reference_id=invoice.id, is_posted=False
-                    ).filter(JournalEntry.is_deleted == False).all()
-                    for _je in linked_jes:
-                        _je.is_posted = True
-                        _je.posted_at = _now
-                        _je.posted_by = posted_by
-                    for _v in Voucher.query.filter_by(reference_type='invoice', reference_id=invoice.id).all():
-                        if _v.journal_entry_id:
-                            _vje = JournalEntry.query.get(_v.journal_entry_id)
-                            if _vje and not _vje.is_posted and not getattr(_vje, 'is_deleted', False):
-                                _vje.is_posted = True; _vje.posted_at = _now; _vje.posted_by = posted_by
-                        for _vje2 in JournalEntry.query.filter_by(
-                            reference_type='voucher', reference_id=_v.id, is_posted=False
-                        ).filter(JournalEntry.is_deleted == False).all():
-                            _vje2.is_posted = True; _vje2.posted_at = _now; _vje2.posted_by = posted_by
-                        if _v.status == 'pending':
-                            _v.status = 'approved'
-                except Exception as _je_err:
-                    print(f"[post_invoices_batch] خطأ في ترحيل القيود للفاتورة {invoice.id}: {_je_err}")
-
-                # ✅ إنشاء حركات الخزينة وقيود التسوية للدفعات المؤجلة
-                try:
-                    _create_deferred_payment_entries(invoice, posted_by=posted_by)
-                except Exception as _def_err:
-                    print(f"[post_invoices_batch] خطأ في قيود الدفع المؤجل للفاتورة {invoice.id}: {_def_err}")
 
                 # تسجيل كل عملية ناجحة
                 AuditLog.log_action(

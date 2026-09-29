@@ -2083,112 +2083,11 @@ def approve_invoice(invoice_id: int):
     )
 
     try:
-        now = datetime.now()
-
-        # 1. Cascade: post all linked invoice JEs
-        linked_jes = JournalEntry.query.filter_by(
-            reference_type='invoice', reference_id=invoice_id
-        ).all()
-        for je in linked_jes:
-            if not je.is_posted:
-                je.is_posted = True
-                je.is_draft = False
-                je.posted_at = now
-                je.posted_by = approved_by
-
-        # 1b. Cascade: post all linked voucher JEs
-        try:
-            _linked_vouchers = Voucher.query.filter_by(
-                reference_type='invoice', reference_id=invoice_id
-            ).all()
-            _voucher_ids = [v.id for v in _linked_vouchers]
-            if _voucher_ids:
-                _voucher_jes = JournalEntry.query.filter(
-                    JournalEntry.reference_type == 'voucher',
-                    JournalEntry.reference_id.in_(_voucher_ids),
-                ).all()
-                for _vje in _voucher_jes:
-                    if not _vje.is_posted:
-                        _vje.is_posted = True
-                        _vje.is_draft = False
-                        _vje.posted_at = now
-                        _vje.posted_by = approved_by
-                linked_jes.extend(_voucher_jes)  # include in linked_jes for SBT sync below
-        except Exception as exc:
-            print(f"⚠️ Auto-post voucher JEs on approve skipped: {exc}")
-
-        # 2. Post the invoice itself
-        invoice.is_posted = True
-        invoice.posted_at = now
-        if not invoice.posted_by:
-            invoice.posted_by = approved_by
-
-        # 3. Sync payment status — canonical, from SUM(InvoicePayment) + barter,
-        # not from invoice.amount_paid itself (see InvoicePaymentStateService).
-        try:
-            InvoicePaymentStateService().recompute(invoice)
-        except Exception:
-            pass
-
-        db.session.flush()
-
-        # 4. Record category-weight movements (skipped if already recorded)
-        try:
-            from category_weight_tracking import record_category_weight_movements_for_invoice_payload
-            # Build minimal items payload from stored InvoiceItem rows
-            items_payload = [
-                {'item_id': ii.item_id, 'weight': float(ii.weight or 0.0)}
-                for ii in InvoiceItem.query.filter_by(invoice_id=invoice_id).all()
-                if ii.item_id
-            ]
-            record_category_weight_movements_for_invoice_payload(
-                invoice_id=invoice_id,
-                items_payload=items_payload or None,
-            )
-        except Exception as exc:
-            print(f"⚠️ Category weight tracking skipped on approve: {exc}")
-
-        # 📒 Inventory ledger posting on approval
-        try:
-            from services.inventory_posting_service import InventoryPostingService
-            InventoryPostingService.post(invoice)
-        except Exception as exc:
-            print(f"⚠️ Inventory ledger posting skipped on approve: {exc}")
-
-        # 5. Mark any SystemAlerts for this invoice as reviewed
-        try:
-            from models import SystemAlert
-            SystemAlert.query.filter_by(
-                entity_type='Invoice', entity_id=invoice_id, is_reviewed=False
-            ).update({'is_reviewed': True, 'reviewed_by': approved_by, 'reviewed_at': now})
-        except Exception:
-            pass
-
-        # 6. Sync safe-box transactions for invoice JE lines
-        try:
-            for je in linked_jes:
-                _ensure_safe_box_transactions_for_invoice_je(
-                    invoice_id=invoice_id,
-                    journal_entry_id=je.id,
-                    created_by=approved_by,
-                )
-        except Exception as exc:
-            print(f"⚠️ safe-box SBT sync skipped on approve: {exc}")
-
-        # Recompute stored Account.balance_* for every account touched by the
-        # now-posted JEs.  Without this the cached balance never reflects the
-        # newly-posted lines and the trial balance drifts.
-        try:
-            _approve_affected_ids = set()
-            for _aje in linked_jes:
-                _approve_affected_ids.update(
-                    l.account_id for l in (_aje.lines or []) if l.account_id
-                )
-            if _approve_affected_ids:
-                _recalculate_account_balances_for_accounts(_approve_affected_ids)
-        except Exception as _rc_exc:
-            print(f"⚠️ recalculate balances after approve skipped: {_rc_exc}")
-
+        # The ONE posting (APPROVE-001): the same result as «✓ ترحيل». This
+        # route used to post the entries but never create the payment entry,
+        # so the cash never reached the safe box.
+        from posting_routes import post_invoice_document
+        post_invoice_document(invoice, approved_by)
         db.session.commit()
         return jsonify({'success': True, 'invoice': invoice.to_dict()}), 200
 
