@@ -14,7 +14,10 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-yasargold}
       POSTGRES_USER: ${POSTGRES_USER:-yasargold}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change_me}
-    env_file: .env.production
+    # No env_file: .env.production holds IMAGE_TAG and the app's secrets. Read
+    # whole, every deploy's new IMAGE_TAG changed this container's environment
+    # and Compose recreated the database mid-deploy (29 Sep 2026). The three
+    # POSTGRES_* above come from --env-file. tests/test_production_compose.py
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -62,7 +65,8 @@ services:
   nginx:
     image: registry.gitlab.com/sasalabbadi/khaledjewels/web:${IMAGE_TAG:-latest}
     container_name: yasargold-nginx
-    env_file: .env.production
+    # No env_file: nginx serves a static config baked into the image and needs
+    # none of the app's secrets.
     ports:
       - "80:80"
     depends_on:

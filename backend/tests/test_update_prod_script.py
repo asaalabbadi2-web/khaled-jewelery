@@ -207,10 +207,11 @@ def test_a_backup_uses_the_servers_own_pg_dump_and_prints_the_rehearsal(prod):
 
 
 def test_a_deploy_never_pulls_or_restarts_the_database(prod):
-    """`postgres:16` is a moving tag. On 29 Sep 2026 the deploy of 2d0b1e37 pulled
-    every image, found a new postgres:16 build, and recreated yasargold-db in the
-    middle of the migration step -- a database server change nobody rehearsed.
-    The database changes only on purpose, never as a side effect of an app deploy."""
+    """The database changes only on purpose, never as a side effect of an app
+    deploy: `postgres:16` is a moving tag, so pulling every image could replace
+    the server with a build nobody rehearsed. (The recreation seen on 29 Sep
+    2026 had a second cause, the database reading IMAGE_TAG through env_file --
+    tests/test_production_compose.py.)"""
     result, calls = prod('-Tag', '99e86008', '-Deploy', '-Rehearsed')
     assert result.returncode == 0, result.stdout + result.stderr
     moves = [c for c in calls if ' pull' in c or ' up ' in c]

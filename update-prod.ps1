@@ -46,9 +46,9 @@ $Registry = 'registry.gitlab.com/sasalabbadi/khaledjewels'
 $ComposeFile = 'docker-compose.prod.gitlab.yml'
 $EnvFile = '.env.production'
 $Compose = @('compose', '-f', $ComposeFile, '--env-file', $EnvFile)
-# The only services a release changes. The database is never pulled or restarted
-# by a deploy: `postgres:16` is a moving tag, and on 29 Sep 2026 pulling every
-# image recreated yasargold-db mid-deploy on a build nobody had rehearsed.
+# The only services a release changes. A deploy never pulls or restarts the
+# database on purpose; it was also recreated by accident, because it read
+# .env.production (IMAGE_TAG) -- fixed in docker-compose.prod.gitlab.yml.
 $AppServices = @('backend', 'scheduler', 'nginx')
 $OnWindows = ($env:OS -eq 'Windows_NT')
 $Curl = 'curl'
