@@ -168,3 +168,13 @@ class TestTheWriters:
         from clearing_settlement_scheduler import ClearingSettlementScheduler
         src = inspect.getsource(ClearingSettlementScheduler.start)
         assert "beat('clearing_settlement')" in src
+
+
+def test_the_settlement_loop_beats_before_its_first_run():
+    """It first beat after its initial run and a 60-second wait: in that first
+    minute after every deploy the bell said "scheduler down" (found 29 Sep 2026,
+    release 77ca191a). It beats as soon as its thread starts."""
+    from clearing_settlement_scheduler import ClearingSettlementScheduler
+    src = inspect.getsource(ClearingSettlementScheduler.start)
+    first_beat = src.index("beat('clearing_settlement')")
+    assert first_beat < src.index('self.process_due_settlements()')

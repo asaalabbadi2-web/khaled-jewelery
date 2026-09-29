@@ -1164,7 +1164,19 @@ class ClearingSettlementScheduler:
         self.is_running = True
         self._stop_event.clear()
 
+        def _beat():
+            with self.app.app_context():
+                try:
+                    from services.scheduler_heartbeat import beat
+                    beat('clearing_settlement')
+                except Exception as _exc:
+                    db.session.rollback()
+                    print(f'[ClearingSettlementScheduler] heartbeat failed: {_exc}', flush=True)
+
         def run_scheduler():
+            # Beat first: otherwise the bell read "scheduler down" for the
+            # first minute after every start (ADR-033).
+            _beat()
             # Run once immediately on startup so we don't wait 2 hours
             # after a container restart / deployment.
             try:
@@ -1185,13 +1197,8 @@ class ClearingSettlementScheduler:
                     self._stop_event.wait(timeout=60)
                     # S5: the heartbeat, then the overdue alarm, on each cycle
                     if self.is_running and not self._stop_event.is_set():
+                        _beat()
                         with self.app.app_context():
-                            try:
-                                from services.scheduler_heartbeat import beat
-                                beat('clearing_settlement')
-                            except Exception as _exc:
-                                db.session.rollback()
-                                print(f'[ClearingSettlementScheduler] heartbeat failed: {_exc}', flush=True)
                             try:
                                 self._emit_overdue_findings()
                             except Exception as _exc:
