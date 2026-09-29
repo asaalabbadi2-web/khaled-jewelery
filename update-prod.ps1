@@ -38,6 +38,7 @@ param(
     [switch]$DryRun,
     [string]$Root = 'C:\Projects\khaledjewels',
     [string]$BaseUrl = 'http://localhost',
+    [string]$BackupDir = 'D:\yasargold-recovery',
     [int]$SettleSeconds = 90
 )
 
@@ -118,11 +119,16 @@ if ($Backup) {
     Say '[1/2] checking the release images...'
     Images-Exist $Tag
     Say '[2/2] backing up with the database server''s own pg_dump...'
+    # Backups go to the external drive (the owner's choice, 29 Sep 2026), never
+    # the production disk: if it is not connected, stop -- do not fall back.
+    if (-not (Test-Path -LiteralPath $BackupDir -PathType Container)) {
+        Fail "backup folder $BackupDir not found -- is the external drive connected? Nothing was dumped."
+    }
     $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
     $name = "pre-$Tag-$stamp.dump"
     $db = 'yasargold-db'
     if ($DryRun) {
-        Say "  [dry-run] docker exec $db pg_dump -Fc -f /tmp/$name  ->  backups\$name"
+        Say "  [dry-run] docker exec $db pg_dump -Fc -f /tmp/$name  ->  $(Join-Path $BackupDir $name)"
         exit 0
     }
     $user = (& docker exec $db printenv POSTGRES_USER).Trim()
@@ -130,11 +136,17 @@ if ($Backup) {
     if (-not $user -or -not $dbname) { Fail "could not read POSTGRES_USER / POSTGRES_DB from $db" }
     & docker exec $db pg_dump -U $user -Fc -f "/tmp/$name" $dbname
     if ($LASTEXITCODE -ne 0) { Fail 'pg_dump failed' }
-    New-Item -ItemType Directory -Force -Path 'backups' | Out-Null
-    & docker cp "${db}:/tmp/$name" (Join-Path 'backups' $name)
+    $target = Join-Path $BackupDir $name
+    & docker cp "${db}:/tmp/$name" $target
     if ($LASTEXITCODE -ne 0) { Fail 'copying the dump out of the container failed' }
     & docker exec $db rm -f "/tmp/$name" | Out-Null
-    $file = Get-Item (Join-Path 'backups' $name)
+    $file = Get-Item -LiteralPath $target
+    $head = New-Object byte[] 5
+    $stream = [System.IO.File]::OpenRead($file.FullName)
+    try { [void]$stream.Read($head, 0, 5) } finally { $stream.Close() }
+    if ([System.Text.Encoding]::ASCII.GetString($head) -ne 'PGDMP') {
+        Fail "$target is not a PostgreSQL dump -- do not rehearse or deploy on it"
+    }
     Say ("  backup: {0} ({1:N1} MB)" -f $file.FullName, ($file.Length / 1MB))
     Say ''
     Say 'Next -- on the Mac, with this file copied to ~/Downloads:'

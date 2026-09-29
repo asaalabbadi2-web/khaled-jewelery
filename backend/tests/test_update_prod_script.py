@@ -53,7 +53,7 @@ FAKE_DOCKER = textwrap.dedent(r'''
       "exec yasargold-db printenv POSTGRES_USER") echo "yasargold"; exit 0 ;;
       "exec yasargold-db printenv POSTGRES_DB") echo "yasargold_db"; exit 0 ;;
       "exec yasargold-db pg_dump "*) exit 0 ;;
-      "cp yasargold-db:"*) printf 'PGDMP-fake' > "$3"; exit 0 ;;
+      "cp yasargold-db:"*) printf "${FAKE_DUMP_BYTES:-PGDMP-fake}" > "$3"; exit 0 ;;
       "exec yasargold-db rm "*) exit 0 ;;
       "logs "*) echo "scheduler started"; exit 0 ;;
     esac
@@ -89,11 +89,15 @@ def prod(tmp_path):
         path.chmod(path.stat().st_mode | stat.S_IEXEC)
     log = tmp_path / 'docker.log'
     log.write_text('')
+    recovery = tmp_path / 'recovery'   # stands in for the external drive, D:\\yasargold-recovery
+    recovery.mkdir()
 
     def run(*args, **env):
         environ = dict(os.environ, PATH=f'{bin_dir}{os.pathsep}{os.environ["PATH"]}', FAKE_LOG=str(log),
                        FAKE_TAGS='98ea5220 99e86008 11111111')
         environ.update(env)  # a test may override any of the above, FAKE_TAGS included
+        if '-BackupDir' not in args:
+            args = (*args, '-BackupDir', str(recovery))
         result = subprocess.run([PWSH, '-NoProfile', '-File', str(SCRIPT), *args, '-Root', str(root),
                                  '-BaseUrl', 'http://prod.test', '-SettleSeconds', '8'],
                                 capture_output=True, text=True, env=environ, timeout=120)
@@ -104,7 +108,7 @@ def prod(tmp_path):
         return next(line.split('=', 1)[1] for line in (root / '.env.production').read_text().splitlines()
                     if line.startswith('IMAGE_TAG='))
 
-    run.root, run.tag = root, tag
+    run.root, run.tag, run.recovery = root, tag, recovery
     return run
 
 
@@ -200,8 +204,9 @@ def test_a_backup_uses_the_servers_own_pg_dump_and_prints_the_rehearsal(prod):
     assert result.returncode == 0, result.stdout + result.stderr
     assert any(c.startswith('exec yasargold-db pg_dump -U yasargold -Fc') and c.endswith('yasargold_db')
                for c in calls), calls
-    dumps = list((prod.root / 'backups').glob('pre-99e86008-*.dump'))
+    dumps = list(prod.recovery.glob('pre-99e86008-*.dump'))
     assert len(dumps) == 1 and dumps[0].read_bytes().startswith(b'PGDMP')
+    assert not (prod.root / 'backups').exists(), 'backups go to the external drive, not the production folder'
     assert '--baseline 98ea5220 --release 99e86008' in result.stdout
     assert prod.tag() == '98ea5220', 'a backup never changes the running tag'
 
@@ -231,3 +236,17 @@ def test_a_backend_that_never_comes_up_is_reported(prod):
     result, _ = prod('-Tag', '99e86008', '-Deploy', '-Rehearsed', FAKE_BOOT_CALLS='999')
     assert result.returncode != 0 and 'did not verify' in result.stdout
     assert 'check-setup -> 502' in result.stdout
+
+
+def test_a_backup_with_the_external_drive_missing_stops_before_dumping(prod, tmp_path):
+    """Backups go to the external drive (D:\\yasargold-recovery, the owner's
+    choice, 29 Sep 2026). Unplugged, the script says so and dumps nothing --
+    it never falls back to the production disk."""
+    result, calls = prod('-Tag', '99e86008', '-Backup', '-BackupDir', str(tmp_path / 'unplugged'))
+    assert result.returncode != 0 and 'external drive' in result.stdout
+    assert not any('pg_dump' in c for c in calls)
+
+
+def test_a_copy_that_is_not_a_postgres_dump_is_refused(prod):
+    result, _ = prod('-Tag', '99e86008', '-Backup', FAKE_DUMP_BYTES='garbage')
+    assert result.returncode != 0 and 'not a PostgreSQL dump' in result.stdout
