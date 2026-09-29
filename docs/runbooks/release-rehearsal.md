@@ -47,6 +47,11 @@ python backend/tools/rehearse_release.py \
 - It cannot see what production writes after the backup was taken.
 - It sweeps GET only: writes are exercised by the nightly jobs and by the test suite, not here.
 
+## Known issues
+
+- **Duration varies — from about 5 minutes to about an hour.** In the slow runs each probe process spent 7–15 minutes *outside* its requests (the routes themselves summed to about 60 s). No lock wait was seen and the machine was not busy; the cause is not found yet. The report now prints each sweep's split (import / sign-in / requests) so the next slow run shows where the time goes. The verdict is unaffected: it is made from the recorded answers, not from time.
+- **Fixed:** the control and the rollback sweeps wrote to the same file (`label=` now keeps them apart). Comparisons were never affected — each sweep was read as soon as it was written.
+
 ## Traps it already handles (learned 2026-09-28)
 
 | Trap | What went wrong | What the tool does |

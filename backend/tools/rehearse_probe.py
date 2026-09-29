@@ -79,9 +79,12 @@ def cmd_boot(args) -> dict:
 
 def cmd_sweep(args) -> dict:
     """Every /api GET route, as one real signed-in account, in a fixed order."""
+    phases = {}
+    t0 = time.monotonic()
     from app import app
     from auth_decorators import generate_token
     from models import AppUser, User
+    phases['import'] = round(time.monotonic() - t0, 1)
 
     with app.app_context():
         user = AppUser.query.filter_by(role=args.role, is_active=True).first() if args.role != 'admin' else None
@@ -90,6 +93,7 @@ def cmd_sweep(args) -> dict:
             user = User.query.filter_by(is_admin=True, is_active=True).first()
             who = 'users:admin'
         token = generate_token(user)
+    phases['sign_in'] = round(time.monotonic() - t0 - phases['import'], 1)
 
     # No per-request alarm: a Python signal cannot cancel a query already running
     # on the server -- it kept running there and stalled the requests after it.
@@ -108,7 +112,8 @@ def cmd_sweep(args) -> dict:
         except Exception as exc:  # a route that raises is a finding, not a crash of the rehearsal
             routes[rule.rule] = {'status': f'EXC {type(exc).__name__}', 'body': None,
                                  'ms': int((time.monotonic() - started) * 1000)}
-    return {'ok': True, 'as': who, 'routes': routes}
+    phases['requests'] = round(time.monotonic() - t0 - phases['import'] - phases['sign_in'], 1)
+    return {'ok': True, 'as': who, 'routes': routes, 'phases': phases}
 
 
 def cmd_anonymous(args) -> dict:

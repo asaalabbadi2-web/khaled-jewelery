@@ -236,8 +236,10 @@ class Tree:
         env['NO_PROXY'] = env['no_proxy'] = 'localhost,127.0.0.1'
         return env
 
-    def probe(self, command, db, *extra, timeout=1800) -> dict:
-        out = self.work / f'{self.backend.parent.name}-{command}-{db}.json'
+    def probe(self, command, db, *extra, label=None, timeout=1800) -> dict:
+        # label keeps two runs of the same command on the same copy apart
+        # (the control and the rollback sweep once overwrote each other's file).
+        out = self.work / f'{self.backend.parent.name}-{label or command}-{db}.json'
         r = _run([sys.executable, PROBE, command, '--out', out, *extra], cwd=self.backend,
                  env=self.env(db), timeout=timeout)
         if out.exists():
@@ -298,6 +300,9 @@ def render(r: dict, red: list, accepted) -> str:
                      f"{anon['public']} public route(s) · {len(anon['open'])} open: {anon['open'][:10]}")
     lines.append(f"- Noise: {len(r.get('noise', []))} route(s) answer differently to two runs of the same code "
                  f"on identical copies — set aside, not compared: {r.get('noise', [])}")
+    if r.get('phases'):
+        lines.append('- Sweep timing (import / sign-in / requests, seconds): ' + ' · '.join(
+            f"{k} {v['import']}/{v['sign_in']}/{v['requests']}" for k, v in r['phases'].items() if v))
     if r.get('slowest'):
         lines.append('- Slowest routes (release): ' + ', '.join(f'`{k}` {ms / 1000:.1f}s' for ms, k in r['slowest']))
     for label, title in (('differential', 'Differential (baseline → release, same copy)'),
@@ -381,7 +386,7 @@ def main(argv=None) -> int:
         # Control: the SAME baseline code on the second copy, before it is migrated.
         # Whatever differs here is noise, and every later comparison is made on
         # this copy against this sweep.
-        control_sweep = baseline.probe('sweep', dbs['rel'], '--role', args.role)
+        control_sweep = baseline.probe('sweep', dbs['rel'], '--role', args.role, label='control-sweep')
         noise = unstable_routes(base_sweep, control_sweep)
         r['noise'] = sorted(noise)
 
@@ -399,7 +404,7 @@ def main(argv=None) -> int:
 
         print('[5/7] rollback: baseline on the migrated copy …', flush=True)
         r['rollback_boot'] = baseline.probe('boot', dbs['rel'])
-        rollback_sweep = baseline.probe('sweep', dbs['rel'], '--role', args.role)
+        rollback_sweep = baseline.probe('sweep', dbs['rel'], '--role', args.role, label='rollback-sweep')
         r['rollback'] = compare_sweeps(control_sweep, rollback_sweep, noise)
 
         print(f'[6/7] {args.nights} night(s) of {args.jobs} …', flush=True)
@@ -414,6 +419,8 @@ def main(argv=None) -> int:
 
         for key in ('baseline_boot', 'release_boot', 'rollback_boot'):
             r[key] = r.get(key) or {'ok': False}
+        r['phases'] = {name: sweep.get('phases') for sweep, name in (
+            (base_sweep, 'baseline'), (control_sweep, 'control'), (rel_sweep, 'release'), (rollback_sweep, 'rollback'))}
         for sweep, name in ((base_sweep, 'baseline sweep'), (control_sweep, 'control sweep'),
                             (rel_sweep, 'release sweep'), (rollback_sweep, 'rollback sweep')):
             if not sweep.get('ok'):
