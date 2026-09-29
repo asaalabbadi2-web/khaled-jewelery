@@ -51,3 +51,34 @@ def test_the_run_the_scheduler_calls_reports_success_not_a_swallowed_error(tmp_p
     out = capsys.readouterr().out
     assert '❌' not in out, out
     assert list(tmp_path.glob('yasargold-backup-*.zip')), out
+
+
+def test_the_manual_backup_labels_its_time_in_utc(auth_headers, monkeypatch):
+    """The manual backup wrote datetime.now() -- local time -- under
+    'created_at_utc', with a 'Z'. On the production machine (Asia/Riyadh) that
+    read three hours ahead of the real UTC time, and on 29 Sep 2026 was briefly
+    mistaken for a clock fault. Pinned to Riyadh here so it fails anywhere."""
+    import io
+    import time
+    from datetime import datetime
+
+    monkeypatch.setenv('TZ', 'Asia/Riyadh')
+    time.tzset()
+    try:
+        with flask_app.test_client() as c:
+            resp = c.get('/api/system/backup/download', headers=auth_headers)
+        assert resp.status_code == 200, resp.get_data(as_text=True)[:300]
+        with zipfile.ZipFile(io.BytesIO(resp.data)) as z:
+            meta = json.loads(z.read('metadata.json'))
+        stamped = datetime.fromisoformat(meta['created_at_utc'].rstrip('Z'))
+        assert abs((datetime.utcnow() - stamped).total_seconds()) < 120, meta
+    finally:
+        monkeypatch.delenv('TZ')
+        time.tzset()
+
+
+def test_no_backup_labels_local_time_as_utc():
+    """The same label was written in six places, by three backup routes."""
+    import pathlib
+    source = (pathlib.Path(__file__).resolve().parents[1] / 'routes' / 'system.py').read_text()
+    assert "'created_at_utc': datetime.now()" not in source

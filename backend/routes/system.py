@@ -438,7 +438,7 @@ def _create_pre_restore_snapshot_zip() -> str:
             _create_postgres_backup_to_file(dump_path)
 
             meta = {
-                'created_at_utc': datetime.now().isoformat() + 'Z',
+                'created_at_utc': datetime.utcnow().isoformat() + 'Z',  # UTC, as labelled
                 'purpose': 'pre_restore_snapshot',
                 'db_backend': 'postgres',
                 'format': 'pg_dump_custom',
@@ -458,7 +458,7 @@ def _create_pre_restore_snapshot_zip() -> str:
         _create_sqlite_backup_to_file(db_path)
 
         meta = {
-            'created_at_utc': datetime.now().isoformat() + 'Z',
+            'created_at_utc': datetime.utcnow().isoformat() + 'Z',  # UTC, as labelled
             'purpose': 'pre_restore_snapshot',
             'db_backend': 'sqlite',
         }
@@ -1959,7 +1959,7 @@ def system_backup_download():
                 }), 500
 
             meta = {
-                'created_at_utc': datetime.now().isoformat() + 'Z',
+                'created_at_utc': datetime.utcnow().isoformat() + 'Z',  # UTC, as labelled
                 'db_backend': 'postgres',
                 'format': 'pg_dump_custom',
             }
@@ -1969,7 +1969,7 @@ def system_backup_download():
             _create_sqlite_backup_to_file(db_path)
 
             meta = {
-                'created_at_utc': datetime.now().isoformat() + 'Z',
+                'created_at_utc': datetime.utcnow().isoformat() + 'Z',  # UTC, as labelled
                 'db_backend': 'sqlite',
             }
             archive_name = 'database.sqlite'
@@ -2108,7 +2108,7 @@ def system_backup_drive_upload():
                 }), 500
 
             meta = {
-                'created_at_utc': datetime.now().isoformat() + 'Z',
+                'created_at_utc': datetime.utcnow().isoformat() + 'Z',  # UTC, as labelled
                 'db_backend': 'postgres',
                 'format': 'pg_dump_custom',
             }
@@ -2118,7 +2118,7 @@ def system_backup_drive_upload():
             _create_sqlite_backup_to_file(db_path)
 
             meta = {
-                'created_at_utc': datetime.now().isoformat() + 'Z',
+                'created_at_utc': datetime.utcnow().isoformat() + 'Z',  # UTC, as labelled
                 'db_backend': 'sqlite',
             }
             archive_name = 'database.sqlite'
