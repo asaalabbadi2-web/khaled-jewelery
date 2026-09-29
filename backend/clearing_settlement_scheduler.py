@@ -1063,7 +1063,19 @@ class ClearingSettlementScheduler:
         )
 
         if last is not None and last >= cutoff:
-            return False  # fresh enough — no finding needed
+            # Fresh: settlements are moving, so a finding still open from an
+            # earlier gap is over. Close it -- it keeps its created_at and
+            # check_count as the record of that gap. Without this the finding
+            # opened on the first 3-hour gap and never closed (SCHED-004: open
+            # from 29 Jul 2026 with check_count 68,093 while 61 auto-settlements
+            # followed), so an open finding could not say "stale NOW".
+            still_open = ReconciliationFinding.query.filter_by(
+                kind='STALE_SETTLEMENT', resolved_at=None).all()
+            for finding in still_open:
+                finding.resolved_at = datetime.utcnow()
+            if still_open:
+                db.session.commit()
+            return False
 
         # Stale: check for an existing open finding to avoid duplicate rows
         existing = (

@@ -345,3 +345,70 @@ class TestStaleFindingEmitted:
             # Cleanup
             _db.session.delete(findings[0])
             _db.session.commit()
+
+    def test_a_fresh_auto_settlement_resolves_the_open_finding(self):
+        """SCHED-004: the finding used to open on the first 3-hour gap and never
+        close -- production held one from 29 Jul 2026 with check_count 68,093
+        while 61 auto-settlements followed. An open finding must mean that
+        settlements are stale NOW."""
+        from datetime import datetime
+        from models import ReconciliationFinding, Voucher, db as _db
+        from clearing_settlement_scheduler import ClearingSettlementScheduler
+
+        app = _make_app()
+        scheduler = ClearingSettlementScheduler(app)
+        with app.app_context():
+            _db.session.query(ReconciliationFinding).filter_by(
+                kind='STALE_SETTLEMENT', resolved_at=None).delete()
+            _db.session.commit()
+            scheduler._emit_stale_finding_if_needed(threshold_hours=0)      # stale: opens
+            opened = ReconciliationFinding.query.filter_by(
+                kind='STALE_SETTLEMENT', resolved_at=None).one()
+            voucher = Voucher(voucher_number=f'AS-{opened.id}-fresh', voucher_type='payment',
+                              date=datetime.utcnow(), status='approved', created_by='scheduler',
+                              amount_cash=0.0, reference_type='clearing_settlement',
+                              notes='auto_settlement:test', created_at=datetime.utcnow())
+            _db.session.add(voucher)
+            _db.session.commit()
+
+            created = scheduler._emit_stale_finding_if_needed(threshold_hours=3)  # fresh again
+
+            assert created is False
+            assert ReconciliationFinding.query.get(opened.id).resolved_at is not None, (
+                'a fresh auto-settlement must close the open STALE_SETTLEMENT finding')
+            assert ReconciliationFinding.query.filter_by(
+                kind='STALE_SETTLEMENT', resolved_at=None).count() == 0
+
+            _db.session.delete(voucher)
+            _db.session.delete(ReconciliationFinding.query.get(opened.id))
+            _db.session.commit()
+
+    def test_a_new_stale_period_after_resolution_opens_a_new_finding(self):
+        """Each stale period is its own episode: the closed one keeps its history
+        (created_at, check_count, resolved_at), the next one starts at 1."""
+        from datetime import datetime
+        from models import ReconciliationFinding, db as _db
+        from clearing_settlement_scheduler import ClearingSettlementScheduler
+
+        app = _make_app()
+        scheduler = ClearingSettlementScheduler(app)
+        with app.app_context():
+            _db.session.query(ReconciliationFinding).filter_by(
+                kind='STALE_SETTLEMENT', resolved_at=None).delete()
+            _db.session.commit()
+            old = ReconciliationFinding(kind='STALE_SETTLEMENT', source='clearing_settlement_scheduler',
+                                        detail='an earlier period', check_count=41,
+                                        resolved_at=datetime.utcnow())
+            _db.session.add(old)
+            _db.session.commit()
+
+            created = scheduler._emit_stale_finding_if_needed(threshold_hours=0)
+
+            assert created is True
+            new = ReconciliationFinding.query.filter_by(kind='STALE_SETTLEMENT', resolved_at=None).one()
+            assert new.id != old.id and new.check_count == 1
+            assert ReconciliationFinding.query.get(old.id).check_count == 41
+
+            _db.session.delete(new)
+            _db.session.delete(ReconciliationFinding.query.get(old.id))
+            _db.session.commit()
