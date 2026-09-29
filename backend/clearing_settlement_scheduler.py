@@ -19,6 +19,7 @@ import signal as _signal
 import threading as _threading
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
+from typing import NamedTuple, Optional
 from threading import Thread
 
 import schedule
@@ -66,6 +67,166 @@ def settleable_payments_query(safe_box_id: int):
                 list(RETRACTED_INVOICE_STATUSES)),
         )
     )
+
+
+
+class SettlementDay(NamedTuple):
+    """What a payment method's schedule says about one day."""
+    runs: bool                    # is *day* a settlement day for this method?
+    cutoff_date: Optional[date]   # payments made up to the end of this day are due
+    schedule_type: str            # 'days' | 'weekday'
+    reason: Optional[str]         # why it does not run (the scheduler's skip reason)
+
+
+def settlement_day(pm, day: date) -> SettlementDay:
+    """The ONE reading of a payment method's settlement schedule.
+
+    process_due_settlements() asks it whether to settle today, and the overdue
+    alarm asks it which payments should already have been settled -- so the two
+    cannot disagree about when a payment falls due (ADR-032, the owner's rule, 29 Sep
+    2026: an alarm fires by each method's own schedule, never by elapsed time).
+    """
+    schedule_type = str(pm.settlement_schedule_type or 'days').strip().lower()
+    if schedule_type not in ('days', 'weekday'):
+        schedule_type = 'days'
+
+    # New: allow a separate deposit schedule (days|weekday) independent
+    # from settlement schedule. This supports:
+    # - settlement in same day (settlement_days=0)
+    # - deposit on a fixed weekday (e.g. every Wednesday)
+    deposit_schedule_type = str(
+        getattr(pm, 'deposit_schedule_type', 'days') or 'days'
+    ).strip().lower()
+    if deposit_schedule_type not in ('days', 'weekday'):
+        deposit_schedule_type = 'days'
+
+    # Determine if this method is due to run today, and compute cutoff.
+    cutoff_days = int(pm.settlement_days or 0)
+    if cutoff_days < 0:
+        cutoff_days = 0
+
+    deposit_delay = int(getattr(pm, 'deposit_delay_days', 0) or 0)
+    if deposit_delay < 0:
+        deposit_delay = 0
+
+    if deposit_schedule_type == 'weekday':
+        deposit_weekday = getattr(pm, 'deposit_weekday', None)
+        if deposit_weekday is None:
+            return SettlementDay(False, None, schedule_type, 'deposit_weekday_not_configured')
+        try:
+            deposit_weekday = int(deposit_weekday)
+        except Exception:
+            return SettlementDay(False, None, schedule_type, 'deposit_weekday_invalid')
+        if deposit_weekday < 0 or deposit_weekday > 6:
+            return SettlementDay(False, None, schedule_type, f'deposit_weekday_out_of_range:{deposit_weekday}')
+        if deposit_weekday != day.weekday():
+            return SettlementDay(False, None, schedule_type, f'not_deposit_weekday:execution={deposit_weekday},today={day.weekday()}')
+        # When execution is fixed to a weekday, delay-in-days does not
+        # control execution timing.
+        effective_deposit_delay = 0
+    else:
+        effective_deposit_delay = deposit_delay
+
+    if schedule_type == 'weekday':
+        if pm.settlement_weekday is None:
+            return SettlementDay(False, None, schedule_type, 'weekday_not_configured')
+        try:
+            configured_weekday = int(pm.settlement_weekday)
+        except Exception:
+            return SettlementDay(False, None, schedule_type, 'weekday_invalid')
+        if configured_weekday < 0 or configured_weekday > 6:
+            return SettlementDay(False, None, schedule_type, f'weekday_out_of_range:{configured_weekday}')
+
+        # Backward-compatible behavior:
+        # for deposit_schedule_type=days, execution weekday derives from
+        # (settlement weekday + deposit delay). For fixed deposit weekday,
+        # execution gating is already handled above.
+        if deposit_schedule_type == 'days':
+            execution_weekday = (configured_weekday + effective_deposit_delay) % 7
+            if execution_weekday != day.weekday():
+                return SettlementDay(False, None, schedule_type, f'not_scheduled_today:execution={execution_weekday},today={day.weekday()}')
+
+        cutoff_days = max(cutoff_days, 1) + effective_deposit_delay
+    else:
+        schedule_type = 'days'
+        cutoff_days = cutoff_days + effective_deposit_delay
+
+    return SettlementDay(True, day - timedelta(days=max(cutoff_days, 0)), schedule_type, None)
+
+
+# ======================================================================
+# The overdue alarm (SCHED-004)
+# ======================================================================
+
+OVERDUE_KIND = 'OVERDUE_SETTLEMENT'
+OVERDUE_SOURCE = 'clearing_settlement_scheduler'
+_DEFAULT_GRACE_HOURS = 6.0
+_LOOKBACK_DAYS = 14   # a weekly method's last settlement day is at most 7 days back
+
+
+def _local_now() -> datetime:
+    """The scheduler's clock: settlement days are local days (date.today())."""
+    return datetime.now()
+
+
+def overdue_grace_hours() -> float:
+    """POLICY, not law: how long after a settlement day begins its due payments
+    may stay unsettled. The scheduler runs every 2 hours; 6 = three missed runs."""
+    try:
+        return max(float(_os.getenv('SETTLEMENT_OVERDUE_GRACE_HOURS', _DEFAULT_GRACE_HOURS)), 0.0)
+    except ValueError:
+        return _DEFAULT_GRACE_HOURS
+
+
+def overdue_settlements(now: datetime, grace_hours: float) -> list:
+    """One fact per payment method holding payments that should have been settled.
+
+    A payment is overdue when its method's last settlement day whose grace has
+    passed -- read through settlement_day(), the scheduler's own reading --
+    included it, and it is still unsettled. A day without card sales, a weekly
+    method before its weekday and an amount below the method's minimum raise
+    nothing. Read-only.
+    """
+    from services.books_invariants import Fact
+
+    facts = []
+    methods = (PaymentMethod.query
+               .filter_by(is_active=True, auto_settlement_enabled=True)
+               .order_by(PaymentMethod.id).all())
+    for pm in methods:
+        if not pm.default_safe_box_id:
+            continue
+        due_day = cutoff = None
+        for back in range(_LOOKBACK_DAYS + 1):
+            day = now.date() - timedelta(days=back)
+            reading = settlement_day(pm, day)
+            if reading.runs and datetime.combine(day, time.min) + timedelta(hours=grace_hours) <= now:
+                due_day, cutoff = day, reading.cutoff_date
+                break
+        if due_day is None:
+            continue
+
+        payments = (settleable_payments_query(pm.default_safe_box_id)
+                    .filter(InvoicePayment.payment_method_id == pm.id,
+                            InvoicePayment.created_at <= datetime.combine(cutoff, time.max))
+                    .all())
+        settled = get_settled_amounts([ip.id for ip in payments])
+        open_parts = [(ip, round(float(ip.amount or 0) - settled.get(ip.id, 0.0), 2)) for ip in payments]
+        open_parts = [(ip, rest) for ip, rest in open_parts if rest > 0.005]
+        amount = round(sum(rest for _, rest in open_parts), 2)
+        minimum = float(getattr(pm, 'min_settlement_amount', 0.0) or 0.0)
+        if amount < 0.01 or (minimum > 0.01 and amount < minimum):
+            continue
+        oldest = min(ip.created_at for ip, _ in open_parts)
+        facts.append(Fact(OVERDUE_KIND, f'payment_method:{pm.id}', amount, {
+            'payment_method': pm.name,
+            'due_day': due_day.isoformat(),
+            'cutoff': cutoff.isoformat(),
+            'payments': len(open_parts),
+            'oldest_payment_at': oldest.isoformat() if oldest else None,
+            'grace_hours': grace_hours,
+        }))
+    return facts
 
 
 @dataclass
@@ -482,80 +643,12 @@ class ClearingSettlementScheduler:
                             )
                     # ════════════════════════════════════════════════════════════
 
-                    schedule_type = str(pm.settlement_schedule_type or 'days').strip().lower()
-                    if schedule_type not in ('days', 'weekday'):
-                        schedule_type = 'days'
-
-                    # New: allow a separate deposit schedule (days|weekday) independent
-                    # from settlement schedule. This supports:
-                    # - settlement in same day (settlement_days=0)
-                    # - deposit on a fixed weekday (e.g. every Wednesday)
-                    deposit_schedule_type = str(
-                        getattr(pm, 'deposit_schedule_type', 'days') or 'days'
-                    ).strip().lower()
-                    if deposit_schedule_type not in ('days', 'weekday'):
-                        deposit_schedule_type = 'days'
-
-                    # Determine if this method is due to run today, and compute cutoff.
-                    cutoff_days = int(pm.settlement_days or 0)
-                    if cutoff_days < 0:
-                        cutoff_days = 0
-
-                    deposit_delay = int(getattr(pm, 'deposit_delay_days', 0) or 0)
-                    if deposit_delay < 0:
-                        deposit_delay = 0
-
-                    if deposit_schedule_type == 'weekday':
-                        deposit_weekday = getattr(pm, 'deposit_weekday', None)
-                        if deposit_weekday is None:
-                            _skip('deposit_weekday_not_configured')
-                            continue
-                        try:
-                            deposit_weekday = int(deposit_weekday)
-                        except Exception:
-                            _skip('deposit_weekday_invalid')
-                            continue
-                        if deposit_weekday < 0 or deposit_weekday > 6:
-                            _skip(f'deposit_weekday_out_of_range:{deposit_weekday}')
-                            continue
-                        if deposit_weekday != weekday:
-                            _skip(f'not_deposit_weekday:execution={deposit_weekday},today={weekday}')
-                            continue
-                        # When execution is fixed to a weekday, delay-in-days does not
-                        # control execution timing.
-                        effective_deposit_delay = 0
-                    else:
-                        effective_deposit_delay = deposit_delay
-
-                    if schedule_type == 'weekday':
-                        if pm.settlement_weekday is None:
-                            _skip('weekday_not_configured')
-                            continue
-                        try:
-                            configured_weekday = int(pm.settlement_weekday)
-                        except Exception:
-                            _skip('weekday_invalid')
-                            continue
-                        if configured_weekday < 0 or configured_weekday > 6:
-                            _skip(f'weekday_out_of_range:{configured_weekday}')
-                            continue
-
-                        # Backward-compatible behavior:
-                        # for deposit_schedule_type=days, execution weekday derives from
-                        # (settlement weekday + deposit delay). For fixed deposit weekday,
-                        # execution gating is already handled above.
-                        if deposit_schedule_type == 'days':
-                            execution_weekday = (configured_weekday + effective_deposit_delay) % 7
-                            if execution_weekday != weekday:
-                                _skip(f'not_scheduled_today:execution={execution_weekday},today={weekday}')
-                                continue
-
-                        cutoff_days = max(cutoff_days, 1) + effective_deposit_delay
-                    else:
-                        schedule_type = 'days'
-                        cutoff_days = cutoff_days + effective_deposit_delay
-
-                    cutoff_date = today - timedelta(days=max(cutoff_days, 0))
+                    _day = settlement_day(pm, today)
+                    schedule_type = _day.schedule_type
+                    if not _day.runs:
+                        _skip(_day.reason)
+                        continue
+                    cutoff_date = _day.cutoff_date
                     cutoff_dt = datetime.combine(cutoff_date, time.max)
 
                     # Check if there are unsettled IPs (SettlementLine-aware)
@@ -1035,81 +1128,32 @@ class ClearingSettlementScheduler:
     # S5 — Business-outcome monitoring
     # ------------------------------------------------------------------
 
-    def _emit_stale_finding_if_needed(self, threshold_hours: int = 3) -> bool:
-        """Check whether the last auto-settlement voucher is older than
-        threshold_hours.  If so, write a STALE_SETTLEMENT row to
-        reconciliation_findings (or increment its check_count if an open
-        finding already exists).
+    def _emit_overdue_findings(self) -> dict:
+        """Bring the OVERDUE_SETTLEMENT findings in line with what is overdue now:
+        one open finding per payment method with overdue payments, resolved once
+        they are settled (the ADR-030 lifecycle, reconcile_findings).
 
-        Returns True when a NEW finding is created, False otherwise.
-        This is the authoritative signal that settlements have stopped —
-        it catches every failure mode (thread death, all PMs skipped,
-        silent DB errors) because it measures the business OUTCOME, not
-        process state.
+        Replaces STALE_SETTLEMENT (SCHED-004): time since the last settlement
+        could not tell a day without card sales from a stopped scheduler. Any
+        STALE_SETTLEMENT still open is closed here -- the kind is retired.
         """
-        from models import ReconciliationFinding, Voucher as _Voucher
-        from datetime import timedelta as _td
-        from sqlalchemy import func as _func
+        from models import ReconciliationFinding
+        from services.books_invariants import reconcile_findings
 
-        cutoff = datetime.utcnow() - _td(hours=threshold_hours)
-
-        last = (
-            db.session.query(_func.max(_Voucher.created_at))
-            .filter(
-                _Voucher.reference_type == 'clearing_settlement',
-                _Voucher.notes.like('auto_settlement:%'),
-            )
-            .scalar()
-        )
-
-        if last is not None and last >= cutoff:
-            # Fresh: settlements are moving, so a finding still open from an
-            # earlier gap is over. Close it -- it keeps its created_at and
-            # check_count as the record of that gap. Without this the finding
-            # opened on the first 3-hour gap and never closed (SCHED-004: open
-            # from 29 Jul 2026 with check_count 68,093 while 61 auto-settlements
-            # followed), so an open finding could not say "stale NOW".
-            still_open = ReconciliationFinding.query.filter_by(
-                kind='STALE_SETTLEMENT', resolved_at=None).all()
-            for finding in still_open:
-                finding.resolved_at = datetime.utcnow()
-            if still_open:
-                db.session.commit()
-            return False
-
-        # Stale: check for an existing open finding to avoid duplicate rows
-        existing = (
-            ReconciliationFinding.query
-            .filter_by(kind='STALE_SETTLEMENT', resolved_at=None)
-            .first()
-        )
-        if existing is not None:
-            existing.check_count = (existing.check_count or 1) + 1
-            db.session.commit()
-            return False
-
-        # First detection — create the finding row
-        finding = ReconciliationFinding(
-            kind='STALE_SETTLEMENT',
-            source='clearing_settlement_scheduler',
-            detail=(
-                f'No auto_settlement voucher since '
-                f'{last.isoformat() if last else "never"}; '
-                f'threshold={threshold_hours}h'
-            ),
-        )
-        db.session.add(finding)
+        facts = overdue_settlements(_local_now(), overdue_grace_hours())
+        result = reconcile_findings(OVERDUE_KIND, OVERDUE_SOURCE, facts)
+        for row in ReconciliationFinding.query.filter_by(kind='STALE_SETTLEMENT', resolved_at=None).all():
+            row.resolved_at = datetime.utcnow()
         db.session.commit()
-        print(
-            f'[ClearingSettlementScheduler] ⚠ STALE_SETTLEMENT finding created'
-            f' (last={last})',
-            flush=True,
-        )
-        return True
-
-    # ------------------------------------------------------------------
-    # Scheduler wiring
-    # ------------------------------------------------------------------
+        for fact in facts:
+            if fact.subject_key in result['opened'] or fact.subject_key in result['changed']:
+                print(
+                    f"[ClearingSettlementScheduler] ⚠ OVERDUE_SETTLEMENT {fact.detail['payment_method']}: "
+                    f"{fact.metric:.2f} in {fact.detail['payments']} payment(s) due "
+                    f"{fact.detail['due_day']}, still unsettled",
+                    flush=True,
+                )
+        return result
 
     def start(self):
         if self.is_running:
@@ -1139,14 +1183,15 @@ class ClearingSettlementScheduler:
                     # S3: interruptible wait — stop() sets _stop_event so
                     # the thread wakes immediately instead of sleeping 60s
                     self._stop_event.wait(timeout=60)
-                    # S5: emit stale finding on each cycle inside app context
+                    # S5: the overdue alarm, on each cycle inside app context
                     if self.is_running and not self._stop_event.is_set():
                         with self.app.app_context():
                             try:
-                                self._emit_stale_finding_if_needed()
+                                self._emit_overdue_findings()
                             except Exception as _exc:
+                                db.session.rollback()
                                 print(
-                                    f'[ClearingSettlementScheduler] stale check error: {_exc}',
+                                    f'[ClearingSettlementScheduler] overdue check error: {_exc}',
                                     flush=True,
                                 )
             except Exception as exc:

@@ -5639,8 +5639,11 @@ class ReconciliationFinding(db.Model):
     job produced the finding.
 
     Kinds (extensible, add new kinds as new jobs emit here):
-      STALE_SETTLEMENT — no auto_settlement voucher produced within the
-                         expected window; written by ClearingSettlementScheduler.
+      OVERDUE_SETTLEMENT — card payments past their method's settlement day
+                         and still unsettled, one per payment method; written by
+                         ClearingSettlementScheduler. Replaced STALE_SETTLEMENT
+                         (elapsed time since the last settlement), retired
+                         29 Sep 2026 -- old rows stay as history.
       ORPHAN_POSTED_ENTRY, UNPOSTED_ENTRY_IN_LIMBO, GOLD_ATTRIBUTION_MISSING,
       SAFEBOX_SUBLEDGER_DRIFT — the books invariants, services/books_invariants.py.
       VOUCHER_ENTRY_UNPOSTED_ON_POSTED_INVOICE, SAFEBOX_ROW_BACKFILLED —
