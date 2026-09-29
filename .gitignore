@@ -6,6 +6,10 @@
 # Local backups / exports
 backups/
 *.zip
+# Production folder (a clone of this repo): the dump a disaster recovery extracts
+# (docs/runbooks/disaster-recovery.md) and the tag update-prod.ps1 rolls back to
+/restore/
+/.previous-image-tag
 
 # ===== Node / pnpm =====
 node_modules/

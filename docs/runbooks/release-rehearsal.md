@@ -23,6 +23,22 @@ python backend/tools/rehearse_release.py \
 
 `--release WORKTREE` rehearses uncommitted work; a path rehearses any backend directory. About five minutes on the 28 Sep 2026 data. Exit status: 0 green, 1 red, 2 could not run.
 
+## Deploy — `update-prod.ps1` on the server
+
+Once: copy `update-prod.ps1` and `update-prod.bat` into `C:\Projects\khaledjewels`, and run `docker login registry.gitlab.com` (the credentials are then stored; the script holds no token).
+
+```powershell
+cd C:\Projects\khaledjewels
+.\update-prod.bat -Tag <8-char tag> -Backup              # images exist? then a backup with the server's own pg_dump
+# copy backups\pre-<tag>-<time>.dump to the Mac and run the rehearsal the script prints
+.\update-prod.bat -Tag <8-char tag> -Deploy -Rehearsed   # only on GREEN
+.\update-prod.bat -Tag <previous tag> -Deploy -Rollback  # if ever needed; the script prints it
+```
+
+`-Deploy` refuses without `-Rehearsed`, refuses the tag already running, stops before any change if an image is missing, writes `IMAGE_TAG` and reads it back, migrates before anything restarts (a failed migration puts the old tag back and restarts nothing), then checks the running image tags, `401` for an anonymous `/api/invoices` and `200` for `/api/auth/check-setup`. `-DryRun` prints every step and changes nothing. Proven against a fake `docker` by `backend/tests/test_update_prod_script.py` (14 tests; the rehearsal gate, the tag restore and the boot wait witnessed red by breaking them). Every command it prints is the `.bat` form: a stock Windows client refuses to run a `.ps1` directly. It pulls and restarts `backend`, `scheduler` and `nginx` only — never the database: `postgres:16` is a moving tag, and the 29 Sep 2026 deploy, which still pulled every image, recreated `yasargold-db` on a build nobody had rehearsed. Verification waits for the backend (up to `-SettleSeconds`, default 90) instead of a fixed pause.
+
+The CI job `deploy-production` is manual only: a runner registered one day must not turn a push into a deploy.
+
 ## What it does — all on the Mac, hermetic
 
 1. Restores the backup into scratch databases (the oldest `pg_restore` that can read it), then `ANALYZE` — production has planner statistics, a fresh restore does not.

@@ -197,5 +197,11 @@ deploy-production:
     - echo "Deploy completed successfully"
   environment:
     name: production
+  # Manual only. Production is deployed with update-prod.ps1 on the server, and
+  # only after a GREEN rehearsal on a fresh backup (docs/runbooks/release-rehearsal.md).
+  # No runner is registered today; if one ever is, a push to main must not turn
+  # into a deploy on its own.
   rules:
     - if: $CI_COMMIT_BRANCH == "main"
+      when: manual
+      allow_failure: true

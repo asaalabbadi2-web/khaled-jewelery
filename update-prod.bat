@@ -1,83 +1,11 @@
 @echo off
-echo ============================================
-echo   Khaled-Jewelery Production Update
-echo ============================================
-REM === Production lives at C:\Projects\khaledjewels since the 2026-09-26 rebuild
-REM    (docs/runbooks/recovery-snapshot-2026-09-26.md).  The old C:\Khaled-Jewelery
-REM    is NOT production: Compose derives its project name from the folder, so that
-REM    path resolves to a different volume namespace (khaled-jewelery_postgres_data
-REM    instead of khaledjewels_postgres_data).  Deploying from there would not touch
-REM    production's database at all.
-cd /d "C:\Projects\khaledjewels"
-if %ERRORLEVEL% neq 0 (
-    echo ERROR: production folder C:\Projects\khaledjewels not found - ABORTED.
-    pause & exit /b 1
-)
-
-REM === Production runs on the GitLab Container Registry, so this script uses
-REM    docker-compose.prod.gitlab.yml -- the only compose file whose image
-REM    references actually match it (registry.gitlab.com/sasalabbadi/khaledjewels).
-REM    docker-compose.prod.images.yml points at ghcr.io and belongs to the
-REM    GitHub Actions path instead; using it here meant the registry login and
-REM    the image references disagreed.
-REM    One variable, so there is a single place to change the compose file.
-set COMPOSE_FILE_NAME=docker-compose.prod.gitlab.yml
-set COMPOSE=docker compose -f %COMPOSE_FILE_NAME% --env-file .env.production
-
-echo.
-echo [1/5] Logging into GitLab Registry...
-set GL_TOKEN=YOUR_TOKEN_HERE
-echo %GL_TOKEN% | docker login registry.gitlab.com -u sasalabbadi --password-stdin
-if %ERRORLEVEL% neq 0 (
-    echo ERROR: Docker login failed!
-    pause & exit /b 1
-)
-
-echo.
-echo [2/5] Pulling latest images from GitLab...
-%COMPOSE% pull
-if %ERRORLEVEL% neq 0 (
-    echo ERROR: Pull failed!
-    pause & exit /b 1
-)
-
-REM === Migrations run BEFORE the app starts, and a failure here aborts the
-REM    deploy. Two reasons this order is mandatory, both learned the hard way:
-REM      1. backend/app.py calls db.create_all() at import time (for gunicorn),
-REM         so if the app boots first it creates tables straight from the models
-REM         and alembic then finds them already present. The schema looks right
-REM         while alembic_version stays behind and data-carrying steps such as a
-REM         backfill silently never run -- exactly what happened to the Phase 16C
-REM         deploy (tables present, 0 of 153 obligations backfilled).
-REM      2. A half-migrated schema must never serve traffic.
-REM    `run --rm` is used rather than `exec` so this does not depend on the app
-REM    container being up yet; compose starts db first and waits for its
-REM    healthcheck via backend's depends_on: service_healthy.
-echo.
-echo [3/5] Applying database migrations...
-%COMPOSE% run --rm backend bash -c "cd /app/backend && alembic upgrade head"
-if %ERRORLEVEL% neq 0 (
-    echo ERROR: Migration failed - DEPLOY ABORTED. Services were NOT restarted.
-    echo The previous version is still running. Read the error above before retrying.
-    pause & exit /b 1
-)
-%COMPOSE% run --rm backend bash -c "cd /app/backend && alembic current"
-
-echo.
-echo [4/5] Restarting all services (including scheduler)...
-%COMPOSE% up -d --force-recreate
-if %ERRORLEVEL% neq 0 (
-    echo ERROR: Failed to start services!
-    pause & exit /b 1
-)
-
-echo.
-echo [5/5] Verifying scheduler started correctly...
-timeout /t 5 /nobreak > nul
-docker logs yasargold-scheduler --tail=15
-
-echo.
-echo ============================================
-echo   Update Complete!
-echo ============================================
-pause
+REM The production deploy is update-prod.ps1, next to this file. This wrapper
+REM only forwards its arguments, so the old habit of running update-prod.bat
+REM keeps working:
+REM   update-prod.bat -Tag 99e86008 -Backup              (backup, then rehearse on the Mac)
+REM   update-prod.bat -Tag 99e86008 -Deploy -Rehearsed   (only after a GREEN rehearsal)
+REM   update-prod.bat -Tag 98ea5220 -Deploy -Rollback    (back to the previous release)
+REM Registry login is no longer here: run "docker login registry.gitlab.com" once.
+REM See docs/runbooks/release-rehearsal.md.
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0update-prod.ps1" %*
+exit /b %ERRORLEVEL%
