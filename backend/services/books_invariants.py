@@ -57,6 +57,7 @@ SOURCE = 'books_invariants'
 
 ORPHAN_POSTED_ENTRY = 'ORPHAN_POSTED_ENTRY'
 UNPOSTED_ENTRY_IN_LIMBO = 'UNPOSTED_ENTRY_IN_LIMBO'
+POSTED_ENTRY_OF_UNPOSTED_INVOICE = 'POSTED_ENTRY_OF_UNPOSTED_INVOICE'
 GOLD_ATTRIBUTION_MISSING = 'GOLD_ATTRIBUTION_MISSING'
 SAFEBOX_SUBLEDGER_DRIFT = 'SAFEBOX_SUBLEDGER_DRIFT'
 
@@ -198,6 +199,37 @@ def check_unposted_entries_in_limbo() -> list:
     ]
 
 
+def check_posted_entries_of_unposted_invoices() -> list:
+    """posted=True while its invoice is not posted -- the mirror of limbo.
+
+    It counts in every balance for a sale or purchase that never happened, or
+    has not been approved. On 28 Sep 2026 a settings save posted rejected
+    invoice 2821's entry: 5,700 g of 21k out of display inventory, 5,700 of
+    sales and 102,600 of wages -- the year's weight profit fell 219 g -- and
+    rejected 3123's, counting a re-entered sale twice (SETTINGS-001).
+    """
+    rows = (
+        db.session.query(JournalEntry.id, JournalEntry.entry_number, JournalEntry.reference_type,
+                         JournalEntry.reference_id, Invoice.status)
+        .join(Invoice, Invoice.id == JournalEntry.reference_id)
+        .filter(JournalEntry.reference_type.in_(['invoice', 'invoice_payments']))
+        .filter(func.coalesce(JournalEntry.is_deleted, False) == False)  # noqa: E712
+        .filter(func.coalesce(JournalEntry.is_posted, False) == True)  # noqa: E712
+        .filter(func.coalesce(Invoice.is_posted, False) == False)  # noqa: E712
+        .all()
+    )
+    cash = _entry_cash([r.id for r in rows])
+    return [
+        Fact(POSTED_ENTRY_OF_UNPOSTED_INVOICE, f'journal_entry:{r.id}', cash.get(int(r.id), 0.0), {
+            'entry_number': r.entry_number,
+            'reference': f'{r.reference_type}:{r.reference_id}',
+            'invoice_status': r.status,
+            'cash_debit': cash.get(int(r.id), 0.0),
+        })
+        for r in rows
+    ]
+
+
 def check_gold_attribution_missing() -> list:
     """An approved gold payment to a supplier, declared for an invoice, that
     recorded no attribution.
@@ -273,6 +305,7 @@ def check_safebox_subledger_drift(threshold: float = DRIFT_THRESHOLD) -> list:
 CHECKS = {
     ORPHAN_POSTED_ENTRY: check_orphan_posted_entries,
     UNPOSTED_ENTRY_IN_LIMBO: check_unposted_entries_in_limbo,
+    POSTED_ENTRY_OF_UNPOSTED_INVOICE: check_posted_entries_of_unposted_invoices,
     GOLD_ATTRIBUTION_MISSING: check_gold_attribution_missing,
     SAFEBOX_SUBLEDGER_DRIFT: check_safebox_subledger_drift,
 }

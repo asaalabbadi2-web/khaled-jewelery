@@ -1010,45 +1010,12 @@ def update_settings():
     # re-query safely after commit (avoiding DetachedInstanceError).
     settings_id = settings.id
 
-    # ── Bulk-post existing unposted voucher JEs when auto-post is enabled ──
-    # When the user switches voucher_auto_post or auto_post_entries to True,
-    # retroactively post all voucher-sourced JEs that were created unposted.
-    _bulk_posted_count = 0
-    try:
-        _want_auto_post = (
-            bool(getattr(settings, 'voucher_auto_post', False))
-            or bool(getattr(settings, 'auto_post_entries', False))
-        )
-        if _want_auto_post:
-            _unposted_voucher_jes = (
-                JournalEntry.query
-                .filter(
-                    JournalEntry.reference_type.in_(['voucher', 'invoice']),
-                    func.coalesce(JournalEntry.is_posted, False) == False,
-                )
-                .all()
-            )
-            _now = datetime.now()
-            for _uje in _unposted_voucher_jes:
-                _uje.is_posted = True
-                _uje.is_draft = False
-                if not _uje.posted_at:
-                    _uje.posted_at = _now
-                if not _uje.posted_by:
-                    _uje.posted_by = 'system'
-                _bulk_posted_count += 1
-
-        # Recompute balances for all accounts affected by the bulk-posted JEs.
-        if _bulk_posted_count and _unposted_voucher_jes:
-            _bulk_affected = set()
-            for _bje in _unposted_voucher_jes:
-                _bulk_affected.update(
-                    l.account_id for l in (_bje.lines or []) if l.account_id
-                )
-            if _bulk_affected:
-                _recalculate_account_balances_for_accounts(list(_bulk_affected))
-    except Exception as _bp_err:
-        print(f'[Settings] Bulk-post existing JEs warning: {_bp_err}')
+    # A setting says how FUTURE documents are posted; it never posts existing
+    # ones. This route used to post every unposted invoice and voucher entry on
+    # each save while auto-post was on -- rejected and awaiting-approval ones
+    # included (SETTINGS-001): on 28 Sep 2026 it put rejected invoice 2821's
+    # 5,700 g and 102,600 of wages into the books. An entry is posted by its own
+    # document's posting, which knows whether the document stands.
 
     try:
         db.session.commit()

@@ -263,6 +263,42 @@ class TestUnpostedEntryInLimbo:
         assert f'journal_entry:{je.id}' not in _subjects(check_unposted_entries_in_limbo())
 
 
+class TestPostedEntryOfUnpostedInvoice:
+    """The mirror of limbo: posted=True while the invoice is not posted. It
+    counts in every balance for a document that never happened. On 28 Sep 2026
+    a settings save posted rejected invoice 2821's entry -- 5,700 g out of
+    display inventory, 102,600 of wages (SETTINGS-001) -- and nothing saw it."""
+
+    def test_a_posted_entry_of_a_rejected_invoice_is_reported(self, app):
+        from services.books_invariants import check_posted_entries_of_unposted_invoices
+        inv = _invoice(posted=False, status='rejected')
+        je = _entry(posted=True, reference_type='invoice', reference_id=inv.id,
+                    lines=[(_account().id, 102600.0, 0.0, None)])
+        facts = {f.subject_key: f for f in check_posted_entries_of_unposted_invoices()}
+        assert f'journal_entry:{je.id}' in facts
+        assert facts[f'journal_entry:{je.id}'].detail['invoice_status'] == 'rejected'
+
+    def test_a_posted_entry_of_an_invoice_awaiting_approval_is_reported(self, app):
+        """What the next settings save would have done to invoice 3158."""
+        from services.books_invariants import check_posted_entries_of_unposted_invoices
+        inv = _invoice(posted=False, status='paid')
+        je = _entry(posted=True, reference_type='invoice_payments', reference_id=inv.id,
+                    lines=[(_account().id, 4150.0, 0.0, None)])
+        assert f'journal_entry:{je.id}' in _subjects(check_posted_entries_of_unposted_invoices())
+
+    def test_a_posted_invoice_or_an_unposted_or_deleted_entry_is_not(self, app):
+        from services.books_invariants import check_posted_entries_of_unposted_invoices
+        posted_inv = _invoice(posted=True)
+        waiting = _invoice(posted=False, status='paid')
+        ok = [
+            _entry(posted=True, reference_type='invoice', reference_id=posted_inv.id),
+            _entry(posted=False, reference_type='invoice', reference_id=waiting.id),
+            _entry(posted=True, deleted=True, reference_type='invoice', reference_id=waiting.id),
+        ]
+        found = _subjects(check_posted_entries_of_unposted_invoices())
+        assert not any(f'journal_entry:{je.id}' in found for je in ok)
+
+
 class TestGoldAttributionMissing:
     """The attribution table held zero rows for its whole life: auto-approve
     skipped the hook. PV-2026-01230 (voucher 4309) is the live instance."""

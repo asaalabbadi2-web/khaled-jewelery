@@ -5660,7 +5660,8 @@ class ReconciliationFinding(db.Model):
                          ClearingSettlementScheduler. Replaced STALE_SETTLEMENT
                          (elapsed time since the last settlement), retired
                          29 Sep 2026 -- old rows stay as history.
-      ORPHAN_POSTED_ENTRY, UNPOSTED_ENTRY_IN_LIMBO, GOLD_ATTRIBUTION_MISSING,
+      ORPHAN_POSTED_ENTRY, UNPOSTED_ENTRY_IN_LIMBO, POSTED_ENTRY_OF_UNPOSTED_INVOICE,
+      GOLD_ATTRIBUTION_MISSING,
       SAFEBOX_SUBLEDGER_DRIFT — the books invariants, services/books_invariants.py.
       VOUCHER_ENTRY_UNPOSTED_ON_POSTED_INVOICE, SAFEBOX_ROW_BACKFILLED —
                          the safe-box reconciliation job, which now reports

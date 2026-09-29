@@ -205,3 +205,7 @@ PostgreSQL بحالاته الثلاث، وتشغيلان بـ`--record` على 
 - **ADR-028** — الدفتر العام مصدر الحقيقة، والحدّ التاريخي للنسبة.
 - **architecture-v1.md §4.6** — `REPAIR-001` (هذا القرار)، و`STATUS-001`.
 - `services/books_invariants.py` · `services/safebox_subledger.py` · `safebox_reconciliation_scheduler.py` · `books_invariants_scheduler.py` · `schedulers.py` · `routes/reconciliation_findings.py` · `routes/safe_boxes.py` · `tools/check_books.py` · `alembic/versions/20260928_reconciliation_finding_subject.py`
+
+## Addendum — 2026-09-29: the mirror of limbo
+
+`POSTED_ENTRY_OF_UNPOSTED_INVOICE`: a posted entry (`invoice` or `invoice_payments`) whose invoice is not posted — rejected, cancelled or still awaiting approval. The four checks above saw an unposted entry of a settled document and a posted entry with no document, never this. It is how a settings save's bulk posting (SETTINGS-001) put rejected invoice 2821's 5,700 g and 102,600 of wages into the books on 28 Sep 2026 unseen. On the 29 Sep copy it reports exactly entries 6641 and 7391. Report-only, like the rest.
