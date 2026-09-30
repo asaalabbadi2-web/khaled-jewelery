@@ -29,6 +29,18 @@ _IS_POSTGRES = os.getenv('PYTEST_ALLOW_REAL_DB', '').strip() in ('1', 'true', 'y
 
 # ─── مساعدات ─────────────────────────────────────────────────────────────────
 
+
+def _client():
+    """A test client signed in as the seeded admin. The routes are protected,
+    and the tests run with the development bypass off (TEST-002)."""
+    from auth_decorators import generate_token
+    from models import User
+    with app.app_context():
+        token = generate_token(User.query.filter_by(username='admin').first())
+    client = app.test_client()
+    client.environ_base['HTTP_AUTHORIZATION'] = f'Bearer {token}'
+    return client
+
 def _make_account(number: str, name: str, *, transaction_type: str = 'cash',
                   tracks_weight: bool = False, parent_id: int | None = None) -> Account:
     acc = Account(
@@ -135,7 +147,7 @@ class TestDualDistributionAndBalances:
             cash_b_id = cash_b.id
             gold_b_id = gold_b.id
 
-        with app.test_client() as c:
+        with _client() as c:
             je_id = _create_je_via_api(c, lines=[
                 {'account_id': cash_a_id, 'cash_debit': 500.0, 'debit_21k': 3.0},
                 {'account_id': cash_b_id, 'cash_credit': 500.0, 'credit_21k': 3.0},
@@ -177,7 +189,7 @@ class TestDualDistributionAndBalances:
             cash_a_id = cash_a.id
             cash_b_id = cash_b.id
 
-        with app.test_client() as c:
+        with _client() as c:
             je_id = _create_je_via_api(c, lines=[
                 {'account_id': cash_a_id, 'cash_debit': 200.0, 'debit_21k': 1.0},
                 {'account_id': cash_b_id, 'cash_credit': 200.0, 'credit_21k': 1.0},
@@ -213,7 +225,7 @@ class TestDualDistributionAndBalances:
             cash_a_id = cash_a.id
             cash_b_id = cash_b.id
 
-        with app.test_client() as c:
+        with _client() as c:
             _create_je_via_api(c, lines=[
                 {'account_id': cash_a_id, 'cash_debit': 100.0, 'debit_21k': 0.5},
                 {'account_id': cash_b_id, 'cash_credit': 100.0, 'credit_21k': 0.5},
@@ -231,7 +243,7 @@ class TestDualDistributionAndBalances:
             _wipe_accounts('3870', '73870')
             _get_or_create_pair('3870', '73870', 'دورة حياة - نقدي أ', 'دورة حياة - وزني أ')
 
-        with app.test_client() as c:
+        with _client() as c:
             r = c.get('/api/accounts/next-number/3870')
             assert r.status_code == 200
             body = r.get_json()
@@ -259,7 +271,7 @@ class TestRemoveRecreateRelink:
             old_gold_id = gold.id
 
         # خطوة 1: إزالة الموازي
-        with app.test_client() as c:
+        with _client() as c:
             r = c.post(f'/api/accounts/{cash_id}/remove-parallel')
             assert r.status_code == 200, r.get_json()
 
@@ -312,7 +324,7 @@ class TestRemoveRecreateRelink:
             cpart_id = cpart.id
             gc_id    = gold_cpart.id
 
-        with app.test_client() as c:
+        with _client() as c:
             je_id = _create_je_via_api(c, lines=[
                 {'account_id': cash_id,   'cash_debit': 300.0, 'debit_21k': 2.0},
                 {'account_id': cpart_id,  'cash_credit': 300.0, 'credit_21k': 2.0},
@@ -352,7 +364,7 @@ class TestRemovalBlockedByDependencies:
             db.session.commit()
             cash_id, gold_id = cash.id, gold.id
 
-        with app.test_client() as c:
+        with _client() as c:
             r = c.post(f'/api/accounts/{cash_id}/remove-parallel')
             assert r.status_code == 409
             assert r.get_json()['error'] == 'PARALLEL_HAS_JE_LINES'
@@ -378,7 +390,7 @@ class TestRemovalBlockedByDependencies:
             db.session.commit()
             cash_id = cash.id
 
-        with app.test_client() as c:
+        with _client() as c:
             r = c.post(f'/api/accounts/{cash_id}/remove-parallel')
             assert r.status_code == 409
             assert r.get_json()['error'] == 'PARALLEL_HAS_CHILDREN'

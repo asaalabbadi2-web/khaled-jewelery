@@ -30,6 +30,44 @@ clock-guard:
         - docs/architecture/.clock-debt-baseline
 
 # ─────────────────────────────────────────────
+# Backend tests — the gate, as production runs (TEST-001, TEST-002)
+# On PostgreSQL (backend/conftest.py creates and drops a throwaway database),
+# with the development bypass off, on the backend image's Python. Until
+# 30 Sep 2026 CI ran no backend test at all: a bonus test stayed red two
+# months unnoticed, and 35 tests passed only on the SQLite they ran on.
+# A red gate stops the build stage: no image is built from a red commit.
+# ─────────────────────────────────────────────
+backend-test:
+  stage: test
+  image: python:3.11-slim
+  services:
+    - name: postgres:16
+      alias: postgres
+  variables:
+    POSTGRES_HOST_AUTH_METHOD: trust
+    PYTEST_PG_ADMIN_URL: postgresql://postgres@postgres/postgres
+    PYTEST_PG_BIN: /usr/lib/postgresql/16/bin
+    BYPASS_AUTH_FOR_DEVELOPMENT: "0"
+    PIP_CACHE_DIR: "$CI_PROJECT_DIR/.pip-cache"
+  cache:
+    key: backend-pip
+    paths:
+      - .pip-cache
+  before_script:
+    # pg_dump must match the server's major version (the backup tests run it).
+    - apt-get update -qq && apt-get install -y -qq --no-install-recommends curl ca-certificates >/dev/null
+    - install -d /usr/share/postgresql-common/pgdg
+    - curl -fsSL -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc https://www.postgresql.org/media/keys/ACCC4CF8.asc
+    - echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt $(. /etc/os-release && echo $VERSION_CODENAME)-pgdg main" > /etc/apt/sources.list.d/pgdg.list
+    - apt-get update -qq && apt-get install -y -qq --no-install-recommends postgresql-client-16 >/dev/null
+    - pip install -q -r backend/requirements.txt
+  script:
+    - cd backend && python -m pytest -q -p no:cacheprovider
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+
+# ─────────────────────────────────────────────
 # ERP Seam Ratchet — ADR-023 M1 enforcement
 # Runs when ERP code or the seam ledger changes.
 # Fails if contract-test coverage ratio drops.

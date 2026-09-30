@@ -34,6 +34,18 @@ _GOLD_NUM     = '73891'  # حساب وزني موازٍ (gold / 7xxx)
 _UNLINKED_NUM = '3892'   # حساب بدون موازٍ
 
 
+
+def _client():
+    """A test client signed in as the seeded admin. The routes are protected,
+    and the tests run with the development bypass off (TEST-002)."""
+    from auth_decorators import generate_token
+    from models import User
+    with app.app_context():
+        token = generate_token(User.query.filter_by(username='admin').first())
+    client = app.test_client()
+    client.environ_base['HTTP_AUTHORIZATION'] = f'Bearer {token}'
+    return client
+
 @pytest.fixture(scope='module')
 def pair_ids():
     """ينشئ زوج حسابات مرتبط (نقدي ↔ وزني) مرة واحدة لكل الوحدة."""
@@ -293,7 +305,7 @@ class TestDistributionParity:
             weight_21k_debit=3.0,
         )
 
-        with app.test_client() as c:
+        with _client() as c:
             api = self._via_api(cash_id, c, cash_debit=500.0, debit_21k=3.0)
 
         _assert_summaries_equal(helper, api, msg='نقدي+وزن')
@@ -311,7 +323,7 @@ class TestDistributionParity:
         helper = self._via_helper(cash_id, cash_debit=750.0)
         assert gold_id not in helper, 'المسار المساعد لا يُوزّع النقد للحساب الوزني'
 
-        with app.test_client() as c:
+        with _client() as c:
             api = self._via_api(cash_id, c, cash_debit=750.0)
         assert gold_id not in api, 'مسار journals.py لا يُوزّع النقد للحساب الوزني'
 
@@ -329,7 +341,7 @@ class TestDistributionParity:
             weight_24k_debit=0.75,
         )
 
-        with app.test_client() as c:
+        with _client() as c:
             api = self._via_api(
                 cash_id, c,
                 cash_debit=1000.0,
@@ -353,7 +365,7 @@ class TestDistributionParity:
         # المسار المساعد يستقبل account_id=cash_id لكن القيم وزنية فقط
         helper = self._via_helper(cash_id, weight_22k_credit=4.0)
 
-        with app.test_client() as c:
+        with _client() as c:
             api = self._via_api(cash_id, c, credit_22k=4.0)
 
         # لا يجب أن يظهر الحساب النقدي (لا قيمة نقدية)
@@ -370,7 +382,7 @@ class TestDistributionParity:
 
         helper = self._via_helper(unlinked_id, cash_debit=200.0)
 
-        with app.test_client() as c:
+        with _client() as c:
             api = self._via_api(unlinked_id, c, cash_debit=200.0)
 
         _assert_summaries_equal(helper, api, msg='بدون-موازٍ')

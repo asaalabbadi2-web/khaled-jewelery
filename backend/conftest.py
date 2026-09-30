@@ -79,6 +79,12 @@ if os.getenv('PYTEST_ALLOW_REAL_DB', '').strip() not in ('1', 'true', 'yes'):
     # Mark environment as test to reduce side effects.
     os.environ.setdefault('YASAR_ENV', 'test')
 
+# The tests run as production does: the development bypass is OFF, whatever
+# backend/.env on this machine says (TEST-002). With it on, a request with no
+# token was served as admin, and 12 tests passed only because of that.
+# Set before the app is imported: load_dotenv never overrides a set variable.
+os.environ['BYPASS_AUTH_FOR_DEVELOPMENT'] = '0'
+
 # Ensure backend package is importable
 base_dir = os.path.dirname(os.path.abspath(__file__))
 if base_dir not in sys.path:

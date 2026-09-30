@@ -15,7 +15,7 @@ from __future__ import annotations
 import json
 import pytest
 from datetime import date, datetime
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 from points.engine import compute_invoices_points
 
@@ -162,21 +162,37 @@ class TestSettingsPropagation:
         assert race_old  == bonus_old, 'Race == Bonus بالإعداد القديم'
 
     def test_race_and_bonus_read_same_config(self):
-        """get_race_points_config يُعيد نفس القاموس لكلا النظامين."""
-        fake_settings_raw = json.dumps({
-            'points_source':         'profit_cash',
-            'cash_amount_per_point': 75.0,
-            'points_per_gram':       12.0,
-        })
+        """get_race_points_config يقرأ صف الإعدادات الذي يقرؤه مسار الإعدادات.
 
-        # نُحاكي Settings.query.first() بإعداد معروف
-        fake_settings = MagicMock()
-        fake_settings.sales_race_settings = fake_settings_raw
+        It used to patch models.Settings and expect Settings.query.first(); since
+        7ebc4f5 (3 Aug 2026) the function reads the canonical row through
+        core.settings._get_settings_singleton -- the one the settings API uses --
+        so the patch reached nothing and the test read the defaults, red for two
+        months with no CI to notice (TEST-002). It now checks the behaviour on a
+        real settings row, and puts the database back as it was."""
+        from app import app
+        from models import Settings, db, get_race_points_config
+        from core.settings import _get_settings_singleton
 
-        with patch('models.Settings') as MockSettings:
-            MockSettings.query.first.return_value = fake_settings
-            from models import get_race_points_config
-            cfg = get_race_points_config()
+        with app.app_context():
+            existed = Settings.query.first() is not None
+            row = _get_settings_singleton(create_if_missing=True)
+            was = row.sales_race_settings
+            row.sales_race_settings = json.dumps({
+                'points_source':         'profit_cash',
+                'cash_amount_per_point': 75.0,
+                'points_per_gram':       12.0,
+            })
+            db.session.commit()
+            try:
+                cfg = get_race_points_config()
+            finally:
+                row = Settings.query.first()
+                if existed:
+                    row.sales_race_settings = was
+                else:
+                    db.session.delete(row)
+                db.session.commit()
 
         assert cfg['points_source']         == 'profit_cash'
         assert cfg['cash_amount_per_point'] == 75.0
