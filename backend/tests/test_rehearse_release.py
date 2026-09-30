@@ -10,7 +10,7 @@ Run:
 import json
 
 from tools.rehearse_probe import body_digest, normalize
-from tools.rehearse_release import (compare_sweeps, fingerprint_changes, serious_restore_errors,
+from tools.rehearse_release import (compare_sweeps, refused_sweeps, fingerprint_changes, serious_restore_errors,
                                     unstable_routes, verdict)
 
 
@@ -115,3 +115,24 @@ class TestObservations:
         assert body_digest(one) == body_digest(two)
         assert body_digest(one) != body_digest(json.dumps({'rows': [{'x': 2}]}).encode())
         assert normalize({'ran_at': 1, 'keep': {'as_of': 2, 'v': 3}}) == {'keep': {'v': 3}}
+
+
+
+def test_a_sweep_that_was_not_signed_in_is_named_not_diffed():
+    """30 Sep 2026: the tool refreshed session activity in UTC while the baseline
+    measured idle time in local time -- the baseline sweep was refused (401) on
+    every route, and the report listed 193 'status changes' that compared
+    nothing. A sweep refused on most routes is its own reason, by name."""
+    signed_out = {'ok': True, 'routes': {f'/api/r{i}': {'status': 401} for i in range(10)}}
+    signed_in = {'ok': True, 'routes': {f'/api/r{i}': {'status': 200} for i in range(10)}}
+    reasons = refused_sweeps({'baseline sweep': signed_out, 'release sweep': signed_in})
+    assert len(reasons) == 1 and 'baseline sweep' in reasons[0] and 'not signed in' in reasons[0]
+    assert refused_sweeps({'release sweep': signed_in}) == []
+
+
+def test_session_activity_is_refreshed_fresh_for_any_clock():
+    """Both a local-clock tree and a UTC-clock tree must read the refreshed
+    activity as fresh: the later of the two stamps does."""
+    import inspect
+    import tools.rehearse_release as rr
+    assert "greatest(localtimestamp, timezone('utc', now()))" in inspect.getsource(rr._refresh_sessions)

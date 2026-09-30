@@ -105,6 +105,18 @@ def fingerprint_changes(before: dict, after: dict) -> dict:
             if before.get(t) != after.get(t)}
 
 
+def refused_sweeps(sweeps: dict) -> list:
+    """A sweep refused (401) on most routes was not signed in: it compares nothing."""
+    reasons = []
+    for name, sweep in sweeps.items():
+        routes = (sweep or {}).get('routes') or {}
+        refused = sum(1 for v in routes.values() if v.get('status') == 401)
+        if routes and refused * 2 > len(routes):
+            reasons.append(f'{name}: {refused} of {len(routes)} routes answered 401 -- '
+                           f'the sweep was not signed in, so it compares nothing')
+    return reasons
+
+
 def verdict(r: dict, accepted=()) -> list:
     """The reasons this release must not ship. Empty means green."""
     red = []
@@ -120,6 +132,7 @@ def verdict(r: dict, accepted=()) -> list:
         red.append(f"security: {len(anon['open'])} /api route(s) reach their view without a session")
     if r.get('baseline_guard') and anon and not anon.get('guard'):
         red.append('security: the release removes the deny-by-default guard')
+    red.extend(r.get('refused') or [])
     for label in ('differential', 'rollback'):
         changes = [c for c in (r.get(label) or {}).get('status', []) if c[0] not in accepted]
         if changes:
@@ -254,8 +267,12 @@ class Tree:
 
 def _refresh_sessions(pg: Postgres, db):
     """Copied data is old: the idle-session timeout would reject every token.
-    Scratch copies only -- this is exactly the kind of write production never sees."""
-    pg.sql(db, "update session_activity set last_activity_at = timezone('utc', now()) where user_type = 'app_user'",
+    Scratch copies only -- this is exactly the kind of write production never sees.
+
+    The later of local and UTC time: releases before 50fbc3b measure idle time
+    in local time, later ones in UTC, and a stamp in the future reads as fresh
+    to both. A UTC stamp alone made the baseline sweep 401 everywhere (30 Sep)."""
+    pg.sql(db, "update session_activity set last_activity_at = greatest(localtimestamp, timezone('utc', now())) where user_type = 'app_user'",
            check=False)
 
 
@@ -426,6 +443,8 @@ def main(argv=None) -> int:
             if not sweep.get('ok'):
                 r.setdefault('probe_errors', []).append(f"{name}: {sweep.get('error', '')[-300:]}")
 
+        r['refused'] = refused_sweeps({'baseline sweep': base_sweep, 'control sweep': control_sweep,
+                                       'release sweep': rel_sweep, 'rollback sweep': rollback_sweep})
         red = verdict(r, accepted=args.accept) + r.get('probe_errors', [])
         print('[7/7] report', flush=True)
         report = render(r, red, args.accept)
