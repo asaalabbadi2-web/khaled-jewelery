@@ -9,7 +9,8 @@ weight x quantity: sale 1057 (18.7 g, one line of quantity 3) took 56.1 g out
 of the display box; 2478 (66.9 g) took 518.8 g. Five sales stand 684.15 g over
 on the copy, uncorrected.
 
-xfail(strict) until the posting that comes later moves what the lines record.
+Fixed: the later posting moves a line's recorded weight once; only a line
+with no weight of its own falls back to the item's (one piece) times the quantity.
 
 Run:
     python -m pytest tests/test_approval_moves_the_recorded_gold_once.py -v
@@ -33,7 +34,6 @@ def rollback_after_each(app, db_fence):
     yield
 
 
-@pytest.mark.xfail(strict=True, reason='POSTGOLD-001: the later posting multiplies by quantity')
 def test_a_line_of_three_pieces_moves_its_weight_once(auth_headers, world):
     payload = _payload(world, 'sale_on_credit', held=True)          # held: a large discount
     payload['items'][0].update(weight=18.7, quantity=3)

@@ -807,11 +807,17 @@ def _append_safe_transactions_for_invoice_gold(invoice: Invoice, created_by: str
             if karat not in weights_by_karat:
                 karat = 21
 
-            weight_per_unit = getattr(inv_item, 'weight', None)
-            if weight_per_unit in (None, '', False) and getattr(inv_item, 'item', None):
-                weight_per_unit = getattr(inv_item.item, 'weight', None)
-            qty_multiplier = 1 if is_customer_scrap_purchase else qty
-            grams = _to_float(weight_per_unit) * float(qty_multiplier)
+            # A line's recorded weight is the whole line's: an invoice's
+            # total_weight is the sum of its lines' weights, and posting at
+            # creation moves exactly that. Multiplying it by the quantity moved
+            # 56.1 g for sale 1057's 18.7 g (POSTGOLD-001). Only a line with no
+            # weight of its own falls back to the item's -- one piece -- and
+            # that one is multiplied.
+            line_weight = getattr(inv_item, 'weight', None)
+            if line_weight in (None, '', False) and getattr(inv_item, 'item', None):
+                grams = _to_float(getattr(inv_item.item, 'weight', None)) * float(qty)
+            else:
+                grams = _to_float(line_weight)
             if grams <= 0:
                 continue
             weights_by_karat[karat] += float(grams)
