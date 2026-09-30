@@ -1079,6 +1079,10 @@ def update_unposted_invoice(invoice_id: int):
     # it). The screen sends the signed-in user's employee; the edit keeps the
     # one who took the gold in (EDIT-001).
     original_scrap_holder_id = getattr(invoice, 'scrap_holder_employee_id', None)
+    # And the safe box the purchased gold went to follows that holder: edited
+    # from an account with no employee, the screen sent the main scrap safe and
+    # 3170's header moved there while its gold stayed in the custody (EDIT-001).
+    original_safe_box_id = invoice.safe_box_id if original_invoice_type == 'شراء من عميل' else None
 
     # --- 1. Delete all related entities ---
     try:
@@ -1174,9 +1178,14 @@ def update_unposted_invoice(invoice_id: int):
         create_data['date'] = original_date.isoformat()
     if original_scrap_holder_id:
         create_data['scrap_holder_employee_id'] = original_scrap_holder_id
+    if original_safe_box_id:
+        create_data['safe_box_id'] = original_safe_box_id
 
-    # Inject into Flask request context and call add_invoice.
-    from app import app as _app  # type: ignore
+    # Inject into Flask request context and call add_invoice -- in THIS app.
+    # `from app import app` ran app.py a second time under gunicorn (which loads
+    # it as backend.app): add_invoice then wrote on another connection, and with
+    # the number kept its INSERT waited on this transaction's DELETE (EDIT-002).
+    _app = current_app._get_current_object()
 
     current_user = getattr(g, 'current_user', None)
     headers = {}
@@ -9204,7 +9213,7 @@ def devtools_import_sales_invoices_from_excel():
             if token:
                 headers['Authorization'] = f'Bearer {token}'
 
-            from app import app as _app  # type: ignore
+            _app = current_app._get_current_object()  # never `from app import app` (EDIT-002)
             with _app.test_request_context('/api/invoices', method='POST', json=payload, headers=headers):
                 rv = add_invoice()
 

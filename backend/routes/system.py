@@ -16,6 +16,7 @@ import shutil
 import socket
 import sqlite3
 import subprocess
+import sys
 import tempfile
 import zipfile
 from datetime import datetime
@@ -1217,16 +1218,15 @@ def system_reset():
             
         elif reset_type == 'all':
             # إعادة تهيئة كاملة مع الحفاظ على شجرة الحسابات (السلوك الافتراضي)
-            # Use the currently-running Flask app module to avoid importing a second app instance.
-            from app import reset_database_preserve_accounts
-            reset_database_preserve_accounts()
+            # The currently-running app module: `from app import` would run app.py a
+            # second time under gunicorn, which loads it as backend.app (EDIT-002).
+            sys.modules[current_app.import_name].reset_database_preserve_accounts()
             message = 'تم إعادة تهيئة النظام بالكامل بنجاح مع الحفاظ على شجرة الحسابات.'
 
         elif reset_type == 'all_with_accounts':
             # إعادة تهيئة كاملة (بما في ذلك شجرة الحسابات)
-            # Use the currently-running Flask app module to avoid importing a second app instance.
-            from app import reset_database
-            reset_database()
+            # The currently-running app module, never a second load (EDIT-002).
+            sys.modules[current_app.import_name].reset_database()
 
             # Defensive: ensure the account table is empty before rebuilding the COA.
             # Some bootstraps may auto-create support accounts immediately after a reset.
