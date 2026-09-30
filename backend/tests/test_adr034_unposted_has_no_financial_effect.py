@@ -11,8 +11,10 @@ entries are unposted but not drafts; after an unpost, on every path, the
 entries are not drafts and the inventory-ledger row stays unreversed; the posting screen
 and the batch also keep the scrap gold in the custody safe.
 
-xfail(strict) until UNPOST-001 U1 makes it true: then these pass, the markers
-go, and the law is proved.
+Proved in UNPOST-001 U1: one unposting for the three routes
+(posting_routes.unpost_invoice_document), drafts at creation for an invoice
+left unposted, and the creation-time safe-box rows gated on posting now --
+not only on approval, which left them written when auto-post was off.
 
 Run:
     python -m pytest tests/test_adr034_unposted_has_no_financial_effect.py -v
@@ -23,7 +25,6 @@ from app import app as flask_app
 from models import InventoryLedger, JournalEntry, SafeBoxTransaction, db
 from tests.retraction_world import _create, unposting_allowed, world  # noqa: F401 (fixtures)
 
-LAW = 'ADR-034: proved in UNPOST-001 U1'
 UNPOST = {
     'posting_screen': lambda c, h, i: c.post(f'/api/invoices/unpost/{i}', headers=h, json={}),
     'invoices_route': lambda c, h, i: c.post(f'/api/invoices/{i}/unpost', headers=h, json={}),
@@ -60,14 +61,12 @@ def _effects(invoice_id):
 NONE = {'entries_not_draft': 0, 'safe_box_rows': 0, 'inventory_ledger_net': 0.0}
 
 
-@pytest.mark.xfail(strict=True, reason=LAW)
 @pytest.mark.parametrize('shape', ('scrap_purchase_unpaid', 'scrap_purchase_paid', 'sale_on_credit'))
 def test_a_held_invoice_counts_nowhere(auth_headers, world, shape):
     inv = _create(auth_headers, world, shape, held=True)
     assert _effects(inv['id']) == NONE
 
 
-@pytest.mark.xfail(strict=True, reason=LAW)
 @pytest.mark.parametrize('path', sorted(UNPOST))
 @pytest.mark.parametrize('shape', ('scrap_purchase_unpaid', 'sale_on_credit'))
 def test_an_unposted_invoice_counts_nowhere(auth_headers, unposting_allowed, world, shape, path):

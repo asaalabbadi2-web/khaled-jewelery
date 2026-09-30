@@ -22,6 +22,7 @@ from flask import Blueprint, request, jsonify, g
 from datetime import datetime, timedelta
 from models import (
     db,
+    CategoryWeightMovement,
     Invoice,
     InvoiceItem,
     InvoicePayment,
@@ -2114,6 +2115,60 @@ def post_invoice_document(invoice: Invoice, posted_by: str) -> None:
         print(f"[post_invoice_document] cached balances after invoice {invoice.id} skipped: {exc}")
 
 
+def unpost_invoice_document(invoice: Invoice) -> None:
+    """Unpost one posted invoice completely. The ONE unposting (UNPOST-001 U1, ADR-034).
+
+    The counterpart of post_invoice_document: what posting wrote, this takes
+    back, and an unposted invoice has no financial effect anywhere -- cash or
+    gold. The posting screen, its batch and the invoices route all call it; they
+    had diverged (U0, docs/plans/unpost-001-u0-retraction-map.md): two kept the
+    scrap gold in custody and one deleted it, none made the entries drafts, none
+    reversed the inventory ledger.
+
+    In order: its entries become drafts; its own safe-box rows go (gold as cash,
+    whatever their name -- no scrap rule of its own); the inventory ledger is
+    reversed (append-only, ADR-002: its net goes to zero); its category-weight
+    movements go; the gold evidence it wrote is released, the obligations kept
+    (ADR-028); its payment state and the cached balances of the accounts its
+    entries touched are recomputed.
+
+    Its vouchers are not touched: the caller refuses while a payment stands
+    (services/invoice_retraction_guard.live_payments_of), so only cancelled ones
+    can remain, and a cancelled payment and its cancellation stand whatever
+    happens to the invoice. Caller checks is_posted and the guard first,
+    writes the audit row, and commits.
+    """
+    from services.invoice_retraction_guard import OWN_MOVEMENT_TYPES
+    from services.gold_allocation_service import release_invoice_gold_evidence
+    from services.inventory_posting_service import InventoryPostingService
+    from accounting.balances import _recalculate_account_balances_for_accounts
+
+    touched = set()
+    for je in JournalEntry.query.filter_by(reference_type='invoice', reference_id=invoice.id).all():
+        touched.update(line.account_id for line in (je.lines or []) if line.account_id)
+        je.is_posted = False
+        je.is_draft = True
+        je.posted_at = None
+        je.posted_by = None
+
+    SafeBoxTransaction.query.filter(
+        SafeBoxTransaction.invoice_id == invoice.id,
+        SafeBoxTransaction.ref_type.in_(OWN_MOVEMENT_TYPES),
+    ).delete(synchronize_session=False)
+
+    InventoryPostingService.reverse(invoice, reason=f'unpost invoice {invoice.id}')
+    CategoryWeightMovement.query.filter_by(invoice_id=invoice.id).delete(synchronize_session=False)
+    release_invoice_gold_evidence(invoice.id)
+
+    invoice.is_posted = False
+    invoice.posted_at = None
+
+    InvoicePaymentStateService().recompute(invoice)
+    db.session.flush()
+    if touched:
+        _recalculate_account_balances_for_accounts(touched)
+
+
 @posting_bp.route('/invoices/post/<int:invoice_id>', methods=['POST'])
 @require_permission('invoice.post')
 def post_invoice(invoice_id):
@@ -2462,33 +2517,9 @@ def unpost_invoice(invoice_id):
                 'payments': standing,
             }), 409
 
-        # Append reversal ledger movements (append-only)
-        _append_safe_reversal_transactions_for_invoice_gold(
-            invoice,
-            created_by=posted_by,
-            reason=f"Unpost invoice {getattr(invoice, 'invoice_number', None) or invoice.id}",
-        )
-
-        # إلغاء ترحيل قيود الفاتورة
-        try:
-            linked_jes = JournalEntry.query.filter_by(
-                reference_type='invoice', reference_id=invoice_id, is_posted=True
-            ).all()
-            for _je in linked_jes:
-                _je.is_posted = False
-                _je.posted_at = None
-                _je.posted_by = None
-        except Exception:
-            pass
-
-        # السندات المرتبطة لا تُلمس: الحارس أعلاه لا يترك إلا الملغاة، والسداد
-        # الملغى وإلغاؤه واقعتان قائمتان أيًّا كان مصير الفاتورة — وإعادتها إلى
-        # «معلّق» هنا كانت تجعل الترحيل التالي يعتمدها من جديد.
-
-        # إلغاء الترحيل
-        invoice.is_posted = False
-        invoice.posted_at = None
-        invoice.posted_by = None
+        # The one unposting (UNPOST-001 U1, ADR-034). Linked vouchers are not
+        # touched: the guard above leaves only cancelled ones.
+        unpost_invoice_document(invoice)
 
         # تسجيل العملية الناجحة
         posted_by = g.current_user.username if hasattr(g, 'current_user') else 'system'
@@ -2902,25 +2933,7 @@ def unpost_invoices_batch():
             }), 409
 
         for invoice in invoices:
-            _append_safe_reversal_transactions_for_invoice_gold(
-                invoice, created_by=posted_by,
-                reason=f"Batch unpost {getattr(invoice, 'invoice_number', None) or invoice.id}",
-            )
-            # إلغاء قيود الفاتورة
-            try:
-                for _je in JournalEntry.query.filter_by(
-                    reference_type='invoice', reference_id=invoice.id, is_posted=True
-                ).all():
-                    _je.is_posted = False
-                    _je.posted_at = None
-                    _je.posted_by = None
-            except Exception:
-                pass
-            # السندات المرتبطة لا تُلمس — انظر إلغاء الترحيل المفرد أعلاه.
-
-            invoice.is_posted = False
-            invoice.posted_at = None
-            invoice.posted_by = None
+            unpost_invoice_document(invoice)   # the one unposting (UNPOST-001 U1, ADR-034)
             unposted_count += 1
 
             AuditLog.log_action(

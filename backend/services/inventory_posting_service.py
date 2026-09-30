@@ -169,14 +169,9 @@ class InventoryPostingService:
             if not karat or not weight or not line_id:
                 continue
 
-            already = InventoryLedger.query.filter_by(
-                source_type='invoice',
-                source_id=invoice_id,
-                source_line_id=int(line_id),
-                movement_type=movement_type,
-            ).first()
-            if already:
+            if cls._standing('invoice', invoice_id, int(line_id), movement_type):
                 continue
+            cycle = cls._next_cycle('invoice', invoice_id, int(line_id), movement_type)
 
             row = InventoryLedger(
                 source_type='invoice',
@@ -189,6 +184,7 @@ class InventoryPostingService:
                 weight_delta=round(float(weight) * direction, 4),
                 posted_at=now,
                 posted_by=posted_by,
+                cycle=cycle,
             )
             db.session.add(row)
             db.session.flush()
@@ -206,14 +202,9 @@ class InventoryPostingService:
                 if not karat or not weight or not line_id:
                     continue
 
-                already = InventoryLedger.query.filter_by(
-                    source_type='invoice_karat',
-                    source_id=invoice_id,
-                    source_line_id=int(line_id),
-                    movement_type=movement_type,
-                ).first()
-                if already:
+                if cls._standing('invoice_karat', invoice_id, int(line_id), movement_type):
                     continue
+                cycle = cls._next_cycle('invoice_karat', invoice_id, int(line_id), movement_type)
 
                 row = InventoryLedger(
                     source_type='invoice_karat',
@@ -226,6 +217,7 @@ class InventoryPostingService:
                     weight_delta=round(float(weight) * direction, 4),
                     posted_at=now,
                     posted_by=posted_by,
+                    cycle=cycle,
                 )
                 db.session.add(row)
                 db.session.flush()
@@ -236,6 +228,11 @@ class InventoryPostingService:
 
     @classmethod
     def _reverse_invoice(cls, invoice, reason: str) -> list:
+        """Reverse what stands for the invoice: per line, the net of its
+        originals and reversals. Idempotent -- a second reversal finds nothing
+        standing -- and a re-post after it posts again (ADR-034: post, unpost,
+        post comes back where it started). Item lines ('invoice') and a
+        supplier purchase's karat lines ('invoice_karat') alike."""
         from models import db, InventoryLedger
 
         inv_type = str(getattr(invoice, 'invoice_type', '') or '').strip()
@@ -250,36 +247,37 @@ class InventoryPostingService:
         posted_by = getattr(invoice, 'posted_by', None)
         entries: list = []
 
-        # Find all original ledger entries for this invoice
-        originals = InventoryLedger.query.filter_by(
-            source_type='invoice',
-            source_id=invoice_id,
-            movement_type=movement_type,
-        ).all()
-
+        originals = (
+            InventoryLedger.query
+            .filter(InventoryLedger.source_type.in_(('invoice', 'invoice_karat')),
+                    InventoryLedger.source_id == invoice_id,
+                    InventoryLedger.movement_type == movement_type)
+            .order_by(InventoryLedger.cycle.desc(), InventoryLedger.id.desc())
+            .all()
+        )
+        seen = set()
         for orig in originals:
-            # Idempotency: skip if reversal already exists
-            already = InventoryLedger.query.filter_by(
-                source_type='invoice',
-                source_id=invoice_id,
-                source_line_id=orig.source_line_id,
-                movement_type=reversal_type,
-            ).first()
-            if already:
+            key = (orig.source_type, orig.source_line_id)
+            if key in seen:
+                continue
+            seen.add(key)
+            standing = cls._standing(orig.source_type, invoice_id, orig.source_line_id, movement_type)
+            if not standing:
                 continue
 
             row = InventoryLedger(
-                source_type='invoice',
+                source_type=orig.source_type,
                 source_id=invoice_id,
                 source_line_id=orig.source_line_id,
                 movement_type=reversal_type,
                 branch_id=orig.branch_id,
                 category_id=orig.category_id,
                 karat=orig.karat,
-                weight_delta=-orig.weight_delta,
+                weight_delta=round(-standing, 4),
                 posted_at=now,
                 posted_by=posted_by,
                 notes=reason or None,
+                cycle=orig.cycle or 0,   # the latest posting of this line -- ordered first above
             )
             db.session.add(row)
             db.session.flush()
@@ -287,6 +285,37 @@ class InventoryPostingService:
             entries.append(row)
 
         return entries
+
+    @classmethod
+    def _next_cycle(cls, source_type, source_id, source_line_id, movement_type) -> int:
+        """0 for a line never posted; otherwise one past its last cycle."""
+        from models import db, InventoryLedger
+        from sqlalchemy import func
+        last = (
+            db.session.query(func.max(InventoryLedger.cycle))
+            .filter(InventoryLedger.source_type == source_type,
+                    InventoryLedger.source_id == int(source_id),
+                    InventoryLedger.source_line_id == source_line_id,
+                    InventoryLedger.movement_type.in_((movement_type, movement_type + '_reversal')))
+            .scalar()
+        )
+        return 0 if last is None else int(last) + 1
+
+    @classmethod
+    def _standing(cls, source_type, source_id, source_line_id, movement_type) -> float:
+        """What one line has standing in the ledger: its originals plus their reversals."""
+        from models import db, InventoryLedger
+        from sqlalchemy import func
+        net = (
+            db.session.query(func.coalesce(func.sum(InventoryLedger.weight_delta), 0.0))
+            .filter(InventoryLedger.source_type == source_type,
+                    InventoryLedger.source_id == int(source_id),
+                    InventoryLedger.source_line_id == source_line_id,
+                    InventoryLedger.movement_type.in_((movement_type, movement_type + '_reversal')))
+            .scalar()
+        )
+        net = round(float(net or 0.0), 4)
+        return 0.0 if abs(net) < 1e-9 else net
 
     # ── Adjustment helper ─────────────────────────────────────────────────────
 

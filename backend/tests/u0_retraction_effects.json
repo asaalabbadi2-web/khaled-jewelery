@@ -16,7 +16,7 @@
    ],
    "invoice_entries": [
     [
-     "posted=False,draft=False,deleted=False"
+     "posted=False,draft=True,deleted=False"
     ],
     []
    ],
@@ -130,7 +130,7 @@
    ],
    "invoice_entries": [
     [
-     "posted=False,draft=False,deleted=False"
+     "posted=False,draft=True,deleted=False"
     ],
     []
    ],
@@ -206,6 +206,14 @@
      "unpost:ok"
     ]
    ],
+   "inventory_ledger.net": [
+    -2.0,
+    0.0
+   ],
+   "inventory_ledger.rows": [
+    1,
+    2
+   ],
    "invoice.is_posted": [
     [
      true
@@ -219,7 +227,7 @@
      "posted=True,draft=False,deleted=False"
     ],
     [
-     "posted=False,draft=False,deleted=False"
+     "posted=False,draft=True,deleted=False"
     ]
    ],
    "invoice_entries.posted.cash_credit": [
@@ -265,6 +273,10 @@
      "unpost:ok"
     ]
    ],
+   "inventory_ledger.rows": [
+    1,
+    3
+   ],
    "sbt.invoice_gold.rows": [
     null,
     1.0
@@ -278,6 +290,20 @@
  "sale_on_credit/unpost_invoices_route": {
   "answer": "200:ok",
   "unpost_changes": {
+   "audit_log": [
+    [],
+    [
+     "unpost:ok"
+    ]
+   ],
+   "inventory_ledger.net": [
+    -2.0,
+    0.0
+   ],
+   "inventory_ledger.rows": [
+    1,
+    2
+   ],
    "invoice.is_posted": [
     [
      true
@@ -291,7 +317,7 @@
      "posted=True,draft=False,deleted=False"
     ],
     [
-     "posted=False,draft=False,deleted=False"
+     "posted=False,draft=True,deleted=False"
     ]
    ],
    "invoice_entries.posted.cash_credit": [
@@ -333,8 +359,13 @@
    "audit_log": [
     [],
     [
-     "post_invoice:ok"
+     "post_invoice:ok",
+     "unpost:ok"
     ]
+   ],
+   "inventory_ledger.rows": [
+    1,
+    3
    ],
    "sbt.invoice_gold.rows": [
     null,
@@ -355,6 +386,14 @@
      "unpost:ok"
     ]
    ],
+   "inventory_ledger.net": [
+    -2.0,
+    0.0
+   ],
+   "inventory_ledger.rows": [
+    1,
+    2
+   ],
    "invoice.is_posted": [
     [
      true
@@ -368,7 +407,7 @@
      "posted=True,draft=False,deleted=False"
     ],
     [
-     "posted=False,draft=False,deleted=False"
+     "posted=False,draft=True,deleted=False"
     ]
    ],
    "invoice_entries.posted.cash_credit": [
@@ -413,6 +452,10 @@
      "post_invoice:ok",
      "unpost:ok"
     ]
+   ],
+   "inventory_ledger.rows": [
+    1,
+    3
    ],
    "sbt.invoice_gold.rows": [
     null,
@@ -468,6 +511,14 @@
      "unpost:ok"
     ]
    ],
+   "inventory_ledger.net": [
+    0.5,
+    0.0
+   ],
+   "inventory_ledger.rows": [
+    1,
+    2
+   ],
    "invoice.is_posted": [
     [
      true
@@ -481,7 +532,7 @@
      "posted=True,draft=False,deleted=False"
     ],
     [
-     "posted=False,draft=False,deleted=False"
+     "posted=False,draft=True,deleted=False"
     ]
    ],
    "invoice_entries.posted.cash_credit": [
@@ -515,6 +566,14 @@
    "invoice_entries.unposted.debit_18k": [
     null,
     0.5
+   ],
+   "sbt.invoice_scrap_receipt.rows": [
+    1.0,
+    null
+   ],
+   "sbt.invoice_scrap_receipt.w18k": [
+    0.5,
+    null
    ]
   },
   "cached_balance_drift_after_unpost": 0,
@@ -526,6 +585,10 @@
      "post_invoice:ok",
      "unpost:ok"
     ]
+   ],
+   "inventory_ledger.rows": [
+    1,
+    3
    ],
    "sbt.invoice_gold.rows": [
     null,
@@ -548,6 +611,20 @@
  "scrap_purchase_unpaid/unpost_invoices_route": {
   "answer": "200:ok",
   "unpost_changes": {
+   "audit_log": [
+    [],
+    [
+     "unpost:ok"
+    ]
+   ],
+   "inventory_ledger.net": [
+    0.5,
+    0.0
+   ],
+   "inventory_ledger.rows": [
+    1,
+    2
+   ],
    "invoice.is_posted": [
     [
      true
@@ -561,7 +638,7 @@
      "posted=True,draft=False,deleted=False"
     ],
     [
-     "posted=False,draft=False,deleted=False"
+     "posted=False,draft=True,deleted=False"
     ]
    ],
    "invoice_entries.posted.cash_credit": [
@@ -611,8 +688,13 @@
    "audit_log": [
     [],
     [
-     "post_invoice:ok"
+     "post_invoice:ok",
+     "unpost:ok"
     ]
+   ],
+   "inventory_ledger.rows": [
+    1,
+    3
    ],
    "sbt.invoice_gold.rows": [
     null,
@@ -641,6 +723,14 @@
      "unpost:ok"
     ]
    ],
+   "inventory_ledger.net": [
+    0.5,
+    0.0
+   ],
+   "inventory_ledger.rows": [
+    1,
+    2
+   ],
    "invoice.is_posted": [
     [
      true
@@ -654,7 +744,7 @@
      "posted=True,draft=False,deleted=False"
     ],
     [
-     "posted=False,draft=False,deleted=False"
+     "posted=False,draft=True,deleted=False"
     ]
    ],
    "invoice_entries.posted.cash_credit": [
@@ -688,6 +778,14 @@
    "invoice_entries.unposted.debit_18k": [
     null,
     0.5
+   ],
+   "sbt.invoice_scrap_receipt.rows": [
+    1.0,
+    null
+   ],
+   "sbt.invoice_scrap_receipt.w18k": [
+    0.5,
+    null
    ]
   },
   "cached_balance_drift_after_unpost": 0,
@@ -699,6 +797,10 @@
      "post_invoice:ok",
      "unpost:ok"
     ]
+   ],
+   "inventory_ledger.rows": [
+    1,
+    3
    ],
    "sbt.invoice_gold.rows": [
     null,

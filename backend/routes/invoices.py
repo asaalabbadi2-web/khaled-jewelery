@@ -2239,9 +2239,7 @@ def unpost_invoice(invoice_id: int):
     # Same rule as reject, asked before anything is written. Unpost used to
     # sweep the payments along -- and re-post never gave their safe-box rows
     # back (1641/1779/2204/2478, 92,385.00). See invoice_retraction_guard.
-    from services.invoice_retraction_guard import (
-        OWN_MOVEMENT_TYPES, live_payments_message, live_payments_of,
-    )
+    from services.invoice_retraction_guard import live_payments_message, live_payments_of
     standing = live_payments_of(invoice_id)
     if standing:
         return jsonify({
@@ -2258,63 +2256,16 @@ def unpost_invoice(invoice_id: int):
     )
 
     try:
-        # Accounts touched by any JE we're about to unpost -- their stored
-        # balance_cash/balance_*k must be recomputed afterward, otherwise the
-        # cached balance keeps counting a JE that no longer affects the live
-        # (is_posted=True) ledger total, drifting further out of sync on
-        # every unpost. (Confirmed in production: 76 historical unposts with
-        # no corresponding reversal, accounting for a large, previously
-        # undiagnosed gap between cached and ledger-computed balances.)
-        affected_account_ids = set()
-
-        # 1. Cascade: unpost all linked invoice JEs
-        linked_jes = JournalEntry.query.filter_by(
-            reference_type='invoice', reference_id=invoice_id
-        ).all()
-        for je in linked_jes:
-            affected_account_ids.update(l.account_id for l in je.lines if l.account_id)
-            je.is_posted = False
-            je.posted_at = None
-            je.posted_by = None
-
-        # 2. Linked vouchers are not touched. The guard above leaves only
-        # cancelled ones, and a cancelled payment and its cancellation are both
-        # facts that stand whatever happens to the invoice: resetting it to
-        # 'pending' here let the next post approve it again.
-
-        # 3. Delete the invoice's own safe-box movements. Only its own: a
-        # cancelled payment's rows (and their reversals) are the payment's
-        # history, and deleting the originals alone left reversals orphaned.
-        SafeBoxTransaction.query.filter(
-            SafeBoxTransaction.invoice_id == invoice_id,
-            SafeBoxTransaction.ref_type.in_(OWN_MOVEMENT_TYPES),
-        ).delete(synchronize_session=False)
-
-        # 4. Unpost the invoice
-        invoice.is_posted = False
-        invoice.posted_at = None
-
-        # 4b. Withdraw the gold evidence with the posting that created it.
-        # create_gold_obligations_for_invoice() runs in the POSTING path, so its
-        # counterpart belongs here. Attributions are removed and allocations
-        # freed; the obligation rows are kept (ADR-028's frozen record), so a
-        # re-post restores them instead of having to invent them again.
-        from services.gold_allocation_service import release_invoice_gold_evidence
-        release_invoice_gold_evidence(invoice_id)
-
-        # 5. Remove category-weight movements (only valid for posted invoices)
-        try:
-            from models import CategoryWeightMovement
-            CategoryWeightMovement.query.filter_by(invoice_id=invoice_id).delete()
-        except Exception:
-            pass
-
-        # 6. Recompute stored balances for every account these now-unposted
-        # JEs used to count toward, so balance_cash/balance_*k matches the
-        # live ledger total immediately, not just after a manual rebuild.
-        if affected_account_ids:
-            _recalculate_account_balances_for_accounts(affected_account_ids)
-
+        # The one unposting (UNPOST-001 U1, ADR-034), shared with the posting
+        # screen and its batch. Linked vouchers are not touched: the guard above
+        # leaves only cancelled ones.
+        from posting_routes import unpost_invoice_document
+        unpost_invoice_document(invoice)
+        AuditLog.log_action(
+            user_name=unposted_by, action='unpost', entity_type='invoice', entity_id=invoice_id,
+            entity_number=getattr(invoice, 'invoice_number', None) or str(invoice_id),
+            ip_address=request.remote_addr, user_agent=request.headers.get('User-Agent'),
+        )
         db.session.commit()
         return jsonify({'success': True, 'invoice': invoice.to_dict()}), 200
 
@@ -6272,7 +6223,8 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
                             scrap_purchase_gold_safe_account_id = None
 
                         # NOTE: avoid double-counting; safebox gold movements are applied only when posting is allowed.
-                        if not approval_required:
+                        # Not while the invoice stays unposted -- held, or auto-post off (ADR-034).
+                        if not unposted_mode:
                             # الخزنة تسجل الوزن الصافي (ذهب فقط) + الفصوص معلوماتياً
                             weight_kwargs = {
                                 'weight_18k': float(gold_by_karat.get('18', 0.0) or 0.0),
@@ -6321,7 +6273,7 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
 
         # Scrap gold type is handled separately below (invoice_scrap_sale SBT).
         # Avoid creating a duplicate invoice_sale_gold_movement SBT for scrap invoices.
-        if (not approval_required) and inv_type_for_gold in ('بيع', 'مرتجع بيع') and inv_gold_type != 'scrap':
+        if (not unposted_mode) and inv_type_for_gold in ('بيع', 'مرتجع بيع') and inv_gold_type != 'scrap':  # ADR-034
             try:
                 settings_row = Settings.query.first()
             except Exception:
@@ -6757,7 +6709,7 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
                         )
 
             # بيع كسر: تسجيل خروج الوزن من صندوق الكسر (يقابل دخول عند الشراء)
-            if _scrap_sale_target_sb_id and not approval_required:
+            if _scrap_sale_target_sb_id and not unposted_mode:  # ADR-034
                 _sale_sbt_weights = {
                     'weight_18k': float(gold_by_karat.get('18', 0.0) or 0.0),
                     'weight_21k': float(gold_by_karat.get('21', 0.0) or 0.0),
@@ -7254,7 +7206,7 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
                     )
 
             # ─── SBT صندوق الكسر (بيع كسر مرتجع → الكسر يعود للصندوق) ───
-            if gold_type == 'scrap' and not approval_required:
+            if gold_type == 'scrap' and not unposted_mode:  # ADR-034
                 try:
                     # نعيد استخدام نفس الخزينة المُحدَّدة أعلاه لحساب المخزون
                     # (inventory_accounts override) لضمان التطابق بين القيد و SBT.
@@ -8592,8 +8544,10 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
             if not new_invoice.posted_by:
                 new_invoice.posted_by = posted_by_username or 'system'
 
-            # Keep entry unposted; it will be posted when invoice is approved.
+            # Keep entry unposted -- a draft: an unposted invoice has no financial
+            # effect anywhere (ADR-034). Posting turns it back (post_invoice_document).
             journal_entry.is_posted = False
+            journal_entry.is_draft = True
             if hasattr(journal_entry, 'posted_at'):
                 journal_entry.posted_at = None
             if hasattr(journal_entry, 'posted_by'):

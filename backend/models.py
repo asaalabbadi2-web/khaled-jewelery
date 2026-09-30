@@ -5261,7 +5261,7 @@ class InventoryLedger(db.Model):
     source_line_id = db.Column(db.Integer, nullable=True)
     # 'sale' | 'purchase_from_customer' | 'supplier_purchase' |
     # 'sale_return' | 'purchase_return' | 'opening' | 'adjustment'
-    movement_type = db.Column(db.String(30), nullable=False, index=True)
+    movement_type = db.Column(db.String(40), nullable=False, index=True)  # 'purchase_from_customer_reversal' is 31
 
     # ── Bucket: branch + category + karat ───────────────────────────────────
     branch_id   = db.Column(db.Integer, db.ForeignKey('branch.id'),   nullable=True, index=True)
@@ -5275,11 +5275,15 @@ class InventoryLedger(db.Model):
     posted_at = db.Column(db.DateTime, nullable=False, default=datetime.now, index=True)
     posted_by = db.Column(db.String(100), nullable=True)
     notes     = db.Column(db.Text, nullable=True)
+    cycle     = db.Column(db.Integer, nullable=False, default=0, server_default='0')
 
     __table_args__ = (
-        # Idempotency guard: prevents double-posting the same source line
+        # Idempotency guard: one row per source line, movement and posting cycle.
+        # cycle: 0 for the first posting; a re-post after a reversal is the next
+        # cycle, and its reversal carries the same number (ADR-002 addendum,
+        # ADR-034) -- post, unpost, post is possible without touching a row.
         db.UniqueConstraint(
-            'source_type', 'source_id', 'source_line_id', 'movement_type',
+            'source_type', 'source_id', 'source_line_id', 'movement_type', 'cycle',
             name='uq_inventory_ledger_idempotency',
         ),
         # Composite index for bucket-balance queries

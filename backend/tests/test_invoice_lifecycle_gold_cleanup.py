@@ -462,18 +462,26 @@ class TestRetractionReleasesGoldEvidence:
         assert db.session.get(Voucher, vid) is not None
 
     def test_both_retraction_routes_call_it(self):
-        """reject_invoice and unpost_invoice are the two paths that retract a
-        posted document. Neither mentioned the gold tables at all — the root
-        cause of both regressions."""
-        from pathlib import Path
-        src = (Path(__file__).resolve().parent.parent
-               / 'routes' / 'invoices.py').read_text(encoding='utf-8')
+        """reject_invoice and the unposting are the paths that retract a posted
+        document. Neither mentioned the gold tables at all -- the root cause of
+        both regressions. Since UNPOST-001 U1 the three unpost routes (the
+        posting screen, its batch, the invoices route) share one operation,
+        posting_routes.unpost_invoice_document: it releases the evidence, and
+        each route must call it."""
+        import inspect
+        import posting_routes
+        from routes import invoices
 
-        for fn in ('def reject_invoice', 'def unpost_invoice'):
-            start = src.index(fn)
-            body = src[start:start + 6000]
-            assert 'release_invoice_gold_evidence' in body, \
-                f'{fn} does not release the invoice gold evidence'
+        def body(fn):
+            return inspect.getsource(fn)
+
+        assert 'release_invoice_gold_evidence' in body(invoices.reject_invoice), \
+            'reject_invoice does not release the invoice gold evidence'
+        assert 'release_invoice_gold_evidence' in body(posting_routes.unpost_invoice_document), \
+            'unpost_invoice_document does not release the invoice gold evidence'
+        for route in (invoices.unpost_invoice, posting_routes.unpost_invoice, posting_routes.unpost_invoices_batch):
+            assert 'unpost_invoice_document(' in body(route), \
+                f'{route.__module__}.{route.__name__} does not use the one unposting'
 
 
 class TestTheInvoiceOwnStatusIsUnaffected:
