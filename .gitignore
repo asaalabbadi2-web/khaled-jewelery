@@ -75,3 +75,6 @@ gold-jewelry-pos/
 .env
 .env.*
 !.env*.example
+
+# graphify knowledge-graph output: generated locally, not source
+graphify-out/
