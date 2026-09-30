@@ -109,7 +109,9 @@ class _PendingApprovalsDialogState extends State<PendingApprovalsDialog> {
     }
   }
 
-  int get _totalCount => _totalReservations + _totalInvoices + _systemAlerts.length;
+  /// Things awaiting a decision. A system alert is not one: it has its own
+  /// card and its own chip on the home screen.
+  int get _totalCount => _totalReservations + _totalInvoices;
 
   // ─────────────── Reservation actions ───────────────
 
@@ -645,7 +647,9 @@ class _PendingApprovalsDialogState extends State<PendingApprovalsDialog> {
                   _loading
                       ? (isAr ? 'جارِ التحميل...' : 'Loading...')
                       : _totalCount == 0
-                          ? (isAr ? 'لا توجد إجراءات معلقة' : 'No pending actions')
+                          ? (_systemAlerts.isNotEmpty
+                              ? (isAr ? 'عطل تشغيل يحتاج تدخلًا على الخادم' : 'A system fault needs attention')
+                              : (isAr ? 'لا توجد إجراءات معلقة' : 'No pending actions'))
                           : (isAr
                               ? '$_totalCount ${_totalCount == 1 ? 'إجراء ينتظر' : 'إجراء ينتظر'} مراجعتك'
                               : '$_totalCount ${_totalCount == 1 ? 'item needs' : 'items need'} review'),

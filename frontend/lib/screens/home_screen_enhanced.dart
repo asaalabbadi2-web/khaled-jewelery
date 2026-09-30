@@ -129,6 +129,10 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
 
   // Operations badge (invoice approvals)
   int _pendingApprovalsCount = 0;
+
+  /// A silent scheduler (SCHED-004): its own chip, never mixed into the count
+  /// of things awaiting a decision -- it is a fault to fix on the server.
+  int _systemAlertsCount = 0;
   Timer? _approvalsAutoRefreshTimer;
 
   // Gamification: leaderboard (today/week)
@@ -581,14 +585,14 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
       if (!auth.isAuthenticated) return;
 
       final result = await api.getPendingActions();
-      // + the system itself: a silent scheduler (SCHED-004) counts in the bell.
       final count = ((result['total_pending_reservations'] as num?)?.toInt() ?? 0) +
-          ((result['total_pending_invoices'] as num?)?.toInt() ?? 0) +
-          ((result['total_system_alerts'] as num?)?.toInt() ?? 0);
+          ((result['total_pending_invoices'] as num?)?.toInt() ?? 0);
+      final systemCount = (result['total_system_alerts'] as num?)?.toInt() ?? 0;
 
       if (!mounted) return;
       setState(() {
         _pendingApprovalsCount = count;
+        _systemAlertsCount = systemCount;
       });
 
       // يُنشأ الـ timer مرة واحدة فقط عند أول تحميل
@@ -596,6 +600,51 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
     } catch (e) {
       debugPrint('⚠️ Failed to load approvals badge: $e');
     }
+  }
+
+  /// One chip in the app bar; every chip opens the pending-actions dialog.
+  Widget _pendingChip({required bool isAr, required Widget leading, required String label}) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 10),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(20),
+        onTap: () => PendingApprovalsDialog.show(
+          context: context,
+          api: api,
+          isArabic: isAr,
+          onCountChanged: _loadPendingApprovalsCount,
+        ),
+        child: Container(
+          padding: const EdgeInsetsDirectional.fromSTEB(8, 6, 12, 6),
+          decoration: BoxDecoration(
+            color: AppColors.error.withValues(alpha: 0.16),
+            border: Border.all(color: AppColors.error.withValues(alpha: 0.45)),
+            borderRadius: BorderRadius.circular(20),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 22,
+                height: 22,
+                decoration: const BoxDecoration(color: AppColors.error, shape: BoxShape.circle),
+                child: Center(child: leading),
+              ),
+              const SizedBox(width: 5),
+              Text(
+                label,
+                style: const TextStyle(
+                  color: Color(0xFFFFCDD2),
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  fontFamily: 'Cairo',
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   Future<void> _loadGoldPrice() async {
@@ -1966,62 +2015,25 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
             ],
           ),
           actions: [
+            if (_systemAlertsCount > 0)
+              _pendingChip(
+                isAr: isAr,
+                leading: const Icon(Icons.power_off_rounded, size: 18, color: Colors.white),
+                label: isAr ? 'المجدول متوقف' : 'Scheduler down',
+              ),
             if (_pendingApprovalsCount > 0)
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 10),
-                child: InkWell(
-                  borderRadius: BorderRadius.circular(20),
-                  onTap: () => PendingApprovalsDialog.show(
-                    context: context,
-                    api: api,
-                    isArabic: isAr,
-                    onCountChanged: _loadPendingApprovalsCount,
-                  ),
-                  child: Container(
-                    padding: const EdgeInsetsDirectional.fromSTEB(8, 6, 12, 6),
-                    decoration: BoxDecoration(
-                      color: AppColors.error.withValues(alpha: 0.16),
-                      border: Border.all(
-                        color: AppColors.error.withValues(alpha: 0.45),
-                      ),
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Container(
-                          width: 22,
-                          height: 22,
-                          decoration: const BoxDecoration(
-                            color: AppColors.error,
-                            shape: BoxShape.circle,
-                          ),
-                          child: Center(
-                            child: Text(
-                              '$_pendingApprovalsCount',
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 11,
-                                fontWeight: FontWeight.w800,
-                                fontFamily: 'Cairo',
-                              ),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 5),
-                        Text(
-                          isAr ? 'بانتظار الاعتماد' : 'Pending Approval',
-                          style: const TextStyle(
-                            color: Color(0xFFFFCDD2),
-                            fontSize: 12,
-                            fontWeight: FontWeight.w700,
-                            fontFamily: 'Cairo',
-                          ),
-                        ),
-                      ],
-                    ),
+              _pendingChip(
+                isAr: isAr,
+                leading: Text(
+                  '$_pendingApprovalsCount',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w800,
+                    fontFamily: 'Cairo',
                   ),
                 ),
+                label: isAr ? 'بانتظار الإجراء' : 'Pending Actions',
               ),
             IconButton(
               icon: Icon(
