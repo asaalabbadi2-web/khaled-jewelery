@@ -57,7 +57,7 @@ import sqlalchemy as sa
 
 from app import app
 from models import (
-    Account, Invoice, InvoiceGoldObligation, InvoiceItem, InvoiceKaratLine,
+    Account, AuditLog, Invoice, InvoiceGoldObligation, InvoiceItem, InvoiceKaratLine,
     InvoicePayment, JournalEntry, JournalEntryLine, PaymentMethod, SafeBox,
     SafeBoxTransaction, Settings, Voucher, VoucherInvoiceGoldAttribution,
     WeightClosingExecution, WeightClosingOrder, db,
@@ -250,12 +250,37 @@ class TestRejectIsRefusedWhileAPaymentStands:
             db.session.expire_all()
             assert Invoice.query.get(inv_id).status == 'unpaid'
 
-    def test_a_payment_with_no_voucher_at_all_still_counts(self, auth_headers):
-        """source_voucher_id NULL -- deferred payments. Nothing can show it was
-        cancelled, so it stands."""
+    def test_a_draft_payment_goes_with_the_rejection(self, auth_headers):
+        """source_voucher_id NULL on an unposted invoice, and no safe-box row: a
+        payment saved while the invoice waited for approval. Until 1 Oct 2026
+        it stood -- nothing showed it cancelled -- and it made the invoice
+        impossible to reject or delete (RETRACT-001, invoice 3158). The owner's
+        decision: an unposted invoice is a draft with no financial effect
+        (ADR-034), and so is such a payment; rejecting withdraws it, and the
+        audit row names it."""
         with app.app_context():
             inv = _invoice('بيع')
-            _payment(inv, None)
+            ip = _payment(inv, None)
+            db.session.commit()
+            inv_id, ip_id = inv.id, ip.id
+            resp = _reject(app.test_client(), auth_headers, inv_id)
+            assert resp.status_code == 200, resp.get_data(as_text=True)[:200]
+            db.session.expire_all()
+            assert db.session.get(InvoicePayment, ip_id) is None
+            row = (AuditLog.query.filter_by(entity_id=inv_id, action='reject', success=True)
+                   .order_by(AuditLog.id.desc()).first())
+            assert row is not None and '"payment_id": %d' % ip_id in row.details
+
+    def test_a_voucherless_payment_that_moved_a_safe_still_stands(self, auth_headers):
+        """No voucher, but a safe-box row: the money moved. That is an event, not
+        a draft, and it still refuses the rejection."""
+        with app.app_context():
+            inv = _invoice('بيع')
+            ip = _payment(inv, None)
+            box = _box()
+            db.session.add(SafeBoxTransaction(safe_box_id=box.id, ref_type='invoice_payment', ref_id=ip.id,
+                                              invoice_id=inv.id, invoice_payment_id=ip.id,
+                                              direction='in', amount_cash=500.0))
             db.session.commit()
             assert _reject(app.test_client(), auth_headers, inv.id).status_code == 409
 

@@ -73,12 +73,29 @@
  "held:sale_on_credit/reject": {
   "answer": "200:ok",
   "changes": {
+   "audit_log": [
+    [
+     "large_discount:ok"
+    ],
+    [
+     "large_discount:ok",
+     "reject:ok"
+    ]
+   ],
    "invoice.status": [
     [
      "unpaid"
     ],
     [
      "rejected"
+    ]
+   ],
+   "system_alerts": [
+    [
+     "invoice_approval:open"
+    ],
+    [
+     "invoice_approval:reviewed"
     ]
    ]
   }
@@ -110,8 +127,40 @@
   }
  },
  "held:scrap_purchase_paid/reject": {
-  "answer": "409:has_live_payments",
-  "changes": {}
+  "answer": "200:ok",
+  "changes": {
+   "audit_log": [
+    [
+     "above_live_price:ok"
+    ],
+    [
+     "above_live_price:ok",
+     "reject:ok"
+    ]
+   ],
+   "invoice.status": [
+    [
+     "paid"
+    ],
+    [
+     "rejected"
+    ]
+   ],
+   "payments": [
+    [
+     "100000.0:voucher=no"
+    ],
+    []
+   ],
+   "system_alerts": [
+    [
+     "invoice_approval:open"
+    ],
+    [
+     "invoice_approval:reviewed"
+    ]
+   ]
+  }
  },
  "held:scrap_purchase_unpaid/delete": {
   "answer": "200:ok",
@@ -187,12 +236,29 @@
  "held:scrap_purchase_unpaid/reject": {
   "answer": "200:ok",
   "changes": {
+   "audit_log": [
+    [
+     "above_live_price:ok"
+    ],
+    [
+     "above_live_price:ok",
+     "reject:ok"
+    ]
+   ],
    "invoice.status": [
     [
      "unpaid"
     ],
     [
      "rejected"
+    ]
+   ],
+   "system_alerts": [
+    [
+     "invoice_approval:open"
+    ],
+    [
+     "invoice_approval:reviewed"
     ]
    ]
   }

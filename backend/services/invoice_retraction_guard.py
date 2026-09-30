@@ -197,7 +197,7 @@ def live_payments_message(action: str, labels: list[str]) -> str:
     )
 
 
-def _payment_history(invoice_id: int) -> list[str]:
+def _payment_history(invoice_id: int, skip_payment_ids=frozenset()) -> list[str]:
     labels: list[str] = []
     seen: set[int] = set()
     for v in (Voucher.query
@@ -206,7 +206,7 @@ def _payment_history(invoice_id: int) -> list[str]:
         labels.append(_label(v))
         seen.add(v.id)
     for ip in InvoicePayment.query.filter_by(invoice_id=invoice_id).order_by(InvoicePayment.id).all():
-        if ip.source_voucher_id in seen:
+        if ip.source_voucher_id in seen or ip.id in skip_payment_ids:
             continue
         v = Voucher.query.get(ip.source_voucher_id) if ip.source_voucher_id else None
         labels.append(_label(v, ip))
@@ -222,10 +222,11 @@ def _payment_history(invoice_id: int) -> list[str]:
     return labels
 
 
-def financial_history_of(invoice_id: int) -> list[str]:
+def financial_history_of(invoice_id: int, skip_payment_ids=frozenset()) -> list[str]:
     """Labels of every row another document or process wrote about
-    *invoice_id*, cancelled payments included."""
-    labels = _payment_history(invoice_id)
+    *invoice_id*, cancelled payments included. skip_payment_ids: the invoice's
+    own draft payments (draft_payments_of), for the paths that take them along."""
+    labels = _payment_history(invoice_id, skip_payment_ids)
     handled = {('invoice_payment', 'invoice_id'), ('voucher_invoice_gold_attribution', 'invoice_id')}
     meta = db.Model.metadata
     owners = _owned_tables()
@@ -259,3 +260,21 @@ def financial_history_of(invoice_id: int) -> list[str]:
     for t in foreign_rows.order_by(SafeBoxTransaction.id).limit(20).all():
         labels.append(f'حركة خزينة ({t.ref_type or "بلا نوع"}) #{t.id}')
     return labels
+
+
+def draft_payments_of(invoice) -> list:
+    """An unposted invoice's own payments: part of its draft (ADR-034).
+
+    Held for approval, an invoice records its payment as an InvoicePayment
+    with no voucher -- the voucher, its entry and its safe-box row are written
+    when it posts (post_invoice_document). Such a payment has no financial
+    effect anywhere, so it goes with the draft: rejecting withdraws it
+    (RETRACT-001, the owner's decision of 1 Oct 2026) and an edit rewrites it.
+    Anything with a voucher or a safe-box row is an event and is not a draft."""
+    if invoice is None or invoice.is_posted:
+        return []
+    return [
+        p for p in InvoicePayment.query.filter_by(invoice_id=invoice.id, source_voucher_id=None)
+        .order_by(InvoicePayment.id).all()
+        if not SafeBoxTransaction.query.filter_by(invoice_payment_id=p.id).first()
+    ]

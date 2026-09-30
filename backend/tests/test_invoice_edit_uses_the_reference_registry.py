@@ -13,10 +13,9 @@ has_financial_history.
 (What the invoice OWNS is cleared: its gold obligations go by ORM cascade --
 checked 30 Sep 2026, contrary to a first reading of the list.)
 
-xfail(strict) until the edit consults the registry: then this passes and the
-marker must go. The terminal fix must still let an invoice's OWN payments be
-corrected by an edit (3170 was edited paid) -- financial_history_of counts
-them, so it cannot be applied as it stands.
+Fixed in UNPOST-001 U2: the edit asks financial_history_of before it deletes
+anything, setting aside only the invoice's own draft payments
+(draft_payments_of) -- 3170 was edited paid, and still can be.
 
 Run:
     python -m pytest tests/test_invoice_edit_uses_the_reference_registry.py -v
@@ -41,7 +40,6 @@ def rollback_after_each(app, db_fence):
     yield
 
 
-@pytest.mark.xfail(strict=True, reason='EDIT-003: the edit keeps its own cleanup list and asks nothing about evidence')
 def test_an_invoice_another_document_names_is_refused_like_delete_refuses_it(auth_headers):
     original = Invoice(invoice_type='بيع', invoice_type_id=99003, date=datetime(2026, 9, 29),
                        total=1.0, is_posted=False)

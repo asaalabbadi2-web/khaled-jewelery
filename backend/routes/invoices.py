@@ -1067,6 +1067,24 @@ def update_unposted_invoice(invoice_id: int):
             'message': 'لا يمكن تعديل فاتورة مرحّلة. استخدم المرتجعات بدلاً من ذلك.',
         }), 400
 
+    # Nothing another document or process wrote about the invoice may be swept
+    # along: the same registry delete asks (EDIT-003). The invoice's own draft
+    # payments are the edit's to rewrite (ADR-034, the owner's rule); anything
+    # else -- a return naming it, an attributed gold payment, a voucher -- makes
+    # the edit refuse, as delete refuses.
+    from services.invoice_retraction_guard import draft_payments_of, financial_history_of
+    history = financial_history_of(
+        invoice_id, skip_payment_ids=frozenset(p.id for p in draft_payments_of(invoice)))
+    if history:
+        return jsonify({
+            'error': 'has_financial_history',
+            'message': (
+                'لا يمكن تعديل فاتورة كتبت عنها مستندات أخرى: ' + '، '.join(history) + '. '
+                'ارفضها وأنشئ فاتورة جديدة، ليبقى أثر تلك المستندات قابلًا للمراجعة.'
+            ),
+            'records': history,
+        }), 409
+
     # Preserve the original invoice_type_id so the display number stays the same.
     original_type_id = invoice.invoice_type_id
     original_invoice_type = invoice.invoice_type
@@ -2173,7 +2191,19 @@ def reject_invoice(invoice_id: int):
         # leave dangling. Refusal rolls the whole transaction back, 8E included.
         # Incidents 3123/3132: see services/invoice_retraction_guard.py.
         db.session.flush()
-        from services.invoice_retraction_guard import live_payments_message, live_payments_of
+        from services.invoice_retraction_guard import (
+            draft_payments_of, live_payments_message, live_payments_of,
+        )
+        # An unposted invoice's own payments -- no voucher, no safe-box row --
+        # are part of its draft and go with it (ADR-034; RETRACT-001, the
+        # owner's decision of 1 Oct 2026). Named in the audit row below. Asked
+        # before the guard, so what it refuses on is only what is real; a
+        # refusal rolls back, and these come back with it.
+        withdrawn = [{'payment_id': p.id, 'amount': float(p.amount or 0),
+                      'payment_method_id': p.payment_method_id} for p in draft_payments_of(invoice)]
+        for p in draft_payments_of(invoice):
+            db.session.delete(p)
+        db.session.flush()
         standing = live_payments_of(invoice_id)
         if standing:
             db.session.rollback()
@@ -2190,6 +2220,19 @@ def reject_invoice(invoice_id: int):
         from services.gold_allocation_service import release_invoice_gold_evidence
         release_invoice_gold_evidence(invoice_id)
 
+        # ── A rejected invoice is an unposted one: its entries stay drafts and
+        # count nowhere (ADR-034), and its approval alert is answered.
+        from models import SystemAlert
+        for je in JournalEntry.query.filter_by(reference_type='invoice', reference_id=invoice_id).all():
+            je.is_posted = False
+            je.is_draft = True
+        SystemAlert.query.filter_by(entity_type='Invoice', entity_id=invoice_id, is_reviewed=False).update(
+            {'is_reviewed': True, 'reviewed_by': rejected_by, 'reviewed_at': datetime.now()},
+            synchronize_session=False)
+        if withdrawn:
+            from services.invoice_payment_state_service import InvoicePaymentStateService
+            InvoicePaymentStateService().recompute(invoice)
+
         # ── وضع علامة رفض على الفاتورة ─────────────────────────────────────
         invoice.status = 'rejected'
         if rejection_reason:
@@ -2197,6 +2240,12 @@ def reject_invoice(invoice_id: int):
             invoice.notes = f'[مرفوض: {rejection_reason}]\n{current_notes}'.strip() if hasattr(invoice, 'notes') else None
         db.session.add(invoice)
 
+        AuditLog.log_action(
+            user_name=rejected_by or 'system', action='reject', entity_type='invoice', entity_id=invoice_id,
+            entity_number=getattr(invoice, 'invoice_number', None) or str(invoice_id),
+            details=json.dumps({'reason': rejection_reason, 'withdrawn_draft_payments': withdrawn}, ensure_ascii=False),
+            ip_address=request.remote_addr, user_agent=request.headers.get('User-Agent'),
+        )
         db.session.commit()
         return jsonify({
             'success': True,

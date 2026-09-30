@@ -74,3 +74,9 @@
 - UNPOST-001، RETRACT-001، EDIT-003، SAFEBOX-001 — جدول الثغرات في `docs/architecture/architecture-v1.md`
 - `docs/plans/unpost-001-u0-retraction-map.md` · `backend/tests/u0_retraction_effects.json`
 - ADR-028 (التزامات الذهب تبقى عند فكّ الترحيل) · ADR-030 (الفحوص الليلية)
+
+---
+
+## Addendum — 2026-10-01: the unposted invoice's payment (UNPOST-001 U2)
+
+قرار المالك: دفعة الفاتورة غير المرحّلة التي بلا سند ولا حركة خزينة — دفعة حُفظت والفاتورة تنتظر الاعتماد — **جزء من مسودتها**: لا أثر لها في أي مكان، كالفاتورة نفسها. الرفض يسحبها ويسمّيها في صفّ التدقيق، والتعديل يعيد كتابتها. ما له سند أو حركة خزينة واقعةٌ قائمة، يمنع الرفض كما كان. (`services/invoice_retraction_guard.draft_payments_of` · `tests/test_unpost_001_u2_reject.py` · `tests/test_invoice_retraction_guard.py`.)
