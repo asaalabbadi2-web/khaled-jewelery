@@ -48,22 +48,23 @@ def app():
 
 
 @pytest.fixture(autouse=True)
-def rollback_after_each(app):
-    connection = db.engine.connect()
-    transaction = connection.begin()
-    db.session.bind = connection
-    nested = connection.begin_nested()
-
+def rollback_after_each(app, db_fence):
     if GoldAttributionBoundary.query.first() is None:
         db.session.add(GoldAttributionBoundary(max_historical_voucher_id=10 ** 9))
         db.session.flush()
 
     yield
 
-    db.session.remove()
-    nested.rollback()
-    transaction.rollback()
-    connection.close()
+
+def _office():
+    """A real office. The tests wrote office ids 1, 4 and 7 that name no row --
+    SQLite does not enforce foreign keys, PostgreSQL does (TEST-001)."""
+    from models import Office
+    import uuid as _uuid
+    office = Office(office_code=f'O-{_uuid.uuid4().hex[:8]}', name='مكتب اختبار')
+    db.session.add(office)
+    db.session.flush()
+    return office.id
 
 
 def _uid():
@@ -449,7 +450,7 @@ class TestTheThreeTradeShapes:
     def test_office_invoice_is_decided_by_cash_against_total(self):
         supplier = self._supplier_with_wage_type('cash')
         invoice = self._invoice_for(
-            supplier.id, office_id=4, total=175100.0, wage=0.0,
+            supplier.id, office_id=_office(), total=175100.0, wage=0.0,
         )
         assert invoice.cash_obligation == 175100.0, 'gold is bought from the office FOR cash'
         assert is_gold_obligation_eligible(invoice) is False
@@ -460,7 +461,7 @@ class TestTheThreeTradeShapes:
     def test_a_partly_settled_office_invoice_reads_partial(self):
         supplier = self._supplier_with_wage_type('cash')
         invoice = self._invoice_for(
-            supplier.id, office_id=4, total=170349.0, wage=0.0,
+            supplier.id, office_id=_office(), total=170349.0, wage=0.0,
         )
         _pay_cash(invoice, 150000.0)
         assert _status(invoice) == 'partially_paid'
@@ -469,7 +470,7 @@ class TestTheThreeTradeShapes:
         """Its gold dimension must stay absent, not empty: there is no gold debt
         to a closing office, so nothing should ever be waiting on one."""
         supplier = self._supplier_with_wage_type('cash')
-        invoice = self._invoice_for(supplier.id, office_id=4, total=50000.0)
+        invoice = self._invoice_for(supplier.id, office_id=_office(), total=50000.0)
 
         created = create_gold_obligations_for_invoice(invoice)
         assert created == []

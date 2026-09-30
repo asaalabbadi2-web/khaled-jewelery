@@ -59,16 +59,8 @@ def app():
 
 
 @pytest.fixture(autouse=True)
-def rollback_after_each(app):
-    connection = db.engine.connect()
-    transaction = connection.begin()
-    db.session.bind = connection
-    nested = connection.begin_nested()
+def rollback_after_each(app, db_fence):
     yield
-    db.session.remove()
-    nested.rollback()
-    transaction.rollback()
-    connection.close()
 
 
 def _uid():

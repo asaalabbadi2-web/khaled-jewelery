@@ -62,12 +62,7 @@ def app():
 
 
 @pytest.fixture(autouse=True)
-def rollback_after_each(app):
-    connection = db.engine.connect()
-    transaction = connection.begin()
-    db.session.bind = connection
-    nested = connection.begin_nested()
-
+def rollback_after_each(app, db_fence):
     # Production gets this row from migration 20260924_voucher_invoice_gold_attr;
     # a create_all() test database has to seed it, because
     # historical_attribution_boundary() fails CLOSED at 0 — deriving nothing
@@ -79,10 +74,16 @@ def rollback_after_each(app):
 
     yield
 
-    db.session.remove()
-    nested.rollback()
-    transaction.rollback()
-    connection.close()
+
+def _office():
+    """A real office. The tests wrote office ids 1, 4 and 7 that name no row --
+    SQLite does not enforce foreign keys, PostgreSQL does (TEST-001)."""
+    from models import Office
+    import uuid as _uuid
+    office = Office(office_code=f'O-{_uuid.uuid4().hex[:8]}', name='مكتب اختبار')
+    db.session.add(office)
+    db.session.flush()
+    return office.id
 
 
 def _uid():
@@ -334,7 +335,7 @@ class TestEligibility:
         """Phase 16A: such an invoice posts cash only to the GL, so an
         obligation row would be a phantom (29 existed in a local copy)."""
         supplier = _supplier()
-        invoice = _invoice(supplier.id, office_id=7)
+        invoice = _invoice(supplier.id, office_id=_office())
         db.session.add(InvoiceKaratLine(invoice_id=invoice.id, karat=21.0, weight_grams=50.0))
         db.session.flush()
 

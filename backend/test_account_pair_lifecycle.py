@@ -68,8 +68,22 @@ def _get_or_create_pair(cash_num: str, gold_num: str,
 
 
 def _wipe_accounts(*numbers: str) -> None:
-    """يحذف الحسابات بأرقامها — يُفسخ الربط أولاً لتجنب FK violations."""
+    """يحذف الحسابات بأرقامها — يُفسخ الربط أولاً لتجنب FK violations.
+
+    And the entries earlier tests posted on them first: SQLite does not enforce
+    foreign keys, PostgreSQL refuses to delete an account its lines still name
+    (TEST-001)."""
+    from models import JournalEntry, JournalEntryLine
     accs = Account.query.filter(Account.account_number.in_(numbers)).all()
+    ids = [a.id for a in accs]
+    if ids:
+        entry_ids = [r[0] for r in db.session.query(JournalEntryLine.journal_entry_id)
+                     .filter(JournalEntryLine.account_id.in_(ids)).distinct().all()]
+        if entry_ids:
+            JournalEntryLine.query.filter(JournalEntryLine.journal_entry_id.in_(entry_ids)).delete(
+                synchronize_session=False)
+            JournalEntry.query.filter(JournalEntry.id.in_(entry_ids)).delete(synchronize_session=False)
+            db.session.flush()
     for a in accs:
         a.memo_account_id = None
         db.session.add(a)

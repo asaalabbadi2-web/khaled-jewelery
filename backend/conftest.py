@@ -5,25 +5,76 @@ from datetime import datetime
 import sys
 
 # IMPORTANT: tests must never run against the real dev/prod database.
-# Force an isolated SQLite DB for pytest BEFORE importing the Flask app.
-_DEFAULT_SAFE_TEST_DB = None
-try:
-    base_dir = os.path.dirname(os.path.abspath(__file__))
-    safe_dir = os.path.join(base_dir, '.pytest_db')
-    os.makedirs(safe_dir, exist_ok=True)
-    _DEFAULT_SAFE_TEST_DB = os.path.join(
-        safe_dir,
-        f"yasargold_test_{int(time.time())}_{os.getpid()}.db",
-    )
-except Exception:
-    _DEFAULT_SAFE_TEST_DB = None
+#
+# They run on PostgreSQL -- what development and production run (TEST-001):
+# a throwaway database created for this run and dropped after it, on the
+# server named by PYTEST_PG_ADMIN_URL (default: the local server's `postgres`
+# maintenance database). Until 30 Sep 2026 they ran on SQLite, where 35 tests
+# passed that fail on PostgreSQL -- a green run said nothing about production.
+# There is no SQLite mode: one database kind, the one production runs.
+# PYTEST_ALLOW_REAL_DB=1 keeps DATABASE_URL as given (never for a real one).
+_THROWAWAY_PG_DB = None
+_PG_ADMIN_URL = os.getenv('PYTEST_PG_ADMIN_URL', 'postgresql://localhost/postgres')
+
+
+def _pg_admin(sql):
+    import psycopg2
+    conn = psycopg2.connect(_PG_ADMIN_URL)
+    conn.autocommit = True
+    try:
+        with conn.cursor() as cur:
+            cur.execute(sql)
+    finally:
+        conn.close()
+
+
+def _drop_throwaway_pg_db():
+    if not _THROWAWAY_PG_DB:
+        return
+    try:
+        from models import db as _db
+        _db.engine.dispose()
+    except Exception:
+        pass
+    try:
+        _pg_admin(f'DROP DATABASE IF EXISTS "{_THROWAWAY_PG_DB}" WITH (FORCE)')
+    except Exception as exc:  # never hide it: a left database is visible, not dangerous
+        print(f'[conftest] could not drop {_THROWAWAY_PG_DB}: {exc}')
+
 
 if os.getenv('PYTEST_ALLOW_REAL_DB', '').strip() not in ('1', 'true', 'yes'):
-    # Override any existing DATABASE_URL to protect user data.
-    if _DEFAULT_SAFE_TEST_DB:
-        os.environ['DATABASE_URL'] = f"sqlite:///{_DEFAULT_SAFE_TEST_DB}"
-    else:
-        os.environ['DATABASE_URL'] = 'sqlite:///:memory:'
+    _THROWAWAY_PG_DB = f'yasargold_pytest_{int(time.time())}_{os.getpid()}'
+    try:
+        _pg_admin(f'CREATE DATABASE "{_THROWAWAY_PG_DB}"')
+    except Exception as exc:
+        raise SystemExit(
+            f'[conftest] tests run on PostgreSQL and could not create a throwaway database '
+            f'through {_PG_ADMIN_URL}: {exc}\n'
+            f'Start PostgreSQL or set PYTEST_PG_ADMIN_URL.')
+    import atexit
+    atexit.register(_drop_throwaway_pg_db)
+    _base = _PG_ADMIN_URL.rsplit('/', 1)[0]
+    os.environ['DATABASE_URL'] = f'{_base}/{_THROWAWAY_PG_DB}'
+
+    # The backup code calls pg_dump from PATH, and pg_dump refuses a server
+    # newer than itself. Production's image ships the matching client; here
+    # the first pg_dump on PATH may be older (14 against a 16 server, 30 Sep
+    # 2026). Put the client tools of the server's own major version first.
+    # None found: the backup tests fail and say why -- they are not skipped.
+    try:
+        import psycopg2 as _pg
+        _conn = _pg.connect(_PG_ADMIN_URL)
+        _major = _conn.server_version // 10000
+        _conn.close()
+        for _bin in (os.getenv('PYTEST_PG_BIN', ''),
+                     f'/opt/homebrew/opt/postgresql@{_major}/bin',
+                     f'/usr/local/opt/postgresql@{_major}/bin',
+                     f'/usr/lib/postgresql/{_major}/bin'):
+            if _bin and os.path.exists(os.path.join(_bin, 'pg_dump')):
+                os.environ['PATH'] = _bin + os.pathsep + os.environ.get('PATH', '')
+                break
+    except Exception as _exc:
+        print(f'[conftest] could not match pg_dump to the server: {_exc}')
 
     # Mark environment as test to reduce side effects.
     os.environ.setdefault('YASAR_ENV', 'test')
@@ -151,6 +202,21 @@ def initialize_db():
             db.session.add(e)
 
         db.session.commit()
+
+        # PostgreSQL: rows seeded with explicit ids (accounts 15, 1300, 1610,
+        # safe box 32, supplier 1) do not advance their id sequences, so the
+        # next insert without an id would reuse one and fail (account_pkey).
+        # SQLite derived the next id from max(id) and hid it (TEST-001).
+        if db.engine.dialect.name == 'postgresql':
+            from sqlalchemy import text
+            rows = db.session.execute(text(
+                "select c.table_name, c.column_name, pg_get_serial_sequence(c.table_name, c.column_name) "
+                "from information_schema.columns c where c.table_schema = 'public' "
+                "and pg_get_serial_sequence(c.table_name, c.column_name) is not null")).fetchall()
+            for table, column, sequence in rows:
+                db.session.execute(text(
+                    f'select setval(\'{sequence}\', coalesce((select max("{column}") from "{table}"), 0) + 1, false)'))
+            db.session.commit()
 
 
 @pytest.fixture

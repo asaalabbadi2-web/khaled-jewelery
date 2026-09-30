@@ -9,21 +9,10 @@ Account Number Generator - مولد أرقام الحسابات التلقائي
 
 from typing import Optional
 
-import sqlalchemy as _sa
 from models import Account, db
 
-# ─────────────────────────────────────────────────────────────────────────────
-# PostgreSQL compat: always cast account_number to BIGINT (8-byte), never INT.
-# INT (4-byte) overflows at 2,147,483,647.  Weight memo accounts under deep
-# hierarchies can exceed 10 digits (e.g. 7210000020) which triggers
-# psycopg2.errors.NumericValueOutOfRange on production PostgreSQL.
-# ─────────────────────────────────────────────────────────────────────────────
-_BIGINT = _sa.BigInteger
-
-
-def _cast_bigint(col):
-    """Cast the account_number column to BIGINT safely across SQLite and PostgreSQL."""
-    return db.cast(col, _BIGINT)
+# account_number is text. It is never cast to a number in SQL -- see
+# _numbers_in_range: the numeric test happens in Python.
 
 
 # Max allowed digits for any auto-generated account number (prevent unbounded growth).
@@ -32,6 +21,36 @@ _MAX_ACCOUNT_DIGITS = 10
 
 def _digits_only(value: str) -> str:
     return ''.join(ch for ch in str(value or '').strip() if ch.isdigit())
+
+
+def _numbers_in_range(start_range: int, end_range: int) -> list:
+    """The numeric account numbers in [start_range, end_range], as ints.
+
+    SQL narrows by text only (length and prefix); the numeric test happens in
+    Python. It used to CAST account_number to BIGINT in the WHERE clause next
+    to those text filters, trusting them to run first -- SQL promises no
+    order, and on PostgreSQL an account number such as '2100-T1' (length 7,
+    prefix '2100') reached the cast and failed the whole query, so no office,
+    supplier or customer account could be created under that parent. SQLite
+    cast it leniently to 2100 and hid it (TEST-001: found when the tests moved
+    to PostgreSQL). A range holds at most 1,000 numbers.
+    """
+    expected_len = len(str(end_range))
+    prefix_for_like = _common_prefix_for_like(start_range, end_range)
+    rows = (
+        Account.query.with_entities(Account.account_number)
+        .filter(
+            db.func.length(Account.account_number) == expected_len,
+            Account.account_number.like(f"{prefix_for_like}%"),
+        )
+        .all()
+    )
+    numbers = []
+    for (raw,) in rows:
+        text = str(raw or '')
+        if text.isdigit() and start_range <= int(text) <= end_range:
+            numbers.append(int(text))
+    return numbers
 
 
 def _common_prefix_for_like(start: int, end: int) -> str:
@@ -202,30 +221,12 @@ def get_next_account_number(parent_account_number: str, use_spacing: bool = Fals
     
     start_range, end_range, step, _child_len = _compute_child_range_and_step(parent_account_number)
 
-    # Use LENGTH + LIKE prefix to pre-filter accounts with the correct digit count before
-    # casting to BIGINT.  This prevents NumericValueOutOfRange on PostgreSQL when unrelated
-    # long account numbers (e.g. legacy 7210000020) exist in the same table.
-    expected_len = len(str(end_range))
-    # Use the COMMON prefix of start and end so the LIKE filter covers the full range.
-    # Old: str(start)[:len-1]  e.g. "5200"[:3]="520" → only matches 5200-5209, misses 5210-5290!
-    # New: common_prefix(5200,5290) = "52" → LIKE "52%" covers all accounts in range.
-    prefix_for_like = _common_prefix_for_like(start_range, end_range)
+    # ابحث عن آخر رقم حساب مستخدم في هذا النطاق (the numeric test in Python:
+    # _numbers_in_range)
+    used = _numbers_in_range(start_range, end_range)
 
-    # ابحث عن آخر رقم حساب مستخدم في هذا النطاق
-    last_account = (
-        Account.query
-        .filter(
-            db.func.length(Account.account_number) == expected_len,
-            Account.account_number.like(f"{prefix_for_like}%"),
-            _cast_bigint(Account.account_number) >= start_range,
-            _cast_bigint(Account.account_number) <= end_range,
-        )
-        .order_by(_cast_bigint(Account.account_number).desc())
-        .first()
-    )
-    
-    if last_account:
-        last_number = int(last_account.account_number)
+    if used:
+        last_number = max(used)
         next_number = last_number + step
     else:
         # أول حساب في هذا النطاق
@@ -251,23 +252,7 @@ def get_next_account_number(parent_account_number: str, use_spacing: bool = Fals
 def _first_unused_number_in_range(start_range: int, end_range: int, step: int = 1) -> str:
     """Return the first unused account_number within an integer range."""
 
-    expected_len = len(str(end_range))
-    prefix_for_like = _common_prefix_for_like(start_range, end_range)
-
-    existing_numbers = {
-        int(row[0])
-        for row in (
-            Account.query.with_entities(Account.account_number)
-            .filter(
-                db.func.length(Account.account_number) == expected_len,
-                Account.account_number.like(f"{prefix_for_like}%"),
-                _cast_bigint(Account.account_number) >= start_range,
-                _cast_bigint(Account.account_number) <= end_range,
-            )
-            .all()
-        )
-        if row and str(row[0]).isdigit()
-    }
+    existing_numbers = set(_numbers_in_range(start_range, end_range))
 
     for candidate in range(start_range, end_range + 1, step):
         if candidate not in existing_numbers:
@@ -336,14 +321,7 @@ def get_customer_account_capacity(customer_category: str = '1200') -> dict:
     total_capacity = end_range - start_range + 1
 
     # عدد الحسابات المستخدمة
-    expected_len = len(str(end_range))
-    prefix_for_like = _common_prefix_for_like(start_range, end_range)
-    used_count = Account.query.filter(
-        db.func.length(Account.account_number) == expected_len,
-        Account.account_number.like(f"{prefix_for_like}%"),
-        _cast_bigint(Account.account_number) >= start_range,
-        _cast_bigint(Account.account_number) <= end_range,
-    ).count()
+    used_count = len(_numbers_in_range(start_range, end_range))
     
     available = total_capacity - used_count
     

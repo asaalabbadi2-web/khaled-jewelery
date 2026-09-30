@@ -64,16 +64,8 @@ def app():
 
 
 @pytest.fixture(autouse=True)
-def rollback_after_each(app):
-    connection = db.engine.connect()
-    transaction = connection.begin()
-    db.session.bind = connection
-    nested = connection.begin_nested()
+def rollback_after_each(app, db_fence):
     yield
-    db.session.remove()
-    nested.rollback()
-    transaction.rollback()
-    connection.close()
 
 
 def _uid():
@@ -279,6 +271,11 @@ class TestThePendingScreenAndManualSettlement:
         # As in production for 3123: ref_id is the receipt voucher, and the model
         # requires the invoice_payment link on every invoice_payment movement.
         for inv, ip in ((dead_inv, dead_ip), (live_inv, live_ip)):
+            # The receipt voucher names its payment, as production's do; on SQLite
+            # the voucher and payment ids happened to coincide and hid its absence.
+            import json
+            Voucher.query.get(ip.source_voucher_id).notes = json.dumps({'invoice_payment_id': ip.id})
+            db.session.flush()
             db.session.add(SafeBoxTransaction(
                 safe_box_id=box.id, ref_type='invoice_payment', ref_id=ip.source_voucher_id,
                 invoice_id=inv.id, invoice_payment_id=ip.id, direction='in',

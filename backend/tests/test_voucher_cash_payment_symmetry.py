@@ -50,12 +50,7 @@ def app():
 
 
 @pytest.fixture(autouse=True)
-def rollback_after_each(app):
-    connection = db.engine.connect()
-    transaction = connection.begin()
-    db.session.bind = connection
-    nested = connection.begin_nested()
-
+def rollback_after_each(app, db_fence):
     # Boundary 0 = nothing is historical, so the vouchers these tests create are
     # on the recorded side of the line. The protection it provides is exercised
     # explicitly by TestHistoricalVouchersAreLeftAlone below.
@@ -73,11 +68,6 @@ def rollback_after_each(app):
         db.session.flush()
 
     yield
-
-    db.session.remove()
-    nested.rollback()
-    transaction.rollback()
-    connection.close()
 
 
 def _uid():

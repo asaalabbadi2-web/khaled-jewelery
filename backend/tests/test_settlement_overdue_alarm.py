@@ -51,19 +51,8 @@ def app():
 
 
 @pytest.fixture(autouse=True)
-def rollback_after_each(app, monkeypatch):
-    # TEST-001: this fence does not isolate a commit, so the emission's commit
-    # becomes a flush here.
-    monkeypatch.setattr(db.session, 'commit', db.session.flush)
-    connection = db.engine.connect()
-    transaction = connection.begin()
-    db.session.bind = connection
-    nested = connection.begin_nested()
+def rollback_after_each(app, db_fence):
     yield
-    db.session.remove()
-    nested.rollback()
-    transaction.rollback()
-    connection.close()
 
 
 def _uid():

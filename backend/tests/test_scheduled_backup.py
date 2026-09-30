@@ -7,16 +7,16 @@ path, so nothing noticed: even with automatic backups switched on, none would
 have been written (BACKUP-001). The manual backup, which lives next to those
 helpers in routes/system.py, kept working and hid the difference.
 
-The suite runs on SQLite, so this drives the SQLite branch; the PostgreSQL
-branch builds its command in routes/system.py, covered by
-test_postgres_backup_restore_helpers.py, and is rehearsed end to end on a
-production copy with the pg_dump the image ships.
+The suite runs on PostgreSQL, like production (TEST-001, 30 Sep 2026), so this
+drives the branch production runs: a pg_dump custom archive inside the zip,
+whose table of contents pg_restore must be able to read. (It drove the SQLite
+branch until then, which production never takes.)
 
 Run:
     python -m pytest tests/test_scheduled_backup.py -v
 """
 import json
-import sqlite3
+import subprocess
 import zipfile
 
 from app import app as flask_app
@@ -31,15 +31,16 @@ def test_the_scheduled_backup_writes_an_archive_that_holds_the_database(tmp_path
 
     assert archive is not None and archive.exists(), 'no archive was written'
     with zipfile.ZipFile(archive) as z:
-        assert {'database.sqlite', 'metadata.json'} <= set(z.namelist())
+        assert {'database.dump', 'metadata.json'} <= set(z.namelist())
         meta = json.loads(z.read('metadata.json'))
-        z.extract('database.sqlite', tmp_path / 'restored')
-    assert meta['db_backend'] == 'sqlite' and meta['format'] == 'sqlite_file'
+        z.extract('database.dump', tmp_path / 'restored')
+    assert meta['db_backend'] == 'postgres' and meta['format'] == 'pg_dump_custom'
 
-    restored = sqlite3.connect(tmp_path / 'restored' / 'database.sqlite')
-    tables = {row[0] for row in restored.execute("select name from sqlite_master where type='table'")}
-    restored.close()
-    assert {'journal_entry', 'journal_entry_line', 'invoice', 'voucher', 'account'} <= tables
+    dump = tmp_path / 'restored' / 'database.dump'
+    assert dump.read_bytes()[:5] == b'PGDMP'
+    toc = subprocess.run(['pg_restore', '-l', str(dump)], capture_output=True, text=True, check=True).stdout
+    for table in ('journal_entry', 'journal_entry_line', 'invoice', 'voucher', 'account'):
+        assert f'TABLE DATA public {table} ' in toc, f'{table} is not in the backup'
 
 
 def test_the_run_the_scheduler_calls_reports_success_not_a_swallowed_error(tmp_path, monkeypatch, capsys):

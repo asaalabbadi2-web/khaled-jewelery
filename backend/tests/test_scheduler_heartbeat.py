@@ -34,19 +34,9 @@ def app():
 
 
 @pytest.fixture(autouse=True)
-def rollback_after_each(app, monkeypatch):
-    # TEST-001: this fence does not isolate a commit, so commits become flushes.
-    monkeypatch.setattr(db.session, 'commit', db.session.flush)
-    connection = db.engine.connect()
-    transaction = connection.begin()
-    db.session.bind = connection
-    nested = connection.begin_nested()
+def rollback_after_each(app, db_fence):
     SchedulerHeartbeat.query.delete()
     yield
-    db.session.remove()
-    nested.rollback()
-    transaction.rollback()
-    connection.close()
 
 
 NOW = datetime(2026, 9, 29, 12, 0, 0)

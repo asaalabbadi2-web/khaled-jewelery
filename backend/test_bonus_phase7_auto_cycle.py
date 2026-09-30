@@ -80,8 +80,9 @@ def emp_and_rule():
         rule = _make_rule()
         db.session.commit()
         yield emp.id, rule.id
-        BonusRule.query.filter_by(id=rule.id).delete()
+        # The bonuses before the rule they name: PostgreSQL enforces the key (TEST-001).
         EmployeeBonus.query.filter_by(bonus_rule_id=rule.id).delete()
+        BonusRule.query.filter_by(id=rule.id).delete()
         db.session.commit()
 
 

@@ -40,19 +40,10 @@ def app():
 
 
 @pytest.fixture(autouse=True)
-def rollback_after_each(app):
+def rollback_after_each(app, db_fence):
     """Wrap every test in a savepoint so DB changes don't persist."""
-    connection = db.engine.connect()
-    transaction = connection.begin()
-    db.session.bind = connection
-    nested = connection.begin_nested()
 
     yield
-
-    db.session.remove()
-    nested.rollback()
-    transaction.rollback()
-    connection.close()
 
 
 @pytest.fixture(scope='module')

@@ -39,16 +39,19 @@ def app():
 
 
 @pytest.fixture(autouse=True)
-def rollback_after_each(app):
-    connection = db.engine.connect()
-    transaction = connection.begin()
-    db.session.bind = connection
-    nested = connection.begin_nested()
+def rollback_after_each(app, db_fence):
     yield
-    db.session.remove()
-    nested.rollback()
-    transaction.rollback()
-    connection.close()
+
+
+def _office():
+    """A real office. The tests wrote office ids 1, 4 and 7 that name no row --
+    SQLite does not enforce foreign keys, PostgreSQL does (TEST-001)."""
+    from models import Office
+    import uuid as _uuid
+    office = Office(office_code=f'O-{_uuid.uuid4().hex[:8]}', name='مكتب اختبار')
+    db.session.add(office)
+    db.session.flush()
+    return office.id
 
 
 def _uid():
@@ -84,22 +87,22 @@ class TestOfficeInvoiceOwesItsWholeValueInCash:
         """The red witness for this change: with the Phase 13 formula an office
         invoice with wage_subtotal 0 had a ceiling of 0, so a real 175,100 SAR
         settlement had nothing to settle against."""
-        invoice = _invoice(office_id=4, total=175100.0, wage=0.0)
+        invoice = _invoice(office_id=_office(), total=175100.0, wage=0.0)
         assert invoice.cash_obligation == 175100.0
 
     def test_a_partial_office_settlement_reads_partial_against_total(self):
-        invoice = _invoice(office_id=4, total=170349.0, wage=0.0)
+        invoice = _invoice(office_id=_office(), total=170349.0, wage=0.0)
         assert invoice.cash_obligation == 170349.0
 
     def test_an_office_invoice_carries_no_gold_obligation(self):
         """The mirror of the same business fact: gold is reserved from the
         office and settled in cash, so there is no gold debt to track."""
-        invoice = _invoice(office_id=4, total=175100.0)
+        invoice = _invoice(office_id=_office(), total=175100.0)
         assert is_gold_obligation_eligible(invoice) is False
 
     def test_office_wins_over_the_purchase_formula_even_with_wages_present(self):
         """The discriminator is the trade, not the absence of a wage figure."""
-        invoice = _invoice(office_id=7, total=50000.0, wage=900.0, wage_tax=135.0)
+        invoice = _invoice(office_id=_office(), total=50000.0, wage=900.0, wage_tax=135.0)
         assert invoice.cash_obligation == 50000.0
 
 

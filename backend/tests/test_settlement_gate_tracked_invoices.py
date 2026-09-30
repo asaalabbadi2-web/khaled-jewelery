@@ -62,16 +62,19 @@ def app():
 
 
 @pytest.fixture(autouse=True)
-def rollback_after_each(app):
-    connection = db.engine.connect()
-    transaction = connection.begin()
-    db.session.bind = connection
-    nested = connection.begin_nested()
+def rollback_after_each(app, db_fence):
     yield
-    db.session.remove()
-    nested.rollback()
-    transaction.rollback()
-    connection.close()
+
+
+def _office():
+    """A real office. The tests wrote office ids 1, 4 and 7 that name no row --
+    SQLite does not enforce foreign keys, PostgreSQL does (TEST-001)."""
+    from models import Office
+    import uuid as _uuid
+    office = Office(office_code=f'O-{_uuid.uuid4().hex[:8]}', name='مكتب اختبار')
+    db.session.add(office)
+    db.session.flush()
+    return office.id
 
 
 def _uid():
@@ -193,7 +196,7 @@ class TestUntrackedInvoicesNoLongerBlock:
         """
         s, p = self.supplier, self.policy
         _give_residual(s, cash=3.00)
-        _invoice(s, status='unpaid', tracked=False, office_id=1)
+        _invoice(s, status='unpaid', tracked=False, office_id=_office())
 
         assert _gate_passed(s, p)
 
