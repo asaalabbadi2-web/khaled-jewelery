@@ -255,7 +255,7 @@ class Tree:
 def _refresh_sessions(pg: Postgres, db):
     """Copied data is old: the idle-session timeout would reject every token.
     Scratch copies only -- this is exactly the kind of write production never sees."""
-    pg.sql(db, "update session_activity set last_activity_at = localtimestamp where user_type = 'app_user'",
+    pg.sql(db, "update session_activity set last_activity_at = timezone('utc', now()) where user_type = 'app_user'",
            check=False)
 
 

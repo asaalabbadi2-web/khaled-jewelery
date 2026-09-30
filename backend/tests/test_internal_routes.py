@@ -16,6 +16,8 @@ Invoice and stock-- are a unit. A happy-path-only test cannot prove atomicity.
 """
 from __future__ import annotations
 
+import uuid
+
 import os
 from unittest.mock import patch
 
@@ -57,7 +59,9 @@ def item(request):
     stock = getattr(request, "param", 3)
     with flask_app.app_context():
         it = Item(
-            item_code=f"TEST-E2-{id(request)}",
+            # item_code is String(20); id(request) is 15 digits on the Linux CI runner
+            # and made the code 23 characters (30 Sep 2026).
+            item_code=f"TEST-E2-{uuid.uuid4().hex[:10]}",
             name="خاتم اختبار E2",
             stock=stock,
             karat="21",

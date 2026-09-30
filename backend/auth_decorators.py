@@ -49,7 +49,12 @@ except Exception:  # pragma: no cover
 
 
 def _now() -> datetime:
-    return datetime.now()
+    """UTC. It measures durations -- idle time, token TTL against a UTC exp --
+    and a duration must not jump with the local time zone (30 Sep 2026: a CI
+    runner in UTC switched to Asia/Riyadh saw every session three hours idle).
+    Rows written in local time before this change read three hours in the
+    future: the idle check treats them as fresh until real time catches up."""
+    return datetime.utcnow()
 
 
 def _idle_timeout_seconds() -> int:

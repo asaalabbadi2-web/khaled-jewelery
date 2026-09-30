@@ -16,6 +16,8 @@ covered by the ERP-sync compensation path.
 """
 from __future__ import annotations
 
+import uuid
+
 import logging
 from unittest.mock import MagicMock, patch
 
@@ -62,7 +64,10 @@ def sale_item():
     """Seed a fresh Item for a بيع (sale) and clean up after."""
     with flask_app.app_context():
         it = Item(
-            item_code=f"GATEB-{id(sale_item)}",
+            # item_code is String(20). id(sale_item) -- the fixture function, the same for
+            # every test -- was 10-11 digits on macOS and 15 on the Linux CI runner, which
+            # made the code 21 characters and PostgreSQL refused it (30 Sep 2026).
+            item_code=f"GATEB-{uuid.uuid4().hex[:10]}",
             name="خاتم بوابة ب",
             stock=5,
             karat="21",
