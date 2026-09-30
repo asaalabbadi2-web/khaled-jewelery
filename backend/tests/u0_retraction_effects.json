@@ -1,0 +1,721 @@
+{
+ "held:sale_on_credit/delete": {
+  "answer": "200:ok",
+  "changes": {
+   "invoice.is_posted": [
+    [
+     false
+    ],
+    []
+   ],
+   "invoice.status": [
+    [
+     "unpaid"
+    ],
+    []
+   ],
+   "invoice_entries": [
+    [
+     "posted=False,draft=False,deleted=False"
+    ],
+    []
+   ],
+   "invoice_entries.unposted.cash_credit": [
+    1000.0,
+    null
+   ],
+   "invoice_entries.unposted.cash_debit": [
+    1000.0,
+    null
+   ],
+   "invoice_entries.unposted.credit_21k": [
+    2.0,
+    null
+   ],
+   "invoice_entries.unposted.debit_21k": [
+    2.0,
+    null
+   ],
+   "invoices": [
+    1,
+    0
+   ],
+   "system_alerts": [
+    [
+     "invoice_approval:open"
+    ],
+    []
+   ]
+  }
+ },
+ "held:sale_on_credit/edit": {
+  "answer": "200:ok",
+  "changes": {
+   "audit_log": [
+    [
+     "large_discount"
+    ],
+    [
+     "large_discount",
+     "large_discount"
+    ]
+   ],
+   "invoice_entries.unposted.credit_21k": [
+    2.0,
+    2.1
+   ],
+   "invoice_entries.unposted.debit_21k": [
+    2.0,
+    2.1
+   ]
+  }
+ },
+ "held:sale_on_credit/reject": {
+  "answer": "200:ok",
+  "changes": {
+   "invoice.status": [
+    [
+     "unpaid"
+    ],
+    [
+     "rejected"
+    ]
+   ]
+  }
+ },
+ "held:scrap_purchase_paid/delete": {
+  "answer": "409:has_financial_history",
+  "changes": {}
+ },
+ "held:scrap_purchase_paid/edit": {
+  "answer": "200:ok",
+  "changes": {
+   "audit_log": [
+    [
+     "above_live_price"
+    ],
+    [
+     "above_live_price",
+     "above_live_price"
+    ]
+   ],
+   "invoice_entries.unposted.credit_18k": [
+    0.5,
+    0.6
+   ],
+   "invoice_entries.unposted.debit_18k": [
+    0.5,
+    0.6
+   ]
+  }
+ },
+ "held:scrap_purchase_paid/reject": {
+  "answer": "409:has_live_payments",
+  "changes": {}
+ },
+ "held:scrap_purchase_unpaid/delete": {
+  "answer": "200:ok",
+  "changes": {
+   "invoice.is_posted": [
+    [
+     false
+    ],
+    []
+   ],
+   "invoice.status": [
+    [
+     "unpaid"
+    ],
+    []
+   ],
+   "invoice_entries": [
+    [
+     "posted=False,draft=False,deleted=False"
+    ],
+    []
+   ],
+   "invoice_entries.unposted.cash_credit": [
+    100000.0,
+    null
+   ],
+   "invoice_entries.unposted.cash_debit": [
+    100000.0,
+    null
+   ],
+   "invoice_entries.unposted.credit_18k": [
+    0.5,
+    null
+   ],
+   "invoice_entries.unposted.debit_18k": [
+    0.5,
+    null
+   ],
+   "invoices": [
+    1,
+    0
+   ],
+   "system_alerts": [
+    [
+     "invoice_approval:open"
+    ],
+    []
+   ]
+  }
+ },
+ "held:scrap_purchase_unpaid/edit": {
+  "answer": "200:ok",
+  "changes": {
+   "audit_log": [
+    [
+     "above_live_price"
+    ],
+    [
+     "above_live_price",
+     "above_live_price"
+    ]
+   ],
+   "invoice_entries.unposted.credit_18k": [
+    0.5,
+    0.6
+   ],
+   "invoice_entries.unposted.debit_18k": [
+    0.5,
+    0.6
+   ]
+  }
+ },
+ "held:scrap_purchase_unpaid/reject": {
+  "answer": "200:ok",
+  "changes": {
+   "invoice.status": [
+    [
+     "unpaid"
+    ],
+    [
+     "rejected"
+    ]
+   ]
+  }
+ },
+ "sale_on_credit/unpost_batch": {
+  "answer": "200:ok",
+  "unpost_changes": {
+   "audit_log": [
+    [],
+    [
+     "unpost"
+    ]
+   ],
+   "invoice.is_posted": [
+    [
+     true
+    ],
+    [
+     false
+    ]
+   ],
+   "invoice_entries": [
+    [
+     "posted=True,draft=False,deleted=False"
+    ],
+    [
+     "posted=False,draft=False,deleted=False"
+    ]
+   ],
+   "invoice_entries.posted.cash_credit": [
+    1000.0,
+    null
+   ],
+   "invoice_entries.posted.cash_debit": [
+    1000.0,
+    null
+   ],
+   "invoice_entries.posted.credit_21k": [
+    2.0,
+    null
+   ],
+   "invoice_entries.posted.debit_21k": [
+    2.0,
+    null
+   ],
+   "invoice_entries.unposted.cash_credit": [
+    null,
+    1000.0
+   ],
+   "invoice_entries.unposted.cash_debit": [
+    null,
+    1000.0
+   ],
+   "invoice_entries.unposted.credit_21k": [
+    null,
+    2.0
+   ],
+   "invoice_entries.unposted.debit_21k": [
+    null,
+    2.0
+   ]
+  },
+  "cached_balance_drift_after_unpost": 0,
+  "repost_answer": "200:ok",
+  "round_trip_differs_from_posted": {
+   "audit_log": [
+    [],
+    [
+     "post_invoice",
+     "unpost"
+    ]
+   ],
+   "sbt.invoice_gold.rows": [
+    null,
+    1.0
+   ],
+   "sbt.invoice_gold.w21k": [
+    null,
+    -2.0
+   ]
+  }
+ },
+ "sale_on_credit/unpost_invoices_route": {
+  "answer": "200:ok",
+  "unpost_changes": {
+   "invoice.is_posted": [
+    [
+     true
+    ],
+    [
+     false
+    ]
+   ],
+   "invoice_entries": [
+    [
+     "posted=True,draft=False,deleted=False"
+    ],
+    [
+     "posted=False,draft=False,deleted=False"
+    ]
+   ],
+   "invoice_entries.posted.cash_credit": [
+    1000.0,
+    null
+   ],
+   "invoice_entries.posted.cash_debit": [
+    1000.0,
+    null
+   ],
+   "invoice_entries.posted.credit_21k": [
+    2.0,
+    null
+   ],
+   "invoice_entries.posted.debit_21k": [
+    2.0,
+    null
+   ],
+   "invoice_entries.unposted.cash_credit": [
+    null,
+    1000.0
+   ],
+   "invoice_entries.unposted.cash_debit": [
+    null,
+    1000.0
+   ],
+   "invoice_entries.unposted.credit_21k": [
+    null,
+    2.0
+   ],
+   "invoice_entries.unposted.debit_21k": [
+    null,
+    2.0
+   ]
+  },
+  "cached_balance_drift_after_unpost": 0,
+  "repost_answer": "200:ok",
+  "round_trip_differs_from_posted": {
+   "audit_log": [
+    [],
+    [
+     "post_invoice"
+    ]
+   ],
+   "sbt.invoice_gold.rows": [
+    null,
+    1.0
+   ],
+   "sbt.invoice_gold.w21k": [
+    null,
+    -2.0
+   ]
+  }
+ },
+ "sale_on_credit/unpost_posting_screen": {
+  "answer": "200:ok",
+  "unpost_changes": {
+   "audit_log": [
+    [],
+    [
+     "unpost"
+    ]
+   ],
+   "invoice.is_posted": [
+    [
+     true
+    ],
+    [
+     false
+    ]
+   ],
+   "invoice_entries": [
+    [
+     "posted=True,draft=False,deleted=False"
+    ],
+    [
+     "posted=False,draft=False,deleted=False"
+    ]
+   ],
+   "invoice_entries.posted.cash_credit": [
+    1000.0,
+    null
+   ],
+   "invoice_entries.posted.cash_debit": [
+    1000.0,
+    null
+   ],
+   "invoice_entries.posted.credit_21k": [
+    2.0,
+    null
+   ],
+   "invoice_entries.posted.debit_21k": [
+    2.0,
+    null
+   ],
+   "invoice_entries.unposted.cash_credit": [
+    null,
+    1000.0
+   ],
+   "invoice_entries.unposted.cash_debit": [
+    null,
+    1000.0
+   ],
+   "invoice_entries.unposted.credit_21k": [
+    null,
+    2.0
+   ],
+   "invoice_entries.unposted.debit_21k": [
+    null,
+    2.0
+   ]
+  },
+  "cached_balance_drift_after_unpost": 0,
+  "repost_answer": "200:ok",
+  "round_trip_differs_from_posted": {
+   "audit_log": [
+    [],
+    [
+     "post_invoice",
+     "unpost"
+    ]
+   ],
+   "sbt.invoice_gold.rows": [
+    null,
+    1.0
+   ],
+   "sbt.invoice_gold.w21k": [
+    null,
+    -2.0
+   ]
+  }
+ },
+ "scrap_purchase_paid/unpost_batch": {
+  "answer": "409:has_live_payments",
+  "unpost_changes": {},
+  "cached_balance_drift_after_unpost": 0,
+  "repost_answer": "400:?",
+  "round_trip_differs_from_posted": {}
+ },
+ "scrap_purchase_paid/unpost_invoices_route": {
+  "answer": "409:has_live_payments",
+  "unpost_changes": {},
+  "cached_balance_drift_after_unpost": 0,
+  "repost_answer": "400:?",
+  "round_trip_differs_from_posted": {}
+ },
+ "scrap_purchase_paid/unpost_posting_screen": {
+  "answer": "409:has_live_payments",
+  "unpost_changes": {
+   "audit_log": [
+    [],
+    [
+     "unpost"
+    ]
+   ]
+  },
+  "cached_balance_drift_after_unpost": 0,
+  "repost_answer": "400:?",
+  "round_trip_differs_from_posted": {
+   "audit_log": [
+    [],
+    [
+     "unpost"
+    ]
+   ]
+  }
+ },
+ "scrap_purchase_unpaid/unpost_batch": {
+  "answer": "200:ok",
+  "unpost_changes": {
+   "audit_log": [
+    [],
+    [
+     "unpost"
+    ]
+   ],
+   "invoice.is_posted": [
+    [
+     true
+    ],
+    [
+     false
+    ]
+   ],
+   "invoice_entries": [
+    [
+     "posted=True,draft=False,deleted=False"
+    ],
+    [
+     "posted=False,draft=False,deleted=False"
+    ]
+   ],
+   "invoice_entries.posted.cash_credit": [
+    100.0,
+    null
+   ],
+   "invoice_entries.posted.cash_debit": [
+    100.0,
+    null
+   ],
+   "invoice_entries.posted.credit_18k": [
+    0.5,
+    null
+   ],
+   "invoice_entries.posted.debit_18k": [
+    0.5,
+    null
+   ],
+   "invoice_entries.unposted.cash_credit": [
+    null,
+    100.0
+   ],
+   "invoice_entries.unposted.cash_debit": [
+    null,
+    100.0
+   ],
+   "invoice_entries.unposted.credit_18k": [
+    null,
+    0.5
+   ],
+   "invoice_entries.unposted.debit_18k": [
+    null,
+    0.5
+   ]
+  },
+  "cached_balance_drift_after_unpost": 0,
+  "repost_answer": "200:ok",
+  "round_trip_differs_from_posted": {
+   "audit_log": [
+    [],
+    [
+     "post_invoice",
+     "unpost"
+    ]
+   ],
+   "sbt.invoice_gold.rows": [
+    null,
+    1.0
+   ],
+   "sbt.invoice_gold.w18k": [
+    null,
+    0.5
+   ],
+   "sbt.invoice_scrap_receipt.rows": [
+    1.0,
+    null
+   ],
+   "sbt.invoice_scrap_receipt.w18k": [
+    0.5,
+    null
+   ]
+  }
+ },
+ "scrap_purchase_unpaid/unpost_invoices_route": {
+  "answer": "200:ok",
+  "unpost_changes": {
+   "invoice.is_posted": [
+    [
+     true
+    ],
+    [
+     false
+    ]
+   ],
+   "invoice_entries": [
+    [
+     "posted=True,draft=False,deleted=False"
+    ],
+    [
+     "posted=False,draft=False,deleted=False"
+    ]
+   ],
+   "invoice_entries.posted.cash_credit": [
+    100.0,
+    null
+   ],
+   "invoice_entries.posted.cash_debit": [
+    100.0,
+    null
+   ],
+   "invoice_entries.posted.credit_18k": [
+    0.5,
+    null
+   ],
+   "invoice_entries.posted.debit_18k": [
+    0.5,
+    null
+   ],
+   "invoice_entries.unposted.cash_credit": [
+    null,
+    100.0
+   ],
+   "invoice_entries.unposted.cash_debit": [
+    null,
+    100.0
+   ],
+   "invoice_entries.unposted.credit_18k": [
+    null,
+    0.5
+   ],
+   "invoice_entries.unposted.debit_18k": [
+    null,
+    0.5
+   ],
+   "sbt.invoice_scrap_receipt.rows": [
+    1.0,
+    null
+   ],
+   "sbt.invoice_scrap_receipt.w18k": [
+    0.5,
+    null
+   ]
+  },
+  "cached_balance_drift_after_unpost": 0,
+  "repost_answer": "200:ok",
+  "round_trip_differs_from_posted": {
+   "audit_log": [
+    [],
+    [
+     "post_invoice"
+    ]
+   ],
+   "sbt.invoice_gold.rows": [
+    null,
+    1.0
+   ],
+   "sbt.invoice_gold.w18k": [
+    null,
+    0.5
+   ],
+   "sbt.invoice_scrap_receipt.rows": [
+    1.0,
+    null
+   ],
+   "sbt.invoice_scrap_receipt.w18k": [
+    0.5,
+    null
+   ]
+  }
+ },
+ "scrap_purchase_unpaid/unpost_posting_screen": {
+  "answer": "200:ok",
+  "unpost_changes": {
+   "audit_log": [
+    [],
+    [
+     "unpost"
+    ]
+   ],
+   "invoice.is_posted": [
+    [
+     true
+    ],
+    [
+     false
+    ]
+   ],
+   "invoice_entries": [
+    [
+     "posted=True,draft=False,deleted=False"
+    ],
+    [
+     "posted=False,draft=False,deleted=False"
+    ]
+   ],
+   "invoice_entries.posted.cash_credit": [
+    100.0,
+    null
+   ],
+   "invoice_entries.posted.cash_debit": [
+    100.0,
+    null
+   ],
+   "invoice_entries.posted.credit_18k": [
+    0.5,
+    null
+   ],
+   "invoice_entries.posted.debit_18k": [
+    0.5,
+    null
+   ],
+   "invoice_entries.unposted.cash_credit": [
+    null,
+    100.0
+   ],
+   "invoice_entries.unposted.cash_debit": [
+    null,
+    100.0
+   ],
+   "invoice_entries.unposted.credit_18k": [
+    null,
+    0.5
+   ],
+   "invoice_entries.unposted.debit_18k": [
+    null,
+    0.5
+   ]
+  },
+  "cached_balance_drift_after_unpost": 0,
+  "repost_answer": "200:ok",
+  "round_trip_differs_from_posted": {
+   "audit_log": [
+    [],
+    [
+     "post_invoice",
+     "unpost"
+    ]
+   ],
+   "sbt.invoice_gold.rows": [
+    null,
+    1.0
+   ],
+   "sbt.invoice_gold.w18k": [
+    null,
+    0.5
+   ],
+   "sbt.invoice_scrap_receipt.rows": [
+    1.0,
+    null
+   ],
+   "sbt.invoice_scrap_receipt.w18k": [
+    0.5,
+    null
+   ]
+  }
+ }
+}
