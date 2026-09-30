@@ -53,11 +53,11 @@
   "changes": {
    "audit_log": [
     [
-     "large_discount"
+     "large_discount:ok"
     ],
     [
-     "large_discount",
-     "large_discount"
+     "large_discount:ok",
+     "large_discount:ok"
     ]
    ],
    "invoice_entries.unposted.credit_21k": [
@@ -92,11 +92,11 @@
   "changes": {
    "audit_log": [
     [
-     "above_live_price"
+     "above_live_price:ok"
     ],
     [
-     "above_live_price",
-     "above_live_price"
+     "above_live_price:ok",
+     "above_live_price:ok"
     ]
    ],
    "invoice_entries.unposted.credit_18k": [
@@ -167,11 +167,11 @@
   "changes": {
    "audit_log": [
     [
-     "above_live_price"
+     "above_live_price:ok"
     ],
     [
-     "above_live_price",
-     "above_live_price"
+     "above_live_price:ok",
+     "above_live_price:ok"
     ]
    ],
    "invoice_entries.unposted.credit_18k": [
@@ -203,7 +203,7 @@
    "audit_log": [
     [],
     [
-     "unpost"
+     "unpost:ok"
     ]
    ],
    "invoice.is_posted": [
@@ -261,8 +261,8 @@
    "audit_log": [
     [],
     [
-     "post_invoice",
-     "unpost"
+     "post_invoice:ok",
+     "unpost:ok"
     ]
    ],
    "sbt.invoice_gold.rows": [
@@ -333,7 +333,7 @@
    "audit_log": [
     [],
     [
-     "post_invoice"
+     "post_invoice:ok"
     ]
    ],
    "sbt.invoice_gold.rows": [
@@ -352,7 +352,7 @@
    "audit_log": [
     [],
     [
-     "unpost"
+     "unpost:ok"
     ]
    ],
    "invoice.is_posted": [
@@ -410,8 +410,8 @@
    "audit_log": [
     [],
     [
-     "post_invoice",
-     "unpost"
+     "post_invoice:ok",
+     "unpost:ok"
     ]
    ],
    "sbt.invoice_gold.rows": [
@@ -444,7 +444,7 @@
    "audit_log": [
     [],
     [
-     "unpost"
+     "unpost:failed"
     ]
    ]
   },
@@ -454,7 +454,7 @@
    "audit_log": [
     [],
     [
-     "unpost"
+     "unpost:failed"
     ]
    ]
   }
@@ -465,7 +465,7 @@
    "audit_log": [
     [],
     [
-     "unpost"
+     "unpost:ok"
     ]
    ],
    "invoice.is_posted": [
@@ -523,8 +523,8 @@
    "audit_log": [
     [],
     [
-     "post_invoice",
-     "unpost"
+     "post_invoice:ok",
+     "unpost:ok"
     ]
    ],
    "sbt.invoice_gold.rows": [
@@ -611,7 +611,7 @@
    "audit_log": [
     [],
     [
-     "post_invoice"
+     "post_invoice:ok"
     ]
    ],
    "sbt.invoice_gold.rows": [
@@ -638,7 +638,7 @@
    "audit_log": [
     [],
     [
-     "unpost"
+     "unpost:ok"
     ]
    ],
    "invoice.is_posted": [
@@ -696,8 +696,8 @@
    "audit_log": [
     [],
     [
-     "post_invoice",
-     "unpost"
+     "post_invoice:ok",
+     "unpost:ok"
     ]
    ],
    "sbt.invoice_gold.rows": [

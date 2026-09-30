@@ -104,7 +104,7 @@ def snapshot(invoice_type, invoice_type_id, known_ids=()):
     snap['system_alerts'] = sorted(
         f"{a.alert_type}:{'reviewed' if a.is_reviewed else 'open'}"
         for a in SystemAlert.query.filter(SystemAlert.entity_type == 'Invoice', SystemAlert.entity_id.in_(ids)).all())
-    snap['audit_log'] = sorted(a.action for a in AuditLog.query.filter(
+    snap['audit_log'] = sorted(f"{a.action}:{'ok' if a.success else 'failed'}" for a in AuditLog.query.filter(
         AuditLog.entity_type.in_(('Invoice', 'invoice')), AuditLog.entity_id.in_(ids)).all())
     return snap
 
