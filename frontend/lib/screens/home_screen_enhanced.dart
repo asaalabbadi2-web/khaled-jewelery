@@ -581,8 +581,10 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
       if (!auth.isAuthenticated) return;
 
       final result = await api.getPendingActions();
+      // + the system itself: a silent scheduler (SCHED-004) counts in the bell.
       final count = ((result['total_pending_reservations'] as num?)?.toInt() ?? 0) +
-          ((result['total_pending_invoices'] as num?)?.toInt() ?? 0);
+          ((result['total_pending_invoices'] as num?)?.toInt() ?? 0) +
+          ((result['total_system_alerts'] as num?)?.toInt() ?? 0);
 
       if (!mounted) return;
       setState(() {

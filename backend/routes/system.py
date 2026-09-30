@@ -569,8 +569,6 @@ def update_weight_closing_settings():
 def list_system_alerts():
     """List system alerts (MVP: filterable by reviewed/severity)."""
     from models import SystemAlert
-    from services.scheduler_heartbeat import refresh_bell
-    refresh_bell()   # a silent scheduler is an open critical alert (SCHED-004)
 
     severity = (request.args.get('severity') or '').strip().lower() or None
     reviewed = request.args.get('reviewed')

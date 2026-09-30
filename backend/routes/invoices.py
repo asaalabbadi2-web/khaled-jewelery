@@ -292,11 +292,22 @@ def pending_actions():
                 'approval_reason_message': approval_reason,
             })
 
+        # ── the system itself: a silent scheduler (SCHED-004, ADR-033) ──
+        # Read on every poll of the home screen's bell; never allowed to break it.
+        try:
+            from services.scheduler_heartbeat import system_alerts
+            sys_alerts = system_alerts()
+        except Exception as exc:
+            print(f'[pending-actions] scheduler heartbeat check failed: {exc}')
+            sys_alerts = []
+
         return jsonify({
             'pending_reservations': pending_reservations,
             'pending_invoices': pending_invoices,
+            'system_alerts': sys_alerts,
             'total_pending_reservations': len(pending_reservations),
             'total_pending_invoices': total_invoices,
+            'total_system_alerts': len(sys_alerts),
         }), 200
 
     except Exception as e:
@@ -305,8 +316,10 @@ def pending_actions():
         return jsonify({
             'pending_reservations': [],
             'pending_invoices': [],
+            'system_alerts': [],
             'total_pending_reservations': 0,
             'total_pending_invoices': 0,
+            'total_system_alerts': 0,
             'error': str(e),
         }), 500
 

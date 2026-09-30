@@ -53,6 +53,10 @@ class _PendingApprovalsDialogState extends State<PendingApprovalsDialog> {
   int _totalReservations = 0;
   int _totalInvoices = 0;
 
+  /// The system itself -- a silent scheduler (SCHED-004). Computed by the
+  /// server on every read; it has no action and leaves when the scheduler beats.
+  List<Map<String, dynamic>> _systemAlerts = [];
+
   // Invoice action tracking
   final Set<int> _postingIds = {};
   final Set<int> _justPostedIds = {};
@@ -87,6 +91,9 @@ class _PendingApprovalsDialogState extends State<PendingApprovalsDialog> {
         _invoices = (result['pending_invoices'] as List? ?? [])
             .map((e) => Map<String, dynamic>.from(e as Map))
             .toList();
+        _systemAlerts = (result['system_alerts'] as List? ?? [])
+            .map((e) => Map<String, dynamic>.from(e as Map))
+            .toList();
         _totalReservations =
             (result['total_pending_reservations'] as num?)?.toInt() ?? 0;
         _totalInvoices =
@@ -102,7 +109,7 @@ class _PendingApprovalsDialogState extends State<PendingApprovalsDialog> {
     }
   }
 
-  int get _totalCount => _totalReservations + _totalInvoices;
+  int get _totalCount => _totalReservations + _totalInvoices + _systemAlerts.length;
 
   // ─────────────── Reservation actions ───────────────
 
@@ -254,7 +261,7 @@ class _PendingApprovalsDialogState extends State<PendingApprovalsDialog> {
           duration: const Duration(seconds: 2),
         ));
       }
-      if (_invoices.isEmpty && _reservations.isEmpty && mounted) {
+      if (_invoices.isEmpty && _reservations.isEmpty && _systemAlerts.isEmpty && mounted) {
         await Future.delayed(const Duration(milliseconds: 300));
         if (mounted) Navigator.of(context).pop();
       }
@@ -684,7 +691,7 @@ class _PendingApprovalsDialogState extends State<PendingApprovalsDialog> {
       return _buildErrorState(theme, isAr);
     }
 
-    if (_reservations.isEmpty && _invoices.isEmpty) {
+    if (_reservations.isEmpty && _invoices.isEmpty && _systemAlerts.isEmpty) {
       return _buildEmptyState(theme, isAr);
     }
 
@@ -694,6 +701,9 @@ class _PendingApprovalsDialogState extends State<PendingApprovalsDialog> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          // ── Section 0: the system itself (SCHED-004) ──
+          for (final alert in _systemAlerts) _buildSystemAlertCard(alert, isDark, isAr),
+
           // ── Section 1: حجوزات بانتظار التسوية ──
           if (_reservations.isNotEmpty) ...[
             _buildSectionHeader(
@@ -764,6 +774,67 @@ class _PendingApprovalsDialogState extends State<PendingApprovalsDialog> {
               ),
             ),
           ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSystemAlertCard(Map<String, dynamic> alert, bool isDark, bool isAr) {
+    final title = (alert['title'] ?? (isAr ? 'المجدول متوقف' : 'Scheduler down')).toString();
+    final message = (alert['message'] ?? '').toString();
+    final whatToDo = (alert['what_to_do'] ?? '').toString();
+    return Container(
+      margin: const EdgeInsets.fromLTRB(12, 8, 12, 4),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppColors.error.withValues(alpha: isDark ? 0.18 : 0.08),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: AppColors.error.withValues(alpha: 0.45)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.power_off_rounded, size: 18, color: AppColors.error),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  title,
+                  style: const TextStyle(
+                    fontFamily: 'Cairo',
+                    fontSize: 14,
+                    fontWeight: FontWeight.w800,
+                    color: AppColors.error,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          if (message.isNotEmpty) ...[
+            const SizedBox(height: 6),
+            Text(message, style: const TextStyle(fontFamily: 'Cairo', fontSize: 12.5)),
+          ],
+          if (whatToDo.isNotEmpty) ...[
+            const SizedBox(height: 6),
+            Text(
+              whatToDo,
+              style: TextStyle(
+                fontFamily: 'Cairo',
+                fontSize: 11.5,
+                color: isDark ? Colors.white70 : Colors.black54,
+              ),
+            ),
+          ],
+          const SizedBox(height: 4),
+          Text(
+            isAr ? 'يختفي وحده حين يعود المجدول' : 'Clears by itself when the scheduler is back',
+            style: TextStyle(
+              fontFamily: 'Cairo',
+              fontSize: 11,
+              color: isDark ? Colors.white54 : Colors.black45,
+            ),
+          ),
         ],
       ),
     );

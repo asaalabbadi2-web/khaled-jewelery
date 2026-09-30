@@ -1,4 +1,4 @@
-"""A scheduler that stops is seen in the app's alert bell (SCHED-004, RESTART-001).
+"""A scheduler that stops is seen in the app's bell (SCHED-004, RESTART-001).
 
 The settlement alarm runs inside the scheduler container, so when that
 container dies -- or keeps restarting -- nothing raised anything. Now the
@@ -6,10 +6,11 @@ scheduler writes a heartbeat to the database: the process each minute
 ('erp-scheduler') and the settlement loop on each wake ('clearing_settlement'),
 the one whose death stops money moving. The backend -- a different process --
 reads them: a heartbeat silent longer than SCHEDULER_HEARTBEAT_STALE_SECONDS
-(policy, default 300) keeps ONE critical 'scheduler_down' alert open in the
-bell (the owner's choice, 29 Sep 2026), and closes it on its own once every
-heartbeat is fresh. Marking it reviewed while the scheduler is still silent
-does not silence it: the next read opens it again.
+(policy, default 300) is a 'scheduler_down' entry in GET /api/pending-actions,
+which feeds the home screen's bell -- the only bell the app has (the alerts
+dialog and screen were removed on 2 Jun 2026, 448e475; the first version of
+this wrote SystemAlert rows nobody could see). Computed on each read, so it is
+gone the moment the scheduler beats again, and nothing can dismiss it before.
 
 Run:
     python -m pytest tests/test_scheduler_heartbeat.py -v
@@ -41,7 +42,6 @@ def rollback_after_each(app, monkeypatch):
     db.session.bind = connection
     nested = connection.begin_nested()
     SchedulerHeartbeat.query.delete()
-    SystemAlert.query.filter_by(alert_type=hb.ALERT_TYPE).delete()
     yield
     db.session.remove()
     nested.rollback()
@@ -57,8 +57,6 @@ def _beat_all(at):
         hb.beat(name, now=at)
 
 
-def _open_alerts():
-    return SystemAlert.query.filter_by(alert_type=hb.ALERT_TYPE, is_reviewed=False).all()
 
 
 class TestTheHeartbeat:
@@ -93,54 +91,41 @@ class TestTheHeartbeat:
 
 
 class TestTheBell:
-    def test_silence_opens_one_critical_alert_and_keeps_it_one(self):
-        hb.beat('erp-scheduler', now=NOW - timedelta(minutes=20))
-        hb.beat('clearing_settlement', now=NOW - timedelta(minutes=20))
-        hb.sync_scheduler_alert(NOW)
-        hb.sync_scheduler_alert(NOW + timedelta(minutes=1))
-        alerts = _open_alerts()
-        assert len(alerts) == 1
-        alert = alerts[0]
-        assert alert.severity == 'critical'
-        assert 'المجدول' in alert.title
-        details = json.loads(alert.details)
-        assert {s['name'] for s in details['silent']} == {'erp-scheduler', 'clearing_settlement'}
-        assert details['silent'][0]['silent_minutes'] == 21, 'the message follows the silence'
+    """GET /api/pending-actions -- what the home screen's bell reads, on a timer."""
 
-    def test_it_closes_on_its_own_once_every_beat_is_fresh(self):
-        hb.beat('erp-scheduler', now=NOW - timedelta(minutes=20))
-        hb.beat('clearing_settlement', now=NOW - timedelta(minutes=20))
-        hb.sync_scheduler_alert(NOW)
-        _beat_all(NOW + timedelta(minutes=1))
-        hb.sync_scheduler_alert(NOW + timedelta(minutes=2))
-        assert _open_alerts() == []
-        closed = SystemAlert.query.filter_by(alert_type=hb.ALERT_TYPE).one()
-        assert closed.is_reviewed and closed.reviewed_by == 'system'
-
-    def test_marking_it_reviewed_does_not_silence_a_scheduler_still_down(self):
-        hb.beat('erp-scheduler', now=NOW - timedelta(minutes=20))
-        hb.sync_scheduler_alert(NOW)
-        _open_alerts()[0].is_reviewed = True
-        db.session.flush()
-        hb.sync_scheduler_alert(NOW + timedelta(minutes=1))
-        assert len(_open_alerts()) == 1
-
-    def test_nothing_is_opened_while_everything_beats(self):
-        _beat_all(NOW)
-        hb.sync_scheduler_alert(NOW + timedelta(seconds=30))
-        assert SystemAlert.query.filter_by(alert_type=hb.ALERT_TYPE).count() == 0
-
-
-class TestThroughTheRoutes:
-    def test_the_dashboard_counts_it_and_the_bell_lists_it(self, app, auth_headers):
-        silent_since = datetime.utcnow() - timedelta(minutes=30)
-        _beat_all(silent_since)
+    def _pending(self, app, auth_headers):
         with app.test_client() as c:
-            dash = c.get('/api/dashboard/admin', headers=auth_headers).get_json()
-            bell = c.get('/api/system-alerts?severity=critical&reviewed=false', headers=auth_headers).get_json()
-        assert dash['alerts']['critical_unreviewed_count'] >= 1
-        assert any((a or {}).get('alert_type') == hb.ALERT_TYPE for a in [dash['alerts']['critical_unreviewed_latest']])
-        assert any(a['alert_type'] == hb.ALERT_TYPE for a in bell['alerts'])
+            resp = c.get('/api/pending-actions', headers=auth_headers)
+        assert resp.status_code == 200, resp.get_data(as_text=True)[:300]
+        return resp.get_json()
+
+    def test_a_silent_scheduler_is_in_the_bell(self, app, auth_headers):
+        _beat_all(datetime.utcnow() - timedelta(minutes=30))
+        data = self._pending(app, auth_headers)
+        assert data['total_system_alerts'] == 1
+        alert = data['system_alerts'][0]
+        assert alert['kind'] == 'scheduler_down' and 'المجدول' in alert['title']
+        assert {s['name'] for s in alert['silent']} == set(hb.EXPECTED)
+        assert 'منذ 30 دقيقة' in alert['message']
+
+    def test_a_beating_scheduler_is_not(self, app, auth_headers):
+        _beat_all(datetime.utcnow())
+        data = self._pending(app, auth_headers)
+        assert data['total_system_alerts'] == 0 and data['system_alerts'] == []
+
+    def test_reading_the_bell_writes_nothing(self, app, auth_headers):
+        _beat_all(datetime.utcnow() - timedelta(minutes=30))
+        before = SystemAlert.query.count()
+        self._pending(app, auth_headers)
+        assert SystemAlert.query.count() == before
+
+    def test_nothing_writes_scheduler_alerts_any_more(self):
+        """The dashboard and the old alerts route no longer refresh a SystemAlert."""
+        from routes import reports, system
+        assert 'refresh_bell' not in inspect.getsource(reports.get_admin_dashboard) \
+            if hasattr(reports, 'get_admin_dashboard') else True
+        assert 'refresh_bell' not in inspect.getsource(system.list_system_alerts)
+        assert not hasattr(hb, 'sync_scheduler_alert') and not hasattr(hb, 'refresh_bell')
 
 
 class TestTheWriters:
