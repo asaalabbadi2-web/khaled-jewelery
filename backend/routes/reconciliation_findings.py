@@ -2,7 +2,7 @@
 
 Thin by design: parsing here, the query in services/books_invariants.py. Read
 only -- nothing on this surface resolves or changes a finding. Resolving
-reviewed findings is a later step, together with a screen.
+reviewed findings is a later step; the screen only reads.
 """
 from __future__ import annotations
 
@@ -12,6 +12,7 @@ from flask import Blueprint, jsonify, request
 
 from auth_decorators import require_auth, require_permission
 from services.books_invariants import list_findings
+from services.finding_kinds import KIND_INFO, subject_label
 
 reconciliation_findings_bp = Blueprint('reconciliation_findings', __name__)
 
@@ -49,5 +50,8 @@ def get_reconciliation_findings():
     by_kind: dict = {}
     for f in findings:
         by_kind[f['kind']] = by_kind.get(f['kind'], 0) + 1
+        f['subject_label'] = subject_label(f.get('subject_key'))
+    # What each kind means, for the screen «نتائج الفحص الليلي» -- it invents none.
+    kinds = {k: KIND_INFO.get(k, {'rank': 999, 'title_ar': k, 'explanation_ar': ''}) for k in by_kind}
     return jsonify({'status': status, 'count': len(findings),
-                    'by_kind': by_kind, 'findings': findings}), 200
+                    'by_kind': by_kind, 'kinds': kinds, 'findings': findings}), 200

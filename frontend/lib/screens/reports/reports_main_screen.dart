@@ -1,3 +1,4 @@
+import 'reconciliation_findings_screen.dart';
 import 'package:flutter/material.dart';
 import '../../api_service.dart';
 import '../../models/report_catalog.dart';
@@ -323,6 +324,12 @@ class _ReportsMainScreenState extends State<ReportsMainScreen> {
     switch (report.route) {
       case 'admin_dashboard':
         destination = AdminDashboardScreen(
+          api: widget.api,
+          isArabic: widget.isArabic,
+        );
+        break;
+      case 'reconciliation_findings':
+        destination = ReconciliationFindingsScreen(
           api: widget.api,
           isArabic: widget.isArabic,
         );

@@ -27,6 +27,20 @@ class ReportCatalog {
             requiresFilters: false,
           ),
           ReportDescriptor(
+            id: 'reconciliation_findings',
+            icon: Icons.fact_check,
+            titleAr: 'نتائج الفحص الليلي',
+            titleEn: 'Nightly Check Findings',
+            descriptionAr:
+                'ما وجدته فحوص الدفاتر الليلية ومهام التسوية: قيود خاطئة، تسويات متأخرة، وفروق الخزائن — الخطر القائم أولًا.',
+            descriptionEn:
+                'What the nightly book checks and settlement jobs found — standing risk first.',
+            route: 'reconciliation_findings',
+            type: ReportType.financial,
+            available: true,
+            requiresFilters: false,
+          ),
+          ReportDescriptor(
             id: 'analytics_dashboard',
             icon: Icons.insights,
             titleAr: 'لوحة التحليل الوزني',

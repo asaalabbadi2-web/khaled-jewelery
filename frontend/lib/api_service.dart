@@ -2504,6 +2504,19 @@ class ApiService {
     }
   }
 
+  /// What the nightly checks and the schedulers found (ADR-030). Read-only.
+  /// Each kind's meaning comes with it (`kinds`), and each finding a readable
+  /// subject (`subject_label`) -- the screen invents neither.
+  Future<Map<String, dynamic>> getReconciliationFindings({String status = 'open'}) async {
+    final uri = Uri.parse('$_baseUrl/reconciliation/findings')
+        .replace(queryParameters: {'status': status});
+    final response = await _authedGet(uri);
+    if (response.statusCode == 200) {
+      return json.decode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
+    }
+    throw Exception('Failed to load findings: ${response.statusCode}');
+  }
+
   Future<Map<String, dynamic>> reviewSystemAlert(int alertId) async {
     final uri = Uri.parse('$_baseUrl/system-alerts/$alertId/review');
     final response = await _authedPut(uri);
