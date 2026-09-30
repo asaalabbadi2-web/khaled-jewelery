@@ -5114,6 +5114,15 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
           editInvoiceId: invoiceId,
           editInvoiceData: fullInvoice,
         );
+      } else if (invoiceType == 'شراء من عميل') {
+        // A purchase from a customer is edited on the screen that made it
+        // (EDIT-001; invoice 3170 could not be corrected before).
+        final customers = _cloneDataList(await _getCachedCustomers());
+        screen = ScrapPurchaseInvoiceScreen(
+          customers: customers,
+          editInvoiceId: invoiceId,
+          editInvoiceData: fullInvoice,
+        );
       } else if (invoiceType == 'شراء') {
         screen = PurchaseInvoiceScreen(
           editInvoiceId: invoiceId,

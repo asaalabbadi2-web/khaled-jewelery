@@ -32,6 +32,13 @@ def db_fence(app):
         def get_bind(self, mapper=None, clause=None, bind=None, **kwargs):
             return bind if bind is not None else self.bind
 
+    from flask import g
+
+    # A module that holds one app context for all its tests shares one `g`:
+    # require_auth returns early on a leftover g.current_user -- a User loaded
+    # in the previous test's session, detached once that fence rolled back.
+    # Each test starts, and ends, signed out.
+    g.pop('current_user', None)
     connection = db.engine.connect()
     outer = connection.begin()
     saved = db.session
@@ -43,6 +50,7 @@ def db_fence(app):
     try:
         yield db.session
     finally:
+        g.pop('current_user', None)
         db.session.remove()
         db.session = saved
         outer.rollback()

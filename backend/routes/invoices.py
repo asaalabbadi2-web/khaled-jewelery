@@ -1075,6 +1075,10 @@ def update_unposted_invoice(invoice_id: int):
     # re-attribute it to whichever user happens to perform the edit.
     original_employee_id = invoice.employee_id
     original_posted_by = invoice.posted_by
+    # Who holds the purchased scrap gold (the custody account that answers for
+    # it). The screen sends the signed-in user's employee; the edit keeps the
+    # one who took the gold in (EDIT-001).
+    original_scrap_holder_id = getattr(invoice, 'scrap_holder_employee_id', None)
 
     # --- 1. Delete all related entities ---
     try:
@@ -1161,11 +1165,15 @@ def update_unposted_invoice(invoice_id: int):
     # --- 2. Re-create via the standard add_invoice flow ---
     # Merge caller data with preserved original fields.
     create_data = dict(data)
-    create_data['invoice_type_id'] = original_type_id
     if 'invoice_type' not in create_data:
         create_data['invoice_type'] = original_invoice_type
-    if 'date' not in create_data:
-        create_data['date'] = original_date.isoformat() if original_date else datetime.now().isoformat()
+    # An edit corrects the invoice; it stays the same invoice -- its number and
+    # its date (the owner's rule, 30 Sep 2026, EDIT-001). The app sends the
+    # moment of the edit as the date; the original wins.
+    if original_date:
+        create_data['date'] = original_date.isoformat()
+    if original_scrap_holder_id:
+        create_data['scrap_holder_employee_id'] = original_scrap_holder_id
 
     # Inject into Flask request context and call add_invoice.
     from app import app as _app  # type: ignore
@@ -1188,6 +1196,7 @@ def update_unposted_invoice(invoice_id: int):
         rv = add_invoice(
             preserve_employee_id=original_employee_id,
             preserve_posted_by=original_posted_by,
+            preserve_invoice_type_id=original_type_id,
         )
 
     status_code = 200
@@ -1203,12 +1212,14 @@ def update_unposted_invoice(invoice_id: int):
         resp_data = None
 
     if int(status_code) >= 400:
-        # Re-creation failed — the old invoice is already deleted.
-        # Return the error so the user can fix and retry.
+        # Re-creation failed. The deletion above was only flushed: this rollback
+        # undoes it, and the original invoice stands exactly as it was. The old
+        # message said the opposite and told the user to create a new invoice --
+        # which sold the same thing twice (EDIT-001).
         db.session.rollback()
         return jsonify({
-            'error': 'recreate_failed',
-            'message': 'فشل إعادة إنشاء الفاتورة بعد الحذف. يرجى إنشاء فاتورة جديدة.',
+            'error': 'edit_failed',
+            'message': 'تعذّر حفظ التعديل، والفاتورة الأصلية لم تتغيّر. صحّح ما يلي وأعد المحاولة — لا تُنشئ فاتورة جديدة.',
             'original_invoice_id': invoice_id,
             'inner_error': resp_data,
         }), int(status_code)
@@ -3217,8 +3228,11 @@ def calculate_profit_in_gold(items_sold):
     }
 
 @invoices_bp.route('/invoices', methods=['POST'])
-def add_invoice(preserve_employee_id=None, preserve_posted_by=None):
+def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_invoice_type_id=None):
     """Create a new invoice.
+
+    preserve_invoice_type_id: internal-use only, set by the same edit flow -- an
+    edited invoice keeps its number (EDIT-001).
 
     preserve_employee_id / preserve_posted_by: internal-use only (never taken
     from the request body). Set by update_unposted_invoice()'s delete+recreate
@@ -4084,7 +4098,9 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None):
         _max_sbt_id_before = 0
     try:
         # --- 1. Create Invoice and Items ---
-        next_invoice_type_id = _next_invoice_type_id([invoice_type])
+        # An edit keeps the invoice's number (EDIT-001); only a new invoice takes the next one.
+        next_invoice_type_id = (int(preserve_invoice_type_id) if preserve_invoice_type_id
+                                else _next_invoice_type_id([invoice_type]))
 
         def _extract_float(key, default=0.0):
             if key not in data:

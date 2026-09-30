@@ -22,7 +22,18 @@ const double kScrapPurchasePriceDiscount = 0.98;
 class ScrapPurchaseInvoiceScreen extends StatefulWidget {
   final List<Map<String, dynamic>> customers;
 
-  const ScrapPurchaseInvoiceScreen({super.key, required this.customers});
+  /// Edit mode: an unposted purchase from a customer (EDIT-001). The server
+  /// keeps its number, its date and who holds the gold; this screen only
+  /// corrects the lines and the payments.
+  final int? editInvoiceId;
+  final Map<String, dynamic>? editInvoiceData;
+
+  const ScrapPurchaseInvoiceScreen({
+    super.key,
+    required this.customers,
+    this.editInvoiceId,
+    this.editInvoiceData,
+  });
 
   @override
   State<ScrapPurchaseInvoiceScreen> createState() =>
@@ -119,6 +130,62 @@ class _ScrapPurchaseInvoiceScreenState
     _loadPurchaseBaseline();
     _loadPurchaseItems();
     _smartInputFocus.requestFocus();
+    if (_isEditMode) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _prefillFromExistingInvoice());
+    }
+  }
+
+  bool get _isEditMode => widget.editInvoiceId != null;
+
+  // ==================== Edit Mode Prefill ====================
+  void _prefillFromExistingInvoice() {
+    final data = widget.editInvoiceData;
+    if (data == null || !mounted) return;
+    double num0(dynamic v) => v is num ? v.toDouble() : double.tryParse('${v ?? ''}') ?? 0.0;
+    int? int0(dynamic v) => v is int ? v : int.tryParse('${v ?? ''}');
+    setState(() {
+      _selectedCustomerId = int0(data['customer_id']);
+      _selectedBranchId = int0(data['branch_id']) ?? _selectedBranchId;
+      _selectedSafeBoxId = int0(data['safe_box_id']) ?? _selectedSafeBoxId;
+      _items.clear();
+      for (final raw in (data['items'] as List? ?? const [])) {
+        if (raw is! Map) continue;
+        final m = Map<String, dynamic>.from(raw);
+        final standing = num0(m['standing_weight']) > 0 ? num0(m['standing_weight']) : num0(m['weight']);
+        final item = InvoiceItem(
+          itemId: int0(m['item_id']),
+          name: (m['name'] ?? '').toString(),
+          barcode: '',
+          karat: num0(m['karat']),
+          standingWeight: standing,
+          stonesWeight: num0(m['stones_weight']),
+          quantity: int0(m['quantity']) ?? 1,
+          weight: num0(m['weight']),
+          wage: num0(m['wage']),
+          goldPrice24k: _effectivePurchasePrice24k,
+          mainKarat: _settingsProvider.mainKarat,
+          isCategoryLine: m['item_id'] == null,
+        );
+        item.updateWeightFromStandingAndStones();
+        if (num0(m['price']) > 0) item.setManualTotal(num0(m['price']));
+        _items.add(item);
+      }
+      _payments.clear();
+      for (final raw in (data['payments'] as List? ?? const [])) {
+        if (raw is! Map) continue;
+        final m = Map<String, dynamic>.from(raw);
+        _payments.add(PaymentEntry(
+          paymentMethodId: int0(m['payment_method_id']) ?? 0,
+          paymentMethodName: (m['payment_method_name'] ?? '').toString(),
+          amount: num0(m['amount']),
+          commissionRate: num0(m['commission_rate']),
+          commissionAmount: num0(m['commission_amount']),
+          commissionVat: num0(m['commission_vat']),
+          netAmount: num0(m['net_amount']),
+          settlementDays: int0(m['settlement_days']) ?? 0,
+        ));
+      }
+    });
   }
 
   Future<void> _ensureCategoriesLoaded() async {
@@ -1180,7 +1247,9 @@ class _ScrapPurchaseInvoiceScreenState
         'gold_images_count': _goldImages.length,
       };
 
-      final response = await apiService.addInvoice(invoiceData);
+      final response = _isEditMode
+          ? await apiService.updateUnpostedInvoice(widget.editInvoiceId!, invoiceData)
+          : await apiService.addInvoice(invoiceData);
 
       final approvalRequired = response['approval_required'] == true;
       final approvalReasons = (response['approval_reasons'] is List)
@@ -1231,6 +1300,15 @@ class _ScrapPurchaseInvoiceScreenState
       }
 
       if (!mounted) return;
+
+      // Edit mode: back to the invoices list, which reloads on `true`.
+      if (_isEditMode) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('تم حفظ التعديل — الفاتورة برقمها وتاريخها')),
+        );
+        Navigator.of(context).pop(true);
+        return;
+      }
 
       final invoiceForPrint = Map<String, dynamic>.from(response);
       try {
