@@ -28,4 +28,4 @@ COPY backend /app/backend
 EXPOSE 8001
 
 # Default: run via gunicorn (production)
-CMD ["gunicorn", "-w", "2", "-b", "0.0.0.0:8001", "--timeout", "120", "backend.wsgi:app"]
+CMD ["gunicorn", "-c", "backend/gunicorn.conf.py", "backend.wsgi:app"]
