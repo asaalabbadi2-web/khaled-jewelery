@@ -1404,6 +1404,14 @@ class Invoice(db.Model):
             )
         except Exception:
             result['scrap_holder_employee_name'] = None
+        # The holder's own custody safe, if any: on an edit the gold stays with
+        # the holder, so the app warns about the main scrap safe only without one.
+        try:
+            result['scrap_holder_gold_safe_box_id'] = (
+                self.scrap_holder_employee.gold_safe_box_id if self.scrap_holder_employee else None
+            )
+        except Exception:
+            result['scrap_holder_gold_safe_box_id'] = None
 
         # 🆕 اسم الموظف المنفذ
         # - المصدر الأساسي: employee_id المخزن على الفاتورة

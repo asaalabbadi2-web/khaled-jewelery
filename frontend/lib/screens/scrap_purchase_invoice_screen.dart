@@ -19,6 +19,22 @@ const double kScrapPurchasePriceDiscount = 0.98;
 
 /// شاشة فاتورة شراء الكسر - نسخة مبسطة
 /// ميزات: تصوير الذهب + ملاحظات + دفع نقدي/تحويل فقط + بدون ضريبة
+/// Whether to warn that the purchased gold will go to the main scrap safe:
+/// only when the signed-in account is not linked to an employee -- and, on an
+/// edit, only when the invoice's holder has no custody safe. The edit keeps the
+/// holder and the safe box the gold went to (EDIT-001), so the signed-in
+/// account does not decide where the gold goes.
+bool warnsGoldGoesToMainScrapSafe({
+  required int? signedInEmployeeId,
+  Map<String, dynamic>? editInvoiceData,
+}) {
+  if (signedInEmployeeId != null) return false;
+  if (editInvoiceData != null && editInvoiceData['scrap_holder_gold_safe_box_id'] != null) {
+    return false;
+  }
+  return true;
+}
+
 class ScrapPurchaseInvoiceScreen extends StatefulWidget {
   final List<Map<String, dynamic>> customers;
 
@@ -1194,7 +1210,11 @@ class _ScrapPurchaseInvoiceScreenState
 
       // حساب الموظف الحالي غير مربوط بسجل موظف → لن يُسنَد الذهب لخزينته الشخصية.
       // النظام يتراجع للخزينة الرئيسية للكسر. يُنصح بربط الحساب بموظف من إدارة المستخدمين.
-      if (employeeId == null && mounted) {
+      if (warnsGoldGoesToMainScrapSafe(
+            signedInEmployeeId: employeeId,
+            editInvoiceData: _isEditMode ? widget.editInvoiceData : null,
+          ) &&
+          mounted) {
         final confirmed = await showDialog<bool>(
           context: context,
           builder: (ctx) => AlertDialog(

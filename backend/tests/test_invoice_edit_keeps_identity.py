@@ -115,3 +115,41 @@ def test_an_edit_keeps_who_holds_the_purchased_gold(auth_headers):
     resp = flask_app.test_client().put(f'/api/invoices/{old_id}', headers=auth_headers, json=edit)
     assert resp.status_code == 200, resp.get_data(as_text=True)[:300]
     assert Invoice.query.get(resp.get_json()['id']).scrap_holder_employee_id == holder
+
+
+def test_an_edit_keeps_the_safe_box_the_gold_went_to(auth_headers):
+    """Edited by the owner -- an account with no employee -- the screen sent the
+    main scrap safe (31) and invoice 3170's header moved there from the custody of
+    the employee who took the gold in (46), while the gold itself stayed in 46.
+    The header follows the holder, as the gold does."""
+    pm, old_id, _ = _held_purchase(auth_headers)
+    original_box = Invoice.query.get(old_id).safe_box_id
+    other = SafeBox(name='خزينة ذهب الكسر الرئيسية - تعديل', safe_type='gold',
+                    account_id=Account.query.get(15).id, is_active=True)
+    db.session.add(other)
+    db.session.flush()
+    edit = _payload(pm, price=90000.0, date=datetime.now().isoformat())
+    edit['safe_box_id'] = other.id
+    resp = flask_app.test_client().put(f'/api/invoices/{old_id}', headers=auth_headers, json=edit)
+    assert resp.status_code == 200, resp.get_data(as_text=True)[:300]
+    assert Invoice.query.get(resp.get_json()['id']).safe_box_id == original_box
+
+
+def test_the_invoice_says_whether_its_holder_has_a_custody_safe():
+    """The app warns an account with no employee that the gold will go to the
+    main scrap safe. On an edit the gold stays with the invoice's holder, so the
+    app needs to know whether that holder has a custody safe of their own."""
+    box = SafeBox(name='عهدة موظف - تعديل', safe_type='gold', account_id=Account.query.get(15).id, is_active=True)
+    db.session.add(box)
+    db.session.flush()
+    holder = Employee.query.first()
+    holder.gold_safe_box_id = box.id
+    invoice = Invoice(invoice_type='شراء من عميل', invoice_type_id=99001, date=datetime(2026, 9, 29),
+                      total=1.0, is_posted=False, scrap_holder_employee_id=holder.id)
+    db.session.add(invoice)
+    db.session.flush()
+    assert invoice.to_dict()['scrap_holder_gold_safe_box_id'] == box.id
+    invoice.scrap_holder_employee_id = None
+    db.session.flush()
+    db.session.expire(invoice, ['scrap_holder_employee'])
+    assert invoice.to_dict()['scrap_holder_gold_safe_box_id'] is None
