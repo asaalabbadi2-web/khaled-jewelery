@@ -103,41 +103,6 @@
   "answer": "409:approved_voucher_is_cancelled_not_rejected",
   "changes": {}
  },
- "auto:cash_payment/unapprove": {
-  "created": {
-   "voucher": "approved",
-   "entries": [
-    "voucher:posted=True,draft=False,deleted=False"
-   ],
-   "entries.posted.cash_debit": 500.0,
-   "entries.posted.cash_credit": 500.0,
-   "sbt.voucher.cash": -500.0,
-   "sbt.voucher.rows": 1.0,
-   "invoice_payments": 0,
-   "gold_attributions": 0,
-   "audit_log": []
-  },
-  "answer": "400:?",
-  "changes": {}
- },
- "auto:cash_payment/unapprove_then_approve": {
-  "created": {
-   "voucher": "approved",
-   "entries": [
-    "voucher:posted=True,draft=False,deleted=False"
-   ],
-   "entries.posted.cash_debit": 500.0,
-   "entries.posted.cash_credit": 500.0,
-   "sbt.voucher.cash": -500.0,
-   "sbt.voucher.rows": 1.0,
-   "invoice_payments": 0,
-   "gold_attributions": 0,
-   "audit_log": []
-  },
-  "answer": "400:?",
-  "changes": {},
-  "approve_answer": "400:?"
- },
  "auto:cash_receipt/cancel": {
   "created": {
    "voucher": "approved",
@@ -241,41 +206,6 @@
   },
   "answer": "409:approved_voucher_is_cancelled_not_rejected",
   "changes": {}
- },
- "auto:cash_receipt/unapprove": {
-  "created": {
-   "voucher": "approved",
-   "entries": [
-    "voucher:posted=True,draft=False,deleted=False"
-   ],
-   "entries.posted.cash_debit": 500.0,
-   "entries.posted.cash_credit": 500.0,
-   "sbt.voucher.cash": 500.0,
-   "sbt.voucher.rows": 1.0,
-   "invoice_payments": 0,
-   "gold_attributions": 0,
-   "audit_log": []
-  },
-  "answer": "400:?",
-  "changes": {}
- },
- "auto:cash_receipt/unapprove_then_approve": {
-  "created": {
-   "voucher": "approved",
-   "entries": [
-    "voucher:posted=True,draft=False,deleted=False"
-   ],
-   "entries.posted.cash_debit": 500.0,
-   "entries.posted.cash_credit": 500.0,
-   "sbt.voucher.cash": 500.0,
-   "sbt.voucher.rows": 1.0,
-   "invoice_payments": 0,
-   "gold_attributions": 0,
-   "audit_log": []
-  },
-  "answer": "400:?",
-  "changes": {},
-  "approve_answer": "400:?"
  },
  "auto:gold_payment/cancel": {
   "created": {
@@ -381,41 +311,6 @@
   "answer": "409:approved_voucher_is_cancelled_not_rejected",
   "changes": {}
  },
- "auto:gold_payment/unapprove": {
-  "created": {
-   "voucher": "approved",
-   "entries": [
-    "voucher:posted=True,draft=False,deleted=False"
-   ],
-   "entries.posted.debit_21k": 5.0,
-   "entries.posted.credit_21k": 5.0,
-   "sbt.voucher.rows": 1.0,
-   "sbt.voucher.w21k": -5.0,
-   "invoice_payments": 0,
-   "gold_attributions": 0,
-   "audit_log": []
-  },
-  "answer": "400:?",
-  "changes": {}
- },
- "auto:gold_payment/unapprove_then_approve": {
-  "created": {
-   "voucher": "approved",
-   "entries": [
-    "voucher:posted=True,draft=False,deleted=False"
-   ],
-   "entries.posted.debit_21k": 5.0,
-   "entries.posted.credit_21k": 5.0,
-   "sbt.voucher.rows": 1.0,
-   "sbt.voucher.w21k": -5.0,
-   "invoice_payments": 0,
-   "gold_attributions": 0,
-   "audit_log": []
-  },
-  "answer": "400:?",
-  "changes": {},
-  "approve_answer": "400:?"
- },
  "invoice_payment/cancel": {
   "created": {
    "voucher": "approved",
@@ -472,26 +367,6 @@
    "is_posted": true
   }
  },
- "invoice_payment/unapprove": {
-  "created": {
-   "voucher": "approved",
-   "entries": [
-    "invoice_payments:posted=True,draft=False,deleted=False"
-   ],
-   "entries.posted.cash_debit": 100.0,
-   "entries.posted.cash_credit": 100.0,
-   "invoice_payments": 1,
-   "gold_attributions": 0,
-   "audit_log": []
-  },
-  "answer": "400:?",
-  "changes": {},
-  "invoice_after": {
-   "status": "paid",
-   "amount_paid": 100.0,
-   "is_posted": true
-  }
- },
  "pending:cash_payment/approve_batch": {
   "created": {
    "voucher": "pending",
@@ -502,6 +377,12 @@
   },
   "answer": "200:ok",
   "changes": {
+   "audit_log": [
+    [],
+    [
+     "voucher_approve:ok"
+    ]
+   ],
    "entries": [
     [],
     [
@@ -705,6 +586,12 @@
   },
   "answer": "200:ok",
   "changes": {
+   "audit_log": [
+    [],
+    [
+     "voucher_approve:ok"
+    ]
+   ],
    "entries": [
     [],
     [
@@ -908,6 +795,12 @@
   },
   "answer": "200:ok",
   "changes": {
+   "audit_log": [
+    [],
+    [
+     "voucher_approve:ok"
+    ]
+   ],
    "entries": [
     [],
     [

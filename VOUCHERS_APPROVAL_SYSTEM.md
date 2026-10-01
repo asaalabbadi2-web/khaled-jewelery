@@ -69,13 +69,8 @@ Content-Type: application/json
 }
 ```
 
-#### إلغاء الموافقة على سند
-```bash
-POST /api/vouchers/unapprove/{voucher_id}
-Authorization: Bearer {token}
-```
-
-**ملاحظة**: لا يمكن إلغاء الموافقة إذا كان السند مرتبط بقيد محاسبي.
+#### إلغاء الموافقة على سند — محذوف (U4، 2026-10-01)
+كان يرفض كل سند له قيد، وكل سند معتمد له قيد، فلم يعمل بعد الاعتماد قط (V0). السند المعتمد يُلغى: `POST /api/vouchers/{voucher_id}/cancel` — قيد عكسي ويبقى تاريخه (`docs/plans/v0-voucher-lifecycle-map.md`).
 
 ### 3. الإحصائيات
 

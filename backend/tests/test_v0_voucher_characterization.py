@@ -7,14 +7,16 @@ runs on vouchers the real creation route made; what it changed is compared with
 tests/v0_voucher_effects.json. A phase that changes a path changes its entry in
 the same commit; a change nobody meant fails here. V1 (the owner's decision,
 same day) changed three: rejecting an approved voucher is refused (auto:*/reject).
+U4 removed unapprove -- it refused every approved voucher, since each has an
+entry -- and its cases with it; the batch approval now writes each voucher's
+audit row (pending:*/approve_batch).
 
 World 'auto' -- voucher_auto_post on, production's setting: a voucher is
-approved when it is created. Paths: cancel, unapprove, reject, delete, edit,
-and unapprove followed by approve (the round trip).
+approved when it is created. Paths: cancel, reject, delete, edit.
 World 'pending' -- auto-post off: approve by each of the three routes,
 reject, delete, edit, cancel.
 And a voucher an invoice wrote (a scrap purchase paid in cash, posted at
-creation): cancel and unapprove.
+creation): cancel.
 
 Regenerate the record (review the diff before committing it):
     V0_RECORD=1 python -m pytest tests/test_v0_voucher_characterization.py
@@ -54,8 +56,6 @@ def _call(headers, path, vid, amount=700.0):
     c = flask_app.test_client()
     if path == 'cancel':
         return c.post(f'/api/vouchers/{vid}/cancel', headers=headers, json={'reason': 'V0'})
-    if path == 'unapprove':
-        return c.post(f'/api/vouchers/unapprove/{vid}', headers=headers, json={})
     if path == 'reject':
         return c.post(f'/api/vouchers/reject/{vid}', headers=headers, json={'rejection_reason': 'V0'})
     if path == 'delete':
@@ -93,24 +93,15 @@ def _changes(before, after):
     return {k: list(v) for k, v in diff(before, after).items()}
 
 
-@pytest.mark.parametrize('path', ('cancel', 'unapprove', 'reject', 'delete', 'edit', 'unapprove_then_approve'))
+@pytest.mark.parametrize('path', ('cancel', 'reject', 'delete', 'edit'))
 @pytest.mark.parametrize('shape', SHAPES)
 def test_auto_posted(auth_headers, vworld, shape, path):
     auto_post(True)
     vid = create(auth_headers, vworld, shape)
     created = snapshot(vid)
-    if path == 'edit':
-        resp = _edit(auth_headers, vworld, shape, vid)
-    elif path == 'unapprove_then_approve':
-        resp = _call(auth_headers, 'unapprove', vid)
-        resp2 = _call(auth_headers, 'approve_posting_screen', vid)
-    else:
-        resp = _call(auth_headers, path, vid)
-    after = snapshot(vid)
-    observed = {'created': created, 'answer': _answer(resp), 'changes': _changes(created, after)}
-    if path == 'unapprove_then_approve':
-        observed['approve_answer'] = _answer(resp2)
-    _check(f'auto:{shape}/{path}', observed)
+    resp = _edit(auth_headers, vworld, shape, vid) if path == 'edit' else _call(auth_headers, path, vid)
+    _check(f'auto:{shape}/{path}', {'created': created, 'answer': _answer(resp),
+                                    'changes': _changes(created, snapshot(vid))})
 
 
 @pytest.mark.parametrize('path', ('approve_vouchers_route', 'approve_posting_screen', 'approve_batch',
@@ -125,7 +116,7 @@ def test_pending(auth_headers, vworld, shape, path):
                                        'changes': _changes(created, snapshot(vid))})
 
 
-@pytest.mark.parametrize('path', ('cancel', 'unapprove'))
+@pytest.mark.parametrize('path', ('cancel',))
 def test_an_invoices_payment_voucher(auth_headers, world, path):
     inv = create_invoice(auth_headers, world, 'scrap_purchase_paid', held=False)
     vid = Voucher.query.filter_by(reference_type='invoice', reference_id=inv['id']).first().id

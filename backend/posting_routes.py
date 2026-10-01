@@ -3704,6 +3704,25 @@ def approve_vouchers_batch():
                 sync_gold_attribution_after_voucher_approval(voucher)
                 sync_invoice_cash_payment_after_voucher_approval(voucher)
 
+                # Each voucher's own audit row, as the single approval writes
+                # it: the batch row below names no voucher (V0, U4).
+                AuditLog.log_action(
+                    user_name=approved_by,
+                    action='voucher_approve',
+                    entity_type='voucher',
+                    entity_id=voucher_id,
+                    entity_number=voucher.voucher_number,
+                    details=json.dumps({
+                        'voucher_type': voucher.voucher_type,
+                        'amount_cash': float(voucher.amount_cash or 0),
+                        'amount_gold': float(voucher.amount_gold or 0),
+                        'description': voucher.description,
+                        'batch': True,
+                    }, ensure_ascii=False),
+                    ip_address=request.remote_addr,
+                    user_agent=request.headers.get('User-Agent')
+                )
+
                 db.session.commit()
                 approved_count += 1
 
@@ -3737,80 +3756,6 @@ def approve_vouchers_batch():
         
     except Exception as e:
         db.session.rollback()
-        return jsonify({'success': False, 'message': str(e)}), 500
-
-
-@posting_bp.route('/vouchers/unapprove/<int:voucher_id>', methods=['POST'])
-@require_permission('voucher.approve')
-def unapprove_voucher(voucher_id):
-    """
-    إلغاء الموافقة على سند
-    
-    يتطلب صلاحية: voucher.approve
-    """
-    try:
-        from models import Voucher
-        
-        unapproved_by = g.current_user.username
-        
-        voucher = Voucher.query.get(voucher_id)
-        if not voucher:
-            return jsonify({'success': False, 'message': 'السند غير موجود'}), 404
-        
-        if voucher.status != 'approved':
-            return jsonify({
-                'success': False,
-                'message': 'السند ليس موافق عليه'
-            }), 400
-        
-        # التحقق من أن السند لم يُستخدم في قيد محاسبي
-        if voucher.journal_entry_id:
-            return jsonify({
-                'success': False,
-                'message': 'لا يمكن إلغاء الموافقة لأن السند مرتبط بقيد محاسبي'
-            }), 400
-        
-        # إلغاء الموافقة
-        voucher.status = 'pending'
-        voucher.approved_at = None
-        voucher.approved_by = None
-        
-        # تسجيل العملية
-        AuditLog.log_action(
-            user_name=unapproved_by,
-            action='voucher_unapprove',
-            entity_type='voucher',
-            entity_id=voucher_id,
-            entity_number=voucher.voucher_number,
-            details=json.dumps({
-                'voucher_type': voucher.voucher_type,
-                'amount_cash': float(voucher.amount_cash or 0),
-                'amount_gold': float(voucher.amount_gold or 0)
-            }, ensure_ascii=False),
-            ip_address=request.remote_addr,
-            user_agent=request.headers.get('User-Agent')
-        )
-        
-        db.session.commit()
-        
-        return jsonify({
-            'success': True,
-            'message': 'تم إلغاء الموافقة على السند',
-            'voucher': voucher.to_dict()
-        }), 200
-        
-    except Exception as e:
-        db.session.rollback()
-        AuditLog.log_action(
-            user_name=g.current_user.username if g.current_user else 'النظام',
-            action='voucher_unapprove',
-            entity_type='voucher',
-            entity_id=voucher_id,
-            success=False,
-            error_message=str(e),
-            ip_address=request.remote_addr,
-            user_agent=request.headers.get('User-Agent')
-        )
         return jsonify({'success': False, 'message': str(e)}), 500
 
 
