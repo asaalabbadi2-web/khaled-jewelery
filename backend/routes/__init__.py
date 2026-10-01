@@ -1288,6 +1288,7 @@ from accounting.voucher_engine import (  # noqa: F401
     generate_voucher_number,
     _update_account_balances_from_journal_lines,
     create_journal_entry_from_voucher,
+    post_entry_of_approved_voucher,
     _append_safe_transactions_for_voucher,
 )
 

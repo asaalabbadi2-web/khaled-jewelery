@@ -287,6 +287,27 @@ def create_journal_entry_from_voucher(voucher):
         raise Exception(f'فشل إنشاء القيد المحاسبي من السند: {str(e)}') from e
 
 
+def post_entry_of_approved_voucher(voucher, posted_by: str):
+    """The posted entry of a voucher born approved, in the same transaction.
+
+    For writers that create a voucher already 'approved' -- the bonus approval,
+    payment and reversal. Its entry is posted with it whatever the auto-post
+    settings say: an approved voucher's entry stands posted (V0, owner 1 Oct
+    2026, journal_entry_guard). Raises when no entry can be made, so the
+    caller's whole operation fails -- never an approved voucher without one.
+    """
+    entry = create_journal_entry_from_voucher(voucher)
+    if entry is None:
+        raise RuntimeError(f'no journal entry could be made for voucher {voucher.voucher_number}')
+    if not entry.is_posted:
+        entry.is_posted = True
+        entry.is_draft = False
+        entry.posted_at = datetime.now()
+        entry.posted_by = posted_by
+    voucher.journal_entry_id = entry.id
+    return entry
+
+
 def _append_safe_transactions_for_voucher(voucher: 'Voucher', created_by=None):
     """Append SafeBoxTransaction rows for voucher lines that target a SafeBox account.
 

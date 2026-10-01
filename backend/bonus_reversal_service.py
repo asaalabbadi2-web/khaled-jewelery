@@ -183,16 +183,10 @@ class BonusReversalService:
             ))
 
             # ── Journal Entry ─────────────────────────────────────────────
-            try:
-                from routes import create_journal_entry_from_voucher
-                je = create_journal_entry_from_voucher(voucher)
-                if je:
-                    voucher.journal_entry_id = je.id
-                    db.session.add(voucher)
-            except Exception as _je_err:
-                import traceback
-                print(f'[BonusReversalService] ⚠️ فشل إنشاء قيد BREV-{bonus.id}: {_je_err}')
-                traceback.print_exc()
+            # Born approved, so its entry is posted with it; a failure fails the
+            # reversal (V0, owner 1 Oct 2026) -- never an approved voucher without one.
+            from routes import post_entry_of_approved_voucher
+            post_entry_of_approved_voucher(voucher, posted_by=reversed_by)
 
             # ── State transition ──────────────────────────────────────────
             bonus.reverse(reversed_by=reversed_by, reason=reason)

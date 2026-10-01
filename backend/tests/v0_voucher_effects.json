@@ -1,0 +1,1104 @@
+{
+ "auto:cash_payment/cancel": {
+  "created": {
+   "voucher": "approved",
+   "entries": [
+    "voucher:posted=True,draft=False,deleted=False"
+   ],
+   "entries.posted.cash_debit": 500.0,
+   "entries.posted.cash_credit": 500.0,
+   "sbt.voucher.cash": -500.0,
+   "sbt.voucher.rows": 1.0,
+   "invoice_payments": 0,
+   "gold_attributions": 0,
+   "audit_log": []
+  },
+  "answer": "200:ok",
+  "changes": {
+   "audit_log": [
+    [],
+    [
+     "cancel_voucher:ok"
+    ]
+   ],
+   "entries": [
+    [
+     "voucher:posted=True,draft=False,deleted=False"
+    ],
+    [
+     "voucher:posted=True,draft=False,deleted=False",
+     "voucher_reversal:posted=True,draft=False,deleted=False"
+    ]
+   ],
+   "entries.posted.cash_credit": [
+    500.0,
+    1000.0
+   ],
+   "entries.posted.cash_debit": [
+    500.0,
+    1000.0
+   ],
+   "sbt.voucher_reversal.cash": [
+    null,
+    500.0
+   ],
+   "sbt.voucher_reversal.rows": [
+    null,
+    1.0
+   ],
+   "voucher": [
+    "approved",
+    "cancelled"
+   ]
+  }
+ },
+ "auto:cash_payment/delete": {
+  "created": {
+   "voucher": "approved",
+   "entries": [
+    "voucher:posted=True,draft=False,deleted=False"
+   ],
+   "entries.posted.cash_debit": 500.0,
+   "entries.posted.cash_credit": 500.0,
+   "sbt.voucher.cash": -500.0,
+   "sbt.voucher.rows": 1.0,
+   "invoice_payments": 0,
+   "gold_attributions": 0,
+   "audit_log": []
+  },
+  "answer": "400:Cannot delete voucher linked to journal entry. Cancel it instead.",
+  "changes": {}
+ },
+ "auto:cash_payment/edit": {
+  "created": {
+   "voucher": "approved",
+   "entries": [
+    "voucher:posted=True,draft=False,deleted=False"
+   ],
+   "entries.posted.cash_debit": 500.0,
+   "entries.posted.cash_credit": 500.0,
+   "sbt.voucher.cash": -500.0,
+   "sbt.voucher.rows": 1.0,
+   "invoice_payments": 0,
+   "gold_attributions": 0,
+   "audit_log": []
+  },
+  "answer": "400:Cannot edit this voucher in its current status",
+  "changes": {}
+ },
+ "auto:cash_payment/reject": {
+  "created": {
+   "voucher": "approved",
+   "entries": [
+    "voucher:posted=True,draft=False,deleted=False"
+   ],
+   "entries.posted.cash_debit": 500.0,
+   "entries.posted.cash_credit": 500.0,
+   "sbt.voucher.cash": -500.0,
+   "sbt.voucher.rows": 1.0,
+   "invoice_payments": 0,
+   "gold_attributions": 0,
+   "audit_log": []
+  },
+  "answer": "409:approved_voucher_is_cancelled_not_rejected",
+  "changes": {}
+ },
+ "auto:cash_payment/unapprove": {
+  "created": {
+   "voucher": "approved",
+   "entries": [
+    "voucher:posted=True,draft=False,deleted=False"
+   ],
+   "entries.posted.cash_debit": 500.0,
+   "entries.posted.cash_credit": 500.0,
+   "sbt.voucher.cash": -500.0,
+   "sbt.voucher.rows": 1.0,
+   "invoice_payments": 0,
+   "gold_attributions": 0,
+   "audit_log": []
+  },
+  "answer": "400:?",
+  "changes": {}
+ },
+ "auto:cash_payment/unapprove_then_approve": {
+  "created": {
+   "voucher": "approved",
+   "entries": [
+    "voucher:posted=True,draft=False,deleted=False"
+   ],
+   "entries.posted.cash_debit": 500.0,
+   "entries.posted.cash_credit": 500.0,
+   "sbt.voucher.cash": -500.0,
+   "sbt.voucher.rows": 1.0,
+   "invoice_payments": 0,
+   "gold_attributions": 0,
+   "audit_log": []
+  },
+  "answer": "400:?",
+  "changes": {},
+  "approve_answer": "400:?"
+ },
+ "auto:cash_receipt/cancel": {
+  "created": {
+   "voucher": "approved",
+   "entries": [
+    "voucher:posted=True,draft=False,deleted=False"
+   ],
+   "entries.posted.cash_debit": 500.0,
+   "entries.posted.cash_credit": 500.0,
+   "sbt.voucher.cash": 500.0,
+   "sbt.voucher.rows": 1.0,
+   "invoice_payments": 0,
+   "gold_attributions": 0,
+   "audit_log": []
+  },
+  "answer": "200:ok",
+  "changes": {
+   "audit_log": [
+    [],
+    [
+     "cancel_voucher:ok"
+    ]
+   ],
+   "entries": [
+    [
+     "voucher:posted=True,draft=False,deleted=False"
+    ],
+    [
+     "voucher:posted=True,draft=False,deleted=False",
+     "voucher_reversal:posted=True,draft=False,deleted=False"
+    ]
+   ],
+   "entries.posted.cash_credit": [
+    500.0,
+    1000.0
+   ],
+   "entries.posted.cash_debit": [
+    500.0,
+    1000.0
+   ],
+   "sbt.voucher_reversal.cash": [
+    null,
+    -500.0
+   ],
+   "sbt.voucher_reversal.rows": [
+    null,
+    1.0
+   ],
+   "voucher": [
+    "approved",
+    "cancelled"
+   ]
+  }
+ },
+ "auto:cash_receipt/delete": {
+  "created": {
+   "voucher": "approved",
+   "entries": [
+    "voucher:posted=True,draft=False,deleted=False"
+   ],
+   "entries.posted.cash_debit": 500.0,
+   "entries.posted.cash_credit": 500.0,
+   "sbt.voucher.cash": 500.0,
+   "sbt.voucher.rows": 1.0,
+   "invoice_payments": 0,
+   "gold_attributions": 0,
+   "audit_log": []
+  },
+  "answer": "400:Cannot delete voucher linked to journal entry. Cancel it instead.",
+  "changes": {}
+ },
+ "auto:cash_receipt/edit": {
+  "created": {
+   "voucher": "approved",
+   "entries": [
+    "voucher:posted=True,draft=False,deleted=False"
+   ],
+   "entries.posted.cash_debit": 500.0,
+   "entries.posted.cash_credit": 500.0,
+   "sbt.voucher.cash": 500.0,
+   "sbt.voucher.rows": 1.0,
+   "invoice_payments": 0,
+   "gold_attributions": 0,
+   "audit_log": []
+  },
+  "answer": "400:Cannot edit this voucher in its current status",
+  "changes": {}
+ },
+ "auto:cash_receipt/reject": {
+  "created": {
+   "voucher": "approved",
+   "entries": [
+    "voucher:posted=True,draft=False,deleted=False"
+   ],
+   "entries.posted.cash_debit": 500.0,
+   "entries.posted.cash_credit": 500.0,
+   "sbt.voucher.cash": 500.0,
+   "sbt.voucher.rows": 1.0,
+   "invoice_payments": 0,
+   "gold_attributions": 0,
+   "audit_log": []
+  },
+  "answer": "409:approved_voucher_is_cancelled_not_rejected",
+  "changes": {}
+ },
+ "auto:cash_receipt/unapprove": {
+  "created": {
+   "voucher": "approved",
+   "entries": [
+    "voucher:posted=True,draft=False,deleted=False"
+   ],
+   "entries.posted.cash_debit": 500.0,
+   "entries.posted.cash_credit": 500.0,
+   "sbt.voucher.cash": 500.0,
+   "sbt.voucher.rows": 1.0,
+   "invoice_payments": 0,
+   "gold_attributions": 0,
+   "audit_log": []
+  },
+  "answer": "400:?",
+  "changes": {}
+ },
+ "auto:cash_receipt/unapprove_then_approve": {
+  "created": {
+   "voucher": "approved",
+   "entries": [
+    "voucher:posted=True,draft=False,deleted=False"
+   ],
+   "entries.posted.cash_debit": 500.0,
+   "entries.posted.cash_credit": 500.0,
+   "sbt.voucher.cash": 500.0,
+   "sbt.voucher.rows": 1.0,
+   "invoice_payments": 0,
+   "gold_attributions": 0,
+   "audit_log": []
+  },
+  "answer": "400:?",
+  "changes": {},
+  "approve_answer": "400:?"
+ },
+ "auto:gold_payment/cancel": {
+  "created": {
+   "voucher": "approved",
+   "entries": [
+    "voucher:posted=True,draft=False,deleted=False"
+   ],
+   "entries.posted.debit_21k": 5.0,
+   "entries.posted.credit_21k": 5.0,
+   "sbt.voucher.rows": 1.0,
+   "sbt.voucher.w21k": -5.0,
+   "invoice_payments": 0,
+   "gold_attributions": 0,
+   "audit_log": []
+  },
+  "answer": "200:ok",
+  "changes": {
+   "audit_log": [
+    [],
+    [
+     "cancel_voucher:ok"
+    ]
+   ],
+   "entries": [
+    [
+     "voucher:posted=True,draft=False,deleted=False"
+    ],
+    [
+     "voucher:posted=True,draft=False,deleted=False",
+     "voucher_reversal:posted=True,draft=False,deleted=False"
+    ]
+   ],
+   "entries.posted.credit_21k": [
+    5.0,
+    10.0
+   ],
+   "entries.posted.debit_21k": [
+    5.0,
+    10.0
+   ],
+   "sbt.voucher_reversal.rows": [
+    null,
+    1.0
+   ],
+   "sbt.voucher_reversal.w21k": [
+    null,
+    5.0
+   ],
+   "voucher": [
+    "approved",
+    "cancelled"
+   ]
+  }
+ },
+ "auto:gold_payment/delete": {
+  "created": {
+   "voucher": "approved",
+   "entries": [
+    "voucher:posted=True,draft=False,deleted=False"
+   ],
+   "entries.posted.debit_21k": 5.0,
+   "entries.posted.credit_21k": 5.0,
+   "sbt.voucher.rows": 1.0,
+   "sbt.voucher.w21k": -5.0,
+   "invoice_payments": 0,
+   "gold_attributions": 0,
+   "audit_log": []
+  },
+  "answer": "400:Cannot delete voucher linked to journal entry. Cancel it instead.",
+  "changes": {}
+ },
+ "auto:gold_payment/edit": {
+  "created": {
+   "voucher": "approved",
+   "entries": [
+    "voucher:posted=True,draft=False,deleted=False"
+   ],
+   "entries.posted.debit_21k": 5.0,
+   "entries.posted.credit_21k": 5.0,
+   "sbt.voucher.rows": 1.0,
+   "sbt.voucher.w21k": -5.0,
+   "invoice_payments": 0,
+   "gold_attributions": 0,
+   "audit_log": []
+  },
+  "answer": "400:Cannot edit this voucher in its current status",
+  "changes": {}
+ },
+ "auto:gold_payment/reject": {
+  "created": {
+   "voucher": "approved",
+   "entries": [
+    "voucher:posted=True,draft=False,deleted=False"
+   ],
+   "entries.posted.debit_21k": 5.0,
+   "entries.posted.credit_21k": 5.0,
+   "sbt.voucher.rows": 1.0,
+   "sbt.voucher.w21k": -5.0,
+   "invoice_payments": 0,
+   "gold_attributions": 0,
+   "audit_log": []
+  },
+  "answer": "409:approved_voucher_is_cancelled_not_rejected",
+  "changes": {}
+ },
+ "auto:gold_payment/unapprove": {
+  "created": {
+   "voucher": "approved",
+   "entries": [
+    "voucher:posted=True,draft=False,deleted=False"
+   ],
+   "entries.posted.debit_21k": 5.0,
+   "entries.posted.credit_21k": 5.0,
+   "sbt.voucher.rows": 1.0,
+   "sbt.voucher.w21k": -5.0,
+   "invoice_payments": 0,
+   "gold_attributions": 0,
+   "audit_log": []
+  },
+  "answer": "400:?",
+  "changes": {}
+ },
+ "auto:gold_payment/unapprove_then_approve": {
+  "created": {
+   "voucher": "approved",
+   "entries": [
+    "voucher:posted=True,draft=False,deleted=False"
+   ],
+   "entries.posted.debit_21k": 5.0,
+   "entries.posted.credit_21k": 5.0,
+   "sbt.voucher.rows": 1.0,
+   "sbt.voucher.w21k": -5.0,
+   "invoice_payments": 0,
+   "gold_attributions": 0,
+   "audit_log": []
+  },
+  "answer": "400:?",
+  "changes": {},
+  "approve_answer": "400:?"
+ },
+ "invoice_payment/cancel": {
+  "created": {
+   "voucher": "approved",
+   "entries": [
+    "invoice_payments:posted=True,draft=False,deleted=False"
+   ],
+   "entries.posted.cash_debit": 100.0,
+   "entries.posted.cash_credit": 100.0,
+   "invoice_payments": 1,
+   "gold_attributions": 0,
+   "audit_log": []
+  },
+  "answer": "200:ok",
+  "changes": {
+   "audit_log": [
+    [],
+    [
+     "cancel_voucher:ok"
+    ]
+   ],
+   "entries": [
+    [
+     "invoice_payments:posted=True,draft=False,deleted=False"
+    ],
+    [
+     "invoice_payments:posted=True,draft=False,deleted=False",
+     "voucher_reversal:posted=True,draft=False,deleted=False"
+    ]
+   ],
+   "entries.posted.cash_credit": [
+    100.0,
+    200.0
+   ],
+   "entries.posted.cash_debit": [
+    100.0,
+    200.0
+   ],
+   "sbt.voucher_reversal.cash": [
+    null,
+    100.0
+   ],
+   "sbt.voucher_reversal.rows": [
+    null,
+    1.0
+   ],
+   "voucher": [
+    "approved",
+    "cancelled"
+   ]
+  },
+  "invoice_after": {
+   "status": "unpaid",
+   "amount_paid": 0.0,
+   "is_posted": true
+  }
+ },
+ "invoice_payment/unapprove": {
+  "created": {
+   "voucher": "approved",
+   "entries": [
+    "invoice_payments:posted=True,draft=False,deleted=False"
+   ],
+   "entries.posted.cash_debit": 100.0,
+   "entries.posted.cash_credit": 100.0,
+   "invoice_payments": 1,
+   "gold_attributions": 0,
+   "audit_log": []
+  },
+  "answer": "400:?",
+  "changes": {},
+  "invoice_after": {
+   "status": "paid",
+   "amount_paid": 100.0,
+   "is_posted": true
+  }
+ },
+ "pending:cash_payment/approve_batch": {
+  "created": {
+   "voucher": "pending",
+   "entries": [],
+   "invoice_payments": 0,
+   "gold_attributions": 0,
+   "audit_log": []
+  },
+  "answer": "200:ok",
+  "changes": {
+   "entries": [
+    [],
+    [
+     "voucher:posted=True,draft=False,deleted=False"
+    ]
+   ],
+   "entries.posted.cash_credit": [
+    null,
+    500.0
+   ],
+   "entries.posted.cash_debit": [
+    null,
+    500.0
+   ],
+   "sbt.voucher.cash": [
+    null,
+    -500.0
+   ],
+   "sbt.voucher.rows": [
+    null,
+    1.0
+   ],
+   "voucher": [
+    "pending",
+    "approved"
+   ]
+  }
+ },
+ "pending:cash_payment/approve_posting_screen": {
+  "created": {
+   "voucher": "pending",
+   "entries": [],
+   "invoice_payments": 0,
+   "gold_attributions": 0,
+   "audit_log": []
+  },
+  "answer": "200:ok",
+  "changes": {
+   "audit_log": [
+    [],
+    [
+     "voucher_approve:ok"
+    ]
+   ],
+   "entries": [
+    [],
+    [
+     "voucher:posted=True,draft=False,deleted=False"
+    ]
+   ],
+   "entries.posted.cash_credit": [
+    null,
+    500.0
+   ],
+   "entries.posted.cash_debit": [
+    null,
+    500.0
+   ],
+   "sbt.voucher.cash": [
+    null,
+    -500.0
+   ],
+   "sbt.voucher.rows": [
+    null,
+    1.0
+   ],
+   "voucher": [
+    "pending",
+    "approved"
+   ]
+  }
+ },
+ "pending:cash_payment/approve_vouchers_route": {
+  "created": {
+   "voucher": "pending",
+   "entries": [],
+   "invoice_payments": 0,
+   "gold_attributions": 0,
+   "audit_log": []
+  },
+  "answer": "200:ok",
+  "changes": {
+   "audit_log": [
+    [],
+    [
+     "approve_voucher:ok"
+    ]
+   ],
+   "entries": [
+    [],
+    [
+     "voucher:posted=True,draft=False,deleted=False"
+    ]
+   ],
+   "entries.posted.cash_credit": [
+    null,
+    500.0
+   ],
+   "entries.posted.cash_debit": [
+    null,
+    500.0
+   ],
+   "sbt.voucher.cash": [
+    null,
+    -500.0
+   ],
+   "sbt.voucher.rows": [
+    null,
+    1.0
+   ],
+   "voucher": [
+    "pending",
+    "approved"
+   ]
+  }
+ },
+ "pending:cash_payment/cancel": {
+  "created": {
+   "voucher": "pending",
+   "entries": [],
+   "invoice_payments": 0,
+   "gold_attributions": 0,
+   "audit_log": []
+  },
+  "answer": "200:ok",
+  "changes": {
+   "audit_log": [
+    [],
+    [
+     "cancel_voucher:ok"
+    ]
+   ],
+   "voucher": [
+    "pending",
+    "cancelled"
+   ]
+  }
+ },
+ "pending:cash_payment/delete": {
+  "created": {
+   "voucher": "pending",
+   "entries": [],
+   "invoice_payments": 0,
+   "gold_attributions": 0,
+   "audit_log": []
+  },
+  "answer": "200:ok",
+  "changes": {
+   "audit_log": [
+    [],
+    [
+     "delete_voucher:ok"
+    ]
+   ],
+   "voucher": [
+    "pending",
+    "gone"
+   ]
+  }
+ },
+ "pending:cash_payment/edit": {
+  "created": {
+   "voucher": "pending",
+   "entries": [],
+   "invoice_payments": 0,
+   "gold_attributions": 0,
+   "audit_log": []
+  },
+  "answer": "200:ok",
+  "changes": {}
+ },
+ "pending:cash_payment/reject": {
+  "created": {
+   "voucher": "pending",
+   "entries": [],
+   "invoice_payments": 0,
+   "gold_attributions": 0,
+   "audit_log": []
+  },
+  "answer": "200:ok",
+  "changes": {
+   "audit_log": [
+    [],
+    [
+     "voucher_reject:ok"
+    ]
+   ],
+   "voucher": [
+    "pending",
+    "rejected"
+   ]
+  }
+ },
+ "pending:cash_receipt/approve_batch": {
+  "created": {
+   "voucher": "pending",
+   "entries": [],
+   "invoice_payments": 0,
+   "gold_attributions": 0,
+   "audit_log": []
+  },
+  "answer": "200:ok",
+  "changes": {
+   "entries": [
+    [],
+    [
+     "voucher:posted=True,draft=False,deleted=False"
+    ]
+   ],
+   "entries.posted.cash_credit": [
+    null,
+    500.0
+   ],
+   "entries.posted.cash_debit": [
+    null,
+    500.0
+   ],
+   "sbt.voucher.cash": [
+    null,
+    500.0
+   ],
+   "sbt.voucher.rows": [
+    null,
+    1.0
+   ],
+   "voucher": [
+    "pending",
+    "approved"
+   ]
+  }
+ },
+ "pending:cash_receipt/approve_posting_screen": {
+  "created": {
+   "voucher": "pending",
+   "entries": [],
+   "invoice_payments": 0,
+   "gold_attributions": 0,
+   "audit_log": []
+  },
+  "answer": "200:ok",
+  "changes": {
+   "audit_log": [
+    [],
+    [
+     "voucher_approve:ok"
+    ]
+   ],
+   "entries": [
+    [],
+    [
+     "voucher:posted=True,draft=False,deleted=False"
+    ]
+   ],
+   "entries.posted.cash_credit": [
+    null,
+    500.0
+   ],
+   "entries.posted.cash_debit": [
+    null,
+    500.0
+   ],
+   "sbt.voucher.cash": [
+    null,
+    500.0
+   ],
+   "sbt.voucher.rows": [
+    null,
+    1.0
+   ],
+   "voucher": [
+    "pending",
+    "approved"
+   ]
+  }
+ },
+ "pending:cash_receipt/approve_vouchers_route": {
+  "created": {
+   "voucher": "pending",
+   "entries": [],
+   "invoice_payments": 0,
+   "gold_attributions": 0,
+   "audit_log": []
+  },
+  "answer": "200:ok",
+  "changes": {
+   "audit_log": [
+    [],
+    [
+     "approve_voucher:ok"
+    ]
+   ],
+   "entries": [
+    [],
+    [
+     "voucher:posted=True,draft=False,deleted=False"
+    ]
+   ],
+   "entries.posted.cash_credit": [
+    null,
+    500.0
+   ],
+   "entries.posted.cash_debit": [
+    null,
+    500.0
+   ],
+   "sbt.voucher.cash": [
+    null,
+    500.0
+   ],
+   "sbt.voucher.rows": [
+    null,
+    1.0
+   ],
+   "voucher": [
+    "pending",
+    "approved"
+   ]
+  }
+ },
+ "pending:cash_receipt/cancel": {
+  "created": {
+   "voucher": "pending",
+   "entries": [],
+   "invoice_payments": 0,
+   "gold_attributions": 0,
+   "audit_log": []
+  },
+  "answer": "200:ok",
+  "changes": {
+   "audit_log": [
+    [],
+    [
+     "cancel_voucher:ok"
+    ]
+   ],
+   "voucher": [
+    "pending",
+    "cancelled"
+   ]
+  }
+ },
+ "pending:cash_receipt/delete": {
+  "created": {
+   "voucher": "pending",
+   "entries": [],
+   "invoice_payments": 0,
+   "gold_attributions": 0,
+   "audit_log": []
+  },
+  "answer": "200:ok",
+  "changes": {
+   "audit_log": [
+    [],
+    [
+     "delete_voucher:ok"
+    ]
+   ],
+   "voucher": [
+    "pending",
+    "gone"
+   ]
+  }
+ },
+ "pending:cash_receipt/edit": {
+  "created": {
+   "voucher": "pending",
+   "entries": [],
+   "invoice_payments": 0,
+   "gold_attributions": 0,
+   "audit_log": []
+  },
+  "answer": "200:ok",
+  "changes": {}
+ },
+ "pending:cash_receipt/reject": {
+  "created": {
+   "voucher": "pending",
+   "entries": [],
+   "invoice_payments": 0,
+   "gold_attributions": 0,
+   "audit_log": []
+  },
+  "answer": "200:ok",
+  "changes": {
+   "audit_log": [
+    [],
+    [
+     "voucher_reject:ok"
+    ]
+   ],
+   "voucher": [
+    "pending",
+    "rejected"
+   ]
+  }
+ },
+ "pending:gold_payment/approve_batch": {
+  "created": {
+   "voucher": "pending",
+   "entries": [],
+   "invoice_payments": 0,
+   "gold_attributions": 0,
+   "audit_log": []
+  },
+  "answer": "200:ok",
+  "changes": {
+   "entries": [
+    [],
+    [
+     "voucher:posted=True,draft=False,deleted=False"
+    ]
+   ],
+   "entries.posted.credit_21k": [
+    null,
+    5.0
+   ],
+   "entries.posted.debit_21k": [
+    null,
+    5.0
+   ],
+   "sbt.voucher.rows": [
+    null,
+    1.0
+   ],
+   "sbt.voucher.w21k": [
+    null,
+    -5.0
+   ],
+   "voucher": [
+    "pending",
+    "approved"
+   ]
+  }
+ },
+ "pending:gold_payment/approve_posting_screen": {
+  "created": {
+   "voucher": "pending",
+   "entries": [],
+   "invoice_payments": 0,
+   "gold_attributions": 0,
+   "audit_log": []
+  },
+  "answer": "200:ok",
+  "changes": {
+   "audit_log": [
+    [],
+    [
+     "voucher_approve:ok"
+    ]
+   ],
+   "entries": [
+    [],
+    [
+     "voucher:posted=True,draft=False,deleted=False"
+    ]
+   ],
+   "entries.posted.credit_21k": [
+    null,
+    5.0
+   ],
+   "entries.posted.debit_21k": [
+    null,
+    5.0
+   ],
+   "sbt.voucher.rows": [
+    null,
+    1.0
+   ],
+   "sbt.voucher.w21k": [
+    null,
+    -5.0
+   ],
+   "voucher": [
+    "pending",
+    "approved"
+   ]
+  }
+ },
+ "pending:gold_payment/approve_vouchers_route": {
+  "created": {
+   "voucher": "pending",
+   "entries": [],
+   "invoice_payments": 0,
+   "gold_attributions": 0,
+   "audit_log": []
+  },
+  "answer": "200:ok",
+  "changes": {
+   "audit_log": [
+    [],
+    [
+     "approve_voucher:ok"
+    ]
+   ],
+   "entries": [
+    [],
+    [
+     "voucher:posted=True,draft=False,deleted=False"
+    ]
+   ],
+   "entries.posted.credit_21k": [
+    null,
+    5.0
+   ],
+   "entries.posted.debit_21k": [
+    null,
+    5.0
+   ],
+   "sbt.voucher.rows": [
+    null,
+    1.0
+   ],
+   "sbt.voucher.w21k": [
+    null,
+    -5.0
+   ],
+   "voucher": [
+    "pending",
+    "approved"
+   ]
+  }
+ },
+ "pending:gold_payment/cancel": {
+  "created": {
+   "voucher": "pending",
+   "entries": [],
+   "invoice_payments": 0,
+   "gold_attributions": 0,
+   "audit_log": []
+  },
+  "answer": "200:ok",
+  "changes": {
+   "audit_log": [
+    [],
+    [
+     "cancel_voucher:ok"
+    ]
+   ],
+   "voucher": [
+    "pending",
+    "cancelled"
+   ]
+  }
+ },
+ "pending:gold_payment/delete": {
+  "created": {
+   "voucher": "pending",
+   "entries": [],
+   "invoice_payments": 0,
+   "gold_attributions": 0,
+   "audit_log": []
+  },
+  "answer": "200:ok",
+  "changes": {
+   "audit_log": [
+    [],
+    [
+     "delete_voucher:ok"
+    ]
+   ],
+   "voucher": [
+    "pending",
+    "gone"
+   ]
+  }
+ },
+ "pending:gold_payment/edit": {
+  "created": {
+   "voucher": "pending",
+   "entries": [],
+   "invoice_payments": 0,
+   "gold_attributions": 0,
+   "audit_log": []
+  },
+  "answer": "200:ok",
+  "changes": {}
+ },
+ "pending:gold_payment/reject": {
+  "created": {
+   "voucher": "pending",
+   "entries": [],
+   "invoice_payments": 0,
+   "gold_attributions": 0,
+   "audit_log": []
+  },
+  "answer": "200:ok",
+  "changes": {
+   "audit_log": [
+    [],
+    [
+     "voucher_reject:ok"
+    ]
+   ],
+   "voucher": [
+    "pending",
+    "rejected"
+   ]
+  }
+ }
+}

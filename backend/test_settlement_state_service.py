@@ -13,6 +13,7 @@ from datetime import datetime
 from app import app
 from models import db, PaymentMethod, Invoice, InvoicePayment, Voucher, SettlementLine
 from settlement_state_service import get_settled_amounts, get_settled_amount, is_locked
+from tests.voucher_world import stand_posted
 
 
 def _make_payment_method(name='وسيلة اختبار'):
@@ -48,7 +49,7 @@ def _make_voucher(number, status='approved'):
     v = Voucher(voucher_number=number, voucher_type='adjustment', date=datetime.now(), status=status)
     db.session.add(v)
     db.session.flush()
-    return v
+    return stand_posted(v) if status == 'approved' else v
 
 
 def _make_settlement_line(ip, voucher, amount):

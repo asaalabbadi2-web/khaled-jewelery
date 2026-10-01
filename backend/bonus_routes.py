@@ -998,16 +998,10 @@ def _approve_single_bonus(bonus_id: int, approved_by: str) -> tuple:
             amount=bonus.amount,
         ))
 
-        try:
-            from routes import create_journal_entry_from_voucher
-            je = create_journal_entry_from_voucher(voucher)
-            if je:
-                voucher.journal_entry_id = je.id
-                db.session.add(voucher)
-        except Exception as _je_err:
-            import traceback
-            print(f'[_approve_single_bonus] ⚠️ فشل إنشاء قيد السند BAPP-{bonus.id}: {_je_err}')
-            traceback.print_exc()
+        # Born approved, so its entry is posted with it; a failure fails the
+        # approval (V0, owner 1 Oct 2026) -- never an approved voucher without one.
+        from routes import post_entry_of_approved_voucher
+        post_entry_of_approved_voucher(voucher, posted_by=approved_by)
 
         bonus.approve(approved_by)
         bonus.payment_reference = voucher_number
@@ -1530,18 +1524,11 @@ def pay_bonus(bonus_id):
         if safe_box is None:
             bonus.office_id = office_id
         
-        # إنشاء القيد المحاسبي من السند — يُرحّل تسديد الالتزام وخروج الأموال إلى الـ GL
-        try:
-            from routes import create_journal_entry_from_voucher
-            journal_entry = create_journal_entry_from_voucher(voucher)
-            if journal_entry:
-                voucher.journal_entry_id = journal_entry.id
-                db.session.add(voucher)
-        except Exception as _je_err:
-            # لا نوقف الدفع إذا فشل القيد — يُسجَّل للمراجعة
-            import traceback
-            print(f'[pay_bonus] ⚠️ فشل إنشاء قيد سند الصرف: {_je_err}')
-            traceback.print_exc()
+        # إنشاء القيد المحاسبي من السند — يُرحّل تسديد الالتزام وخروج الأموال إلى الـ GL.
+        # السند يولد معتمدًا فيُرحَّل قيده معه، وفشل القيد يُفشل الدفع كله (V0،
+        # قرار المالك 1 أكتوبر 2026) — لا سند معتمد بلا قيد.
+        from routes import post_entry_of_approved_voucher
+        post_entry_of_approved_voucher(voucher, posted_by=created_by)
 
         try:
             db.session.commit()

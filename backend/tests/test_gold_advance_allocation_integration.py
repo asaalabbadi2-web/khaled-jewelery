@@ -29,6 +29,7 @@ from models import (
     SupplierGoldAdvance,
     Voucher,
 )
+from tests.voucher_world import stand_posted
 
 
 def _uid():
@@ -149,6 +150,7 @@ class TestGoldAdvancesRoutes:
             )
             db.session.add(voucher)
             db.session.flush()
+            stand_posted(voucher)
             advance = SupplierGoldAdvance(
                 supplier_id=supplier.id, source_voucher_id=voucher.id, karat=21.0, weight=50.0,
             )
@@ -208,6 +210,7 @@ class TestGoldAdvancesRoutes:
             )
             db.session.add(voucher)
             db.session.flush()
+            stand_posted(voucher)
             advance = SupplierGoldAdvance(
                 supplier_id=supplier.id, source_voucher_id=voucher.id, karat=21.0, weight=10.0,
             )
@@ -239,6 +242,7 @@ class TestGoldAdvancesRoutes:
             )
             db.session.add(voucher)
             db.session.flush()
+            stand_posted(voucher)
             advance_a = SupplierGoldAdvance(
                 supplier_id=supplier_a.id, source_voucher_id=voucher.id, karat=21.0, weight=50.0,
             )

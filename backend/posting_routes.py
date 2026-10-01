@@ -3574,7 +3574,18 @@ def reject_voucher(voucher_id):
                 'success': False,
                 'message': 'لا يمكن رفض سند ملغى'
             }), 400
-        
+
+        # An approved voucher is in the books: rejecting it changed its status
+        # alone and left its posted entry and safe-box movement counting (V0,
+        # owner 1 Oct 2026). journal_entry_guard holds the rule; this is its
+        # readable refusal.
+        if voucher.status == 'approved':
+            return jsonify({
+                'success': False,
+                'error': 'approved_voucher_is_cancelled_not_rejected',
+                'message': 'السند المعتمد لا يُرفض: ألغِه، فيُعكس قيده وحركة خزينته ويبقى تاريخه ظاهرًا.'
+            }), 409
+
         # رفض السند
         voucher.status = 'rejected'
         voucher.rejected_at = datetime.now()

@@ -62,6 +62,7 @@ from models import (
     SafeBoxTransaction, Settings, Voucher, VoucherInvoiceGoldAttribution,
     WeightClosingExecution, WeightClosingOrder, db,
 )
+from tests.voucher_world import stand_posted
 
 
 def _uid():
@@ -83,7 +84,7 @@ def _voucher(inv, *, status, voucher_type='payment'):
                 created_by='t', amount_cash=0.0, created_at=datetime.now())
     db.session.add(v)
     db.session.flush()
-    return v
+    return stand_posted(v) if status == 'approved' else v
 
 
 def _payment(inv, voucher):
@@ -146,6 +147,7 @@ def _independent_gold_payment(inv):
                 created_by='t', amount_cash=0.0, created_at=datetime.now())
     db.session.add(v)
     db.session.flush()
+    stand_posted(v)
     db.session.add(VoucherInvoiceGoldAttribution(
         voucher_id=v.id, invoice_id=inv.id, karat=18.0, weight=24.2,
         weight_main_karat=20.743, created_by='t'))

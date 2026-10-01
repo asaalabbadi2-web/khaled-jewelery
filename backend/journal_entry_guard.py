@@ -11,8 +11,15 @@ lone touch can leave:
     is soft-deleted while the invoice stands posted;
   - an invoice's entry deleted while the invoice remains;
   - a voucher's entry deleted, or soft-deleted, while the voucher remains;
+  - a voucher whose status disagrees with its entry (V0, owner 1 Oct 2026):
+    approved -- its entry stands posted; cancelled -- its entry stands posted
+    and a posted reversal stands beside it (a voucher cancelled before it was
+    approved never had one, and has none); pending and rejected -- no entry
+    linked and none posted. So an approved voucher is cancelled, never
+    rejected: rejecting it would hide a movement the books still count;
   - a bulk DELETE of entries, invoices or vouchers, or a bulk UPDATE of their
-    posted/deleted state -- the ORM cannot see which rows those touch.
+    posted/deleted state, or of a voucher's status or entry link -- the ORM
+    cannot see which rows those touch.
 
 It is a consistency guard, not a place for the operations' logic: it refuses
 the illegal state and repairs nothing. The whole transaction is refused
@@ -83,7 +90,7 @@ def _purging():
 
 def _pending(session):
     return session.info.setdefault('journal_entry_guard', {
-        'entries': set(), 'invoices': set(), 'deleted_entries': [], 'unlinked': [],
+        'entries': set(), 'invoices': set(), 'vouchers': set(), 'deleted_entries': [], 'unlinked': [],
     })
 
 
@@ -97,12 +104,15 @@ def _track(session, flush_context):
     for obj in session.new:
         if isinstance(obj, JournalEntry):
             pending['entries'].add(obj.id)
+        elif isinstance(obj, Voucher):
+            pending['vouchers'].add(obj.id)
     for obj in session.dirty:
         if isinstance(obj, JournalEntry):
             pending['entries'].add(obj.id)
         elif isinstance(obj, Invoice):
             pending['invoices'].add(obj.id)
         elif isinstance(obj, Voucher):
+            pending['vouchers'].add(obj.id)
             # A voucher whose entry link is cut: if that entry is then deleted
             # while the voucher remains, it is the same lone touch.
             for old in sa_inspect(obj).attrs.journal_entry_id.history.deleted or ():
@@ -130,9 +140,10 @@ def _no_bulk(orm_execute_state):
             'delete through the document\'s operation')
     values = getattr(orm_execute_state.statement, '_values', None) or {}
     names = {getattr(k, 'key', getattr(k, 'name', str(k))) for k in values}
-    if names & set(_WATCHED):
+    watched = set(_WATCHED) | ({'status', 'journal_entry_id'} if cls is Voucher else set())
+    if names & watched:
         raise DocumentEntryTouchedAlone(
-            f'bulk update of {cls.__tablename__}.{sorted(names & set(_WATCHED))} outside a system purge')
+            f'bulk update of {cls.__tablename__}.{sorted(names & watched)} outside a system purge')
 
 
 @event.listens_for(Session, 'before_commit')
@@ -181,10 +192,50 @@ def _check(session):
                 voucher = _voucher_of(session, Voucher, je.id, je.reference_type, je.reference_id)
                 if voucher is not None:
                     problems.append(f'entry {je.id} of voucher {voucher.id} was soft-deleted while the voucher remains')
+        voucher_ids = set(pending['vouchers'])
+        for je_id in pending['entries']:
+            je = session.get(JournalEntry, je_id)
+            if je is None:
+                continue
+            voucher_ids |= {v for (v,) in session.query(Voucher.id).filter(Voucher.journal_entry_id == je_id)}
+            if je.reference_type in ('voucher', 'voucher_reversal') and je.reference_id:
+                voucher_ids.add(je.reference_id)
+        for voucher_id in voucher_ids:
+            voucher = session.get(Voucher, voucher_id)
+            if voucher is not None:
+                problems.extend(_voucher_status_problems(session, JournalEntry, voucher))
     session.info.pop('journal_entry_guard', None)
     if problems:
         raise DocumentEntryTouchedAlone(
             'a document\'s entry was changed without its document (UNPOST-001): ' + '; '.join(problems[:5]))
+
+
+def _voucher_status_problems(session, JournalEntry, voucher):
+    """The voucher's status against its entry (V0). Statuses other than the
+    four are not judged: this guard invents none."""
+    status = voucher.status
+    entry = session.get(JournalEntry, voucher.journal_entry_id) if voucher.journal_entry_id else None
+    standing = entry is not None and not entry.is_deleted and bool(entry.is_posted)
+
+    def posted(ref_type):
+        return session.query(JournalEntry.id).filter(
+            JournalEntry.reference_type == ref_type, JournalEntry.reference_id == voucher.id,
+            JournalEntry.is_posted.is_(True), JournalEntry.is_deleted.is_(False)).first() is not None
+
+    if status == 'approved' and not standing:
+        return [f'voucher {voucher.id} is approved but its entry '
+                f'{"is missing" if entry is None else "does not stand posted"}']
+    if status == 'cancelled':
+        if voucher.journal_entry_id and not standing:
+            return [f'voucher {voucher.id} is cancelled but its entry does not stand posted']
+        if voucher.journal_entry_id and not posted('voucher_reversal'):
+            return [f'voucher {voucher.id} is cancelled but no posted reversal stands beside its entry']
+        if not voucher.journal_entry_id and posted('voucher'):
+            return [f'voucher {voucher.id} is cancelled before approval but a posted entry counts it']
+    if status in ('pending', 'rejected') and (voucher.journal_entry_id or posted('voucher')):
+        return [f'voucher {voucher.id} is {status} but has an entry'
+                + (' -- an approved voucher is cancelled, not rejected' if status == 'rejected' else '')]
+    return []
 
 
 def _voucher_of(session, Voucher, je_id, ref_type, ref_id):
