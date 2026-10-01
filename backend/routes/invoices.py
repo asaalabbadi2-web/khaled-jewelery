@@ -8834,6 +8834,14 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
         if hasattr(journal_entry, 'posted_by') and not getattr(journal_entry, 'posted_by', None):
             journal_entry.posted_by = new_invoice.posted_by
 
+        # A supplier purchase's or return's gold row: the later posting's writer,
+        # reading the entry posted just above -- no path wrote one here, so 78
+        # purchases since May moved display gold in the ledger only (SAFEBOX-001 S1).
+        from posting_routes import _append_safe_transactions_for_invoice_gold, _is_supplier_purchase
+        if _is_supplier_purchase(new_invoice):
+            db.session.flush()
+            _append_safe_transactions_for_invoice_gold(new_invoice, created_by=new_invoice.posted_by)
+
         # ── Auto-post voucher JEs linked to this invoice ──
         try:
             _linked_vouchers = Voucher.query.filter_by(

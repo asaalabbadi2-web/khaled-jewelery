@@ -715,6 +715,69 @@ def _resolve_gold_safe_for_invoice(invoice: Invoice, karat: int) -> SafeBox | No
         return None
 
 
+def _is_supplier_purchase(invoice: Invoice) -> bool:
+    """A purchase from, or a return to, a supplier -- not a customer's scrap."""
+    t = (getattr(invoice, 'invoice_type', None) or '').strip()
+    return t == 'شراء' or ('مورد' in t and 'شراء' in t)
+
+
+def _settled_by_reservation(invoice: Invoice) -> bool:
+    from models import OfficeReservation
+    return OfficeReservation.query.filter_by(purchase_invoice_id=invoice.id).first() is not None
+
+
+def _gold_rows_from_posted_entry(invoice: Invoice, created_by: str = None, note: str = '',
+                                 only_direction: str | None = None) -> list:
+    """The invoice's gold safe rows, read from its posted entry: for every gold
+    safe whose account the entry moved, a row of exactly those grams.
+    only_direction keeps the old GL fallback's one side, by invoice type."""
+    lines = (
+        db.session.query(JournalEntryLine)
+        .join(JournalEntry, JournalEntry.id == JournalEntryLine.journal_entry_id)
+        .filter(
+            JournalEntry.reference_type == 'invoice',
+            JournalEntry.reference_id == invoice.id,
+            JournalEntry.is_posted == True,
+            JournalEntry.is_deleted == False,
+            JournalEntryLine.is_deleted == False,
+        )
+        .all()
+    )
+    account_ids = list({int(l.account_id) for l in lines if l.account_id is not None})
+    safe_by_account = {
+        int(sb.account_id): sb
+        for sb in SafeBox.query.filter(SafeBox.account_id.in_(account_ids), SafeBox.safe_type == 'gold',
+                                       SafeBox.is_active == True).all()
+        if sb.account_id is not None
+    }
+    number = getattr(invoice, 'invoice_number', None) or str(getattr(invoice, 'id', ''))
+    created = []
+    for line in lines:
+        sb = safe_by_account.get(int(line.account_id))
+        if not sb:
+            continue
+        # The entry's own side, not the invoice type's: a debit on the safe's
+        # account is gold in, a credit is gold out -- a purchase that also paid
+        # the supplier in gold from a safe moves both.
+        for side, direction in (('debit', 'in'), ('credit', 'out')):
+            if only_direction and direction != only_direction:
+                continue
+            w = {k: float(getattr(line, f'{side}_{k}') or 0) for k in ('18k', '21k', '22k', '24k')}
+            if not any(v > 0.0005 for v in w.values()):
+                continue
+            tx = SafeBoxTransaction(
+                safe_box_id=sb.id, ref_type='invoice_gold', ref_id=invoice.id, invoice_id=invoice.id,
+                direction=direction, amount_cash=0.0,
+                weight_18k=round(w['18k'], 6), weight_21k=round(w['21k'], 6),
+                weight_22k=round(w['22k'], 6), weight_24k=round(w['24k'], 6),
+                notes=f"Invoice {number} - {getattr(invoice, 'invoice_type', '')} {note}".rstrip(),
+                created_by=created_by,
+            )
+            db.session.add(tx)
+            created.append(tx)
+    return created
+
+
 def _append_safe_transactions_for_invoice_gold(invoice: Invoice, created_by: str = None):
     """Append SafeBoxTransaction rows representing gold inventory movements for an invoice.
 
@@ -755,6 +818,16 @@ def _append_safe_transactions_for_invoice_gold(invoice: Invoice, created_by: str
     ).all()
     for _sbt in provisional:
         db.session.delete(_sbt)
+
+    # A supplier purchase or return: its rows are what its posted entry moved on
+    # each gold safe's account -- so the statement cannot disagree with the
+    # balance, posted at creation or later. One a closing-office reservation
+    # settled gets none: its gold is the reservation's, on our account's safe at
+    # the office, until a voucher moves it (SAFEBOX-001 S1, the owner 1 Oct 2026).
+    if _is_supplier_purchase(invoice):
+        if _settled_by_reservation(invoice):
+            return []
+        return _gold_rows_from_posted_entry(invoice, created_by)
 
     weights_by_karat = {18: 0.0, 21: 0.0, 22: 0.0, 24: 0.0}
     stones_by_karat  = {18: 0.0, 21: 0.0, 22: 0.0, 24: 0.0}  # فصوص حسب العيار
@@ -828,68 +901,12 @@ def _append_safe_transactions_for_invoice_gold(invoice: Invoice, created_by: str
                 stones_by_karat[karat] += sw
 
     # --- GL fallback: if weight extraction from items/karat-lines yielded nothing,
-    #     read the already-committed GL lines for this invoice.  This handles
-    #     supplier-purchase invoices (شراء, gold_type=new) where item-level
-    #     weights may be None. ---
-    _all_zero = all(v <= 0.0005 for v in weights_by_karat.values())
-    if _all_zero:
+    #     read the already-committed GL lines for this invoice. ---
+    if all(v <= 0.0005 for v in weights_by_karat.values()):
         try:
-            _gl_lines = (
-                db.session.query(JournalEntryLine)
-                .join(JournalEntry, JournalEntry.id == JournalEntryLine.journal_entry_id)
-                .filter(
-                    JournalEntry.reference_type == 'invoice',
-                    JournalEntry.reference_id == invoice.id,
-                    JournalEntry.is_posted == True,
-                    JournalEntry.is_deleted == False,
-                    JournalEntryLine.is_deleted == False,
-                )
-                .all()
-            )
-            # Collect account_ids from GL lines that touch gold safe accounts
-            _acc_ids = list({int(l.account_id) for l in _gl_lines if l.account_id is not None})
-            _safe_by_acc: dict = {}
-            for _sb in SafeBox.query.filter(
-                SafeBox.account_id.in_(_acc_ids),
-                SafeBox.safe_type == 'gold',
-                SafeBox.is_active == True,
-            ).all():
-                if _sb.account_id is not None:
-                    _safe_by_acc[int(_sb.account_id)] = _sb
-
-            _gl_direction = _direction_for_invoice_gold(getattr(invoice, 'invoice_type', None))
-            _invoice_number = getattr(invoice, 'invoice_number', None) or str(getattr(invoice, 'id', ''))
-            _created_gl = []
-            for _line in _gl_lines:
-                _sb = _safe_by_acc.get(int(_line.account_id))
-                if not _sb:
-                    continue
-                # Pick debit/credit based on the logical direction of this invoice type
-                if _gl_direction == 'in':
-                    _w18 = float(_line.debit_18k or 0); _w21 = float(_line.debit_21k or 0)
-                    _w22 = float(_line.debit_22k or 0); _w24 = float(_line.debit_24k or 0)
-                else:
-                    _w18 = float(_line.credit_18k or 0); _w21 = float(_line.credit_21k or 0)
-                    _w22 = float(_line.credit_22k or 0); _w24 = float(_line.credit_24k or 0)
-                if not any(v > 0.0005 for v in (_w18, _w21, _w22, _w24)):
-                    continue
-                _tx = SafeBoxTransaction(
-                    safe_box_id=_sb.id,
-                    ref_type='invoice_gold',
-                    ref_id=invoice.id,
-                    invoice_id=invoice.id,
-                    direction=_gl_direction,
-                    amount_cash=0.0,
-                    weight_18k=round(_w18, 6),
-                    weight_21k=round(_w21, 6),
-                    weight_22k=round(_w22, 6),
-                    weight_24k=round(_w24, 6),
-                    notes=f"Invoice {_invoice_number} - {getattr(invoice, 'invoice_type', '')} [GL-fallback]",
-                    created_by=created_by,
-                )
-                db.session.add(_tx)
-                _created_gl.append(_tx)
-            return _created_gl
+            return _gold_rows_from_posted_entry(
+                invoice, created_by, note='[GL-fallback]',
+                only_direction=_direction_for_invoice_gold(getattr(invoice, 'invoice_type', None)))
         except Exception:
             pass  # GL fallback failed; let the normal path continue (zero weights → no rows → no exception)
 
@@ -2025,8 +2042,9 @@ def post_invoice_document(invoice: Invoice, posted_by: str) -> None:
     its payment entry, one never closed the approval alert, and the batch
     skipped the karat-difference and 24k-settlement entries.
 
-    In order: the invoice; its gold safe-box rows; its entries and those of
-    its vouchers; the entries and safe-box rows of payments saved while it was
+    In order: the invoice; its entries and those of its vouchers; its gold
+    safe-box rows (after the entries: a supplier purchase's are read from its
+    posted entry); the entries and safe-box rows of payments saved while it was
     unposted; its settlement entries; its payment state; its category-weight
     movements and inventory ledger (both idempotent -- written at creation for
     an invoice posted at once, never for one that waited); its approval alert
@@ -2037,8 +2055,6 @@ def post_invoice_document(invoice: Invoice, posted_by: str) -> None:
     invoice.is_posted = True
     invoice.posted_at = now
     invoice.posted_by = posted_by or (invoice.posted_by or 'system')
-
-    _append_safe_transactions_for_invoice_gold(invoice, created_by=posted_by)
 
     def _post_entry(je):
         if je is not None and not je.is_posted and not getattr(je, 'is_deleted', False):
@@ -2061,6 +2077,11 @@ def post_invoice_document(invoice: Invoice, posted_by: str) -> None:
                 v.status = 'approved'
     except Exception as exc:
         print(f"[post_invoice_document] posting the entries of invoice {invoice.id} failed: {exc}")
+
+    # After the entries are posted: a supplier purchase's gold rows are read
+    # from its posted entry (SAFEBOX-001 S1); the others' from their lines.
+    db.session.flush()
+    _append_safe_transactions_for_invoice_gold(invoice, created_by=posted_by)
 
     try:
         _create_deferred_payment_entries(invoice, posted_by=posted_by)

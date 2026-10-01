@@ -14,9 +14,10 @@ Laws:
 Witnessed, not yet law: the round trip in the SAFES for a sale. Posting at
 creation (add_invoice) and posting later (post_invoice_document) are two
 writers that disagree -- on a restored copy (1 Oct 2026) a re-posted sale moved
-twice its gold out of the display box when a line had a quantity above one, and
-a supplier purchase gained a safe row creation never wrote. That is
-SAFEBOX-001's to close, not the unposting's.
+twice its gold out of the display box when a line had a quantity above one (a
+supplier purchase also gained a safe row creation never wrote -- closed by
+SAFEBOX-001 S1, tests/test_supplier_purchase_gold_follows_its_entry.py). The
+rest is SAFEBOX-001's to close, not the unposting's.
 
 Run:
     python -m pytest tests/test_unpost_001_u1_laws.py -v
