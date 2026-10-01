@@ -161,7 +161,9 @@ def victims(app):
         ids = {'journal_entries': (JournalEntry, je.id), 'vouchers': (Voucher, v.id),
                'suppliers': (Supplier, s.id), 'customers': (Customer, cu.id)}
     yield ids
+    from tests.cleanup import purge   # the witness entry is posted: removing it is a purge (U3)
     with flask_app.app_context():
+        purge(lambda: None)           # opens the purge for this cleanup's transaction
         for model, pk in ids.values():
             row = db.session.get(model, pk)
             if row is not None:

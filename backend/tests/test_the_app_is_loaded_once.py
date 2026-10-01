@@ -85,7 +85,7 @@ PROBE = textwrap.dedent('''
         status = resp.status_code
     finally:
         with app.app_context():
-            Invoice.query.filter_by(id=invoice_id).delete()
+            db.session.delete(Invoice.query.get(invoice_id))   # one row, through the ORM: bulk deletes are refused (U3)
             db.session.commit()
     print('PROBE' + json.dumps({'offenders': offenders, 'status': status,
                                 'same_app': seen.get('same_app'),

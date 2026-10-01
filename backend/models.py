@@ -6179,3 +6179,14 @@ class SupplierSettlementAdjustment(db.Model):
         return f'<SupplierSettlementAdjustment {self.adjustment_number} - {self.status}>'
 
 
+# ── UNPOST-001 U3: a document's entry is never touched alone ─────────────────
+# The session guard (every code path) and the database trigger (every path,
+# raw SQL included). The trigger's DDL is the migration's, shared, so a database
+# built by create_all -- the tests' -- carries it too.
+import journal_entry_guard  # noqa: E402,F401  (registers the session events)
+from posted_entry_trigger import INSTALL_SQL as _POSTED_ENTRY_TRIGGER_SQL  # noqa: E402
+from sqlalchemy import DDL as _DDL  # noqa: E402
+
+db.event.listen(JournalEntry.__table__, 'after_create',
+                # DDL formats its text with %: PL/pgSQL's RAISE placeholders are escaped.
+                _DDL(_POSTED_ENTRY_TRIGGER_SQL.replace('%', '%%')).execute_if(dialect='postgresql'))

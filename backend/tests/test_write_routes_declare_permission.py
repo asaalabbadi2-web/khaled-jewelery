@@ -129,8 +129,6 @@ ALLOWED = {
         'DEBT (SEC-007): no permission declared -- any signed-in user can do this',
     ('routes/invoices.py', 'set_invoice_print_template'):
         'DEBT (SEC-007): no permission declared -- any signed-in user can do this',
-    ('routes/journals.py', 'delete_journal_entry'):
-        'DEBT (SEC-007): no permission declared -- any signed-in user can do this',
     ('routes/pricing.py', 'calculate_gold_costing_cogs'):
         'DEBT (SEC-007): no permission declared -- any signed-in user can do this',
     ('routes/pricing.py', 'recompute_gold_costing'):
@@ -157,11 +155,7 @@ ALLOWED = {
         'DEBT (SEC-007): no permission declared -- any signed-in user can do this',
     ('routes/vouchers.py', 'approve_voucher'):
         'DEBT (SEC-007): no permission declared -- any signed-in user can do this',
-    ('routes/vouchers.py', 'cancel_voucher'):
-        'DEBT (SEC-007): no permission declared -- any signed-in user can do this',
     ('routes/vouchers.py', 'create_voucher'):
-        'DEBT (SEC-007): no permission declared -- any signed-in user can do this',
-    ('routes/vouchers.py', 'delete_voucher'):
         'DEBT (SEC-007): no permission declared -- any signed-in user can do this',
     ('routes/vouchers.py', 'update_voucher'):
         'DEBT (SEC-007): no permission declared -- any signed-in user can do this',

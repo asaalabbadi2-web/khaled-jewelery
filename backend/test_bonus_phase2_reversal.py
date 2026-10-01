@@ -26,6 +26,7 @@ from models import (
     VoucherAccountLine,
     Invoice,
 )
+from tests.cleanup import purge  # UNPOST-001 U3: cleanup of posted rows is a purge
 
 
 # ── Fixtures ──────────────────────────────────────────────────────────────────
@@ -158,8 +159,8 @@ def invoice_with_bonus(phase2_accounts):
         BonusClawbackCandidate.query.filter_by(return_invoice_id=ret_id).delete()
         BonusInvoiceLink.query.filter_by(bonus_id=bonus_id).delete()
         EmployeeBonus.query.filter_by(id=bonus_id).delete()
-        Invoice.query.filter_by(id=ret_id).delete()
-        Invoice.query.filter_by(id=orig_id).delete()
+        purge(lambda: Invoice.query.filter_by(id=ret_id).delete())
+        purge(lambda: Invoice.query.filter_by(id=orig_id).delete())
         db.session.commit()
 
 

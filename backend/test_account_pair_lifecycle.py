@@ -23,6 +23,7 @@ import pytest
 
 from app import app
 from models import Account, AuditLog, JournalEntry, JournalEntryLine, db
+from tests.cleanup import purge  # UNPOST-001 U3: cleanup of posted rows is a purge
 
 _IS_POSTGRES = os.getenv('PYTEST_ALLOW_REAL_DB', '').strip() in ('1', 'true', 'yes')
 
@@ -94,7 +95,7 @@ def _wipe_accounts(*numbers: str) -> None:
         if entry_ids:
             JournalEntryLine.query.filter(JournalEntryLine.journal_entry_id.in_(entry_ids)).delete(
                 synchronize_session=False)
-            JournalEntry.query.filter(JournalEntry.id.in_(entry_ids)).delete(synchronize_session=False)
+            purge(lambda: JournalEntry.query.filter(JournalEntry.id.in_(entry_ids)).delete(synchronize_session=False))
             db.session.flush()
     for a in accs:
         a.memo_account_id = None

@@ -20,6 +20,7 @@ from datetime import datetime, date
 from app import app
 from models import db, Invoice, Employee, BonusRule, EmployeeBonus, AppUser, User
 from core.settings import _get_settings_singleton
+from tests.cleanup import purge  # UNPOST-001 U3: cleanup of posted rows is a purge
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -70,7 +71,7 @@ def linked_invoice():
         emp_id = emp.id
     yield inv_id, emp_id
     with app.app_context():
-        Invoice.query.filter_by(id=inv_id).delete()
+        purge(lambda: Invoice.query.filter_by(id=inv_id).delete())
         db.session.commit()
 
 
@@ -92,7 +93,7 @@ def orphan_invoice():
         inv_id = inv.id
     yield inv_id
     with app.app_context():
-        Invoice.query.filter_by(id=inv_id).delete()
+        purge(lambda: Invoice.query.filter_by(id=inv_id).delete())
         db.session.commit()
 
 
@@ -120,7 +121,7 @@ def posted_by_invoice():
         emp_id = app_user.employee_id
     yield inv_id, emp_id
     with app.app_context():
-        Invoice.query.filter_by(id=inv_id).delete()
+        purge(lambda: Invoice.query.filter_by(id=inv_id).delete())
         db.session.commit()
 
 

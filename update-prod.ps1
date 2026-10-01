@@ -204,7 +204,15 @@ foreach ($svc in @('yasargold-backend', 'yasargold-scheduler', 'yasargold-nginx'
         Say "  $svc is NOT on $Tag"; $ok = $false
     }
 }
+# Asked again while it gets no answer (000) or a booting backend (502): on
+# 1 Oct 2026 check-setup answered 200 and this, asked once, a dropped 000 --
+# a sound release reported as unverified. A real answer is never retried: a 200
+# here means /api is open without a session, and is reported at once.
 $anon = Http-Status "$BaseUrl/api/invoices"
+while (@('000', '502') -contains $anon -and (Get-Date) -lt $deadline.AddSeconds($SettleSeconds)) {
+    Start-Sleep -Seconds 1
+    $anon = Http-Status "$BaseUrl/api/invoices"
+}
 Say "  /api/auth/check-setup -> $setup (expect 200)"
 Say "  /api/invoices without a session -> $anon (expect 401)"
 if ($setup -ne '200' -or $anon -ne '401') { $ok = $false }

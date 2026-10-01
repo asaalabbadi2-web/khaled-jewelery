@@ -805,6 +805,10 @@ def update_journal_entry(id):
 def soft_delete_journal_entry(id):
     """حذف ناعم للقيد مع تسجيل المعلومات"""
     entry = JournalEntry.query.get_or_404(id)
+    from journal_entry_guard import refusal_for
+    _refused = refusal_for(entry, 'delete')
+    if _refused:
+        return jsonify({'error': _refused[0], 'message': _refused[1]}), 409
     
     # التحقق من أن القيد غير محذوف مسبقاً
     if entry.is_deleted:
@@ -901,6 +905,10 @@ def soft_delete_journal_entry(id):
 def restore_journal_entry(id):
     """استرجاع قيد محذوف"""
     entry = JournalEntry.query.filter_by(id=id, is_deleted=True).first_or_404()
+    from journal_entry_guard import refusal_for
+    _refused = refusal_for(entry, 'restore')
+    if _refused:
+        return jsonify({'error': _refused[0], 'message': _refused[1]}), 409
     
     data = request.get_json() or {}
     restored_by = data.get('restored_by', 'غير محدد')
@@ -949,9 +957,14 @@ def get_deleted_journal_entries():
     return jsonify([entry.to_dict(include_deleted_info=True) for entry in entries])
 
 @journals_bp.route('/journal_entries/<int:id>', methods=['DELETE'])
+@require_permission('journal.delete')   # none until UNPOST-001 U3: any signed-in user could
 def delete_journal_entry(id):
     """حذف نهائي للقيد (Hard Delete) - للاستخدام الإداري فقط"""
     entry = JournalEntry.query.get_or_404(id)
+    from journal_entry_guard import refusal_for
+    _refused = refusal_for(entry, 'delete')
+    if _refused:
+        return jsonify({'error': _refused[0], 'message': _refused[1]}), 409
     try:
         from models import (
             WeightClosingOrder, WeightClosingExecution, 

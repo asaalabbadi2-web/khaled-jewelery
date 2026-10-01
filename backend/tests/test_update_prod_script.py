@@ -69,7 +69,10 @@ FAKE_CURL = textwrap.dedent(r'''
         # a backend still booting: nginx answers 502 for the first FAKE_BOOT_CALLS calls
         n=$(( $(cat "$FAKE_LOG.curl" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$FAKE_LOG.curl"
         if [ "$n" -le "${FAKE_BOOT_CALLS:-0}" ]; then printf "502"; else printf "${FAKE_SETUP_CODE:-200}"; fi ;;
-      */api/invoices) printf "${FAKE_ANON_CODE:-401}" ;;
+      */api/invoices)
+        # a connection dropped while the containers settle: 000 for the first FAKE_ANON_DROPS calls
+        m=$(( $(cat "$FAKE_LOG.anon" 2>/dev/null || echo 0) + 1 )); echo "$m" > "$FAKE_LOG.anon"
+        if [ "$m" -le "${FAKE_ANON_DROPS:-0}" ]; then printf "000"; else printf "${FAKE_ANON_CODE:-401}"; fi ;;
       *) printf "404" ;;
     esac
 ''').lstrip()
@@ -230,6 +233,16 @@ def test_verification_waits_for_a_backend_that_is_still_booting(prod):
     result, _ = prod('-Tag', '99e86008', '-Deploy', '-Rehearsed', FAKE_BOOT_CALLS='3')
     assert result.returncode == 0, result.stdout + result.stderr
     assert 'check-setup -> 200' in result.stdout
+
+
+def test_a_dropped_connection_on_the_second_check_is_retried(prod):
+    """1 Oct 2026, f7980c20: check-setup answered 200, then /api/invoices answered
+    000 -- a connection dropped while the containers settled -- and the script,
+    which asked it once, reported a sound release as unverified. It retries that
+    check too, until it answers or the limit passes."""
+    result, _ = prod('-Tag', '99e86008', '-Deploy', '-Rehearsed', FAKE_ANON_DROPS='2')
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert 'invoices without a session -> 401' in result.stdout
 
 
 def test_a_backend_that_never_comes_up_is_reported(prod):

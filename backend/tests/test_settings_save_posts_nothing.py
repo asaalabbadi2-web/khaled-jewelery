@@ -20,6 +20,7 @@ from datetime import datetime
 
 from app import app as flask_app
 from models import Invoice, JournalEntry, Settings, Voucher, db
+from tests.cleanup import purge  # UNPOST-001 U3: cleanup of posted rows is a purge
 
 
 def _uid():
@@ -59,9 +60,9 @@ def test_a_settings_save_posts_no_entry(auth_headers):
             assert posted == [], 'a settings save posted entries it has no business posting'
     finally:
         with flask_app.app_context():
-            JournalEntry.query.filter(JournalEntry.id.in_(ids)).delete(synchronize_session=False)
-            Invoice.query.filter(Invoice.id.in_(invoice_ids)).delete(synchronize_session=False)
-            Voucher.query.filter_by(id=voucher_id).delete(synchronize_session=False)
+            purge(lambda: JournalEntry.query.filter(JournalEntry.id.in_(ids)).delete(synchronize_session=False))
+            purge(lambda: Invoice.query.filter(Invoice.id.in_(invoice_ids)).delete(synchronize_session=False))
+            purge(lambda: Voucher.query.filter_by(id=voucher_id).delete(synchronize_session=False))
             s = Settings.query.first()
             if existed:
                 s.voucher_auto_post, s.auto_post_entries = was

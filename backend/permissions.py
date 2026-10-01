@@ -101,6 +101,7 @@ ACCOUNTING_PERMISSIONS = {
     'vouchers.create': 'إنشاء سندات',
     'vouchers.edit': 'تعديل السندات',
     'vouchers.delete': 'حذف سندات',
+    'vouchers.cancel': 'إلغاء سندات',  # UNPOST-001 U3: the admin and the manager (owner, 1 Oct 2026); not the accountant until the voucher lifecycle is characterised
 
     # Supplier Settlement Adjustments (تسويات فروقات حسابات الموردين) — ADR-025
     # approve_other هي عتبة الاعتماد الإداري للسبب OTHER، وليست دوراً جديداً:
@@ -175,7 +176,7 @@ ROLE_PERMISSIONS = {
         'accounts.view',
         'safe_boxes.view', 'safe_boxes.create', 'safe_boxes.edit', 'safe_boxes.delete',
         'journal.view', 'journal.create', 'journal.edit', 'journal.post',
-        'vouchers.view', 'vouchers.create', 'vouchers.edit',
+        'vouchers.view', 'vouchers.create', 'vouchers.edit', 'vouchers.cancel',
 
         # تسويات فروقات الموردين — المدير وحده يملك عتبة الاعتماد الإداري
         'supplier_settlement_adjustments.view',

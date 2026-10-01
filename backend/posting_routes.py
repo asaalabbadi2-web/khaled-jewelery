@@ -1943,8 +1943,10 @@ def delete_unposted_journal_entry(entry_id: int):
         if getattr(entry, 'is_deleted', False):
             return jsonify({'success': False, 'message': 'القيد محذوف'}), 400
 
-        if getattr(entry, 'is_posted', False):
-            return jsonify({'success': False, 'message': 'لا يمكن حذف قيد مرحل. استخدم إلغاء الترحيل أولاً.'}), 400
+        from journal_entry_guard import refusal_for
+        _refused = refusal_for(entry, 'delete')
+        if _refused:
+            return jsonify({'success': False, 'error': _refused[0], 'message': _refused[1]}), 409
 
         if getattr(entry, 'reference_type', None) == 'invoice':
             return jsonify({
@@ -2835,6 +2837,11 @@ def unpost_journal_entry(entry_id):
             )
             return jsonify({'success': False, 'message': 'القيد محذوف'}), 400
         
+        from journal_entry_guard import refusal_for
+        _refused = refusal_for(entry, 'unpost')
+        if _refused:
+            return jsonify({'success': False, 'error': _refused[0], 'message': _refused[1]}), 409
+
         if not entry.is_posted:
             AuditLog.log_action(
                 user_name=posted_by,
@@ -2980,6 +2987,14 @@ def unpost_journal_entries_batch():
             JournalEntry.is_posted == True,
             JournalEntry.is_deleted == False,
         ).all()
+
+        from journal_entry_guard import refusal_for
+        refused = {e.id: refusal_for(e, 'unpost') for e in entries}
+        refused = {k: v for k, v in refused.items() if v}
+        if refused:
+            return jsonify({'success': False, 'error': 'document_entry',
+                            'message': next(iter(refused.values()))[1],
+                            'refused_entry_ids': sorted(refused)}), 409
 
         unposted_count = 0
         for entry in entries:

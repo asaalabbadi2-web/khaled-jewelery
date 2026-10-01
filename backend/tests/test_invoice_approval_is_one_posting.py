@@ -31,6 +31,7 @@ import pytest
 from app import app as flask_app
 from models import (Account, Customer, Invoice, InvoicePayment, JournalEntry, JournalEntryLine,
                     PaymentMethod, SafeBox, SafeBoxTransaction, SystemAlert, db)
+from tests.cleanup import purge  # UNPOST-001 U3: cleanup of posted rows is a purge
 
 ROUTES = {
     'post («✓ ترحيل»)': '/api/invoices/post/{id}',
@@ -99,11 +100,11 @@ def gated_sale():
             JournalEntry.reference_type.in_(['invoice', 'invoice_payments'])).all()]
         if entry_ids:
             JournalEntryLine.query.filter(JournalEntryLine.journal_entry_id.in_(entry_ids)).delete(synchronize_session=False)
-            JournalEntry.query.filter(JournalEntry.id.in_(entry_ids)).delete(synchronize_session=False)
+            purge(lambda: JournalEntry.query.filter(JournalEntry.id.in_(entry_ids)).delete(synchronize_session=False))
         SafeBoxTransaction.query.filter_by(invoice_id=made['invoice']).delete(synchronize_session=False)
         SystemAlert.query.filter_by(entity_type='Invoice', entity_id=made['invoice']).delete(synchronize_session=False)
         InvoicePayment.query.filter_by(invoice_id=made['invoice']).delete(synchronize_session=False)
-        Invoice.query.filter_by(id=made['invoice']).delete(synchronize_session=False)
+        purge(lambda: Invoice.query.filter_by(id=made['invoice']).delete(synchronize_session=False))
         Customer.query.filter_by(id=made['customer_id']).delete(synchronize_session=False)
         PaymentMethod.query.filter_by(id=made['pm']).delete(synchronize_session=False)
         SafeBox.query.filter_by(id=made['box']).delete(synchronize_session=False)

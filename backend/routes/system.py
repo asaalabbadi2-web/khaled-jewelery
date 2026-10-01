@@ -1280,6 +1280,23 @@ def system_reset():
     except Exception as e:
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
+def _system_purge(reason):
+    """The system reset/wipe exception to the posted-entry and document-entry
+    guards (UNPOST-001 U3): these functions delete entries, invoices and
+    vouchers wholesale. Confined to them by tests/test_posted_entry_immutable.py."""
+    def wrap(fn):
+        import functools
+
+        @functools.wraps(fn)
+        def inner(*args, **kwargs):
+            from journal_entry_guard import system_purge
+            with system_purge(db.session, reason):
+                return fn(*args, **kwargs)
+        return inner
+    return wrap
+
+
+@_system_purge('reset: transactions')
 def _reset_transactions():
     """حذف جميع العمليات (القيود، الفواتير، السندات) مع إعادة ضبط الأرصدة"""
     try:
@@ -1596,6 +1613,7 @@ def _reset_factory_data():
         db.session.rollback()
         raise e
 
+@_system_purge('reset: full system wipe')
 def _reset_full_system_wipe():
     """Full System Wipe (Level 6).
 

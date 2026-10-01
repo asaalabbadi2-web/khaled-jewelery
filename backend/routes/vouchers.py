@@ -969,6 +969,7 @@ def update_voucher(voucher_id):
         return jsonify({'error': f'Failed to update voucher: {str(e)}'}), 500
 
 @vouchers_bp.route('/vouchers/<int:voucher_id>', methods=['DELETE'])
+@require_permission('vouchers.delete')   # none until UNPOST-001 U3; the system admin
 def delete_voucher(voucher_id):
     """Delete voucher - only if not linked to journal entry"""
     voucher = Voucher.query.get_or_404(voucher_id)
@@ -1238,6 +1239,7 @@ def _reverse_voucher_journal_entry(voucher, cancelled_by='system', reason=None):
     return reversal_entry
 
 @vouchers_bp.route('/vouchers/<int:voucher_id>/cancel', methods=['POST'])
+@require_permission('vouchers.cancel')   # none until UNPOST-001 U3; the admin and the manager (owner, 1 Oct 2026)
 def cancel_voucher(voucher_id):
     """Cancel voucher"""
     voucher = Voucher.query.get_or_404(voucher_id)

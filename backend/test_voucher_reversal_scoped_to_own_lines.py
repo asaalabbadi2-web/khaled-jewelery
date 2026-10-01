@@ -30,6 +30,7 @@ from models import (
     db,
 )
 from routes.vouchers import _reverse_voucher_journal_entry
+from tests.cleanup import purge  # UNPOST-001 U3: cleanup of posted rows is a purge
 
 
 def _account(number, name, type_='Asset'):
@@ -123,8 +124,8 @@ def consolidated_je_with_two_payments():
         JournalEntryLine.query.filter(
             JournalEntryLine.journal_entry_id.in_(related_je_ids)
         ).delete(synchronize_session=False)
-        Voucher.query.filter(Voucher.id.in_([v_a_id, v_b_id])).delete(synchronize_session=False)
-        JournalEntry.query.filter(JournalEntry.id.in_(related_je_ids)).delete(synchronize_session=False)
+        purge(lambda: Voucher.query.filter(Voucher.id.in_([v_a_id, v_b_id])).delete(synchronize_session=False))
+        purge(lambda: JournalEntry.query.filter(JournalEntry.id.in_(related_je_ids)).delete(synchronize_session=False))
         db.session.commit()
 
 

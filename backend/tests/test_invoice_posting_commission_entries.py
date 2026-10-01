@@ -21,6 +21,7 @@ import pytest
 
 from app import app as flask_app
 from models import Account, Invoice, JournalEntry, JournalEntryLine, SafeBoxTransaction, Supplier, db
+from tests.cleanup import purge  # UNPOST-001 U3: cleanup of posted rows is a purge
 
 EARN = 'عمولة فرق العيار'
 PAY = 'رسوم فرق العيار'
@@ -60,9 +61,9 @@ def unposted_purchase():
             if entry_ids:
                 JournalEntryLine.query.filter(JournalEntryLine.journal_entry_id.in_(entry_ids)).delete(
                     synchronize_session=False)
-                JournalEntry.query.filter(JournalEntry.id.in_(entry_ids)).delete(synchronize_session=False)
+                purge(lambda: JournalEntry.query.filter(JournalEntry.id.in_(entry_ids)).delete(synchronize_session=False))
             SafeBoxTransaction.query.filter_by(invoice_id=invoice_id).delete(synchronize_session=False)
-            Invoice.query.filter_by(id=invoice_id).delete(synchronize_session=False)
+            purge(lambda: Invoice.query.filter_by(id=invoice_id).delete(synchronize_session=False))
             Supplier.query.filter_by(id=supplier_id).delete(synchronize_session=False)
             Account.query.filter_by(id=account_id).delete(synchronize_session=False)
         db.session.commit()

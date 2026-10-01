@@ -26,6 +26,7 @@ from dual_distribution_service import (
 )
 from dual_system_helpers import create_dual_journal_entry
 from models import Account, JournalEntry, JournalEntryLine, db
+from tests.cleanup import purge  # UNPOST-001 U3: cleanup of posted rows is a purge
 
 # ─── حسابات الاختبار ─────────────────────────────────────────────────────────
 # نختار أرقاماً بعيدة عن أي نطاق مستخدم في البيانات الأساسية أو اختبارات أخرى.
@@ -291,7 +292,7 @@ class TestDistributionParity:
         with app.app_context():
             summary = _je_lines_summary(je_id)
             JournalEntryLine.query.filter_by(journal_entry_id=je_id).delete()
-            JournalEntry.query.filter_by(id=je_id).delete()
+            purge(lambda: JournalEntry.query.filter_by(id=je_id).delete())
             db.session.commit()
         return summary
 
