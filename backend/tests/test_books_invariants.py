@@ -337,6 +337,79 @@ class TestGoldAttributionMissing:
         assert f'voucher:{v.id}' not in _subjects(check_gold_attribution_missing())
 
 
+def _gold_safe():
+    account = _account()
+    now = datetime.now()
+    sb = SafeBox(name=f'خزينة ذهب {_uid()}', safe_type='gold', account_id=account.id,
+                 is_active=True, is_default=False, created_at=now, updated_at=now)
+    db.session.add(sb)
+    db.session.flush()
+    return sb
+
+
+def _gold_row(box, grams, *, ref_type='invoice_gold', ref_id=1, direction='in', karat=21):
+    db.session.add(SafeBoxTransaction(safe_box_id=box.id, ref_type=ref_type, ref_id=ref_id,
+                                      direction=direction, amount_cash=0.0, **{f'weight_{karat}k': grams},
+                                      created_at=datetime.now(), created_by='t'))
+    db.session.flush()
+
+
+class TestSafeboxGoldDrift:
+    """Gold was compared by nothing (SAFEBOX-001 S0): two live writers wrote a
+    safe's gold wrong for five months -- 9,528.5 g of supplier purchases never
+    in the display safe's statement, 3,388.8 g of reservation purchases in it
+    that were not there. Per gold safe and karat: its statement rows against
+    what the posted entries moved on its account. A manual entry writes no
+    statement row by design (as for cash): it counts on neither side."""
+
+    def test_a_karat_whose_statement_differs_from_its_entries_is_reported(self, app):
+        from services.books_invariants import check_safebox_gold_drift
+        box = _gold_safe()
+        _entry(reference_type='invoice', reference_id=1,
+               lines=[(box.account_id, 0.0, 0.0, {'debit_21k': 37.8})])
+        _gold_row(box, 30.0)
+        facts = {f.subject_key: f for f in check_safebox_gold_drift()}
+        assert facts[f'safe_box:{box.id}:21k'].metric == -7.8
+        assert f'safe_box:{box.id}:18k' not in facts
+
+    def test_a_safe_that_agrees_karat_by_karat_is_not(self, app):
+        from services.books_invariants import check_safebox_gold_drift
+        box = _gold_safe()
+        _entry(reference_type='invoice', reference_id=1,
+               lines=[(box.account_id, 0.0, 0.0, {'debit_21k': 37.8, 'credit_18k': 2.0})])
+        _gold_row(box, 37.8)
+        _gold_row(box, 2.0, karat=18, direction='out')
+        assert not [k for k in _subjects(check_safebox_gold_drift()) if k.startswith(f'safe_box:{box.id}:')]
+
+    def test_a_manual_entry_counts_on_neither_side(self, app):
+        """The opening balance and its kin move a gold account by hand, with no
+        statement row -- and a statement row mirroring a manual entry is not
+        counted either."""
+        from services.books_invariants import check_safebox_gold_drift
+        box = _gold_safe()
+        manual = _entry(reference_type=None, lines=[(box.account_id, 0.0, 0.0, {'debit_21k': 500.0})])
+        _gold_row(box, 500.0, ref_type='journal_entry', ref_id=manual.id)
+        assert not [k for k in _subjects(check_safebox_gold_drift()) if k.startswith(f'safe_box:{box.id}:')]
+
+    def test_a_reservation_entry_and_its_mirror_row_agree(self, app):
+        """The office safe's rows mirror the reservation's entry (journal_entry
+        rows of a non-manual entry): counted on both sides."""
+        from services.books_invariants import check_safebox_gold_drift
+        box = _gold_safe()
+        je = _entry(reference_type='office_reservation', reference_id=1,
+                    lines=[(box.account_id, 0.0, 0.0, {'debit_24k': 50.0})])
+        _gold_row(box, 50.0, ref_type='journal_entry', ref_id=je.id, karat=24)
+        assert not [k for k in _subjects(check_safebox_gold_drift()) if k.startswith(f'safe_box:{box.id}:')]
+
+    def test_it_runs_every_night_and_has_a_meaning_on_the_screen(self, app):
+        from services.books_invariants import CHECKS, KINDS, SAFEBOX_GOLD_DRIFT, check_safebox_gold_drift
+        from services.finding_kinds import KIND_INFO, subject_label
+        assert CHECKS[SAFEBOX_GOLD_DRIFT] is check_safebox_gold_drift
+        assert SAFEBOX_GOLD_DRIFT in KINDS
+        assert KIND_INFO[SAFEBOX_GOLD_DRIFT]['title_ar']
+        assert subject_label('safe_box:30:21k') == 'خزينة رقم 30 — عيار 21'
+
+
 class TestSafeboxSubledgerDrift:
     """The one-sided class: unpost wrote reversal movements, re-post restored
     the ledger only -- 92,385.00 read as zero in the statements. Reuses the

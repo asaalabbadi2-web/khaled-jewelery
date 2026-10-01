@@ -238,6 +238,20 @@ def _voucher_status_problems(session, JournalEntry, voucher):
     return []
 
 
+LEGACY_VOUCHER_MESSAGE = ('هذا السند في حالة غير متسقة من قبل — حالته تخالف قيده — فلا يُعتمد ولا يُرفض ولا يُلغى '
+                          'من هنا: أيّ عملية عليه تُبقيه مخالفًا. إصلاحه ضمن المرحلة 4 (إصلاح البيانات).')
+
+
+def voucher_state_problem(voucher):
+    """The voucher's standing inconsistency before anything is done to it, or
+    None -- for the routes' readable refusal (409). A voucher left inconsistent
+    from before V0 (ten on the 30 Sep copy, e.g. RV-2026-01825) would otherwise
+    reach this guard at commit and answer a 500."""
+    from models import JournalEntry, db
+    problems = _voucher_status_problems(db.session, JournalEntry, voucher)
+    return problems[0] if problems else None
+
+
 def _voucher_of(session, Voucher, je_id, ref_type, ref_id):
     v = session.query(Voucher).filter(Voucher.journal_entry_id == je_id).first()
     if v is None and ref_type == 'voucher' and ref_id:

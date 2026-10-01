@@ -119,3 +119,46 @@ def test_the_voucher_operations_leave_status_and_entry_agreeing(auth_headers, vw
     db.session.expire_all()
     assert [db.session.get(Voucher, v.id).status for v in (approved, to_approve, to_reject, to_cancel)] == \
         ['cancelled', 'approved', 'rejected', 'cancelled']
+
+
+# --- a voucher inconsistent from before the rule: a readable refusal, not a 500 ---
+
+def _legacy_pending_with_a_draft_entry(headers, w):
+    """RV-2026-01825's shape: pending, with a draft entry linked -- left from
+    before V0, so it only exists flushed, never committed past the guard."""
+    v = _pending(headers, w)
+    je = JournalEntry(entry_number=f'TL-{v.id}', date=v.date, description='legacy draft',
+                      reference_type='invoice_payments', reference_id=0, is_posted=False, created_by='t')
+    db.session.add(je)
+    db.session.flush()
+    v.journal_entry_id = je.id
+    db.session.flush()
+    db.session.info.pop('journal_entry_guard', None)   # written before the rule, not by this transaction
+    return v
+
+
+@pytest.mark.parametrize('path', ('cancel', 'reject', 'approve_posting_screen', 'approve_vouchers_route'))
+def test_an_inconsistent_voucher_is_refused_readably_by_every_path(auth_headers, vworld, path):
+    v = _legacy_pending_with_a_draft_entry(auth_headers, vworld)
+    c = flask_app.test_client()
+    resp = {
+        'cancel': lambda: c.post(f'/api/vouchers/{v.id}/cancel', headers=auth_headers, json={'reason': 'law'}),
+        'reject': lambda: c.post(f'/api/vouchers/reject/{v.id}', headers=auth_headers, json={'rejection_reason': 'law'}),
+        'approve_posting_screen': lambda: c.post(f'/api/vouchers/approve/{v.id}', headers=auth_headers, json={}),
+        'approve_vouchers_route': lambda: c.post(f'/api/vouchers/{v.id}/approve', headers=auth_headers, json={}),
+    }[path]()
+    assert resp.status_code == 409, resp.get_data(as_text=True)[:300]
+    assert resp.get_json()['error'] == 'voucher_state_inconsistent'
+    db.session.expire_all()
+    assert db.session.get(Voucher, v.id).status == 'pending'
+
+
+def test_the_batch_approval_names_an_inconsistent_voucher_and_goes_on(auth_headers, vworld):
+    bad = _legacy_pending_with_a_draft_entry(auth_headers, vworld)
+    good = _pending(auth_headers, vworld)
+    resp = flask_app.test_client().post('/api/vouchers/approve/batch', headers=auth_headers,
+                                        json={'voucher_ids': [bad.id, good.id]})
+    body = resp.get_json()
+    assert body['approved_count'] == 1, body
+    assert any(bad.voucher_number in e for e in body['errors']), body['errors']
+

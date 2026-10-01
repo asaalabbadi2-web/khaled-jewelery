@@ -51,7 +51,9 @@ from models import (
     VoucherInvoiceGoldAttribution,
     db,
 )
-from services.safebox_subledger import DRIFT_THRESHOLD, subledger_totals_by_box
+from services.safebox_subledger import (
+    DRIFT_THRESHOLD, GOLD_DRIFT_THRESHOLD, gold_subledger_by_box, subledger_totals_by_box,
+)
 
 SOURCE = 'books_invariants'
 
@@ -60,12 +62,14 @@ UNPOSTED_ENTRY_IN_LIMBO = 'UNPOSTED_ENTRY_IN_LIMBO'
 POSTED_ENTRY_OF_UNPOSTED_INVOICE = 'POSTED_ENTRY_OF_UNPOSTED_INVOICE'
 GOLD_ATTRIBUTION_MISSING = 'GOLD_ATTRIBUTION_MISSING'
 SAFEBOX_SUBLEDGER_DRIFT = 'SAFEBOX_SUBLEDGER_DRIFT'
+SAFEBOX_GOLD_DRIFT = 'SAFEBOX_GOLD_DRIFT'
 
 KINDS = (
     ORPHAN_POSTED_ENTRY,
     UNPOSTED_ENTRY_IN_LIMBO,
     GOLD_ATTRIBUTION_MISSING,
     SAFEBOX_SUBLEDGER_DRIFT,
+    SAFEBOX_GOLD_DRIFT,
 )
 
 # An invoice in one of these states is retracted: its entries must not count
@@ -302,12 +306,38 @@ def check_safebox_subledger_drift(threshold: float = DRIFT_THRESHOLD) -> list:
     return facts
 
 
+def check_safebox_gold_drift(threshold: float = GOLD_DRIFT_THRESHOLD) -> list:
+    """A gold safe whose statement disagrees with its ledger, karat by karat.
+
+    Gold was compared by nothing (SAFEBOX-001 S0): a supplier purchase posted
+    at creation wrote no row for five months (9,528.5 g never in the display
+    safe's statement) and a reservation's purchase wrote a row into it that no
+    entry made (3,388.8 g). One fact per safe and karat, keyed
+    'safe_box:<id>:<karat>k'; the metric is statement minus ledger, in grams.
+    """
+    names = {int(b.id): b.name for b in SafeBox.query.with_entities(SafeBox.id, SafeBox.name).all()}
+    facts = []
+    for sid, by_karat in gold_subledger_by_box().items():
+        for karat, (statement, ledger) in by_karat.items():
+            diff = round(statement - ledger, 3)
+            if abs(diff) > threshold:
+                facts.append(Fact(SAFEBOX_GOLD_DRIFT, f'safe_box:{sid}:{karat}', diff, {
+                    'safe_box_name': names.get(sid),
+                    'karat': karat,
+                    'statement_grams': round(statement, 3),
+                    'ledger_grams': round(ledger, 3),
+                    'difference_grams': diff,
+                }))
+    return facts
+
+
 CHECKS = {
     ORPHAN_POSTED_ENTRY: check_orphan_posted_entries,
     UNPOSTED_ENTRY_IN_LIMBO: check_unposted_entries_in_limbo,
     POSTED_ENTRY_OF_UNPOSTED_INVOICE: check_posted_entries_of_unposted_invoices,
     GOLD_ATTRIBUTION_MISSING: check_gold_attribution_missing,
     SAFEBOX_SUBLEDGER_DRIFT: check_safebox_subledger_drift,
+    SAFEBOX_GOLD_DRIFT: check_safebox_gold_drift,
 }
 
 

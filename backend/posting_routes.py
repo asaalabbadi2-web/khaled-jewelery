@@ -56,6 +56,7 @@ from services.gold_allocation_service import (
     sync_gold_advance_after_voucher_approval,
     sync_gold_attribution_after_voucher_approval,
 )
+from journal_entry_guard import LEGACY_VOUCHER_MESSAGE, voucher_state_problem
 
 posting_bp = Blueprint('posting', __name__)
 
@@ -3457,6 +3458,11 @@ def approve_voucher(voucher_id):
                 'message': 'لا يمكن الموافقة على سند ملغى'
             }), 400
 
+        _standing = voucher_state_problem(voucher)
+        if _standing:
+            return jsonify({'success': False, 'error': 'voucher_state_inconsistent',
+                            'message': LEGACY_VOUCHER_MESSAGE, 'detail': _standing}), 409
+
         # If voucher is already linked to a journal entry, do not create a new one.
         # Still ensure SafeBoxTransaction exists (idempotent).
         if getattr(voucher, 'journal_entry_id', None):
@@ -3596,6 +3602,11 @@ def reject_voucher(voucher_id):
                 'message': 'لا يمكن رفض سند ملغى'
             }), 400
 
+        _standing = voucher_state_problem(voucher)
+        if _standing:
+            return jsonify({'success': False, 'error': 'voucher_state_inconsistent',
+                            'message': LEGACY_VOUCHER_MESSAGE, 'detail': _standing}), 409
+
         # An approved voucher is in the books: rejecting it changed its status
         # alone and left its posted entry and safe-box movement counting (V0,
         # owner 1 Oct 2026). journal_entry_guard holds the rule; this is its
@@ -3690,6 +3701,10 @@ def approve_vouchers_batch():
 
                 if voucher.status != 'pending':
                     errors.append(f'السند {voucher.voucher_number} ليس بانتظار الموافقة')
+                    continue
+
+                if voucher_state_problem(voucher):
+                    errors.append(f'السند {voucher.voucher_number}: {LEGACY_VOUCHER_MESSAGE}')
                     continue
 
                 # Post voucher: create JE if missing, then SafeBoxTransaction.

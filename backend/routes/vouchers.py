@@ -54,6 +54,7 @@ from accounting.wages import _ensure_gold24k_commission_revenue_account
 from routes import (
     _resolve_account_id_for_amount_type,
 )
+from journal_entry_guard import LEGACY_VOUCHER_MESSAGE, voucher_state_problem
 
 vouchers_bp = Blueprint('vouchers', __name__)
 
@@ -1028,6 +1029,11 @@ def approve_voucher(voucher_id):
     
     if voucher.status == 'cancelled':
         return jsonify({'error': 'لا يمكن ترحيل سند ملغى'}), 400
+
+    _standing = voucher_state_problem(voucher)
+    if _standing:
+        return jsonify({'error': 'voucher_state_inconsistent', 'message': LEGACY_VOUCHER_MESSAGE,
+                        'detail': _standing}), 409
     
     if voucher.journal_entry_id:
         return jsonify({'error': 'السند مرتبط بقيد محاسبي بالفعل'}), 400
@@ -1246,6 +1252,11 @@ def cancel_voucher(voucher_id):
     
     if voucher.status == 'cancelled':
         return jsonify({'error': 'Voucher is already cancelled'}), 400
+
+    _standing = voucher_state_problem(voucher)
+    if _standing:
+        return jsonify({'error': 'voucher_state_inconsistent', 'message': LEGACY_VOUCHER_MESSAGE,
+                        'detail': _standing}), 409
     
     data = request.get_json() or {}
     reason = data.get('reason', 'No reason provided')

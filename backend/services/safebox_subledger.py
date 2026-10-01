@@ -21,6 +21,7 @@ Cash only, as the route always was. Gold is compared elsewhere.
 from __future__ import annotations
 
 from sqlalchemy import Integer, and_, case, cast, func, or_
+from sqlalchemy.orm import aliased
 
 from models import JournalEntry, JournalEntryLine, SafeBox, SafeBoxTransaction, db
 
@@ -203,3 +204,59 @@ def subledger_keyed_breakdown(safe_box_id, ignore_ref_types=DEFAULT_IGNORED_REF_
 
     keyed.sort(key=lambda r: r.get('abs_diff', 0.0), reverse=True)
     return keyed[:KEYED_ROW_CAP]
+
+
+# ── Gold (SAFEBOX-001) ─────────────────────────────────────────────────────
+# Per gold safe and karat: the statement rows against what the posted entries
+# moved on the safe's account. Counting as for cash: a manual entry writes no
+# statement row by design, so it counts on neither side -- its lines out of the
+# ledger total, and a 'journal_entry' row mirroring it out of the statement.
+# Policy (ADR-030): a smaller difference is agreement.
+GOLD_DRIFT_THRESHOLD = 0.01
+KARATS = ('18k', '21k', '22k', '24k')
+
+
+def gold_subledger_by_box(safe_ids=None) -> dict:
+    """{safe_box_id: {'21k': (statement_grams, ledger_grams), ...}} for every
+    gold safe (or those in *safe_ids*)."""
+    boxes = SafeBox.query.filter(SafeBox.safe_type == 'gold')
+    if safe_ids is not None:
+        boxes = boxes.filter(SafeBox.id.in_([int(s) for s in safe_ids]))
+    ids = [b.id for b in boxes.with_entities(SafeBox.id).all()]
+    if not ids:
+        return {}
+
+    signed = lambda col: func.sum(case((SafeBoxTransaction.direction == 'in', func.coalesce(col, 0.0)),
+                                       else_=-func.coalesce(col, 0.0)))
+    mirrored = aliased(JournalEntry)
+    st_rows = (
+        db.session.query(SafeBoxTransaction.safe_box_id,
+                         *[signed(getattr(SafeBoxTransaction, f'weight_{k}')) for k in KARATS])
+        .outerjoin(mirrored, and_(SafeBoxTransaction.ref_type == 'journal_entry',
+                                  mirrored.id == SafeBoxTransaction.ref_id))
+        .filter(SafeBoxTransaction.safe_box_id.in_(ids))
+        .filter(_sb_ref_type_norm() != 'shift_closing_settlement')
+        .filter(or_(SafeBoxTransaction.ref_type != 'journal_entry',
+                    SafeBoxTransaction.ref_type.is_(None),
+                    func.lower(func.trim(func.coalesce(mirrored.reference_type, ''))).notin_(
+                        list(MANUAL_JE_REFERENCE_TYPES))))
+        .group_by(SafeBoxTransaction.safe_box_id)
+        .all()
+    )
+    gl_rows = (
+        db.session.query(SafeBox.id,
+                         *[func.sum(func.coalesce(getattr(JournalEntryLine, f'debit_{k}'), 0.0)
+                                    - func.coalesce(getattr(JournalEntryLine, f'credit_{k}'), 0.0)) for k in KARATS])
+        .select_from(JournalEntryLine)
+        .join(JournalEntry, JournalEntry.id == JournalEntryLine.journal_entry_id)
+        .join(SafeBox, SafeBox.account_id == JournalEntryLine.account_id)
+        .filter(SafeBox.id.in_(ids))
+        .filter(*_gl_counting_filters())
+        .group_by(SafeBox.id)
+        .all()
+    )
+    st = {int(r[0]): [float(v or 0.0) for v in r[1:]] for r in st_rows}
+    gl = {int(r[0]): [float(v or 0.0) for v in r[1:]] for r in gl_rows}
+    zero = [0.0] * len(KARATS)
+    return {sid: {k: (st.get(sid, zero)[i], gl.get(sid, zero)[i]) for i, k in enumerate(KARATS)} for sid in ids}
+
