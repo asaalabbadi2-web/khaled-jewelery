@@ -201,8 +201,17 @@ def get_voucher_gold_attribution(voucher_id):
         'gold_capacity_main_karat': capacity,
         'attributed_main_karat': attributed,
         'unattributed_main_karat': round(capacity - attributed, 2),
-        'attributions': [r.to_dict() for r in rows],
+        'attributions': [{**r.to_dict(), **_invoice_known_as(r.invoice_id)} for r in rows],
     }), 200
+
+
+def _invoice_known_as(invoice_id):
+    """The invoice as people know it: its type, its number within the type, its date."""
+    inv = Invoice.query.get(invoice_id)
+    if inv is None:
+        return {}
+    return {'invoice_type': inv.invoice_type, 'invoice_type_id': inv.invoice_type_id,
+            'invoice_date': inv.date.isoformat() if inv.date else None}
 
 
 @gold_advances_bp.route('/vouchers/<int:voucher_id>/gold-attribution', methods=['POST'])
@@ -330,6 +339,8 @@ def list_supplier_open_gold_obligations(supplier_id):
     for obligation in rows:
         entry = by_invoice.setdefault(obligation.invoice_id, {
             'invoice_id': obligation.invoice_id,
+            'invoice_type': obligation.invoice.invoice_type,
+            'invoice_type_id': obligation.invoice.invoice_type_id,
             'date': obligation.invoice.date.isoformat() if obligation.invoice.date else None,
             'karats': [],
             'open_main_karat': 0.0,

@@ -41,8 +41,14 @@ from accounting.voucher_engine import (
 from allocation_service import AllocationService
 from services.invoice_payment_state_service import (
     InvoicePaymentStateService,
+    attribute_cash_to_invoice,
+    invoice_open_cash,
+    is_vouchers_own_payment,
+    recompute_invoices_paid_by,
+    remove_cash_attribution,
     sync_invoice_cash_payment_after_voucher_approval,
     sync_invoice_payment_state_after_voucher_approval,
+    voucher_cash_capacity,
 )
 from services.gold_allocation_service import (
     GoldAllocationService,
@@ -1323,6 +1329,9 @@ def cancel_voucher(voucher_id):
         # same class of bug as AV-2026-00223. Safe to call unconditionally: a
         # voucher with no attribution rows removes none.
         remove_attributions_for_voucher(voucher.id)
+        # Its cash attributions too: every invoice it paid is recomputed, not
+        # only the one it names (attribute_cash_to_invoice, 2 Oct 2026).
+        recompute_invoices_paid_by(voucher.id)
 
         # Same class of bug as AV-2026-00223 above, for reference_type='invoice'
         # instead: cancel_voucher reverses the JE and SafeBox but never told the
@@ -1369,6 +1378,104 @@ def cancel_voucher(voucher_id):
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': f'Failed to cancel voucher: {str(e)}'}), 500
+
+# ── A voucher's cash, attributed to an invoice after the fact (2 Oct 2026) ──
+# The gold tool's mirror (routes/gold_advances.py), with its permissions (the
+# owner): services/invoice_payment_state_service.attribute_cash_to_invoice.
+
+def _cash_attribution_view(voucher):
+    payments = InvoicePayment.query.filter_by(source_voucher_id=voucher.id).order_by(InvoicePayment.id).all()
+    capacity = voucher_cash_capacity(voucher)
+    attributed = round(sum(float(p.amount or 0.0) for p in payments), 2)
+    return {
+        'success': True, 'voucher_id': voucher.id, 'supplier_id': voucher.supplier_id,
+        'cash_capacity': capacity, 'attributed': attributed, 'unattributed': round(capacity - attributed, 2),
+        'payments': [{'id': p.id, 'invoice_id': p.invoice_id, 'amount': float(p.amount or 0.0),
+                      'removable': not is_vouchers_own_payment(voucher, p), **_invoice_known_as(p.invoice_id)}
+                     for p in payments],
+    }
+
+
+def _invoice_known_as(invoice_id):
+    """The invoice as people know it: its type, its number within the type, its date."""
+    inv = Invoice.query.get(invoice_id)
+    if inv is None:
+        return {}
+    return {'invoice_type': inv.invoice_type, 'invoice_type_id': inv.invoice_type_id,
+            'invoice_date': inv.date.isoformat() if inv.date else None}
+
+
+@vouchers_bp.route('/vouchers/<int:voucher_id>/cash-attribution', methods=['GET'])
+@require_permission('gold_advances.view')
+def get_voucher_cash_attribution(voucher_id):
+    voucher = Voucher.query.get_or_404(voucher_id)
+    return jsonify(_cash_attribution_view(voucher)), 200
+
+
+@vouchers_bp.route('/vouchers/<int:voucher_id>/cash-attribution', methods=['POST'])
+@require_permission('gold_advances.allocate')
+def attribute_voucher_cash(voucher_id):
+    """Body: {"invoice_id": int, "amount": float}. The caller states the invoice."""
+    voucher = Voucher.query.get_or_404(voucher_id)
+    data = request.get_json(silent=True) or {}
+    if not data.get('invoice_id') or data.get('amount') in (None, ''):
+        return jsonify({'success': False, 'error': 'missing_fields', 'message': 'invoice_id و amount مطلوبان'}), 400
+    actor = getattr(getattr(g, 'current_user', None), 'username', None)
+    try:
+        payment = attribute_cash_to_invoice(voucher=voucher, invoice_id=int(data['invoice_id']),
+                                            amount=float(data['amount']), created_by=actor)
+    except ValueError as exc:
+        db.session.rollback()
+        return jsonify({'success': False, 'error': str(exc).split(':', 1)[0], 'message': str(exc)}), 400
+    AuditLog.log_action(user_name=actor or 'system', action='attribute_voucher_cash', entity_type='voucher',
+                        entity_id=voucher.id, entity_number=voucher.voucher_number,
+                        details=json.dumps({'invoice_id': payment.invoice_id, 'amount': float(payment.amount)},
+                                           ensure_ascii=False),
+                        ip_address=request.remote_addr, user_agent=request.headers.get('User-Agent'))
+    db.session.commit()
+    return jsonify({'success': True, 'message': 'تم نسب نقد السند إلى الفاتورة',
+                    'payment': {'id': payment.id, 'invoice_id': payment.invoice_id, 'amount': float(payment.amount)}}), 201
+
+
+@vouchers_bp.route('/vouchers/<int:voucher_id>/cash-attribution/<int:payment_id>', methods=['DELETE'])
+@require_permission('gold_advances.allocate')
+def remove_voucher_cash_attribution(voucher_id, payment_id):
+    voucher = Voucher.query.get_or_404(voucher_id)
+    actor = getattr(getattr(g, 'current_user', None), 'username', None)
+    try:
+        invoice_id = remove_cash_attribution(voucher=voucher, payment_id=payment_id)
+    except ValueError as exc:
+        db.session.rollback()
+        return jsonify({'success': False, 'error': str(exc).split(':', 1)[0], 'message': str(exc)}), 400
+    AuditLog.log_action(user_name=actor or 'system', action='remove_voucher_cash_attribution', entity_type='voucher',
+                        entity_id=voucher.id, entity_number=voucher.voucher_number,
+                        details=json.dumps({'invoice_id': invoice_id, 'payment_id': payment_id}, ensure_ascii=False),
+                        ip_address=request.remote_addr, user_agent=request.headers.get('User-Agent'))
+    db.session.commit()
+    return jsonify({'success': True, 'message': 'أُلغي نسب نقد السند'}), 200
+
+
+@vouchers_bp.route('/suppliers/<int:supplier_id>/open-cash-obligations', methods=['GET'])
+@require_permission('gold_advances.view')
+def list_supplier_open_cash_obligations(supplier_id):
+    """The invoices an employee can pick for a supplier cash payment -- at
+    creation or after -- with what each still owes in cash. Oldest first, as a
+    convenience for reading, not a default: nothing here attributes anything."""
+    from services.gold_allocation_service import invoice_obligation_is_live
+    rows = []
+    for inv in (Invoice.query.filter(Invoice.supplier_id == supplier_id, Invoice.is_posted.is_(True))
+                .order_by(Invoice.date.asc(), Invoice.id.asc()).all()):
+        if not invoice_obligation_is_live(inv):
+            continue
+        open_cash = invoice_open_cash(inv)
+        if open_cash > 0.01:
+            rows.append({'invoice_id': inv.id, 'invoice_type_id': inv.invoice_type_id,
+                         'invoice_type': inv.invoice_type,
+                         'date': inv.date.isoformat() if inv.date else None,
+                         'cash_obligation': round(float(inv.cash_obligation), 2),
+                         'paid': round(float(inv.cash_obligation) - open_cash, 2), 'open_cash': open_cash})
+    return jsonify({'success': True, 'invoices': rows}), 200
+
 
 @vouchers_bp.route('/vouchers/stats', methods=['GET'])
 def get_vouchers_stats():

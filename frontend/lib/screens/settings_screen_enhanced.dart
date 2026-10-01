@@ -113,6 +113,8 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
   bool _allowPartialInvoicePayments = false;
 
   bool _voucherAutoPost = false;
+  // هامش فرق سداد الذهب (2 أكتوبر 2026): رقم ثابت بالغرام، زاد الوزن أو نقص.
+  final TextEditingController _goldToleranceGramsController = TextEditingController(text: '0.05');
 
   // ---------------------------------------------------------------------------
   // 🆕 Feature toggles + default safes (employee routing)
@@ -182,6 +184,7 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
 
   @override
   void dispose() {
+    _goldToleranceGramsController.dispose();
     _systemScrollController.dispose();
     _tabController.dispose();
     _currencyController.dispose();
@@ -362,6 +365,8 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
           settings['voucher_auto_post'],
           fallback: false,
         );
+        _goldToleranceGramsController.text =
+            '${(settings['gold_settlement_tolerance_grams'] as num?) ?? 0.05}';
 
         // 🆕 Feature toggles + default safes
         _employeeCashSafesEnabled = _safeBool(
@@ -449,6 +454,8 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
       'company_tax_number': _companyTaxNumberController.text.trim(),
       'company_cr_number': _companyCrNumberController.text.trim(),
       'voucher_auto_post': _voucherAutoPost,
+      'gold_settlement_tolerance_grams':
+          double.tryParse(_goldToleranceGramsController.text.trim()) ?? 0.05,
       'require_auth_for_invoice_create': _requireAuthForInvoiceCreate,
       'idle_timeout_enabled': _idleTimeoutEnabled,
       'idle_timeout_minutes': _idleTimeoutMinutes,
@@ -1115,6 +1122,29 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
               ),
               thumbColor: _thumbColorFor(_primaryColor),
               trackColor: _trackColorFor(_primaryColor),
+            ),
+          ],
+        ),
+        const SizedBox(height: 20),
+        _buildSectionCard(
+          icon: Icons.balance_outlined,
+          iconColor: _primaryColor,
+          title: 'هامش فرق سداد الذهب',
+          children: [
+            Text(
+              'فرق الوزن داخل هذا الهامش يُتجاهَل في حالة الفاتورة، زاد الوزن أو نقص: '
+              'دفعة أقل بقليل تُسدّد الفاتورة، وأكثر بقليل يُقبل نسبها. '
+              'لا يمسّ القيود؛ يبقى الفرق في رصيد المورد كما هو.',
+              style: Theme.of(context).textTheme.bodyMedium,
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _goldToleranceGramsController,
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              decoration: const InputDecoration(
+                labelText: 'الهامش (غرام بالعيار الرئيسي)',
+                helperText: 'مثلًا 0.05 — من 0 إلى 5',
+              ),
             ),
           ],
         ),

@@ -186,8 +186,8 @@ No two capabilities share a write path.
 | 90s – 5 min | `STALE` | ❌ No (`QUOTE_STATUS_INVALID`) |
 | > 5 min | `HALTED` | ❌ No (`QUOTE_STATUS_INVALID`) |
 
-`gold_price.date` is stored as naive Riyadh local time (UTC+3) by the ERP scheduler.  
-Commerce treats naive datetimes from this column as `tzinfo=UTC+3`.
+`gold_price.date` is stored as **naive UTC** by the ERP (`gold_price.save_gold_price`, since 28 Jul 2026 — rows before that are Riyadh wall clock and stay as stored, the owner's decision).  
+Commerce normalises it with `tzinfo=UTC`. The ERP's readers compute ages in UTC, cut days at Riyadh's midnight and send every time marked `Z` (`backend/pricing/price_clock.py`, `tests/test_gold_price_clock.py`).
 
 **Quote snapshot (INV-2):**  
 Although `Quote` is never persisted, the fields that matter for invoice reconstruction are  

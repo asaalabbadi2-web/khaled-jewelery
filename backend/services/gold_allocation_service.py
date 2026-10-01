@@ -838,7 +838,11 @@ def attribute_gold_to_invoice(
         )
 
     open_obligation = invoice_open_gold_obligation(invoice_id)
-    if weight_main_karat > open_obligation + WEIGHT_EPSILON:
+    # A little over the obligation may still settle it: the settings' fixed
+    # margin (services/settlement_tolerance.py).
+    from services.settlement_tolerance import gold_settlement_tolerance
+    slack = max(WEIGHT_EPSILON, gold_settlement_tolerance())
+    if weight_main_karat > open_obligation + slack:
         raise ValueError(
             f'exceeds_invoice_obligation_remaining:requested={weight_main_karat},'
             f'available={open_obligation}'

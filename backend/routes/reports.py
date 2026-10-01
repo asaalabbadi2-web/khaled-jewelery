@@ -4424,10 +4424,13 @@ def get_gold_price_history_report():
     except ValueError as exc:
         return jsonify({'error': str(exc)}), 400
 
-    now = datetime.now()
-    default_start = (now - timedelta(days=90)).date()
+    # Days are Riyadh's; the stored times are UTC (pricing/price_clock.py).
+    from pricing import price_clock
+    now = price_clock.utc_now()
+    today = price_clock.riyadh_today(now)
+    default_start = today - timedelta(days=90)
     applied_start = start_value or default_start
-    applied_end = end_value or now.date()
+    applied_end = end_value or today
 
     if applied_start > applied_end:
         return jsonify({'error': 'start_date must be before end_date'}), 400
@@ -4438,8 +4441,8 @@ def get_gold_price_history_report():
         return jsonify({'error': 'Invalid limit parameter'}), 400
     limit = max(12, min(limit, 730))
 
-    start_dt = datetime.combine(applied_start, datetime.min.time())
-    end_dt = datetime.combine(applied_end, datetime.min.time()) + timedelta(days=1)
+    start_dt, _ = price_clock.riyadh_day_bounds_utc(applied_start)
+    _, end_dt = price_clock.riyadh_day_bounds_utc(applied_end)
 
     price_rows = (
         GoldPrice.query
@@ -4481,7 +4484,7 @@ def get_gold_price_history_report():
     price_points = []
 
     for row in price_rows:
-        timestamp = row.date or now
+        timestamp = price_clock.to_riyadh(row.date or now)
         price_value = float(row.price or 0.0)
         key = bucket_key(timestamp)
         bucket = bucket_map.get(key)

@@ -666,6 +666,7 @@ def update_settings():
         'stones_display_revenue_account_id',
         'manufacturing_wage_mode',
         'voucher_auto_post',
+        'gold_settlement_tolerance_grams',
         'auto_post_invoices',
         'auto_post_entries',
         'require_approval_before_post',
@@ -695,6 +696,18 @@ def update_settings():
             'unknown_keys': unknown_keys,
         }), 400
     
+    # هامش فرق سداد الذهب (services/settlement_tolerance.py): غرامات، غير سالب، ومعقول
+    for _key, _limit in (('gold_settlement_tolerance_grams', 5.0),):
+        if _key in data:
+            try:
+                _value = float(data[_key])
+            except (TypeError, ValueError):
+                return jsonify({'error': 'invalid_tolerance', 'message': f'{_key} يجب أن يكون رقمًا'}), 400
+            if _value < 0 or _value > _limit:
+                return jsonify({'error': 'invalid_tolerance',
+                                'message': f'{_key} بين 0 و{_limit}'}), 400
+            setattr(settings, _key, _value)
+
     # إعدادات أساسية
     if 'main_karat' in data:
         settings.main_karat = data['main_karat']

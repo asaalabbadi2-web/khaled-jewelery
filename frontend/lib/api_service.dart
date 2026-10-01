@@ -1915,6 +1915,67 @@ class ApiService {
     }
   }
 
+  /// Invoices of this supplier that still owe cash -- the candidates for a
+  /// supplier cash payment, at creation or after (2 Oct 2026).
+  Future<List<Map<String, dynamic>>> getSupplierOpenCashObligations(
+    int supplierId,
+  ) async {
+    final response = await _authedGet(
+      Uri.parse('$_baseUrl/suppliers/$supplierId/open-cash-obligations'),
+    );
+    if (response.statusCode == 200) {
+      final decoded = json.decode(utf8.decode(response.bodyBytes));
+      final list = (decoded is Map<String, dynamic>)
+          ? (decoded['invoices'] as List<dynamic>? ?? const [])
+          : const [];
+      return list
+          .map((e) => Map<String, dynamic>.from(e as Map))
+          .toList(growable: false);
+    }
+    throw Exception(_errorMessageFromResponse(response));
+  }
+
+  /// What a voucher's cash currently pays, and how much is unattributed.
+  Future<Map<String, dynamic>> getVoucherCashAttribution(int voucherId) async {
+    final response = await _authedGet(
+      Uri.parse('$_baseUrl/vouchers/$voucherId/cash-attribution'),
+    );
+    if (response.statusCode == 200) {
+      return Map<String, dynamic>.from(
+        json.decode(utf8.decode(response.bodyBytes)) as Map,
+      );
+    }
+    throw Exception(_errorMessageFromResponse(response));
+  }
+
+  /// Attribute this voucher's cash to a stated invoice -- the gold tool's mirror.
+  Future<Map<String, dynamic>> attributeVoucherCash(
+    int voucherId, {
+    required int invoiceId,
+    required double amount,
+  }) async {
+    final response = await _authedPost(
+      Uri.parse('$_baseUrl/vouchers/$voucherId/cash-attribution'),
+      headers: {'Content-Type': 'application/json; charset=UTF-8'},
+      body: json.encode({'invoice_id': invoiceId, 'amount': amount}),
+    );
+    if (response.statusCode == 201) {
+      return Map<String, dynamic>.from(
+        json.decode(utf8.decode(response.bodyBytes)) as Map,
+      );
+    }
+    throw Exception(_errorMessageFromResponse(response));
+  }
+
+  Future<void> removeVoucherCashAttribution(int voucherId, int paymentId) async {
+    final response = await _authedDelete(
+      Uri.parse('$_baseUrl/vouchers/$voucherId/cash-attribution/$paymentId'),
+    );
+    if (response.statusCode != 200) {
+      throw Exception(_errorMessageFromResponse(response));
+    }
+  }
+
   Future<Map<String, dynamic>> getSupplierLedger(
     int supplierId, {
     int page = 1,

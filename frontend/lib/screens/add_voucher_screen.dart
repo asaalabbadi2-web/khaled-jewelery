@@ -245,6 +245,16 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
   List<Map<String, dynamic>> _goldPurposeCandidates = const [];
   bool _loadingGoldPurposeCandidates = false;
 
+  /// The cash side's declared purpose (2 Oct 2026): a supplier payment in cash
+  /// alone can name the invoice it pays, as a gold payment can. Default is the
+  /// supplier's account -- a choice, never inferred.
+  String _cashPaymentPurpose = 'supplier'; // 'invoice' | 'supplier'
+  int? _cashPurposeInvoiceId;
+  List<Map<String, dynamic>> _cashPurposeCandidates = const [];
+  bool _loadingCashPurposeCandidates = false;
+  int? _cashCandidatesSupplierId; // whose open invoices are loaded
+  int _amountFillEpoch = 0; // rebuilds the amount field when it is filled from an invoice
+
   /// invoice_id -> weight the employee assigned to it. One payment covering
   /// several invoices is the common real shape («سداد متبقيات سابقة + باقي
   /// قيمة حجز»), and reference_id is a single integer that cannot say it.
@@ -839,7 +849,12 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
     setState(() {
       _selectedSupplierId = id;
       _smartFillDescriptionAndReceiver();
+      // Another supplier's invoices are not this payment's candidates.
+      _cashPurposeCandidates = const [];
+      _cashPurposeInvoiceId = null;
     });
+    _cashPaymentPurpose = 'supplier';
+    if (_showCashPurposeSelector) _loadCashPurposeCandidates();
   }
 
   Future<void> _loadData() async {
@@ -2509,6 +2524,216 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
     }
   }
 
+  bool get _showCashPurposeSelector =>
+      widget.voucherType == 'payment' &&
+      _partyType == 'supplier' &&
+      _selectedSupplierId != null &&
+      !_accountLines.any((l) => l.amountType == 'gold');
+
+  List<AccountLineModel> get _cashLines =>
+      _accountLines.where((l) => l.amountType == 'cash').toList();
+
+  Map<String, dynamic>? get _chosenCashInvoice {
+    for (final row in _cashPurposeCandidates) {
+      if ((row['invoice_id'] as num?)?.toInt() == _cashPurposeInvoiceId) return row;
+    }
+    return null;
+  }
+
+  /// The payment names an invoice, and its cash is more than that invoice still
+  /// owes: refused here rather than recorded as an overpayment.
+  bool get _cashPurposeExceedsInvoice {
+    if (!_showCashPurposeSelector || _cashPaymentPurpose != 'invoice') return false;
+    final open = (_chosenCashInvoice?['open_cash'] as num?)?.toDouble();
+    return open != null && _totalCash > open + 0.009;
+  }
+
+  Future<void> _loadCashPurposeCandidates() async {
+    final supplierId = _selectedSupplierId;
+    if (supplierId == null) return;
+    setState(() => _loadingCashPurposeCandidates = true);
+    try {
+      final rows = await _apiService.getSupplierOpenCashObligations(supplierId);
+      if (!mounted) return;
+      setState(() {
+        _cashPurposeCandidates = rows;
+        _cashCandidatesSupplierId = supplierId;
+        _loadingCashPurposeCandidates = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      // A failed lookup must not block the payment: it stays on the supplier's account.
+      setState(() {
+        _cashPurposeCandidates = const [];
+        _cashCandidatesSupplierId = supplierId;
+        _loadingCashPurposeCandidates = false;
+      });
+    }
+  }
+
+  Widget _buildCashPurposeCard() {
+    // The list is there as soon as the supplier is: loaded once per supplier.
+    if (_cashCandidatesSupplierId != _selectedSupplierId && !_loadingCashPurposeCandidates) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && _showCashPurposeSelector) _loadCashPurposeCandidates();
+      });
+    }
+    final rows = [
+      ..._cashPurposeCandidates.where((r) =>
+          _totalCash > 0 && (((r['open_cash'] as num?)?.toDouble() ?? 0) - _totalCash).abs() < 0.005),
+      ..._cashPurposeCandidates.where((r) =>
+          !(_totalCash > 0 && (((r['open_cash'] as num?)?.toDouble() ?? 0) - _totalCash).abs() < 0.005)),
+    ];
+    final selected = _cashPaymentPurpose == 'invoice' ? _cashPurposeInvoiceId : null;
+
+    Widget invoiceTile(Map<String, dynamic> row) {
+      final id = (row['invoice_id'] as num).toInt();
+      final open = (row['open_cash'] as num?)?.toDouble() ?? 0.0;
+      final date = DateTime.tryParse('${row['date'] ?? ''}');
+      final exact = _totalCash > 0 && (open - _totalCash).abs() < 0.005;
+      final isChosen = selected == id;
+      return Container(
+        margin: const EdgeInsets.only(bottom: 6),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+            color: isChosen ? AppColors.primaryGold : Colors.black12,
+            width: isChosen ? 2 : 1,
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            RadioListTile<int>(
+              value: id,
+              groupValue: selected,
+              dense: true,
+              title: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      '${row['invoice_type'] ?? 'فاتورة'} #${row['invoice_type_id'] ?? id}'
+                      '${date != null ? ' · ${DateFormat('yyyy/MM/dd').format(date)}' : ''}',
+                      style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
+                    ),
+                  ),
+                  if (exact)
+                    const Chip(label: Text('يطابق المبلغ'), visualDensity: VisualDensity.compact),
+                ],
+              ),
+              subtitle: Text(
+                'المطلوب ${_formatCash(((row['cash_obligation'] as num?) ?? 0).toDouble())}'
+                ' · المدفوع ${_formatCash(((row['paid'] as num?) ?? 0).toDouble())}'
+                ' · المتبقي ${_formatCash(open)}',
+                style: const TextStyle(fontSize: 12),
+              ),
+              onChanged: (v) => setState(() {
+                _cashPaymentPurpose = 'invoice';
+                _cashPurposeInvoiceId = v;
+              }),
+            ),
+            if (isChosen && _cashLines.length == 1 && (_cashLines.first.amount - open).abs() >= 0.005)
+              Padding(
+                padding: const EdgeInsets.only(right: 16, bottom: 6),
+                child: TextButton.icon(
+                  icon: const Icon(Icons.edit_note, size: 18),
+                  label: Text('استخدم المتبقي مبلغًا (${_formatCash(open)})'),
+                  onPressed: () => setState(() {
+                    _cashLines.first.amount = open;
+                    _amountFillEpoch++;
+                  }),
+                ),
+              ),
+          ],
+        ),
+      );
+    }
+
+    return Card(
+      elevation: 2,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(color: AppColors.lightGold.withValues(alpha: 0.6)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.receipt_long_outlined, color: AppColors.primaryGold),
+                const SizedBox(width: 8),
+                const Expanded(
+                  child: Text(
+                    'لأي فاتورة هذه الدفعة النقدية؟',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  ),
+                ),
+                if (_loadingCashPurposeCandidates)
+                  const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)),
+              ],
+            ),
+            const SizedBox(height: 4),
+            const Text(
+              'اختر الفاتورة التي تسددها الدفعة، أو اتركها على حساب المورد — ويمكن نسبها لاحقًا من شاشة السند.',
+              style: TextStyle(fontSize: 12, color: Colors.black54),
+            ),
+            const SizedBox(height: 10),
+            if (!_loadingCashPurposeCandidates && rows.isEmpty)
+              const Padding(
+                padding: EdgeInsets.only(bottom: 8),
+                child: Text('لا توجد فواتير لهذا المورد عليها التزام نقدي مفتوح',
+                    style: TextStyle(fontSize: 12, color: Colors.black54)),
+              ),
+            ...rows.map(invoiceTile),
+            RadioListTile<String>(
+              value: 'supplier',
+              groupValue: _cashPaymentPurpose,
+              dense: true,
+              title: const Text('على حساب المورد (بلا فاتورة)'),
+              onChanged: (v) => setState(() {
+                _cashPaymentPurpose = 'supplier';
+                _cashPurposeInvoiceId = null;
+              }),
+            ),
+            if (_cashPurposeExceedsInvoice)
+              const Text(
+                'مبلغ السند أكبر من المتبقي على الفاتورة — قسّم الدفعة أو سجّلها على حساب المورد',
+                style: TextStyle(fontSize: 12, color: Colors.redAccent),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// What the payment will pay, said once more beside «حفظ السند».
+  Widget _buildCashPurposeSummary() {
+    final row = _chosenCashInvoice;
+    final named = _cashPaymentPurpose == 'invoice' && row != null;
+    final text = named
+        ? 'تخص: ${row['invoice_type'] ?? 'فاتورة'} #${row['invoice_type_id'] ?? row['invoice_id']}'
+            ' · المتبقي ${_formatCash(((row['open_cash'] as num?) ?? 0).toDouble())}'
+        : 'تخص: حساب المورد (بلا فاتورة)';
+    final bad = _cashPurposeExceedsInvoice;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: (bad ? Colors.red : AppColors.lightGold).withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Row(
+        children: [
+          Icon(bad ? Icons.warning_amber_rounded : Icons.receipt_long_outlined,
+              size: 18, color: bad ? Colors.red : AppColors.primaryGold),
+          const SizedBox(width: 8),
+          Expanded(child: Text(text, style: const TextStyle(fontWeight: FontWeight.w600))),
+        ],
+      ),
+    );
+  }
+
   /// The declared distribution rides in notes because it must survive between
   /// creating the voucher and approving it, while no attribution row may exist
   /// before approval. The invoice-creation path already puts structured JSON in
@@ -3698,6 +3923,18 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
       ).showSnackBar(const SnackBar(content: Text('يجب اختيار حساب')));
       return;
     }
+    if (_showCashPurposeSelector && _cashPaymentPurpose == 'invoice') {
+      if (_cashPurposeInvoiceId == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('اختر الفاتورة التي تخصها الدفعة')));
+        return;
+      }
+      if (_cashPurposeExceedsInvoice) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('مبلغ السند أكبر من المتبقي على الفاتورة')));
+        return;
+      }
+    }
 
     setState(() => _isSaving = true);
 
@@ -4005,6 +4242,15 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
         // The employee's declared purpose. 'invoice' keeps the existing
         // discriminator, which the cash side relies on in seven places; the
         // backend records the gold attribution at approval from it.
+        // The cash side's declared invoice: recorded as its payment at approval
+        // (sync_invoice_cash_payment_after_voucher_approval), as before for a
+        // voucher written for an invoice.
+        if (_showCashPurposeSelector &&
+            _cashPaymentPurpose == 'invoice' &&
+            _cashPurposeInvoiceId != null) ...{
+          'reference_type': 'invoice',
+          'reference_id': _cashPurposeInvoiceId,
+        },
         if (_showGoldPurposeSelector) ...{
           'reference_type': _goldPaymentPurpose == 'invoice'
               ? 'invoice'
@@ -4414,6 +4660,7 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
                   Expanded(
                     flex: 2,
                     child: TextFormField(
+                      key: ValueKey('cash-amount-$index-$_amountFillEpoch'),
                       initialValue: line.amount > 0
                           ? line.amount.toString()
                           : '',
@@ -4702,11 +4949,6 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
         ..add(partyInfo);
     }
 
-    if (_showGoldPurposeSelector) {
-      leftColumn
-        ..add(const SizedBox(height: 12))
-        ..add(_buildGoldPurposeCard());
-    }
 
     leftColumn.addAll([
       const SizedBox(height: 12),
@@ -4726,6 +4968,10 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
         .toList();
 
     final List<Widget> rightColumn = [
+      // Which invoice this payment pays -- where the payment is composed, before
+      // its lines, not in the other column after them (2 Oct 2026).
+      if (_showGoldPurposeSelector) ...[_buildGoldPurposeCard(), const SizedBox(height: 12)],
+      if (_showCashPurposeSelector) ...[_buildCashPurposeCard(), const SizedBox(height: 12)],
       _buildAccountLinesHeader(),
       const SizedBox(height: 12),
       ...accountLineCards,
@@ -4752,6 +4998,7 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
       const SizedBox(height: 16),
       _buildNotesCard(),
       const SizedBox(height: 20),
+      if (_showCashPurposeSelector) ...[_buildCashPurposeSummary(), const SizedBox(height: 10)],
       _buildSaveSection(accentColor),
     ];
 

@@ -57,7 +57,7 @@ class _GoldPriceManualScreenEnhancedState
         final raw = priceData['price_sar_per_gram'] ?? priceData['price_24k'];
         _currentPrice = raw is num ? raw.toDouble() : double.tryParse('$raw');
         _lastUpdateDate = priceData['date'] != null
-            ? DateTime.parse(priceData['date'])
+            ? DateTime.parse(priceData['date']).toLocal()
             : null;
         _isLoading = false;
       });

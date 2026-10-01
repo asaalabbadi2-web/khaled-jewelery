@@ -2722,6 +2722,9 @@ class Settings(db.Model):
     
     # 🆕 إعدادات السندات
     voucher_auto_post = db.Column(db.Boolean, default=False)  # False = يتطلب اعتماد قبل الترحيل، True = ترحيل تلقائي
+    # 🆕 هامش فرق سداد الذهب (المالك، 2 أكتوبر 2026): رقم ثابت بغرامات العيار الرئيسي،
+    # زاد الوزن أو نقص -- فرق داخله يُعدّ مسدَّدًا. سياسة لا قانون.
+    gold_settlement_tolerance_grams = db.Column(db.Float, default=0.05, server_default='0.05')
     weight_closing_settings = db.Column(db.Text, nullable=True)
 
     # 🆕 تحديث سعر الذهب تلقائياً حسب توقيت معين
@@ -2898,6 +2901,8 @@ class Settings(db.Model):
             'stones_display_revenue_account_id': getattr(self, 'stones_display_revenue_account_id', None),
             'manufacturing_wage_mode': (self.manufacturing_wage_mode or 'expense'),
             'voucher_auto_post': self.voucher_auto_post,
+            'gold_settlement_tolerance_grams': float(self.gold_settlement_tolerance_grams
+                                                     if self.gold_settlement_tolerance_grams is not None else 0.05),
 
             # 🆕 Posting Preferences
             'auto_post_invoices': bool(getattr(self, 'auto_post_invoices', True)),

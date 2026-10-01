@@ -185,11 +185,16 @@ class InvoicePaymentStateService:
         # amount_paid stays CASH ONLY — it is a currency field, and the gold
         # dimension has its own quantities rather than being folded into it.
         invoice.amount_paid = total_settled
+        gold_tolerance = None
+        if gold_required is not None:
+            from services.settlement_tolerance import gold_settlement_tolerance
+            gold_tolerance = gold_settlement_tolerance()
         invoice.status = self._status_for(
             total=obligation_ceiling,
             total_settled=total_settled,
             gold_required=gold_required,
             gold_settled=gold_settled,
+            gold_tolerance=gold_tolerance,
         )
 
         after = (total_settled, invoice.status)
@@ -231,6 +236,7 @@ class InvoicePaymentStateService:
         total_settled: float,
         gold_required: float = None,
         gold_settled: float = None,
+        gold_tolerance: float = None,
     ) -> str:
         """The invoice's status from BOTH obligations.
 
@@ -266,7 +272,10 @@ class InvoicePaymentStateService:
         gold_settled = float(gold_settled or 0.0)
         # No gold obligation at all: the gold side is vacuously satisfied and
         # must not drag an otherwise paid invoice down to partial.
-        gold_paid = gold_required <= GOLD_EPSILON or gold_settled >= gold_required - GOLD_EPSILON
+        # The settings' fixed margin (services/settlement_tolerance.py): conversion
+        # between karats rounds, and the scale differs by hundredths.
+        slack = GOLD_EPSILON if gold_tolerance is None else max(GOLD_EPSILON, float(gold_tolerance))
+        gold_paid = gold_required <= GOLD_EPSILON or gold_settled >= gold_required - slack
         gold_touched = gold_settled > GOLD_EPSILON
 
         if total <= CASH_EPSILON and gold_required <= GOLD_EPSILON:
@@ -438,3 +447,115 @@ def sync_invoice_payment_state_after_voucher_approval(voucher) -> None:
                 InvoicePaymentStateService().recompute(linked_invoice)
         except Exception as _sync_exc:
             print(f"⚠️ invoice payment-state sync after voucher approve skipped: {_sync_exc}")
+
+
+# ── Attributing a voucher's cash to an invoice, after the fact ──────────────
+# The gold tool's mirror (gold_allocation_service.attribute_gold_to_invoice),
+# asked for by the owner on 2 Oct 2026: PV-2026-01222 paid purchase #187's
+# 1,150 of wages as a general supplier settlement, and nothing could say so.
+# The books do not move -- the voucher posted them -- only the invoice's record
+# of who paid it: an InvoicePayment whose source is the voucher. Cancelling the
+# voucher un-counts it (payment_voucher_not_cancelled), as for every
+# voucher-sourced payment.
+
+def voucher_cash_capacity(voucher) -> float:
+    """The cash this voucher paid out to its party: its cash debit lines --
+    the same lines the approval-time sync reads."""
+    total = 0.0
+    for line in voucher.account_lines.all():
+        if line.amount_type == 'cash' and line.line_type == 'debit':
+            total += float(line.amount or 0.0)
+    return round(total, 2)
+
+
+def voucher_cash_attributed(voucher_id: int) -> float:
+    total = (db.session.query(func.coalesce(func.sum(InvoicePayment.amount), 0.0))
+             .filter(InvoicePayment.source_voucher_id == voucher_id).scalar())
+    return round(float(total or 0.0), 2)
+
+
+def invoice_open_cash(invoice) -> float:
+    """What the invoice's cash obligation still lacks."""
+    paid = InvoicePaymentStateService._sum_invoice_payments(invoice.id)
+    return round(max(0.0, float(invoice.cash_obligation) - paid), 2)
+
+
+def is_vouchers_own_payment(voucher, payment) -> bool:
+    """The payment a voucher written FOR this invoice records at approval --
+    undone by cancelling the voucher, never by removing an attribution."""
+    return (getattr(voucher, 'reference_type', None) == 'invoice'
+            and int(getattr(voucher, 'reference_id', 0) or 0) == int(payment.invoice_id))
+
+
+def attribute_cash_to_invoice(*, voucher, invoice_id: int, amount: float, created_by: str = None) -> InvoicePayment:
+    """Record that *amount* of *voucher*'s cash paid this invoice. Never on its
+    own initiative: a person chose the invoice. Raises ValueError on an
+    unapproved voucher, an invoice that no longer stands, a supplier mismatch,
+    a non-positive amount, more than the voucher's unattributed cash, or more
+    than the invoice still owes in cash. Caller commits."""
+    from services.gold_allocation_service import invoice_obligation_is_live
+
+    if voucher is None:
+        raise ValueError('voucher_required')
+    if getattr(voucher, 'status', None) != 'approved':
+        raise ValueError(f'voucher_not_approved:{getattr(voucher, "status", None)}')
+    invoice = Invoice.query.get(invoice_id)
+    if invoice is None:
+        raise ValueError(f'invoice_not_found:{invoice_id}')
+    if not invoice_obligation_is_live(invoice):
+        raise ValueError(f'invoice_not_standing:id={invoice_id},is_posted={bool(invoice.is_posted)},'
+                         f'status={invoice.status}')
+    if not voucher.supplier_id or invoice.supplier_id != voucher.supplier_id:
+        raise ValueError(f'supplier_mismatch:voucher_supplier_id={voucher.supplier_id},'
+                         f'invoice_supplier_id={invoice.supplier_id}')
+    amount = round(float(amount or 0.0), 2)
+    if amount <= CASH_EPSILON:
+        raise ValueError('amount_must_be_positive')
+    left = round(voucher_cash_capacity(voucher) - voucher_cash_attributed(voucher.id), 2)
+    if amount > left + CASH_EPSILON:
+        raise ValueError(f'exceeds_voucher_cash:requested={amount},unattributed={left}')
+    open_cash = invoice_open_cash(invoice)
+    if amount > open_cash + CASH_EPSILON:
+        raise ValueError(f'exceeds_invoice_cash_obligation:requested={amount},open={open_cash}')
+
+    method = (PaymentMethod.query.filter(PaymentMethod.payment_type == 'cash')
+              .order_by(PaymentMethod.id.asc()).first())
+    if method is None:
+        raise ValueError('no_cash_payment_method')
+    payment = InvoicePayment(
+        invoice_id=invoice.id, payment_method_id=method.id, amount=amount, net_amount=amount,
+        source_voucher_id=voucher.id,
+        notes=f'نسب نقد سند {getattr(voucher, "voucher_number", voucher.id)}'
+              + (f' — {created_by}' if created_by else ''),
+    )
+    db.session.add(payment)
+    db.session.flush()
+    InvoicePaymentStateService().recompute(invoice)
+    return payment
+
+
+def remove_cash_attribution(*, voucher, payment_id: int) -> int:
+    """Undo one attribution of *voucher*'s cash. Returns the invoice id.
+    Refuses the voucher's own invoice payment (cancel the voucher instead)."""
+    payment = InvoicePayment.query.get(payment_id)
+    if payment is None or payment.source_voucher_id != voucher.id:
+        raise ValueError(f'attribution_not_found:{payment_id}')
+    if is_vouchers_own_payment(voucher, payment):
+        raise ValueError('vouchers_own_payment:cancel the voucher instead')
+    invoice_id = payment.invoice_id
+    db.session.delete(payment)
+    db.session.flush()
+    invoice = Invoice.query.get(invoice_id)
+    if invoice is not None:
+        InvoicePaymentStateService().recompute(invoice)
+    return invoice_id
+
+
+def recompute_invoices_paid_by(voucher_id: int) -> int:
+    """Every invoice this voucher's cash was attributed to -- after the voucher
+    is cancelled, so its payments stop counting there too."""
+    ids = {i for (i,) in db.session.query(InvoicePayment.invoice_id)
+           .filter(InvoicePayment.source_voucher_id == voucher_id).distinct()}
+    for invoice in Invoice.query.filter(Invoice.id.in_(ids)).all() if ids else []:
+        InvoicePaymentStateService().recompute(invoice)
+    return len(ids)

@@ -18,6 +18,7 @@ from gold_price import fetch_gold_price, save_gold_price
 from models import GoldPrice, InventoryCostingConfig, Invoice, db
 from utils import get_main_karat
 from pricing.constants import SAR_USD_PEG, TROY_OZ_TO_GRAMS
+from pricing import price_clock
 
 pricing_bp = Blueprint('pricing', __name__)
 
@@ -30,22 +31,11 @@ def get_gold_price():
     """يجلب آخر سعر ذهب — يُحدِّثه تلقائياً إن كان أقدم من 5 دقائق."""
     latest = GoldPrice.query.order_by(GoldPrice.date.desc()).first()
 
-    def _get_today_opening(now: datetime):
-        try:
-            from datetime import time
-            start = datetime.combine(now.date(), time.min)
-            end = start + timedelta(days=1)
-            return (
-                GoldPrice.query
-                .filter(GoldPrice.date >= start, GoldPrice.date < end)
-                .order_by(GoldPrice.date.asc())
-                .first()
-            )
-        except Exception:
-            return None
-
-    now = datetime.now()
-    opening = _get_today_opening(now)
+    # The stored time is UTC; so is the age, and «today» is Riyadh's (price_clock).
+    now = price_clock.utc_now()
+    day_start, day_end = price_clock.riyadh_day_bounds_utc(price_clock.riyadh_today(now))
+    opening = (GoldPrice.query.filter(GoldPrice.date >= day_start, GoldPrice.date < day_end)
+               .order_by(GoldPrice.date.asc()).first())
 
     should_update = not latest or (now - latest.date) > timedelta(minutes=5)
     if not latest:
@@ -67,9 +57,9 @@ def get_gold_price():
                     'main_karat': main_karat,
                     'price_usd_per_oz': price_usd,
                     'opening_price_usd_per_oz': (opening.price if opening else price_usd),
-                    'opening_date': (opening.date.isoformat() if (opening and opening.date) else now.isoformat()),
+                    'opening_date': price_clock.iso_utc(opening.date if (opening and opening.date) else now),
                     'currency': 'ر.س',
-                    'date': now.isoformat(),
+                    'date': price_clock.iso_utc(now),
                     'source': 'API',
                 })
         except Exception as e:
@@ -83,9 +73,9 @@ def get_gold_price():
                     'main_karat': main_karat,
                     'price_usd_per_oz': latest.price,
                     'opening_price_usd_per_oz': (opening.price if opening else latest.price),
-                    'opening_date': (opening.date.isoformat() if (opening and opening.date) else (latest.date.isoformat() if latest.date else None)),
+                    'opening_date': price_clock.iso_utc(opening.date if (opening and opening.date) else latest.date),
                     'currency': 'ر.س',
-                    'date': latest.date.isoformat() if latest.date else None,
+                    'date': price_clock.iso_utc(latest.date),
                     'source': 'Database (Fallback)',
                 })
 
@@ -98,9 +88,9 @@ def get_gold_price():
             'main_karat': main_karat,
             'price_usd_per_oz': latest.price,
             'opening_price_usd_per_oz': (opening.price if opening else latest.price),
-            'opening_date': (opening.date.isoformat() if (opening and opening.date) else (latest.date.isoformat() if latest.date else None)),
+            'opening_date': price_clock.iso_utc(opening.date if (opening and opening.date) else latest.date),
             'currency': 'ر.س',
-            'date': latest.date.isoformat() if latest.date else None,
+            'date': price_clock.iso_utc(latest.date),
             'source': 'Database (Cached)',
         })
 
@@ -116,15 +106,19 @@ def get_gold_price_public():
 def get_gold_price_24h():
     """آخر 24 ساعة من أسعار الذهب (حد أقصى 48 نقطة)."""
     try:
-        cutoff = datetime.utcnow() - timedelta(hours=24)
+        cutoff = price_clock.utc_now() - timedelta(hours=24)
         rows = (
             GoldPrice.query
             .filter(GoldPrice.date >= cutoff)
             .order_by(GoldPrice.date.asc())
-            .limit(48)
             .all()
         )
-        points = [{'timestamp': r.date.isoformat(), 'price_usd_per_oz': float(r.price or 0)} for r in rows]
+        # At most 48 points spread over the whole day, ending at the latest --
+        # .limit(48) on the ascending rows showed only the day's first 48 minutes.
+        if len(rows) > 48:
+            step = (len(rows) - 1) / 47.0
+            rows = [rows[round(i * step)] for i in range(48)]
+        points = [{'timestamp': price_clock.iso_utc(r.date), 'price_usd_per_oz': float(r.price or 0)} for r in rows]
         return jsonify({'points': points, 'count': len(points)}), 200
     except Exception as e:
         current_app.logger.error(f'Error fetching 24h gold price: {e}')

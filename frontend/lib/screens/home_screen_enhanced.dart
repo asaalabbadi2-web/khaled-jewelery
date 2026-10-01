@@ -659,7 +659,8 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
               : (response['price_usd_per_oz'] as num?)?.toDouble();
 
           if (response['date'] != null) {
-            goldPriceDate = DateTime.parse(response['date']);
+            // Sent marked UTC ('Z', 2 Oct 2026): shown in the device's time.
+            goldPriceDate = DateTime.parse(response['date']).toLocal();
           }
 
           if (response['opening_price_usd_per_oz'] != null) {
@@ -673,7 +674,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
           if (response['opening_date'] != null) {
             goldPriceOpeningDate = DateTime.tryParse(
               response['opening_date'].toString(),
-            );
+            )?.toLocal();
           } else {
             goldPriceOpeningDate = goldPriceDate;
           }
@@ -697,7 +698,8 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
         final ts = row['timestamp']?.toString();
         final price = row['price_usd_per_oz'];
         if (ts == null || price == null) continue;
-        final time = DateTime.tryParse('$ts+03:00');
+        // The server marks each time UTC ('Z'); no zone is guessed here.
+        final time = DateTime.tryParse(ts)?.toLocal();
         final p = price is num
             ? price.toDouble()
             : double.tryParse(price.toString());
