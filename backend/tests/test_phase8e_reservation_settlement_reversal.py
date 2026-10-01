@@ -23,6 +23,8 @@ precondition state directly is both more targeted (it isolates the
 reversal/reject logic specifically) and avoids both unrelated issues.
 """
 import json
+
+import pytest
 import uuid
 from datetime import datetime
 
@@ -42,6 +44,23 @@ from models import (
     WeightClosingExecution,
     db,
 )
+from tests.reservation_world import with_weight_twins
+from tests.voucher_world import stand_posted
+
+
+@pytest.fixture(scope='module')
+def app():
+    from app import app as flask_app
+    flask_app.config['TESTING'] = True
+    with flask_app.app_context():
+        yield flask_app
+
+
+@pytest.fixture(autouse=True)
+def rollback_after_each(app, db_fence):
+    """Under the fence (TEST-001): its commits used to stay in the run's
+    database and leak into later tests (seen 1 Oct 2026, the chart tests)."""
+    yield
 
 
 def _uid():
@@ -60,6 +79,7 @@ def _account(type_='Expense', transaction_type='cash'):
 
 def _office_and_supplier():
     office_account = _account(type_='Liability', transaction_type='cash')
+    with_weight_twins(office_account)
     office = Office(office_code=f'OFF-{_uid()}', name=f'مكتب اختبار {_uid()}', active=True)
     office.account_category_id = office_account.id
     db.session.add(office)
@@ -162,6 +182,7 @@ def _settled_reservation_state(deposit_amount, weight_consumed, order):
     )
     db.session.add(deposit_voucher)
     db.session.flush()
+    stand_posted(deposit_voucher)
     db.session.add(VoucherAccountLine(
         voucher_id=deposit_voucher.id, account_id=office_account.id,
         line_type='debit', amount_type='cash', amount=deposit_amount,

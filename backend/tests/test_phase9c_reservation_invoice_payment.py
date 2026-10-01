@@ -21,6 +21,8 @@ endpoints for creation/settlement specifically, since those are exactly
 what changed.
 """
 import json
+
+import pytest
 import uuid
 from datetime import datetime
 
@@ -38,6 +40,23 @@ from models import (
     db,
 )
 from routes import DEFAULT_WEIGHT_CLOSING_SETTINGS, _upsert_weight_closing_order
+from tests.reservation_world import with_weight_twins
+from tests.voucher_world import stand_posted
+
+
+@pytest.fixture(scope='module')
+def app():
+    from app import app as flask_app
+    flask_app.config['TESTING'] = True
+    with flask_app.app_context():
+        yield flask_app
+
+
+@pytest.fixture(autouse=True)
+def rollback_after_each(app, db_fence):
+    """Under the fence (TEST-001): its commits used to stay in the run's
+    database and leak into later tests (seen 1 Oct 2026, the chart tests)."""
+    yield
 
 
 def _uid():
@@ -75,6 +94,7 @@ def _office_and_supplier():
     )
     db.session.add(office_account)
     db.session.flush()
+    with_weight_twins(office_account)
     office = Office(office_code=f'OFF9C-{_uid()}', name=f'مكتب اختبار 9C {_uid()}', active=True)
     office.account_category_id = office_account.id
     db.session.add(office)
@@ -278,6 +298,8 @@ class TestLegacyReservationWithoutPaymentMethodIsRefused:
                 status='approved', amount_cash=575.0, amount_gold=0.0,
             )
             db.session.add(voucher)
+            db.session.flush()
+            stand_posted(voucher)   # an approved voucher's entry stands posted (V1)
             db.session.commit()
 
             settle_resp = client.post(

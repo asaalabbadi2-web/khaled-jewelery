@@ -33,6 +33,7 @@ from pricing.karat_service import convert_to_main_karat, get_main_karat
 from accounting.voucher_engine import (
     generate_voucher_number,
     create_journal_entry_from_voucher,
+    post_entry_of_approved_voucher,
     _append_safe_transactions_for_voucher,
     _generate_journal_entry_number,
 )
@@ -53,6 +54,29 @@ from accounting.mappings import get_account_id_by_number
 from dual_system_helpers import create_dual_journal_entry, verify_dual_balance
 
 office_reservations_bp = Blueprint('office_reservations', __name__)
+
+def _office_weight_account_id(office, supplier):
+    """The office's weight account: its financial account's weight twin
+    (account_category -> memo_account_id); a supplier gold safe's account only
+    for an office whose twin was never set."""
+    financial = getattr(office, 'account_category', None)
+    if financial is not None and getattr(financial, 'memo_account_id', None):
+        return financial.memo_account_id
+    safe = getattr(supplier, 'default_safe_box', None)
+    if safe is not None and getattr(safe, 'safe_type', None) == 'gold':
+        return getattr(safe, 'account_id', None)
+    return None
+
+
+def _created_with_weight_entry(reservation) -> bool:
+    """A reservation created before 1 Oct 2026 already moved its gold to the
+    office when it was created (crediting scrap inventory -- stage 4 corrects
+    those); its settlement must not add the gold a second time."""
+    return JournalEntry.query.filter(
+        JournalEntry.reference_type == 'office_reservation', JournalEntry.reference_id == reservation.id,
+        JournalEntry.description.like('إرسال ذهب للحجز%'), JournalEntry.is_deleted.is_(False),
+    ).first() is not None
+
 
 def _serialize_office_reservation(reservation: OfficeReservation):
     payload = reservation.to_dict()
@@ -324,84 +348,14 @@ def create_office_reservation():
             )
             db.session.flush()
 
-            voucher_entry = create_journal_entry_from_voucher(voucher)
-            if voucher_entry:
-                voucher.journal_entry_id = voucher_entry.id
+            # Born approved, so its entry is posted with it, whatever the
+            # auto-post settings (ADR-035, V0 addendum); no entry, no reservation.
+            post_entry_of_approved_voucher(voucher, posted_by=voucher.approved_by)
             _append_safe_transactions_for_voucher(voucher, created_by=voucher.created_by)
 
-        # ── قيد الإنشاء الوزني: ذهب يغادر المخزون إلى المكتب ───────────────
-        # يُسجَّل دائماً عند إنشاء الحجز بغض النظر عن حالة الدفع.
-        # Dr. حساب وزني المكتب (مفكرة account_category_id) / Cr. مخزون كسر وزني (71310)
-        #
-        # NOTE (2026-06-23): كان هذا يحلّ الحساب عبر supplier.default_safe_box.account_id
-        # -- مسار مستقل تماماً عن الجانب النقدي (الذي يستخدم office.account_category_id
-        # مباشرة)، فينتج حسابين مختلفين لنفس المكتب (شوهد فعلياً: نقدي->1072،
-        # وزني->1074، بينما 1072.memo_account_id=1213 الحساب الرسمي لم يُستخدَم
-        # إطلاقاً). الإصلاح: استخدام نفس سلسلة المرجع account_category_id ->
-        # memo_account_id المعتمدة في كل مكان آخر بالنظام (32 موضعاً في هذا
-        # الملف)، مع الإبقاء على المسار القديم كـfallback فقط لمكتب لم يُضبط
-        # له memo_account_id بعد، لا كمسار أساسي.
-        _office_weight_acc_id = None
-        try:
-            _office_financial_acc = getattr(office, 'account_category', None)
-            if _office_financial_acc and getattr(_office_financial_acc, 'memo_account_id', None):
-                _office_weight_acc_id = _office_financial_acc.memo_account_id
-        except Exception:
-            pass
-
-        if not _office_weight_acc_id:
-            try:
-                _gold_safe = getattr(supplier, 'default_safe_box', None)
-                if _gold_safe and getattr(_gold_safe, 'safe_type', None) == 'gold':
-                    _office_weight_acc_id = getattr(_gold_safe, 'account_id', None)
-            except Exception:
-                pass
-
-        _inv_weight_acc = Account.query.filter_by(account_number='71310').first()
-        _inv_weight_acc_id = _inv_weight_acc.id if _inv_weight_acc else None
-
-        if _office_weight_acc_id and _inv_weight_acc_id and weight_grams > 0:
-            _wgt_entry = JournalEntry(
-                entry_number=_generate_journal_entry_number('WGT'),
-                date=reservation_date,
-                description=f'إرسال ذهب للحجز ({reservation.reservation_code}) - مكتب {office.name}',
-                reference_type='office_reservation',
-                reference_id=reservation.id,
-                is_posted=True,
-                posted_at=reservation_date,
-                posted_by=str(data.get('created_by') or 'system'),
-            )
-            db.session.add(_wgt_entry)
-            db.session.flush()
-
-            _k_dr = f'debit_{karat}k'
-            _k_cr = f'credit_{karat}k'
-            db.session.add(JournalEntryLine(
-                journal_entry_id=_wgt_entry.id,
-                account_id=_office_weight_acc_id,
-                description=f'ذهب بحيازة مكتب التسكير عيار {karat}',
-                **{_k_dr: weight_grams},
-            ))
-            db.session.add(JournalEntryLine(
-                journal_entry_id=_wgt_entry.id,
-                account_id=_inv_weight_acc_id,
-                description=f'خروج ذهب كسر للتسكير عيار {karat}',
-                **{_k_cr: weight_grams},
-            ))
-            db.session.flush()
-
-            # Mirror onto SafeBoxTransaction -- this entry is_posted=True
-            # already, but without this the office's gold safe-box card
-            # (and the transfer-between-safes availability check) never
-            # see this inflow; they read SafeBoxTransaction, not the GL.
-            try:
-                _rebuild_safe_box_transactions_for_journal_entry(
-                    _wgt_entry,
-                    [l for l in _wgt_entry.lines if not getattr(l, 'is_deleted', False)],
-                    created_by=str(data.get('created_by') or 'system'),
-                )
-            except Exception:
-                pass
+        # No gold moves when a reservation is created: it is a purchase, and the
+        # gold becomes ours -- at the office -- when it is settled (the owner,
+        # 1 Oct 2026). Its weight entry is written by settle_office_reservation.
 
         office.total_reservations = (office.total_reservations or 0) + 1
         office.total_weight_purchased = (office.total_weight_purchased or 0.0) + weight_main_karat
@@ -621,7 +575,38 @@ def settle_office_reservation(reservation_id: int):
             supplier_id=supplier.id,
             description=f'مستحق لمكتب التسكير عيار {karat} - يُسدَّد من خزينة المكتب',
         )
+        # The gold bought, by weight, in the same entry (the owner, 1 Oct 2026:
+        # every reservation is a purchase; settled, the gold stays at the office
+        # as our debt): Dr the office's weight account -- our account's safe
+        # there -- / Cr the weight twin of the purchases account debited above.
+        # Not scrap inventory: that moved gold from our scrap and added none.
+        if not _created_with_weight_entry(reservation):
+            office_weight_acc_id = _office_weight_account_id(office, supplier)
+            purchases_acc = Account.query.get(purchases_acc_id)
+            purchases_weight_acc_id = getattr(purchases_acc, 'memo_account_id', None)
+            if not office_weight_acc_id or not purchases_weight_acc_id:
+                db.session.rollback()
+                return jsonify({
+                    'error': 'reservation_weight_accounts_missing',
+                    'message': ('لا يمكن تسوية الحجز: '
+                                + ('حساب المكتب لا يملك حسابًا وزنيًا' if not office_weight_acc_id
+                                   else 'حساب المشتريات لا يملك حسابًا وزنيًا مقابلًا')
+                                + ' — فلا يُسجَّل الذهب المشترى. اضبط الحساب ثم أعد التسوية.'),
+                }), 400
+            db.session.add(JournalEntryLine(
+                journal_entry_id=gold_entry.id, account_id=office_weight_acc_id,
+                description=f'ذهب مشترى بحيازة مكتب التسكير عيار {karat}', **{f'debit_{karat}k': weight_grams}))
+            db.session.add(JournalEntryLine(
+                journal_entry_id=gold_entry.id, account_id=purchases_weight_acc_id,
+                description=f'مشتريات ذهب تسكير وزني عيار {karat}', **{f'credit_{karat}k': weight_grams}))
+            db.session.flush()
+
         verify_dual_balance(gold_entry.id)
+
+        # The office safe's statement shows what the entry put there.
+        _rebuild_safe_box_transactions_for_journal_entry(
+            gold_entry, [l for l in gold_entry.lines if not getattr(l, 'is_deleted', False)],
+            created_by=str(data.get('created_by') or 'system'))
 
         consumption = _auto_consume_weight_closing(
             purchase_invoice.id,
@@ -759,15 +744,25 @@ def reverse_office_reservation_settlement_for_invoice(invoice, *, created_by=Non
 
         affected_account_ids = set()
         for orig in original_lines:
+            # Every side swapped -- the gold bought too, since settlement
+            # carries it (1 Oct 2026); an older settlement's lines have none.
+            swapped = {}
+            for k in ('18k', '21k', '22k', '24k'):
+                swapped[f'debit_{k}'] = getattr(orig, f'credit_{k}') or 0.0
+                swapped[f'credit_{k}'] = getattr(orig, f'debit_{k}') or 0.0
             db.session.add(JournalEntryLine(
                 journal_entry_id=reversal_entry.id,
                 account_id=orig.account_id,
                 cash_debit=orig.cash_credit or 0.0,
                 cash_credit=orig.cash_debit or 0.0,
                 description=f'عكس: {orig.description}' if orig.description else 'عكس تسوية حجز',
+                **swapped,
             ))
             affected_account_ids.add(orig.account_id)
         db.session.flush()
+        _rebuild_safe_box_transactions_for_journal_entry(
+            reversal_entry, [l for l in reversal_entry.lines if not getattr(l, 'is_deleted', False)],
+            created_by=created_by or 'system')
 
         if affected_account_ids:
             try:
