@@ -1304,14 +1304,12 @@ def create_safe_box_transfer_voucher():
         from services.live_balances import safe_gold_available
         w_bal = {f'{k}k': safe_gold_available(from_safe, k) for k in (18, 21, 22, 24)}
         eps = 1e-6
-        if (w_24 - (w_bal.get('24k', 0.0) or 0.0)) > eps:
-            return jsonify({'error': 'insufficient_balance_24k', 'available': round(w_bal.get('24k', 0.0), 3)}), 400
-        if (w_22 - (w_bal.get('22k', 0.0) or 0.0)) > eps:
-            return jsonify({'error': 'insufficient_balance_22k', 'available': round(w_bal.get('22k', 0.0), 3)}), 400
-        if (w_21 - (w_bal.get('21k', 0.0) or 0.0)) > eps:
-            return jsonify({'error': 'insufficient_balance_21k', 'available': round(w_bal.get('21k', 0.0), 3)}), 400
-        if (w_18 - (w_bal.get('18k', 0.0) or 0.0)) > eps:
-            return jsonify({'error': 'insufficient_balance_18k', 'available': round(w_bal.get('18k', 0.0), 3)}), 400
+        # Only a karat that moves is checked: 5.7 g of 21k was refused for the
+        # display safe's −176 g of 24k, nothing of which was asked (2 Oct 2026).
+        for requested, key in ((w_24, '24k'), (w_22, '22k'), (w_21, '21k'), (w_18, '18k')):
+            if requested > eps and (requested - (w_bal.get(key, 0.0) or 0.0)) > eps:
+                return jsonify({'error': f'insufficient_balance_{key}',
+                                'available': round(w_bal.get(key, 0.0), 3)}), 400
 
     # ------------------------------------------------------------------
     # Cash transfer (amount_cash)

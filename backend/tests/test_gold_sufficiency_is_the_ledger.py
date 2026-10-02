@@ -104,3 +104,24 @@ def test_the_melting_renewal_asks_the_ledger(auth_headers):
                   'from_karat': 21, 'gold_weight': 2.0})
     assert resp.status_code == 400 and resp.get_json()['error'] == 'insufficient_balance', \
         resp.get_data(as_text=True)[:300]
+
+
+def test_a_karat_not_moved_does_not_block_the_transfer(auth_headers):
+    """Production, 2 Oct 2026: 5.7 g of 21k from the display safe was refused
+    «insufficient_balance_24k» -- 24k stood at −176 g and the check ran over all
+    four karats, requested or not (0 − (−176) > 0). Only what moves is checked."""
+    source, target = _gold_safe('معروض'), _gold_safe('كسر')
+    _ledger_21k(source, 100.0)
+    other = Account(account_number=f'8{uuid.uuid4().int % 10**7:07d}', name='مقابل', type='Asset', tracks_weight=True)
+    db.session.add(other)
+    db.session.flush()
+    je = JournalEntry(entry_number=f'T-{uuid.uuid4().hex[:10]}', date=datetime(2026, 9, 1), description='t',
+                      is_posted=True)
+    db.session.add(je)
+    db.session.flush()
+    db.session.add_all([JournalEntryLine(journal_entry_id=je.id, account_id=source.account_id, credit_24k=176.0),
+                        JournalEntryLine(journal_entry_id=je.id, account_id=other.id, debit_24k=176.0)])
+    db.session.flush()
+    resp = _post('/api/safe-boxes/transfer-voucher', auth_headers,
+                 {'from_safe_box_id': source.id, 'to_safe_box_id': target.id, 'weights': {'21k': 5.7}})
+    assert resp.status_code in (200, 201), resp.get_data(as_text=True)[:300]
