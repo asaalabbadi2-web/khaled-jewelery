@@ -692,9 +692,15 @@ class _SafeBoxesScreenState extends State<SafeBoxesScreen> {
     final ar = widget.isArabic;
     final docs = safeBox.pendingDocuments;
     if (isGold && safeBox.pendingWeight.isNotEmpty) {
-      final parts = safeBox.pendingWeight.entries
-          .map((e) => '${e.value >= 0 ? '+' : ''}${e.value.toStringAsFixed(3)} ${e.key}')
-          .join('، ');
+      // Per karat: what waits, and posted + pending = what should be in hand.
+      final posted = {for (final e in _goldBreakdown(safeBox)) e.key: e.value};
+      final parts = safeBox.pendingWeight.entries.map((e) {
+        final inHand = (posted[e.key] ?? 0.0) + e.value;
+        final sign = e.value >= 0 ? '+' : '';
+        return ar
+            ? '${e.key}: $sign${e.value.toStringAsFixed(3)} ← في اليد ${inHand.toStringAsFixed(3)}'
+            : '${e.key}: $sign${e.value.toStringAsFixed(3)} → in hand ${inHand.toStringAsFixed(3)}';
+      }).join(' • ');
       return ar ? 'معلّق بانتظار الاعتماد ($docs): $parts' : 'Pending approval ($docs): $parts';
     }
     final pending = safeBox.pendingCash;
@@ -1342,7 +1348,7 @@ class _SafeBoxesScreenState extends State<SafeBoxesScreen> {
                       const SizedBox(height: 4),
                       Text(
                         _pendingText(safeBox, isGold, primaryBalance),
-                        maxLines: 2,
+                        maxLines: 4,
                         style: TextStyle(fontSize: 12, color: Colors.orange.shade800),
                       ),
                     ],

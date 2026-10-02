@@ -7,8 +7,10 @@ owner's choice: keep the movement at posting and SHOW what is pending, read
 only -- posted + pending = what should be in hand. Nothing is written.
 
 Pending is: a pending voucher's lines on a safe's account (debit in, credit
-out, cash and gold), and a held invoice's cash payments on the safe they will
-go to. A held invoice's gold is not counted yet (recorded).
+out, cash and gold), a held invoice's cash payments on the safe they will go
+to, and its gold -- the rows its posting will write, by the same rule
+(posting_routes.invoice_gold_plan). The law: what is pending is what posting
+then writes, for each safe and karat.
 
 Run:
     python -m pytest tests/test_safe_pending.py -v
@@ -67,3 +69,32 @@ def test_a_held_paid_purchase_shows_its_payment_out_until_posted(auth_headers, w
     assert flask_app.test_client().post(f"/api/invoices/post/{held['id']}", headers=auth_headers,
                                         json={}).status_code == 200
     assert _row(auth_headers, safe_id)['pending']['cash'] == 0.0
+
+
+def _posted_gold_rows(invoice_id):
+    from models import SafeBoxTransaction
+    out = {}
+    for t in SafeBoxTransaction.query.filter_by(invoice_id=invoice_id, ref_type='invoice_gold'):
+        sign = 1.0 if t.direction == 'in' else -1.0
+        for k in ('18k', '21k', '22k', '24k'):
+            grams = float(getattr(t, f'weight_{k}') or 0.0)
+            if grams > 0.0005:
+                out[(t.safe_box_id, k)] = round(out.get((t.safe_box_id, k), 0.0) + sign * grams, 3)
+    return out
+
+
+@pytest.mark.parametrize('shape', ['scrap_purchase_paid', 'sale_on_credit'])
+def test_a_held_invoice_s_pending_gold_is_what_its_posting_writes(auth_headers, world, shape):
+    from services.safe_pending import pending_by_safe
+    held = _create(auth_headers, world, shape, held=True)
+    before = pending_by_safe()
+    g.pop('current_user', None)
+    assert flask_app.test_client().post(f"/api/invoices/post/{held['id']}", headers=auth_headers,
+                                        json={}).status_code == 200
+    written = _posted_gold_rows(held['id'])
+    assert written, 'the posting wrote no gold row -- the test needs one'
+    after = pending_by_safe()
+    for (safe_id, karat), grams in written.items():
+        was = before.get(safe_id, {}).get('weight', {}).get(karat, 0.0)
+        now = after.get(safe_id, {}).get('weight', {}).get(karat, 0.0)
+        assert round(was - now, 3) == grams, f'safe {safe_id} {karat}: pending {was - now} vs written {grams}'

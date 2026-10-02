@@ -7,11 +7,13 @@ so posted + pending = what should be in hand:
 - a pending voucher's lines on a safe's account: debit in, credit out; cash
   in riyals, gold by karat;
 - a held invoice's cash payments, on the safe its posting will use
-  (posting_routes' own resolver), in or out by the invoice type.
+  (posting_routes' own resolver), in or out by the invoice type;
+- a held invoice's gold: the rows its posting will write, by karat
+  (posting_routes.invoice_gold_plan -- the one rule for both).
 
 A pending voucher that already has an entry is one of V0's inconsistent legacy
 vouchers (stage 4) -- it waits for repair, not approval, and is left out. A
-held invoice's gold is not counted yet. Nothing here writes.
+Nothing here writes.
 """
 import json
 from collections import defaultdict
@@ -24,7 +26,9 @@ def _empty():
 def pending_by_safe() -> dict:
     """{safe_box_id: {'cash': float, 'weight': {'21k': g, ...}, 'documents': int}}"""
     from models import Invoice, PaymentMethod, SafeBox, Voucher, VoucherAccountLine
-    from posting_routes import _direction_for_invoice_cash, _is_receivable_pm, _resolve_cash_safe_box_id_for_invoice
+    from posting_routes import (
+        _direction_for_invoice_cash, _is_receivable_pm, _resolve_cash_safe_box_id_for_invoice, invoice_gold_plan,
+    )
 
     safe_by_account = {int(sb.account_id): int(sb.id) for sb in SafeBox.query.filter(SafeBox.account_id.isnot(None))}
     out = defaultdict(_empty)
@@ -63,6 +67,17 @@ def pending_by_safe() -> dict:
                 continue
             out[int(sid)]['cash'] += sign * float(pay.amount or 0.0)
             out[int(sid)]['documents'].add(('invoice', int(invoice.id)))
+        # Its gold: the rows its posting will write -- the same plan (posting_routes.invoice_gold_plan).
+        try:
+            plan = invoice_gold_plan(invoice, posted=False)
+        except Exception:
+            plan = []
+        for row in plan:
+            gsign = 1.0 if row['direction'] == 'in' else -1.0
+            for karat, grams in row['weights'].items():
+                if grams > 0.0005:
+                    out[row['safe_box_id']]['weight'][karat] += gsign * float(grams)
+            out[row['safe_box_id']]['documents'].add(('invoice', int(invoice.id)))
 
     return {sid: {'cash': round(v['cash'], 2),
                   'weight': {k: round(w, 3) for k, w in v['weight'].items() if abs(w) > 1e-9},

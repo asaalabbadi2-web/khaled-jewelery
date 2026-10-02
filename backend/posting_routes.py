@@ -765,18 +765,22 @@ def _settled_by_reservation(invoice: Invoice) -> bool:
     return OfficeReservation.query.filter_by(purchase_invoice_id=invoice.id).first() is not None
 
 
-def _gold_rows_from_posted_entry(invoice: Invoice, created_by: str = None, note: str = '',
-                                 only_direction: str | None = None) -> list:
-    """The invoice's gold safe rows, read from its posted entry: for every gold
-    safe whose account the entry moved, a row of exactly those grams.
-    only_direction keeps the old GL fallback's one side, by invoice type."""
+KARAT_KEYS = ('18k', '21k', '22k', '24k')
+
+
+def _entry_gold_plan(invoice: Invoice, *, posted: bool = True, only_direction: str | None = None) -> list:
+    """What the invoice's entry moves on each gold safe -- writes nothing.
+
+    [{'safe_box_id', 'direction', 'weights': {'18k'..}, 'stones': {}}], one per
+    line side with grams. posted=False reads the draft entry of a held invoice
+    (the safes screen's pending column)."""
     lines = (
         db.session.query(JournalEntryLine)
         .join(JournalEntry, JournalEntry.id == JournalEntryLine.journal_entry_id)
         .filter(
             JournalEntry.reference_type == 'invoice',
             JournalEntry.reference_id == invoice.id,
-            JournalEntry.is_posted == True,
+            JournalEntry.is_posted == bool(posted),
             JournalEntry.is_deleted == False,
             JournalEntryLine.is_deleted == False,
         )
@@ -789,8 +793,7 @@ def _gold_rows_from_posted_entry(invoice: Invoice, created_by: str = None, note:
                                        SafeBox.is_active == True).all()
         if sb.account_id is not None
     }
-    number = getattr(invoice, 'invoice_number', None) or str(getattr(invoice, 'id', ''))
-    created = []
+    plan = []
     for line in lines:
         sb = safe_by_account.get(int(line.account_id))
         if not sb:
@@ -801,72 +804,63 @@ def _gold_rows_from_posted_entry(invoice: Invoice, created_by: str = None, note:
         for side, direction in (('debit', 'in'), ('credit', 'out')):
             if only_direction and direction != only_direction:
                 continue
-            w = {k: float(getattr(line, f'{side}_{k}') or 0) for k in ('18k', '21k', '22k', '24k')}
+            w = {k: float(getattr(line, f'{side}_{k}') or 0) for k in KARAT_KEYS}
             if not any(v > 0.0005 for v in w.values()):
                 continue
-            tx = SafeBoxTransaction(
-                safe_box_id=sb.id, ref_type='invoice_gold', ref_id=invoice.id, invoice_id=invoice.id,
-                direction=direction, amount_cash=0.0,
-                weight_18k=round(w['18k'], 6), weight_21k=round(w['21k'], 6),
-                weight_22k=round(w['22k'], 6), weight_24k=round(w['24k'], 6),
-                notes=f"Invoice {number} - {getattr(invoice, 'invoice_type', '')} {note}".rstrip(),
-                created_by=created_by,
-            )
-            db.session.add(tx)
-            created.append(tx)
+            plan.append({'safe_box_id': int(sb.id), 'direction': direction,
+                         'weights': {k: round(v, 6) for k, v in w.items()}, 'stones': {}})
+    return plan
+
+
+def _write_gold_plan(invoice: Invoice, plan: list, created_by: str = None, note: str = '') -> list:
+    """The invoice_gold safe rows of *plan*."""
+    number = getattr(invoice, 'invoice_number', None) or str(getattr(invoice, 'id', ''))
+    created = []
+    for row in plan:
+        w = row['weights']
+        tx = SafeBoxTransaction(
+            safe_box_id=row['safe_box_id'], ref_type='invoice_gold', ref_id=invoice.id, invoice_id=invoice.id,
+            payment_method_id=None, direction=row['direction'], amount_cash=0.0,
+            weight_18k=w.get('18k', 0.0), weight_21k=w.get('21k', 0.0),
+            weight_22k=w.get('22k', 0.0), weight_24k=w.get('24k', 0.0),
+            notes=f"Invoice {number} - {getattr(invoice, 'invoice_type', '')} {note}".rstrip(),
+            created_by=created_by,
+        )
+        stones = row.get('stones') or {}
+        if any(v > 1e-6 for v in stones.values()):
+            tx.stones_weight = round(sum(stones.values()), 6)
+            for k, v in stones.items():
+                setattr(tx, f'stones_{k}', round(v, 6))
+        db.session.add(tx)
+        created.append(tx)
     return created
 
 
-def _append_safe_transactions_for_invoice_gold(invoice: Invoice, created_by: str = None):
-    """Append SafeBoxTransaction rows representing gold inventory movements for an invoice.
+def _gold_rows_from_posted_entry(invoice: Invoice, created_by: str = None, note: str = '',
+                                 only_direction: str | None = None) -> list:
+    """The invoice's gold safe rows, read from its posted entry: for every gold
+    safe whose account the entry moved, a row of exactly those grams.
+    only_direction keeps the old GL fallback's one side, by invoice type."""
+    return _write_gold_plan(invoice, _entry_gold_plan(invoice, only_direction=only_direction), created_by, note)
 
-    Source weights:
-    - Prefer InvoiceKaratLine (bulk purchases).
-    - Fallback to InvoiceItem weight * quantity.
 
-    Ledger is append-only; reversal is handled by a separate helper.
+def invoice_gold_plan(invoice: Invoice, *, posted: bool = True) -> list:
+    """The gold safe rows posting writes for *invoice* -- computed, not written.
+
+    One rule for posting (_append_safe_transactions_for_invoice_gold) and for
+    the safes screen's pending column (posted=False: a held invoice, its draft
+    entry). Source weights: the karat lines (bulk purchases), else the items'
+    recorded weights; a supplier purchase or return reads its entry.
     """
-    if not invoice or not getattr(invoice, 'id', None):
-        return []
-
-    # تحقق من الرصيد الصافي: إذا كان لا يزال موجباً (الذهب في الخزينة) → تجاهل
-    # إذا كان صفراً (عُكس كلياً) → أعد إنشاء الحركات (دعم دورات إعادة الترحيل)
-    all_gold_sbts = SafeBoxTransaction.query.filter_by(ref_type='invoice_gold', ref_id=invoice.id).all()
-    if all_gold_sbts:
-        all_rev_sbts  = SafeBoxTransaction.query.filter_by(ref_type='invoice_gold_reversal', ref_id=invoice.id).all()
-        net_gold = sum(
-            (float(t.weight_18k or 0) + float(t.weight_21k or 0) + float(t.weight_22k or 0) + float(t.weight_24k or 0))
-            * (1 if t.direction == 'in' else -1)
-            for t in all_gold_sbts
-        ) + sum(
-            (float(t.weight_18k or 0) + float(t.weight_21k or 0) + float(t.weight_22k or 0) + float(t.weight_24k or 0))
-            * (1 if t.direction == 'in' else -1)
-            for t in all_rev_sbts
-        )
-        if net_gold > 1e-6:
-            # الذهب لا يزال مسجلاً في الخزينة → لا تضاعف
-            return []
-        # الرصيد الصافي = 0 (عُكس كلياً) → مسموح بإعادة الإنشاء
-
-    # Remove provisional invoice_scrap_receipt entries created at invoice-save time
-    # (before posting). These are placeholders that would cause double-counting once
-    # the definitive invoice_gold SBT is created here with its matching GL entry.
-    provisional = SafeBoxTransaction.query.filter(
-        SafeBoxTransaction.ref_type.in_(['invoice_scrap_receipt', 'invoice_scrap_return']),
-        SafeBoxTransaction.ref_id == invoice.id,
-    ).all()
-    for _sbt in provisional:
-        db.session.delete(_sbt)
-
-    # A supplier purchase or return: its rows are what its posted entry moved on
-    # each gold safe's account -- so the statement cannot disagree with the
+    # A supplier purchase or return: its rows are what its entry moves on each
+    # gold safe's account -- so the statement cannot disagree with the
     # balance, posted at creation or later. One a closing-office reservation
     # settled gets none: its gold is the reservation's, on our account's safe at
     # the office, until a voucher moves it (SAFEBOX-001 S1, the owner 1 Oct 2026).
     if _is_supplier_purchase(invoice):
         if _settled_by_reservation(invoice):
             return []
-        return _gold_rows_from_posted_entry(invoice, created_by)
+        return _entry_gold_plan(invoice, posted=posted)
 
     weights_by_karat = {18: 0.0, 21: 0.0, 22: 0.0, 24: 0.0}
     stones_by_karat  = {18: 0.0, 21: 0.0, 22: 0.0, 24: 0.0}  # فصوص حسب العيار
@@ -939,66 +933,76 @@ def _append_safe_transactions_for_invoice_gold(invoice: Invoice, created_by: str
             if sw > 0 and is_customer_scrap_purchase:
                 stones_by_karat[karat] += sw
 
+    direction = _direction_for_invoice_gold(getattr(invoice, 'invoice_type', None))
+
     # --- GL fallback: if weight extraction from items/karat-lines yielded nothing,
-    #     read the already-committed GL lines for this invoice. ---
+    #     read the invoice's entry for its one side. ---
     if all(v <= 0.0005 for v in weights_by_karat.values()):
         try:
-            return _gold_rows_from_posted_entry(
-                invoice, created_by, note='[GL-fallback]',
-                only_direction=_direction_for_invoice_gold(getattr(invoice, 'invoice_type', None)))
+            return [dict(row, fallback=True)
+                    for row in _entry_gold_plan(invoice, posted=posted, only_direction=direction)]
         except Exception:
-            pass  # GL fallback failed; let the normal path continue (zero weights → no rows → no exception)
+            return []
 
-    direction = _direction_for_invoice_gold(getattr(invoice, 'invoice_type', None))
-    invoice_number = getattr(invoice, 'invoice_number', None) or str(getattr(invoice, 'id', ''))
-
-    created = []
+    plan = []
     for karat, grams in weights_by_karat.items():
         if grams <= 0.0005:
             continue
-
         sb = _resolve_gold_safe_for_invoice(invoice, karat)
         if not sb:
             raise Exception(f'لا توجد خزينة ذهب نشطة لعيار {karat}')
-
-        tx = SafeBoxTransaction(
-            safe_box_id=sb.id,
-            ref_type='invoice_gold',
-            ref_id=invoice.id,
-            invoice_id=invoice.id,
-            payment_method_id=None,
-            direction=direction,
-            amount_cash=0.0,
-            notes=f"Invoice {invoice_number} - {getattr(invoice, 'invoice_type', '')}",
-            created_by=created_by,
-        )
-
-        grams = float(grams)
-        if karat == 18:
-            tx.weight_18k = grams
-        elif karat == 22:
-            tx.weight_22k = grams
-        elif karat == 24:
-            tx.weight_24k = grams
-        else:
-            tx.weight_21k = grams
-
-        # إضافة الفصوص المقابلة لهذا العيار (للفواتير الكسر من العميل)
+        key = f'{karat}k'
+        row = {'safe_box_id': int(sb.id), 'direction': direction,
+               'weights': {k: (float(grams) if k == key else 0.0) for k in KARAT_KEYS}, 'stones': {}}
         stones_for_karat = stones_by_karat.get(karat, 0.0)
         if stones_for_karat > 1e-6:
-            try:
-                tx.stones_weight = round(stones_for_karat, 6)
-                if karat == 18:   tx.stones_18k = round(stones_for_karat, 6)
-                elif karat == 21: tx.stones_21k = round(stones_for_karat, 6)
-                elif karat == 22: tx.stones_22k = round(stones_for_karat, 6)
-                elif karat == 24: tx.stones_24k = round(stones_for_karat, 6)
-            except Exception:
-                pass
+            row['stones'] = {key: stones_for_karat}
+        plan.append(row)
+    return plan
 
-        db.session.add(tx)
-        created.append(tx)
 
-    return created
+def _append_safe_transactions_for_invoice_gold(invoice: Invoice, created_by: str = None):
+    """Append SafeBoxTransaction rows representing gold inventory movements for an invoice.
+
+    What it writes is invoice_gold_plan(invoice) -- the same rule the safes
+    screen's pending column reads. Ledger is append-only; reversal is handled
+    by a separate helper.
+    """
+    if not invoice or not getattr(invoice, 'id', None):
+        return []
+
+    # تحقق من الرصيد الصافي: إذا كان لا يزال موجباً (الذهب في الخزينة) → تجاهل
+    # إذا كان صفراً (عُكس كلياً) → أعد إنشاء الحركات (دعم دورات إعادة الترحيل)
+    all_gold_sbts = SafeBoxTransaction.query.filter_by(ref_type='invoice_gold', ref_id=invoice.id).all()
+    if all_gold_sbts:
+        all_rev_sbts  = SafeBoxTransaction.query.filter_by(ref_type='invoice_gold_reversal', ref_id=invoice.id).all()
+        net_gold = sum(
+            (float(t.weight_18k or 0) + float(t.weight_21k or 0) + float(t.weight_22k or 0) + float(t.weight_24k or 0))
+            * (1 if t.direction == 'in' else -1)
+            for t in all_gold_sbts
+        ) + sum(
+            (float(t.weight_18k or 0) + float(t.weight_21k or 0) + float(t.weight_22k or 0) + float(t.weight_24k or 0))
+            * (1 if t.direction == 'in' else -1)
+            for t in all_rev_sbts
+        )
+        if net_gold > 1e-6:
+            # الذهب لا يزال مسجلاً في الخزينة → لا تضاعف
+            return []
+        # الرصيد الصافي = 0 (عُكس كلياً) → مسموح بإعادة الإنشاء
+
+    # Remove provisional invoice_scrap_receipt entries created at invoice-save time
+    # (before posting). These are placeholders that would cause double-counting once
+    # the definitive invoice_gold SBT is created here with its matching GL entry.
+    provisional = SafeBoxTransaction.query.filter(
+        SafeBoxTransaction.ref_type.in_(['invoice_scrap_receipt', 'invoice_scrap_return']),
+        SafeBoxTransaction.ref_id == invoice.id,
+    ).all()
+    for _sbt in provisional:
+        db.session.delete(_sbt)
+
+    plan = invoice_gold_plan(invoice)
+    note = '[GL-fallback]' if any(row.get('fallback') for row in plan) else ''
+    return _write_gold_plan(invoice, plan, created_by, note)
 
 
 def _restore_scrap_provisional_sbts(invoice: Invoice, created_by: str = None) -> None:
