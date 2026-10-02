@@ -31,7 +31,7 @@ CASES = [
     ('POST', '/api/suppliers', 'MC'),
     ('DELETE', '/api/suppliers/999999', 'M'),
     ('POST', '/api/vouchers', 'MC'),
-    ('POST', '/api/vouchers/999999/approve', 'M'),
+    ('POST', '/api/vouchers/999999/approve', 'MC'),   # the accountant within the limit (R4: tests/test_who_creates_does_not_approve.py)
 ]
 ROLES = {'M': 'manager', 'C': 'accountant', 'S': 'storekeeper', 'E': 'employee'}
 

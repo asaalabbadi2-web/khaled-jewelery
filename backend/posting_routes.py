@@ -19,6 +19,7 @@ app.register_blueprint(posting_bp, url_prefix='/api')
 from __future__ import annotations
 
 from flask import Blueprint, request, jsonify, g
+from services.approval_policy import refuse_unless_may_approve_voucher, refuse_unless_may_post_entry
 from datetime import datetime, timedelta
 from models import (
     db,
@@ -44,7 +45,7 @@ from models import (
 )
 from sqlalchemy import func, case, or_, and_
 import json
-from auth_decorators import require_permission, optional_auth, require_auth
+from auth_decorators import require_any_permission, require_permission, optional_auth, require_auth
 from services.invoice_payment_state_service import (
     sync_invoice_cash_payment_after_voucher_approval,
 )
@@ -2624,6 +2625,10 @@ def post_journal_entry(entry_id):
                 'success': False,
                 'message': 'لا يمكن ترحيل قيد مرتبط بفاتورة بشكل منفرد. يرجى ترحيل الفاتورة من تبويب الفواتير.'
             }), 400
+
+        refused = refuse_unless_may_post_entry(entry)   # who creates does not post (ADR-036 R4)
+        if refused:
+            return refused
         
         # التحقق من التوازن قبل الترحيل (النظام يستخدم cash_debit/credit و karat debits/credits)
         total_cash_debit = sum(line.cash_debit or 0 for line in entry.lines if not line.is_deleted)
@@ -2735,6 +2740,10 @@ def post_journal_entries_batch():
                 # ⛔ تخطي قيود الفواتير — يجب ترحيلها عبر بوابة ترحيل الفواتير
                 if getattr(entry, 'reference_type', None) == 'invoice':
                     errors.append(f"القيد {entry.entry_number} مرتبط بفاتورة — يُرحَّل تلقائياً مع الفاتورة")
+                    skipped_count += 1
+                    continue
+                if refuse_unless_may_post_entry(entry):   # who creates does not post (ADR-036 R4)
+                    errors.append(f"القيد {entry.entry_number}: لا يرحّله من أنشأه")
                     skipped_count += 1
                     continue
 
@@ -3429,7 +3438,7 @@ def _create_and_post_karat_diff_entries_for_voucher(voucher, posted_by: str):
 
 
 @posting_bp.route('/vouchers/approve/<int:voucher_id>', methods=['POST'])
-@require_permission('vouchers.approve')
+@require_any_permission('vouchers.approve', 'vouchers.approve_within_limit')
 def approve_voucher(voucher_id):
     """
     الموافقة على سند
@@ -3463,6 +3472,10 @@ def approve_voucher(voucher_id):
         if _standing:
             return jsonify({'success': False, 'error': 'voucher_state_inconsistent',
                             'message': LEGACY_VOUCHER_MESSAGE, 'detail': _standing}), 409
+
+        refused = refuse_unless_may_approve_voucher(voucher)   # who creates does not approve (ADR-036 R4)
+        if refused:
+            return refused
 
         # If voucher is already linked to a journal entry, do not create a new one.
         # Still ensure SafeBoxTransaction exists (idempotent).
@@ -3666,7 +3679,7 @@ def reject_voucher(voucher_id):
 
 
 @posting_bp.route('/vouchers/approve/batch', methods=['POST'])
-@require_permission('vouchers.approve')
+@require_any_permission('vouchers.approve', 'vouchers.approve_within_limit')
 def approve_vouchers_batch():
     """
     الموافقة على مجموعة سندات دفعة واحدة
@@ -3706,6 +3719,10 @@ def approve_vouchers_batch():
 
                 if voucher_state_problem(voucher):
                     errors.append(f'السند {voucher.voucher_number}: {LEGACY_VOUCHER_MESSAGE}')
+                    continue
+
+                if refuse_unless_may_approve_voucher(voucher):   # who creates does not approve (ADR-036 R4)
+                    errors.append(f'السند {voucher.voucher_number}: لا يعتمده من أنشأه، أو فوق حدّ الاعتماد')
                     continue
 
                 # Post voucher: create JE if missing, then SafeBoxTransaction.

@@ -2725,6 +2725,9 @@ class Settings(db.Model):
     # 🆕 هامش فرق سداد الذهب (المالك، 2 أكتوبر 2026): رقم ثابت بغرامات العيار الرئيسي،
     # زاد الوزن أو نقص -- فرق داخله يُعدّ مسدَّدًا. سياسة لا قانون.
     gold_settlement_tolerance_grams = db.Column(db.Float, default=0.05, server_default='0.05')
+    # Under these the accountant approves another's voucher himself (ADR-036 R4); 0 = nothing.
+    accountant_approval_limit_cash = db.Column(db.Float, default=0.0, server_default='0')
+    accountant_approval_limit_gold_grams = db.Column(db.Float, default=0.0, server_default='0')
     weight_closing_settings = db.Column(db.Text, nullable=True)
 
     # 🆕 تحديث سعر الذهب تلقائياً حسب توقيت معين
@@ -2903,6 +2906,8 @@ class Settings(db.Model):
             'voucher_auto_post': self.voucher_auto_post,
             'gold_settlement_tolerance_grams': float(self.gold_settlement_tolerance_grams
                                                      if self.gold_settlement_tolerance_grams is not None else 0.05),
+            'accountant_approval_limit_cash': float(self.accountant_approval_limit_cash or 0.0),
+            'accountant_approval_limit_gold_grams': float(self.accountant_approval_limit_gold_grams or 0.0),
 
             # 🆕 Posting Preferences
             'auto_post_invoices': bool(getattr(self, 'auto_post_invoices', True)),

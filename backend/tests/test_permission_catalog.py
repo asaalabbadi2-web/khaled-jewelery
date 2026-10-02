@@ -58,7 +58,7 @@ MATRIX = {
     'safe_boxes.transfer': 'MCS',
     'journal.view': 'MC', 'journal.create': 'MC', 'journal.edit': 'MC', 'journal.delete': '',
     'journal.post': 'MC', 'journal.unpost': 'M',
-    'vouchers.view': 'MC', 'vouchers.create': 'MC', 'vouchers.edit': 'MC', 'vouchers.approve': 'M',
+    'vouchers.view': 'MC', 'vouchers.create': 'MC', 'vouchers.edit': 'MC', 'vouchers.approve': 'M', 'vouchers.approve_within_limit': 'C',
     'vouchers.delete': 'M', 'vouchers.cancel': 'M', 'vouchers.attribute': 'MC',
     'supplier_settlement_adjustments.view': 'MC', 'supplier_settlement_adjustments.create': 'MC',
     'supplier_settlement_adjustments.approve': 'MC', 'supplier_settlement_adjustments.approve_other': 'M',

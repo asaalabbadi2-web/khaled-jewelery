@@ -118,6 +118,7 @@ ACCOUNTING_PERMISSIONS = {
     'vouchers.create': 'إنشاء سندات',
     'vouchers.edit': 'تعديل السندات',
     'vouchers.approve': 'اعتماد السندات ورفضها',
+    'vouchers.approve_within_limit': 'اعتماد سندات غيره ضمن حدّ الإعدادات',
     'vouchers.delete': 'حذف سندات',
     'vouchers.cancel': 'إلغاء سندات',
     'vouchers.attribute': 'نسب ذهب السند ونقده إلى فاتورة',
@@ -223,6 +224,7 @@ ROLE_PERMISSIONS = {
         'safe_boxes.view', 'safe_boxes.transfer',
         'journal.view', 'journal.create', 'journal.edit', 'journal.post',
         'vouchers.view', 'vouchers.create', 'vouchers.edit', 'vouchers.attribute',
+        'vouchers.approve_within_limit',
         # تسويات فروقات الموردين — بلا approve_other: السبب «أخرى» يستلزم مديراً
         'supplier_settlement_adjustments.view',
         'supplier_settlement_adjustments.create',

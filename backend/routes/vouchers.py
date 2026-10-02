@@ -5,6 +5,8 @@ import json
 from datetime import datetime, date, timedelta
 
 from flask import Blueprint, g, jsonify, request
+from auth_decorators import require_any_permission
+from services.approval_policy import actor, may_approve_own, refuse_unless_may_approve_voucher
 from services.read_scope import refuse_voucher_list_unless_allowed
 from sqlalchemy import String, cast, case, func, or_
 from sqlalchemy.orm import joinedload
@@ -765,7 +767,7 @@ def _upsert_voucher_from_payload(voucher, data, *, is_create=False):
                             reference_type='voucher',
                             reference_id=voucher.id,
                             is_posted=False,
-                            created_by=data.get('created_by', 'system'),
+                            created_by=voucher.created_by or 'system',
                         )
                         db.session.add(je_commission)
                         db.session.flush()
@@ -855,7 +857,7 @@ def create_voucher():
             reference_id=None,
             reference_number=None,
             notes=None,
-            created_by=data.get('created_by', 'system'),
+            created_by=actor(),   # the session's user, not the request's text (ADR-036 R4)
             status='pending'
         )
         
@@ -877,9 +879,11 @@ def create_voucher():
         except Exception:
             _should_auto_post = False
 
-        if _should_auto_post:
+        # Who creates does not approve (ADR-036 R4): auto-approval at creation is
+        # the owner's alone; anyone else's voucher waits for an approver.
+        if _should_auto_post and may_approve_own():
             try:
-                approved_by = data.get('created_by', 'system')
+                approved_by = actor()
                 journal_entry = create_journal_entry_from_voucher(voucher)
                 journal_entry.is_posted = True
                 journal_entry.posted_at = datetime.now()
@@ -1025,7 +1029,7 @@ def delete_voucher(voucher_id):
         return jsonify({'error': f'Failed to delete voucher: {str(e)}'}), 500
 
 @vouchers_bp.route('/vouchers/<int:voucher_id>/approve', methods=['POST'])
-@require_permission('vouchers.approve')
+@require_any_permission('vouchers.approve', 'vouchers.approve_within_limit')
 def approve_voucher(voucher_id):
     """
     ترحيل السند (Approve/Post Voucher)
@@ -1051,9 +1055,11 @@ def approve_voucher(voucher_id):
     
     if voucher.journal_entry_id:
         return jsonify({'error': 'السند مرتبط بقيد محاسبي بالفعل'}), 400
-    
-    data = request.get_json() or {}
-    approved_by = data.get('approved_by', 'user')
+
+    refused = refuse_unless_may_approve_voucher(voucher)   # who creates does not approve (ADR-036 R4)
+    if refused:
+        return refused
+    approved_by = actor()
     
     try:
         # إنشاء القيد المحاسبي

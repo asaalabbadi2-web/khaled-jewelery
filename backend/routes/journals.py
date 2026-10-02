@@ -4,6 +4,7 @@ from __future__ import annotations
 from datetime import datetime, date, timedelta
 
 from flask import Blueprint, g, jsonify, request
+from services.approval_policy import actor, may_approve_own
 from sqlalchemy import String, and_, cast, func, or_
 from sqlalchemy.orm import joinedload
 
@@ -576,6 +577,7 @@ def add_journal_entry():
             entry_type=data.get('entry_type', 'عادي'),  # 🆕 نوع القيد
             reference_type=data.get('reference_type'),
             reference_number=data.get('reference_number'),
+            created_by=actor(),   # the session's user (ADR-036 R4); a manual entry recorded none
         )
         db.session.add(new_entry)
         db.session.flush() # Get the ID for the lines
@@ -615,7 +617,9 @@ def add_journal_entry():
             except Exception:
                 _auto_post_je = False
 
-            if _auto_post_je:
+            # Who creates does not post (ADR-036 R4): auto-posting at creation is the
+            # owner's alone; anyone else's entry waits for another to post it.
+            if _auto_post_je and may_approve_own():
                 new_entry.is_posted = True
                 new_entry.posted_at = datetime.now()
                 new_entry.posted_by = getattr(g, 'current_user', None) and getattr(g.current_user, 'username', 'system') or 'system'

@@ -115,6 +115,9 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
   bool _voucherAutoPost = false;
   // هامش فرق سداد الذهب (2 أكتوبر 2026): رقم ثابت بالغرام، زاد الوزن أو نقص.
   final TextEditingController _goldToleranceGramsController = TextEditingController(text: '0.05');
+  // حدّ اعتماد المحاسب (ADR-036 R4): يعتمد سندات غيره ما دونه؛ 0 = لا شيء.
+  final TextEditingController _accountantLimitCashController = TextEditingController(text: '0');
+  final TextEditingController _accountantLimitGoldController = TextEditingController(text: '0');
 
   // ---------------------------------------------------------------------------
   // 🆕 Feature toggles + default safes (employee routing)
@@ -185,6 +188,8 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
   @override
   void dispose() {
     _goldToleranceGramsController.dispose();
+    _accountantLimitCashController.dispose();
+    _accountantLimitGoldController.dispose();
     _systemScrollController.dispose();
     _tabController.dispose();
     _currencyController.dispose();
@@ -367,6 +372,10 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
         );
         _goldToleranceGramsController.text =
             '${(settings['gold_settlement_tolerance_grams'] as num?) ?? 0.05}';
+        _accountantLimitCashController.text =
+            '${(settings['accountant_approval_limit_cash'] as num?) ?? 0}';
+        _accountantLimitGoldController.text =
+            '${(settings['accountant_approval_limit_gold_grams'] as num?) ?? 0}';
 
         // 🆕 Feature toggles + default safes
         _employeeCashSafesEnabled = _safeBool(
@@ -456,6 +465,10 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
       'voucher_auto_post': _voucherAutoPost,
       'gold_settlement_tolerance_grams':
           double.tryParse(_goldToleranceGramsController.text.trim()) ?? 0.05,
+      'accountant_approval_limit_cash':
+          double.tryParse(_accountantLimitCashController.text.trim()) ?? 0.0,
+      'accountant_approval_limit_gold_grams':
+          double.tryParse(_accountantLimitGoldController.text.trim()) ?? 0.0,
       'require_auth_for_invoice_create': _requireAuthForInvoiceCreate,
       'idle_timeout_enabled': _idleTimeoutEnabled,
       'idle_timeout_minutes': _idleTimeoutMinutes,
@@ -1145,6 +1158,31 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
                 labelText: 'الهامش (غرام بالعيار الرئيسي)',
                 helperText: 'مثلًا 0.05 — من 0 إلى 5',
               ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 20),
+        _buildSectionCard(
+          icon: Icons.verified_user_outlined,
+          iconColor: _primaryColor,
+          title: 'حدّ اعتماد المحاسب',
+          children: [
+            Text(
+              'لا يعتمد السند من أنشأه. يعتمد المحاسب سندات غيره ما دون هذا الحدّ نقدًا ووزنًا، '
+              'وما فوقه يعتمده المدير. صفر = لا يعتمد المحاسب شيئًا.',
+              style: Theme.of(context).textTheme.bodyMedium,
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _accountantLimitCashController,
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              decoration: const InputDecoration(labelText: 'الحدّ النقدي (ريال)'),
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _accountantLimitGoldController,
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              decoration: const InputDecoration(labelText: 'حدّ الذهب (غرام بالعيار الرئيسي)'),
             ),
           ],
         ),

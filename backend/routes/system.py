@@ -669,6 +669,8 @@ def update_settings():
         'manufacturing_wage_mode',
         'voucher_auto_post',
         'gold_settlement_tolerance_grams',
+        'accountant_approval_limit_cash',
+        'accountant_approval_limit_gold_grams',
         'auto_post_invoices',
         'auto_post_entries',
         'require_approval_before_post',
@@ -708,6 +710,17 @@ def update_settings():
             if _value < 0 or _value > _limit:
                 return jsonify({'error': 'invalid_tolerance',
                                 'message': f'{_key} بين 0 و{_limit}'}), 400
+            setattr(settings, _key, _value)
+
+    # حدّ اعتماد المحاسب (ADR-036 R4): غير سالب؛ 0 = لا يعتمد شيئًا
+    for _key in ('accountant_approval_limit_cash', 'accountant_approval_limit_gold_grams'):
+        if _key in data:
+            try:
+                _value = float(data[_key])
+            except (TypeError, ValueError):
+                return jsonify({'error': 'invalid_approval_limit', 'message': f'{_key} يجب أن يكون رقمًا'}), 400
+            if _value < 0:
+                return jsonify({'error': 'invalid_approval_limit', 'message': f'{_key} لا يكون سالبًا'}), 400
             setattr(settings, _key, _value)
 
     # إعدادات أساسية
