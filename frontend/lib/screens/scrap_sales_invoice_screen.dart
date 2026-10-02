@@ -21,10 +21,19 @@ class ScrapSalesInvoiceScreen extends StatefulWidget {
   final List<Map<String, dynamic>> items;
   final List<Map<String, dynamic>> customers;
 
+  /// Edit mode: an unposted scrap sale. It opened in the ordinary sale screen,
+  /// which sends no gold_type, and sale #1540 came back a sale of new gold (the
+  /// owner, 2 Oct 2026). The server keeps its number, its date and its kind;
+  /// this screen corrects the lines and the payments.
+  final int? editInvoiceId;
+  final Map<String, dynamic>? editInvoiceData;
+
   const ScrapSalesInvoiceScreen({
     super.key,
     required this.items,
     required this.customers,
+    this.editInvoiceId,
+    this.editInvoiceData,
   });
 
   @override
@@ -104,6 +113,61 @@ class _ScrapSalesInvoiceScreenState extends State<ScrapSalesInvoiceScreen> {
     _loadPaymentMethods(); // 🆕 جلب وسائل الدفع
     _loadDefaultSafeBox(); // 🆕 تحميل الخزينة
     _smartInputFocus.requestFocus();
+    if (_isEditMode) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _prefillFromExistingInvoice());
+    }
+  }
+
+  bool get _isEditMode => widget.editInvoiceId != null;
+
+  // ==================== Edit Mode Prefill ====================
+  void _prefillFromExistingInvoice() {
+    final data = widget.editInvoiceData;
+    if (data == null || !mounted) return;
+    double num0(dynamic v) => v is num ? v.toDouble() : double.tryParse('${v ?? ''}') ?? 0.0;
+    int? int0(dynamic v) => v is int ? v : int.tryParse('${v ?? ''}');
+    setState(() {
+      _selectedCustomerId = int0(data['customer_id']);
+      _selectedBranchId = int0(data['branch_id']) ?? _selectedBranchId;
+      _selectedSafeBoxId = int0(data['safe_box_id']) ?? _selectedSafeBoxId;
+      _items.clear();
+      for (final raw in (data['items'] as List? ?? const [])) {
+        if (raw is! Map) continue;
+        final m = Map<String, dynamic>.from(raw);
+        final karat = num0(m['karat']);
+        final item = InvoiceItem(
+          id: int0(m['item_id']),
+          name: (m['name'] ?? '').toString(),
+          barcode: '',
+          karat: karat,
+          weight: num0(m['weight']),
+          wage: num0(m['wage']),
+          count: int0(m['quantity']) ?? 1,
+          goldPrice24k: _goldPrice24k,
+          mainKarat: _settingsProvider.mainKarat,
+          taxRate: _uiDisableVat ? 0.0 : _settingsProvider.taxRateForKarat(karat),
+        );
+        // The line's total as it was saved: net + tax, or its price.
+        final saved = num0(m['net']) > 0 ? num0(m['net']) + num0(m['tax']) : num0(m['price']);
+        if (saved > 0) item.setManualTotal(saved);
+        _items.add(item);
+      }
+      _payments.clear();
+      for (final raw in (data['payments'] as List? ?? const [])) {
+        if (raw is! Map) continue;
+        final m = Map<String, dynamic>.from(raw);
+        _payments.add(PaymentEntry(
+          paymentMethodId: int0(m['payment_method_id']) ?? 0,
+          paymentMethodName: (m['payment_method_name'] ?? '').toString(),
+          amount: num0(m['amount']),
+          commissionRate: num0(m['commission_rate']),
+          commissionAmount: num0(m['commission_amount']),
+          commissionVat: num0(m['commission_vat']),
+          netAmount: num0(m['net_amount']),
+          settlementDays: int0(m['settlement_days']) ?? 0,
+        ));
+      }
+    });
   }
 
   Future<void> _loadInvoiceUiSettingsFromPrefs() async {
@@ -1708,7 +1772,9 @@ class _ScrapSalesInvoiceScreenState extends State<ScrapSalesInvoiceScreen> {
         'items': _items.map((item) => item.toJson()).toList(),
       };
 
-      final response = await apiService.addInvoice(invoiceData);
+      final response = _isEditMode
+          ? await apiService.updateUnpostedInvoice(widget.editInvoiceId!, invoiceData)
+          : await apiService.addInvoice(invoiceData);
 
       final approvalRequired = response['approval_required'] == true;
       final approvalReasons = (response['approval_reasons'] is List)
@@ -1767,6 +1833,16 @@ class _ScrapSalesInvoiceScreenState extends State<ScrapSalesInvoiceScreen> {
             ),
           );
         }
+      }
+
+      // Edit mode: back to the invoices list, which reloads on `true`.
+      if (_isEditMode) {
+        if (!context.mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('تم حفظ التعديل — بيع كسر برقمه وتاريخه')),
+        );
+        Navigator.of(context).pop(true);
+        return;
       }
 
       if (context.mounted) {
@@ -2263,7 +2339,9 @@ class _ScrapSalesInvoiceScreenState extends State<ScrapSalesInvoiceScreen> {
             backgroundColor: AppColors.invoiceSaleScrap,
             foregroundColor: Colors.white,
             iconTheme: const IconThemeData(color: Colors.white),
-            title: const Text('فاتورة بيع الكسر'),
+            title: Text(_isEditMode
+                ? 'تعديل فاتورة بيع الكسر #${widget.editInvoiceData?['invoice_type_id'] ?? ''}'
+                : 'فاتورة بيع الكسر'),
             bottom: PreferredSize(
               preferredSize: const Size.fromHeight(26.0),
               child: Container(

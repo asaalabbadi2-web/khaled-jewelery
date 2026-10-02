@@ -22,6 +22,13 @@ import 'scrap_sales_invoice_screen.dart';
 import 'voucher_details_screen.dart';
 // import 'add_invoice_screen.dart'; // TODO: Uncomment when implementing add invoice
 
+/// A sale of scrap gold is saved as «بيع» with gold_type 'scrap'. It is
+/// edited on the screen that made it: the ordinary sale screen sends no
+/// gold_type, and sale #1540 came back a sale of new gold (the owner, 2 Oct 2026).
+bool isScrapSale(Map<String, dynamic> invoice) =>
+    (invoice['invoice_type'] ?? '').toString() == 'بيع' &&
+    (invoice['gold_type'] ?? '').toString().trim().toLowerCase() == 'scrap';
+
 // حالة سطر واحد عند تقسيم دفعة فاتورة على عدة وسائل دفع
 // (انظر _showCorrectPaymentMethodDialog).
 class _SplitRowState {
@@ -5104,7 +5111,16 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
 
       Widget? screen;
 
-      if (invoiceType == 'بيع') {
+      if (isScrapSale(fullInvoice)) {
+        final customers = _cloneDataList(await _getCachedCustomers());
+        final items = _cloneDataList(await _getCachedItems());
+        screen = ScrapSalesInvoiceScreen(
+          customers: customers,
+          items: items,
+          editInvoiceId: invoiceId,
+          editInvoiceData: fullInvoice,
+        );
+      } else if (invoiceType == 'بيع') {
         final items = _cloneDataList(await _getCachedItems());
         final saleItems = _filterSaleReadyItems(items);
         final customers = _cloneDataList(await _getCachedCustomers());

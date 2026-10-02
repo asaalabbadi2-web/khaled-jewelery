@@ -24,7 +24,7 @@ InvoiceAttributionSheet _sheet({
             AttributionCandidate(invoiceId: 10, label: 'شراء #150', open: 400, date: DateTime(2026, 8, 1)),
             AttributionCandidate(invoiceId: 3133, label: 'شراء #187', open: 1150, date: DateTime(2026, 9, 27)),
           ],
-      onAttribute: onAttribute ?? (_, __) async {},
+      onAttribute: onAttribute ?? (_, _) async {},
       onRemove: (_) async {},
     );
 

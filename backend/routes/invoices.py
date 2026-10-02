@@ -1085,9 +1085,28 @@ def update_unposted_invoice(invoice_id: int):
             'records': history,
         }), 409
 
+    # An edit keeps what kind of invoice it is -- its type and its gold. The
+    # invoices list opened a scrap sale in the ordinary sale screen, which sends
+    # no gold_type, and sale #1540 came back a sale of new gold: its gold left
+    # the display safe, not the scrap safe (the owner, 2 Oct 2026). Sent
+    # nothing, the original's stands; sent another, refuse before deleting.
+    original_gold_type = (invoice.gold_type or 'new').strip().lower()
+    sent_type = data.get('invoice_type')
+    sent_gold = (str(data.get('gold_type') or '').strip().lower()) or None
+    if (sent_type and sent_type != invoice.invoice_type) or (sent_gold and sent_gold != original_gold_type):
+        return jsonify({
+            'error': 'edit_changes_invoice_kind',
+            'message': (
+                f'التعديل لا يغيّر نوع الفاتورة: هذه «{invoice.invoice_type}» '
+                f'{"كسر" if original_gold_type == "scrap" else "ذهب جديد"}، ولم تتغيّر. '
+                'لتغيير نوعها ارفضها وأنشئ فاتورة من الشاشة الصحيحة.'
+            ),
+        }), 409
+
     # Preserve the original invoice_type_id so the display number stays the same.
     original_type_id = invoice.invoice_type_id
     original_invoice_type = invoice.invoice_type
+    original_gold_kept = (invoice.gold_type or '').strip().lower() or None
     original_date = invoice.date
     # Preserve who the invoice actually belongs to — editing must not
     # re-attribute it to whichever user happens to perform the edit.
@@ -1187,8 +1206,9 @@ def update_unposted_invoice(invoice_id: int):
     # --- 2. Re-create via the standard add_invoice flow ---
     # Merge caller data with preserved original fields.
     create_data = dict(data)
-    if 'invoice_type' not in create_data:
-        create_data['invoice_type'] = original_invoice_type
+    create_data['invoice_type'] = original_invoice_type
+    if original_gold_kept:
+        create_data['gold_type'] = original_gold_kept
     # An edit corrects the invoice; it stays the same invoice -- its number and
     # its date (the owner's rule, 30 Sep 2026, EDIT-001). The app sends the
     # moment of the edit as the date; the original wins.
