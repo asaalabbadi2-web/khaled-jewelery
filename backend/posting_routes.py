@@ -3045,6 +3045,7 @@ def unpost_journal_entries_batch():
 # ==========================================
 
 @posting_bp.route('/posting/stats', methods=['GET'])
+@require_permission('invoices.approve')
 @optional_auth
 def get_posting_stats():
     """عرض إحصائيات الترحيل (لا يتطلب صلاحيات)"""

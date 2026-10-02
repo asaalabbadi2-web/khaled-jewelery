@@ -5,6 +5,7 @@ import json
 from datetime import datetime, date, timedelta
 
 from flask import Blueprint, g, jsonify, request
+from services.read_scope import refuse_voucher_list_unless_allowed
 from sqlalchemy import String, cast, case, func, or_
 from sqlalchemy.orm import joinedload
 
@@ -150,6 +151,9 @@ def get_vouchers():
     - reference_type: string (invoice, voucher, journal_entry, manual)
     - reference_id: int
     """
+    refused = refuse_voucher_list_unless_allowed()   # a seller: their own invoice's vouchers (ADR-036 R3)
+    if refused:
+        return refused
     def _empty_summary():
         return {
             'total_vouchers': 0,
@@ -443,6 +447,7 @@ def get_vouchers():
     return jsonify(result)
 
 @vouchers_bp.route('/vouchers/<int:voucher_id>', methods=['GET'])
+@require_permission('vouchers.view')
 def get_voucher(voucher_id):
     """Get single voucher by ID"""
     voucher = Voucher.query.get_or_404(voucher_id)
@@ -1481,6 +1486,7 @@ def list_supplier_open_cash_obligations(supplier_id):
 
 
 @vouchers_bp.route('/vouchers/stats', methods=['GET'])
+@require_permission('vouchers.view')
 def get_vouchers_stats():
     """Get vouchers statistics"""
 

@@ -42,6 +42,7 @@ def delete_customer(id):
         return jsonify({'error': f'Failed to delete customer: {str(e)}'}), 500
 
 @customers_bp.route('/customers/<int:id>/statement', methods=['GET'])
+@require_permission('reports.customers')
 def get_customer_statement(id):
     """كشف حساب العميل (صيغة موحدة لشاشة كشف الحساب في Flutter).
 
@@ -317,6 +318,7 @@ def get_customer_statement(id):
     })
 
 @customers_bp.route('/customers/next-code', methods=['GET'])
+@require_permission('customers.create')
 def get_next_customer_code():
     """الحصول على الكود التالي المتاح للعميل"""
     from code_generator import generate_customer_code, get_customer_statistics
@@ -329,6 +331,7 @@ def get_next_customer_code():
     })
 
 @customers_bp.route('/customers/gold-balances', methods=['GET'])
+@require_permission('reports.customers')
 def get_customers_gold_balances():
     """Official customer gold balances (memo ledger).
 
@@ -378,6 +381,7 @@ def get_customers_gold_balances():
     return jsonify(results)
 
 @customers_bp.route('/customers', methods=['GET'])
+@require_permission('customers.view')
 def get_customers():
     customers = Customer.query.all()
     return jsonify([c.to_dict() for c in customers])

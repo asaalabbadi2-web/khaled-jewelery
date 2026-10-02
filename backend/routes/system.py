@@ -97,6 +97,7 @@ def _is_production_env() -> bool:
     return env in ('prod', 'production')
 
 @system_bp.route('/debug/db-info', methods=['GET'])
+@require_permission('system.settings')
 def debug_db_info():
     """Debug-only helper to confirm which DB the running backend is using.
 

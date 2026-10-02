@@ -4,6 +4,7 @@ API Routes للقيود الدورية (Recurring Journal Entries)
 """
 
 from flask import jsonify, request
+from auth_decorators import require_permission
 from datetime import datetime
 from routes import api  # استخدام نفس الـ blueprint
 from models import db
@@ -16,6 +17,7 @@ from recurring_journal_system import (
 
 
 @api.route('/recurring_templates', methods=['GET'])
+@require_permission('journal.view')
 def get_recurring_templates():
     """جلب جميع قوالب القيود الدورية"""
     try:
@@ -29,6 +31,7 @@ def get_recurring_templates():
 
 
 @api.route('/recurring_templates/<int:template_id>', methods=['GET'])
+@require_permission('journal.view')
 def get_recurring_template(template_id):
     """جلب قالب قيد دوري محدد"""
     try:
@@ -241,6 +244,7 @@ def process_all_recurring():
 
 
 @api.route('/recurring_templates/due_count', methods=['GET'])
+@require_permission('journal.view')
 def get_due_templates_count():
     """الحصول على عدد القيود الدورية المستحقة"""
     try:

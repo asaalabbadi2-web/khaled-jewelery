@@ -1787,7 +1787,10 @@ class _ScrapSalesInvoiceScreenState extends State<ScrapSalesInvoiceScreen> {
       String? approvalWarning;
       if (approvalRequired && !suppressPostSaveApprovalWarning) {
         final parts = <String>[];
-        if (approvalReasons.contains('below_cost')) {
+        if (approvalReasons.contains('below_cost') && response['below_cost'] is! Map) {
+          // Without costing.view the server says "under cost", not the cost (ADR-036).
+          parts.add('⚠️ بيع تحت التكلفة — يحتاج اعتماد المدير');
+        } else if (approvalReasons.contains('below_cost')) {
           final below = (response['below_cost'] is Map)
               ? Map<String, dynamic>.from(response['below_cost'])
               : const <String, dynamic>{};

@@ -1767,6 +1767,16 @@ class ApiService {
     }
   }
 
+  /// The scrap purchase screen's default price per gram of 24k -- the
+  /// suggestion alone, not the cost snapshot (ADR-036). Null when none.
+  Future<double?> getSuggestedPurchasePrice() async {
+    final response = await _authedGet(Uri.parse('$_baseUrl/gold-costing/suggested-purchase-price'));
+    if (response.statusCode != 200) return null;
+    final body = json.decode(utf8.decode(response.bodyBytes));
+    final value = body is Map ? body['price_per_gram_24k'] : null;
+    return value is num ? value.toDouble() : null;
+  }
+
   Future<Map<String, dynamic>> calculateGoldCostingCogs(
     double weightGrams,
   ) async {

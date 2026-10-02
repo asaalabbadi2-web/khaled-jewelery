@@ -1168,6 +1168,7 @@ def update_payment_methods_order():
         return jsonify({'error': str(e)}), 500
 
 @payment_methods_api.route('/payment-methods/bank-accounts', methods=['GET'])
+@require_permission('business.setup')
 def get_bank_accounts_for_payment_methods():
     """جلب الحسابات المتاحة لربط وسائل الدفع (النقدية وما في حكمها)"""
     try:

@@ -40,6 +40,7 @@ from accounting.mappings import get_account_id_by_number
 suppliers_bp = Blueprint('suppliers', __name__)
 
 @suppliers_bp.route('/suppliers/next-code', methods=['GET'])
+@require_permission('suppliers.create')
 def get_next_supplier_code():
     """الحصول على الكود التالي المتاح للمورد"""
     from code_generator import generate_supplier_code, get_supplier_statistics
@@ -99,6 +100,7 @@ def _current_balance_payload(supplier) -> dict:
 
 
 @suppliers_bp.route('/suppliers', methods=['GET'])
+@require_permission('suppliers.view')
 def get_suppliers():
     suppliers = Supplier.query.all()
 
@@ -434,6 +436,7 @@ def delete_supplier(id):
         return jsonify({'error': f'Failed to delete supplier: {str(e)}'}), 500
 
 @suppliers_bp.route('/suppliers/<int:supplier_id>/ledger', methods=['GET'])
+@require_permission('reports.purchases')
 def get_supplier_ledger(supplier_id):
     """Return cash/weight ledger summary and movements for a supplier."""
     supplier = Supplier.query.get_or_404(supplier_id)
@@ -726,6 +729,7 @@ def get_supplier_ledger(supplier_id):
     })
 
 @suppliers_bp.route('/suppliers/<int:supplier_id>/statement', methods=['GET'])
+@require_permission('reports.purchases')
 def get_supplier_weight_statement(supplier_id):
     """كشف حساب المورد (صيغة موحدة لشاشة كشف الحساب في Flutter)."""
     supplier = Supplier.query.get_or_404(supplier_id)
@@ -1067,6 +1071,7 @@ def get_supplier_weight_statement(supplier_id):
     })
 
 @suppliers_bp.route('/suppliers/<int:supplier_id>/weight-summary', methods=['GET'])
+@require_permission('reports.purchases')
 def get_supplier_weight_summary(supplier_id):
     """ملخص أرصدة المورد بالوزن + قيمة تقييمية (للإظهار فقط)."""
     supplier = Supplier.query.get_or_404(supplier_id)

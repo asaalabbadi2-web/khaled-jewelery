@@ -454,7 +454,11 @@ app.register_blueprint(internal_bp)             # ERP Sync internal API (/api/in
 app.register_blueprint(api, url_prefix='/api')  # ✅ API الرئيسي (أخيراً)
 # recurring_journal_routes تستخدم نفس api blueprint، لذا لا حاجة لتسجيلها
 
+from auth_decorators import require_permission  # noqa: E402
+
+
 @app.route("/routes")
+@require_permission('system.settings')   # the map of every route (SEC-008)
 def list_routes():
 	# Disable route listing in production unless explicitly enabled.
 	if _is_production() and os.getenv('ENABLE_ROUTE_LISTING', '0') not in ('1', 'true', 'True'):

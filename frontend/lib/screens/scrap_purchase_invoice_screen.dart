@@ -427,11 +427,9 @@ class _ScrapPurchaseInvoiceScreenState
   Future<void> _loadPurchaseBaseline() async {
     try {
       final apiService = ApiService();
-      final response = await apiService.getGoldCostingSnapshot();
-      final config = Map<String, dynamic>.from(response['config'] ?? {});
-      final lastPurchase = _parseDouble(config['last_purchase_price']);
-      final avgGold = _parseDouble(config['avg_gold_price_per_gram']);
-      final resolved = lastPurchase > 0 ? lastPurchase : avgGold;
+      // The server's suggestion (the last purchase price, else the average) --
+      // the seller is not sent the cost snapshot (ADR-036, the owner 2 Oct 2026).
+      final resolved = await apiService.getSuggestedPurchasePrice() ?? 0.0;
       if (!mounted || resolved <= 0) return;
       setState(() {
         _purchasePrice24k = resolved;

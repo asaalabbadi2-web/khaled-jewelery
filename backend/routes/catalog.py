@@ -112,6 +112,7 @@ def get_items():
     ])
 
 @catalog_bp.route('/items/search/barcode/<barcode>', methods=['GET'])
+@require_permission('items.view')
 def search_item_by_barcode(barcode):
     """
     البحث عن صنف بالباركود

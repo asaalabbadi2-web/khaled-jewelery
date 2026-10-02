@@ -227,8 +227,21 @@ def _rebuild_costing_from_invoices(limit: int | None = None) -> dict:
     return {'processed_invoices': processed, **_costing_snapshot_payload()}
 
 @pricing_bp.route('/gold-costing', methods=['GET'])
+@require_permission('costing.view')
 def get_gold_costing():
     return jsonify(_costing_snapshot_payload())
+
+@pricing_bp.route('/gold-costing/suggested-purchase-price', methods=['GET'])
+@require_permission('invoices.create')
+def get_suggested_purchase_price():
+    """The scrap purchase screen's default price per gram of 24k: the last purchase
+    price, else the average gold price -- the suggestion alone, never the cost
+    snapshot (ADR-036 R3, the owner 2 Oct 2026)."""
+    config = _costing_snapshot_payload().get('config') or {}
+    last = float(config.get('last_purchase_price') or 0.0)
+    average = float(config.get('avg_gold_price_per_gram') or 0.0)
+    return jsonify({'price_per_gram_24k': last if last > 0 else average})
+
 
 @pricing_bp.route('/gold-costing', methods=['PUT'])
 @require_permission('system.settings')
@@ -333,6 +346,7 @@ def _rebuild_scrap_costing_from_invoices(limit: int | None = None) -> dict:
     return {'processed_invoices': processed, **_scrap_costing_snapshot_payload()}
 
 @pricing_bp.route('/gold-costing/scrap', methods=['GET'])
+@require_permission('costing.view')
 def get_scrap_costing():
     return jsonify(_scrap_costing_snapshot_payload())
 

@@ -35,6 +35,7 @@ accounts_bp = Blueprint('accounts', __name__)
 # ---------------------------------------------------------------------------
 
 @accounts_bp.route('/accounts/<int:account_id>/statement', methods=['GET'])
+@require_permission('reports.financial')
 @_wrap_api_exceptions('account_statement_failed', 'Failed to load account statement')
 def get_account_statement(account_id):
     account = Account.query.get_or_404(account_id)
@@ -280,6 +281,7 @@ def get_account_statement(account_id):
     })
 
 @accounts_bp.route('/accounts/by-number/<string:account_number>/statement', methods=['GET'])
+@require_permission('reports.financial')
 @_wrap_api_exceptions('account_statement_failed', 'Failed to load account statement')
 def get_account_statement_by_number(account_number):
     """Convenience endpoint: fetch statement using account_number (stable identifier)."""
@@ -287,6 +289,7 @@ def get_account_statement_by_number(account_number):
     return get_account_statement(account.id)
 
 @accounts_bp.route('/accounts/<int:account_id>/statement_merged', methods=['GET'])
+@require_permission('reports.financial')
 @_wrap_api_exceptions('account_statement_merged_failed', 'Failed to load merged account statement')
 def get_account_statement_merged(account_id):
     """كشف حساب مدمج - يجمع بين الحساب المالي وحساب المذكرة المقابل"""
@@ -565,6 +568,7 @@ def get_account_statement_merged(account_id):
     })
 
 @accounts_bp.route('/accounts/by-number/<string:account_number>/statement_merged', methods=['GET'])
+@require_permission('reports.financial')
 @_wrap_api_exceptions('account_statement_merged_failed', 'Failed to load merged account statement')
 def get_account_statement_merged_by_number(account_number):
     """Convenience endpoint: fetch merged statement using account_number."""
@@ -576,6 +580,7 @@ def get_account_statement_merged_by_number(account_number):
 # ---------------------------------------------------------------------------
 
 @accounts_bp.route('/accounts', methods=['GET'])
+@require_permission('accounts.view')
 def get_accounts():
     """الحصول على جميع الحسابات مع دعم الهيكل الهرمي (parent-child)"""
     # ?skip_balances=1 — skip expensive live-balance computation (for pickers/selects)
@@ -678,6 +683,7 @@ def get_accounts():
     return jsonify(result)
 
 @accounts_bp.route('/accounts/<int:id>', methods=['GET'])
+@require_permission('accounts.view')
 @_wrap_api_exceptions('account_get_failed', 'Failed to load account')
 def get_account(id):
     """Fetch a single account by id."""
@@ -904,6 +910,7 @@ def import_accounts():
     }), 200
 
 @accounts_bp.route('/accounts/balances', methods=['GET'])
+@require_permission('reports.financial')
 def get_accounts_balances():
     """الحصول على أرصدة جميع الحسابات (Cash + Gold) دفعة واحدة"""
     accounts = Account.query.all()
@@ -936,6 +943,7 @@ def get_accounts_balances():
     return jsonify(balances)
 
 @accounts_bp.route('/accounts/hierarchy', methods=['GET'])
+@require_permission('accounts.view')
 def get_accounts_hierarchy():
     """الحصول على شجرة الحسابات في شكل هرمي (tree structure)"""
     root_accounts = Account.query.filter_by(parent_id=None).all()
@@ -1029,6 +1037,7 @@ def validate_account_number_api():
         }), 400
 
 @accounts_bp.route('/accounts/capacity/<category_number>', methods=['GET'])
+@require_permission('accounts.view')
 def get_account_capacity_api(category_number):
     """API endpoint للحصول على معلومات السعة لفئة حسابات"""
     try:

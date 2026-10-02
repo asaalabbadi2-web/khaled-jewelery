@@ -30,6 +30,7 @@ def _can_manage_permissions(current_user) -> bool:
 
 
 @permissions_bp.route('/permissions/roles', methods=['GET'])
+@require_permission('users.view')
 @require_auth
 def get_roles():
     """احصل على قائمة الأدوار المتاحة"""
@@ -50,6 +51,7 @@ def get_roles():
 
 
 @permissions_bp.route('/permissions/all', methods=['GET'])
+@require_permission('users.view')
 @require_auth
 def get_all_permissions():
     """احصل على جميع الصلاحيات مصنفة"""
@@ -79,6 +81,7 @@ def get_all_permissions():
 
 
 @permissions_bp.route('/permissions/role/<role_code>', methods=['GET'])
+@require_permission('users.view')
 @require_auth
 def get_role_default_permissions(role_code):
     """احصل على الصلاحيات الافتراضية لدور معين"""

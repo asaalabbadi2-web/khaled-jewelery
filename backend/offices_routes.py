@@ -331,6 +331,7 @@ def get_offices():
 
 
 @offices_bp.route('/<int:office_id>', methods=['GET'])
+@require_permission('suppliers.view')
 def get_office(office_id):
     """الحصول على تفاصيل مكتب معين"""
     try:
@@ -671,6 +672,7 @@ def activate_office(office_id):
 
 
 @offices_bp.route('/<int:office_id>/balance', methods=['GET'])
+@require_permission('reports.purchases')
 def get_office_balance(office_id):
     """الحصول على رصيد المكتب"""
     try:
@@ -782,6 +784,7 @@ def get_office_balance(office_id):
 
 
 @offices_bp.route('/statistics', methods=['GET'])
+@require_permission('reports.purchases')
 def get_offices_statistics():
     """إحصائيات عامة عن المكاتب"""
     try:

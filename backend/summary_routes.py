@@ -1,4 +1,5 @@
 from flask import Blueprint, jsonify
+from auth_decorators import require_permission
 from backend.models import db, Invoice, InvoiceItem
 from datetime import datetime, date
 from sqlalchemy import func
@@ -6,6 +7,7 @@ from sqlalchemy import func
 summary_bp = Blueprint('summary_bp', __name__)
 
 @summary_bp.route('/summary/pos', methods=['GET'])
+@require_permission('reports.sales')
 def get_pos_summary():
     """Provides a summary of Point of Sale (POS) data for the current day."""
     today = date.today()

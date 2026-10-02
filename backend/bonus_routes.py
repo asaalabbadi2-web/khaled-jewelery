@@ -194,6 +194,7 @@ def _find_bonus_payable_account():  # Optional[Account]
 # ==========================================
 
 @bonus_bp.route('/bonus/employees', methods=['GET'])
+@require_any_permission('bonus.calculate', 'bonus.approve', 'bonus.pay')
 @require_auth
 def get_employees():
     """عرض جميع الموظفين"""
@@ -222,6 +223,7 @@ def get_employees():
 
 
 @bonus_bp.route('/bonus/employees/<int:employee_id>', methods=['GET'])
+@require_any_permission('bonus.calculate', 'bonus.approve', 'bonus.pay')
 @require_auth
 def get_employee(employee_id):
     """عرض موظف محدد"""
@@ -299,6 +301,7 @@ def update_employee(employee_id):
 # ==========================================
 
 @bonus_bp.route('/bonus-rules', methods=['GET'])
+@require_permission('bonus_rule.view')
 @require_auth
 def get_bonus_rules():
     """عرض جميع قواعد المكافآت"""
@@ -330,6 +333,7 @@ def get_bonus_rules():
 
 
 @bonus_bp.route('/bonus-rules/<int:rule_id>', methods=['GET'])
+@require_permission('bonus_rule.view')
 @require_auth
 def get_bonus_rule(rule_id):
     """عرض قاعدة مكافأة محددة"""
@@ -563,6 +567,7 @@ def delete_bonus_rule(rule_id):
 # ==========================================
 
 @bonus_bp.route('/bonuses', methods=['GET'])
+@require_any_permission('bonus.calculate', 'bonus.approve', 'bonus.pay')
 @require_auth
 def get_bonuses():
     """عرض جميع المكافآت"""
@@ -691,6 +696,7 @@ def create_bonus():
 
 
 @bonus_bp.route('/bonuses/<int:bonus_id>', methods=['GET'])
+@require_any_permission('bonus.calculate', 'bonus.approve', 'bonus.pay')
 @require_auth
 def get_bonus(bonus_id):
     """عرض مكافأة محددة"""
@@ -1608,6 +1614,7 @@ def pay_bonus(bonus_id):
 
 
 @bonus_bp.route('/bonus/employees/<int:employee_id>/bonuses-summary', methods=['GET'])
+@require_any_permission('bonus.calculate', 'bonus.approve', 'bonus.pay')
 @require_auth
 def get_employee_bonuses_summary(employee_id):
     """الحصول على ملخص مكافآت موظف"""
@@ -1641,6 +1648,7 @@ def get_employee_bonuses_summary(employee_id):
 # ==========================================
 
 @bonus_bp.route('/scheduler/status', methods=['GET'])
+@require_permission('system.settings')
 @require_auth
 def get_scheduler_status():
     """الحصول على حالة مجدول المكافآت"""
@@ -1826,6 +1834,7 @@ def get_invoice_types():
 # ==========================================
 
 @bonus_bp.route('/bonuses/payables-report', methods=['GET'])
+@require_any_permission('bonus.calculate', 'bonus.approve', 'bonus.pay')
 @require_auth
 def get_bonuses_payables_report():
     """
@@ -1924,6 +1933,7 @@ def get_bonuses_payables_report():
 # ==========================================
 
 @bonus_bp.route('/bonuses/report', methods=['GET'])
+@require_any_permission('bonus.calculate', 'bonus.approve', 'bonus.pay')
 @require_auth
 def bonuses_report():
     """
@@ -2055,6 +2065,7 @@ def bonuses_report():
 
 
 @bonus_bp.route('/bonuses/employee/<int:employee_id>/summary', methods=['GET'])
+@require_any_permission('bonus.calculate', 'bonus.approve', 'bonus.pay')
 @require_auth
 def employee_bonus_summary(employee_id):
     """

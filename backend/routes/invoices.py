@@ -73,6 +73,7 @@ from dual_system_helpers import (
 from gold_costing_service import GoldCostingService, ScrapCostingService
 from office_supplier_service import ensure_office_supplier
 from party_account_service import ensure_customer_accounts, ensure_supplier_accounts
+from services.read_scope import is_approver, scope_invoices_to_reader, without_cost
 from services.record_ownership import refuse_supplier_invoice_without_permission, refuse_unless_theirs
 from services.invoice_payment_state_service import InvoicePaymentStateService
 from services.gold_allocation_service import (
@@ -118,6 +119,7 @@ from routes import (
 invoices_bp = Blueprint('invoices', __name__)
 
 @invoices_bp.route('/invoices/pending-post', methods=['GET'])
+@require_permission('invoices.approve')
 def pending_post_invoices():
     """قائمة مختصرة بالفواتير غير المرحّلة — للـ Dialog في الرئيسية"""
     try:
@@ -205,6 +207,12 @@ def pending_post_invoices():
 @invoices_bp.route('/pending-actions', methods=['GET'])
 def pending_actions():
     """نقطة موحّدة للمعلّقات: حجوزات بانتظار التسوية + فواتير بانتظار الاعتماد"""
+    if not is_approver():
+        # The bell counts for those who approve (ADR-036 R3): the rest see none.
+        return jsonify({
+            'pending_reservations': [], 'pending_invoices': [], 'system_alerts': [],
+            'total_pending_reservations': 0, 'total_pending_invoices': 0, 'total_system_alerts': 0,
+        }), 200
     try:
         # ── حجوزات بانتظار التسوية ──────────────────────────────────────────
         res_query = (
@@ -325,6 +333,7 @@ def pending_actions():
         }), 500
 
 @invoices_bp.route('/invoices', methods=['GET'])
+@require_permission('invoices.view')
 def get_invoices():
     # Pagination parameters
     page = request.args.get('page', 1, type=int)
@@ -349,8 +358,8 @@ def get_invoices():
     date_from_str = request.args.get('date_from')
     date_to_str = request.args.get('date_to')
 
-    # Base query
-    query = Invoice.query
+    # Base query -- the seller's own invoices unless invoices.view_others (ADR-036 R3)
+    query = scope_invoices_to_reader(Invoice.query)
 
     customer_joined = False
     supplier_joined = False
@@ -995,7 +1004,7 @@ def get_invoices():
     except Exception:
         pass
 
-    return jsonify({
+    return jsonify(without_cost({
         'invoices': result,
         'total': paginated_invoices.total,
         'pages': paginated_invoices.pages,
@@ -1008,9 +1017,10 @@ def get_invoices():
             'available_creators': available_creators,
             'available_employees': available_employees,
         },
-    })
+    }))
 
 @invoices_bp.route('/invoices/<int:invoice_id>', methods=['GET'])
+@require_permission('invoices.view')
 def get_invoice_by_id(invoice_id: int):
     """Fetch full invoice details by id.
 
@@ -1020,6 +1030,7 @@ def get_invoice_by_id(invoice_id: int):
 
     invoice = Invoice.query.get_or_404(invoice_id)
     invoice_dict = invoice.to_dict()
+    # The seller reads any invoice for a return at the counter, never its cost (ADR-036 R3).
 
     customer_name = (
         invoice.customer.name
@@ -1031,7 +1042,7 @@ def get_invoice_by_id(invoice_id: int):
     invoice_dict['customer_name'] = customer_name
     invoice_dict['supplier_name'] = supplier_name
 
-    return jsonify(invoice_dict)
+    return jsonify(without_cost(invoice_dict))
 
 @invoices_bp.route('/invoices/<int:invoice_id>', methods=['PUT'])
 @require_permission('invoices.edit')
@@ -8824,7 +8835,7 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
                     _confirm_pos_claims_best_effort(_pos_claims)
                 except Exception:
                     pass
-            return jsonify(resp), 201
+            return jsonify(without_cost(resp)), 201   # the seller is told "under cost", not the cost (ADR-036 R3)
 
         print(f"✅ Balance verified! Marking invoice and journal entry as posted...")
         new_invoice.is_posted = True
@@ -8997,7 +9008,7 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
                 _confirm_pos_claims_best_effort(_pos_claims)
             except Exception:
                 pass
-        return jsonify(new_invoice.to_dict()), 201
+        return jsonify(without_cost(new_invoice.to_dict())), 201
 
     except (ValueError, IntegrityError) as e:
         db.session.rollback()
@@ -9364,6 +9375,7 @@ def devtools_import_sales_invoices_from_excel():
 
 # 🆕 Endpoints للمرتجعات
 @invoices_bp.route('/invoices/<int:invoice_id>/returns', methods=['GET'])
+@require_permission('invoices.view')
 def get_invoice_returns(invoice_id):
     """
     الحصول على جميع المرتجعات المرتبطة بفاتورة معينة
@@ -9387,6 +9399,7 @@ def get_invoice_returns(invoice_id):
     })
 
 @invoices_bp.route('/invoices/<int:invoice_id>/can-return', methods=['GET'])
+@require_permission('invoices.view')
 def check_can_return(invoice_id):
     """
     التحقق من إمكانية إرجاع فاتورة
@@ -9417,6 +9430,7 @@ def check_can_return(invoice_id):
     })
 
 @invoices_bp.route('/invoices/returnable', methods=['GET'])
+@require_permission('invoices.view')
 def get_returnable_invoices():
     """
     الحصول على جميع الفواتير القابلة للإرجاع.

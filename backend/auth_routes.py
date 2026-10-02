@@ -2310,6 +2310,7 @@ def manage_user_roles(user_id):
 
 
 @auth_bp.route('/legacy/users/<int:user_id>/permissions', methods=['GET'])
+@require_permission('users.view')
 @require_auth
 def get_user_permissions_legacy(user_id):
     """(Legacy) الحصول على جميع صلاحيات مستخدم (نظام الصلاحيات القديم)."""

@@ -951,6 +951,7 @@ def restore_journal_entry(id):
         return jsonify({'error': 'فشل استرجاع القيد', 'detail': str(e)}), 500
 
 @journals_bp.route('/journal_entries/deleted', methods=['GET'])
+@require_permission('journal.view')
 def get_deleted_journal_entries():
     """عرض القيود المحذوفة"""
     entries = JournalEntry.query.filter_by(is_deleted=True).order_by(JournalEntry.deleted_at.desc()).all()

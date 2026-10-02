@@ -78,8 +78,12 @@ def list_employees():
 
     pagination = query.order_by(Employee.name.asc()).paginate(page=page, per_page=per_page, error_out=False)
 
+    # Without employees.view: names only -- the invoice list filters by seller (ADR-036 R3).
+    from services.read_scope import holds
+    full = holds('employees.view')
     return jsonify({
-        'employees': [employee.to_dict(include_details=True) for employee in pagination.items],
+        'employees': [employee.to_dict(include_details=True) if full else {'id': employee.id, 'name': employee.name}
+                      for employee in pagination.items],
         'total': pagination.total,
         'pages': pagination.pages,
         'current_page': pagination.page,
@@ -502,6 +506,7 @@ def toggle_employee_active(employee_id):
         return jsonify({'error': f'Failed to update employee status: {str(e)}'}), 500
 
 @employees_bp.route('/employees/<int:employee_id>/payroll', methods=['GET'])
+@require_permission('employees.payroll')
 def list_employee_payroll(employee_id):
     employee = Employee.query.get_or_404(employee_id)
     payroll_entries = (
@@ -512,6 +517,7 @@ def list_employee_payroll(employee_id):
     return jsonify([entry.to_dict(include_voucher=True) for entry in payroll_entries])
 
 @employees_bp.route('/employees/<int:employee_id>/attendance', methods=['GET'])
+@require_permission('employees.view')
 def list_employee_attendance(employee_id):
     employee = Employee.query.get_or_404(employee_id)
 
@@ -529,6 +535,7 @@ def list_employee_attendance(employee_id):
     return jsonify([record.to_dict() for record in attendance_records])
 
 @employees_bp.route('/employees/departments/summary', methods=['GET'])
+@require_permission('employees.view')
 def get_employee_departments_summary():
     """الحصول على ملخص أقسام الموظفين وعدد الموظفين في كل قسم"""
     from employee_account_helpers import get_department_summary
@@ -540,6 +547,7 @@ def get_employee_departments_summary():
         return jsonify({'error': f'Failed to get departments summary: {str(e)}'}), 500
 
 @employees_bp.route('/employees/<int:employee_id>/advance-account', methods=['GET'])
+@require_permission('employees.payroll')
 def get_employee_advance_account(employee_id):
     """حسابات السلف تم إلغاؤها نهائياً."""
     return jsonify({'error': 'Advance accounts feature has been removed'}), 410
