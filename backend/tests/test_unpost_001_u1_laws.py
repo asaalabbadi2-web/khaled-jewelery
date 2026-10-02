@@ -99,11 +99,9 @@ def test_a_round_trip_brings_the_ledger_and_the_inventory_back(auth_headers, unp
     assert _ledger_and_inventory(snapshot(*_key(inv))) == _ledger_and_inventory(posted)
 
 
-@pytest.mark.parametrize('shape', [
-    'scrap_purchase_unpaid',
-    pytest.param('sale_on_credit', marks=pytest.mark.xfail(
-        strict=True, reason='SAFEBOX-001: posting at creation and posting later are two writers')),
-])
+# A sale's gold: posting at creation and posting later were two writers under two
+# names; one writer since 2 Oct 2026 (the owner) -- the strict xfail turned XPASS.
+@pytest.mark.parametrize('shape', ['scrap_purchase_unpaid', 'sale_on_credit'])
 def test_a_round_trip_brings_the_safes_back(auth_headers, unposting_allowed, world, shape):
     inv = _create(auth_headers, world, shape, held=False)
     posted = snapshot(*_key(inv))

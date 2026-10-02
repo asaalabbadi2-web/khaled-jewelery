@@ -481,6 +481,7 @@ def repair_safe_box_transactions():
             ).all()
             voucher_ids = [v.id for v in linked_vouchers]
             voucher_to_invoice = {v.id: v.reference_id for v in linked_vouchers}
+            voucher_status = {v.id: (v.status or '') for v in linked_vouchers}
 
             if voucher_ids:
                 unposted_voucher_jes = JournalEntry.query.filter(
@@ -495,11 +496,25 @@ def repair_safe_box_transactions():
 
                 for vje in unposted_voucher_jes:
                     inv_id = voucher_to_invoice.get(vje.reference_id)
+                    status = voucher_status.get(vje.reference_id, '')
+                    # Only an approved voucher's entry is posted (REPAIR-001): a
+                    # pending, rejected or cancelled one is named, with its status,
+                    # and left -- as the nightly job reports and posts nothing (ADR-030).
+                    if status != 'approved':
+                        voucher_je_repairs.append({
+                            'voucher_id': vje.reference_id,
+                            'journal_entry_id': vje.id,
+                            'invoice_id': inv_id,
+                            'voucher_status': status,
+                            'action': 'not_posted_voucher_not_approved',
+                        })
+                        continue
                     if dry_run:
                         voucher_je_repairs.append({
                             'voucher_id': vje.reference_id,
                             'journal_entry_id': vje.id,
                             'invoice_id': inv_id,
+                            'voucher_status': status,
                             'action': 'would_post_voucher_je',
                         })
                     else:

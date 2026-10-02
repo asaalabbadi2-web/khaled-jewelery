@@ -1391,6 +1391,25 @@ class ApiService {
     }
   }
 
+  /// A barter sale: the sale and its «شراء من عميل» invoice in one transaction,
+  /// or neither (BARTER-001). Returns {'sale': ..., 'purchase': ...}.
+  Future<Map<String, dynamic>> addBarterSale(
+    Map<String, dynamic> sale,
+    Map<String, dynamic> purchase,
+  ) async {
+    final response = await _authedPost(
+      Uri.parse('$_baseUrl/invoices/barter-sale'),
+      body: json.encode({'sale': sale, 'purchase': purchase}),
+    );
+    final decoded = json.decode(utf8.decode(response.bodyBytes));
+    if (response.statusCode == 201 && decoded is Map<String, dynamic>) {
+      return decoded;
+    }
+    final body = decoded is Map ? decoded : const {};
+    final inner = body['inner_error'] is Map ? (body['inner_error'] as Map)['message'] ?? (body['inner_error'] as Map)['error'] : null;
+    throw Exception([body['message'] ?? 'تعذّر حفظ المقايضة', if (inner != null) inner].join(' — '));
+  }
+
   Future<Map<String, dynamic>> addInvoice(Map<String, dynamic> invoice) async {
     final response = await _authedPost(
       Uri.parse('$_baseUrl/invoices'),

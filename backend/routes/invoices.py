@@ -3283,9 +3283,62 @@ def calculate_profit_in_gold(items_sold):
         'details_by_karat': details_by_karat
     }
 
+def _commit_or_flush(defer_commit: bool) -> None:
+    """add_invoice's own commit -- deferred (a flush) when a caller writes more in
+    the same transaction: the barter sale and its purchase (BARTER-001)."""
+    if defer_commit:
+        db.session.flush()
+    else:
+        db.session.commit()
+
+
+@invoices_bp.route('/invoices/barter-sale', methods=['POST'])
+@require_permission('invoices.create')
+def add_barter_sale():
+    """A sale settled in part by the customer's scrap: the sale and its «شراء من
+    عميل» invoice, linked, in ONE transaction -- or neither (BARTER-001).
+
+    The owner's rule (2 Oct 2026): a barter is a purchase and a sale, not gold
+    for gold; the sale is settled by the purchase's cash value (barter_total).
+    Body: {'sale': <invoice payload>, 'purchase': <invoice payload>}.
+    """
+    data = request.get_json(silent=True) or {}
+    sale, purchase = data.get('sale'), data.get('purchase')
+    if not isinstance(sale, dict) or not isinstance(purchase, dict):
+        return jsonify({'error': 'invalid_request', 'message': 'المطلوب: sale و purchase'}), 400
+    if (sale.get('invoice_type') or 'بيع') != 'بيع' or purchase.get('invoice_type') != 'شراء من عميل':
+        return jsonify({'error': 'invalid_request',
+                        'message': 'المقايضة بيعٌ وشراءٌ من عميل (قرار المالك)'}), 400
+
+    _app = current_app._get_current_object()
+    headers = {'Authorization': request.headers.get('Authorization', '')}
+
+    def _create(payload):
+        with _app.test_request_context('/api/invoices', method='POST', json=payload, headers=headers):
+            rv = add_invoice(defer_commit=True)
+        resp_obj, status = (rv[0], rv[1]) if isinstance(rv, tuple) else (rv, 201)
+        body = resp_obj.get_json(silent=True) if hasattr(resp_obj, 'get_json') else None
+        return int(status), body or {}
+
+    status, sale_body = _create(dict(sale, invoice_type='بيع'))
+    if status >= 400 or not sale_body.get('id'):
+        db.session.rollback()
+        return jsonify({'error': 'barter_not_saved', 'message': 'لم يُحفظ شيء: تعذّر حفظ فاتورة البيع.',
+                        'inner_error': sale_body}), status if status >= 400 else 500
+    status, purchase_body = _create(dict(purchase, barter_sale_invoice_id=int(sale_body['id'])))
+    if status >= 400 or not purchase_body.get('id'):
+        db.session.rollback()
+        return jsonify({'error': 'barter_not_saved',
+                        'message': 'لم يُحفظ شيء: تعذّر حفظ فاتورة شراء الكسر، فلم تُحفظ فاتورة البيع أيضًا.',
+                        'inner_error': purchase_body}), status if status >= 400 else 500
+    db.session.commit()
+    return jsonify({'sale': sale_body, 'purchase': purchase_body}), 201
+
+
 @invoices_bp.route('/invoices', methods=['POST'])
 @require_permission('invoices.create')
-def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_invoice_type_id=None):
+def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_invoice_type_id=None,
+                defer_commit=False):
     """Create a new invoice.
 
     preserve_invoice_type_id: internal-use only, set by the same edit flow -- an
@@ -3989,6 +4042,13 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
         barter_total = _to_float_request(data.get('barter_total', 0.0))
     except Exception:
         barter_total = 0.0
+    # The owner (2 Oct 2026): in a barter the purchase's value pays the sale as
+    # cash does -- and is what settles the purchase itself. A «شراء من عميل»
+    # linked to a barter sale is settled by its whole value (offset), not left
+    # «unpaid» for want of a payment row.
+    if (barter_total <= 0.01 and data.get('barter_sale_invoice_id') not in (None, '', False)
+            and str(data.get('invoice_type') or '').strip() == 'شراء من عميل'):
+        barter_total = float(data_total or 0.0)
 
     # 🆕 Scrap custody identity (who holds received scrap gold).
     # We intentionally do NOT use SafeBox for this.
@@ -6208,8 +6268,13 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
                 except Exception:
                     pass
 
-        # --- Sale gold movements: withdraw/return physical gold from the configured sale safe ---
-        # This complements the weight journal lines and provides an audit ledger for gold safes.
+        # --- Sale gold movements: the rows posting writes, by the one writer ---
+        # Posting at creation and posting later wrote a sale's gold under two
+        # names by two safe rules ('invoice_sale_gold_movement' to the configured
+        # sale safe only; 'invoice_gold' by invoice_gold_plan), so unposting and
+        # posting again did not bring the safes back (UNPOST-001's last witness).
+        # The owner (2 Oct 2026): one writer, one name -- the plan, 'invoice_gold'.
+        # Older rows keep their names; every reader knows both.
         try:
             inv_type_for_gold = (new_invoice.invoice_type or '').strip()
             inv_gold_type = (str(getattr(new_invoice, 'gold_type', '') or '').strip().lower() or 'new')
@@ -6218,52 +6283,10 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
             inv_gold_type = 'new'
 
         # Scrap gold type is handled separately below (invoice_scrap_sale SBT).
-        # Avoid creating a duplicate invoice_sale_gold_movement SBT for scrap invoices.
         if (not unposted_mode) and inv_type_for_gold in ('بيع', 'مرتجع بيع') and inv_gold_type != 'scrap':  # ADR-034
-            try:
-                settings_row = Settings.query.first()
-            except Exception:
-                settings_row = None
-
-            target_gold_safe_id = None
-            try:
-                target_gold_safe_id = getattr(settings_row, 'sale_gold_safe_box_id', None) if settings_row else None
-            except Exception:
-                target_gold_safe_id = None
-
-            try:
-                if target_gold_safe_id not in (None, '', 0, '0', False):
-                    sb = SafeBox.query.get(int(target_gold_safe_id))
-                else:
-                    sb = None
-            except Exception:
-                sb = None
-
-            if sb and (sb.safe_type or '').lower() == 'gold' and bool(getattr(sb, 'is_active', True)):
-                try:
-                    weight_kwargs = {
-                        'weight_18k': float(gold_by_karat.get('18', 0.0) or 0.0),
-                        'weight_21k': float(gold_by_karat.get('21', 0.0) or 0.0),
-                        'weight_22k': float(gold_by_karat.get('22', 0.0) or 0.0),
-                        'weight_24k': float(gold_by_karat.get('24', 0.0) or 0.0),
-                    }
-                    has_any_weight = any(v > 0 for v in weight_kwargs.values())
-                    if has_any_weight:
-                        db.session.add(
-                            SafeBoxTransaction(
-                                safe_box_id=int(sb.id),
-                                ref_type='invoice_sale_gold_movement',
-                                ref_id=new_invoice.id,
-                                invoice_id=new_invoice.id,
-                                direction=('out' if inv_type_for_gold == 'بيع' else 'in'),
-                                amount_cash=0.0,
-                                notes=('sale gold out' if inv_type_for_gold == 'بيع' else 'sale return gold in'),
-                                created_by=posted_by_username,
-                                **weight_kwargs,
-                            )
-                        )
-                except Exception:
-                    pass
+            db.session.flush()
+            from posting_routes import _append_safe_transactions_for_invoice_gold as _write_invoice_gold
+            _write_invoice_gold(new_invoice, created_by=posted_by_username)
 
         # --- 3. Determine Accounts and Journal Entry Logic ---
         # 🆕 منطق محدث لدعم 6 أنواع من الفواتير
@@ -8663,7 +8686,7 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
               except Exception:
                 pass
 
-            db.session.commit()
+            _commit_or_flush(defer_commit)
             resp = new_invoice.to_dict()
             resp['approval_required'] = bool(approval_required)
             resp['auto_post_disabled'] = bool(_auto_post_disabled and not approval_required)
@@ -8838,7 +8861,7 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
         except Exception as _rc_exc:
             print(f"⚠️ recalculate balances after inline post skipped: {_rc_exc}")
 
-        db.session.commit()
+        _commit_or_flush(defer_commit)
         try:
             created_payment_method_ids = {
                 int(payment.payment_method_id)

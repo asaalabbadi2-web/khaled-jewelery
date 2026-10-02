@@ -1428,6 +1428,77 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
   double get _totalNet =>
       _payments.fold<double>(0, (sum, p) => sum + p.netAmount);
 
+  /// The barter's «شراء من عميل» invoice -- saved with the sale in one
+  /// transaction (BARTER-001; the owner: a barter is a purchase and a sale).
+  Map<String, dynamic> _barterPurchasePayload({
+    required int customerId,
+    required String sellerName,
+    required int? sellerEmployeeId,
+    required double barterTotal,
+  }) {
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    final barterItems = _barterLines
+        .map((line) {
+          final standing = line.standingWeight(_parseDouble);
+          final stones = line.stonesWeight(_parseDouble);
+          final net = line.netWeight(_parseDouble);
+          final pricePerGram = line.effectivePricePerGram(
+            _parseDouble,
+            _goldPrice24k,
+          );
+          final value = line.value(_parseDouble, _goldPrice24k);
+          if (net <= 0 || pricePerGram <= 0) return null;
+          return <String, dynamic>{
+            'name': 'ذهب كسر (مقايضة)',
+            'karat': line.karat,
+            // weight should be NET weight to keep downstream totals consistent
+            'weight': net,
+            'standing_weight': standing,
+            'stones_weight': stones,
+            'direct_purchase_price_per_gram': pricePerGram,
+            // price per item = cash-equivalent value of this line
+            'price': value,
+            'tax': 0.0,
+            'wage': 0.0,
+            'quantity': 1,
+          };
+        })
+        .whereType<Map<String, dynamic>>()
+        .toList();
+
+    final barterWeightNet = _barterTotalWeightNet;
+
+    // الحصول على خزينة الذهب للموظف الحالي
+    final employeeGoldSafeId =
+        authProvider.currentUser?.employee?.goldSafeBoxId;
+
+    final scrapInvoiceData = {
+      'customer_id': customerId,
+      'branch_id': _selectedBranchId,
+      'invoice_type': 'شراء من عميل',
+      'gold_type': 'scrap',
+      'transaction_type': 'buy',
+      if (sellerName.isNotEmpty) 'posted_by': sellerName,
+      if (sellerEmployeeId != null) 'employee_id': sellerEmployeeId,
+      if (sellerEmployeeId != null)
+        'scrap_holder_employee_id': sellerEmployeeId,
+      if (employeeGoldSafeId != null)
+        'safe_box_id': employeeGoldSafeId
+      else if (_selectedBarterGoldDepositSafeBoxId != null)
+        'safe_box_id': _selectedBarterGoldDepositSafeBoxId,
+      'date': DateTime.now().toIso8601String(),
+      'total': barterTotal,
+      'total_weight': barterWeightNet,
+      'total_cost': barterTotal,
+      'total_tax': 0.0,
+      'payments': <Map<String, dynamic>>[],
+      'amount_paid': 0.0,
+      'settlement_method': 'offset',
+      'items': barterItems,
+    };
+    return scrapInvoiceData;
+  }
+
   double get _barterTotal {
     if (!_enableBarter) return 0.0;
     final total = _barterLines.fold<double>(
@@ -2601,12 +2672,27 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
         'items': _items.map((item) => item.toJson()).toList(),
       };
 
+      // A barter is a sale and a purchase, saved together or not at all
+      // (BARTER-001, the owner 2 Oct 2026).
+      final barterPurchase = (!_isEditMode && _enableBarter && barterTotal > 0.01)
+          ? _barterPurchasePayload(
+              customerId: customerId,
+              sellerName: sellerName,
+              sellerEmployeeId: sellerEmployeeId,
+              barterTotal: barterTotal,
+            )
+          : null;
+
       final response = _isEditMode
           ? await apiService.updateUnpostedInvoice(
               widget.editInvoiceId!,
               invoiceData,
             )
-          : await apiService.addInvoice(invoiceData);
+          : barterPurchase != null
+              ? Map<String, dynamic>.from(
+                  (await apiService.addBarterSale(invoiceData, barterPurchase))['sale'] as Map,
+                )
+              : await apiService.addInvoice(invoiceData);
 
       if (mounted) {
         context.read<SalesRaceRefreshProvider>().notifySaleInvoiceSaved();
@@ -2674,71 +2760,16 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
         }
       }
 
-      // 🆕 Auto-create linked scrap purchase invoice for barter (offset)
-      if (_enableBarter && barterTotal > 0.01) {
+      // Editing a barter sale keeps the old two requests (a new sale is saved
+      // with its purchase in one transaction above -- BARTER-001).
+      if (_isEditMode && _enableBarter && barterTotal > 0.01) {
         final saleInvoiceId = response['id'];
-
-        final barterItems = _barterLines
-            .map((line) {
-              final standing = line.standingWeight(_parseDouble);
-              final stones = line.stonesWeight(_parseDouble);
-              final net = line.netWeight(_parseDouble);
-              final pricePerGram = line.effectivePricePerGram(
-                _parseDouble,
-                _goldPrice24k,
-              );
-              final value = line.value(_parseDouble, _goldPrice24k);
-              if (net <= 0 || pricePerGram <= 0) return null;
-              return <String, dynamic>{
-                'name': 'ذهب كسر (مقايضة)',
-                'karat': line.karat,
-                // weight should be NET weight to keep downstream totals consistent
-                'weight': net,
-                'standing_weight': standing,
-                'stones_weight': stones,
-                'direct_purchase_price_per_gram': pricePerGram,
-                // price per item = cash-equivalent value of this line
-                'price': value,
-                'tax': 0.0,
-                'wage': 0.0,
-                'quantity': 1,
-              };
-            })
-            .whereType<Map<String, dynamic>>()
-            .toList();
-
-        final barterWeightNet = _barterTotalWeightNet;
-
-        // الحصول على خزينة الذهب للموظف الحالي
-        final employeeGoldSafeId =
-            authProvider.currentUser?.employee?.goldSafeBoxId;
-
-        final scrapInvoiceData = {
-          'customer_id': customerId,
-          'branch_id': _selectedBranchId,
-          'invoice_type': 'شراء من عميل',
-          'gold_type': 'scrap',
-          'transaction_type': 'buy',
-          if (sellerName.isNotEmpty) 'posted_by': sellerName,
-          if (sellerEmployeeId != null) 'employee_id': sellerEmployeeId,
-          if (sellerEmployeeId != null)
-            'scrap_holder_employee_id': sellerEmployeeId,
-          if (employeeGoldSafeId != null)
-            'safe_box_id': employeeGoldSafeId
-          else if (_selectedBarterGoldDepositSafeBoxId != null)
-            'safe_box_id': _selectedBarterGoldDepositSafeBoxId,
-          'date': DateTime.now().toIso8601String(),
-          'total': barterTotal,
-          'total_weight': barterWeightNet,
-          'total_cost': barterTotal,
-          'total_tax': 0.0,
-          'payments': <Map<String, dynamic>>[],
-          'amount_paid': 0.0,
-          'settlement_method': 'offset',
-          'barter_sale_invoice_id': saleInvoiceId,
-          'items': barterItems,
-        };
-
+        final scrapInvoiceData = _barterPurchasePayload(
+          customerId: customerId,
+          sellerName: sellerName,
+          sellerEmployeeId: sellerEmployeeId,
+          barterTotal: barterTotal,
+        )..['barter_sale_invoice_id'] = saleInvoiceId;
         try {
           await apiService.addInvoice(scrapInvoiceData);
         } catch (e) {

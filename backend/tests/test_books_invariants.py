@@ -691,10 +691,10 @@ class TestManualRepairStillPostsStatusBlind:
     tool. Its dry run lists 'would_post_voucher_je' without the status, so the
     admin who confirms it cannot see a pending or cancelled payment in the list.
 
-    Strict: the day the endpoint stops posting, this XPASSes and turns red --
-    the signal to delete the marker and close REPAIR-001. Preconditions fail
-    with pytest.fail, not assert, so a broken setup is a real failure and never
-    passes as the expected one (raises=AssertionError).
+    Closed (2 Oct 2026): the endpoint posts only an approved voucher's entry and
+    names the others with their status -- the xfail marker is gone and this is
+    the law. Preconditions fail with pytest.fail, so a broken setup is a real
+    failure.
     """
 
     @pytest.fixture(autouse=True)
@@ -702,9 +702,6 @@ class TestManualRepairStillPostsStatusBlind:
         # Same reason as the nightly job's tests: a real commit escapes teardown.
         monkeypatch.setattr(db.session, 'commit', db.session.flush)
 
-    @pytest.mark.xfail(strict=True, raises=AssertionError,
-                       reason='REPAIR-001: the manual repair endpoint posts voucher '
-                              'entries without reading the voucher status')
     def test_it_does_not_post_a_pending_vouchers_entry(self, app):
         from auth_decorators import generate_token
         from models import User
