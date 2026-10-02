@@ -5,6 +5,8 @@ import traceback
 from datetime import datetime, timedelta
 
 from flask import Blueprint, g, jsonify, request
+from services.read_scope import holds
+from auth_decorators import require_any_permission
 from sqlalchemy import func, or_
 
 from models import (
@@ -45,7 +47,7 @@ from services.safebox_subledger import (
 safe_boxes_bp = Blueprint('safe_boxes', __name__)
 
 @safe_boxes_bp.route('/safe-boxes/<int:safe_box_id>/transactions', methods=['GET'])
-@require_permission('safe_boxes.view')
+@require_any_permission('safe_boxes.transfer', 'reports.financial')   # balances are not the seller's (ADR-036)
 def list_safe_box_transactions(safe_box_id: int):
     """List safe box transactions (ledger) with optional date range.
 
@@ -80,7 +82,7 @@ def list_safe_box_transactions(safe_box_id: int):
     return jsonify([r.to_dict() for r in rows])
 
 @safe_boxes_bp.route('/safe-boxes/<int:safe_box_id>/balance', methods=['GET'])
-@require_permission('safe_boxes.view')
+@require_any_permission('safe_boxes.transfer', 'reports.financial')   # balances are not the seller's (ADR-036)
 def get_safe_box_balance(safe_box_id: int):
     """الرصيد الرسمي لخزينة واحدة -- غلاف رفيع حول safe_box_balance (دفتر
     الأستاذ مباشرة). كان هذا الـ endpoint يحسب من SafeBoxTransaction بالكامل
@@ -103,7 +105,7 @@ def get_safe_box_balance(safe_box_id: int):
     })
 
 @safe_boxes_bp.route('/safe-boxes/balances', methods=['GET'])
-@require_permission('safe_boxes.view')
+@require_any_permission('safe_boxes.transfer', 'reports.financial')   # balances are not the seller's (ADR-036)
 def list_safe_box_balances():
     """List safe boxes with their official balance (from the general ledger
     via safe_box_balances_bulk -- never SafeBoxTransaction). This is the
@@ -154,7 +156,7 @@ def list_safe_box_balances():
     })
 
 @safe_boxes_bp.route('/safe-boxes/stones-balance', methods=['GET'])
-@require_permission('safe_boxes.view')
+@require_any_permission('safe_boxes.transfer', 'reports.financial')   # balances are not the seller's (ADR-036)
 def safe_boxes_stones_balance():
     """رصيد الفصوص لكل خزينة ذهب مع تفصيل العيار.
 
@@ -246,7 +248,7 @@ def safe_boxes_stones_balance():
     return jsonify({'safes': results})
 
 @safe_boxes_bp.route('/safe-boxes/reconciliation', methods=['GET'])
-@require_permission('safe_boxes.view')
+@require_any_permission('safe_boxes.transfer', 'reports.financial')   # balances are not the seller's (ADR-036)
 def safe_boxes_reconciliation():
     """Compare SafeBoxTransaction (sub-ledger) vs posted GL for SafeBox-linked accounts.
 
@@ -340,7 +342,7 @@ def safe_boxes_reconciliation():
     })
 
 @safe_boxes_bp.route('/safe-boxes/stones-balance', methods=['GET'])
-@require_permission('safe_boxes.view')
+@require_any_permission('safe_boxes.transfer', 'reports.financial')   # balances are not the seller's (ADR-036)
 def get_safe_boxes_stones_balance():
     """رصيد الفصوص لكل خزينة ذهب — مستقل عن العيار.
 
@@ -618,7 +620,9 @@ def list_safe_boxes():
     safe_boxes = query.order_by(SafeBox.is_default.desc(), SafeBox.name).all()
     
     include_account = request.args.get('include_account', 'false').lower() == 'true'
-    include_balance = request.args.get('include_balance', 'true').lower() == 'true'
+    # The seller picks a safe in an invoice; its balance is not theirs (ADR-036).
+    include_balance = (request.args.get('include_balance', 'true').lower() == 'true'
+                       and (holds('safe_boxes.transfer') or holds('reports.financial')))
 
     live_by_id = {}
     if include_balance:
@@ -667,7 +671,9 @@ def get_safe_box(safe_box_id):
     """الحصول على خزينة محددة"""
     safe_box = SafeBox.query.get_or_404(safe_box_id)
     include_account = request.args.get('include_account', 'true').lower() == 'true'
-    include_balance = request.args.get('include_balance', 'true').lower() == 'true'
+    # The seller picks a safe in an invoice; its balance is not theirs (ADR-036).
+    include_balance = (request.args.get('include_balance', 'true').lower() == 'true'
+                       and (holds('safe_boxes.transfer') or holds('reports.financial')))
 
     payload = safe_box.to_dict(include_account=include_account, include_balance=False)
     if include_balance:

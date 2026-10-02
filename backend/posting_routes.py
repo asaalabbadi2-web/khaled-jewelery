@@ -1188,7 +1188,7 @@ def _get_shift_window_for_user(user_name: str):
 
 
 @posting_bp.route('/shift-closing/summary', methods=['GET'])
-@require_permission('safe_boxes.view')
+@require_any_permission('safe_boxes.edit', 'safe_boxes.transfer')   # the shift closing is not the seller's (ADR-036)
 def get_shift_closing_summary():
     """Return expected amounts per payment method for the current shift."""
     try:
@@ -1307,7 +1307,7 @@ def get_shift_closing_summary():
 
 
 @posting_bp.route('/shift-closing/summary-gold', methods=['GET'])
-@require_permission('safe_boxes.view')
+@require_any_permission('safe_boxes.edit', 'safe_boxes.transfer')   # the shift closing is not the seller's (ADR-036)
 def get_shift_closing_gold_summary():
     """Return expected gold weights (18/21/22/24) for the current shift.
 

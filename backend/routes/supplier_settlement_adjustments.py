@@ -23,6 +23,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from flask import Blueprint, g, jsonify, request
+from services.approval_policy import may_approve_own
 
 from auth_decorators import require_auth, require_permission
 from models import (
@@ -34,6 +35,7 @@ from models import (
 )
 from services.supplier_settlement_adjustment_service import (
     ManagerApprovalRequiredError,
+    OwnAdjustmentApprovalError,
     MissingAccountingMappingError,
     NotEligibleError,
     SettlementInvariantViolation,
@@ -118,6 +120,9 @@ def _error(exc: Exception):
     404 for missing records, 403 for authority, 400 for everything else the
     caller can act on, 500 only for an integrity failure that must never happen.
     """
+    if isinstance(exc, OwnAdjustmentApprovalError):
+        return jsonify({'success': False, 'message': str(exc), 'error': 'own_document'}), 403
+
     if isinstance(exc, SupplierAccountReviewRequiredError):
         body = exc.to_dict()
         body['success'] = False
@@ -356,6 +361,7 @@ def approve_settlement_adjustment(sad_id):
         sad=sad,
         approved_by=_actor(),
         is_manager=_is_manager_approval(),
+        may_approve_own=may_approve_own(),
         now=_now(),
     ))
     if error:

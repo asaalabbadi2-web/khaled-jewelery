@@ -237,6 +237,10 @@ class ManagerApprovalRequiredError(SupplierSettlementError):
     """This reason code requires a manager to approve."""
 
 
+class OwnAdjustmentApprovalError(SupplierSettlementError):
+    """Who creates an adjustment does not approve it (ADR-036 R4)."""
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Value objects
 # ─────────────────────────────────────────────────────────────────────────────
@@ -634,8 +638,15 @@ class SupplierSettlementAdjustmentService:
         approved_by: str,
         now: datetime,
         is_manager: bool = False,
+        may_approve_own: bool = False,
     ) -> SupplierSettlementAdjustment:
-        """Approve a draft. Still writes no accounting."""
+        """Approve a draft. Still writes no accounting.
+
+        Who created it does not approve it (ADR-036 R4) -- unless the caller
+        says the approver may (the system admin, the owner).
+        """
+        if not may_approve_own and sad.created_by and sad.created_by == approved_by:
+            raise OwnAdjustmentApprovalError('لا يعتمد التسوية من أنشأها؛ يعتمدها غيرك (فصل المهام).')
         if self._requires_manager(sad.reason_code, now=now):
             if not is_manager:
                 raise ManagerApprovalRequiredError(

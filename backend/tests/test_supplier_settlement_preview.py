@@ -231,6 +231,7 @@ def test_preview_reports_review_threshold_breach_ahead_of_other_blockers():
         _ensure_policy()
         supplier_id = _supplier_with_residual(cash=3.00)
         _, headers = _headers_for(ALL_SAD_PERMISSIONS)
+        _, approver = _headers_for(ALL_SAD_PERMISSIONS)   # who creates does not approve (ADR-036 R4)
 
     with app.test_client() as client:
         sad = _create_draft(client, headers, supplier_id).get_json()['adjustment']
@@ -248,7 +249,7 @@ def test_preview_reports_review_threshold_breach_ahead_of_other_blockers():
 
         # And post() refuses with the same verdict.
         resp = client.post(
-            f"/api/supplier-settlement-adjustments/{sad['id']}/approve", json={}, headers=headers)
+            f"/api/supplier-settlement-adjustments/{sad['id']}/approve", json={}, headers=approver)
         assert resp.status_code == 200
         resp = client.post(
             f"/api/supplier-settlement-adjustments/{sad['id']}/post", json={}, headers=headers)
@@ -428,6 +429,7 @@ def test_preview_refuses_to_promise_a_post_that_has_no_accounts():
         _clear_settlement_mappings()
         supplier_id = _supplier_with_residual(cash=3.00)
         _, headers = _headers_for(ALL_SAD_PERMISSIONS)
+        _, approver = _headers_for(ALL_SAD_PERMISSIONS)   # who creates does not approve (ADR-036 R4)
 
     with app.test_client() as client:
         sad = _create_draft(client, headers, supplier_id).get_json()['adjustment']
@@ -443,7 +445,7 @@ def test_preview_refuses_to_promise_a_post_that_has_no_accounts():
 
         # And post() does refuse, which is the behaviour being mirrored.
         client.post(f"/api/supplier-settlement-adjustments/{sad['id']}/approve",
-                    json={}, headers=headers)
+                    json={}, headers=approver)
         resp = client.post(f"/api/supplier-settlement-adjustments/{sad['id']}/post",
                            json={}, headers=headers)
         assert resp.status_code == 400

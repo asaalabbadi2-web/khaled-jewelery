@@ -313,13 +313,14 @@ def test_approve_attributes_to_authenticated_user():
     with app.app_context():
         _ensure_policy()
         supplier_id = _supplier_with_residual()
-        username, headers = _headers_for(ALL_SAD_PERMISSIONS)
+        _, headers = _headers_for(ALL_SAD_PERMISSIONS)
+        username, approver = _headers_for(ALL_SAD_PERMISSIONS)   # who creates does not approve (ADR-036 R4)
 
     with app.test_client() as client:
         sad = _create_draft(client, headers, supplier_id).get_json()['adjustment']
         resp = client.post(
             f"/api/supplier-settlement-adjustments/{sad['id']}/approve",
-            json={}, headers=headers)
+            json={}, headers=approver)
 
     assert resp.status_code == 200
     body = resp.get_json()['adjustment']
@@ -335,6 +336,7 @@ def test_other_reason_requires_the_manager_permission():
         _ensure_policy()
         supplier_id = _supplier_with_residual()
         _, plain_headers = _headers_for(ALL_SAD_PERMISSIONS)
+        _, plain_approver = _headers_for(ALL_SAD_PERMISSIONS)
 
     with app.test_client() as client:
         sad = _create_draft(
@@ -344,7 +346,7 @@ def test_other_reason_requires_the_manager_permission():
 
         denied = client.post(
             f"/api/supplier-settlement-adjustments/{sad['id']}/approve",
-            json={}, headers=plain_headers)
+            json={}, headers=plain_approver)
 
     assert denied.status_code == 403
     body = denied.get_json()
@@ -400,13 +402,14 @@ def test_post_without_accounting_mappings_fails_and_writes_nothing():
         _ensure_policy()
         supplier_id = _supplier_with_residual()
         _, headers = _headers_for(ALL_SAD_PERMISSIONS)
+        _, approver = _headers_for(ALL_SAD_PERMISSIONS)
         je_before = JournalEntry.query.count()
         voucher_before = Voucher.query.count()
 
     with app.test_client() as client:
         sad = _create_draft(client, headers, supplier_id).get_json()['adjustment']
         client.post(f"/api/supplier-settlement-adjustments/{sad['id']}/approve",
-                    json={}, headers=headers)
+                    json={}, headers=approver)
         resp = client.post(f"/api/supplier-settlement-adjustments/{sad['id']}/post",
                            json={}, headers=headers)
 
@@ -507,3 +510,20 @@ def test_reverse_requires_a_posted_adjustment():
     # A draft was never posted, so there is nothing to reverse.
     assert resp.status_code == 400
     assert resp.get_json()['error'] == 'invalid_request'
+
+
+def test_who_creates_an_adjustment_does_not_approve_it():
+    """ADR-036 R4 (the owner, 2 Oct 2026): the creator's approval is refused;
+    another holder of the permission approves."""
+    with app.app_context():
+        _ensure_policy()
+        supplier_id = _supplier_with_residual()
+        _, creator = _headers_for(ALL_SAD_PERMISSIONS)
+        _, other = _headers_for(ALL_SAD_PERMISSIONS)
+
+    with app.test_client() as client:
+        sad = _create_draft(client, creator, supplier_id).get_json()['adjustment']
+        own = client.post(f"/api/supplier-settlement-adjustments/{sad['id']}/approve", json={}, headers=creator)
+        assert own.status_code == 403 and own.get_json()['error'] == 'own_document'
+        ok = client.post(f"/api/supplier-settlement-adjustments/{sad['id']}/approve", json={}, headers=other)
+        assert ok.status_code == 200, ok.get_data(as_text=True)[:300]

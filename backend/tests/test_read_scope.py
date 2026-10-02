@@ -111,3 +111,15 @@ def test_the_bell_counts_for_those_who_approve(app):
 def test_the_financial_reads_are_not_the_sellers(app, path):
     resp = _get(path, _headers('employee', _employee('أنا')))
     assert resp.status_code == 403, f'{path}: {resp.status_code}'
+
+
+def test_a_seller_picks_a_safe_but_does_not_see_its_balance(app):
+    seller = _headers('employee', _employee('أنا'))
+    rows = _get('/api/safe-boxes', seller).get_json()
+    rows = rows.get('safe_boxes', rows) if isinstance(rows, dict) else rows
+    assert rows and all('balance' not in r for r in rows)
+    for path in ('/api/safe-boxes/balances', '/api/safe-boxes/reconciliation', '/api/shift-closing/summary'):
+        assert _get(path, seller).status_code == 403, path
+    managers = _get('/api/safe-boxes', _headers('manager')).get_json()
+    managers = managers.get('safe_boxes', managers) if isinstance(managers, dict) else managers
+    assert any('balance' in r for r in managers)
