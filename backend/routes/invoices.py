@@ -73,6 +73,7 @@ from dual_system_helpers import (
 from gold_costing_service import GoldCostingService, ScrapCostingService
 from office_supplier_service import ensure_office_supplier
 from party_account_service import ensure_customer_accounts, ensure_supplier_accounts
+from services.record_ownership import refuse_supplier_invoice_without_permission, refuse_unless_theirs
 from services.invoice_payment_state_service import InvoicePaymentStateService
 from services.gold_allocation_service import (
     is_gold_obligation_eligible,
@@ -1033,7 +1034,7 @@ def get_invoice_by_id(invoice_id: int):
     return jsonify(invoice_dict)
 
 @invoices_bp.route('/invoices/<int:invoice_id>', methods=['PUT'])
-@require_permission('invoice.edit')
+@require_permission('invoices.edit')
 def update_unposted_invoice(invoice_id: int):
     """Edit an unposted (draft / pending-approval) invoice.
 
@@ -1060,6 +1061,9 @@ def update_unposted_invoice(invoice_id: int):
     invoice = Invoice.query.get(invoice_id)
     if not invoice:
         return jsonify({'error': 'not_found', 'message': 'الفاتورة غير موجودة'}), 404
+    refused = refuse_unless_theirs(invoice, 'invoices.edit_others')
+    if refused:
+        return refused
 
     if invoice.is_posted:
         return jsonify({
@@ -1285,7 +1289,7 @@ def update_unposted_invoice(invoice_id: int):
     return jsonify(result), 200
 
 @invoices_bp.route('/invoices/<int:invoice_id>', methods=['DELETE'])
-@require_permission('invoice.edit')
+@require_permission('invoices.delete')
 def delete_unposted_invoice(invoice_id: int):
     """Delete an unposted invoice and all related records."""
 
@@ -1296,6 +1300,9 @@ def delete_unposted_invoice(invoice_id: int):
     invoice = Invoice.query.get(invoice_id)
     if not invoice:
         return jsonify({'error': 'not_found', 'message': 'الفاتورة غير موجودة'}), 404
+    refused = refuse_unless_theirs(invoice, 'invoices.delete_others')
+    if refused:
+        return refused
 
     if invoice.is_posted:
         return jsonify({
@@ -1375,7 +1382,7 @@ def delete_unposted_invoice(invoice_id: int):
         return jsonify({'error': 'delete_failed', 'message': str(exc)}), 500
 
 @invoices_bp.route('/invoices/<int:invoice_id>/reassign-employee', methods=['PATCH'])
-@require_permission('manager')
+@require_permission('invoices.edit_others')
 def reassign_invoice_employee(invoice_id: int):
     """تغيير موظف الفاتورة — للمدير فقط، وللفواتير غير المرحّلة حصراً."""
     invoice = Invoice.query.get_or_404(invoice_id)
@@ -2131,7 +2138,7 @@ def correct_invoice_payment_method(invoice_id: int, payment_id: int):
         return jsonify({'error': str(exc)}), 500
 
 @invoices_bp.route('/invoices/<int:invoice_id>/approve', methods=['POST'])
-@require_permission('invoice.edit')
+@require_permission('invoices.approve')
 def approve_invoice(invoice_id: int):
     """ترحيل فاتورة غير مرحّلة (تحتاج اعتماد المدير أو خيار الترحيل التلقائي معطّل).
 
@@ -2166,12 +2173,15 @@ def approve_invoice(invoice_id: int):
         return jsonify({'error': 'approve_failed', 'message': str(exc)}), 500
 
 @invoices_bp.route('/invoices/<int:invoice_id>/reject', methods=['POST'])
-@require_permission('invoice.edit')
+@require_permission('invoices.edit')
 def reject_invoice(invoice_id: int):
     """رفض فاتورة غير مرحّلة وإعادة الحجز المرتبط بها (إن وُجد) إلى حالة pending."""
     invoice = Invoice.query.get(invoice_id)
     if not invoice:
         return jsonify({'error': 'not_found', 'message': 'الفاتورة غير موجودة'}), 404
+    refused = refuse_unless_theirs(invoice, 'invoices.edit_others')
+    if refused:
+        return refused
 
     if invoice.is_posted:
         return jsonify({'error': 'already_posted', 'message': 'لا يمكن رفض فاتورة مرحّلة بالفعل'}), 400
@@ -2277,7 +2287,7 @@ def reject_invoice(invoice_id: int):
         return jsonify({'error': 'reject_failed', 'message': str(exc)}), 500
 
 @invoices_bp.route('/invoices/<int:invoice_id>/unpost', methods=['POST'])
-@require_permission('invoice.edit')
+@require_permission('invoices.unpost')
 def unpost_invoice(invoice_id: int):
     """إلغاء ترحيل فاتورة (يتطلب تمكين خيار allow_unposting في الإعدادات).
 
@@ -2452,6 +2462,7 @@ def _add_payment_lines_to_consolidated_je(
     return consolidated_je
 
 @invoices_bp.route('/invoices/<int:invoice_id>/payments', methods=['POST'])
+@require_permission('invoices.edit')
 def add_invoice_payment(invoice_id: int):
     """Add a payment entry to an existing invoice.
 
@@ -2462,6 +2473,9 @@ def add_invoice_payment(invoice_id: int):
     """
 
     invoice = Invoice.query.get_or_404(invoice_id)
+    refused = refuse_unless_theirs(invoice, 'invoices.edit_others')   # a seller collects on their own invoices
+    if refused:
+        return refused
     data = request.get_json(silent=True) or {}
 
     pm_id = data.get('payment_method_id')
@@ -2973,6 +2987,7 @@ def add_invoice_payment(invoice_id: int):
     return jsonify(invoice_dict), 201
 
 @invoices_bp.route('/invoices/<int:invoice_id>/print-template', methods=['PUT'])
+@require_permission('print.invoices')
 def set_invoice_print_template(invoice_id: int):
     """Set per-invoice print template preset key.
 
@@ -3255,6 +3270,7 @@ def calculate_profit_in_gold(items_sold):
     }
 
 @invoices_bp.route('/invoices', methods=['POST'])
+@require_permission('invoices.create')
 def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_invoice_type_id=None):
     """Create a new invoice.
 
@@ -3269,6 +3285,9 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
     data = request.get_json(silent=True)
     if not isinstance(data, dict):
         return jsonify({'error': 'Invalid or missing JSON body'}), 400
+    refused = refuse_supplier_invoice_without_permission(data.get('invoice_type'))
+    if refused:
+        return refused
 
     # 🆕 خيار أمني: رفض إنشاء الفاتورة بدون توكن
     # يمكن تفعيله من (متغير البيئة) أو من (الإعدادات) عبر الواجهة

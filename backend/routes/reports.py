@@ -6911,7 +6911,7 @@ def get_gold_income_statement():
         return jsonify({'error': f'فشل إنشاء قائمة الدخل الوزنية: {str(e)}'}), 500
 
 @reports_bp.route('/dashboard/summary-debug', methods=['GET'])
-@require_permission('admin')
+@require_permission('system.settings')
 def get_dashboard_summary_debug():
     """Debug endpoint: run _build_inv_summary for month and return raw result + any errors."""
     import traceback as _tb

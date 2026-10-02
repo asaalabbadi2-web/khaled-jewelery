@@ -5,6 +5,14 @@ from models import Account, Voucher, VoucherAccountLine, db
 from routes import generate_voucher_number, update_voucher
 
 
+
+def _sign_in_as_system_admin():
+    """The route is called directly; since ADR-036 it asks who calls (vouchers.edit / vouchers.approve)."""
+    from flask import g
+    from models import AppUser
+    g.current_user = AppUser.query.filter_by(role='system_admin').first() or AppUser(
+        username='pytest-admin', role='system_admin', is_active=True, password_hash='x')
+
 def _ensure_account(account_number: str, name: str, *, transaction_type='both', tracks_weight=False):
     account = Account.query.filter_by(account_number=account_number).first()
     if account:
@@ -172,6 +180,8 @@ def test_update_voucher_replaces_lines_and_recomputes_totals():
         }
 
         with app.test_request_context(json=payload):
+
+            _sign_in_as_system_admin()
             response = update_voucher(voucher.id)
 
         if isinstance(response, tuple):
@@ -251,6 +261,8 @@ def test_update_voucher_persists_receiver_and_weight_details():
         }
 
         with app.test_request_context(json=payload):
+
+            _sign_in_as_system_admin()
             response = update_voucher(voucher.id)
 
         if isinstance(response, tuple):
@@ -321,6 +333,8 @@ def test_update_voucher_rejects_unknown_top_level_keys():
         }
 
         with app.test_request_context(json=payload):
+
+            _sign_in_as_system_admin()
             response = update_voucher(voucher.id)
 
         if isinstance(response, tuple):

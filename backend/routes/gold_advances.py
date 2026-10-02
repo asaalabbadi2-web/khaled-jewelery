@@ -75,7 +75,7 @@ def _obligation_payload(obligation: InvoiceGoldObligation) -> dict:
 
 @gold_advances_bp.route('/gold-advances', methods=['GET'])
 @require_auth
-@require_permission('gold_advances.view')
+@require_permission('vouchers.view')
 def list_gold_advances():
     """List Supplier Gold Advances. ?supplier_id= filters to one supplier;
     ?open_only=1 (default) shows only advances with unallocated weight left.
@@ -102,7 +102,7 @@ def list_gold_advances():
 
 @gold_advances_bp.route('/gold-advances/<int:advance_id>', methods=['GET'])
 @require_auth
-@require_permission('gold_advances.view')
+@require_permission('vouchers.view')
 def get_gold_advance(advance_id):
     advance = SupplierGoldAdvance.query.get(advance_id)
     if advance is None:
@@ -120,7 +120,7 @@ def get_gold_advance(advance_id):
 
 @gold_advances_bp.route('/invoices/<int:invoice_id>/gold-obligations', methods=['GET'])
 @require_auth
-@require_permission('gold_advances.view')
+@require_permission('vouchers.view')
 def list_invoice_gold_obligations(invoice_id):
     invoice = Invoice.query.get(invoice_id)
     if invoice is None:
@@ -151,7 +151,7 @@ def list_invoice_gold_obligations(invoice_id):
 
 @gold_advances_bp.route('/suppliers/<int:supplier_id>/gold-reconciliation', methods=['GET'])
 @require_auth
-@require_permission('gold_advances.view')
+@require_permission('vouchers.view')
 def get_supplier_gold_reconciliation(supplier_id):
     """The contract's identity for one supplier, in main-karat-equivalent:
 
@@ -179,7 +179,7 @@ def get_supplier_gold_reconciliation(supplier_id):
 
 @gold_advances_bp.route('/vouchers/<int:voucher_id>/gold-attribution', methods=['GET'])
 @require_auth
-@require_permission('gold_advances.view')
+@require_permission('vouchers.view')
 def get_voucher_gold_attribution(voucher_id):
     """What this voucher's gold currently settles, and how much of it is still
     unattributed — the information needed before correcting a classification."""
@@ -216,7 +216,7 @@ def _invoice_known_as(invoice_id):
 
 @gold_advances_bp.route('/vouchers/<int:voucher_id>/gold-attribution', methods=['POST'])
 @require_auth
-@require_permission('gold_advances.allocate')
+@require_permission('vouchers.attribute')
 def attribute_voucher_gold(voucher_id):
     """Correct a classification after the fact: attribute this approved
     voucher's gold to an invoice.
@@ -284,7 +284,7 @@ def attribute_voucher_gold(voucher_id):
     '/vouchers/<int:voucher_id>/gold-attribution/<int:attribution_id>', methods=['DELETE']
 )
 @require_auth
-@require_permission('gold_advances.allocate')
+@require_permission('vouchers.attribute')
 def remove_voucher_gold_attribution(voucher_id, attribution_id):
     """Undo one attribution — the other half of being able to correct a
     mistake. Frees the invoice's obligation again and resyncs its status."""
@@ -308,7 +308,7 @@ def remove_voucher_gold_attribution(voucher_id, attribution_id):
 
 @gold_advances_bp.route('/suppliers/<int:supplier_id>/open-gold-obligations', methods=['GET'])
 @require_auth
-@require_permission('gold_advances.view')
+@require_permission('vouchers.view')
 def list_supplier_open_gold_obligations(supplier_id):
     """The invoices an employee can pick when declaring a gold payment.
 
@@ -359,7 +359,7 @@ def list_supplier_open_gold_obligations(supplier_id):
 
 @gold_advances_bp.route('/gold-advances/<int:advance_id>/allocate', methods=['POST'])
 @require_auth
-@require_permission('gold_advances.allocate')
+@require_permission('vouchers.attribute')
 def allocate_gold_advance(advance_id):
     """Explicitly attribute this much of this Advance to a specific invoice
     gold obligation. Body: {"obligation_id": int, "weight_main_karat": float}.

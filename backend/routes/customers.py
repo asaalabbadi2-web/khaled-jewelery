@@ -4,6 +4,7 @@ from __future__ import annotations
 from datetime import datetime, date, time
 
 from flask import Blueprint, request, jsonify
+from auth_decorators import require_permission
 from sqlalchemy.exc import IntegrityError
 
 from models import db, Customer, Account, Invoice, JournalEntry, JournalEntryLine
@@ -21,6 +22,7 @@ from accounting.statement_verification import (
 customers_bp = Blueprint('customers', __name__)
 
 @customers_bp.route('/customers/<int:id>', methods=['DELETE'])
+@require_permission('customers.delete')
 def delete_customer(id):
     customer = Customer.query.get_or_404(id)
     try:
@@ -381,6 +383,7 @@ def get_customers():
     return jsonify([c.to_dict() for c in customers])
 
 @customers_bp.route('/customers', methods=['POST'])
+@require_permission('customers.create')
 def add_customer():
     """إضافة عميل جديد (النظام الهجين)"""
     from code_generator import generate_customer_code
@@ -518,6 +521,7 @@ def add_customer():
         return jsonify({'error': f'An unexpected error occurred: {str(e)}'}), 500
 
 @customers_bp.route('/customers/<int:id>', methods=['PUT'])
+@require_permission('customers.edit')
 def update_customer(id):
     """تحديث بيانات العميل (النظام الهجين)"""
     customer = Customer.query.get_or_404(id)

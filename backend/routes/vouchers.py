@@ -784,6 +784,7 @@ def _upsert_voucher_from_payload(voucher, data, *, is_create=False):
     return None
 
 @vouchers_bp.route('/vouchers', methods=['POST'])
+@require_permission('vouchers.create')
 def create_voucher():
     """
     Create a new voucher with automatic journal entry - النسخة المحدّثة
@@ -952,6 +953,7 @@ def create_voucher():
         return jsonify({'error': f'Failed to create voucher: {str(e)}'}), 500
 
 @vouchers_bp.route('/vouchers/<int:voucher_id>', methods=['PUT'])
+@require_permission('vouchers.edit')
 def update_voucher(voucher_id):
     """Update voucher and replace its account lines for editable statuses."""
     voucher = Voucher.query.get_or_404(voucher_id)
@@ -1018,6 +1020,7 @@ def delete_voucher(voucher_id):
         return jsonify({'error': f'Failed to delete voucher: {str(e)}'}), 500
 
 @vouchers_bp.route('/vouchers/<int:voucher_id>/approve', methods=['POST'])
+@require_permission('vouchers.approve')
 def approve_voucher(voucher_id):
     """
     ترحيل السند (Approve/Post Voucher)
@@ -1406,14 +1409,14 @@ def _invoice_known_as(invoice_id):
 
 
 @vouchers_bp.route('/vouchers/<int:voucher_id>/cash-attribution', methods=['GET'])
-@require_permission('gold_advances.view')
+@require_permission('vouchers.view')
 def get_voucher_cash_attribution(voucher_id):
     voucher = Voucher.query.get_or_404(voucher_id)
     return jsonify(_cash_attribution_view(voucher)), 200
 
 
 @vouchers_bp.route('/vouchers/<int:voucher_id>/cash-attribution', methods=['POST'])
-@require_permission('gold_advances.allocate')
+@require_permission('vouchers.attribute')
 def attribute_voucher_cash(voucher_id):
     """Body: {"invoice_id": int, "amount": float}. The caller states the invoice."""
     voucher = Voucher.query.get_or_404(voucher_id)
@@ -1438,7 +1441,7 @@ def attribute_voucher_cash(voucher_id):
 
 
 @vouchers_bp.route('/vouchers/<int:voucher_id>/cash-attribution/<int:payment_id>', methods=['DELETE'])
-@require_permission('gold_advances.allocate')
+@require_permission('vouchers.attribute')
 def remove_voucher_cash_attribution(voucher_id, payment_id):
     voucher = Voucher.query.get_or_404(voucher_id)
     actor = getattr(getattr(g, 'current_user', None), 'username', None)
@@ -1456,7 +1459,7 @@ def remove_voucher_cash_attribution(voucher_id, payment_id):
 
 
 @vouchers_bp.route('/suppliers/<int:supplier_id>/open-cash-obligations', methods=['GET'])
-@require_permission('gold_advances.view')
+@require_permission('vouchers.view')
 def list_supplier_open_cash_obligations(supplier_id):
     """The invoices an employee can pick for a supplier cash payment -- at
     creation or after -- with what each still owes in cash. Oldest first, as a

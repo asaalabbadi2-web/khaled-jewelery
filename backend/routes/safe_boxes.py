@@ -386,7 +386,7 @@ def get_safe_boxes_stones_balance():
     return jsonify({'safes': results})
 
 @safe_boxes_bp.route('/safe-boxes/purge-duplicate-gold-movement-sbts', methods=['POST'])
-@require_permission('admin')
+@require_permission('system.settings')
 def purge_duplicate_gold_movement_sbts():
     """Delete orphan invoice_sale_gold_movement SBTs that belong to scrap invoices.
 
@@ -438,7 +438,7 @@ def purge_duplicate_gold_movement_sbts():
         return jsonify({'error': str(exc)}), 500
 
 @safe_boxes_bp.route('/safe-boxes/repair-transactions', methods=['POST'])
-@require_permission('admin')
+@require_permission('system.settings')
 def repair_safe_box_transactions():
     """Backfill missing SafeBoxTransactions for historical posted invoices.
 
@@ -1185,7 +1185,7 @@ def unify_gold_safe_boxes():
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
 @safe_boxes_bp.route('/safe-boxes/transfer-voucher', methods=['POST'])
-@require_permission('safe_boxes.edit')
+@require_permission('safe_boxes.transfer')
 def create_safe_box_transfer_voucher():
     """Create a safe-box transfer voucher and update the SafeBox ledger immediately.
 
@@ -1488,7 +1488,7 @@ def create_safe_box_transfer_voucher():
 # =========================================================================
 
 @safe_boxes_bp.route('/safe-boxes/<int:safe_box_id>/correct-karat', methods=['POST'])
-@require_permission('safe_boxes.edit')
+@require_permission('safe_boxes.transfer')
 def correct_safe_box_karat(safe_box_id):
     """تصحيح عيار خاطئ داخل نفس الخزينة الذهبية.
 

@@ -1624,7 +1624,7 @@ def get_account_ledger(account_id):
 # ---------------------------------------------------------------------------
 
 @accounts_bp.route('/accounting-mappings', methods=['GET'])
-@require_permission('system.settings')
+@require_permission('business.setup')
 def get_accounting_mappings():
     """الحصول على جميع إعدادات الربط المحاسبي"""
     try:
@@ -1644,7 +1644,7 @@ def get_accounting_mappings():
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
 @accounts_bp.route('/accounting-mappings', methods=['POST'])
-@require_permission('system.settings')
+@require_permission('business.setup')
 def create_accounting_mapping():
     """إنشاء أو تحديث إعداد ربط محاسبي"""
     try:
@@ -1703,7 +1703,7 @@ def create_accounting_mapping():
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
 @accounts_bp.route('/accounting-mappings/batch', methods=['POST'])
-@require_permission('system.settings')
+@require_permission('business.setup')
 def batch_create_accounting_mappings():
     """إنشاء عدة إعدادات ربط دفعة واحدة"""
     try:
@@ -1774,7 +1774,7 @@ def batch_create_accounting_mappings():
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
 @accounts_bp.route('/accounting-mappings/<int:mapping_id>', methods=['DELETE'])
-@require_permission('system.settings')
+@require_permission('business.setup')
 def delete_accounting_mapping(mapping_id):
     """حذف إعداد ربط محاسبي"""
     try:
@@ -1793,7 +1793,7 @@ def delete_accounting_mapping(mapping_id):
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
 @accounts_bp.route('/accounting-mappings/get-account', methods=['POST'])
-@require_permission('system.settings')
+@require_permission('business.setup')
 def get_mapped_account():
     """الحصول على الحساب المرتبط لعملية معينة"""
     try:

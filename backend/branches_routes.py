@@ -3,6 +3,7 @@
 """API Routes لإدارة فروع المعرض/المحل."""
 
 from flask import Blueprint, request, jsonify
+from auth_decorators import require_permission
 
 from models import db, Branch
 
@@ -73,6 +74,7 @@ def create_branch():
 
 
 @branches_bp.route('/<int:branch_id>', methods=['PUT'])
+@require_permission('business.setup')
 def update_branch(branch_id: int):
     """تحديث بيانات فرع."""
     try:
@@ -108,6 +110,7 @@ def update_branch(branch_id: int):
 
 
 @branches_bp.route('/<int:branch_id>', methods=['DELETE'])
+@require_permission('business.setup')
 def delete_branch(branch_id: int):
     """حذف فرع (soft delete: تعطيل)."""
     try:
@@ -125,6 +128,7 @@ def delete_branch(branch_id: int):
 
 
 @branches_bp.route('/<int:branch_id>/activate', methods=['POST'])
+@require_permission('business.setup')
 def activate_branch(branch_id: int):
     """تفعيل فرع."""
     try:

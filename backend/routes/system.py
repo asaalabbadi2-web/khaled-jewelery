@@ -627,6 +627,7 @@ def get_settings():
     return response
 
 @system_bp.route('/settings', methods=['PUT'])
+@require_permission('system.settings')
 def update_settings():
     import json
     settings = _get_settings_singleton(create_if_missing=True)
@@ -2423,6 +2424,7 @@ def system_backup_restore():
     })
 
 @system_bp.route('/statements/qr-sign', methods=['POST'])
+@require_permission('print.statements')
 @_wrap_api_exceptions('statement_qr_sign_failed', 'Failed to sign statement QR payload')
 def sign_statement_qr_payload():
     """Sign a provided QR payload using the server-side secret.
@@ -2672,7 +2674,7 @@ def get_app_config():
         return jsonify({'error': str(e)}), 500
 
 @system_bp.route('/melting-renewal', methods=['POST'])
-@require_permission('safe_boxes.edit')
+@require_permission('safe_boxes.transfer')
 def create_melting_renewal():
     """تسجيل عملية تكسير أو تجديد.
 

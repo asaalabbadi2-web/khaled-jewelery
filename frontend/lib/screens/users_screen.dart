@@ -86,6 +86,8 @@ class _UsersScreenState extends State<UsersScreen> {
         return Icons.manage_accounts_outlined;
       case 'accountant':
         return Icons.account_balance_outlined;
+      case 'storekeeper':
+        return Icons.inventory_2_outlined;
       case 'employee':
       default:
         return Icons.person_outline;
@@ -556,6 +558,7 @@ class _UsersScreenState extends State<UsersScreen> {
                                       'system_admin': 'مسؤول النظام',
                                       'manager': 'مدير فرع',
                                       'accountant': 'محاسب',
+                                      'storekeeper': 'أمين مخزون',
                                       'employee': 'بائع',
                                     }[user.role] ??
                                     'مستخدم'
@@ -563,6 +566,7 @@ class _UsersScreenState extends State<UsersScreen> {
                                       'system_admin': 'System Admin',
                                       'manager': 'Branch Manager',
                                       'accountant': 'Accountant',
+                                      'storekeeper': 'Storekeeper',
                                       'employee': 'Seller',
                                     }[user.role] ??
                                     'User';
@@ -840,7 +844,7 @@ class _UserFormDialogState extends State<UserFormDialog> {
     final canChangeRole = isSystemAdmin;
 
     final allowedRoles = isSystemAdmin
-        ? const ['system_admin', 'manager', 'accountant', 'employee']
+        ? const ['system_admin', 'manager', 'accountant', 'storekeeper', 'employee']
         : (isManager ? const ['employee'] : const ['employee']);
 
     final effectiveRole = allowedRoles.contains(_role)
@@ -946,6 +950,7 @@ class _UserFormDialogState extends State<UserFormDialog> {
                                         'system_admin': 'مسؤول النظام',
                                         'manager': 'مدير فرع',
                                         'accountant': 'محاسب',
+                                      'storekeeper': 'أمين مخزون',
                                         'employee': 'بائع',
                                       }[r] ??
                                       r
@@ -953,6 +958,7 @@ class _UserFormDialogState extends State<UserFormDialog> {
                                         'system_admin': 'System Admin',
                                         'manager': 'Branch Manager',
                                         'accountant': 'Accountant',
+                                      'storekeeper': 'Storekeeper',
                                         'employee': 'Seller',
                                       }[r] ??
                                       r,

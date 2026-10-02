@@ -6,6 +6,7 @@ import os
 from datetime import date, datetime, timedelta
 
 from flask import Blueprint, g, jsonify, request
+from services.record_ownership import refuse_unless_self
 from sqlalchemy import and_, func, or_
 from sqlalchemy.exc import IntegrityError
 
@@ -544,6 +545,7 @@ def get_employee_advance_account(employee_id):
     return jsonify({'error': 'Advance accounts feature has been removed'}), 410
 
 @employees_bp.route('/employees/<int:employee_id>/advance-account', methods=['POST'])
+@require_permission('employees.payroll')
 def create_employee_advance_account(employee_id):
     """حسابات السلف تم إلغاؤها نهائياً."""
     return jsonify({'error': 'Advance accounts feature has been removed'}), 410
@@ -1675,6 +1677,9 @@ def mark_achievement_seen(achievement_id):
     """
     try:
         achievement = GoalAchievement.query.get_or_404(achievement_id)
+        refused = refuse_unless_self(achievement.employee_id)
+        if refused:
+            return refused
         achievement.mark_seen()
         db.session.commit()
         return jsonify({'success': True}), 200
@@ -1683,6 +1688,7 @@ def mark_achievement_seen(achievement_id):
         return jsonify({'error': str(e)}), 500
 
 @employees_bp.route('/achievements', methods=['POST'])
+@require_permission('employees.bonuses')
 @require_auth
 def create_achievement():
     """
@@ -2034,6 +2040,7 @@ def check_goal_progress():
 
 # ─── تعديل أهداف الأداء الشخصية للموظف ─────────────────────────────────────
 @employees_bp.route('/employees/<int:employee_id>/goals', methods=['PATCH'])
+@require_permission('employees.bonuses')
 @require_auth
 def update_employee_goals(employee_id):
     """تحديث أهداف الأداء الشخصية للموظف (مستقلة عن أهداف الفريق في الإعدادات)."""

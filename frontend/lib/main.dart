@@ -60,7 +60,9 @@ Future<void> main() async {
             final provider = SettingsProvider();
             final auth = context.read<AuthProvider>();
             provider.loadSettings(
-              fetchRemote: auth.hasPermission('system.settings'),
+              // Every signed-in user reads the settings (main karat, VAT…);
+              // only changing them is system.settings (ADR-036).
+              fetchRemote: auth.isAuthenticated,
             );
             return provider;
           },

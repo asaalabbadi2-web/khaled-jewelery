@@ -26,6 +26,7 @@ class Role {
   static const String systemAdmin = 'system_admin';
   static const String manager = 'manager';
   static const String accountant = 'accountant';
+  static const String storekeeper = 'storekeeper';
   static const String employee = 'employee';
 
   /// تحويل من كود إلى اسم عربي
@@ -37,8 +38,10 @@ class Role {
         return 'مدير';
       case accountant:
         return 'محاسب';
+      case storekeeper:
+        return 'أمين مخزون';
       case employee:
-        return 'موظف';
+        return 'بائع';
       default:
         return code;
     }

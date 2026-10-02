@@ -149,6 +149,7 @@ def get_suppliers():
     return jsonify(results)
 
 @suppliers_bp.route('/suppliers', methods=['POST'])
+@require_permission('suppliers.create')
 def add_supplier():
     """إضافة مورد جديد (النظام الهجين)"""
     from code_generator import generate_supplier_code, validate_supplier_code
@@ -282,6 +283,7 @@ def add_supplier():
         return jsonify({'error': 'حدث خطأ داخلي'}), 500
 
 @suppliers_bp.route('/suppliers/<int:id>', methods=['PUT'])
+@require_permission('suppliers.edit')
 def update_supplier(id):
     """تحديث بيانات المورد (النظام الهجين)"""
     supplier = Supplier.query.get_or_404(id)
@@ -358,6 +360,7 @@ def update_supplier(id):
         return jsonify({'error': f'Failed to update supplier: {str(e)}'}), 500
 
 @suppliers_bp.route('/suppliers/<int:id>', methods=['DELETE'])
+@require_permission('suppliers.delete')
 def delete_supplier(id):
     supplier = Supplier.query.get_or_404(id)
     try:

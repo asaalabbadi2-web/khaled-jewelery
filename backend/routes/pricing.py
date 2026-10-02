@@ -11,6 +11,7 @@ import traceback
 from datetime import datetime, timedelta
 
 from flask import Blueprint, current_app, jsonify, request
+from auth_decorators import require_permission
 from sqlalchemy.orm import joinedload
 
 from gold_costing_service import GoldCostingService, ScrapCostingService
@@ -125,6 +126,7 @@ def get_gold_price_24h():
         return jsonify({'points': [], 'count': 0, 'error': str(e)}), 500
 
 @pricing_bp.route('/gold_price/update', methods=['POST'])
+@require_permission('gold_price.update')
 def update_gold_price():
     try:
         data = request.get_json(silent=True)
@@ -229,22 +231,26 @@ def get_gold_costing():
     return jsonify(_costing_snapshot_payload())
 
 @pricing_bp.route('/gold-costing', methods=['PUT'])
+@require_permission('system.settings')
 def update_gold_costing():
     data = request.get_json(silent=True) or {}
     config = GoldCostingService.update_config(costing_method=data.get('costing_method'))
     return jsonify({'snapshot': GoldCostingService.snapshot().to_dict(), 'config': config})
 
 @pricing_bp.route('/gold-costing/cogs', methods=['POST'])
+@require_permission('reports.financial')
 def calculate_gold_costing_cogs():
     data = request.get_json(silent=True) or {}
     return jsonify(GoldCostingService.calculate_cogs(float(data.get('weight_grams') or 0.0)))
 
 @pricing_bp.route('/gold-costing/recompute', methods=['POST'])
+@require_permission('costing.recompute')
 def recompute_gold_costing():
     result = _rebuild_costing_from_invoices(limit=request.args.get('limit', type=int))
     return jsonify({'status': 'success', 'result': result})
 
 @pricing_bp.route('/gold-costing/reset', methods=['POST'])
+@require_permission('system.settings')
 def reset_gold_costing():
     data = request.get_json(silent=True) or {}
     mode = (data.get('mode') or '').strip().lower()
@@ -331,11 +337,13 @@ def get_scrap_costing():
     return jsonify(_scrap_costing_snapshot_payload())
 
 @pricing_bp.route('/gold-costing/scrap/recompute', methods=['POST'])
+@require_permission('costing.recompute')
 def recompute_scrap_costing():
     result = _rebuild_scrap_costing_from_invoices(limit=request.args.get('limit', type=int))
     return jsonify({'status': 'success', 'result': result})
 
 @pricing_bp.route('/gold-costing/scrap/reset', methods=['POST'])
+@require_permission('system.settings')
 def reset_scrap_costing():
     config = ScrapCostingService.reset(auto_commit=True)
     return jsonify({'status': 'success', 'config': config})

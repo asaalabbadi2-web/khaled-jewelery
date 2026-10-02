@@ -243,7 +243,7 @@ class _EmployeesScreenState extends State<EmployeesScreen> {
     final isManager = auth.role == 'manager';
 
     final allowedRoles = isSystemAdmin
-        ? const ['employee', 'accountant', 'manager']
+        ? const ['employee', 'storekeeper', 'accountant', 'manager']
         : (isManager ? const ['employee'] : const ['employee']);
     String selectedRole = allowedRoles.first;
 

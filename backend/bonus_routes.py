@@ -15,6 +15,7 @@ Endpoints:
 """
 
 from flask import Blueprint, request, jsonify, g
+from services.record_ownership import refuse_unless_self
 from models import db, Employee, BonusRule, EmployeeBonus, Voucher, VoucherAccountLine, Account, Office, SafeBox, GoalAchievement, Invoice, BonusInvoiceLink
 from bonus_calculator import BonusCalculator
 from datetime import datetime, date, timedelta
@@ -250,7 +251,7 @@ def get_employee(employee_id):
 
 @bonus_bp.route('/bonus/employees/<int:employee_id>', methods=['PUT'])
 @require_auth
-@require_permission('employee.update')
+@require_permission('employees.edit')
 def update_employee(employee_id):
     """تحديث بيانات موظف"""
     try:
@@ -782,6 +783,7 @@ def update_bonus(bonus_id):
 
 
 @bonus_bp.route('/bonuses/calculate', methods=['POST'])
+@require_permission('bonus.calculate')
 @require_auth
 def calculate_bonuses():
     """حساب المكافآت لفترة محددة"""
@@ -1663,7 +1665,7 @@ def get_scheduler_status():
 
 @bonus_bp.route('/scheduler/start', methods=['POST'])
 @require_auth
-@require_permission('bonus.admin')
+@require_permission('system.settings')
 def start_scheduler():
     """بدء مجدول المكافآت"""
     try:
@@ -1687,7 +1689,7 @@ def start_scheduler():
 
 @bonus_bp.route('/scheduler/stop', methods=['POST'])
 @require_auth
-@require_permission('bonus.admin')
+@require_permission('system.settings')
 def stop_scheduler():
     """إيقاف مجدول المكافآت"""
     try:
@@ -1751,7 +1753,7 @@ def run_scheduler_now():
 
 @bonus_bp.route('/invoices/<int:invoice_id>/assign-employee', methods=['POST'])
 @require_auth
-@require_permission('invoice.update')
+@require_permission('invoices.edit_others')
 def assign_employee_to_invoice(invoice_id):
     """تعيين موظف لفاتورة موجودة"""
     try:
@@ -2208,6 +2210,7 @@ def _calc_goal_bonus(emp: Employee, period_name: str, actual: float = 0.0) -> fl
 
 
 @bonus_bp.route('/employees/<int:employee_id>/goals', methods=['PUT'])
+@require_permission('employees.bonuses')
 @require_auth
 def update_employee_goals(employee_id):
     """
@@ -2267,6 +2270,9 @@ def check_employee_personal_goals(employee_id):
     يُعيد الإنجازات غير المشاهدة.
     """
     emp = Employee.query.get_or_404(employee_id)
+    refused = refuse_unless_self(emp.id)
+    if refused:
+        return refused
     today = date.today()
 
     week_start  = today - timedelta(days=today.weekday())  # الاثنين
@@ -2357,6 +2363,9 @@ def mark_goal_achievement_seen(achievement_id):
     يضع علامة "شوهد" على إنجاز هدف شخصي.
     """
     ach = GoalAchievement.query.get_or_404(achievement_id)
+    refused = refuse_unless_self(ach.employee_id)
+    if refused:
+        return refused
     ach.mark_seen()
     try:
         db.session.commit()

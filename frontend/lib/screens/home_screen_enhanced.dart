@@ -1372,7 +1372,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
         },
       );
     }
-    if (auth.hasPermission('employees.attendance')) {
+    if (auth.hasPermission('employees.view')) {
       addDestination(
         icon: Icons.event_available,
         title: isAr ? 'الحضور والانصراف' : 'Attendance',
@@ -1557,7 +1557,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
     // ════════════════════════════════════════════════════════════════════════
     // 8. التقارير
     // ════════════════════════════════════════════════════════════════════════
-    if (auth.hasPermission('reports.view')) {
+    if (_holdsAnyReport(auth)) {
       addDivider();
       addSection(isAr ? 'التقارير' : 'Reports', Colors.indigo.shade300);
       addDestination(
@@ -1645,7 +1645,9 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
     // ════════════════════════════════════════════════════════════════════════
     addDivider();
     addSection(isAr ? 'الأدوات' : 'Tools', Colors.teal.shade400);
-    if (auth.hasPermission('safe_boxes.view')) {
+    // The safes' balances and the shift closing are not the seller's: they
+    // hold safe_boxes.view only to pick a safe in an invoice (ADR-036).
+    if (auth.hasPermission('safe_boxes.transfer')) {
       addDestination(
         icon: Icons.savings,
         title: isAr ? 'إدارة الخزائن' : 'Safe Boxes',
@@ -1660,6 +1662,8 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
           await _loadAllData();
         },
       );
+    }
+    if (auth.hasPermission('safe_boxes.edit')) {
       addDestination(
         icon: Icons.fact_check,
         title: isAr ? 'إغلاق اليومية' : 'Shift Closing',
@@ -1688,6 +1692,9 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
           await _loadAllData();
         },
       );
+    }
+    // Payment methods: the accountant sets them up, the manager sees them (ADR-036).
+    if (auth.isManager || auth.hasPermission('business.setup')) {
       addDestination(
         icon: Icons.credit_card,
         title: isAr ? 'وسائل الدفع' : 'Payment Methods',
@@ -4979,7 +4986,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
     'return_sales':            'invoices.view',
     'return_purchase':         'invoices.view',
     'return_purchase_supplier':'invoices.view',
-    'posting_management':      'invoices.post',
+    'posting_management':      'invoices.approve',
     // محاسبة
     'accounts':                'accounts.view',
     'chart_of_accounts':       'accounts.view',
@@ -4992,19 +4999,19 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
     'receipt_voucher':         'vouchers.view',
     'payment_voucher':         'vouchers.view',
     // خزائن
-    'safe_boxes':              'safe_boxes.view',
-    'shift_closing':           'safe_boxes.view',
+    'safe_boxes':              'safe_boxes.transfer',
+    'shift_closing':           'safe_boxes.edit',
     // الموظفون والرواتب
     'employees':               'employees.view',
     'payroll':                 'employees.payroll',
     'payroll_report':          'employees.payroll',
-    'attendance':              'employees.attendance',
+    'attendance':              'employees.view',
     'bonus_rules':             'employees.bonuses',
     'calculate_bonuses':       'employees.bonuses',
     'bonuses':                 'employees.bonuses',
     // تقارير
-    'reports_center':          'reports.view',
-    'gold_price_history':      'reports.view',
+    'reports_center':          'ANY_REPORT',
+    'gold_price_history':      'reports.financial',
     // أدوات تشغيلية
     'clearing_settlement':     'MANAGER_ONLY',
     // مستخدمون وإعدادات النظام
@@ -5026,6 +5033,12 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
     'melting_renewal':         null,
   };
 
+  /// The reports centre opens for whoever holds any report (ADR-036).
+  static bool _holdsAnyReport(AuthProvider auth) => const [
+        'reports.financial', 'reports.inventory', 'reports.sales', 'reports.purchases',
+        'reports.customers', 'reports.employees', 'reports.gold_position',
+      ].any(auth.hasPermission);
+
   /// يتحقق من صلاحية الوصول — يعرض رسالة واضحة ويعيد false إن لم يكن مسموحاً
   bool _checkRoutePermission(String route) {
     final auth = context.read<AuthProvider>();
@@ -5036,7 +5049,9 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
         ? auth.isSystemAdmin
         : required == 'MANAGER_ONLY'
             ? auth.isManager
-            : auth.hasPermission(required);
+            : required == 'ANY_REPORT'
+                ? _holdsAnyReport(auth)
+                : auth.hasPermission(required);
     if (!allowed) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(

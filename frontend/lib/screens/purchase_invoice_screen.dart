@@ -1554,7 +1554,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
     try {
       if (!mounted) return;
       final auth = context.read<AuthProvider>();
-      if (auth.hasPermission('system.settings')) {
+      if (auth.isAuthenticated) {
         settings = await _api.getSettings();
         try {
           final prefs = await SharedPreferences.getInstance();

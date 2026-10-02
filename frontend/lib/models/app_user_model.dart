@@ -7,6 +7,10 @@ class AppUserModel {
   final int? employeeId;
   final String role;
   final Object? permissions;
+
+  /// What the user may do -- the role's grants with the overrides on top, as
+  /// the server checks it (ADR-036). Null from an older server.
+  final List<String>? effectivePermissions;
   final bool isActive;
   final bool mustChangePassword;
   final DateTime? lastLoginAt;
@@ -25,6 +29,7 @@ class AppUserModel {
     required this.employeeId,
     required this.role,
     required this.permissions,
+    this.effectivePermissions,
     required this.isActive,
     required this.mustChangePassword,
     required this.lastLoginAt,
@@ -53,6 +58,7 @@ class AppUserModel {
       employeeId: json['employee_id'] as int?,
       role: json['role'] as String? ?? 'staff',
       permissions: parsedPermissions,
+      effectivePermissions: parseEffectivePermissions(json['effective_permissions']),
       isActive: json['is_active'] as bool? ?? true,
       mustChangePassword: json['must_change_password'] as bool? ?? false,
       lastLoginAt: _parseDateTime(json['last_login_at']),
@@ -96,6 +102,7 @@ class AppUserModel {
       'employee_id': employeeId,
       'role': role,
       'permissions': permissions,
+      'effective_permissions': effectivePermissions,
       'is_active': isActive,
       'must_change_password': mustChangePassword,
       'last_login_at': lastLoginAt?.toIso8601String(),
@@ -128,6 +135,7 @@ class AppUserModel {
       employeeId: json['employee_id'] as int?,
       role: json['role'] as String? ?? 'staff',
       permissions: parsedPermissions,
+      effectivePermissions: parseEffectivePermissions(json['effective_permissions']),
       isActive: json['is_active'] as bool? ?? true,
       mustChangePassword: json['must_change_password'] as bool? ?? false,
       lastLoginAt: _parseDateTime(json['last_login_at']),
@@ -150,6 +158,7 @@ class AppUserModel {
     int? employeeId,
     String? role,
     Object? permissions,
+    List<String>? effectivePermissions,
     bool? isActive,
     bool? mustChangePassword,
     DateTime? lastLoginAt,
@@ -168,6 +177,7 @@ class AppUserModel {
       employeeId: employeeId ?? this.employeeId,
       role: role ?? this.role,
       permissions: permissions ?? this.permissions,
+      effectivePermissions: effectivePermissions ?? this.effectivePermissions,
       isActive: isActive ?? this.isActive,
       mustChangePassword: mustChangePassword ?? this.mustChangePassword,
       lastLoginAt: lastLoginAt ?? this.lastLoginAt,
@@ -180,6 +190,9 @@ class AppUserModel {
   }
 
   static const Object _sentinel = Object();
+
+  static List<String>? parseEffectivePermissions(dynamic raw) =>
+      raw is List ? raw.map((e) => e.toString()).toList() : null;
 
   static DateTime? _parseDateTime(dynamic value) {
     if (value == null || value == '') {

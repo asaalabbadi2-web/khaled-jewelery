@@ -5,6 +5,14 @@ from models import Account, JournalEntryLine, Supplier, Voucher, VoucherAccountL
 from routes import approve_voucher, generate_voucher_number
 
 
+
+def _sign_in_as_system_admin():
+    """The route is called directly; since ADR-036 it asks who calls (vouchers.edit / vouchers.approve)."""
+    from flask import g
+    from models import AppUser
+    g.current_user = AppUser.query.filter_by(role='system_admin').first() or AppUser(
+        username='pytest-admin', role='system_admin', is_active=True, password_hash='x')
+
 def test_voucher_approval_tags_supplier_on_journal_lines():
     with app.app_context():
         supplier = Supplier.query.get(1)
@@ -94,6 +102,8 @@ def test_voucher_approval_tags_supplier_on_journal_lines():
         db.session.commit()
 
         with app.test_request_context(json={"approved_by": "pytest"}):
+
+            _sign_in_as_system_admin()
             resp = approve_voucher(voucher.id)
 
         # Approve returns (json, status) in some cases.

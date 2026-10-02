@@ -3,6 +3,7 @@
 """API Routes لإدارة مكاتب تسكير الذهب."""
 
 from flask import Blueprint, request, jsonify
+from auth_decorators import require_permission
 from models import (
     db,
     Office,
@@ -524,6 +525,7 @@ def create_office():
 
 
 @offices_bp.route('/<int:office_id>', methods=['PUT'])
+@require_permission('business.setup')
 def update_office(office_id):
     """تحديث بيانات مكتب"""
     try:
@@ -626,6 +628,7 @@ def update_office(office_id):
 
 
 @offices_bp.route('/<int:office_id>', methods=['DELETE'])
+@require_permission('business.setup')
 def delete_office(office_id):
     """حذف مكتب (soft delete)"""
     try:
@@ -647,6 +650,7 @@ def delete_office(office_id):
 
 
 @offices_bp.route('/<int:office_id>/activate', methods=['POST'])
+@require_permission('business.setup')
 def activate_office(office_id):
     """تفعيل مكتب"""
     try:

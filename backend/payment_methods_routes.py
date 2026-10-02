@@ -6,6 +6,7 @@ import json
 from typing import Any, Dict, List
 
 from flask import Blueprint, request, jsonify
+from auth_decorators import require_permission
 from sqlalchemy.exc import IntegrityError
 from models import (
     db,
@@ -603,6 +604,7 @@ def get_active_payment_methods():
         return jsonify({'error': str(e)}), 500
 
 @payment_methods_api.route('/payment-methods', methods=['POST'])
+@require_permission('business.setup')
 def create_payment_method():
     """إضافة وسيلة دفع جديدة"""
     try:
@@ -802,6 +804,7 @@ def create_payment_method():
         return jsonify({'error': str(e)}), 500
 
 @payment_methods_api.route('/payment-methods/<int:id>', methods=['PUT'])
+@require_permission('business.setup')
 def update_payment_method(id):
     """تعديل وسيلة دفع"""
     try:
@@ -1064,6 +1067,7 @@ def update_payment_method(id):
         return jsonify({'error': str(e)}), 500
 
 @payment_methods_api.route('/payment-methods/<int:id>', methods=['DELETE'])
+@require_permission('business.setup')
 def delete_payment_method(id):
     """حذف وسيلة دفع"""
     try:
@@ -1135,6 +1139,7 @@ def delete_payment_method(id):
         return jsonify({'error': str(e)}), 500
 
 @payment_methods_api.route('/payment-methods/update-order', methods=['PUT'])
+@require_permission('business.setup')
 def update_payment_methods_order():
     """تحديث ترتيب طرق الدفع"""
     try:
@@ -1223,6 +1228,7 @@ def get_payment_types():
 
 
 @payment_methods_api.route('/payment-types', methods=['POST'])
+@require_permission('business.setup')
 def create_payment_type():
     """إضافة نوع وسيلة دفع جديد"""
     try:
@@ -1253,6 +1259,7 @@ def create_payment_type():
 
 
 @payment_methods_api.route('/payment-types/<int:id>', methods=['DELETE'])
+@require_permission('business.setup')
 def delete_payment_type(id):
     """حذف نوع وسيلة دفع"""
     try:

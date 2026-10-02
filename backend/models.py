@@ -3730,6 +3730,11 @@ class AppUser(db.Model):
         role = (self.role or '').lower()
         return role in ['system_admin', 'manager', 'accountant']
 
+    def effective_permissions(self) -> list:
+        """The role's grants with this user's overrides on top (ADR-036)."""
+        from permissions import effective_permissions
+        return effective_permissions(self.role, self.permissions)
+
     def has_permission(self, permission_code: str) -> bool:
         """
         تحقق من وجود صلاحية معينة
@@ -3761,6 +3766,7 @@ class AppUser(db.Model):
             'employee_id': self.employee_id,
             'role': self.role,
             'permissions': self.permissions,
+            'effective_permissions': self.effective_permissions(),
             'is_active': self.is_active,
             'is_admin': self.is_admin,
             'last_login_at': self.last_login_at.isoformat() if self.last_login_at else None,

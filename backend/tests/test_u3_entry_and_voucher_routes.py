@@ -106,8 +106,10 @@ def test_who_may_cancel_a_voucher(role, allowed):
     assert (resp.status_code != 403) is allowed, resp.get_data(as_text=True)[:200]
 
 
-@pytest.mark.parametrize('role', ['manager', 'accountant'])
-def test_only_the_system_admin_deletes_a_voucher(role):
+@pytest.mark.parametrize('role', ['accountant', 'storekeeper', 'employee'])
+def test_only_the_system_admin_and_the_manager_delete_a_voucher(role):
+    """U3 kept deleting a voucher to the system admin; the owner's matrix
+    (ADR-036, 2 Oct 2026) gives the manager the deletion of a pending one."""
     v = Voucher(voucher_number=f'RV-{uuid.uuid4().hex[:8]}', voucher_type='receipt', date=datetime(2026, 10, 1),
                 status='pending', amount_cash=1.0)
     db.session.add(v)

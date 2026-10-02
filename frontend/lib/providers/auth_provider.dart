@@ -83,8 +83,10 @@ class AuthProvider extends ChangeNotifier {
         return 'مدير';
       case 'accountant':
         return 'محاسب';
+      case 'storekeeper':
+        return 'أمين مخزون';
       case 'employee':
-        return 'موظف';
+        return 'بائع';
       default:
         return role;
     }
@@ -380,6 +382,13 @@ class AuthProvider extends ChangeNotifier {
     // مسؤول النظام لديه كل الصلاحيات
     if (_currentUser!.role == 'system_admin') {
       return true;
+    }
+
+    // The server's answer: the role's grants with the overrides on top
+    // (ADR-036). The overrides alone hid from a role what it was allowed.
+    final effective = _currentUser!.effectivePermissions;
+    if (effective != null) {
+      return effective.contains(permissionKey);
     }
 
     final permissions = _currentUser!.permissions;

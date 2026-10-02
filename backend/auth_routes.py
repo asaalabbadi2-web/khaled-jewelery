@@ -1656,7 +1656,7 @@ def change_password():
 # ==========================================
 
 @auth_bp.route('/roles', methods=['GET'])
-@require_permission('role.view')
+@require_permission('users.view')
 def get_roles():
     """
     عرض جميع الأدوار
@@ -1686,7 +1686,7 @@ def get_roles():
 
 
 @auth_bp.route('/roles/<int:role_id>', methods=['GET'])
-@require_permission('role.view')
+@require_permission('users.view')
 def get_role(role_id):
     """الحصول على دور محدد"""
     try:
@@ -1710,7 +1710,7 @@ def get_role(role_id):
 
 
 @auth_bp.route('/roles', methods=['POST'])
-@require_permission('role.create')
+@require_permission('users.change_permissions')
 def create_role():
     """
     إنشاء دور جديد
@@ -1774,7 +1774,7 @@ def create_role():
 
 
 @auth_bp.route('/roles/<int:role_id>', methods=['PUT'])
-@require_permission('role.edit')
+@require_permission('users.change_permissions')
 def update_role(role_id):
     """تعديل دور"""
     try:
@@ -1825,7 +1825,7 @@ def update_role(role_id):
 
 
 @auth_bp.route('/roles/<int:role_id>', methods=['DELETE'])
-@require_permission('role.delete')
+@require_permission('users.change_permissions')
 def delete_role(role_id):
     """حذف دور"""
     try:
@@ -1870,7 +1870,7 @@ def delete_role(role_id):
 # ==========================================
 
 @auth_bp.route('/permissions', methods=['GET'])
-@require_permission('role.view')
+@require_permission('users.view')
 def get_permissions():
     """
     عرض جميع الصلاحيات
@@ -1914,7 +1914,7 @@ def get_permissions():
 # ==========================================
 
 @auth_bp.route('/users', methods=['GET'])
-@require_permission('user.view')
+@require_permission('users.view')
 def list_users():
     """
     عرض قائمة المستخدمين
@@ -1974,7 +1974,7 @@ def list_users():
 
 
 @auth_bp.route('/users/<int:user_id>', methods=['GET'])
-@require_permission('user.view')
+@require_permission('users.view')
 def get_user(user_id):
     """الحصول على بيانات مستخدم واحد"""
     try:
@@ -1998,7 +1998,7 @@ def get_user(user_id):
 
 
 @auth_bp.route('/users', methods=['POST'])
-@require_permission('user.create')
+@require_permission('users.create')
 def create_user():
     """
     إنشاء مستخدم جديد
@@ -2074,7 +2074,7 @@ def create_user():
 
 
 @auth_bp.route('/users/<int:user_id>', methods=['PUT'])
-@require_permission('user.edit')
+@require_permission('users.edit')
 def update_user(user_id):
     """
     تحديث بيانات مستخدم
@@ -2129,7 +2129,7 @@ def update_user(user_id):
 
 
 @auth_bp.route('/users/<int:user_id>', methods=['DELETE'])
-@require_permission('user.delete')
+@require_permission('users.delete')
 def delete_user(user_id):
     """حذف مستخدم"""
     try:
@@ -2180,7 +2180,7 @@ def delete_user(user_id):
 
 
 @auth_bp.route('/users/<int:user_id>/toggle-active', methods=['POST'])
-@require_permission('user.edit')
+@require_permission('users.edit')
 def toggle_user_active(user_id):
     """تفعيل/تعطيل حساب مستخدم"""
     try:
@@ -2219,7 +2219,7 @@ def toggle_user_active(user_id):
 
 
 @auth_bp.route('/users/<int:user_id>/reset-password', methods=['POST'])
-@require_permission('user.edit')
+@require_permission('users.edit')
 def reset_user_password(user_id):
     """تعيين كلمة مرور جديدة لمستخدم بواسطة المشرف."""
     try:
@@ -2251,7 +2251,7 @@ def reset_user_password(user_id):
 # ==========================================
 
 @auth_bp.route('/users/<int:user_id>/roles', methods=['POST'])
-@require_permission('user.manage_roles')
+@require_permission('users.change_permissions')
 def manage_user_roles(user_id):
     """
     إضافة أو إزالة أدوار للمستخدم

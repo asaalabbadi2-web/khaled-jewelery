@@ -1845,7 +1845,7 @@ def close_shift():
 # ==========================================
 
 @posting_bp.route('/invoices/unposted', methods=['GET'])
-@require_permission('invoice.view')
+@require_permission('invoices.approve')
 def get_unposted_invoices():
     """عرض جميع الفواتير غير المرحلة"""
     try:
@@ -1861,7 +1861,7 @@ def get_unposted_invoices():
 
 
 @posting_bp.route('/invoices/posted', methods=['GET'])
-@require_permission('invoice.view')
+@require_permission('invoices.approve')
 def get_posted_invoices():
     """عرض جميع الفواتير المرحلة"""
     try:
@@ -2200,7 +2200,7 @@ def unpost_invoice_document(invoice: Invoice) -> None:
 
 
 @posting_bp.route('/invoices/post/<int:invoice_id>', methods=['POST'])
-@require_permission('invoice.post')
+@require_permission('invoices.approve')
 def post_invoice(invoice_id):
     """
     ترحيل فاتورة واحدة
@@ -2335,7 +2335,7 @@ def post_invoice(invoice_id):
 
 
 @posting_bp.route('/invoices/approve-large-discount/<int:invoice_id>', methods=['POST'])
-@require_permission('invoice.post')
+@require_permission('invoices.approve')
 @require_permission('journal.post')
 def approve_large_discount_invoice(invoice_id):
     """Approve and post an unposted invoice that was saved behind an approval gate.
@@ -2370,7 +2370,7 @@ def approve_large_discount_invoice(invoice_id):
 
 
 @posting_bp.route('/invoices/approve/<int:invoice_id>', methods=['POST'])
-@require_permission('invoice.post')
+@require_permission('invoices.approve')
 @require_permission('journal.post')
 def approve_invoice(invoice_id):
     """Generic approval endpoint for invoices that were saved with `approval_required`.
@@ -2382,7 +2382,7 @@ def approve_invoice(invoice_id):
 
 
 @posting_bp.route('/invoices/post-batch', methods=['POST'])
-@require_permission('invoice.post')
+@require_permission('invoices.approve')
 def post_invoices_batch():
     """
     ترحيل مجموعة فواتير
@@ -2467,7 +2467,7 @@ def post_invoices_batch():
 
 
 @posting_bp.route('/invoices/unpost/<int:invoice_id>', methods=['POST'])
-@require_permission('invoice.unpost')
+@require_permission('invoices.unpost')
 def unpost_invoice(invoice_id):
     """
     إلغاء ترحيل فاتورة
@@ -2930,7 +2930,7 @@ def unpost_journal_entry(entry_id):
 # ==========================================
 
 @posting_bp.route('/invoices/unpost-batch', methods=['POST'])
-@require_permission('invoice.unpost')
+@require_permission('invoices.unpost')
 def unpost_invoices_batch():
     """إلغاء ترحيل مجموعة فواتير — يتطلب allow_unposting=True في الإعدادات"""
     try:
@@ -3287,7 +3287,7 @@ def get_audit_stats():
 # ==========================================
 
 @posting_bp.route('/vouchers/pending', methods=['GET'])
-@require_permission('voucher.view')
+@require_permission('vouchers.view')
 def get_pending_vouchers():
     """عرض جميع السندات بانتظار الموافقة"""
     try:
@@ -3307,7 +3307,7 @@ def get_pending_vouchers():
 
 
 @posting_bp.route('/vouchers/approved', methods=['GET'])
-@require_permission('voucher.view')
+@require_permission('vouchers.view')
 def get_approved_vouchers():
     """عرض جميع السندات الموافق عليها"""
     try:
@@ -3327,7 +3327,7 @@ def get_approved_vouchers():
 
 
 @posting_bp.route('/vouchers/rejected', methods=['GET'])
-@require_permission('voucher.view')
+@require_permission('vouchers.view')
 def get_rejected_vouchers():
     """عرض جميع السندات المرفوضة"""
     try:
@@ -3428,7 +3428,7 @@ def _create_and_post_karat_diff_entries_for_voucher(voucher, posted_by: str):
 
 
 @posting_bp.route('/vouchers/approve/<int:voucher_id>', methods=['POST'])
-@require_permission('voucher.approve')
+@require_permission('vouchers.approve')
 def approve_voucher(voucher_id):
     """
     الموافقة على سند
@@ -3561,7 +3561,7 @@ def approve_voucher(voucher_id):
 
 
 @posting_bp.route('/vouchers/reject/<int:voucher_id>', methods=['POST'])
-@require_permission('voucher.approve')
+@require_permission('vouchers.approve')
 def reject_voucher(voucher_id):
     """
     رفض سند
@@ -3665,7 +3665,7 @@ def reject_voucher(voucher_id):
 
 
 @posting_bp.route('/vouchers/approve/batch', methods=['POST'])
-@require_permission('voucher.approve')
+@require_permission('vouchers.approve')
 def approve_vouchers_batch():
     """
     الموافقة على مجموعة سندات دفعة واحدة
@@ -3796,7 +3796,7 @@ def approve_vouchers_batch():
 
 
 @posting_bp.route('/vouchers/stats', methods=['GET'])
-@require_permission('voucher.view')
+@require_permission('vouchers.view')
 def get_vouchers_stats():
     """إحصائيات السندات"""
     try:
@@ -3836,7 +3836,7 @@ def get_vouchers_stats():
 
 
 @posting_bp.route('/admin/move-sbt', methods=['POST'])
-@require_permission('admin')
+@require_permission('system.settings')
 def admin_move_sbt():
     """Correct a SafeBoxTransaction that was routed to the wrong safe box.
 
@@ -3922,7 +3922,7 @@ def admin_move_sbt():
 # ============================================================
 
 @posting_bp.route('/admin/migrate-scrap-gold-to-employee-safes', methods=['POST'])
-@require_permission('admin')
+@require_permission('system.settings')
 def migrate_scrap_gold_to_employee_safes():
     """نقل حركات invoice_gold للفواتير (شراء كسر) من صندوق الكسر لخزينة الموظف الصحيحة.
 
@@ -3975,7 +3975,7 @@ def migrate_scrap_gold_to_employee_safes():
 
 
 @posting_bp.route('/admin/sync-orphan-entries', methods=['POST'])
-@require_permission('admin')
+@require_permission('system.settings')
 def sync_orphan_journal_entries():
     """مزامنة القيود اليتيمة: ترحيل أي قيد مرتبط بفاتورة مرحّلة لكنه غير مرحّل.
 
@@ -4022,7 +4022,7 @@ def sync_orphan_journal_entries():
 
 
 @posting_bp.route('/admin/repair-sbt-for-invoice/<int:invoice_id>', methods=['POST'])
-@require_permission('admin')
+@require_permission('system.settings')
 def repair_sbt_for_invoice(invoice_id: int):
     """Create missing SafeBoxTransaction gold entries for a posted invoice.
 
@@ -4158,7 +4158,7 @@ def repair_sbt_for_invoice(invoice_id: int):
 
 
 @posting_bp.route('/admin/repair-sbt-batch', methods=['POST'])
-@require_permission('admin')
+@require_permission('system.settings')
 def repair_sbt_batch():
     """Batch version of repair_sbt_for_invoice.
 
@@ -4264,7 +4264,7 @@ def repair_sbt_batch():
 
 
 @posting_bp.route('/admin/sbt-cancel/<int:sbt_id>', methods=['POST'])
-@require_permission('admin')
+@require_permission('system.settings')
 def cancel_sbt(sbt_id: int):
     """Create a reversal SafeBoxTransaction for an existing SBT.
 
@@ -4320,7 +4320,7 @@ def cancel_sbt(sbt_id: int):
 
 
 @posting_bp.route('/admin/sbt-create-from-je/<int:je_id>', methods=['POST'])
-@require_permission('admin')
+@require_permission('system.settings')
 def create_sbt_from_je(je_id: int):
     """Create SafeBoxTransaction(s) directly from a posted JE's gold safe lines.
 

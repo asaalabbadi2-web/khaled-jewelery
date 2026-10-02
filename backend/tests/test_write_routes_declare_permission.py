@@ -9,6 +9,9 @@ resetting gold costing. Any signed-in employee can do those. Which role may do
 each is a business decision, so they are recorded here as SEC-007 debt instead
 of being guessed; the ratchet fails on any NEW write route that declares no
 permission, and on any entry here that no longer matches (debt paid: remove it).
+The owner decided the roles on 2 Oct 2026 (ADR-036) and the debt is paid: what
+remains is the sign-in routes, the first-run wizard, and records that are the
+caller's own.
 
 Static by nature: it reads each route's decorator stack in the source.
 
@@ -57,38 +60,10 @@ ALLOWED = {
         "sign-in and own-account actions (public, or acting on the caller's own session)",
     ('auth_routes.py', 'verify_2fa'):
         "sign-in and own-account actions (public, or acting on the caller's own session)",
-    ('bonus_routes.py', 'calculate_bonuses'):
-        'DEBT (SEC-007): only an is_admin branch in its body; no permission declared',
     ('bonus_routes.py', 'check_employee_personal_goals'):
-        'DEBT (SEC-007): no permission declared -- any signed-in user can do this',
+        "the caller's own goals; another's need employees.bonuses (refuse_unless_self in its body)",
     ('bonus_routes.py', 'mark_goal_achievement_seen'):
-        'DEBT (SEC-007): no permission declared -- any signed-in user can do this',
-    ('bonus_routes.py', 'update_employee_goals'):
-        'DEBT (SEC-007): no permission declared -- any signed-in user can do this',
-    ('branches_routes.py', 'activate_branch'):
-        'DEBT (SEC-007): no permission declared -- any signed-in user can do this',
-    ('branches_routes.py', 'delete_branch'):
-        'DEBT (SEC-007): no permission declared -- any signed-in user can do this',
-    ('branches_routes.py', 'update_branch'):
-        'DEBT (SEC-007): no permission declared -- any signed-in user can do this',
-    ('offices_routes.py', 'activate_office'):
-        'DEBT (SEC-007): no permission declared -- any signed-in user can do this',
-    ('offices_routes.py', 'delete_office'):
-        'DEBT (SEC-007): no permission declared -- any signed-in user can do this',
-    ('offices_routes.py', 'update_office'):
-        'DEBT (SEC-007): no permission declared -- any signed-in user can do this',
-    ('payment_methods_routes.py', 'create_payment_method'):
-        'DEBT (SEC-007): no permission declared -- any signed-in user can do this',
-    ('payment_methods_routes.py', 'create_payment_type'):
-        'DEBT (SEC-007): no permission declared -- any signed-in user can do this',
-    ('payment_methods_routes.py', 'delete_payment_method'):
-        'DEBT (SEC-007): no permission declared -- any signed-in user can do this',
-    ('payment_methods_routes.py', 'delete_payment_type'):
-        'DEBT (SEC-007): no permission declared -- any signed-in user can do this',
-    ('payment_methods_routes.py', 'update_payment_method'):
-        'DEBT (SEC-007): no permission declared -- any signed-in user can do this',
-    ('payment_methods_routes.py', 'update_payment_methods_order'):
-        'DEBT (SEC-007): no permission declared -- any signed-in user can do this',
+        "the caller's own achievement; another's needs employees.bonuses (refuse_unless_self in its body)",
     ('permissions_routes.py', 'update_user_permissions'):
         'checks users.change_permissions in its body; the decorator would make it visible',
     ('permissions_routes.py', 'update_user_role'):
@@ -107,58 +82,10 @@ ALLOWED = {
         'api blueprint: _enforce_api_auth_and_permissions infers the permission',
     ('routes/admin.py', 'upload_temp_pdf'):
         'any signed-in user may upload the PDF of the invoice they print',
-    ('routes/customers.py', 'add_customer'):
-        'DEBT (SEC-007): no permission declared -- any signed-in user can do this',
-    ('routes/customers.py', 'delete_customer'):
-        'DEBT (SEC-007): no permission declared -- any signed-in user can do this',
-    ('routes/customers.py', 'update_customer'):
-        'DEBT (SEC-007): no permission declared -- any signed-in user can do this',
     ('routes/employees.py', 'check_goal_progress'):
-        'DEBT (SEC-007): no permission declared -- any signed-in user can do this',
-    ('routes/employees.py', 'create_achievement'):
-        'DEBT (SEC-007): no permission declared -- any signed-in user can do this',
-    ('routes/employees.py', 'create_employee_advance_account'):
-        'DEBT (SEC-007): no permission declared -- any signed-in user can do this',
+        "the caller's own: it reads the signed-in user's employee and nobody else's",
     ('routes/employees.py', 'mark_achievement_seen'):
-        'DEBT (SEC-007): no permission declared -- any signed-in user can do this',
-    ('routes/employees.py', 'update_employee_goals'):
-        'DEBT (SEC-007): no permission declared -- any signed-in user can do this',
-    ('routes/invoices.py', 'add_invoice'):
-        'DEBT (SEC-007): checks is_admin only for the employee override; creating an invoice needs no permission',
-    ('routes/invoices.py', 'add_invoice_payment'):
-        'DEBT (SEC-007): no permission declared -- any signed-in user can do this',
-    ('routes/invoices.py', 'set_invoice_print_template'):
-        'DEBT (SEC-007): no permission declared -- any signed-in user can do this',
-    ('routes/pricing.py', 'calculate_gold_costing_cogs'):
-        'DEBT (SEC-007): no permission declared -- any signed-in user can do this',
-    ('routes/pricing.py', 'recompute_gold_costing'):
-        'DEBT (SEC-007): no permission declared -- any signed-in user can do this',
-    ('routes/pricing.py', 'recompute_scrap_costing'):
-        'DEBT (SEC-007): no permission declared -- any signed-in user can do this',
-    ('routes/pricing.py', 'reset_gold_costing'):
-        'DEBT (SEC-007): no permission declared -- any signed-in user can do this',
-    ('routes/pricing.py', 'reset_scrap_costing'):
-        'DEBT (SEC-007): no permission declared -- any signed-in user can do this',
-    ('routes/pricing.py', 'update_gold_costing'):
-        'DEBT (SEC-007): no permission declared -- any signed-in user can do this',
-    ('routes/pricing.py', 'update_gold_price'):
-        'DEBT (SEC-007): no permission declared -- any signed-in user can do this',
-    ('routes/suppliers.py', 'add_supplier'):
-        'DEBT (SEC-007): no permission declared -- any signed-in user can do this',
-    ('routes/suppliers.py', 'delete_supplier'):
-        'DEBT (SEC-007): no permission declared -- any signed-in user can do this',
-    ('routes/suppliers.py', 'update_supplier'):
-        'DEBT (SEC-007): no permission declared -- any signed-in user can do this',
-    ('routes/system.py', 'sign_statement_qr_payload'):
-        'DEBT (SEC-007): no permission declared -- any signed-in user can do this',
-    ('routes/system.py', 'update_settings'):
-        'DEBT (SEC-007): no permission declared -- any signed-in user can do this',
-    ('routes/vouchers.py', 'approve_voucher'):
-        'DEBT (SEC-007): no permission declared -- any signed-in user can do this',
-    ('routes/vouchers.py', 'create_voucher'):
-        'DEBT (SEC-007): no permission declared -- any signed-in user can do this',
-    ('routes/vouchers.py', 'update_voucher'):
-        'DEBT (SEC-007): no permission declared -- any signed-in user can do this',
+        "the caller's own achievement; another's needs employees.bonuses (refuse_unless_self in its body)",
     ('setup_routes.py', 'save_store_settings'):
         'first-run wizard; refuses (403) once setup is locked',
     ('setup_routes.py', 'test_db_connection'):
