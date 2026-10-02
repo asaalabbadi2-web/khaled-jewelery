@@ -88,7 +88,7 @@ from pricing.karat_service import convert_from_main_karat, convert_to_main_karat
 from accounting.voucher_engine import (
     _generate_journal_entry_number,
     generate_voucher_number,
-    create_journal_entry_from_voucher,
+    post_entry_of_approved_voucher,
     _append_safe_transactions_for_voucher,
 )
 from accounting.mappings import DEFAULT_MAPPING_OPERATION_TYPE, get_account_id_by_number, get_account_id_for_mapping
@@ -1773,12 +1773,11 @@ def _correct_invoice_payment_method_multi_split(invoice, ip, data):
                 ))
             db.session.flush()
 
-            journal_entry = create_journal_entry_from_voucher(voucher)
-            if journal_entry:
-                journal_entry.reference_type = 'payment_method_correction'
-                journal_entry.reference_id = payment_id
-                voucher.journal_entry_id = journal_entry.id
-                reclass_je_id = journal_entry.id
+            # Born approved, born posted (APPROVED-ENTRY-001): raises if no entry.
+            journal_entry = post_entry_of_approved_voucher(voucher, posted_by=voucher.approved_by or 'system')
+            journal_entry.reference_type = 'payment_method_correction'
+            journal_entry.reference_id = payment_id
+            reclass_je_id = journal_entry.id
 
             old_acc = Account.query.get(int(old_safe_account_id))
             if old_acc is not None:
@@ -2062,12 +2061,11 @@ def correct_invoice_payment_method(invoice_id: int, payment_id: int):
             ))
             db.session.flush()
 
-            journal_entry = create_journal_entry_from_voucher(voucher)
-            if journal_entry:
-                journal_entry.reference_type = 'payment_method_correction'
-                journal_entry.reference_id = payment_id
-                voucher.journal_entry_id = journal_entry.id
-                reclass_je_id = journal_entry.id
+            # Born approved, born posted (APPROVED-ENTRY-001): raises if no entry.
+            journal_entry = post_entry_of_approved_voucher(voucher, posted_by=voucher.approved_by or 'system')
+            journal_entry.reference_type = 'payment_method_correction'
+            journal_entry.reference_id = payment_id
+            reclass_je_id = journal_entry.id
 
             new_acc = Account.query.get(int(new_safe_account_id))
             old_acc = Account.query.get(int(old_safe_account_id))
@@ -6100,8 +6098,10 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
 
                 db.session.flush()
 
-                journal_entry = create_journal_entry_from_voucher(voucher)
-                if not journal_entry:
+                # Born approved, born posted (APPROVED-ENTRY-001).
+                try:
+                    journal_entry = post_entry_of_approved_voucher(voucher, posted_by=posted_by_username or 'system')
+                except RuntimeError:
                     db.session.rollback()
                     return jsonify({'error': 'gold_settlement_voucher_post_failed', 'message': 'فشل إنشاء القيد من سند سداد الذهب'}), 500
 

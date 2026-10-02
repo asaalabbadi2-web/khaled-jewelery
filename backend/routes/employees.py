@@ -29,7 +29,7 @@ from core.dates import _parse_iso_date, _parse_iso_time
 from auth_decorators import get_current_user, require_auth, require_permission
 
 from core.settings import _get_settings_singleton
-from accounting.voucher_engine import create_journal_entry_from_voucher, _append_safe_transactions_for_voucher
+from accounting.voucher_engine import post_entry_of_approved_voucher, _append_safe_transactions_for_voucher
 from dual_system_helpers import create_dual_journal_entry, verify_dual_balance
 from routes import (
     _generate_employee_code,
@@ -1466,9 +1466,8 @@ def mark_payroll_paid(payroll_id):
                 db.session.add(advance_line)
 
             # ترحيل السند تلقائياً (إنشاء قيد + ربط + SafeBoxTransaction)
-            journal_entry = create_journal_entry_from_voucher(voucher)
-            if not journal_entry:
-                raise Exception('Failed to create journal entry from payroll voucher')
+            # Born approved, born posted (APPROVED-ENTRY-001): raises if no entry.
+            journal_entry = post_entry_of_approved_voucher(voucher, posted_by=data.get('created_by', 'system'))
 
             voucher.status = 'approved'
             voucher.approved_at = datetime.now()

@@ -33,7 +33,7 @@ from services.live_balances import live_balances_by_account_ids
 from pricing.karat_service import convert_from_main_karat, convert_to_main_karat, get_main_karat
 from accounting.voucher_engine import (
     generate_voucher_number,
-    create_journal_entry_from_voucher,
+    post_entry_of_approved_voucher,
     _append_safe_transactions_for_voucher,
     _generate_journal_entry_number,
 )
@@ -524,9 +524,8 @@ def _create_clearing_settlement_voucher(
 
     db.session.flush()
 
-    journal_entry = create_journal_entry_from_voucher(voucher)
-    if journal_entry:
-        voucher.journal_entry_id = journal_entry.id
+    # Born approved, born posted (APPROVED-ENTRY-001): raises if no entry.
+    post_entry_of_approved_voucher(voucher, posted_by=created_by)
 
     _append_safe_transactions_for_voucher(voucher, created_by=created_by)
 
@@ -1473,10 +1472,8 @@ def create_bnpl_settlement():
 
         db.session.flush()
 
-        # Create journal entry for audit linkage (does not post balances)
-        journal_entry = create_journal_entry_from_voucher(voucher)
-        if journal_entry:
-            voucher.journal_entry_id = journal_entry.id
+        # Born approved, born posted (APPROVED-ENTRY-001): raises if no entry.
+        post_entry_of_approved_voucher(voucher, posted_by=created_by)
 
         # Update balances immediately (system tracks balances outside posting)
         bnpl_account.update_balance(cash_amount=-gross_amount)

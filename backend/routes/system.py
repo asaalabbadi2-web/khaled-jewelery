@@ -69,7 +69,7 @@ from services.weight_execution import list_weight_profiles
 
 from pricing.karat_service import get_main_karat
 from accounting.voucher_engine import (
-    create_journal_entry_from_voucher,
+    post_entry_of_approved_voucher,
     generate_voucher_number,
 )
 from accounting.statement_verification import _sign_qr_payload
@@ -2898,9 +2898,8 @@ def create_melting_renewal():
                 description='تخفيض مخزون أجور المصنعية - تكسير',
             ))
 
-        journal_entry = create_journal_entry_from_voucher(voucher)
-        if not journal_entry:
-            raise Exception('فشل إنشاء القيد المحاسبي')
+        # Born approved, born posted (APPROVED-ENTRY-001): raises if no entry.
+        journal_entry = post_entry_of_approved_voucher(voucher, posted_by=created_by)
 
         voucher.status     = 'approved'
         voucher.approved_at = datetime.now()

@@ -31,7 +31,7 @@ from services.live_balances import (
 from pricing.karat_service import convert_to_main_karat, get_main_karat
 from accounting.voucher_engine import (
     generate_voucher_number,
-    create_journal_entry_from_voucher,
+    post_entry_of_approved_voucher,
     _append_safe_transactions_for_voucher,
 )
 from accounting.safe_boxes import _ensure_safe_box_transactions_for_invoice_je
@@ -1404,10 +1404,9 @@ def create_safe_box_transfer_voucher():
             l.voucher_id = voucher.id
             db.session.add(l)
 
-        # Approve/post immediately
-        journal_entry = create_journal_entry_from_voucher(voucher)
-        if not journal_entry:
-            raise Exception('فشل إنشاء القيد المحاسبي')
+        # Approve/post immediately -- born approved, born posted
+        # (APPROVED-ENTRY-001): raises if no entry.
+        journal_entry = post_entry_of_approved_voucher(voucher, posted_by=created_by)
 
         voucher.status = 'approved'
         voucher.approved_at = datetime.now()
@@ -1591,9 +1590,8 @@ def correct_safe_box_karat(safe_box_id):
                 karat=karat_val,
             ))
 
-        journal_entry = create_journal_entry_from_voucher(voucher)
-        if not journal_entry:
-            raise Exception('فشل إنشاء القيد المحاسبي')
+        # Born approved, born posted (APPROVED-ENTRY-001): raises if no entry.
+        journal_entry = post_entry_of_approved_voucher(voucher, posted_by=created_by)
 
         voucher.status = 'approved'
         voucher.approved_at = datetime.now()
