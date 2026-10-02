@@ -714,12 +714,10 @@ def get_office_balance(office_id):
             bal_24k = float(live.get('24k') or 0.0)
             balance_source = 'account'
         else:
-            balance_cash = float(office.balance_cash or 0.0)
-            bal_18k = float(office.balance_gold_18k or 0.0)
-            bal_21k = float(office.balance_gold_21k or 0.0)
-            bal_22k = float(office.balance_gold_22k or 0.0)
-            bal_24k = float(office.balance_gold_24k or 0.0)
-            balance_source = 'office'
+            # No supplier and no account: no ledger to read (BALANCE-001 B3) --
+            # the cached columns are not a balance.
+            balance_cash = bal_18k = bal_21k = bal_22k = bal_24k = 0.0
+            balance_source = 'none'
 
         # KPIs
         outstanding_weight = (

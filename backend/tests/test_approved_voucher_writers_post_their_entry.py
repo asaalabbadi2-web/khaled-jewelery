@@ -21,12 +21,13 @@ Run:
 """
 import ast
 import uuid
+from datetime import datetime
 from pathlib import Path
 
 import pytest
 
 from app import app as flask_app
-from models import Account, JournalEntry, SafeBox, SafeBoxTransaction, Settings, Voucher, db
+from models import Account, JournalEntry, JournalEntryLine, SafeBox, Settings, Voucher, db
 
 BACKEND = Path(__file__).resolve().parents[1]
 SKIP_DIRS = {'tests', 'venv', 'alembic', 'migrations', '_archived', 'graphify-out', 'backups',
@@ -113,8 +114,14 @@ def _gold_safe(name):
 
 def test_a_gold_safe_transfer_with_auto_post_off_is_born_posted(auth_headers, auto_post_off):
     source, target = _gold_safe('خزينة مصدر'), _gold_safe('خزينة هدف')
-    db.session.add(SafeBoxTransaction(safe_box_id=source.id, ref_type='opening', ref_id=0,
-                                      direction='in', weight_21k=5.0, created_by='t'))
+    # The source holds 5 g of 21k in the ledger -- where sufficiency is read (BALANCE-001 B2).
+    other = _gold_safe('مقابل')
+    je = JournalEntry(entry_number=f'T-{uuid.uuid4().hex[:10]}', date=datetime(2026, 9, 1), description='t',
+                      is_posted=True)
+    db.session.add(je)
+    db.session.flush()
+    db.session.add_all([JournalEntryLine(journal_entry_id=je.id, account_id=source.account_id, debit_21k=5.0),
+                        JournalEntryLine(journal_entry_id=je.id, account_id=other.account_id, credit_21k=5.0)])
     db.session.flush()
     resp = flask_app.test_client().post('/api/safe-boxes/transfer-voucher', headers=auth_headers, json={
         'from_safe_box_id': source.id, 'to_safe_box_id': target.id, 'weights': {'21k': 2.0}})

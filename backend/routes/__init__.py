@@ -422,7 +422,9 @@ def validate_bridge_account_balance(bridge_account_id, tolerance=0.01):
         return {'is_balanced': False, 'bridge_balance': 0.0, 'warning': 'حساب الجسر غير موجود'}
     
     # الحصول على الرصيد النقدي
-    bridge_balance = bridge_account.balance_cash or 0.0
+    # The ledger's balance (BALANCE-001 B3), not the cached column.
+    from services.live_balances import live_balances_by_account_ids
+    bridge_balance = float((live_balances_by_account_ids([bridge_account.id]).get(int(bridge_account.id)) or {}).get('cash') or 0.0)
     
     # التحقق من أن الرصيد قريب من الصفر
     is_balanced = abs(bridge_balance) <= tolerance

@@ -1582,8 +1582,13 @@ def pay_bonus(bonus_id):
                 }
             safe_box_payload['balance'] = balance
         else:
-            treasury_balance_after = float(getattr(office, 'balance_cash', 0.0) or 0.0)
-            office_payload = {'id': office.id, 'name': office.name, 'balance_after': office.balance_cash}
+            # The office's balance is its supplier's in the ledger (BALANCE-001 B3).
+            treasury_balance_after = None
+            if getattr(office, 'supplier', None) is not None:
+                from services.party_live_balances import compute_live_supplier_balances
+                treasury_balance_after = float((compute_live_supplier_balances([office.supplier]).get(
+                    int(office.supplier.id)) or {}).get('cash') or 0.0)
+            office_payload = {'id': office.id, 'name': office.name, 'balance_after': treasury_balance_after}
         
         return jsonify({
             'success': True,

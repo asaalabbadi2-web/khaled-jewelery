@@ -149,21 +149,10 @@ class Account(db.Model):
             'exclude_from_gram_profit': bool(getattr(self, 'exclude_from_gram_profit', False)),
         }
         
-        # إضافة الأرصدة (النظام المزدوج)
-        result['balances'] = {
-            'cash': round(self.balance_cash, 2),
-        }
-        
-        # إضافة الأرصدة الوزنية إذا كان الحساب يتتبع الوزن
-        if self.tracks_weight:
-            result['balances']['weight'] = {
-                '18k': round(self.balance_18k, 3),
-                '21k': round(self.balance_21k, 3),
-                '22k': round(self.balance_22k, 3),
-                '24k': round(self.balance_24k, 3),
-                'total': round(self.balance_18k + self.balance_21k + self.balance_22k + self.balance_24k, 3)
-            }
-        
+        # The balance is the ledger's (BALANCE-001 B3): the cached columns are
+        # not sent. The account routes add the live balance where it is needed.
+        result['balances'] = None
+
         return result
 
     def update_balance(self, cash_amount=0, weight_18k=0, weight_21k=0, weight_22k=0, weight_24k=0):
@@ -686,11 +675,13 @@ class Office(db.Model):
             'supplier_name': self.supplier.name if self.supplier else None,
             'supplier_default_safe_box_id': getattr(self.supplier, 'default_safe_box_id', None) if self.supplier else None,
             'supplier_default_safe_box_name': supplier_default_safe_box.name if supplier_default_safe_box else None,
-            'balance_cash': self.balance_cash,
-            'balance_gold_18k': self.balance_gold_18k,
-            'balance_gold_21k': self.balance_gold_21k,
-            'balance_gold_22k': self.balance_gold_22k,
-            'balance_gold_24k': self.balance_gold_24k,
+            # The balance is the ledger's (BALANCE-001 B3): the list and detail
+            # routes set it live; the cached columns are not sent.
+            'balance_cash': None,
+            'balance_gold_18k': None,
+            'balance_gold_21k': None,
+            'balance_gold_22k': None,
+            'balance_gold_24k': None,
             'total_reservations': self.total_reservations,
             'total_weight_purchased': self.total_weight_purchased,
             'total_amount_paid': self.total_amount_paid,
@@ -925,11 +916,13 @@ class Customer(db.Model):
             'account_category_name': self.account_category.name if self.account_category else None,
             'account_id': self.account_id,
             'account_name': self.account.name if self.account else None,
-            'balance_cash': self.balance_cash,
-            'balance_gold_18k': self.balance_gold_18k,
-            'balance_gold_21k': self.balance_gold_21k,
-            'balance_gold_22k': self.balance_gold_22k,
-            'balance_gold_24k': self.balance_gold_24k,
+            # The balance is the ledger's (BALANCE-001 B3): the list and detail
+            # routes set it live; the cached columns are not sent.
+            'balance_cash': None,
+            'balance_gold_18k': None,
+            'balance_gold_21k': None,
+            'balance_gold_22k': None,
+            'balance_gold_24k': None,
         }
 
     def to_dict_with_account(self):
@@ -4175,7 +4168,8 @@ class SafeBox(db.Model):
             }
         
         if include_balance and self.account:
-            result['balance'] = self.account.to_dict()['balances']
+            from services.live_balances import safe_box_balance   # the ledger's (BALANCE-001 B3)
+            result['balance'] = safe_box_balance(self)
         
         return result
     

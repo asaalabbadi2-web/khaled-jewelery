@@ -90,8 +90,12 @@ def get_customer_statement(id):
     opening_balance_cash = 0.0
     opening_balances_gold = {'18k': 0.0, '21k': 0.0, '22k': 0.0, '24k': 0.0}
 
+    from services.party_live_balances import all_customer_own_account_ids, customer_line_clause
+    _own_all = all_customer_own_account_ids()
+    # A customer's lines: its own account's, tagged or not, plus those tagged to
+    # it on shared customer accounts -- one rule with the list (BALANCE-001 B1).
     opening_filters = [
-        JournalEntryLine.customer_id == id,
+        customer_line_clause(id, customer.account_id, _own_all),
         JournalEntry.entry_type == 'افتتاحي',
         JournalEntry.is_deleted == False,
         JournalEntryLine.is_deleted == False,
@@ -129,7 +133,7 @@ def get_customer_statement(id):
     running_balances_gold = opening_balances_gold.copy()
 
     journal_filters = [
-        JournalEntryLine.customer_id == id,
+        customer_line_clause(id, customer.account_id, _own_all),
         JournalEntry.entry_type != 'افتتاحي',
         JournalEntry.is_deleted == False,
         JournalEntryLine.is_deleted == False,
@@ -384,7 +388,20 @@ def get_customers_gold_balances():
 @require_permission('customers.view')
 def get_customers():
     customers = Customer.query.all()
-    return jsonify([c.to_dict() for c in customers])
+    # The balance is the ledger's, read one way (BALANCE-001 B1) -- not the
+    # cached columns, which update_balance() moved in nine places only.
+    from services.party_live_balances import compute_live_customer_balances
+    live = compute_live_customer_balances(customers)
+    rows = []
+    for c in customers:
+        d = c.to_dict()
+        bal = live.get(int(c.id)) or {}
+        d['balance_cash'] = round(bal.get('cash', 0.0), 2)
+        for k in ('18k', '21k', '22k', '24k'):
+            d[f'balance_gold_{k}'] = round(bal.get(k, 0.0), 3)
+        d['balance_source'] = 'ledger'
+        rows.append(d)
+    return jsonify(rows)
 
 @customers_bp.route('/customers', methods=['POST'])
 @require_permission('customers.create')

@@ -155,3 +155,10 @@ def safe_box_balances_bulk(safe_boxes, main_karat: float = 21.0) -> Dict[int, di
         live = live_by_account.get(int(account_id)) if account_id is not None else None
         out[sb.id] = _format_safe_box_balance(live if isinstance(live, dict) else {}, main_karat)
     return out
+
+
+def safe_gold_available(safe_box, karat) -> float:
+    """Grams of *karat* the safe holds -- the ledger's, the balance the screen
+    shows. The one sufficiency rule for the gold transfer, the karat correction
+    and the melting renewal (BALANCE-001 B2); they summed the safe-box rows."""
+    return float(safe_box_balance(safe_box)['weight'].get(f'{int(karat)}k', 0.0) or 0.0)

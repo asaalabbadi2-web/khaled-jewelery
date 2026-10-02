@@ -41,7 +41,7 @@ from core.settings import _get_settings_singleton
 from accounting.wages import _ensure_manufacturing_wage_expense_account
 from accounting.inventory import get_inventory_average_cost
 from services.journals import create_wage_weight_release_journal
-from services.live_balances import safe_box_balances_bulk
+from services.live_balances import live_balances_by_account_ids, safe_box_balances_bulk
 from utils import normalize_number
 from routes import (
     _invoice_weight_mk_v2,
@@ -685,15 +685,19 @@ def get_sales_by_customer_report():
     balance_map = {}
     if customer_ids:
         customers = Customer.query.filter(Customer.id.in_(customer_ids)).all()
+        # The ledger's balance, read one way (BALANCE-001 B1/B3).
+        from services.party_live_balances import compute_live_customer_balances
+        live = compute_live_customer_balances(customers)
         for customer in customers:
+            bal = live.get(int(customer.id)) or {}
             gold_balance_main = (
-                convert_to_main_karat(customer.balance_gold_18k or 0, 18)
-                + convert_to_main_karat(customer.balance_gold_21k or 0, 21)
-                + convert_to_main_karat(customer.balance_gold_22k or 0, 22)
-                + convert_to_main_karat(customer.balance_gold_24k or 0, 24)
+                convert_to_main_karat(bal.get('18k', 0.0), 18)
+                + convert_to_main_karat(bal.get('21k', 0.0), 21)
+                + convert_to_main_karat(bal.get('22k', 0.0), 22)
+                + convert_to_main_karat(bal.get('24k', 0.0), 24)
             )
             balance_map[customer.id] = {
-                'cash': round_money(customer.balance_cash),
+                'cash': round_money(bal.get('cash', 0.0)),
                 'gold_main_karat': round_weight(gold_balance_main),
             }
 
@@ -6036,7 +6040,8 @@ def get_bridge_balance_monitor():
             if not account:
                 continue
             
-            balance = account.balance_cash or 0.0
+            # The ledger's balance (BALANCE-001 B3), not the cached column.
+            balance = float((live_balances_by_account_ids([account.id]).get(int(account.id)) or {}).get('cash') or 0.0)
             
             # التحقق من التوازن (هامش خطأ 0.01)
             is_balanced = abs(balance) <= 0.01
@@ -7231,16 +7236,20 @@ def get_admin_dashboard():
     receivables_due_7_days = 0.0
     try:
         # Get suppliers with credit balances (we owe them)
+        # The ledger's balance, read one way (BALANCE-001 B1) -- not the cached column.
+        from services.party_live_balances import compute_live_customer_balances
         suppliers = Customer.query.filter(Customer.customer_type == 'مورد').all()
+        live = compute_live_customer_balances(suppliers)
         for supplier in suppliers:
-            balance = float(supplier.balance_cash or 0)
+            balance = float((live.get(int(supplier.id)) or {}).get('cash', 0.0))
             if balance < 0:
                 payables_due_7_days += abs(balance)
 
         # Get customers with debit balances (they owe us)
         customers = Customer.query.filter(Customer.customer_type == 'عميل').all()
+        live = compute_live_customer_balances(customers)
         for customer in customers:
-            balance = float(customer.balance_cash or 0)
+            balance = float((live.get(int(customer.id)) or {}).get('cash', 0.0))
             if balance > 0:
                 receivables_due_7_days += balance
     except Exception:

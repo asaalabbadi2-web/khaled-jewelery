@@ -1284,21 +1284,10 @@ def create_safe_box_transfer_voucher():
         if (w_24 + w_22 + w_21 + w_18) <= 0:
             return jsonify({'error': 'no_weights_provided'}), 400
 
-        # Compute current source balance from ledger and enforce sufficiency.
-        q = SafeBoxTransaction.query.filter_by(safe_box_id=from_safe_box_id)
-        w_in = {
-            '18k': float(q.with_entities(func.coalesce(func.sum(SafeBoxTransaction.weight_18k), 0.0)).filter(SafeBoxTransaction.direction == 'in').scalar() or 0.0),
-            '21k': float(q.with_entities(func.coalesce(func.sum(SafeBoxTransaction.weight_21k), 0.0)).filter(SafeBoxTransaction.direction == 'in').scalar() or 0.0),
-            '22k': float(q.with_entities(func.coalesce(func.sum(SafeBoxTransaction.weight_22k), 0.0)).filter(SafeBoxTransaction.direction == 'in').scalar() or 0.0),
-            '24k': float(q.with_entities(func.coalesce(func.sum(SafeBoxTransaction.weight_24k), 0.0)).filter(SafeBoxTransaction.direction == 'in').scalar() or 0.0),
-        }
-        w_out = {
-            '18k': float(q.with_entities(func.coalesce(func.sum(SafeBoxTransaction.weight_18k), 0.0)).filter(SafeBoxTransaction.direction == 'out').scalar() or 0.0),
-            '21k': float(q.with_entities(func.coalesce(func.sum(SafeBoxTransaction.weight_21k), 0.0)).filter(SafeBoxTransaction.direction == 'out').scalar() or 0.0),
-            '22k': float(q.with_entities(func.coalesce(func.sum(SafeBoxTransaction.weight_22k), 0.0)).filter(SafeBoxTransaction.direction == 'out').scalar() or 0.0),
-            '24k': float(q.with_entities(func.coalesce(func.sum(SafeBoxTransaction.weight_24k), 0.0)).filter(SafeBoxTransaction.direction == 'out').scalar() or 0.0),
-        }
-        w_bal = {k: float(w_in.get(k, 0.0)) - float(w_out.get(k, 0.0)) for k in ['18k', '21k', '22k', '24k']}
+        # The source's balance from the ledger -- the balance the screen shows,
+        # as the cash transfer reads it (BALANCE-001 B2); it summed the safe-box rows.
+        from services.live_balances import safe_gold_available
+        w_bal = {f'{k}k': safe_gold_available(from_safe, k) for k in (18, 21, 22, 24)}
         eps = 1e-6
         if (w_24 - (w_bal.get('24k', 0.0) or 0.0)) > eps:
             return jsonify({'error': 'insufficient_balance_24k', 'available': round(w_bal.get('24k', 0.0), 3)}), 400
@@ -1548,13 +1537,9 @@ def correct_safe_box_karat(safe_box_id):
 
         # --- التحقق من رصيد العيار المصدر ---
         from_col = f'weight_{from_karat}k'
-        q = SafeBoxTransaction.query.filter_by(safe_box_id=safe_box_id)
-        col_attr = getattr(SafeBoxTransaction, from_col)
-        w_in  = float(q.with_entities(func.coalesce(func.sum(col_attr), 0.0))
-                        .filter(SafeBoxTransaction.direction == 'in').scalar() or 0.0)
-        w_out = float(q.with_entities(func.coalesce(func.sum(col_attr), 0.0))
-                        .filter(SafeBoxTransaction.direction == 'out').scalar() or 0.0)
-        available = round(w_in - w_out, 6)
+        # From the ledger -- the balance the screen shows (BALANCE-001 B2).
+        from services.live_balances import safe_gold_available
+        available = round(safe_gold_available(safe, from_karat), 6)
 
         if weight > available + 1e-6:
             return jsonify({

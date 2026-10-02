@@ -2765,14 +2765,11 @@ def create_melting_renewal():
         if from_safe_id == to_safe_id:
             return jsonify({'error': 'same_safe_box'}), 400
 
-        from_col  = f'weight_{from_karat}k'
+        # Gold from the ledger -- the balance the screen shows (BALANCE-001 B2);
+        # stones have no ledger weight and stay on the safe-box rows below.
+        from services.live_balances import safe_gold_available
+        available = round(safe_gold_available(from_safe, from_karat), 6)
         q_src = SafeBoxTransaction.query.filter_by(safe_box_id=from_safe_id)
-        col_a = getattr(SafeBoxTransaction, from_col)
-        w_in  = float(q_src.with_entities(func.coalesce(func.sum(col_a), 0.0))
-                           .filter(SafeBoxTransaction.direction == 'in').scalar() or 0.0)
-        w_out = float(q_src.with_entities(func.coalesce(func.sum(col_a), 0.0))
-                           .filter(SafeBoxTransaction.direction == 'out').scalar() or 0.0)
-        available = round(w_in - w_out, 6)
 
         if gold_weight > available + 1e-6:
             return jsonify({

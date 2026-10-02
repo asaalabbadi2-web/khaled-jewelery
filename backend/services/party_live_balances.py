@@ -331,3 +331,58 @@ def compute_live_supplier_balances(
             cur['24k'] += float(getattr(r, 'b24', 0.0) or 0.0)
 
     return balances_by_supplier
+
+
+# ── Customers (BALANCE-001 B1, the owner 2 Oct 2026) ─────────────────────────
+
+def customer_line_clause(customer_id: int, own_account_id, all_own_account_ids):
+    """The ledger lines that are a customer's: every line on its own financial
+    account, tagged or not, plus the lines tagged to it on shared customer
+    accounts (12…) -- not those tagged to it on another customer's own account.
+    One rule for the list, the statement and the dashboard."""
+    from models import JournalEntryLine
+    others = [a for a in all_own_account_ids if a != own_account_id] or [-1]
+    tagged_on_shared = and_(
+        JournalEntryLine.customer_id == int(customer_id),
+        Account.type == 'Asset',
+        Account.account_number.like('12%'),
+        JournalEntryLine.account_id.notin_(others),
+    )
+    if own_account_id:
+        return or_(JournalEntryLine.account_id == int(own_account_id), tagged_on_shared)
+    return tagged_on_shared
+
+
+def all_customer_own_account_ids() -> List[int]:
+    from models import Customer
+    return [int(a) for (a,) in db.session.query(Customer.account_id).filter(Customer.account_id.isnot(None))]
+
+
+def compute_live_customer_balances(customers: Iterable) -> Dict[int, Dict[str, float]]:
+    """customer_id -> {'cash','18k','21k','22k','24k'} from the posted ledger.
+
+    Cash and the gold columns of the same lines -- the financial accounts. The
+    weight memo twin (712…) is not read: it accumulates the dual system's
+    weights (19,173.5 g of 21k on the cash customer's), not gold a customer owes.
+    """
+    customers = [c for c in customers if getattr(c, 'id', None) is not None]
+    own_all = all_customer_own_account_ids()
+    out: Dict[int, Dict[str, float]] = {}
+    for c in customers:
+        row = (
+            db.session.query(
+                func.coalesce(func.sum(JournalEntryLine.cash_debit), 0.0) - func.coalesce(func.sum(JournalEntryLine.cash_credit), 0.0),
+                func.coalesce(func.sum(JournalEntryLine.debit_18k), 0.0) - func.coalesce(func.sum(JournalEntryLine.credit_18k), 0.0),
+                func.coalesce(func.sum(JournalEntryLine.debit_21k), 0.0) - func.coalesce(func.sum(JournalEntryLine.credit_21k), 0.0),
+                func.coalesce(func.sum(JournalEntryLine.debit_22k), 0.0) - func.coalesce(func.sum(JournalEntryLine.credit_22k), 0.0),
+                func.coalesce(func.sum(JournalEntryLine.debit_24k), 0.0) - func.coalesce(func.sum(JournalEntryLine.credit_24k), 0.0),
+            )
+            .join(JournalEntry, JournalEntry.id == JournalEntryLine.journal_entry_id)
+            .join(Account, Account.id == JournalEntryLine.account_id)
+            .filter(JournalEntry.is_posted == True, JournalEntry.is_deleted == False,
+                    JournalEntryLine.is_deleted == False,
+                    customer_line_clause(int(c.id), getattr(c, 'account_id', None), own_all))
+            .one()
+        )
+        out[int(c.id)] = {k: round(float(v or 0.0), 6) for k, v in zip(('cash', '18k', '21k', '22k', '24k'), row)}
+    return out
