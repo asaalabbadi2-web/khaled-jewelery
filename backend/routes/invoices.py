@@ -73,6 +73,9 @@ from dual_system_helpers import (
 from gold_costing_service import GoldCostingService, ScrapCostingService
 from office_supplier_service import ensure_office_supplier
 from party_account_service import ensure_customer_accounts, ensure_supplier_accounts
+from accounting.invoice_payment_voucher import (
+    PaymentPartyMissing, approve_invoice_payment_voucher, build_invoice_payment_voucher, invoice_payment_party,
+)
 from services.read_scope import is_approver, scope_invoices_to_reader, without_cost
 from services.record_ownership import refuse_supplier_invoice_without_permission, refuse_unless_theirs
 from services.invoice_payment_state_service import InvoicePaymentStateService
@@ -5282,111 +5285,34 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
                         }), 400
 
                     direction = _direction_for_invoice_type(new_invoice.invoice_type)
-                    voucher_type = 'receipt' if direction == 'in' else 'payment'
 
-                    party_type = None
-                    party_id = None
-                    party_account_id = None
-                    if getattr(new_invoice, 'supplier_id', None):
-                        party_type = 'supplier'
-                        party_id = int(new_invoice.supplier_id)
-                        supplier = Supplier.query.get(party_id)
-                        if not supplier:
-                            db.session.rollback()
-                            return jsonify({'error': 'supplier_not_found'}), 404
-                        party_account_id = int(ensure_supplier_accounts(supplier).financial.id)
-                    elif getattr(new_invoice, 'customer_id', None):
-                        party_type = 'customer'
-                        party_id = int(new_invoice.customer_id)
-                        customer = Customer.query.get(party_id)
-                        if not customer:
-                            db.session.rollback()
-                            return jsonify({'error': 'customer_not_found'}), 404
-                        party_account_id = int(ensure_customer_accounts(customer).financial.id)
-                    else:
+                    try:
+                        party = invoice_payment_party(new_invoice)
+                    except PaymentPartyMissing as missing:
                         db.session.rollback()
-                        return jsonify({'error': 'missing_party_for_payment_voucher'}), 400
+                        return jsonify({'error': missing.code}), (400 if missing.code.startswith('missing') else 404)
+                    party_account_id = party[2]
 
-                    voucher_number = generate_voucher_number(voucher_type)
-                    voucher_date = datetime.now()
-                    try:
-                        voucher_date = new_invoice.date or voucher_date
-                    except Exception:
-                        pass
-
-                    voucher_notes = None
-                    try:
-                        voucher_notes = json.dumps({
-                            'source': 'invoice_payment',
-                            'invoice_id': int(new_invoice.id),
-                            'invoice_payment_id': int(payment_row.id),
-                            'payment_method_id': int(pm_id),
-                        }, ensure_ascii=False)
-                    except Exception:
-                        voucher_notes = None
-
-                    voucher = Voucher(
-                        voucher_number=voucher_number,
-                        voucher_type=voucher_type,
-                        date=voucher_date,
-                        party_type=party_type,
-                        customer_id=party_id if party_type == 'customer' else None,
-                        supplier_id=party_id if party_type == 'supplier' else None,
-                        amount_cash=float(pm_amount),
-                        amount_gold=0.0,
-                        description=f"دفعة فاتورة {getattr(new_invoice, 'invoice_type_id', '')}".strip(),
-                        reference_type='invoice',
-                        reference_id=int(new_invoice.id),
-                        reference_number=str(getattr(new_invoice, 'invoice_type_id', '') or '') or None,
-                        notes=voucher_notes,
-                        created_by=created_by_name or 'system',
-                        status='pending',
-                    )
-                    db.session.add(voucher)
-                    db.session.flush()
-
-                    # This voucher is the one that actually creates the
-                    # payment — see the identical comment in add_invoice_payment.
-                    payment_row.source_voucher_id = voucher.id
-
-                    safe_line_type = 'debit' if direction == 'in' else 'credit'
-                    party_line_type = 'credit' if direction == 'in' else 'debit'
-
-                    db.session.add(VoucherAccountLine(
-                        voucher_id=voucher.id,
-                        account_id=int(safe_account_id),
-                        line_type=safe_line_type,
-                        amount_type='cash',
-                        amount=float(pm_amount),
-                        description=payment.get('notes'),
-                    ))
-                    db.session.add(VoucherAccountLine(
-                        voucher_id=voucher.id,
-                        account_id=int(party_account_id),
-                        line_type=party_line_type,
-                        amount_type='cash',
-                        amount=float(pm_amount),
-                        description=payment.get('notes'),
-                    ))
-                    db.session.flush()
+                    # One builder for the payment voucher, whichever posting writes it (LINK-001).
+                    voucher = build_invoice_payment_voucher(
+                        new_invoice, payment_row, payment_method_id=pm_id, safe_account_id=int(safe_account_id),
+                        party=party, direction=direction, created_by=created_by_name or 'system',
+                        line_notes=payment.get('notes'))
 
                     consolidated_je = _add_payment_lines_to_consolidated_je(
                         invoice=new_invoice,
                         voucher=voucher,
-                        voucher_number=voucher_number,
+                        voucher_number=voucher.voucher_number,
                         safe_account_id=int(safe_account_id),
                         party_account_id=int(party_account_id),
                         amount=float(pm_amount),
                         payment_id=payment_row.id,
                         direction=direction,
-                        voucher_date=voucher_date,
+                        voucher_date=voucher.date,
                         created_by=created_by_name or 'system',
                     )
 
-                    voucher.status = 'approved'
-                    voucher.approved_at = datetime.now()
-                    voucher.approved_by = created_by_name or 'system'
-                    voucher.journal_entry_id = consolidated_je.id
+                    approve_invoice_payment_voucher(voucher, consolidated_je, created_by_name or 'system')
 
                     _append_safe_transactions_for_voucher(voucher, created_by=voucher.approved_by)
         
@@ -5529,114 +5455,35 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
                     }), 400
 
                 direction = _direction_for_invoice_type(new_invoice.invoice_type)
-                voucher_type = 'receipt' if direction == 'in' else 'payment'
                 amount_value = float(single_payment_amount or 0.0)
 
-                party_type = None
-                party_id = None
-                party_account_id = None
-                if getattr(new_invoice, 'supplier_id', None):
-                    party_type = 'supplier'
-                    party_id = int(new_invoice.supplier_id)
-                    supplier = Supplier.query.get(party_id)
-                    if not supplier:
-                        db.session.rollback()
-                        return jsonify({'error': 'supplier_not_found'}), 404
-                    party_account_id = int(ensure_supplier_accounts(supplier).financial.id)
-                elif getattr(new_invoice, 'customer_id', None):
-                    party_type = 'customer'
-                    party_id = int(new_invoice.customer_id)
-                    customer = Customer.query.get(party_id)
-                    if not customer:
-                        db.session.rollback()
-                        return jsonify({'error': 'customer_not_found'}), 404
-                    party_account_id = int(ensure_customer_accounts(customer).financial.id)
-                else:
+                try:
+                    party = invoice_payment_party(new_invoice)
+                except PaymentPartyMissing as missing:
                     db.session.rollback()
-                    return jsonify({'error': 'missing_party_for_payment_voucher'}), 400
+                    return jsonify({'error': missing.code}), (400 if missing.code.startswith('missing') else 404)
+                party_account_id = party[2]
 
-                voucher_number = generate_voucher_number(voucher_type)
-                voucher_date = datetime.now()
-                try:
-                    voucher_date = new_invoice.date or voucher_date
-                except Exception:
-                    pass
-
-                voucher_notes = None
-                try:
-                    voucher_notes = json.dumps({
-                        'source': 'invoice_payment',
-                        'invoice_id': int(new_invoice.id),
-                        'invoice_payment_id': int(payment_row.id),
-                        'payment_method_id': int(payment_method_id),
-                    }, ensure_ascii=False)
-                except Exception:
-                    voucher_notes = None
-
-                voucher = Voucher(
-                    voucher_number=voucher_number,
-                    voucher_type=voucher_type,
-                    date=voucher_date,
-                    party_type=party_type,
-                    customer_id=party_id if party_type == 'customer' else None,
-                    supplier_id=party_id if party_type == 'supplier' else None,
-                    amount_cash=float(amount_value),
-                    amount_gold=0.0,
-                    description=f"دفعة فاتورة {getattr(new_invoice, 'invoice_type_id', '')}".strip(),
-                    reference_type='invoice',
-                    reference_id=int(new_invoice.id),
-                    reference_number=str(getattr(new_invoice, 'invoice_type_id', '') or '') or None,
-                    notes=voucher_notes,
-                    created_by=posted_by_username or 'system',
-                    status='pending',
-                )
-                db.session.add(voucher)
-                db.session.flush()
-
-                # This voucher is the one that actually creates the payment —
-                # see the identical comment in add_invoice_payment.
-                # payment_row cannot be None here: this whole block only runs
-                # under `if payment_row is not None and ...` above.
-                payment_row.source_voucher_id = voucher.id
-
-                safe_line_type = 'debit' if direction == 'in' else 'credit'
-                party_line_type = 'credit' if direction == 'in' else 'debit'
-
-                db.session.add(VoucherAccountLine(
-                    voucher_id=voucher.id,
-                    account_id=int(safe_account_id),
-                    line_type=safe_line_type,
-                    amount_type='cash',
-                    amount=float(amount_value),
-                    description=None,
-                ))
-                db.session.add(VoucherAccountLine(
-                    voucher_id=voucher.id,
-                    account_id=int(party_account_id),
-                    line_type=party_line_type,
-                    amount_type='cash',
-                    amount=float(amount_value),
-                    description=None,
-                ))
-                db.session.flush()
+                # One builder for the payment voucher, whichever posting writes it (LINK-001).
+                voucher = build_invoice_payment_voucher(
+                    new_invoice, payment_row, payment_method_id=payment_method_id,
+                    safe_account_id=int(safe_account_id), party=party, direction=direction,
+                    created_by=posted_by_username or 'system')
 
                 consolidated_je = _add_payment_lines_to_consolidated_je(
                     invoice=new_invoice,
                     voucher=voucher,
-                    voucher_number=voucher_number,
+                    voucher_number=voucher.voucher_number,
                     safe_account_id=int(safe_account_id),
                     party_account_id=int(party_account_id),
                     amount=float(amount_value),
                     payment_id=payment_row.id,
                     direction=direction,
-                    voucher_date=voucher_date,
+                    voucher_date=voucher.date,
                     created_by=posted_by_username or 'system',
                 )
 
-                voucher.status = 'approved'
-                voucher.approved_at = datetime.now()
-                voucher.approved_by = posted_by_username or 'system'
-                voucher.journal_entry_id = consolidated_je.id
+                approve_invoice_payment_voucher(voucher, consolidated_je, posted_by_username or 'system')
                 _append_safe_transactions_for_voucher(voucher, created_by=voucher.approved_by)
 
         # --- Gold settlement (barter/partial) ---

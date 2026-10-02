@@ -27,6 +27,12 @@ class SafeBoxModel {
   final double? totalWeightMainKarat;
   final double? ledgerCashBalance;
 
+  /// What waits for approval on this safe -- read only (services/safe_pending.py):
+  /// posted balance + pending = what should be in hand.
+  final double pendingCash;
+  final Map<String, double> pendingWeight;
+  final int pendingDocuments;
+
   SafeBoxModel({
     this.id,
     required this.name,
@@ -49,6 +55,9 @@ class SafeBoxModel {
     this.weightBalance,
     this.totalWeightMainKarat,
     this.ledgerCashBalance,
+    this.pendingCash = 0.0,
+    this.pendingWeight = const {},
+    this.pendingDocuments = 0,
   });
 
   factory SafeBoxModel.fromJson(Map<String, dynamic> json) {
@@ -96,6 +105,9 @@ class SafeBoxModel {
       totalWeightMainKarat:
           (json['total_weight_main_karat'] as num?)?.toDouble(),
       ledgerCashBalance: (json['cash_balance'] as num?)?.toDouble(),
+      pendingCash: ((json['pending'] is Map ? json['pending']['cash'] : null) as num?)?.toDouble() ?? 0.0,
+      pendingWeight: (json['pending'] is Map ? parseWeightBalance(json['pending']['weight']) : null) ?? const {},
+      pendingDocuments: ((json['pending'] is Map ? json['pending']['documents'] : null) as num?)?.toInt() ?? 0,
     );
   }
 

@@ -688,6 +688,23 @@ class _SafeBoxesScreenState extends State<SafeBoxesScreen> {
     return '${value.toStringAsFixed(3)} $unit';
   }
 
+  String _pendingText(SafeBoxModel safeBox, bool isGold, double primaryBalance) {
+    final ar = widget.isArabic;
+    final docs = safeBox.pendingDocuments;
+    if (isGold && safeBox.pendingWeight.isNotEmpty) {
+      final parts = safeBox.pendingWeight.entries
+          .map((e) => '${e.value >= 0 ? '+' : ''}${e.value.toStringAsFixed(3)} ${e.key}')
+          .join('، ');
+      return ar ? 'معلّق بانتظار الاعتماد ($docs): $parts' : 'Pending approval ($docs): $parts';
+    }
+    final pending = safeBox.pendingCash;
+    final sign = pending >= 0 ? '+' : '';
+    final inHand = _formatCurrency(primaryBalance + pending);
+    return ar
+        ? 'معلّق بانتظار الاعتماد ($docs): $sign${_formatCurrency(pending)} • المتوقع في اليد: $inHand'
+        : 'Pending approval ($docs): $sign${_formatCurrency(pending)} • Expected in hand: $inHand';
+  }
+
   Color _balanceColor(double value) {
     if (value < 0) return _dangerColor;
     if (value > 0) return _successColor;
@@ -1320,6 +1337,15 @@ class _SafeBoxesScreenState extends State<SafeBoxesScreen> {
                         height: 1.1,
                       ),
                     ),
+                    // What waits for approval -- read only; posted + pending = in hand.
+                    if (safeBox.pendingDocuments > 0) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        _pendingText(safeBox, isGold, primaryBalance),
+                        maxLines: 2,
+                        style: TextStyle(fontSize: 12, color: Colors.orange.shade800),
+                      ),
+                    ],
                     const SizedBox(height: 8),
                     // -- Karat chips (gold only) --
                     if (isGold) ...[

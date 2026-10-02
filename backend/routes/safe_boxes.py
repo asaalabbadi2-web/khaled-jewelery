@@ -117,7 +117,8 @@ def list_safe_box_balances():
       - type or safe_type: filter by safe type (cash/bank/gold/check)
       - is_active: true/false
 
-    Returns: list of SafeBox dicts with a `balance` field.
+    Returns: list of SafeBox dicts with a `balance` field, and `pending` --
+    what waits for approval on it, read only (services/safe_pending.py).
     """
 
     safe_type = (request.args.get('type') or request.args.get('safe_type') or '').strip()
@@ -133,6 +134,9 @@ def list_safe_box_balances():
 
     main_karat = float(get_main_karat() or 21)
     balances_by_safe_id = safe_box_balances_bulk(safes, main_karat=main_karat)
+    # Beside the posted balance, what waits for approval -- read only (services/safe_pending.py)
+    from services.safe_pending import pending_by_safe
+    pending = pending_by_safe()
 
     results = []
     for sb in safes:
@@ -144,6 +148,7 @@ def list_safe_box_balances():
         if bool(getattr(account, 'tracks_weight', False)):
             balance['weight'] = bal['weight']
         sb_dict['balance'] = balance
+        sb_dict['pending'] = pending.get(sb.id) or {'cash': 0.0, 'weight': {}, 'documents': 0}
         results.append(sb_dict)
 
     return jsonify({

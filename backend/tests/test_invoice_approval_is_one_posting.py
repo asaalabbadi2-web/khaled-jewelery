@@ -30,7 +30,7 @@ import pytest
 
 from app import app as flask_app
 from models import (Account, Customer, Invoice, InvoicePayment, JournalEntry, JournalEntryLine,
-                    PaymentMethod, SafeBox, SafeBoxTransaction, SystemAlert, db)
+                    PaymentMethod, SafeBox, SafeBoxTransaction, SystemAlert, Voucher, VoucherAccountLine, db)
 from tests.cleanup import purge  # UNPOST-001 U3: cleanup of posted rows is a purge
 
 ROUTES = {
@@ -98,6 +98,13 @@ def gated_sale():
         entry_ids = [j.id for j in JournalEntry.query.filter(
             JournalEntry.reference_id == made['invoice'],
             JournalEntry.reference_type.in_(['invoice', 'invoice_payments'])).all()]
+        # Posting later writes the payment's voucher too (LINK-001): it goes first.
+        voucher_ids = [v.id for v in Voucher.query.filter_by(reference_type='invoice', reference_id=made['invoice'])]
+        if voucher_ids:
+            InvoicePayment.query.filter(InvoicePayment.source_voucher_id.in_(voucher_ids)).update(
+                {'source_voucher_id': None}, synchronize_session=False)
+            VoucherAccountLine.query.filter(VoucherAccountLine.voucher_id.in_(voucher_ids)).delete(synchronize_session=False)
+            purge(lambda: Voucher.query.filter(Voucher.id.in_(voucher_ids)).delete(synchronize_session=False))
         if entry_ids:
             JournalEntryLine.query.filter(JournalEntryLine.journal_entry_id.in_(entry_ids)).delete(synchronize_session=False)
             purge(lambda: JournalEntry.query.filter(JournalEntry.id.in_(entry_ids)).delete(synchronize_session=False))

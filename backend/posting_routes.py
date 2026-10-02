@@ -377,6 +377,8 @@ def _create_deferred_payment_entries(invoice: Invoice, posted_by: str) -> None:
 
         lines_to_create.append({
             'pay_id': pay_id,
+            'payment': pay,
+            'payment_method_id': getattr(pay, 'payment_method_id', None),
             'safe_account_id': int(safe_account_id),
             'amount_cash': amount_cash,
         })
@@ -471,7 +473,9 @@ def _create_deferred_payment_entries(invoice: Invoice, posted_by: str) -> None:
             pass
 
     if existing_consolidated_je is not None:
-        return  # قيد موجود بالفعل — لا نكرر
+        # قيد موجود بالفعل — لا نكرر؛ ويبقى لكل دفعة سندها (LINK-001)
+        _write_payment_vouchers(invoice, lines_to_create, existing_consolidated_je, direction, posted_by)
+        return
 
     # ── إنشاء القيد المجمّع ──
     ts = datetime.now().strftime('%Y%m%d%H%M%S')
@@ -527,6 +531,39 @@ def _create_deferred_payment_entries(invoice: Invoice, posted_by: str) -> None:
                 cash_credit=amt,
                 description=f'صرف نقد - دفعة #{pid}',
             ))
+
+    _write_payment_vouchers(invoice, lines_to_create, je, direction, posted_by)
+
+
+def _write_payment_vouchers(invoice, lines_to_create, journal_entry, direction, posted_by):
+    """Each cash payment's voucher, as posting at creation writes it (LINK-001).
+
+    Held and posted later, a paid invoice got its entry lines and safe rows but
+    no voucher. The voucher is the document; its entry is the one carrying the
+    payment, and its safe rows are already written above (not again). A payment
+    that has a voucher -- linked, or named in an older voucher's notes -- keeps it.
+    """
+    from accounting.invoice_payment_voucher import (
+        approve_invoice_payment_voucher, build_invoice_payment_voucher, invoice_payment_party,
+    )
+    from models import Voucher
+    party = None
+    for info in lines_to_create:
+        pay = info['payment']
+        if getattr(pay, 'source_voucher_id', None):
+            continue
+        named = Voucher.query.filter(
+            Voucher.reference_type == 'invoice', Voucher.reference_id == int(invoice.id),
+            Voucher.status != 'cancelled',
+            or_(Voucher.notes.like(f'%"invoice_payment_id": {info["pay_id"]},%'),
+                Voucher.notes.like(f'%"invoice_payment_id": {info["pay_id"]}}}%'))).first()
+        if named is not None:
+            continue
+        party = party or invoice_payment_party(invoice)
+        voucher = build_invoice_payment_voucher(
+            invoice, pay, payment_method_id=info['payment_method_id'] or 0,
+            safe_account_id=info['safe_account_id'], party=party, direction=direction, created_by=posted_by)
+        approve_invoice_payment_voucher(voucher, journal_entry, posted_by)
 
 
 def _resolve_cash_safe_box_id_for_invoice(
