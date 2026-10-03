@@ -32,7 +32,7 @@ class NotARejectedInvoice(ValueError):
     pass
 
 
-def reverse_rejected_invoice(invoice_id: int, *, by: str, reason: str, dry_run: bool = True) -> dict:
+def reverse_rejected_invoice(invoice_id: int, *, by: str, reason: str, now, dry_run: bool = True) -> dict:
     from services.invoice_retraction_guard import OWN_MOVEMENT_TYPES
     invoice = db.session.get(Invoice, int(invoice_id))
     if invoice is None or invoice.status != 'rejected' or invoice.is_posted:
@@ -69,7 +69,7 @@ def reverse_rejected_invoice(invoice_id: int, *, by: str, reason: str, dry_run: 
         return plan
 
     # Its safe rows go below, as unposting removes them: the reversal writes none.
-    reversals = [reverse_entry(e, by=by, reason=reason) for e in to_reverse]
+    reversals = [reverse_entry(e, by=by, reason=reason, now=now) for e in to_reverse]
     for e in to_draft:
         e.is_draft = True
     for v in vouchers:

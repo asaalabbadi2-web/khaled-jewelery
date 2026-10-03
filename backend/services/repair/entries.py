@@ -19,8 +19,6 @@ the main-karat weight -- and negates its signed analytics, so the original and
 its reversal net to zero on every column and in every report. A line carrying a value this module does not know how to mirror is
 refused rather than half-reversed.
 """
-from datetime import datetime
-
 from models import Account, JournalEntry, JournalEntryLine, SafeBox, SafeBoxTransaction, db
 
 REVERSAL = 'journal_entry_reversal'
@@ -80,12 +78,13 @@ def _live_lines(entry, include_deleted=False):
     return [l for l in entry.lines if include_deleted or not getattr(l, 'is_deleted', False)]
 
 
-def write_entry(*, date, description, reference_type, reference_id, reference_number=None, lines, by,
+def write_entry(*, date, description, reference_type, reference_id, reference_number=None, lines, by, now,
                 prefix='COR', safe_rows=True, entry_type='عادي') -> JournalEntry:
     """A posted entry from *lines*: dicts of JournalEntryLine columns.
 
     Refuses a protected account. With safe_rows, a line on a cash safe box's
-    account gets the statement row that moves with it.
+    account gets the statement row that moves with it. *now* is the run's
+    clock, passed in (ADR-015): the posting time, not the entry's date.
     """
     from accounting.voucher_engine import _generate_journal_entry_number
     protected = protected_account_ids()
@@ -102,7 +101,7 @@ def write_entry(*, date, description, reference_type, reference_id, reference_nu
         entry_number=_generate_journal_entry_number(prefix, entry_date=date), date=date,
         description=description[:200], entry_type=entry_type,
         reference_type=reference_type, reference_id=reference_id, reference_number=reference_number,
-        is_posted=True, is_draft=False, posted_at=datetime.now(), posted_by=by, created_by=by,
+        is_posted=True, is_draft=False, posted_at=now, posted_by=by, created_by=by,
     )
     db.session.add(entry)
     db.session.flush()
@@ -169,7 +168,7 @@ def mirrored_lines(entry, *, substitute=False, flip=True, include_deleted=False)
     return specs
 
 
-def reverse_entry(entry, *, by, reason, substitute=False, safe_rows=False, voucher=None) -> JournalEntry:
+def reverse_entry(entry, *, by, reason, now, substitute=False, safe_rows=False, voucher=None) -> JournalEntry:
     """A posted reversal of *entry*, dated as the original: 'journal_entry_reversal'
     -> the original's id. The original is not touched.
 
@@ -179,5 +178,5 @@ def reverse_entry(entry, *, by, reason, substitute=False, safe_rows=False, vouch
     return write_entry(
         date=entry.date, description=f'عكس القيد {entry.entry_number} — {reason}',
         reference_type=ref_type, reference_id=ref_id, reference_number=entry.entry_number,
-        lines=mirrored_lines(entry, substitute=substitute), by=by, prefix='REV', safe_rows=safe_rows,
+        lines=mirrored_lines(entry, substitute=substitute), by=by, now=now, prefix='REV', safe_rows=safe_rows,
         entry_type=entry.entry_type or 'عادي')

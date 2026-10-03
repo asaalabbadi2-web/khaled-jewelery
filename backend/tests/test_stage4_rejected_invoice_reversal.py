@@ -128,7 +128,7 @@ def test_the_invoice_counts_nowhere_after(rejected_3123):
     assert f"journal_entry:{w['posted'].id}" in _keys(check_posted_entries_of_unposted_invoices())
     assert f"journal_entry:{w['pay_entry'].id}" in _keys(check_unposted_entries_in_limbo())
 
-    plan = reverse_rejected_invoice(w['invoice'].id, by='t', reason='اختبار', dry_run=False)
+    plan = reverse_rejected_invoice(w['invoice'].id, by='t', now=ORIGINAL_DATE, reason='اختبار', dry_run=False)
     db.session.flush()
     assert plan['written'] and len(plan['reversal_entries']) == 1
 
@@ -150,12 +150,12 @@ def test_the_invoice_counts_nowhere_after(rejected_3123):
 
 def test_a_second_run_does_nothing_and_a_dry_run_writes_nothing(rejected_3123):
     w = rejected_3123
-    dry = reverse_rejected_invoice(w['invoice'].id, by='t', reason='x', dry_run=True)
+    dry = reverse_rejected_invoice(w['invoice'].id, by='t', now=ORIGINAL_DATE, reason='x', dry_run=True)
     assert dry['written'] is False and dry['reverse_entries']
     assert JournalEntry.query.filter_by(reference_type='journal_entry_reversal').filter(
         JournalEntry.reference_id == w['posted'].id).count() == 0
-    reverse_rejected_invoice(w['invoice'].id, by='t', reason='x', dry_run=False)
-    again = reverse_rejected_invoice(w['invoice'].id, by='t', reason='x', dry_run=False)
+    reverse_rejected_invoice(w['invoice'].id, by='t', now=ORIGINAL_DATE, reason='x', dry_run=False)
+    again = reverse_rejected_invoice(w['invoice'].id, by='t', now=ORIGINAL_DATE, reason='x', dry_run=False)
     assert again['written'] is False and not again['reverse_entries']
 
 
@@ -164,4 +164,4 @@ def test_only_a_rejected_unposted_invoice(rejected_3123):
     w['invoice'].status = 'paid'
     db.session.flush()
     with pytest.raises(NotARejectedInvoice):
-        reverse_rejected_invoice(w['invoice'].id, by='t', reason='x', dry_run=True)
+        reverse_rejected_invoice(w['invoice'].id, by='t', now=ORIGINAL_DATE, reason='x', dry_run=True)

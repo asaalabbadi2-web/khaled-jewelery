@@ -39,13 +39,15 @@ def main(argv=None):
     from models import db
     from services.repair.stage4_package import STEPS, run_package
 
+    from datetime import datetime
+    now = datetime.now()  # the run's one clock, passed down (ADR-015)
     only = [s.strip() for s in args.only.split(',') if s.strip()]
     unknown = set(only) - {name for name, _ in STEPS}
     if unknown:
         ap.error(f'unknown steps {sorted(unknown)}; known: {[name for name, _ in STEPS]}')
     with app.app_context():
         try:
-            plans = run_package(by=args.by, dry_run=not args.apply, only=only or None)
+            plans = run_package(by=args.by, now=now, dry_run=not args.apply, only=only or None)
             if args.apply:
                 db.session.commit()
             else:

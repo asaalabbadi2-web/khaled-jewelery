@@ -12,7 +12,6 @@ row, and in a dry run (the default) writes nothing and says what it would do.
 A step whose subject is no longer as measured is refused, not guessed at.
 """
 import json
-from datetime import datetime
 
 from models import AuditLog, Customer, JournalEntry, Voucher, db
 from services.repair.entries import (
@@ -85,12 +84,12 @@ def _audit(by, step, entity_type, entity_id, number, plan):
 
 # ── steps ────────────────────────────────────────────────────────────────────
 
-def rejected_invoices(*, by, dry_run=True, invoice_ids=REJECTED_INVOICES):
+def rejected_invoices(*, by, now, dry_run=True, invoice_ids=REJECTED_INVOICES):
     reason = 'فاتورة مرفوضة رحّل قيدها حفظ الإعدادات (SETTINGS-001)'
-    return [reverse_rejected_invoice(i, by=by, reason=reason, dry_run=dry_run) for i in invoice_ids]
+    return [reverse_rejected_invoice(i, by=by, reason=reason, now=now, dry_run=dry_run) for i in invoice_ids]
 
 
-def duplicate_payment_entries(*, by, dry_run=True, entries=None):
+def duplicate_payment_entries(*, by, now, dry_run=True, entries=None):
     """A payment entry left posted when its invoice was deleted and re-entered:
     the payment counts twice. Reversed at its date; the cash side moves the
     temporary cash box, not the main one."""
@@ -107,14 +106,14 @@ def duplicate_payment_entries(*, by, dry_run=True, entries=None):
                 'lines': _summary(mirrored_lines(e, substitute=True))}
         if not dry_run:
             rev = reverse_entry(e, by=by, reason=f'دفعة مكررة: أُعيد إدخال الفاتورة برقم {reentered}',
-                                substitute=True, safe_rows=True)
+                                substitute=True, safe_rows=True, now=now)
             plan['reversal'] = rev.entry_number
             _audit(by, 'reverse_duplicate_payment', 'JournalEntry', e.id, number, plan)
         out.append(plan)
     return out
 
 
-def duplicate_salary(*, by, dry_run=True, voucher_number=DUPLICATE_SALARY_VOUCHER):
+def duplicate_salary(*, by, now, dry_run=True, voucher_number=DUPLICATE_SALARY_VOUCHER):
     """February's salary transfer recorded twice (the owner): the second voucher
     is cancelled and its entry reversed at its date through the temporary cash."""
     v = _voucher(voucher_number)
@@ -127,14 +126,14 @@ def duplicate_salary(*, by, dry_run=True, voucher_number=DUPLICATE_SALARY_VOUCHE
             'lines': _summary(mirrored_lines(e, substitute=True))}
     if not dry_run:
         reason = 'تحويل راتب فبراير مسجّل مرتين (المالك، 3 أكتوبر 2026)'
-        rev = reverse_entry(e, by=by, reason=reason, substitute=True, safe_rows=True, voucher=v)
-        v.status, v.cancelled_at, v.cancellation_reason = 'cancelled', datetime.now(), reason
+        rev = reverse_entry(e, by=by, reason=reason, now=now, substitute=True, safe_rows=True, voucher=v)
+        v.status, v.cancelled_at, v.cancellation_reason = 'cancelled', now, reason
         plan['reversal'] = rev.entry_number
         _audit(by, 'cancel_duplicate_salary', 'Voucher', v.id, voucher_number, plan)
     return plan
 
 
-def deleted_payout(*, by, dry_run=True, voucher_number=DELETED_PAYOUT_VOUCHER):
+def deleted_payout(*, by, now, dry_run=True, voucher_number=DELETED_PAYOUT_VOUCHER):
     """April's payout was made (the owner) but its entry was deleted: the voucher
     gets its entry again, at its date, the cash side on the temporary cash."""
     v = _voucher(voucher_number)
@@ -148,14 +147,14 @@ def deleted_payout(*, by, dry_run=True, voucher_number=DELETED_PAYOUT_VOUCHER):
     if not dry_run:
         e = write_entry(date=v.date, description=f'{old.description} — أُعيد قيده: حُذف في 6 مايو والصرف تمّ',
                         reference_type='voucher', reference_id=v.id, reference_number=v.voucher_number,
-                        lines=lines, by=by)
+                        lines=lines, by=by, now=now)
         v.journal_entry_id = e.id
         plan['entry'] = e.entry_number
         _audit(by, 'repost_deleted_payout', 'Voucher', v.id, voucher_number, plan)
     return plan
 
 
-def receipt_without_entry(*, by, dry_run=True, voucher_number=RECEIPT_WITHOUT_ENTRY):
+def receipt_without_entry(*, by, now, dry_run=True, voucher_number=RECEIPT_WITHOUT_ENTRY):
     """An approved receipt never posted: its entry, at its date -- the cash on
     the temporary cash box, the customer's account credited."""
     v = _voucher(voucher_number)
@@ -178,14 +177,14 @@ def receipt_without_entry(*, by, dry_run=True, voucher_number=RECEIPT_WITHOUT_EN
     if not dry_run:
         e = write_entry(date=v.date, description=f'RECEIPT - {v.voucher_number}: {v.description or ""}',
                         reference_type='voucher', reference_id=v.id, reference_number=v.voucher_number,
-                        lines=lines, by=by)
+                        lines=lines, by=by, now=now)
         v.journal_entry_id = e.id
         plan['entry'] = e.entry_number
         _audit(by, 'post_receipt_without_entry', 'Voucher', v.id, voucher_number, plan)
     return plan
 
 
-def vouchers_to_approve(*, by, dry_run=True, numbers=VOUCHERS_TO_APPROVE):
+def vouchers_to_approve(*, by, now, dry_run=True, numbers=VOUCHERS_TO_APPROVE):
     """Pending or cancelled while their entry is posted and counts: the status
     follows the books."""
     out = []
@@ -198,14 +197,14 @@ def vouchers_to_approve(*, by, dry_run=True, numbers=VOUCHERS_TO_APPROVE):
             raise NotAsMeasured(f'{number} has no posted entry')
         plan = {'voucher': number, 'from': v.status, 'to': 'approved'}
         if not dry_run:
-            v.status, v.approved_by, v.approved_at = 'approved', by, datetime.now()
+            v.status, v.approved_by, v.approved_at = 'approved', by, now
             v.cancelled_at = v.cancellation_reason = None
             _audit(by, 'approve_voucher_with_posted_entry', 'Voucher', v.id, number, plan)
         out.append(plan)
     return out
 
 
-def accepted_orphans(*, by, dry_run=True, orphans=None):
+def accepted_orphans(*, by, now, dry_run=True, orphans=None):
     from services.books_invariants import ORPHAN_POSTED_ENTRY, ReconciliationFinding, SOURCE, accept_finding
     out = []
     for number, reason in (orphans or ACCEPTED_ORPHANS).items():
@@ -217,12 +216,12 @@ def accepted_orphans(*, by, dry_run=True, orphans=None):
             continue
         plan = {'entry': number, 'accept': reason}
         if not dry_run:
-            accept_finding(ORPHAN_POSTED_ENTRY, key, by=by, reason=reason)
+            accept_finding(ORPHAN_POSTED_ENTRY, key, by=by, reason=reason, now=now)
         out.append(plan)
     return out
 
 
-def statements_aligned(*, by, dry_run=True, account_numbers=STATEMENTS_TO_ALIGN):
+def statements_aligned(*, by, now, dry_run=True, account_numbers=STATEMENTS_TO_ALIGN):
     """Last: the statement follows the ledger as the steps above left it."""
     from models import SafeBox
     from services.repair.statement_alignment import align_statement
@@ -235,7 +234,7 @@ def statements_aligned(*, by, dry_run=True, account_numbers=STATEMENTS_TO_ALIGN)
     return out
 
 
-def cash_moved_to_financial_twin(*, by, dry_run=True, account_number=None, entries=None):
+def cash_moved_to_financial_twin(*, by, now, dry_run=True, account_number=None, entries=None):
     """Riyals on a weight account move to its financial twin, entry by entry at
     its date: the party's balance (both accounts read together) is unchanged,
     the weight account carries grams only, and its safe's statement -- which
@@ -269,14 +268,14 @@ def cash_moved_to_financial_twin(*, by, dry_run=True, account_number=None, entri
         if not dry_run:
             r = write_entry(date=e.date, description=f'نقل نقد {entry_number} من الحساب الوزني إلى المالي',
                             reference_type=RECLASSIFICATION, reference_id=e.id, reference_number=entry_number,
-                            lines=moved, by=by, safe_rows=False)
+                            lines=moved, by=by, now=now, safe_rows=False)
             plan['correction'] = r.entry_number
             _audit(by, 'move_cash_to_financial_twin', 'JournalEntry', e.id, entry_number, plan)
         out.append(plan)
     return out
 
 
-def unposting_allowed(*, by, dry_run=True):
+def unposting_allowed(*, by, now, dry_run=True):
     """The owner lifts the unposting freeze (3 Oct 2026): UNPOST-001's laws are
     green -- one operation for every path, a round trip restores the books."""
     from models import Settings
@@ -306,9 +305,10 @@ STEPS = (
 )
 
 
-def run_package(*, by, dry_run=True, only=None) -> dict:
-    """Every step in order. Caller commits -- once, or not at all."""
-    return {name: step(by=by, dry_run=dry_run) for name, step in STEPS if not only or name in only}
+def run_package(*, by, now, dry_run=True, only=None) -> dict:
+    """Every step in order, on one clock the caller reads once (ADR-015).
+    Caller commits -- once, or not at all."""
+    return {name: step(by=by, now=now, dry_run=dry_run) for name, step in STEPS if not only or name in only}
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────

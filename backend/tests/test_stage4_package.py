@@ -31,6 +31,7 @@ from services.repair.entries import (
 from services.safebox_subledger import subledger_totals_by_box
 
 DAY = datetime(2026, 5, 19, 18, 24)
+NOW = datetime(2026, 10, 3, 22, 0)   # the run's clock, passed in (ADR-015)
 
 
 @pytest.fixture(scope='module')
@@ -107,7 +108,7 @@ def _statement_minus_ledger(box):
 def test_no_correction_names_a_protected_account(books, number):
     other = _account()
     with pytest.raises(ProtectedAccount):
-        write_entry(date=DAY, description='t', reference_type='stage4_test', reference_id=1, by='t',
+        write_entry(date=DAY, description='t', reference_type='stage4_test', reference_id=1, by='t', now=NOW,
                     lines=[{'account_id': books[number].id, 'cash_debit': 1.0, 'cash_credit': 0.0},
                            {'account_id': other.id, 'cash_debit': 0.0, 'cash_credit': 1.0}])
 
@@ -120,7 +121,7 @@ def test_a_reversal_moves_the_temporary_twin_and_its_statement(books):
     main_before, temp_before = _ledger(main.id), _ledger(temp.id)
     drift_before = _statement_minus_ledger(_safe(temp))
 
-    reverse_entry(original, by='t', reason='اختبار', substitute=True, safe_rows=True)
+    reverse_entry(original, by='t', now=NOW, reason='اختبار', substitute=True, safe_rows=True)
 
     assert _ledger(main.id) == main_before, 'the main cash is not touched'
     assert round(_ledger(temp.id) - temp_before, 2) == 10400.0
@@ -137,7 +138,7 @@ def test_a_reversal_nets_every_column_and_refuses_what_it_cannot_mirror(books):
         # 2821's lines carry signed analytics and a dimension set.
         line.analytic_amount_cash, line.analytic_weight_main = 5.0 * sign, 0.0087 * sign
     db.session.flush()
-    reverse_entry(original, by='t', reason='x')
+    reverse_entry(original, by='t', now=NOW, reason='x')
     for acc in (a, b):
         lines = (db.session.query(JournalEntryLine).join(JournalEntry)
                  .filter(JournalEntryLine.account_id == acc.id, JournalEntry.is_posted.is_(True)).all())
@@ -149,7 +150,7 @@ def test_a_reversal_nets_every_column_and_refuses_what_it_cannot_mirror(books):
     odd.lines[0].gold_weight_equiv = 0.3
     db.session.flush()
     with pytest.raises(UnmirroredLine):
-        reverse_entry(odd, by='t', reason='x')
+        reverse_entry(odd, by='t', now=NOW, reason='x')
 
 
 # ── the steps ────────────────────────────────────────────────────────────────
@@ -160,11 +161,11 @@ def test_a_duplicate_payment_entry_is_reversed_once(books):
     _entry([(customer.id, 8075.0, 0.0), (books['1100000'].id, 0.0, 8075.0)], ref_id=987650001, number=number)
     temp_before = _ledger(books['1100002'].id)
 
-    dry = pkg.duplicate_payment_entries(by='t', dry_run=True, entries={number: 2012})
+    dry = pkg.duplicate_payment_entries(by='t', now=NOW, dry_run=True, entries={number: 2012})
     assert dry[0]['reverse'] and _ledger(books['1100002'].id) == temp_before, 'a dry run writes nothing'
-    pkg.duplicate_payment_entries(by='t', dry_run=False, entries={number: 2012})
+    pkg.duplicate_payment_entries(by='t', now=NOW, dry_run=False, entries={number: 2012})
     assert round(_ledger(books['1100002'].id) - temp_before, 2) == 8075.0
-    again = pkg.duplicate_payment_entries(by='t', dry_run=False, entries={number: 2012})
+    again = pkg.duplicate_payment_entries(by='t', now=NOW, dry_run=False, entries={number: 2012})
     assert again == [{'entry': number, 'done': True}]
 
 
@@ -176,7 +177,7 @@ def test_a_payment_whose_invoice_exists_is_not_as_measured(books):
     number = f'PAY-T-{uuid.uuid4().hex[:8]}'
     _entry([(_account().id, 1.0, 0.0), (books['1100000'].id, 0.0, 1.0)], ref_id=inv.id, number=number)
     with pytest.raises(pkg.NotAsMeasured):
-        pkg.duplicate_payment_entries(by='t', dry_run=True, entries={number: 1})
+        pkg.duplicate_payment_entries(by='t', now=NOW, dry_run=True, entries={number: 1})
 
 
 def _payment_voucher(entry, *, status='approved', number=None):
@@ -192,14 +193,15 @@ def test_the_duplicate_salary_is_cancelled_and_its_entry_reversed(books):
     e = _entry([(saleh.id, 10000.0, 0.0), (books['1100000'].id, 0.0, 10000.0)], ref_type='voucher')
     v = _payment_voucher(e)
     main_before, temp_before = _ledger(books['1100000'].id), _ledger(books['1100002'].id)
-    pkg.duplicate_salary(by='t', dry_run=False, voucher_number=v.voucher_number)
+    pkg.duplicate_salary(by='t', now=NOW, dry_run=False, voucher_number=v.voucher_number)
+    assert v.cancelled_at == NOW, 'the run\'s clock, not the wall clock'
     db.session.commit()   # the session guard (UNPOST-001) judges the cancelled voucher here
     assert v.status == 'cancelled'
     assert JournalEntry.query.filter_by(reference_type='voucher_reversal', reference_id=v.id, is_posted=True).count() == 1
     assert _ledger(saleh.id) == 0.0
     assert _ledger(books['1100000'].id) == main_before
     assert round(_ledger(books['1100002'].id) - temp_before, 2) == 10000.0
-    assert pkg.duplicate_salary(by='t', dry_run=False, voucher_number=v.voucher_number)['done']
+    assert pkg.duplicate_salary(by='t', now=NOW, dry_run=False, voucher_number=v.voucher_number)['done']
 
 
 def test_a_deleted_payout_gets_its_entry_again_on_the_temporary_cash(books):
@@ -208,13 +210,13 @@ def test_a_deleted_payout_gets_its_entry_again_on_the_temporary_cash(books):
                      deleted=True)
     v = _payment_voucher(deleted)
     main_before, temp_before = _ledger(books['1100000'].id), _ledger(books['1100002'].id)
-    pkg.deleted_payout(by='t', dry_run=False, voucher_number=v.voucher_number)
+    pkg.deleted_payout(by='t', now=NOW, dry_run=False, voucher_number=v.voucher_number)
     new = db.session.get(JournalEntry, v.journal_entry_id)
     assert new.id != deleted.id and new.is_posted and new.date == v.date
     assert _ledger(saleh.id) == 10000.0
     assert _ledger(books['1100000'].id) == main_before
     assert round(_ledger(books['1100002'].id) - temp_before, 2) == -10000.0
-    assert pkg.deleted_payout(by='t', dry_run=False, voucher_number=v.voucher_number)['done']
+    assert pkg.deleted_payout(by='t', now=NOW, dry_run=False, voucher_number=v.voucher_number)['done']
 
 
 def test_an_approved_receipt_without_an_entry_is_posted_on_the_temporary_cash(books):
@@ -228,21 +230,21 @@ def test_an_approved_receipt_without_an_entry_is_posted_on_the_temporary_cash(bo
     db.session.add(v)
     db.session.flush()
     main_before, temp_before = _ledger(books['1100000'].id), _ledger(books['1100002'].id)
-    pkg.receipt_without_entry(by='t', dry_run=False, voucher_number=v.voucher_number)
+    pkg.receipt_without_entry(by='t', now=NOW, dry_run=False, voucher_number=v.voucher_number)
     assert _ledger(acc.id) == -3050.0
     assert _ledger(books['1100000'].id) == main_before
     assert round(_ledger(books['1100002'].id) - temp_before, 2) == 3050.0
-    assert pkg.receipt_without_entry(by='t', dry_run=False, voucher_number=v.voucher_number)['done']
+    assert pkg.receipt_without_entry(by='t', now=NOW, dry_run=False, voucher_number=v.voucher_number)['done']
 
 
 def test_a_voucher_whose_entry_is_posted_is_approved_and_one_without_is_refused(books):
     a, b = _account(), _account()
     posted = _payment_voucher(_entry([(a.id, 1.0, 0.0), (b.id, 0.0, 1.0)], ref_type='voucher'), status='cancelled')
     bare = _payment_voucher(None, status='pending')
-    pkg.vouchers_to_approve(by='t', dry_run=False, numbers=(posted.voucher_number,))
+    pkg.vouchers_to_approve(by='t', now=NOW, dry_run=False, numbers=(posted.voucher_number,))
     assert posted.status == 'approved' and posted.cancelled_at is None
     with pytest.raises(pkg.NotAsMeasured):
-        pkg.vouchers_to_approve(by='t', dry_run=True, numbers=(bare.voucher_number,))
+        pkg.vouchers_to_approve(by='t', now=NOW, dry_run=True, numbers=(bare.voucher_number,))
 
 
 def test_a_real_orphan_is_accepted_once(books):
@@ -250,10 +252,10 @@ def test_a_real_orphan_is_accepted_once(books):
     number = f'JE-T-{uuid.uuid4().hex[:8]}'
     e = _entry([(_account().id, 3600.0, 0.0), (_account().id, 0.0, 3600.0)], ref_type='voucher',
                ref_id=987650002, number=number)
-    pkg.accepted_orphans(by='t', dry_run=False, orphans={number: 'حقيقي'})
+    pkg.accepted_orphans(by='t', now=NOW, dry_run=False, orphans={number: 'حقيقي'})
     keys = {f['subject_key'] for f in list_findings(status='accepted')}
     assert f'journal_entry:{e.id}' in keys
-    assert pkg.accepted_orphans(by='t', dry_run=False, orphans={number: 'حقيقي'}) == [{'entry': number, 'done': True}]
+    assert pkg.accepted_orphans(by='t', now=NOW, dry_run=False, orphans={number: 'حقيقي'}) == [{'entry': number, 'done': True}]
 
 
 def test_a_statement_follows_its_ledger_document_by_document_and_the_ledger_stays(books):
@@ -290,11 +292,11 @@ def test_the_unposting_freeze_is_lifted_once(books):
     db.session.add(row)
     row.allow_unposting = False
     db.session.flush()
-    assert pkg.unposting_allowed(by='t', dry_run=True) == {'allow_unposting': {'from': False, 'to': True}}
+    assert pkg.unposting_allowed(by='t', now=NOW, dry_run=True) == {'allow_unposting': {'from': False, 'to': True}}
     assert row.allow_unposting is False, 'a dry run writes nothing'
-    pkg.unposting_allowed(by='t', dry_run=False)
+    pkg.unposting_allowed(by='t', now=NOW, dry_run=False)
     assert row.allow_unposting is True
-    assert pkg.unposting_allowed(by='t', dry_run=False)['done']
+    assert pkg.unposting_allowed(by='t', now=NOW, dry_run=False)['done']
 
 
 def test_riyals_on_a_weight_account_move_to_its_twin_and_the_party_keeps_its_balance(books):
@@ -311,10 +313,21 @@ def test_riyals_on_a_weight_account_move_to_its_twin_and_the_party_keeps_its_bal
     party_before = _ledger(weight.id) + _ledger(twin.id)
     rows_before = SafeBoxTransaction.query.filter_by(safe_box_id=_safe(weight).id).count()
 
-    pkg.cash_moved_to_financial_twin(by='t', dry_run=False, account_number=weight.account_number, entries=(number,))
+    pkg.cash_moved_to_financial_twin(by='t', now=NOW, dry_run=False, account_number=weight.account_number, entries=(number,))
     assert _ledger(weight.id) == 0.0, 'the weight account carries no riyals'
     assert round(_ledger(weight.id) + _ledger(twin.id), 2) == round(party_before, 2) == 7.48
     assert SafeBoxTransaction.query.filter_by(safe_box_id=_safe(weight).id).count() == rows_before
-    again = pkg.cash_moved_to_financial_twin(by='t', dry_run=False, account_number=weight.account_number,
+    again = pkg.cash_moved_to_financial_twin(by='t', now=NOW, dry_run=False, account_number=weight.account_number,
                                              entries=(number,))
     assert again == [{'entry': number, 'done': True}]
+
+
+def test_the_package_runs_its_steps_on_the_clock_it_is_given(books):
+    """The tool reads the clock once and the package passes it to every step (ADR-015)."""
+    from models import Settings
+    row = Settings.query.first() or Settings()
+    db.session.add(row)
+    row.allow_unposting = False
+    db.session.flush()
+    plans = pkg.run_package(by='t', now=NOW, dry_run=False, only=['unposting_allowed'])
+    assert list(plans) == ['unposting_allowed'] and row.allow_unposting is True
