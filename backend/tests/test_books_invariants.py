@@ -190,6 +190,18 @@ class TestOrphanPostedEntry:
         assert f'journal_entry:{b.id}' not in found
 
 
+    def test_an_orphan_that_moves_nothing_is_not(self, app):
+        """REV-00014: a reversal of voucher 638 posted with no lines, and its
+        like with zero lines -- they move no balance (stage 4, 3 Oct 2026)."""
+        from services.books_invariants import check_orphan_posted_entries
+        empty = _entry(reference_type='voucher_reversal', reference_id=987654325)
+        zeros = _entry(reference_type='voucher_reversal', reference_id=987654326,
+                       lines=[(_account().id, 0.0, 0.0, None)])
+        found = _subjects(check_orphan_posted_entries())
+        assert f'journal_entry:{empty.id}' not in found
+        assert f'journal_entry:{zeros.id}' not in found
+
+
 class TestUnpostedEntryInLimbo:
     """posted=False yet not a draft: party_live_balances counts it
     (or_(is_posted, not is_draft)) while the account reader does not. Invoice
@@ -597,6 +609,46 @@ class TestLifecycle:
         db.session.flush()
         run_books_invariants()
         assert db.session.get(ReconciliationFinding, other.id).resolved_at is None
+
+
+class TestAcceptedFinding:
+    """The owner accepts a finding that is true and stays true: JE-00851, posted
+    for Tamara, its voucher 526 gone, the money in the bank (3 Oct 2026)."""
+
+    def _orphan(self, amount=3600.0):
+        return _entry(reference_type='voucher', reference_id=987654400 + int(amount),
+                      lines=[(_account().id, amount, 0.0, None)])
+
+    def test_accepted_is_open_but_not_news(self, app):
+        from services.books_invariants import accept_finding, list_findings, run_books_invariants
+        je = self._orphan()
+        key = f'journal_entry:{je.id}'
+        accept_finding('ORPHAN_POSTED_ENTRY', key, by='المالك', reason='حقيقي: دخل البنك')
+        result = run_books_invariants()
+        assert key in result['ORPHAN_POSTED_ENTRY']['persisting']
+        assert key not in {f['subject_key'] for f in list_findings(status='open')}
+        accepted = {f['subject_key']: f for f in list_findings(status='accepted')}
+        assert accepted[key]['accepted_reason'] == 'حقيقي: دخل البنك'
+
+    def test_a_moved_magnitude_is_news_again(self, app):
+        from services.books_invariants import accept_finding, list_findings, run_books_invariants
+        je = self._orphan()
+        key = f'journal_entry:{je.id}'
+        accept_finding('ORPHAN_POSTED_ENTRY', key, by='المالك', reason='حقيقي')
+        db.session.add(JournalEntryLine(journal_entry_id=je.id, account_id=_account().id,
+                                        cash_debit=500.0, cash_credit=0.0))
+        db.session.flush()
+        result = run_books_invariants()
+        assert key in result['ORPHAN_POSTED_ENTRY']['changed']
+        assert key in {f['subject_key'] for f in list_findings(status='open')}
+
+    def test_only_a_fact_that_holds_with_a_reason(self, app):
+        from services.books_invariants import NothingToAccept, accept_finding
+        with pytest.raises(NothingToAccept):
+            accept_finding('ORPHAN_POSTED_ENTRY', 'journal_entry:0', by='المالك', reason='x')
+        je = self._orphan(1.0)
+        with pytest.raises(ValueError):
+            accept_finding('ORPHAN_POSTED_ENTRY', f'journal_entry:{je.id}', by='المالك', reason=' ')
 
 
 # ======================================================================

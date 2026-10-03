@@ -16,7 +16,7 @@ from services.finding_kinds import KIND_INFO, subject_label
 
 reconciliation_findings_bp = Blueprint('reconciliation_findings', __name__)
 
-_STATUSES = ('open', 'resolved', 'all')
+_STATUSES = ('open', 'accepted', 'resolved', 'all')
 
 
 @reconciliation_findings_bp.route('/reconciliation/findings', methods=['GET'])

@@ -5716,6 +5716,12 @@ class ReconciliationFinding(db.Model):
     resolved_at = db.Column(db.DateTime, nullable=True)
     subject_key = db.Column(db.String(120), nullable=True)
     metric = db.Column(db.Float, nullable=True)
+    # The owner reviewed an open finding and accepted it as true (stage 4,
+    # 3 Oct 2026): it stays open -- the fact persists -- but is no longer news.
+    # A metric that moves closes it and opens a new, unaccepted one.
+    accepted_at = db.Column(db.DateTime, nullable=True)
+    accepted_by = db.Column(db.String(100), nullable=True)
+    accepted_reason = db.Column(db.Text, nullable=True)
 
     __table_args__ = (
         db.Index('idx_rf_kind_open', 'kind', 'resolved_at'),

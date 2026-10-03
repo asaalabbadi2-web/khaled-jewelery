@@ -38,6 +38,7 @@ import json
 from datetime import datetime
 from typing import NamedTuple, Optional
 
+from sqlalchemy.orm import aliased
 from sqlalchemy import and_, exists, func, or_
 
 from models import (
@@ -109,6 +110,26 @@ def _entry_cash(entry_ids) -> dict:
 # The checks
 # ======================================================================
 
+def _not_reversed():
+    """An entry with a posted reversal no longer counts -- corrected by an entry,
+    as stage 4 corrects (services/repair/rejected_invoice_reversal.py)."""
+    rev = aliased(JournalEntry)
+    return ~exists().where(and_(rev.reference_type == 'journal_entry_reversal', rev.reference_id == JournalEntry.id,
+                                func.coalesce(rev.is_posted, False) == True,  # noqa: E712
+                                func.coalesce(rev.is_deleted, False) == False))  # noqa: E712
+
+
+def _moves_something():
+    """An entry with no non-zero live line moves no balance: nothing to report.
+    REV-00014 is one -- a reversal of voucher 638 written with no lines."""
+    line = aliased(JournalEntryLine)
+    cols = [line.cash_debit, line.cash_credit] + [
+        getattr(line, f'{side}_{k}') for side in ('debit', 'credit') for k in ('18k', '21k', '22k', '24k', 'weight')]
+    return exists().where(and_(line.journal_entry_id == JournalEntry.id,
+                               func.coalesce(line.is_deleted, False) == False,  # noqa: E712
+                               or_(*[func.coalesce(c, 0.0) != 0 for c in cols])))
+
+
 def check_orphan_posted_entries() -> list:
     """A posted entry whose document is gone.
 
@@ -122,6 +143,8 @@ def check_orphan_posted_entries() -> list:
                          JournalEntry.reference_type, JournalEntry.reference_id)
         .filter(func.coalesce(JournalEntry.is_deleted, False) == False)  # noqa: E712
         .filter(func.coalesce(JournalEntry.is_posted, False) == True)  # noqa: E712
+        .filter(_not_reversed())
+        .filter(_moves_something())
         .filter(or_(
             and_(JournalEntry.reference_type.in_(['voucher', 'voucher_reversal']),
                  ~exists().where(Voucher.id == JournalEntry.reference_id)),
@@ -220,6 +243,7 @@ def check_posted_entries_of_unposted_invoices() -> list:
         .filter(func.coalesce(JournalEntry.is_deleted, False) == False)  # noqa: E712
         .filter(func.coalesce(JournalEntry.is_posted, False) == True)  # noqa: E712
         .filter(func.coalesce(Invoice.is_posted, False) == False)  # noqa: E712
+        .filter(_not_reversed())
         .all()
     )
     cash = _entry_cash([r.id for r in rows])
@@ -430,6 +454,37 @@ def record_event(kind: str, source: str, subject_key: str, metric=None,
     return row
 
 
+class NothingToAccept(ValueError):
+    pass
+
+
+def accept_finding(kind: str, subject_key: str, *, by: str, reason: str,
+                   now: datetime = None) -> ReconciliationFinding:
+    """The owner accepts a finding that is true and stays true -- an entry they
+    confirmed real though its document is gone (JE-00851, 3 Oct 2026).
+
+    The fact must hold now; its open finding is opened if last night's run has
+    not, and marked accepted. It stays open, counted every night, out of the
+    news; if its magnitude moves, reconcile_findings closes it and opens a new
+    one that nobody has accepted. Caller commits.
+    """
+    if not (reason or '').strip():
+        raise ValueError('an accepted finding needs its reason')
+    fact = next((f for f in CHECKS[kind]() if f.subject_key == subject_key), None)
+    if fact is None:
+        raise NothingToAccept(f'{kind} {subject_key} does not hold now')
+    now = now or datetime.utcnow()
+    row = ReconciliationFinding.query.filter_by(kind=kind, source=SOURCE, subject_key=subject_key,
+                                                resolved_at=None).first()
+    if row is None:
+        row = ReconciliationFinding(kind=kind, source=SOURCE, subject_key=subject_key, metric=fact.metric,
+                                    detail=_detail(fact.detail), created_at=now)
+        db.session.add(row)
+    row.accepted_at, row.accepted_by, row.accepted_reason = now, by, reason.strip()
+    db.session.flush()
+    return row
+
+
 # ======================================================================
 # Running
 # ======================================================================
@@ -469,12 +524,16 @@ def list_findings(*, status: str = 'open', kind: str = None, source: str = None,
                   since: datetime = None, limit: int = 500) -> list:
     """Findings as plain records, newest first.
 
-    status: 'open' (default), 'resolved' or 'all'. since filters on created_at --
-    "what did last night's run open" is status='all', since=<last run>.
+    status: 'open' (default), 'accepted', 'resolved' or 'all'. An accepted
+    finding is open but no longer news: 'open' leaves it out, 'accepted' lists
+    it. since filters on created_at -- "what did last night's run open" is
+    status='all', since=<last run>.
     """
     q = ReconciliationFinding.query
     if status == 'open':
-        q = q.filter(ReconciliationFinding.resolved_at.is_(None))
+        q = q.filter(ReconciliationFinding.resolved_at.is_(None), ReconciliationFinding.accepted_at.is_(None))
+    elif status == 'accepted':
+        q = q.filter(ReconciliationFinding.resolved_at.is_(None), ReconciliationFinding.accepted_at.isnot(None))
     elif status == 'resolved':
         q = q.filter(ReconciliationFinding.resolved_at.isnot(None))
     if kind:
@@ -496,6 +555,9 @@ def list_findings(*, status: str = 'open', kind: str = None, source: str = None,
             'check_count': r.check_count,
             'created_at': r.created_at.isoformat() if r.created_at else None,
             'resolved_at': r.resolved_at.isoformat() if r.resolved_at else None,
+            'accepted_at': r.accepted_at.isoformat() if r.accepted_at else None,
+            'accepted_by': r.accepted_by,
+            'accepted_reason': r.accepted_reason,
         }
         for r in rows
     ]
