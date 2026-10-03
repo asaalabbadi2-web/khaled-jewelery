@@ -4,7 +4,8 @@ The steps, in order (services/repair/stage4_package.py): rejected invoices
 2821 and 3123 reversed at their dates; duplicate payment entries of deleted
 invoices reversed; February's duplicate salary voucher cancelled and reversed;
 April's deleted payout re-posted; RV-2026-00182 posted; three vouchers whose
-entry is posted approved; JE-2026-00851 accepted; the statements of the main
+entry is posted approved; JE-2026-00851 accepted; the Arab pound's riyals moved
+from its weight account to its financial twin; the statements of the main
 cash box, the Riyadh bank and mada brought to their ledger; the unposting
 freeze lifted. Nothing in the ledger touches the main
 cash box, the Riyadh bank or the clearing settlement accounts -- their

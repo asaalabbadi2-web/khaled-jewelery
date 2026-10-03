@@ -295,3 +295,26 @@ def test_the_unposting_freeze_is_lifted_once(books):
     pkg.unposting_allowed(by='t', dry_run=False)
     assert row.allow_unposting is True
     assert pkg.unposting_allowed(by='t', dry_run=False)['done']
+
+
+def test_riyals_on_a_weight_account_move_to_its_twin_and_the_party_keeps_its_balance(books):
+    """The Arab pound's shape: a reservation's weight entry wrote 59,250 riyals on
+    the company's weight account; its two accounts read 7.48 together, the
+    owner's real balance."""
+    weight = _account(name='مورد وزني', tracks_weight=True)
+    twin = _account(name='مورد', memo_account_id=weight.id)
+    _safe(weight)
+    scrap_w = _account(name='كسر وزني', tracks_weight=True)
+    _entry([(twin.id, 59257.48, 0.0), (_account().id, 0.0, 59257.48)], ref_type='stage4_test_doc')
+    number = f'WGT-T-{uuid.uuid4().hex[:6]}'
+    _entry([(scrap_w.id, 59250.0, 0.0), (weight.id, 0.0, 59250.0)], ref_type='office_reservation', number=number)
+    party_before = _ledger(weight.id) + _ledger(twin.id)
+    rows_before = SafeBoxTransaction.query.filter_by(safe_box_id=_safe(weight).id).count()
+
+    pkg.cash_moved_to_financial_twin(by='t', dry_run=False, account_number=weight.account_number, entries=(number,))
+    assert _ledger(weight.id) == 0.0, 'the weight account carries no riyals'
+    assert round(_ledger(weight.id) + _ledger(twin.id), 2) == round(party_before, 2) == 7.48
+    assert SafeBoxTransaction.query.filter_by(safe_box_id=_safe(weight).id).count() == rows_before
+    again = pkg.cash_moved_to_financial_twin(by='t', dry_run=False, account_number=weight.account_number,
+                                             entries=(number,))
+    assert again == [{'entry': number, 'done': True}]

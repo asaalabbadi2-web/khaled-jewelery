@@ -35,9 +35,18 @@ VOUCHERS_TO_APPROVE = ('RV-2026-00494', 'PV-2026-00241', 'PV-2026-00242')  # the
 # Cash safes whose statement follows their ledger, by their account (the owner: «اصلحها ان كان لا يؤثر على
 # حسابات الاستاذ»): the main cash box, the Riyadh bank, mada.
 STATEMENTS_TO_ALIGN = ('1100000', '1110000', '1500000')
+# Office-reservation weight entries that wrote the reservation's riyals on the
+# Arab pound company's weight account; the owner (3 Oct 2026): its real cash
+# balance is the 7.48 the two accounts read together -- the cash belongs on
+# its financial twin.
+CASH_ON_WEIGHT_ACCOUNT = ('72100001', ('WGT-2026-00002', 'WGT-2026-00003', 'WGT-2026-00004',
+                                       'WGT-2026-00006', 'WGT-2026-00007'))
 ACCEPTED_ORPHANS = {
     'JE-2026-00851': 'حقيقي: عملية تمارا دخلت البنك ورصيد تمارا سليم، وسندها 526 محذوف (المالك، 3 أكتوبر 2026)',
 }
+
+
+RECLASSIFICATION = 'stage4_reclassification'
 
 
 class NotAsMeasured(ValueError):
@@ -226,6 +235,47 @@ def statements_aligned(*, by, dry_run=True, account_numbers=STATEMENTS_TO_ALIGN)
     return out
 
 
+def cash_moved_to_financial_twin(*, by, dry_run=True, account_number=None, entries=None):
+    """Riyals on a weight account move to its financial twin, entry by entry at
+    its date: the party's balance (both accounts read together) is unchanged,
+    the weight account carries grams only, and its safe's statement -- which
+    never had the riyals -- agrees with it. No statement row is written."""
+    from models import Account, JournalEntryLine
+    number, numbers = (account_number, entries) if account_number else CASH_ON_WEIGHT_ACCOUNT
+    weight = Account.query.filter_by(account_number=number).first()
+    twin = Account.query.filter_by(memo_account_id=weight.id).first() if weight else None
+    if weight is None or twin is None or not weight.tracks_weight:
+        raise NotAsMeasured(f'{number} is not a weight account with a financial twin')
+    out = []
+    for entry_number in numbers:
+        e = _entry(entry_number)
+        if JournalEntry.query.filter_by(reference_type=RECLASSIFICATION, reference_id=e.id,
+                                        is_posted=True, is_deleted=False).first() is not None:
+            out.append({'entry': entry_number, 'done': True})
+            continue
+        lines = [l for l in e.lines if l.account_id == weight.id and not l.is_deleted
+                 and abs(float(l.cash_debit or 0) - float(l.cash_credit or 0)) > 0.005]
+        if not e.is_posted or e.is_deleted or not lines:
+            raise NotAsMeasured(f'{entry_number} carries no cash on {number}')
+        net = round(sum(float(l.cash_debit or 0) - float(l.cash_credit or 0) for l in lines), 2)
+        supplier_id = next((l.supplier_id for l in lines if l.supplier_id), None)
+        moved = [  # undo it on the weight account, write it on the twin
+            {'account_id': weight.id, 'supplier_id': supplier_id, 'cash_debit': max(-net, 0.0),
+             'cash_credit': max(net, 0.0), 'description': f'نقل النقد إلى الحساب المالي {twin.account_number}'},
+            {'account_id': twin.id, 'supplier_id': supplier_id, 'cash_debit': max(net, 0.0),
+             'cash_credit': max(-net, 0.0), 'description': f'نقد قُيّد على الحساب الوزني {number}'},
+        ]
+        plan = {'entry': entry_number, 'date': e.date, 'moved': net, 'lines': _summary(moved)}
+        if not dry_run:
+            r = write_entry(date=e.date, description=f'نقل نقد {entry_number} من الحساب الوزني إلى المالي',
+                            reference_type=RECLASSIFICATION, reference_id=e.id, reference_number=entry_number,
+                            lines=moved, by=by, safe_rows=False)
+            plan['correction'] = r.entry_number
+            _audit(by, 'move_cash_to_financial_twin', 'JournalEntry', e.id, entry_number, plan)
+        out.append(plan)
+    return out
+
+
 def unposting_allowed(*, by, dry_run=True):
     """The owner lifts the unposting freeze (3 Oct 2026): UNPOST-001's laws are
     green -- one operation for every path, a round trip restores the books."""
@@ -250,6 +300,7 @@ STEPS = (
     ('receipt_without_entry', receipt_without_entry),
     ('vouchers_to_approve', vouchers_to_approve),
     ('accepted_orphans', accepted_orphans),
+    ('cash_moved_to_financial_twin', cash_moved_to_financial_twin),
     ('statements_aligned', statements_aligned),
     ('unposting_allowed', unposting_allowed),
 )
