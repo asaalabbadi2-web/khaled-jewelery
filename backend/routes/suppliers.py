@@ -240,11 +240,6 @@ def add_supplier():
             default_wage_type=wage_type,
             default_safe_box_id=None,
             account_category_id=account_category.id if account_category else None,
-            balance_cash=0.0,
-            balance_gold_18k=0.0,
-            balance_gold_21k=0.0,
-            balance_gold_22k=0.0,
-            balance_gold_24k=0.0
         )
         db.session.add(new_supplier)
         db.session.flush()

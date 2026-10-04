@@ -55,11 +55,6 @@ def ensure_office_supplier(office: Office, *, auto_commit: bool = False) -> Supp
         account_id=int(office_account_id) if office_account_id else None,
         notes=f'مورد مرتبط بالمكتب {office.office_code}',
         active=office.active,
-        balance_cash=0.0,
-        balance_gold_18k=0.0,
-        balance_gold_21k=0.0,
-        balance_gold_22k=0.0,
-        balance_gold_24k=0.0,
         gold_balance_weight=0.0,
         gold_balance_cash_equivalent=0.0,
     )
