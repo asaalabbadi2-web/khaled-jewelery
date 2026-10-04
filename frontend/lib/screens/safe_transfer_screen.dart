@@ -636,12 +636,10 @@ class _SafeTransferScreenState extends State<SafeTransferScreen> {
         final w21 = _parseDouble(_weight21kController.text);
         final w18 = _parseDouble(_weight18kController.text);
 
-        final over24 = w24 > fromSafe.goldBalance24k + 0.0001;
-        final over22 = w22 > fromSafe.goldBalance22k + 0.0001;
-        final over21 = w21 > fromSafe.goldBalance21k + 0.0001;
-        final over18 = w18 > fromSafe.goldBalance18k + 0.0001;
+        final short = fromSafe.karatsShortFor(
+            {'24k': w24, '22k': w22, '21k': w21, '18k': w18});
 
-        if (over24 || over22 || over21 || over18) {
+        if (short.isNotEmpty) {
           _showSnack(
             widget.isArabic
                 ? 'أحد الأوزان المدخلة أكبر من الرصيد المتاح في خزينة المصدر'

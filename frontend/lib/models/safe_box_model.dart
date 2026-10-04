@@ -240,6 +240,21 @@ class SafeBoxModel {
   double get goldBalance21k => balance?.weight?.karat21 ?? weightBalance?['21k'] ?? 0.0;
   double get goldBalance18k => balance?.weight?.karat18 ?? weightBalance?['18k'] ?? 0.0;
 
+  /// The karats of *requested* ('24k' → grams) this safe does not hold enough
+  /// of -- the transfer's check before it sends. Only a karat that moves is
+  /// checked, as the server checks (4 Oct 2026: an empty 24k field "exceeded"
+  /// the display safe's −176 g and blocked every transfer from it).
+  List<String> karatsShortFor(Map<String, double> requested) {
+    const eps = 0.0001;
+    final available = {
+      '24k': goldBalance24k, '22k': goldBalance22k, '21k': goldBalance21k, '18k': goldBalance18k,
+    };
+    return [
+      for (final k in available.keys)
+        if ((requested[k] ?? 0.0) > eps && requested[k]! > available[k]! + eps) k,
+    ];
+  }
+
   /// نسخة من الكائن مع تحديثات
   SafeBoxModel copyWith({
     int? id,
