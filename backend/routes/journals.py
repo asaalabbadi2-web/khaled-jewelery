@@ -417,6 +417,21 @@ def get_journal_entries():
 from dual_distribution_service import distribute_lines as _distribute_lines
 
 
+# The three ways a manual entry is refused for its figures, said once for the
+# create and the edit route (JE-UX-1): in Arabic, naming the side and the way out.
+_JE_REFUSAL_LINE_WITHOUT_ACCOUNT = 'يوجد سطر فيه مبالغ بلا حساب. اختر حساباً لكل سطر يحمل قيمة.'
+_JE_REFUSAL_CASH_UNBALANCED = 'القيد النقدي غير متوازن: مجموع المدين لا يساوي مجموع الدائن. راجع المبالغ.'
+
+
+def _je_refusal_gold_unbalanced(debit_main_karat, credit_main_karat):
+    return (
+        'قيد الذهب غير متوازن بعد تحويل الأوزان إلى عيار الأساس '
+        f'(مدين {debit_main_karat:.4f}غ، دائن {credit_main_karat:.4f}غ، '
+        f'الفرق {abs(debit_main_karat - credit_main_karat):.4f}غ). '
+        'الفرق الذي تسوّيه المنظومة تلقائياً أقل من 0.01غ؛ عدّل الأوزان أو استخدم زر الموازنة.'
+    )
+
+
 @journals_bp.route('/journal_entries', methods=['POST'])
 @require_permission('journal.create')
 def add_journal_entry():
@@ -476,7 +491,7 @@ def add_journal_entry():
             line.get('debit_24k', 0), line.get('credit_24k', 0)
         ])
         if has_values and not line.get('account_id'):
-            return jsonify({'error': 'Each line must have an associated account.'}), 400
+            return jsonify({'error': _JE_REFUSAL_LINE_WITHOUT_ACCOUNT}), 400
 
     # Auto-route: split mixed-value lines for dual-account pairs (cash↔gold).
     lines_data = _distribute_lines(lines_data)
@@ -491,7 +506,7 @@ def add_journal_entry():
         total_cash_credit = sum(line.get('cash_credit', 0) for line in lines_data)
 
         if round(total_cash_debit, 3) != round(total_cash_credit, 3):
-            return jsonify({'error': 'Cash debits and credits must be balanced.'}), 400
+            return jsonify({'error': _JE_REFUSAL_CASH_UNBALANCED}), 400
 
         # --- Gold Balance Calculation and Auto-Balancing ---
         total_gold_debit_normalized = sum(
@@ -566,7 +581,7 @@ def add_journal_entry():
 
         # Final check for gold balance after potential auto-balancing
         if round(total_gold_debit_normalized, 3) != round(total_gold_credit_normalized, 3):
-            return jsonify({'error': f'Gold debits and credits must be balanced when normalized to main karat. Debit: {total_gold_debit_normalized}, Credit: {total_gold_credit_normalized}'}), 400
+            return jsonify({'error': _je_refusal_gold_unbalanced(total_gold_debit_normalized, total_gold_credit_normalized)}), 400
         # --- End Balance Validation ---
 
     try:
@@ -708,7 +723,7 @@ def update_journal_entry(id):
             line.get('debit_24k', 0), line.get('credit_24k', 0)
         ])
         if has_values and not line.get('account_id'):
-            return jsonify({'error': 'Each line must have an associated account.'}), 400
+            return jsonify({'error': _JE_REFUSAL_LINE_WITHOUT_ACCOUNT}), 400
 
     # Auto-route: split mixed-value lines for dual-account pairs (cash↔gold).
     incoming_lines = _distribute_lines(incoming_lines)
@@ -722,7 +737,7 @@ def update_journal_entry(id):
         total_cash_credit = sum(line.get('cash_credit', 0) for line in incoming_lines)
 
         if round(total_cash_debit, 3) != round(total_cash_credit, 3):
-            return jsonify({'error': 'Cash debits and credits must be balanced.'}), 400
+            return jsonify({'error': _JE_REFUSAL_CASH_UNBALANCED}), 400
 
         total_gold_debit_normalized = sum(
             convert_to_main_karat(line.get('debit_18k', 0), 18) +
@@ -740,7 +755,7 @@ def update_journal_entry(id):
         )
 
         if round(total_gold_debit_normalized, 3) != round(total_gold_credit_normalized, 3):
-            return jsonify({'error': f'Gold debits and credits must be balanced when normalized to main karat. Debit: {total_gold_debit_normalized}, Credit: {total_gold_credit_normalized}'}), 400
+            return jsonify({'error': _je_refusal_gold_unbalanced(total_gold_debit_normalized, total_gold_credit_normalized)}), 400
         # --- End Balance Validation ---
 
     try:
