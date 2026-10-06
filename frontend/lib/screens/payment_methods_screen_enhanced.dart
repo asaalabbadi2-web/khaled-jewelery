@@ -1022,13 +1022,9 @@ class _PaymentMethodsScreenEnhancedState
       selectedCommissionTiming = 'invoice';
     }
 
-    String selectedSettlementMode =
-        (editingMethod?['settlement_mode']?.toString().trim().toLowerCase() ??
-        'bulk');
-    if (selectedSettlementMode != 'bulk' &&
-        selectedSettlementMode != 'per_transaction') {
-      selectedSettlementMode = 'bulk';
-    }
+    // One settlement mode: a provider's deposit settles its payments together
+    // (the owner, 6 Oct 2026). The per-transaction option is gone.
+    const selectedSettlementMode = 'bulk';
 
     String? selectedType = editingMethod?['payment_type'];
     bool isActive = editingMethod?['is_active'] ?? true;
@@ -1344,43 +1340,6 @@ class _PaymentMethodsScreenEnhancedState
                       keyboardType: const TextInputType.numberWithOptions(
                         decimal: true,
                       ),
-                    ),
-
-                    SizedBox(height: 16),
-
-                    // نمط التسوية: مجمّعة أو فردية
-                    DropdownButtonFormField<String>(
-                      value: selectedSettlementMode,
-                      decoration: InputDecoration(
-                        labelText: 'نمط التسوية',
-                        prefixIcon: Icon(Icons.sync_alt, color: _infoColor),
-                        helperText: selectedSettlementMode == 'per_transaction'
-                            ? 'سند مستقل لكل معاملة — تظهر فردياً بكشف الحساب'
-                            : 'سند واحد مجمّع لجميع المعاملات المستحقة',
-                        helperStyle: const TextStyle(fontSize: 11),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        filled: true,
-                        fillColor: formFieldFill,
-                      ),
-                      items: const [
-                        DropdownMenuItem(
-                          value: 'bulk',
-                          child: Text('مجمّعة (سند واحد)'),
-                        ),
-                        DropdownMenuItem(
-                          value: 'per_transaction',
-                          child: Text('فردية (سند لكل معاملة)'),
-                        ),
-                      ],
-                      onChanged: (val) {
-                        if (val != null) {
-                          setDialogState(() {
-                            selectedSettlementMode = val;
-                          });
-                        }
-                      },
                     ),
 
                     SizedBox(height: 16),

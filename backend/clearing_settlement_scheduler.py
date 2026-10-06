@@ -549,13 +549,11 @@ class ClearingSettlementScheduler:
 
         Returns a diagnostic dict with keys:
           - settled_count: number of bulk settlement vouchers created
-          - per_tx_settled_count: number of per-transaction vouchers created
           - skipped: list of {pm_id, name, reason} for skipped PMs
           - enabled_methods: total PMs checked
         """
         result: dict = {
             'settled_count': 0,
-            'per_tx_settled_count': 0,
             'enabled_methods': 0,
             'skipped': [],
         }
@@ -691,21 +689,6 @@ class ClearingSettlementScheduler:
 
                     if clearing_balance <= 0.0:
                         _skip(f'clearing_balance_zero_or_negative:{clearing_balance:.2f}')
-                        continue
-
-                    # نمط التسوية: bulk أو per_transaction
-                    settlement_mode = str(getattr(pm, 'settlement_mode', 'bulk') or 'bulk').strip().lower()
-
-                    if settlement_mode == 'per_transaction':
-                        # -------- تسوية فردية: سند لكل معاملة --------
-                        settled = self._settle_per_transaction(
-                            pm=pm,
-                            clearing_sb=clearing_sb,
-                            bank_sb=bank_sb,
-                            cutoff_dt=cutoff_dt,
-                            today=today,
-                        )
-                        result['per_tx_settled_count'] += settled
                         continue
 
                     # ================================================================
@@ -952,170 +935,6 @@ class ClearingSettlementScheduler:
                     result['skipped'].append({'pm_id': getattr(pm, 'id', '?'), 'name': '?', 'reason': f'unexpected:{str(exc)[:120]}'})
 
         return result
-
-    # ------------------------------------------------------------------
-    # Per-transaction settlement helper
-    # ------------------------------------------------------------------
-    def _settle_per_transaction(self, *, pm, clearing_sb, bank_sb, cutoff_dt, today) -> int:
-        """Create one clearing-settlement voucher per unsettled invoice payment.
-
-        Returns the number of successfully created per-transaction vouchers.
-
-        Each voucher is tracked via ``SafeBoxTransaction.notes`` with the
-        pattern ``per_tx:ip_{invoice_payment_id}`` so we can detect which
-        payments have already been individually settled.
-        """
-        from routes import _create_clearing_settlement_voucher
-
-        # 1. All incoming invoice-payment txs up to cutoff
-        unsettled_txs = (
-            SafeBoxTransaction.query
-            .filter(
-                SafeBoxTransaction.safe_box_id == clearing_sb.id,
-                SafeBoxTransaction.ref_type == 'invoice_payment',
-                SafeBoxTransaction.direction == 'in',
-                SafeBoxTransaction.created_at <= cutoff_dt,
-            )
-            .order_by(SafeBoxTransaction.created_at.asc())
-            .all()
-        )
-
-        if not unsettled_txs:
-            return
-
-        # 2. Detect already-settled payment ids via SettlementLine + legacy notes
-        settled_ip_ids: set[int] = set()
-        # Check SettlementLine (fully settled IPs)
-        try:
-            all_ip_ids = [tx.invoice_payment_id for tx in unsettled_txs if tx.invoice_payment_id]
-            if all_ip_ids:
-                settled_by_ip = get_settled_amounts(all_ip_ids)
-                # Build map of ip_id → amount for partial check
-                ip_amount_map = {tx.invoice_payment_id: float(tx.amount_cash or 0) for tx in unsettled_txs if tx.invoice_payment_id}
-                for ip_id, sl_total in settled_by_ip.items():
-                    ip_amt = ip_amount_map.get(ip_id, 0)
-                    if float(sl_total) >= ip_amt - 0.005:
-                        settled_ip_ids.add(ip_id)
-        except Exception:
-            pass
-        # Also check legacy per_tx notes
-        try:
-            settled_rows = (
-                db.session.query(SafeBoxTransaction.notes)
-                .join(Voucher, Voucher.id == SafeBoxTransaction.ref_id)
-                .filter(
-                    SafeBoxTransaction.safe_box_id == clearing_sb.id,
-                    SafeBoxTransaction.ref_type.in_(['voucher', 'voucher_reversal']),
-                    Voucher.reference_type == 'clearing_settlement',
-                    SafeBoxTransaction.notes.isnot(None),
-                )
-                .all()
-            )
-            for (note_val,) in settled_rows:
-                if note_val and note_val.startswith('per_tx:ip_'):
-                    try:
-                        settled_ip_ids.add(int(note_val.split('per_tx:ip_')[1]))
-                    except Exception:
-                        pass
-        except Exception:
-            pass
-
-        # 3. Filter to pending
-        pending = []
-        for tx in unsettled_txs:
-            ip_id = tx.invoice_payment_id or tx.id
-            if ip_id in settled_ip_ids:
-                continue
-            pending.append(tx)
-
-        if not pending:
-            return
-
-        # 4. Cap total to the clearing safe-box balance
-        try:
-            clearing_balance = self._live_cash_balance_for_safe_box(clearing_sb)
-        except Exception:
-            clearing_balance = 0.0
-        if clearing_balance <= 0.0:
-            return
-
-        # 5. Resolve fee parameters
-        timing = str(getattr(pm, 'commission_timing', 'invoice') or 'invoice').strip().lower()
-        rate = float(getattr(pm, 'commission_rate', 0.0) or 0.0)
-        fixed = float(getattr(pm, 'commission_fixed_amount', 0.0) or 0.0)
-        fee_account_id = getattr(pm, 'fee_expense_account_id', None)
-
-        settled_count = 0
-        running_total = 0.0
-
-        for tx in pending:
-            gross = round(float(tx.amount_cash or 0.0), 2)
-            if gross <= 0.01:
-                continue
-
-            # Safety: don't exceed what the clearing box actually holds
-            if running_total + gross > clearing_balance:
-                break
-
-            fee = 0.0
-            if timing == 'settlement' and (rate > 0 or fixed > 0):
-                fee = round((gross * rate / 100.0) + fixed, 2)
-
-            ip_id = tx.invoice_payment_id or tx.id
-            ref_num = f"AUTO-PERTX-IP{ip_id}-{today.isoformat()}"
-
-            # Build descriptive text
-            inv_info = ''
-            if tx.invoice_id:
-                try:
-                    from models import Invoice
-                    inv = Invoice.query.get(tx.invoice_id)
-                    if inv:
-                        inv_info = f' (فاتورة {inv.invoice_number})'
-                except Exception:
-                    pass
-
-            _pertx_net = round(gross - fee, 2)
-            desc = (
-                f'تسوية فردية تلقائية: {clearing_sb.name} → {bank_sb.name}'
-                f'{inv_info} '
-                f'(إجمالي {gross:.2f}، عمولة {fee:.2f}، صافي {_pertx_net:.2f})'
-            )
-
-            try:
-                result = _create_clearing_settlement_voucher(
-                    clearing_safe_box_id=clearing_sb.id,
-                    bank_safe_box_id=bank_sb.id,
-                    gross_amount=gross,
-                    fee_amount=fee,
-                    settlement_dt=datetime.now(),
-                    reference_number=ref_num,
-                    created_by='scheduler',
-                    fee_account_id=fee_account_id if fee > 0 else None,
-                    description_override=desc,
-                    notes=f'per_tx:ip_{ip_id}',
-                    ensure_unique_reference=True,
-                    invoice_payment_ids=[ip_id] if ip_id else None,
-                )
-                if result.get('skipped'):
-                    continue
-                db.session.commit()
-                running_total += gross
-                settled_count += 1
-            except Exception as exc:
-                db.session.rollback()
-                print(
-                    f"[ClearingSettlementScheduler] ❌ Per-tx settle failed "
-                    f"PM#{pm.id} IP#{ip_id}: {exc}"
-                )
-
-        if settled_count:
-            print(
-                f"[ClearingSettlementScheduler] ✓ Per-transaction: settled {settled_count} "
-                f"txs ({running_total:.2f}) for PM#{pm.id} ({pm.name})"
-            )
-
-        return settled_count
 
     def setup_schedule(self):
         # Run every 2 hours so settlements happen throughout the day.

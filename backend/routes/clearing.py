@@ -4,7 +4,7 @@ from __future__ import annotations
 from datetime import datetime, date, timedelta
 
 from flask import Blueprint, current_app, g, jsonify, request
-from sqlalchemy import func, and_, or_, case
+from sqlalchemy import func, and_
 from sqlalchemy.orm import joinedload
 
 from models import (
@@ -81,32 +81,6 @@ def _refuse_unsettleable_payment_ids(safe_box_id, ids) -> list[int]:
     }
     return [i for i in wanted if i not in allowed]
 
-
-def _unsettled_invoice_payment_sbts(clearing_safe_box_id):
-    """Per-transaction settlement's candidates: incoming invoice_payment movements
-    into the clearing box, excluding those of a retracted invoice.
-
-    Narrower than settleable_payments_query on purpose: this legacy path is
-    driven by SafeBoxTransaction, not InvoicePayment, so only the invoice rule
-    can be applied here without the consolidation recorded as a known gap.
-    """
-    from services.gold_allocation_service import RETRACTED_INVOICE_STATUSES
-    return (
-        SafeBoxTransaction.query
-        .outerjoin(Invoice, Invoice.id == SafeBoxTransaction.invoice_id)
-        .filter(
-            SafeBoxTransaction.safe_box_id == clearing_safe_box_id,
-            SafeBoxTransaction.ref_type == 'invoice_payment',
-            SafeBoxTransaction.direction == 'in',
-            or_(
-                SafeBoxTransaction.invoice_id.is_(None),
-                func.lower(func.coalesce(Invoice.status, '')).notin_(
-                    list(RETRACTED_INVOICE_STATUSES)),
-            ),
-        )
-        .order_by(SafeBoxTransaction.created_at.asc())
-        .all()
-    )
 
 def _compute_clearing_due_amount(safe_box_id):
     """Compute how much is actually pending in a clearing safe box.
@@ -739,239 +713,6 @@ def create_clearing_settlement():
         db.session.rollback()
         return jsonify({'error': f'Failed to create clearing settlement: {str(exc)}'}), 500
 
-# =========================================================================
-# Per-Transaction Clearing Settlement (one voucher per invoice payment)
-# =========================================================================
-
-@clearing_bp.route('/clearing/settlements/per-transaction', methods=['POST'])
-@require_permission('vouchers.create')
-def create_per_transaction_clearing_settlement():
-    """Create individual clearing settlement vouchers — one per unsettled
-    invoice payment in a clearing safe box.
-
-    Body:
-      - clearing_safe_box_id: int (required)
-      - bank_safe_box_id: int (required)
-      - commission_rate: float (optional, default from PM)
-      - commission_fixed: float (optional, default from PM)
-      - fee_account_id: int (optional, default from PM)
-      - settlement_date: ISO string (optional)
-      - created_by: str (optional)
-    """
-    data = request.get_json(silent=True) or {}
-
-    clearing_safe_box_id = data.get('clearing_safe_box_id') or data.get('from_safe_box_id')
-    bank_safe_box_id = data.get('bank_safe_box_id') or data.get('to_safe_box_id')
-    created_by = data.get('created_by', 'system')
-
-    if not clearing_safe_box_id or not bank_safe_box_id:
-        return jsonify({'error': 'clearing_safe_box_id and bank_safe_box_id are required'}), 400
-
-    clearing_sb = SafeBox.query.get(clearing_safe_box_id)
-    bank_sb = SafeBox.query.get(bank_safe_box_id)
-    if not clearing_sb or not clearing_sb.is_active:
-        return jsonify({'error': 'Clearing safe box not found or inactive'}), 404
-    if not bank_sb or not bank_sb.is_active:
-        return jsonify({'error': 'Bank safe box not found or inactive'}), 404
-    if (clearing_sb.safe_type or '').strip().lower() != 'clearing':
-        return jsonify({'error': 'Source must be a clearing safe box'}), 400
-    if (bank_sb.safe_type or '').strip().lower() != 'bank':
-        return jsonify({'error': 'Target must be a bank safe box'}), 400
-
-    # Resolve commission parameters from payment method
-    matched_pm = (
-        PaymentMethod.query
-        .filter_by(default_safe_box_id=clearing_safe_box_id, is_active=True)
-        .first()
-    )
-    rate = float(data.get('commission_rate') if 'commission_rate' in data
-                 else (getattr(matched_pm, 'commission_rate', 0.0) or 0.0) if matched_pm else 0.0)
-    fixed = float(data.get('commission_fixed') if 'commission_fixed' in data
-                  else (getattr(matched_pm, 'commission_fixed_amount', 0.0) or 0.0) if matched_pm else 0.0)
-
-    fee_account_id = data.get('fee_account_id')
-    if fee_account_id is None and matched_pm:
-        fee_account_id = getattr(matched_pm, 'fee_expense_account_id', None)
-
-    # Check commission_timing — if 'invoice', fee must be 0
-    timing = 'invoice'
-    if matched_pm:
-        timing = str(getattr(matched_pm, 'commission_timing', 'invoice') or 'invoice').strip().lower()
-
-    # Parse settlement date
-    settlement_date_raw = data.get('settlement_date') or data.get('date')
-    settlement_dt = datetime.now()
-    if settlement_date_raw:
-        try:
-            if isinstance(settlement_date_raw, str) and len(settlement_date_raw) == 10:
-                settlement_dt = datetime.fromisoformat(settlement_date_raw + 'T00:00:00')
-            else:
-                settlement_dt = datetime.fromisoformat(settlement_date_raw)
-        except Exception:
-            return jsonify({'error': 'invalid settlement_date'}), 400
-
-    # Find unsettled invoice payments in this clearing safe box
-    # An invoice_payment SafeBoxTransaction is "unsettled" if no clearing_settlement
-    # voucher has created a corresponding 'out' transaction referencing it.
-    try:
-        unsettled_txs = _unsettled_invoice_payment_sbts(clearing_safe_box_id)
-    except Exception as exc:
-        return jsonify({'error': f'Failed to query transactions: {exc}'}), 500
-
-    # ----------------------------------------------------------------
-    # Determine which payments are still pending using the same FIFO
-    # hybrid approach as the pending-transactions GET endpoint.
-    # This correctly handles both per-tx and bulk settlements.
-    # ----------------------------------------------------------------
-
-    # (a) Per-tx settled IDs
-    settled_ip_ids = set()
-    try:
-        settled_txs = (
-            db.session.query(SafeBoxTransaction.notes)
-            .join(Voucher, Voucher.id == SafeBoxTransaction.ref_id)
-            .filter(
-                SafeBoxTransaction.safe_box_id == clearing_safe_box_id,
-                SafeBoxTransaction.ref_type.in_(['voucher', 'voucher_reversal']),
-                Voucher.reference_type == 'clearing_settlement',
-                SafeBoxTransaction.notes.isnot(None),
-            )
-            .all()
-        )
-        for (note_val,) in settled_txs:
-            if note_val and note_val.startswith('per_tx:ip_'):
-                try:
-                    settled_ip_ids.add(int(note_val.split('per_tx:ip_')[1]))
-                except Exception:
-                    pass
-    except Exception:
-        pass
-
-    # (b) Aggregate settled total from clearing_settlement vouchers
-    aggregate_settled = 0.0
-    try:
-        settled_signed = func.coalesce(
-            func.sum(
-                case(
-                    (SafeBoxTransaction.direction == 'out', SafeBoxTransaction.amount_cash),
-                    else_=-SafeBoxTransaction.amount_cash,
-                )
-            ),
-            0.0,
-        )
-        aggregate_settled = float(
-            db.session.query(settled_signed)
-            .join(Voucher, Voucher.id == SafeBoxTransaction.ref_id)
-            .filter(
-                SafeBoxTransaction.safe_box_id == clearing_safe_box_id,
-                SafeBoxTransaction.ref_type.in_(['voucher', 'voucher_reversal']),
-                Voucher.reference_type == 'clearing_settlement',
-            )
-            .scalar()
-            or 0.0
-        )
-    except Exception:
-        pass
-
-    # (c) FIFO walk: consume bulk-settled amount across non-per-tx payments
-    remaining_bulk_settled = max(aggregate_settled, 0.0)
-    pending = []
-    for tx in unsettled_txs:
-        ip_id = tx.invoice_payment_id or tx.id
-        if ip_id in settled_ip_ids:
-            remaining_bulk_settled -= round(float(tx.amount_cash or 0.0), 2)
-            continue
-        tx_amount = round(float(tx.amount_cash or 0.0), 2)
-        if remaining_bulk_settled >= tx_amount - 0.005:
-            remaining_bulk_settled -= tx_amount
-            continue
-        pending.append(tx)
-
-    if not pending:
-        return jsonify({
-            'success': True,
-            'message': 'لا توجد معاملات معلّقة للتسوية',
-            'settled_count': 0,
-            'vouchers': [],
-        }), 200
-
-    # Process each transaction
-    results = []
-    errors = []
-    for tx in pending:
-        try:
-            gross = round(float(tx.amount_cash or 0.0), 2)
-            if gross <= 0.01:
-                continue
-
-            # Compute fee
-            fee = 0.0
-            if timing == 'settlement':
-                fee = round((gross * rate / 100.0) + fixed, 2)
-
-            ref_num = f"PERTX-IP{tx.invoice_payment_id or tx.id}-{settlement_dt.strftime('%Y%m%d')}"
-
-            # Build description with invoice info
-            inv_info = ''
-            if tx.invoice_id:
-                try:
-                    inv = Invoice.query.get(tx.invoice_id)
-                    if inv:
-                        inv_info = f' (فاتورة {inv.invoice_number})'
-                except Exception:
-                    pass
-
-            desc = (
-                f'تسوية فردية: {clearing_sb.name} → {bank_sb.name}'
-                f' — مبلغ {gross:.2f}{inv_info}'
-            )
-
-            result = _create_clearing_settlement_voucher(
-                clearing_safe_box_id=clearing_sb.id,
-                bank_safe_box_id=bank_sb.id,
-                gross_amount=gross,
-                fee_amount=fee,
-                settlement_dt=settlement_dt,
-                reference_number=ref_num,
-                created_by=created_by,
-                fee_account_id=fee_account_id if fee > 0 else None,
-                description_override=desc,
-                notes=f'per_tx:ip_{tx.invoice_payment_id or tx.id}',
-                ensure_unique_reference=True,
-            )
-
-            if result.get('skipped'):
-                continue
-
-            results.append({
-                'invoice_payment_id': tx.invoice_payment_id,
-                'invoice_id': tx.invoice_id,
-                'gross': gross,
-                'fee': fee,
-                'voucher_number': result.get('voucher', {}).get('voucher_number'),
-            })
-        except Exception as exc:
-            errors.append({
-                'tx_id': tx.id,
-                'invoice_payment_id': tx.invoice_payment_id,
-                'error': str(exc),
-            })
-            db.session.rollback()
-
-    if results:
-        try:
-            db.session.commit()
-        except Exception as exc:
-            db.session.rollback()
-            return jsonify({'error': f'Failed to commit: {exc}'}), 500
-
-    return jsonify({
-        'success': True,
-        'settled_count': len(results),
-        'settlements': results,
-        'errors': errors if errors else None,
-    }), 201
-
 @clearing_bp.route('/clearing/settlements/pending-transactions', methods=['GET'])
 @require_permission('vouchers.create')
 def get_pending_settlement_transactions():
@@ -1264,13 +1005,11 @@ def run_auto_clearing_settlements_now():
         diag = scheduler.process_due_settlements()
 
         settled_count = diag.get('settled_count', 0)
-        per_tx_count = diag.get('per_tx_settled_count', 0)
         enabled_methods = diag.get('enabled_methods', 0)
         skipped = diag.get('skipped', [])
 
-        total_settled = settled_count + per_tx_count
-        if total_settled > 0:
-            message = f'تم إنشاء {total_settled} سند تسوية تلقائية'
+        if settled_count > 0:
+            message = f'تم إنشاء {settled_count} سند تسوية تلقائية'
         elif enabled_methods == 0:
             message = 'لا توجد وسائل دفع مفعّلة للتسوية التلقائية'
         else:
@@ -1280,7 +1019,6 @@ def run_auto_clearing_settlements_now():
             'success': True,
             'enabled_methods': int(enabled_methods),
             'settled_count': settled_count,
-            'per_tx_settled_count': per_tx_count,
             'message': message,
             'skipped': skipped,
         }), 200

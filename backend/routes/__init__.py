@@ -1619,7 +1619,7 @@ def _resolve_account_id_for_amount_type(account_id, amount_type, *, safe_account
 
 # Clearing domain → routes/clearing.py
 # (_compute_clearing_due_amount, _create_clearing_settlement_voucher helpers,
-#  POST /clearing/settlements, POST /clearing/settlements/per-transaction,
+#  POST /clearing/settlements,
 #  GET /clearing/settlements/pending-transactions,
 #  POST /clearing/settlements/auto-run, create_bnpl_settlement)
 

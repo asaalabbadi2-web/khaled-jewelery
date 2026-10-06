@@ -731,9 +731,13 @@ def create_payment_method():
             min_settlement_amount = 0.0
 
         # نمط التسوية
+        # One settlement mode: a provider's deposit settles its payments together
+        # (the owner, 6 Oct 2026: Tabby and Tamara deposit in batches). The
+        # per-transaction mode is gone; asking for it is refused, not ignored.
         settlement_mode = str(data.get('settlement_mode') or 'bulk').strip().lower()
-        if settlement_mode not in ('bulk', 'per_transaction'):
-            settlement_mode = 'bulk'
+        if settlement_mode != 'bulk':
+            return jsonify({'error': 'settlement_mode_not_supported',
+                            'message': 'نمط التسوية المتاح هو التسوية المجمّعة وحدها'}), 400
 
         # عدد أيام تأخير الإيداع (للجدولة الأسبوعية)
         try:
@@ -1024,8 +1028,10 @@ def update_payment_method(id):
                 pass
         if 'settlement_mode' in data:
             mode = str(data.get('settlement_mode') or 'bulk').strip().lower()
-            if mode in ('bulk', 'per_transaction'):
-                payment_method.settlement_mode = mode
+            if mode != 'bulk':
+                return jsonify({'error': 'settlement_mode_not_supported',
+                                'message': 'نمط التسوية المتاح هو التسوية المجمّعة وحدها'}), 400
+            payment_method.settlement_mode = mode
         if 'deposit_delay_days' in data:
             try:
                 ddv = int(data.get('deposit_delay_days') or 0)

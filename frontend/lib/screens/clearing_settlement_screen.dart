@@ -87,8 +87,6 @@ class _ClearingSettlementScreenState extends State<ClearingSettlementScreen> {
   bool _autoSettlementEnabled = false;
   String? _settlementScheduleInfo;
 
-  // نمط التسوية: bulk أو per_transaction
-  String _settlementMode = 'bulk';
   List<Map<String, dynamic>> _pendingTransactions = [];
   bool _loadingPendingTxs = false;
 
@@ -800,15 +798,6 @@ class _ClearingSettlementScreenState extends State<ClearingSettlementScreen> {
       _autoSettlementEnabled = autoSettlement;
       _settlementScheduleInfo = scheduleInfo;
 
-      // Read settlement mode from matched PM
-      final mode = matched != null
-          ? (matched['settlement_mode']?.toString().trim().toLowerCase() ??
-                'bulk')
-          : 'bulk';
-      _settlementMode = (mode == 'per_transaction')
-          ? 'per_transaction'
-          : 'bulk';
-
       _feeAlreadyAppliedInInvoice = shouldTreatAsAlreadyApplied;
 
       if (!shouldTreatAsAlreadyApplied && matched != null) {
@@ -1206,98 +1195,6 @@ class _ClearingSettlementScreenState extends State<ClearingSettlementScreen> {
     }
   }
 
-  /// تسوية فردية — سند لكل معاملة معلّقة
-  Future<void> _submitPerTransaction() async {
-    if (_submitting) return;
-
-    final clearingId = _clearingSafe?.id;
-    final bankId = _bankSafe?.id;
-
-    if (clearingId == null) {
-      _showSnack('اختر خزينة المستحقات أولاً', error: true);
-      return;
-    }
-    if (bankId == null) {
-      _showSnack('اختر خزينة البنك أولاً', error: true);
-      return;
-    }
-    if (_pendingTransactions.isEmpty) {
-      _showSnack('لا توجد معاملات معلّقة للتسوية', error: true);
-      return;
-    }
-
-    // Confirm
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('تأكيد التسوية الفردية'),
-        content: Text(
-          'سيتم إنشاء ${_pendingTransactions.length} سند تسوية — واحد لكل معاملة معلّقة.\n'
-          'هل تريد المتابعة؟',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('إلغاء'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('تنفيذ'),
-          ),
-        ],
-      ),
-    );
-    if (confirm != true) return;
-
-    setState(() => _submitting = true);
-
-    try {
-      final res = await _api.createPerTransactionSettlement(
-        clearingSafeBoxId: clearingId,
-        bankSafeBoxId: bankId,
-        settlementDate: _settlementDate,
-      );
-
-      final settledCount = (res['settled_count'] as num?)?.toInt() ?? 0;
-      final errors = res['errors'] as List?;
-
-      if (!mounted) return;
-
-      String message = 'تم تسوية $settledCount معاملة';
-      if (errors != null && errors.isNotEmpty) {
-        message += '\n⚠️ ${errors.length} أخطاء';
-      }
-
-      await showDialog<void>(
-        context: context,
-        builder: (_) => AlertDialog(
-          title: Text(
-            settledCount > 0
-                ? 'تمت التسوية الفردية بنجاح'
-                : 'لا توجد معاملات للتسوية',
-          ),
-          content: Text(message),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('حسناً'),
-            ),
-          ],
-        ),
-      );
-
-      if (settledCount > 0) {
-        _showSnack('تم إنشاء $settledCount سند تسوية');
-        Navigator.of(context).pop(true);
-      }
-    } catch (e) {
-      if (!mounted) return;
-      _showSnack(e.toString(), error: true);
-    } finally {
-      if (mounted) setState(() => _submitting = false);
-    }
-  }
-
   /// Which payments this settlement settles, shown before it is saved.
   Widget _buildCoveredPaymentsCard() {
     final chosen = _chosenPaymentIds != null;
@@ -1493,164 +1390,7 @@ class _ClearingSettlementScreenState extends State<ClearingSettlementScreen> {
                       : const SizedBox.shrink(key: ValueKey(0)),
                 ),
 
-                // نمط التسوية (فردية / مجمّعة)
-                if (_matchedPaymentMethod != null) ...[
-                  const SizedBox(height: 8),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 8,
-                    ),
-                    decoration: BoxDecoration(
-                      color: _settlementMode == 'per_transaction'
-                          ? Colors.blue.shade50
-                          : Colors.grey.shade100,
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(
-                        color: _settlementMode == 'per_transaction'
-                            ? Colors.blue.shade200
-                            : Colors.grey.shade300,
-                      ),
-                    ),
-                    child: Row(
-                      children: [
-                        Icon(
-                          _settlementMode == 'per_transaction'
-                              ? Icons.receipt_long
-                              : Icons.summarize,
-                          size: 18,
-                          color: _settlementMode == 'per_transaction'
-                              ? Colors.blue.shade700
-                              : Colors.grey.shade700,
-                        ),
-                        const SizedBox(width: 8),
-                        Text(
-                          _settlementMode == 'per_transaction'
-                              ? 'نمط التسوية: فردية (سند لكل معاملة)'
-                              : 'نمط التسوية: مجمّعة (سند واحد)',
-                          style: TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w600,
-                            color: _settlementMode == 'per_transaction'
-                                ? Colors.blue.shade800
-                                : Colors.grey.shade700,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-
-                // قائمة المعاملات المعلّقة (فردية فقط)
-                if (_settlementMode == 'per_transaction') ...[
-                  const SizedBox(height: 12),
-                  Card(
-                    child: Padding(
-                      padding: const EdgeInsets.all(12),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              const Icon(Icons.receipt_long, size: 18),
-                              const SizedBox(width: 6),
-                              const Text(
-                                'المعاملات المعلّقة',
-                                style: TextStyle(fontWeight: FontWeight.w700),
-                              ),
-                              const Spacer(),
-                              if (!_loadingPendingTxs)
-                                Text(
-                                  '${_pendingTransactions.length} معاملة',
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    color: Colors.grey.shade600,
-                                  ),
-                                ),
-                              const SizedBox(width: 4),
-                              InkWell(
-                                onTap: _loadPendingTransactions,
-                                child: const Icon(Icons.refresh, size: 18),
-                              ),
-                            ],
-                          ),
-                          const Divider(),
-                          if (_loadingPendingTxs)
-                            const Center(
-                              child: Padding(
-                                padding: EdgeInsets.all(16),
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                ),
-                              ),
-                            )
-                          else if (_pendingTransactions.isEmpty)
-                            const Center(
-                              child: Padding(
-                                padding: EdgeInsets.all(16),
-                                child: Text(
-                                  'لا توجد معاملات معلّقة',
-                                  style: TextStyle(color: Colors.grey),
-                                ),
-                              ),
-                            )
-                          else
-                            ..._pendingTransactions.map((tx) {
-                              final amount =
-                                  (tx['amount'] as num?)?.toDouble() ?? 0.0;
-                              final invoiceNum =
-                                  tx['invoice_number']?.toString() ?? '';
-                              final txDate = tx['date']?.toString() ?? '';
-                              return Padding(
-                                padding: const EdgeInsets.symmetric(
-                                  vertical: 4,
-                                ),
-                                child: Row(
-                                  children: [
-                                    Expanded(
-                                      child: Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        children: [
-                                          if (invoiceNum.isNotEmpty)
-                                            Text(
-                                              'فاتورة: $invoiceNum',
-                                              style: const TextStyle(
-                                                fontSize: 13,
-                                                fontWeight: FontWeight.w500,
-                                              ),
-                                            ),
-                                          if (txDate.isNotEmpty)
-                                            Text(
-                                              txDate.length >= 10
-                                                  ? txDate.substring(0, 10)
-                                                  : txDate,
-                                              style: TextStyle(
-                                                fontSize: 11,
-                                                color: Colors.grey.shade600,
-                                              ),
-                                            ),
-                                        ],
-                                      ),
-                                    ),
-                                    Text(
-                                      _formatMoney(amount),
-                                      style: const TextStyle(
-                                        fontWeight: FontWeight.w600,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              );
-                            }),
-                        ],
-                      ),
-                    ),
-                  ),
-                ],
-
-                if (_settlementMode != 'per_transaction' &&
-                    !_loadingPendingTxs &&
+                if (!_loadingPendingTxs &&
                     _pendingTransactions.isNotEmpty) ...[
                   const SizedBox(height: 12),
                   _buildCoveredPaymentsCard(),
@@ -1927,28 +1667,16 @@ class _ClearingSettlementScreenState extends State<ClearingSettlementScreen> {
                 ),
                 const SizedBox(height: 16),
                 FilledButton.icon(
-                  onPressed: _submitting
-                      ? null
-                      : (_settlementMode == 'per_transaction'
-                            ? _submitPerTransaction
-                            : _submit),
+                  onPressed: _submitting ? null : _submit,
                   icon: _submitting
                       ? const SizedBox(
                           width: 18,
                           height: 18,
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
-                      : Icon(
-                          _settlementMode == 'per_transaction'
-                              ? Icons.receipt_long
-                              : Icons.check_circle_outline,
-                        ),
+                      : const Icon(Icons.check_circle_outline),
                   label: Text(
-                    _submitting
-                        ? 'جارٍ الحفظ...'
-                        : (_settlementMode == 'per_transaction'
-                              ? 'تسوية فردية (${_pendingTransactions.length} معاملة)'
-                              : 'تنفيذ التسوية'),
+                    _submitting ? 'جارٍ الحفظ...' : 'تنفيذ التسوية',
                   ),
                   style: FilledButton.styleFrom(
                     backgroundColor: theme.AppColors.primaryGold,

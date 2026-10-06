@@ -259,31 +259,6 @@ class TestThePendingScreenAndManualSettlement:
         assert refused == [dead.id]
         assert _refuse_unsettleable_payment_ids(box.id, [live.id]) == []
 
-    def test_per_transaction_settlement_skips_a_retracted_invoice(self, app, mada):
-        """The legacy per-transaction path selects SafeBoxTransaction rows, not
-        InvoicePayment, so it gets the invoice rule only (the known gap)."""
-        from models import SafeBoxTransaction
-        from routes.clearing import _unsettled_invoice_payment_sbts
-        box, pm = mada
-        dead_inv, dead_ip = _sale_paid_by(pm, 2150.0, at=DAY.replace(hour=8, minute=42),
-                                          invoice_status='rejected', voucher_status='pending')
-        live_inv, live_ip = _sale_paid_by(pm, 2150.0, at=DAY.replace(hour=8, minute=49))
-        # As in production for 3123: ref_id is the receipt voucher, and the model
-        # requires the invoice_payment link on every invoice_payment movement.
-        for inv, ip in ((dead_inv, dead_ip), (live_inv, live_ip)):
-            # The receipt voucher names its payment, as production's do; on SQLite
-            # the voucher and payment ids happened to coincide and hid its absence.
-            import json
-            Voucher.query.get(ip.source_voucher_id).notes = json.dumps({'invoice_payment_id': ip.id})
-            db.session.flush()
-            db.session.add(SafeBoxTransaction(
-                safe_box_id=box.id, ref_type='invoice_payment', ref_id=ip.source_voucher_id,
-                invoice_id=inv.id, invoice_payment_id=ip.id, direction='in',
-                amount_cash=2150.0, created_at=inv.date, created_by='t'))
-        db.session.flush()
-        got = {t.invoice_id for t in _unsettled_invoice_payment_sbts(box.id)}
-        assert dead_inv.id not in got and live_inv.id in got
-
 
 # ======================================================================
 # THE FOURTH READER — the due balance the screen shows

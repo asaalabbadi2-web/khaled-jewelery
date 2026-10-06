@@ -5512,44 +5512,6 @@ class ApiService {
     throw Exception(bodyStr);
   }
 
-  /// تسوية فردية — سند لكل معاملة
-  /// Endpoint: POST /clearing/settlements/per-transaction
-  Future<Map<String, dynamic>> createPerTransactionSettlement({
-    required int clearingSafeBoxId,
-    required int bankSafeBoxId,
-    double? commissionRate,
-    double? commissionFixed,
-    int? feeAccountId,
-    DateTime? settlementDate,
-    String? createdBy,
-  }) async {
-    final payload = <String, dynamic>{
-      'clearing_safe_box_id': clearingSafeBoxId,
-      'bank_safe_box_id': bankSafeBoxId,
-      if (commissionRate != null) 'commission_rate': commissionRate,
-      if (commissionFixed != null) 'commission_fixed': commissionFixed,
-      if (feeAccountId != null) 'fee_account_id': feeAccountId,
-      if (settlementDate != null)
-        'settlement_date': settlementDate.toIso8601String(),
-      if (createdBy != null) 'created_by': createdBy,
-    };
-
-    final response = await _authedPost(
-      Uri.parse('$_baseUrl/clearing/settlements/per-transaction'),
-      headers: {'Content-Type': 'application/json; charset=UTF-8'},
-      body: json.encode(payload),
-    );
-
-    final bodyStr = utf8.decode(response.bodyBytes);
-    if (response.statusCode == 201 || response.statusCode == 200) {
-      final decoded = json.decode(bodyStr);
-      if (decoded is Map<String, dynamic>) return decoded;
-      return <String, dynamic>{'raw': decoded};
-    }
-
-    throw Exception(bodyStr);
-  }
-
   /// المعاملات المعلّقة للتسوية الفردية
   /// Endpoint: GET /clearing/settlements/pending-transactions
   Future<Map<String, dynamic>> getPendingSettlementTransactions({
