@@ -15,6 +15,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import joinedload
 
 from models import (
+    purchase_cash_obligation,
     db,
     Account,
     AccountingMapping,
@@ -4089,6 +4090,28 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
     except Exception:
         allow_partial_for_barter_sale = False
     
+    # What the payments are held to (PURCHASE-CASH-1): a supplier purchase owes
+    # in cash only its wages and VAT -- not its total, which carries the gold's
+    # value, settled in gold. The one formula: models.purchase_cash_obligation.
+    payable_total = data_total
+    payable_label = 'إجمالي الفاتورة'
+    if invoice_type == 'شراء':
+        try:
+            _payable_supplier = Supplier.query.get(int(data['supplier_id'])) if data.get('supplier_id') else None
+        except Exception:
+            _payable_supplier = None
+        payable_total = purchase_cash_obligation(
+            invoice_type=invoice_type,
+            office_id=data.get('office_id') or None,
+            total=data_total,
+            wage_subtotal=_to_float_request(data.get('wage_subtotal', 0.0)),
+            wage_tax_total=_to_float_request(data.get('wage_tax_total', 0.0)),
+            gold_tax_total=_to_float_request(data.get('gold_tax_total', 0.0)),
+            supplier=_payable_supplier,
+        )
+        if payable_total != data_total:
+            payable_label = 'النقد المستحق للمورد'
+
     # إذا كانت هناك وسائل دفع متعددة
     if payments_data and isinstance(payments_data, list) and len(payments_data) > 0:
         total_payments = sum(_to_float_request(p.get('amount', 0.0)) for p in payments_data)
@@ -4096,19 +4119,19 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
         # In unposted workflows (auto-post disabled), allow saving partial settlements
         # even if partial payments are disabled globally.
         partial_allowed_for_request = bool(allow_partial_payments) or (not bool(auto_post_invoices_enabled))
-        # التحقق من الدفعات مقابل إجمالي الفاتورة
-        if data_total > 0:
+        # التحقق من الدفعات مقابل ما يُدفع نقدًا (إجمالي الفاتورة، أو النقد المستحق للمورد)
+        if payable_total > 0 or payable_total != data_total:
             if partial_allowed_for_request:
                 # ✅ السماح بالدفع الجزئي طالما لا يوجد تجاوز
-                if (effective_settled - data_total) > 0.01:  # tolerance للفواصل العشرية
+                if (effective_settled - payable_total) > 0.01:  # tolerance للفواصل العشرية
                     return jsonify({
-                        'error': f'مجموع المبالغ ({effective_settled}) أكبر من إجمالي الفاتورة ({data_total})'
+                        'error': f'مجموع المبالغ ({effective_settled}) أكبر من {payable_label} ({payable_total})'
                     }), 400
             else:
-                # ❌ الوضع الافتراضي: يجب أن يساوي مجموع الدفعات إجمالي الفاتورة
-                if abs(effective_settled - data_total) > 0.01:  # tolerance للفواصل العشرية
+                # ❌ الوضع الافتراضي: يجب أن يساوي مجموع الدفعات ما يُدفع نقدًا
+                if abs(effective_settled - payable_total) > 0.01:  # tolerance للفواصل العشرية
                     return jsonify({
-                        'error': f'مجموع المبالغ ({effective_settled}) لا يساوي إجمالي الفاتورة ({data_total})'
+                        'error': f'مجموع المبالغ ({effective_settled}) لا يساوي {payable_label} ({payable_total})'
                     }), 400
 
         # 🆕 مزامنة amount_paid مع مجموع الدفعات إذا لم يُرسل أو كان غير متطابق.

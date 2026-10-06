@@ -1055,6 +1055,28 @@ class Item(db.Model):
             })
         return report
 
+def purchase_cash_obligation(*, invoice_type, office_id, total, wage_subtotal,
+                             wage_tax_total, gold_tax_total, supplier) -> float:
+    """The cash an invoice can be paid -- the one formula (Invoice.cash_obligation,
+    and add_invoice's payment check before the invoice exists, PURCHASE-CASH-1).
+
+    Every invoice but a supplier purchase ('شراء'): its total. A supplier
+    purchase: its wages (none when the supplier takes them in gold) and its VAT
+    -- the gold's value is settled in gold. A closing-office purchase keeps its
+    total (it is settled in cash). See Invoice.cash_obligation for the history.
+    """
+    if (invoice_type or '').strip() != 'شراء' or office_id is not None:
+        return float(total or 0.0)
+    wage_cash = float(wage_subtotal or 0.0)
+    try:
+        wage_type = (getattr(supplier, 'default_wage_type', None) or 'cash') if supplier is not None else 'cash'
+    except Exception:
+        wage_type = 'cash'
+    if str(wage_type).strip().lower() == 'gold':
+        wage_cash = 0.0
+    return round(wage_cash + float(wage_tax_total or 0.0) + float(gold_tax_total or 0.0), 2)
+
+
 class Invoice(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     invoice_type_id = db.Column(db.Integer, nullable=False)
@@ -1291,25 +1313,14 @@ class Invoice(db.Model):
         175,100 total, 150,000 against 170,349. The stored figures were coherent;
         the ceiling was not.
         """
-        if (self.invoice_type or '').strip() != 'شراء':
-            return float(self.total or 0.0)
-
-        if self.office_id is not None:
-            return float(self.total or 0.0)
-
-        wage_cash = float(self.wage_subtotal or 0.0)
-        wage_type = 'cash'
-        try:
-            if self.supplier is not None:
-                wage_type = self.supplier.default_wage_type or 'cash'
-        except Exception:
-            wage_type = 'cash'
-        if str(wage_type).strip().lower() == 'gold':
-            wage_cash = 0.0
-
-        return round(
-            wage_cash + float(self.wage_tax_total or 0.0) + float(self.gold_tax_total or 0.0),
-            2,
+        return purchase_cash_obligation(
+            invoice_type=self.invoice_type,
+            office_id=self.office_id,
+            total=self.total,
+            wage_subtotal=self.wage_subtotal,
+            wage_tax_total=self.wage_tax_total,
+            gold_tax_total=self.gold_tax_total,
+            supplier=self.supplier,
         )
 
     def to_dict(self):

@@ -18,8 +18,9 @@ never trips. Switching the setting off would refuse every cash payment on a
 gold purchase. The screen holds the domain rule (cash paid <= cash owed, and
 partial only when allowed) -- utils/purchase_readiness.dart.
 
-The xfail is strict: the day add_invoice compares a purchase's payments with
-its cash obligation, it turns red and the mark comes off (Known Gaps).
+Fixed 7 Oct 2026: add_invoice compares a supplier purchase's payments with
+its cash obligation (models.purchase_cash_obligation, the one formula), and
+refuses paying more than it.
 
 Run:
     python -m pytest tests/test_purchase_cash_paid_against_its_obligation.py -v
@@ -121,13 +122,19 @@ def test_with_partial_payments_on_the_whole_cash_obligation_is_taken(auth_header
     assert resp.status_code == 201, resp.get_json()
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason='PURCHASE-CASH-1 (Known Gaps): add_invoice compares a purchase\'s '
-           'payments with total, which includes the gold value, not with its '
-           'cash obligation',
-)
 def test_with_partial_payments_off_the_whole_cash_obligation_is_still_taken(auth_headers, world):
     _settings(allow_partial=False)
     resp = _post(auth_headers, _purchase_paying_its_cash(world))
     assert resp.status_code == 201, resp.get_json()
+
+
+def test_paying_more_than_the_cash_obligation_is_refused(auth_headers, world):
+    """551.25 is owed in cash; 600.00 is more, though far under the 4,226.25
+    total that carries the gold's value -- the old check let it through."""
+    _settings(allow_partial=True)
+    payload = _purchase_paying_its_cash(world)
+    payload['payments'][0]['amount'] = 600.0
+    payload['amount_paid'] = 600.0
+    resp = _post(auth_headers, payload)
+    assert resp.status_code == 400
+    assert 'النقد المستحق للمورد' in resp.get_json()['error']
