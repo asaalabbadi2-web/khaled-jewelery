@@ -455,4 +455,32 @@ void main() {
       expect(find.textContaining('= 50.00'), findsOneWidget);
     });
   });
+
+  group('one summary, said once (stage 4)', () {
+    testWidgets('the dues and the totals are one card', (tester) async {
+      await open(tester, api: FakePurchaseApi(), saved: draft());
+
+      expect(find.text('علينا للمورد بهذه الفاتورة'), findsOneWidget);
+      expect(find.text('ملخص الفاتورة'), findsNothing);
+      expect(find.text('مستحقات المورد'), findsNothing);
+      // The gold price is in the app bar, not in a card of its own too.
+      expect(find.text('سعر الذهب'), findsNothing);
+    });
+
+    testWidgets('manual pricing is chosen where manual weights are', (
+      tester,
+    ) async {
+      await open(tester, api: FakePurchaseApi(), saved: draft());
+
+      expect(find.text('طريقة التسعير'), findsNothing);
+      final section = find.ancestor(
+        of: find.text('الأوزان اليدوية (اختياري)'),
+        matching: find.byType(Card),
+      );
+      expect(
+        find.descendant(of: section, matching: find.text('قيمة يدوية')),
+        findsOneWidget,
+      );
+    });
+  });
 }

@@ -159,7 +159,6 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
 
   // Where each readiness reason is fixed, to bring it into view.
   final _supplierSectionKey = GlobalKey();
-  final _goldPriceKey = GlobalKey();
   final _itemsSectionKey = GlobalKey();
   final _karatSectionKey = GlobalKey();
   final _paymentSectionKey = GlobalKey();
@@ -431,7 +430,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
               style: theme.textTheme.bodySmall?.copyWith(
                 color: requiredSettlement
                     ? theme.colorScheme.error
-                    : Colors.black54,
+                    : theme.colorScheme.onSurfaceVariant,
               ),
             ),
           ),
@@ -623,7 +622,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
               style: theme.textTheme.bodyMedium?.copyWith(
                 color: totalLinesMainEquiv > 0
                     ? theme.colorScheme.tertiary
-                    : Colors.black54,
+                    : theme.colorScheme.onSurfaceVariant,
                 fontWeight: totalLinesMainEquiv > 0
                     ? FontWeight.w800
                     : FontWeight.normal,
@@ -2477,7 +2476,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
     final key = switch (readiness.target) {
       PurchaseReadinessTarget.branch ||
       PurchaseReadinessTarget.supplier => _supplierSectionKey,
-      PurchaseReadinessTarget.goldPrice => _goldPriceKey,
+      PurchaseReadinessTarget.goldPrice => null, // in the app bar, in view
       PurchaseReadinessTarget.item => _itemsSectionKey,
       PurchaseReadinessTarget.karatLine =>
         _karatLines.isEmpty ? _itemsSectionKey : _karatSectionKey,
@@ -3190,16 +3189,11 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
       KeyedSubtree(key: _paymentSectionKey, child: _buildPaymentSection()),
     ];
 
+    // The gold price is in the app bar; its card said it a second time.
     final rightColumn = <Widget>[
-      KeyedSubtree(key: _goldPriceKey, child: _buildGoldPriceCard()),
-      const SizedBox(height: 24),
-      _buildPricingModeCard(),
-      const SizedBox(height: 24),
-      _buildTotalsCard(),
+      _buildSummaryCard(),
       const SizedBox(height: 24),
       _buildWagePostingModeCard(),
-      const SizedBox(height: 24),
-      _buildSettlementCard(),
     ];
 
     return PopScope(
@@ -4129,169 +4123,96 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
         const SizedBox(height: 10),
         Text(
           'المستحق (مكافئ): ${_formatWeight(dueGoldMain)} | المدفوع (مكافئ): ${_formatWeight(paidGoldMain)} | المتبقي: ${_formatWeight(remainingGold)}',
-          style: const TextStyle(color: Colors.black54),
+          style: Theme.of(context).textTheme.bodySmall,
         ),
       ],
     );
   }
 
-  Widget _buildGoldPriceCard() {
+  /// The one summary (PURCHASE-UX-4): what the invoice puts on what we owe
+  /// the supplier -- gold in the main karat and cash, not the invoice total,
+  /// whose gold value is settled in gold -- then its VAT decision and how its
+  /// value is made. It replaces «ملخص الفاتورة» and «مستحقات المورد», which
+  /// said the same twice and computed the dues a second time.
+  Widget _buildSummaryCard() {
     final theme = Theme.of(context);
-    if (_goldPrice == null) {
-      return Card(
-        color: theme.colorScheme.surfaceContainerHighest,
-        child: Padding(
-          padding: const EdgeInsets.all(12),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: const [
-              Text(
-                'سعر الذهب',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-              ),
-              SizedBox(height: 8),
-              Text(
-                'لم يتم تحميل سعر الذهب بعد. استخدم زر التحديث في الأعلى لإعادة المحاولة.',
-              ),
-            ],
-          ),
-        ),
-      );
-    }
-
     final mainKarat = _mainKaratFromSettings();
-    final supportedKarats = <int>[24, 22, 21, 18];
-    final karatsToDisplay = <int>{...supportedKarats, mainKarat}.toList()
-      ..sort((a, b) => b.compareTo(a));
-
-    final chips = <Widget>[];
-    for (final karat in karatsToDisplay) {
-      dynamic priceValue;
-      switch (karat) {
-        case 24:
-          priceValue = _goldPrice!['price_24k'];
-          break;
-        case 22:
-          priceValue = _goldPrice!['price_22k'];
-          break;
-        case 21:
-          priceValue = _goldPrice!['price_21k'];
-          break;
-        case 18:
-          priceValue = _goldPrice!['price_18k'];
-          break;
-        default:
-          priceValue = _resolveGoldPrice(karat.toDouble());
-      }
-      chips.add(
-        _buildPriceChip('عيار $karat', priceValue, isMain: karat == mainKarat),
-      );
-    }
+    final goldOwed = _supplierMainEquivalentWeight();
+    final cashOwed = _cashDueForSupplier();
+    final byKarat = _aggregateWeightByKarat();
 
     return Card(
-      elevation: theme.brightness == Brightness.dark ? 1 : 2,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                const Text(
-                  'سعر الذهب',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                ),
-                const Spacer(),
-                Icon(Icons.circle, size: 10, color: theme.colorScheme.primary),
-              ],
-            ),
-            const SizedBox(height: 10),
-            SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(
-                children: chips
-                    .map(
-                      (w) => Padding(
-                        padding: const EdgeInsetsDirectional.only(end: 10),
-                        child: w,
-                      ),
-                    )
-                    .toList(),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildPriceChip(String label, dynamic value, {bool isMain = false}) {
-    final theme = Theme.of(context);
-    final price = _toDouble(value);
-    final display = price > 0 ? price.toStringAsFixed(2) : '-';
-    return Chip(
-      label: context.read<SettingsProvider>().buildText(
-        isMain
-            ? '$label (الرئيسي): $display ${context.read<SettingsProvider>().currencySymbolText}'
-            : '$label: $display ${context.read<SettingsProvider>().currencySymbolText}',
-        style: isMain ? const TextStyle(fontWeight: FontWeight.bold) : null,
-      ),
-      backgroundColor:
-          (isMain
-                  ? theme.colorScheme.primaryContainer
-                  : theme.colorScheme.surfaceContainerHighest)
-              .withValues(alpha: isMain ? 0.65 : 1.0),
-    );
-  }
-
-  Widget _buildPricingModeCard() {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-
-    return Card(
-      elevation: isDark ? 1 : 2,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              'طريقة التسعير',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            Text(
+              _isSupplierReturnMode
+                  ? 'يُخصم مما علينا للمورد بهذا المرتجع'
+                  : 'علينا للمورد بهذه الفاتورة',
+              style: theme.textTheme.titleMedium,
             ),
             const SizedBox(height: 12),
-            ToggleButtons(
-              isSelected: [_manualPricing, !_manualPricing],
-              borderRadius: BorderRadius.circular(12),
-              onPressed: _uiLockPriceEdits
-                  ? null
-                  : (index) {
-                      final manual = index == 0;
-                      if (manual == _manualPricing) return;
-                      setState(() {
-                        _manualPricing = manual;
-                        _applyCombinedTotals();
-                      });
-                    },
-              children: const [
-                Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 16),
-                  child: Text('تسعير يدوي لكل عيار'),
+            Wrap(
+              spacing: 12,
+              runSpacing: 12,
+              children: [
+                _buildMetricTile(
+                  icon: Icons.balance,
+                  label: 'ذهب (مكافئ عيار $mainKarat)',
+                  value: _formatWeight(goldOwed),
+                  iconColor: theme.colorScheme.primary,
                 ),
-                Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 16),
-                  child: Text('تسعير تلقائي من سعر الذهب'),
+                _buildMetricTile(
+                  icon: Icons.payments_outlined,
+                  label: 'نقد (أجور وضريبة)',
+                  value: _formatCurrency(cashOwed),
+                  iconColor: theme.colorScheme.tertiary,
                 ),
               ],
             ),
-            const SizedBox(height: 12),
-            Text(
-              _manualPricing
-                  ? 'للأوزان اليدوية: تُدخل قيمة الذهب والأجور لكل وزن، والضريبة تُحسب عليها.'
-                  : 'تُحسب قيمة الذهب من الوزن وسعر الذهب الحالي، والضريبة عليها.',
-              style: Theme.of(context).textTheme.bodySmall,
+            const SizedBox(height: 16),
+            _buildVatDecision(),
+            const Divider(height: 24),
+            _buildSummaryRow('الوزن كما استُلم', _formatWeight(_totalWeight)),
+            _buildSummaryRow(
+              'قيمة الذهب (قبل الضريبة)',
+              _formatCurrency(_goldSubtotal),
             ),
+            _buildSummaryRow('أجور المصنعية', _formatCurrency(_wageSubtotal)),
+            if (_goldTaxTotal > 0)
+              _buildSummaryRow(
+                'ضريبة على الذهب',
+                _formatCurrency(_goldTaxTotal),
+              ),
+            _buildSummaryRow(
+              'ضريبة على الأجور',
+              _formatCurrency(_wageTaxTotal),
+            ),
+            const Divider(),
+            _buildSummaryRow(
+              'قيمة الفاتورة (ذهب + أجور + ضريبة)',
+              _formatCurrency(_grandTotal),
+              highlight: true,
+            ),
+            if (byKarat.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: byKarat.entries
+                    .map(
+                      (e) => Chip(
+                        label: Text(
+                          'عيار ${e.key}: ${_formatWeight(e.value)}',
+                          style: theme.textTheme.bodySmall,
+                        ),
+                      ),
+                    )
+                    .toList(),
+              ),
+            ],
           ],
         ),
       ),
@@ -4348,56 +4269,6 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
     );
   }
 
-  Widget _buildTotalsCard() {
-    final theme = Theme.of(context);
-    final isDark = theme.brightness == Brightness.dark;
-
-    return Card(
-      color: theme.colorScheme.surface,
-      elevation: isDark ? 1 : 3,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'ملخص الفاتورة',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 12),
-            _buildVatDecision(),
-            const SizedBox(height: 12),
-            _buildSummaryRow('إجمالي الوزن', _formatWeight(_totalWeight)),
-            _buildSummaryRow(
-              'قيمة الذهب (قبل الضريبة)',
-              _formatCurrency(_goldSubtotal),
-            ),
-            _buildSummaryRow('أجور المصنعية', _formatCurrency(_wageSubtotal)),
-            const Divider(),
-            _buildSummaryRow('ضريبة على الذهب', _formatCurrency(_goldTaxTotal)),
-            _buildSummaryRow(
-              'ضريبة على الأجور',
-              _formatCurrency(_wageTaxTotal),
-            ),
-            const Divider(),
-            _buildSummaryRow(
-              'الإجمالي قبل الضريبة',
-              _formatCurrency(_subtotal),
-            ),
-            _buildSummaryRow('إجمالي الضريبة', _formatCurrency(_taxTotal)),
-            const Divider(),
-            _buildSummaryRow(
-              'قيمة الفاتورة (ذهب + أجور + ضريبة)',
-              _formatCurrency(_grandTotal),
-              highlight: true,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
   /// What the server does with this invoice's wages -- the company's setting,
   /// shown, not chosen here (ADR-039).
   Widget _buildWagePostingModeCard() {
@@ -4424,132 +4295,6 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
               Text(
                 'حسب إعدادات الشركة، وتُغيَّر من شاشة الإعدادات.',
                 style: theme.textTheme.bodySmall,
-              ),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildSettlementCard() {
-    final weightSummary = _aggregateWeightByKarat();
-    final wageType = _selectedSupplierDefaultWageType();
-    final cashDue = _round(
-      (wageType == 'cash' ? _wageSubtotal : 0.0) +
-          _goldTaxTotal +
-          _wageTaxTotal,
-      2,
-    );
-
-    final mainKarat = _mainKaratFromSettings().toDouble();
-    double mainEquivalentWeight = 0.0;
-    if (mainKarat > 0) {
-      for (final entry in weightSummary.entries) {
-        final karat = double.tryParse(entry.key) ?? 0.0;
-        final weight = entry.value;
-        if (karat <= 0 || weight <= 0) continue;
-        mainEquivalentWeight += weight * (karat / mainKarat);
-      }
-    }
-
-    // If supplier wages are settled in gold, convert wage cash value to gold weight (main karat)
-    // and include it in the main-equivalent view.
-    if (wageType == 'gold' && _wageSubtotal > 0) {
-      final priceMain = _resolveGoldPrice(mainKarat);
-      if (priceMain > 0) {
-        mainEquivalentWeight += (_wageSubtotal / priceMain);
-      }
-    }
-    mainEquivalentWeight = _round(mainEquivalentWeight, 3);
-
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-
-    final theme = Theme.of(context);
-    return Card(
-      elevation: isDark ? 1 : 2,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // What the invoice puts on what we owe the supplier: gold (in the
-            // main karat) and cash -- not the invoice total, whose gold value
-            // is settled in gold. A return takes from it.
-            Text(
-              _isSupplierReturnMode
-                  ? 'يُخصم مما علينا للمورد بهذا المرتجع'
-                  : 'علينا للمورد بهذه الفاتورة',
-              style: theme.textTheme.titleMedium,
-            ),
-            const SizedBox(height: 12),
-            Wrap(
-              spacing: 12,
-              runSpacing: 12,
-              children: [
-                _buildMetricTile(
-                  icon: Icons.balance,
-                  label: 'ذهب (مكافئ عيار ${mainKarat.toStringAsFixed(0)})',
-                  value: mainEquivalentWeight > 0
-                      ? _formatWeight(mainEquivalentWeight)
-                      : '0.000 جم',
-                  iconColor: theme.colorScheme.primary,
-                ),
-                _buildMetricTile(
-                  icon: Icons.payments_outlined,
-                  label: 'نقد (أجور وضريبة)',
-                  value: _formatCurrency(cashDue),
-                  iconColor: theme.colorScheme.tertiary,
-                ),
-                _buildMetricTile(
-                  icon: Icons.scale,
-                  label: 'الوزن كما استُلم',
-                  value: _totalWeight > 0
-                      ? _formatWeight(_totalWeight)
-                      : '0.000 جم',
-                  iconColor: theme.colorScheme.primary,
-                ),
-                _buildMetricTile(
-                  icon: Icons.design_services,
-                  label: wageType == 'gold'
-                      ? 'أجور مصنعية (ذهب)'
-                      : 'أجور مصنعية',
-                  value: _formatCurrency(_wageSubtotal),
-                ),
-                _buildMetricTile(
-                  icon: Icons.receipt_long,
-                  label: 'إجمالي الضرائب',
-                  value: _formatCurrency(_goldTaxTotal + _wageTaxTotal),
-                ),
-              ],
-            ),
-            if (weightSummary.isNotEmpty) ...[
-              const SizedBox(height: 16),
-              const Divider(),
-              const SizedBox(height: 8),
-              const Text(
-                'توزيع العيارات',
-                style: TextStyle(fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 8),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: weightSummary.entries.map((entry) {
-                  final karatLabel = entry.key;
-                  final weightValue = entry.value;
-                  return Chip(
-                    backgroundColor: theme.colorScheme.surfaceContainerHighest
-                        .withValues(alpha: 0.75),
-                    label: Text(
-                      'عيار $karatLabel: ${_formatWeight(weightValue)}',
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  );
-                }).toList(),
               ),
             ],
           ],
@@ -4618,8 +4363,8 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
     String value, {
     bool highlight = false,
   }) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-
+    final theme = Theme.of(context);
+    final weight = highlight ? FontWeight.bold : FontWeight.normal;
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Row(
@@ -4628,17 +4373,17 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
           Text(
             label,
             style: TextStyle(
-              fontWeight: highlight ? FontWeight.bold : FontWeight.normal,
-              color: isDark ? Colors.white : Colors.black87,
+              fontWeight: weight,
+              color: theme.colorScheme.onSurface,
             ),
           ),
           context.read<SettingsProvider>().buildText(
             value,
             style: TextStyle(
-              fontWeight: highlight ? FontWeight.bold : FontWeight.normal,
+              fontWeight: weight,
               color: highlight
-                  ? (isDark ? Colors.green[300] : Colors.green[700])
-                  : (isDark ? Colors.white : Colors.black87),
+                  ? AppSemanticColors.of(context).ready.fg
+                  : theme.colorScheme.onSurface,
             ),
           ),
         ],
@@ -4681,7 +4426,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
                             : (_isSupplierReturnMode
                                   ? 'يمكنك إدخال المرتجع يدوياً، أو اختيار فاتورة أصلية (اختياري) للربط التلقائي.'
                                   : 'أدخل وزناً واحداً للصنف أو ألصق عدة أوزان لنفس الصنف دفعة واحدة.'),
-                        style: const TextStyle(color: Colors.black54),
+                        style: Theme.of(context).textTheme.bodySmall,
                       ),
                     ],
                   ),
@@ -4915,22 +4660,30 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
     return Wrap(
       spacing: 8,
       runSpacing: 8,
-      children: entries
-          .map(
-            (entry) => Chip(
-              backgroundColor: const Color(0xFFFAF5E4),
-              label: Text('عيار ${entry.key}: ${_formatWeight(entry.value)}'),
-            ),
-          )
-          .toList(),
+      children: entries.map((entry) {
+        final tone = AppSemanticColors.of(
+          context,
+        ).karat(double.tryParse(entry.key)?.round() ?? 0);
+        return Chip(
+          backgroundColor: tone.container,
+          label: Text(
+            'عيار ${entry.key}: ${_formatWeight(entry.value)}',
+            style: TextStyle(color: tone.onContainer),
+          ),
+        );
+      }).toList(),
     );
   }
 
   Widget _buildInlineItemsEmptyState() {
     return Column(
-      children: const [
-        SizedBox(height: 16),
-        Icon(Icons.inventory_outlined, size: 64, color: Colors.grey),
+      children: [
+        const SizedBox(height: 16),
+        Icon(
+          Icons.inventory_outlined,
+          size: 64,
+          color: Theme.of(context).colorScheme.onSurfaceVariant,
+        ),
         SizedBox(height: 12),
         Text(
           'لا توجد أصناف بعد. استخدم زر "إضافة وزن واحد" أو "إضافة عدة أوزان".',
@@ -5017,9 +4770,9 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
                 style: const TextStyle(fontWeight: FontWeight.bold),
               ),
               if (item.entryType == PurchaseInlineEntryType.category)
-                const Text(
+                Text(
                   'نوع: تصنيف فقط',
-                  style: TextStyle(fontSize: 12, color: Colors.black54),
+                  style: Theme.of(context).textTheme.bodySmall,
                 ),
               if (item.category?.isNotEmpty ?? false)
                 Text(
@@ -6434,9 +6187,32 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
               style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 4),
-            const Text(
+            Text(
               'استخدم هذا القسم لإدخال أوزان مستلمة مباشرة بدون إنشاء صنف داخل الفاتورة.',
-              style: TextStyle(color: Colors.black54),
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            const SizedBox(height: 12),
+            // How these lines are priced -- it acts on them alone, so it sits
+            // with them (it was a card of its own across the screen).
+            SegmentedButton<bool>(
+              segments: const [
+                ButtonSegment(value: false, label: Text('سعر الذهب الحالي')),
+                ButtonSegment(value: true, label: Text('قيمة يدوية')),
+              ],
+              selected: {_manualPricing},
+              onSelectionChanged: _uiLockPriceEdits
+                  ? null
+                  : (selection) => setState(() {
+                      _manualPricing = selection.first;
+                      _applyCombinedTotals();
+                    }),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              _manualPricing
+                  ? 'تُدخل قيمة الذهب والأجور لكل وزن، والضريبة تُحسب عليها.'
+                  : 'تُحسب قيمة الذهب من الوزن وسعر الذهب الحالي، والضريبة عليها.',
+              style: Theme.of(context).textTheme.bodySmall,
             ),
             const SizedBox(height: 12),
             Wrap(
@@ -6493,9 +6269,13 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
 
   Widget _buildKaratLinesEmptyState() {
     return Column(
-      children: const [
-        SizedBox(height: 16),
-        Icon(Icons.balance, size: 64, color: Colors.grey),
+      children: [
+        const SizedBox(height: 16),
+        Icon(
+          Icons.balance,
+          size: 64,
+          color: Theme.of(context).colorScheme.onSurfaceVariant,
+        ),
         SizedBox(height: 12),
         Text('لم يتم إضافة أسطر عيار بعد.'),
       ],
