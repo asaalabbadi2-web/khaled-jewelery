@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import '../constants/colors.dart';
+import '../theme/app_theme.dart';
 import '../models/account_node.dart';
 import '../providers/accounts_tree_provider.dart';
 import 'account_type_badge.dart';

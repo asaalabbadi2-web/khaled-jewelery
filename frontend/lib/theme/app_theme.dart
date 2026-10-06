@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'app_semantic_colors.dart';
+
+export 'app_semantic_colors.dart';
+
 /// نظام الألوان الذهبي لتطبيق مجوهرات خالد
 class AppColors {
   // ألوان ذهبية - مشتركة بين الوضعين
@@ -47,11 +51,16 @@ class AppColors {
     final digits = s.replaceAll(RegExp(r'[^0-9]'), '');
     final k = int.tryParse(digits.isNotEmpty ? digits : s) ?? 21;
     switch (k) {
-      case 18: return const Color(0xFFB71C1C); // dark red — 9.7:1 on #FFF0F0
-      case 21: return const Color(0xFF795500); // dark gold — 6.5:1 on #FAF4E5
-      case 22: return const Color(0xFF004D40); // dark teal — 8.6:1 on #EAF9F9
-      case 24: return const Color(0xFF4A148C); // dark purple — 7.2:1 on #F3EEF8
-      default: return const Color(0xFF5D4037); // dark brown fallback
+      case 18:
+        return const Color(0xFFB71C1C); // dark red — 9.7:1 on #FFF0F0
+      case 21:
+        return const Color(0xFF795500); // dark gold — 6.5:1 on #FAF4E5
+      case 22:
+        return const Color(0xFF004D40); // dark teal — 8.6:1 on #EAF9F9
+      case 24:
+        return const Color(0xFF4A148C); // dark purple — 7.2:1 on #F3EEF8
+      default:
+        return const Color(0xFF5D4037); // dark brown fallback
     }
   }
 
@@ -73,414 +82,272 @@ class AppColors {
     0xFF5E35B1,
   ); // بنفسجي غامق - شراء جديد
   static const Color invoiceReturn = Color(0xFFE53935); // أحمر - مرتجع
+
+  // ===== شجرة الحسابات =====
+  // انتقلت من constants/colors.dart (ثيم-٠: مصدر واحد للألوان) بقيمها كما هي.
+  // للوضع الفاتح وحده؛ تنتقل إلى AppSemanticColors حين يُعمل على الشجرة.
+
+  /// مدين — أخضر داكن
+  static const Color debit = Color(0xFF0F6E56);
+
+  /// دائن — أحمر داكن
+  static const Color credit = Color(0xFFA32D2D);
+
+  /// ذهبي محاسبي (الحسابات الوزنية، سهم التوسيع)
+  static const Color goldTone = Color(0xFFC9A84C);
+
+  /// خطوط شجرة التسلسل الهرمي
+  static const Color treeLine = Color(0xFFEBE3D0);
+
+  /// خلفية الحسابات التجميعية (Parent)
+  static const Color parentRowBg = Color(0xFFFAF7F0);
+
+  /// لون الحسابات المعطلة / النص الخافت
+  static const Color muted = Color(0xFF5F5E5A);
+
+  /// لون سهم التوسيع
+  static const Color expandArrow = Color(0xFFA89968);
+
+  // شارات أنواع الحسابات
+  static const Color assetBadgeBg = Color(0xFFE1F5EE);
+  static const Color assetBadgeFg = Color(0xFF0F6E56);
+  static const Color liabBadgeBg = Color(0xFFFCEBEB);
+  static const Color liabBadgeFg = Color(0xFFA32D2D);
+  static const Color equityBadgeBg = Color(0xFFEEEDFE);
+  static const Color equityBadgeFg = Color(0xFF534AB7);
+  static const Color revenueBadgeBg = Color(0xFFEAF3DE);
+  static const Color revenueBadgeFg = Color(0xFF3B6D11);
+  static const Color expenseBadgeBg = Color(0xFFFAEEDA);
+  static const Color expenseBadgeFg = Color(0xFF854F0B);
+}
+
+/// لوحة الألوان: كل دور معرّف صراحةً في الوضعين (ثيم-٠).
+/// الدور غير المعرّف يرجع في Flutter إلى غيره: الحدّ إلى الأسود أو الأبيض،
+/// و«أعلى حاوية» إلى لون البطاقة. لذلك لا يُترك هنا دور فارغ.
+class AppSchemes {
+  static const ColorScheme light = ColorScheme(
+    brightness: Brightness.light,
+    primary: Color(0xFF87600A),
+    onPrimary: Color(0xFFFFFFFF),
+    primaryContainer: Color(0xFFF4E4C1),
+    onPrimaryContainer: Color(0xFF3A2C00),
+    secondary: Color(0xFF6F5100),
+    onSecondary: Color(0xFFFFFFFF),
+    secondaryContainer: Color(0xFFF7E1A6),
+    onSecondaryContainer: Color(0xFF3B2F05),
+    tertiary: Color(0xFF006A60),
+    onTertiary: Color(0xFFFFFFFF),
+    tertiaryContainer: Color(0xFFC2EDE6),
+    onTertiaryContainer: Color(0xFF00201C),
+    error: Color(0xFFBA1A1A),
+    onError: Color(0xFFFFFFFF),
+    errorContainer: Color(0xFFFFDAD6),
+    onErrorContainer: Color(0xFF410002),
+    surface: Color(0xFFF7F3EC),
+    onSurface: Color(0xFF1F1B13),
+    onSurfaceVariant: Color(0xFF4D4635),
+    surfaceContainerLowest: Color(0xFFFFFFFF),
+    surfaceContainerLow: Color(0xFFFBF8F2),
+    surfaceContainer: Color(0xFFF6F1E8),
+    surfaceContainerHigh: Color(0xFFF1EBE0),
+    surfaceContainerHighest: Color(0xFFECE5D8),
+    outline: Color(0xFF7F7663),
+    outlineVariant: Color(0xFFD6CCB8),
+    inverseSurface: Color(0xFF353027),
+    onInverseSurface: Color(0xFFF8EFE2),
+    inversePrimary: Color(0xFFE6C24F),
+  );
+
+  static const ColorScheme dark = ColorScheme(
+    brightness: Brightness.dark,
+    primary: Color(0xFFD4AF37),
+    onPrimary: Color(0xFF1A1A1A),
+    primaryContainer: Color(0xFF4F3F06),
+    onPrimaryContainer: Color(0xFFFFE08B),
+    secondary: Color(0xFFC99A2E),
+    onSecondary: Color(0xFF241A00),
+    secondaryContainer: Color(0xFF544519),
+    onSecondaryContainer: Color(0xFFF7E1A6),
+    tertiary: Color(0xFF82D5C8),
+    onTertiary: Color(0xFF003731),
+    tertiaryContainer: Color(0xFF005048),
+    onTertiaryContainer: Color(0xFFC2EDE6),
+    error: Color(0xFFFFB4AB),
+    onError: Color(0xFF690005),
+    errorContainer: Color(0xFF93000A),
+    onErrorContainer: Color(0xFFFFDAD6),
+    surface: Color(0xFF1A1A1A),
+    onSurface: Color(0xFFECE6DA),
+    onSurfaceVariant: Color(0xFFCFC6B4),
+    surfaceContainerLowest: Color(0xFF141414),
+    surfaceContainerLow: Color(0xFF212121),
+    surfaceContainer: Color(0xFF262626),
+    surfaceContainerHigh: Color(0xFF2D2D2D),
+    surfaceContainerHighest: Color(0xFF383838),
+    outline: Color(0xFF999080),
+    outlineVariant: Color(0xFF4A463E),
+    inverseSurface: Color(0xFFE8E2D6),
+    onInverseSurface: Color(0xFF32302B),
+    inversePrimary: Color(0xFF87600A),
+  );
+}
+
+ThemeData _buildTheme({
+  required ColorScheme scheme,
+  required Color card,
+  required Color appBar,
+  required Color onAppBar,
+  required Color fieldFill,
+}) {
+  TextStyle t(double size, FontWeight weight, Color color) => TextStyle(
+    fontSize: size,
+    fontWeight: weight,
+    color: color,
+    fontFamily: 'Cairo',
+  );
+  final isDark = scheme.brightness == Brightness.dark;
+
+  return ThemeData(
+    useMaterial3: true,
+    brightness: scheme.brightness,
+    colorScheme: scheme,
+    primaryColor: scheme.primary,
+    scaffoldBackgroundColor: scheme.surface,
+    canvasColor: scheme.surface,
+    cardColor: card,
+    dividerColor: scheme.outlineVariant,
+    extensions: [isDark ? AppSemanticColors.dark : AppSemanticColors.light],
+
+    appBarTheme: AppBarTheme(
+      backgroundColor: appBar,
+      foregroundColor: onAppBar,
+      elevation: isDark ? 4 : 2,
+      centerTitle: false,
+      iconTheme: IconThemeData(color: onAppBar),
+      titleTextStyle: t(20, FontWeight.bold, onAppBar),
+    ),
+
+    cardTheme: CardThemeData(
+      color: card,
+      surfaceTintColor: Colors.transparent,
+      elevation: isDark ? 4 : 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      shadowColor: Colors.black.withValues(alpha: isDark ? 0.3 : 0.08),
+    ),
+
+    dialogTheme: DialogThemeData(
+      backgroundColor: card,
+      surfaceTintColor: Colors.transparent,
+    ),
+
+    bottomNavigationBarTheme: BottomNavigationBarThemeData(
+      backgroundColor: card,
+      selectedItemColor: scheme.primary,
+      unselectedItemColor: scheme.onSurfaceVariant,
+      selectedLabelStyle: t(12, FontWeight.bold, scheme.primary),
+      unselectedLabelStyle: t(12, FontWeight.normal, scheme.onSurfaceVariant),
+      type: BottomNavigationBarType.fixed,
+      elevation: 8,
+    ),
+
+    drawerTheme: DrawerThemeData(
+      backgroundColor: isDark ? scheme.surface : card,
+      elevation: 16,
+      shape: const RoundedRectangleBorder(),
+    ),
+
+    listTileTheme: ListTileThemeData(
+      iconColor: scheme.onSurfaceVariant,
+      textColor: scheme.onSurface,
+      selectedTileColor: scheme.primaryContainer.withValues(alpha: 0.5),
+      selectedColor: scheme.primary,
+    ),
+
+    textTheme: TextTheme(
+      displayLarge: t(32, FontWeight.bold, scheme.onSurface),
+      displayMedium: t(28, FontWeight.bold, scheme.onSurface),
+      displaySmall: t(24, FontWeight.bold, scheme.onSurface),
+      headlineMedium: t(20, FontWeight.bold, scheme.onSurface),
+      headlineSmall: t(18, FontWeight.w600, scheme.onSurface),
+      titleLarge: t(16, FontWeight.w600, scheme.onSurface),
+      titleMedium: t(14, FontWeight.w500, scheme.onSurface),
+      bodyLarge: t(14, FontWeight.normal, scheme.onSurface),
+      bodyMedium: t(13, FontWeight.normal, scheme.onSurfaceVariant),
+      bodySmall: t(12, FontWeight.normal, scheme.onSurfaceVariant),
+    ),
+
+    elevatedButtonTheme: ElevatedButtonThemeData(
+      style: ElevatedButton.styleFrom(
+        backgroundColor: scheme.primary,
+        foregroundColor: scheme.onPrimary,
+        elevation: isDark ? 4 : 2,
+        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        textStyle: t(14, FontWeight.bold, scheme.onPrimary),
+      ),
+    ),
+
+    inputDecorationTheme: InputDecorationTheme(
+      filled: true,
+      fillColor: fieldFill,
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: BorderSide(color: scheme.outlineVariant),
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: BorderSide(color: scheme.outlineVariant),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: BorderSide(color: scheme.primary, width: 2),
+      ),
+      labelStyle: TextStyle(
+        color: scheme.onSurfaceVariant,
+        fontFamily: 'Cairo',
+      ),
+      hintStyle: TextStyle(
+        color: scheme.onSurfaceVariant.withValues(alpha: 0.7),
+        fontFamily: 'Cairo',
+      ),
+    ),
+
+    floatingActionButtonTheme: FloatingActionButtonThemeData(
+      backgroundColor: scheme.primary,
+      foregroundColor: scheme.onPrimary,
+      elevation: isDark ? 6 : 4,
+    ),
+
+    dividerTheme: DividerThemeData(
+      color: scheme.outlineVariant,
+      thickness: 1,
+      space: 1,
+    ),
+
+    fontFamily: 'Cairo',
+  );
 }
 
 /// ثيم فاتح - أبيض + ذهبي
 class LightTheme {
-  static ThemeData get theme {
-    return ThemeData(
-      useMaterial3: true,
-      brightness: Brightness.light,
-
-      // الألوان الأساسية
-      primaryColor: AppColors.primaryGold,
-      scaffoldBackgroundColor: const Color(0xFFFAFAFA),
-
-      // نظام الألوان
-      colorScheme: ColorScheme.light(
-        primary: AppColors.primaryGold,
-        secondary: AppColors.darkGold,
-        surface: Colors.white,
-        error: AppColors.error,
-        onPrimary: Colors.white,
-        onSecondary: Colors.white,
-        onSurface: const Color(0xFF212121),
-        onError: Colors.white,
-        brightness: Brightness.light,
-      ),
-
-      // AppBar
-      appBarTheme: AppBarTheme(
-        backgroundColor: AppColors.darkGold,
-        foregroundColor: Colors.white,
-        elevation: 4,
-        centerTitle: false,
-        iconTheme: const IconThemeData(color: Colors.white),
-        titleTextStyle: const TextStyle(
-          color: Colors.white,
-          fontSize: 20,
-          fontWeight: FontWeight.bold,
-          fontFamily: 'Cairo',
-        ),
-      ),
-
-      // البطاقات
-      cardTheme: CardThemeData(
-        color: Colors.white,
-        elevation: 2,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        shadowColor: Colors.black.withValues(alpha: 0.08),
-      ),
-
-      // Bottom Navigation
-      bottomNavigationBarTheme: BottomNavigationBarThemeData(
-        backgroundColor: Colors.white,
-        selectedItemColor: AppColors.darkGold,
-        unselectedItemColor: Colors.grey[400],
-        selectedLabelStyle: const TextStyle(
-          fontFamily: 'Cairo',
-          fontWeight: FontWeight.bold,
-          fontSize: 12,
-        ),
-        unselectedLabelStyle: const TextStyle(
-          fontFamily: 'Cairo',
-          fontSize: 12,
-        ),
-        type: BottomNavigationBarType.fixed,
-        elevation: 8,
-      ),
-
-      // Drawer
-      drawerTheme: DrawerThemeData(
-        backgroundColor: Colors.white,
-        elevation: 16,
-        shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.only(
-            topRight: Radius.circular(0),
-            bottomRight: Radius.circular(0),
-          ),
-        ),
-      ),
-
-      // ListTile
-      listTileTheme: ListTileThemeData(
-        iconColor: Colors.grey[700],
-        textColor: Colors.grey[800],
-        selectedTileColor: AppColors.lightGold.withValues(alpha: 0.2),
-        selectedColor: AppColors.darkGold,
-      ),
-
-      // النصوص
-      textTheme: TextTheme(
-        displayLarge: TextStyle(
-          fontSize: 32,
-          fontWeight: FontWeight.bold,
-          color: Colors.grey[900],
-          fontFamily: 'Cairo',
-        ),
-        displayMedium: TextStyle(
-          fontSize: 28,
-          fontWeight: FontWeight.bold,
-          color: Colors.grey[900],
-          fontFamily: 'Cairo',
-        ),
-        displaySmall: TextStyle(
-          fontSize: 24,
-          fontWeight: FontWeight.bold,
-          color: Colors.grey[800],
-          fontFamily: 'Cairo',
-        ),
-        headlineMedium: TextStyle(
-          fontSize: 20,
-          fontWeight: FontWeight.bold,
-          color: Colors.grey[800],
-          fontFamily: 'Cairo',
-        ),
-        headlineSmall: TextStyle(
-          fontSize: 18,
-          fontWeight: FontWeight.w600,
-          color: Colors.grey[800],
-          fontFamily: 'Cairo',
-        ),
-        titleLarge: TextStyle(
-          fontSize: 16,
-          fontWeight: FontWeight.w600,
-          color: Colors.grey[800],
-          fontFamily: 'Cairo',
-        ),
-        titleMedium: TextStyle(
-          fontSize: 14,
-          fontWeight: FontWeight.w500,
-          color: Colors.grey[700],
-          fontFamily: 'Cairo',
-        ),
-        bodyLarge: TextStyle(
-          fontSize: 14,
-          color: Colors.grey[800],
-          fontFamily: 'Cairo',
-        ),
-        bodyMedium: TextStyle(
-          fontSize: 13,
-          color: Colors.grey[700],
-          fontFamily: 'Cairo',
-        ),
-        bodySmall: TextStyle(
-          fontSize: 12,
-          color: Colors.grey[600],
-          fontFamily: 'Cairo',
-        ),
-      ),
-
-      // الأزرار
-      elevatedButtonTheme: ElevatedButtonThemeData(
-        style: ElevatedButton.styleFrom(
-          backgroundColor: AppColors.primaryGold,
-          foregroundColor: Colors.white,
-          elevation: 2,
-          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
-          textStyle: const TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.bold,
-            fontFamily: 'Cairo',
-          ),
-        ),
-      ),
-
-      // حقول الإدخال
-      inputDecorationTheme: InputDecorationTheme(
-        filled: true,
-        fillColor: Colors.grey[50],
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide(color: Colors.grey[300]!),
-        ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide(color: Colors.grey[300]!),
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: AppColors.primaryGold, width: 2),
-        ),
-        labelStyle: TextStyle(color: Colors.grey[700], fontFamily: 'Cairo'),
-        hintStyle: TextStyle(color: Colors.grey[400], fontFamily: 'Cairo'),
-      ),
-
-      // FloatingActionButton
-      floatingActionButtonTheme: const FloatingActionButtonThemeData(
-        backgroundColor: AppColors.primaryGold,
-        foregroundColor: Colors.white,
-        elevation: 4,
-      ),
-
-      // Divider
-      dividerTheme: DividerThemeData(
-        color: Colors.grey[300],
-        thickness: 1,
-        space: 1,
-      ),
-
-      // الخط الافتراضي
-      fontFamily: 'Cairo',
-    );
-  }
+  static ThemeData get theme => _buildTheme(
+    scheme: AppSchemes.light,
+    card: AppSchemes.light.surfaceContainerLowest,
+    appBar: AppSchemes.light.primary,
+    onAppBar: AppSchemes.light.onPrimary,
+    fieldFill: AppSchemes.light.surfaceContainerLow,
+  );
 }
 
 /// ثيم داكن - رمادي فحمي + ذهبي
 class DarkTheme {
-  static ThemeData get theme {
-    return ThemeData(
-      useMaterial3: true,
-      brightness: Brightness.dark,
-
-      // الألوان الأساسية
-      primaryColor: AppColors.primaryGold,
-      scaffoldBackgroundColor: const Color(0xFF1A1A1A),
-
-      // نظام الألوان
-      colorScheme: ColorScheme.dark(
-        primary: AppColors.primaryGold,
-        secondary: AppColors.darkGold,
-        surface: const Color(0xFF2D2D2D),
-        error: AppColors.error,
-        onPrimary: const Color(0xFF1A1A1A),
-        onSecondary: Colors.white,
-        onSurface: Colors.white,
-        onError: Colors.white,
-        brightness: Brightness.dark,
-      ),
-
-      // AppBar
-      appBarTheme: const AppBarTheme(
-        backgroundColor: Color(0xFF2D2D2D),
-        foregroundColor: AppColors.primaryGold,
-        elevation: 4,
-        centerTitle: false,
-        iconTheme: IconThemeData(color: AppColors.primaryGold),
-        titleTextStyle: TextStyle(
-          color: AppColors.primaryGold,
-          fontSize: 20,
-          fontWeight: FontWeight.bold,
-          fontFamily: 'Cairo',
-        ),
-      ),
-
-      // البطاقات
-      cardTheme: CardThemeData(
-        color: const Color(0xFF2D2D2D),
-        elevation: 4,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        shadowColor: Colors.black.withValues(alpha: 0.3),
-      ),
-
-      // Bottom Navigation
-      bottomNavigationBarTheme: BottomNavigationBarThemeData(
-        backgroundColor: const Color(0xFF2D2D2D),
-        selectedItemColor: AppColors.primaryGold,
-        unselectedItemColor: Colors.grey[600],
-        selectedLabelStyle: const TextStyle(
-          fontFamily: 'Cairo',
-          fontWeight: FontWeight.bold,
-          fontSize: 12,
-        ),
-        unselectedLabelStyle: const TextStyle(
-          fontFamily: 'Cairo',
-          fontSize: 12,
-        ),
-        type: BottomNavigationBarType.fixed,
-        elevation: 8,
-      ),
-
-      // Drawer
-      drawerTheme: const DrawerThemeData(
-        backgroundColor: Color(0xFF1A1A1A),
-        elevation: 16,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.only(
-            topRight: Radius.circular(0),
-            bottomRight: Radius.circular(0),
-          ),
-        ),
-      ),
-
-      // ListTile
-      listTileTheme: ListTileThemeData(
-        iconColor: Colors.grey[400],
-        textColor: Colors.grey[300],
-        selectedTileColor: AppColors.darkGold.withValues(alpha: 0.2),
-        selectedColor: AppColors.primaryGold,
-      ),
-
-      // النصوص
-      textTheme: TextTheme(
-        displayLarge: const TextStyle(
-          fontSize: 32,
-          fontWeight: FontWeight.bold,
-          color: Colors.white,
-          fontFamily: 'Cairo',
-        ),
-        displayMedium: const TextStyle(
-          fontSize: 28,
-          fontWeight: FontWeight.bold,
-          color: Colors.white,
-          fontFamily: 'Cairo',
-        ),
-        displaySmall: TextStyle(
-          fontSize: 24,
-          fontWeight: FontWeight.bold,
-          color: Colors.grey[200],
-          fontFamily: 'Cairo',
-        ),
-        headlineMedium: TextStyle(
-          fontSize: 20,
-          fontWeight: FontWeight.bold,
-          color: Colors.grey[200],
-          fontFamily: 'Cairo',
-        ),
-        headlineSmall: TextStyle(
-          fontSize: 18,
-          fontWeight: FontWeight.w600,
-          color: Colors.grey[300],
-          fontFamily: 'Cairo',
-        ),
-        titleLarge: TextStyle(
-          fontSize: 16,
-          fontWeight: FontWeight.w600,
-          color: Colors.grey[300],
-          fontFamily: 'Cairo',
-        ),
-        titleMedium: TextStyle(
-          fontSize: 14,
-          fontWeight: FontWeight.w500,
-          color: Colors.grey[400],
-          fontFamily: 'Cairo',
-        ),
-        bodyLarge: TextStyle(
-          fontSize: 14,
-          color: Colors.grey[300],
-          fontFamily: 'Cairo',
-        ),
-        bodyMedium: TextStyle(
-          fontSize: 13,
-          color: Colors.grey[400],
-          fontFamily: 'Cairo',
-        ),
-        bodySmall: TextStyle(
-          fontSize: 12,
-          color: Colors.grey[500],
-          fontFamily: 'Cairo',
-        ),
-      ),
-
-      // الأزرار
-      elevatedButtonTheme: ElevatedButtonThemeData(
-        style: ElevatedButton.styleFrom(
-          backgroundColor: AppColors.primaryGold,
-          foregroundColor: const Color(0xFF1A1A1A),
-          elevation: 4,
-          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
-          textStyle: const TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.bold,
-            fontFamily: 'Cairo',
-          ),
-        ),
-      ),
-
-      // حقول الإدخال
-      inputDecorationTheme: InputDecorationTheme(
-        filled: true,
-        fillColor: const Color(0xFF2D2D2D),
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide(color: Colors.grey[700]!),
-        ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide(color: Colors.grey[700]!),
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: AppColors.primaryGold, width: 2),
-        ),
-        labelStyle: TextStyle(color: Colors.grey[400], fontFamily: 'Cairo'),
-        hintStyle: TextStyle(color: Colors.grey[600], fontFamily: 'Cairo'),
-      ),
-
-      // FloatingActionButton
-      floatingActionButtonTheme: const FloatingActionButtonThemeData(
-        backgroundColor: AppColors.primaryGold,
-        foregroundColor: Color(0xFF1A1A1A),
-        elevation: 6,
-      ),
-
-      // Divider
-      dividerTheme: DividerThemeData(
-        color: Colors.grey[800],
-        thickness: 1,
-        space: 1,
-      ),
-
-      // الخط الافتراضي
-      fontFamily: 'Cairo',
-    );
-  }
+  static ThemeData get theme => _buildTheme(
+    scheme: AppSchemes.dark,
+    card: AppSchemes.dark.surfaceContainerHigh,
+    appBar: AppSchemes.dark.surfaceContainerHigh,
+    onAppBar: AppSchemes.dark.primary,
+    fieldFill: AppSchemes.dark.surfaceContainer,
+  );
 }
 
 /// مزود الثيم - للتحكم في تبديل الوضع

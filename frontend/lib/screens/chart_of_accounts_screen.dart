@@ -4,7 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../api_service.dart';
-import '../constants/colors.dart';
+import '../theme/app_theme.dart';
 import '../models/account_node.dart';
 import '../providers/accounts_tree_provider.dart';
 import '../utils.dart';

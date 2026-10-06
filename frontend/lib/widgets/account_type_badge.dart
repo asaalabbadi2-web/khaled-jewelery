@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import '../constants/colors.dart';
+import '../theme/app_theme.dart';
 
 class AccountTypeBadge extends StatelessWidget {
   final String type;
