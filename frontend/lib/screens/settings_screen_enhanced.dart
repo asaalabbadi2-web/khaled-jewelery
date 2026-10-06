@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:printing/printing.dart';
 
 import '../api_service.dart';
+import '../utils/wage_treatment.dart';
 import '../models/safe_box_model.dart';
 import '../providers/sales_race_refresh_provider.dart';
 import '../providers/settings_provider.dart';
@@ -111,6 +112,9 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
   int _idleTimeoutMinutes = 30;
 
   bool _allowPartialInvoicePayments = false;
+
+  /// How a purchase and a sale treat manufacturing wages (ADR-039).
+  String _wageMode = kWageModeExpense;
 
   bool _voucherAutoPost = false;
   // هامش فرق سداد الذهب (2 أكتوبر 2026): رقم ثابت بالغرام، زاد الوزن أو نقص.
@@ -361,6 +365,11 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
           settings['allow_partial_invoice_payments'],
           fallback: false,
         );
+        _wageMode =
+            settings['manufacturing_wage_mode']?.toString() ==
+                kWageModeInventory
+            ? kWageModeInventory
+            : kWageModeExpense;
         _defaultDiscountPercent = _normalizePercent(
           settings['default_discount_rate'],
           fallbackPercent: 0,
@@ -436,6 +445,97 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
     }
   }
 
+  Widget _buildWageModeSetting() {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('معالجة أجور المصنعية', style: theme.textTheme.titleSmall),
+          const SizedBox(height: 8),
+          SegmentedButton<String>(
+            segments: [
+              ButtonSegment(
+                value: kWageModeInventory,
+                label: Text(wageModeLabel(kWageModeInventory)),
+              ),
+              ButtonSegment(
+                value: kWageModeExpense,
+                label: Text(wageModeLabel(kWageModeExpense)),
+              ),
+            ],
+            selected: {_wageMode},
+            onSelectionChanged: (selection) =>
+                _confirmWageModeChange(selection.first),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            wageModeExplanation(_wageMode),
+            style: theme.textTheme.bodySmall,
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// A change of treatment leaves the wage inventory unmatched: say what is on
+  /// it and the entry that zeroes it before taking the change (ADR-039).
+  Future<void> _confirmWageModeChange(String mode) async {
+    if (mode == _wageMode) return;
+    String advice;
+    try {
+      final treatment = await _apiService.getWageTreatment();
+      final account = treatment['wage_inventory_account'];
+      if (account is Map) {
+        final label = '${account['account_number']} ${account['name']}';
+        advice = wageModeChangeAdvice(
+          balance: (account['balance'] as num?)?.toDouble() ?? 0.0,
+          accountLabel: label,
+          formatCash: (v) => v.toStringAsFixed(2),
+        );
+      } else {
+        advice = 'لا يوجد حساب لمخزون أجور المصنعية.';
+      }
+    } catch (e) {
+      advice = 'تعذّر قراءة رصيد مخزون أجور المصنعية: $e';
+    }
+    if (!mounted) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('تغيير المعالجة إلى «${wageModeLabel(mode)}»'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(wageModeExplanation(mode)),
+            const SizedBox(height: 12),
+            const Text(
+              'الفواتير المحفوظة تبقى على معالجتها، والتغيير يسري على ما يُنشأ بعد الحفظ. '
+              'القطع الموجودة اليوم لا تتطابق أجورها بعد التغيير.',
+            ),
+            const SizedBox(height: 12),
+            Text(advice, style: const TextStyle(fontWeight: FontWeight.w700)),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('إلغاء'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('تغيير'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true && mounted) {
+      setState(() => _wageMode = mode);
+    }
+  }
+
   Future<void> _saveSettings() async {
     if (_isSaving) return;
     FocusScope.of(context).unfocus();
@@ -473,6 +573,7 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
       'idle_timeout_enabled': _idleTimeoutEnabled,
       'idle_timeout_minutes': _idleTimeoutMinutes,
       'allow_partial_invoice_payments': _allowPartialInvoicePayments,
+      'manufacturing_wage_mode': _wageMode,
 
       // 🆕 Feature toggles + default safes (employee routing)
       'employee_cash_safes_enabled': _employeeCashSafesEnabled,
@@ -974,6 +1075,8 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
                 'عند التفعيل: يمكن حفظ فاتورة بيع بمدفوع أقل من الإجمالي أو بدون دفعات بعد تأكيد.\nعند التعطيل: يلزم أن يساوي مجموع الدفعات إجمالي الفاتورة.',
               ),
             ),
+            const SizedBox(height: 8),
+            _buildWageModeSetting(),
             const Divider(height: 32),
             SwitchListTile.adaptive(
               value: _taxEnabled,

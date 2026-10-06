@@ -19,6 +19,7 @@ import '../widgets/party_picker_dialog.dart';
 import '../widgets/searchable_picker_field.dart';
 import '../utils/invoice_direct_print.dart';
 import '../utils/purchase_readiness.dart';
+import '../utils/wage_treatment.dart';
 import 'add_supplier_screen.dart';
 import '../utils.dart';
 
@@ -117,15 +118,15 @@ class PurchaseInvoiceScreen extends StatefulWidget {
 class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
   static const _prefKeyPurchaseApplyVatOnGold =
       'purchase_invoice.apply_vat_on_gold';
-  static const _prefKeyPurchaseWagePostingMode =
-      'purchase_invoice.wage_posting_mode';
 
   late final ApiService _api = widget.apiService ?? ApiService();
 
   bool _manualPricing = false;
   bool _applyVatOnGold = false;
-  String _wagePostingMode = 'inventory';
-  bool _wagePostingModeFromPrefs = false;
+
+  /// The company's wage treatment, read from the server (ADR-039); null
+  /// until the settings answer. The screen shows it; it does not choose it.
+  String? _wageMode;
   bool _isLoadingSuppliers = false;
   bool _isSavingInvoice = false;
 
@@ -914,7 +915,6 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
       'branch_id': _selectedBranchId,
       'manual_pricing': _manualPricing,
       'apply_vat_on_gold': _applyVatOnGold,
-      'wage_posting_mode': _wagePostingMode,
       'ui_lock_price_edits': _uiLockPriceEdits,
       'ui_disable_vat': _uiDisableVat,
       'ui_auto_print': _uiAutoOpenPrintAfterSave,
@@ -1153,10 +1153,6 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
         _selectedBranchId = toInt(payload['branch_id']);
         _manualPricing = payload['manual_pricing'] == true;
         _applyVatOnGold = payload['apply_vat_on_gold'] == true;
-        final wageMode = payload['wage_posting_mode']?.toString();
-        if (wageMode == 'inventory' || wageMode == 'expense') {
-          _wagePostingMode = wageMode!;
-        }
         _uiLockPriceEdits = payload['ui_lock_price_edits'] == true;
         _uiDisableVat = payload['ui_disable_vat'] == true;
         _uiAutoOpenPrintAfterSave = payload['ui_auto_print'] == true;
@@ -1480,21 +1476,11 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
       final prefs = await SharedPreferences.getInstance();
 
       final applyVatPref = prefs.getBool(_prefKeyPurchaseApplyVatOnGold);
-      final wageModePref = prefs.getString(_prefKeyPurchaseWagePostingMode);
 
       if (!mounted) return;
       setState(() {
         if (applyVatPref != null) {
           _applyVatOnGold = applyVatPref;
-        }
-        if (wageModePref != null &&
-            (wageModePref == 'inventory' || wageModePref == 'expense')) {
-          _wagePostingMode = wageModePref;
-          _wagePostingModeFromPrefs = true;
-        } else {
-          // Keep the requested defaults for purchases and prevent server
-          // settings from overriding them unless the user explicitly changes.
-          _wagePostingModeFromPrefs = true;
         }
       });
 
@@ -1509,15 +1495,6 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool(_prefKeyPurchaseApplyVatOnGold, value);
-    } catch (_) {
-      // ignore
-    }
-  }
-
-  Future<void> _persistWagePostingMode(String mode) async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(_prefKeyPurchaseWagePostingMode, mode);
     } catch (_) {
       // ignore
     }
@@ -1613,17 +1590,15 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
       _autoPostInvoices = loaded['auto_post_invoices'] != false;
     });
 
-    final rawMode = settings['manufacturing_wage_mode'];
-    final normalized = rawMode is String
-        ? rawMode.toLowerCase().trim()
-        : rawMode?.toString().toLowerCase().trim();
-
-    if (normalized == 'inventory' || normalized == 'expense') {
-      if (_wagePostingModeFromPrefs) return;
-      setState(() {
-        _wagePostingMode = normalized!;
-      });
-    }
+    final rawMode = settings['manufacturing_wage_mode']
+        ?.toString()
+        .toLowerCase()
+        .trim();
+    setState(() {
+      _wageMode = rawMode == kWageModeInventory
+          ? kWageModeInventory
+          : kWageModeExpense;
+    });
   }
 
   Future<void> _loadSuppliers() async {
@@ -2575,7 +2550,6 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
       'valuation_cash_total': _round(_goldSubtotal, 2),
       'gold_tax': _round(_goldTaxTotal, 2),
       'wage_tax': _round(_wageTaxTotal, 2),
-      'wage_posting_mode': _wagePostingMode,
       'settlement_method': settlementMethod,
       'valuation': {
         'cash_total': _round(_goldSubtotal, 2),
@@ -4462,55 +4436,34 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
     );
   }
 
+  /// What the server does with this invoice's wages -- the company's setting,
+  /// shown, not chosen here (ADR-039).
   Widget _buildWagePostingModeCard() {
-    final selection = _wagePostingMode;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-
+    final theme = Theme.of(context);
+    final mode = _wageMode;
     return Card(
-      elevation: isDark ? 1 : 2,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              'معالجة أجور المصنعية',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 12),
-            ToggleButtons(
-              isSelected: [selection == 'expense', selection == 'inventory'],
-              borderRadius: BorderRadius.circular(12),
-              onPressed: (index) {
-                final mode = index == 0 ? 'expense' : 'inventory';
-                if (mode == _wagePostingMode) {
-                  return;
-                }
-                setState(() {
-                  _wagePostingMode = mode;
-                  _wagePostingModeFromPrefs = true;
-                });
-                _persistWagePostingMode(mode);
-              },
-              children: const [
-                Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 16),
-                  child: Text('تحميل على المصروفات'),
-                ),
-                Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 16),
-                  child: Text('رسملة ضمن المخزون'),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
+            Text('معالجة أجور المصنعية', style: theme.textTheme.titleMedium),
+            const SizedBox(height: 8),
             Text(
-              selection == 'inventory'
-                  ? 'سيتم رسملة أجور المصنعية ضمن حساب المخزون أو الحساب المحدد في الربط المحاسبي.'
-                  : 'سيتم تحميل أجور المصنعية مباشرةً على حساب المصروفات أو تكلفة المبيعات.',
-              style: const TextStyle(color: Colors.black54),
+              mode == null ? 'تُقرأ من إعدادات الشركة…' : wageModeLabel(mode),
+              style: theme.textTheme.bodyLarge?.copyWith(
+                fontWeight: FontWeight.w700,
+              ),
             ),
+            if (mode != null) ...[
+              const SizedBox(height: 4),
+              Text(wageModeExplanation(mode), style: theme.textTheme.bodySmall),
+              const SizedBox(height: 4),
+              Text(
+                'حسب إعدادات الشركة، وتُغيَّر من شاشة الإعدادات.',
+                style: theme.textTheme.bodySmall,
+              ),
+            ],
           ],
         ),
       ),

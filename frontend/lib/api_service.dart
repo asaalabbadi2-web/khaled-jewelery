@@ -3298,6 +3298,18 @@ class ApiService {
     }
   }
 
+  /// معالجة أجور المصنعية، وحساب مخزونها ورصيده (ADR-039): ما يتركه تغييرها.
+  Future<Map<String, dynamic>> getWageTreatment() async {
+    final response = await _authedGet(
+      Uri.parse('$_baseUrl/settings/wage-treatment'),
+    );
+    if (response.statusCode == 200) {
+      return json.decode(utf8.decode(response.bodyBytes));
+    } else {
+      throw Exception(_errorMessageFromResponse(response));
+    }
+  }
+
   /// نقل حركات الكسر التاريخية من صندوق الكسر لخزائن الموظفين الصحيحة
   Future<Map<String, dynamic>> migrateScrapGoldToEmployeeSafes() async {
     final token = await _requireAuthToken();

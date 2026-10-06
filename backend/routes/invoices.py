@@ -99,7 +99,14 @@ from accounting.voucher_engine import (
 from accounting.mappings import DEFAULT_MAPPING_OPERATION_TYPE, get_account_id_by_number, get_account_id_for_mapping
 from accounting.weight_closing import _load_weight_closing_settings
 from accounting.safe_boxes import _ensure_safe_box_transactions_for_invoice_je
-from accounting.wages import _ensure_manufacturing_wage_expense_account, _ensure_gold24k_commission_revenue_account
+from accounting.wages import (
+    _ensure_gold24k_commission_revenue_account,
+    live_wage_mode,
+    manufacturing_wage_expense_account_id,
+    manufacturing_wage_inventory_account_id,
+    wage_mode_of,
+    wages_are_capitalized,
+)
 from accounting.inventory import get_inventory_average_cost
 from accounting.balances import _recalculate_account_balances_for_accounts
 from routes import (
@@ -109,8 +116,6 @@ from routes import (
     InlineItemCreationError,
     _resolve_inventory_account_id_for_invoice,
     _get_inventory_account_by_karat,
-    _get_manufacturing_wage_mode,
-    _get_manufacturing_wage_inventory_account_id,
     validate_bridge_account_balance,
     _try_process_due_auto_clearing_settlements,
     _ensure_weight_tracking_account,
@@ -4208,7 +4213,7 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
                 commission_vat_total = commission_amount * 0.15
                 net_amount = data_total - commission_amount - commission_vat_total
     
-    wage_mode_snapshot = _get_manufacturing_wage_mode()
+    wage_mode_snapshot = live_wage_mode()  # frozen on the invoice (ADR-039)
     # Capture the current max SafeBoxTransaction id before we create any new ones.
     # This is used below to filter phantom old SBTs that happen to share the same
     # invoice_id as the new invoice (coincidental ID collision from old data).
@@ -6713,18 +6718,11 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
                     )
                     _wage_cash_sale += _wr * _ww
 
-            if _wage_cash_sale > 0:
-                _wage_inv_acc = (
-                    _get_manufacturing_wage_inventory_account_id()
-                    or get_account_id_by_number('1320')
-                    or get_account_id_by_number('1350')
-                )
-                _wage_exp_acc = (
-                    get_account_id_for_mapping('بيع', 'manufacturing_wage')
-                    or _ensure_manufacturing_wage_expense_account()
-                    or get_account_id_for_mapping('بيع', 'operating_expenses')
-                    or get_account_id_by_number('51')
-                )
+            # Only capitalized wages are released at sale; expensed ones were
+            # charged at purchase (ADR-039).
+            if _wage_cash_sale > 0 and wages_are_capitalized(wage_mode_of(new_invoice)):
+                _wage_inv_acc = manufacturing_wage_inventory_account_id()
+                _wage_exp_acc = manufacturing_wage_expense_account_id()
                 if _wage_inv_acc and _wage_exp_acc:
                     create_dual_journal_entry(
                         journal_entry_id=journal_entry.id,
@@ -7146,17 +7144,10 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
                         _to_float(_kl.get('manufacturing_wage_cash', 0), 0.0)
                         * _to_float(_kl.get('weight_grams', _kl.get('weight', 0)), 0.0)
                     )
-            if _wage_cash_ret > 0:
-                _wage_inv_acc = (
-                    _get_manufacturing_wage_inventory_account_id()
-                    or get_account_id_by_number('1320')
-                    or get_account_id_by_number('1350')
-                )
-                _wage_exp_acc = (
-                    get_account_id_for_mapping('بيع', 'manufacturing_wage')
-                    or _ensure_manufacturing_wage_expense_account()
-                    or get_account_id_by_number('51')
-                )
+            # A return reverses the release -- only when wages are capitalized (ADR-039).
+            if _wage_cash_ret > 0 and wages_are_capitalized(wage_mode_of(new_invoice)):
+                _wage_inv_acc = manufacturing_wage_inventory_account_id()
+                _wage_exp_acc = manufacturing_wage_expense_account_id()
                 if _wage_inv_acc and _wage_exp_acc:
                     # عكس: مدين مخزون المصنعية، دائن مصروف المصنعية
                     create_dual_journal_entry(
@@ -7488,27 +7479,6 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
                         vat_receivable_acc_id = vat_acc.id if vat_acc else None
                     except Exception:
                         vat_receivable_acc_id = vat_receivable_acc_id
-                wage_mode = _get_manufacturing_wage_mode()
-                wage_expense_acc_id = None
-                wage_inventory_acc_id = None
-                if wage_mode == 'inventory':
-                    wage_inventory_acc_id = (
-                        data.get('wage_inventory_account_id')
-                        or _get_manufacturing_wage_inventory_account_id()
-                        or _mapping('manufacturing_wage_inventory')
-                        or _mapping('manufacturing_wage')
-                    )
-                if wage_mode != 'inventory' or not wage_inventory_acc_id:
-                    wage_expense_acc_id = (
-                        data.get('wage_expense_account_id')
-                        or _mapping('manufacturing_wage')
-                        or _mapping('manufacturing_wage_inventory')
-                    )
-                if wage_inventory_acc_id:
-                    _ensure_weight_tracking_account(wage_inventory_acc_id)
-                if wage_expense_acc_id:
-                    _ensure_weight_tracking_account(wage_expense_acc_id)
-
                 # بناء قاموس حسابات المخزون: دعم التوحيد (حساب واحد لكل العيارات)
                 inventory_accounts = {}
                 unified_inventory_acc_id = _resolve_inventory_account_id_for_invoice(invoice_type, gold_type)
@@ -7851,28 +7821,36 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
                                 print(f"⚠️ Weight safety-net manual insert failed: {manual_exc}")
                         posted_weight_debits.add(karat_str)
 
-                # --- 2) أجور المصنعية → مخزون أجور المصنعية ---
-                # 🆕 النظام الجديد: فصل المصنعية في حساب مستقل
-                wage_inventory_account_id = (
-                    _get_manufacturing_wage_inventory_account_id()
-                    or get_account_id_by_number('1320')
-                    or get_account_id_by_number('1350')
-                )
-                
+                # --- 2) أجور المصنعية: كما تقول المعالجة المثبّتة على الفاتورة (ADR-039) ---
+                # رسملة: مدين مخزون أجور المصنعية (تُنقل إلى المصروف عند البيع).
+                # مصروفات: مدين مصروف الأجور (ولا يُخصم شيء عند البيع).
                 if wage_cash > 0:
-                    if not wage_inventory_account_id:
+                    wages_capitalized = wages_are_capitalized(wage_mode_of(new_invoice))
+                    wage_account_id = (
+                        manufacturing_wage_inventory_account_id()
+                        if wages_capitalized
+                        else manufacturing_wage_expense_account_id()
+                    )
+                    if not wage_account_id:
                         return jsonify({
-                            'error': 'حساب مخزون أجور المصنعية غير موجود. يرجى إنشاؤه أولاً أو ضبط mapping (manufacturing_wage_inventory).'
+                            'error': (
+                                'حساب مخزون أجور المصنعية غير موجود. يرجى إنشاؤه أولاً أو ضبط mapping (manufacturing_wage_inventory).'
+                                if wages_capitalized
+                                else 'حساب مصروف أجور المصنعية غير موجود. يرجى ضبط mapping (بيع → manufacturing_wage).'
+                            )
                         }), 400
-                    
-                    # إضافة المصنعية لحساب مخزون المصنعية
+
                     create_dual_journal_entry(
                         journal_entry_id=journal_entry.id,
-                        account_id=wage_inventory_account_id,
+                        account_id=wage_account_id,
                         cash_debit=round(wage_cash, 2),
                         apply_golden_rule=False,
                         exclude_from_ledger=True,  # المصنعية تُعرض على المورد كالتزام منفصل (نوسمها على سطر المورد فقط)
-                        description="إضافة أجور مصنعية للمخزون - شراء (مورد)"
+                        description=(
+                            "إضافة أجور مصنعية للمخزون - شراء (مورد)"
+                            if wages_capitalized
+                            else "أجور مصنعية مصروفة - شراء (مورد)"
+                        )
                     )
                     cash_debit_booked = round(cash_debit_booked + wage_cash, 2)
 

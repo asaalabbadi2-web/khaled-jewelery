@@ -74,6 +74,13 @@ from accounting.voucher_engine import (
 )
 from accounting.statement_verification import _sign_qr_payload
 from accounting.weight_closing import _load_weight_closing_settings
+from accounting.wages import (
+    WAGE_MODES,
+    live_wage_mode,
+    manufacturing_wage_inventory_account_id,
+    wages_are_capitalized,
+)
+from services.live_balances import live_balances_by_account_ids
 from core.settings import _get_settings_singleton
 from accounting.balances import _recalculate_account_balances_for_accounts
 from routes import (
@@ -627,6 +634,29 @@ def get_settings():
     response.headers.update(_settings_diag_headers(settings))
     return response
 
+@system_bp.route('/settings/wage-treatment', methods=['GET'])
+@require_permission('system.settings')
+def get_wage_treatment():
+    """The wage treatment, and what changing it would leave behind (ADR-039).
+
+    The account capitalized wages sit on, and its posted balance: a change of
+    treatment leaves that balance unmatched, and the owner zeroes it by an entry
+    (to expense when positive, to revenue when negative).
+    """
+    account_id = manufacturing_wage_inventory_account_id()
+    account = db.session.get(Account, account_id) if account_id else None
+    wage_inventory = None
+    if account is not None:
+        live = live_balances_by_account_ids([account.id]).get(account.id) or {}
+        wage_inventory = {
+            'id': account.id,
+            'account_number': account.account_number,
+            'name': account.name,
+            'balance': round(float(live.get('cash') or 0.0), 2),
+        }
+    return jsonify({'mode': live_wage_mode(), 'wage_inventory_account': wage_inventory})
+
+
 @system_bp.route('/settings', methods=['PUT'])
 @require_permission('system.settings')
 def update_settings():
@@ -636,6 +666,18 @@ def update_settings():
     data = request.get_json(silent=True) or {}
     if not isinstance(data, dict):
         return jsonify({'error': 'invalid_payload'}), 400
+
+    # The wage treatment is one of two (ADR-039); anything else is refused, not
+    # read later as the default.
+    if 'manufacturing_wage_mode' in data:
+        wage_mode = str(data.get('manufacturing_wage_mode') or '').strip().lower()
+        if wage_mode not in WAGE_MODES:
+            return jsonify({
+                'error': 'invalid_manufacturing_wage_mode',
+                'message': 'معالجة أجور المصنعية إما رسملة (inventory) أو مصروفات (expense)',
+                'allowed': list(WAGE_MODES),
+            }), 400
+        data['manufacturing_wage_mode'] = wage_mode
 
     # Fail fast for unknown top-level keys to avoid silent drops.
     allowed_keys = {
@@ -2888,7 +2930,10 @@ def create_melting_renewal():
         # قيد المصنعية التالفة (تكسير فقط):
         # مدين: حساب مصروف المصنعية التالفة (نقد)
         # دائن: حساب مخزون أجور المصنعية
-        if damage_wage_amount > 0 and operation_type == 'melting' and damage_wage_account_id:
+        # Under «expense» the wage was charged at purchase: nothing sits on the
+        # wage inventory to write off (ADR-039).
+        if (damage_wage_amount > 0 and operation_type == 'melting' and damage_wage_account_id
+                and wages_are_capitalized(live_wage_mode())):
             wage_inventory_acc_id = _get_manufacturing_wage_inventory_account_id()
             if not wage_inventory_acc_id:
                 raise Exception('حساب مخزون أجور المصنعية غير موجود. يرجى إنشاؤه أولاً.')

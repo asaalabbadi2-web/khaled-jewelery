@@ -61,9 +61,11 @@ void main() {
     WidgetTester tester, {
     required FakePurchaseApi api,
     Map<String, dynamic>? saved,
+    Map<String, dynamic>? appSettings,
   }) async {
     SharedPreferences.setMockInitialValues({
       if (saved != null) draftKey: jsonEncode(saved),
+      if (appSettings != null) 'app_settings': jsonEncode(appSettings),
     });
     tester.view.physicalSize = const Size(1440, 2400);
     tester.view.devicePixelRatio = 1;
@@ -242,5 +244,22 @@ void main() {
     await tester.tap(footerSave());
     await tester.pumpAndSettle();
     expect(api.added, isEmpty);
+  });
+
+  testWidgets('the wage treatment is the company\'s, shown and not chosen '
+      '(ADR-039)', (tester) async {
+    await open(
+      tester,
+      api: FakePurchaseApi(),
+      saved: draft(),
+      appSettings: {'manufacturing_wage_mode': 'inventory'},
+    );
+
+    expect(find.text('رسملة في مخزون أجور المصنعية'), findsOneWidget);
+    expect(
+      find.text('حسب إعدادات الشركة، وتُغيَّر من شاشة الإعدادات.'),
+      findsOneWidget,
+    );
+    expect(find.text('تحميل على المصروفات'), findsNothing); // no toggle
   });
 }

@@ -1345,13 +1345,6 @@ from accounting.wages import (  # noqa: F401
 from accounting.inventory import get_inventory_average_cost  # noqa: F401
 
 
-def _get_manufacturing_wage_mode():
-    settings = Settings.query.first()
-    if not settings or not getattr(settings, 'manufacturing_wage_mode', None):
-        return 'expense'
-    return settings.manufacturing_wage_mode or 'expense'
-
-
 def _ensure_weight_tracking_account(account_id):
     if not account_id:
         return None
