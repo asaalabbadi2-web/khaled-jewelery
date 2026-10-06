@@ -862,8 +862,6 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
             wagePerGram: 0,
             goldValueOverride: toDouble(line['gold_value_cash']),
             wageCashOverride: toDouble(line['manufacturing_wage_cash']),
-            goldTaxOverride: toDouble(line['gold_tax']),
-            wageTaxOverride: toDouble(line['wage_tax']),
             description: line['description']?.toString(),
           ),
         )
@@ -899,6 +897,9 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
     setState(() {
       _selectedSupplierId = toInt(data['supplier_id']);
       _selectedBranchId = toInt(data['branch_id']);
+      // Manual lines come back with the values they were saved with; priced
+      // automatically they would be revalued at today's price, unseen.
+      if (restoredKaratLines.isNotEmpty) _manualPricing = true;
       // Editing keeps the invoice's own decision, else what its tax says.
       final vatApplied = data['vat_applied'];
       _vatChoice = vatApplied is bool
@@ -961,8 +962,6 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
               'wage_per_gram': l.wagePerGram,
               'gold_value_override': l.goldValueOverride,
               'wage_cash_override': l.wageCashOverride,
-              'gold_tax_override': l.goldTaxOverride,
-              'wage_tax_override': l.wageTaxOverride,
               'description': l.description,
             },
           )
@@ -1103,12 +1102,6 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
             wageCashOverride: map['wage_cash_override'] == null
                 ? null
                 : toDouble(map['wage_cash_override']),
-            goldTaxOverride: map['gold_tax_override'] == null
-                ? null
-                : toDouble(map['gold_tax_override']),
-            wageTaxOverride: map['wage_tax_override'] == null
-                ? null
-                : toDouble(map['wage_tax_override']),
             description: map['description']?.toString(),
           ),
         );
@@ -1989,6 +1982,19 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
     return (base24 * karat) / 24.0;
   }
 
+  /// A line's VAT: computed, never typed, on the values the line carries --
+  /// the manual ones when priced by hand -- as the server checks it
+  /// (tax_policy_mismatch). One reading for the line and its dialog.
+  ({double goldTax, double wageTax}) _lineVat({
+    required double vatRate,
+    required bool goldTaxed,
+    required double goldValue,
+    required double wageCash,
+  }) => (
+    goldTax: goldTaxed && goldValue > 0 ? goldValue * vatRate : 0.0,
+    wageTax: wageCash > 0 ? wageCash * vatRate : 0.0,
+  );
+
   _KaratLineSnapshot _snapshotFor(PurchaseKaratLine line) {
     final pricePerGram = _resolveGoldPrice(line.karat);
     final autoGoldValue = line.weightGrams * pricePerGram;
@@ -1999,28 +2005,20 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
     final karatInt = line.karat.round();
     final isGoldVatExempt = exemptKarats.contains(karatInt);
 
-    final autoGoldTax = (_applyVatOnGold && !isGoldVatExempt)
-        ? autoGoldValue * vatRate
-        : 0.0;
-    final autoWageTax = autoWageCash * vatRate;
-
     final goldValue = _manualPricing
         ? (line.goldValueOverride ?? autoGoldValue)
         : autoGoldValue;
     final wageCash = _manualPricing
         ? (line.wageCashOverride ?? autoWageCash)
         : autoWageCash;
-    var goldTax = _manualPricing
-        ? (line.goldTaxOverride ?? autoGoldTax)
-        : autoGoldTax;
-    final wageTax = _manualPricing
-        ? (line.wageTaxOverride ?? autoWageTax)
-        : autoWageTax;
-
-    // Enforce exemption even when manual overrides are present.
-    if (isGoldVatExempt) {
-      goldTax = 0.0;
-    }
+    final vat = _lineVat(
+      vatRate: vatRate,
+      goldTaxed: _applyVatOnGold && !isGoldVatExempt,
+      goldValue: goldValue,
+      wageCash: wageCash,
+    );
+    final goldTax = vat.goldTax;
+    final wageTax = vat.wageTax;
 
     return _KaratLineSnapshot(
       line: line,
@@ -3133,7 +3131,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
       ],
       const SizedBox(height: 24),
       KeyedSubtree(key: _itemsSectionKey, child: _buildInlineItemsSection()),
-      if (!_isSupplierReturnMode && _karatLines.isNotEmpty) ...[
+      if (!_isSupplierReturnMode) ...[
         const SizedBox(height: 24),
         KeyedSubtree(key: _karatSectionKey, child: _buildKaratLinesSection()),
       ],
@@ -4374,9 +4372,9 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
             const SizedBox(height: 12),
             Text(
               _manualPricing
-                  ? 'يمكنك إدخال القيم النقدية والضرائب لكل عيار يدوياً.'
-                  : 'سيتم حساب قيمة الذهب والضرائب تلقائياً اعتماداً على الوزن وسعر الذهب الحالي.',
-              style: const TextStyle(color: Colors.black54),
+                  ? 'للأوزان اليدوية: تُدخل قيمة الذهب والأجور لكل وزن، والضريبة تُحسب عليها.'
+                  : 'تُحسب قيمة الذهب من الوزن وسعر الذهب الحالي، والضريبة عليها.',
+              style: Theme.of(context).textTheme.bodySmall,
             ),
           ],
         ),
@@ -6681,16 +6679,6 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
           ? existing!.wageCashOverride!.toStringAsFixed(2)
           : '',
     );
-    final goldTaxController = TextEditingController(
-      text: existing?.goldTaxOverride != null
-          ? existing!.goldTaxOverride!.toStringAsFixed(2)
-          : '',
-    );
-    final wageTaxController = TextEditingController(
-      text: existing?.wageTaxOverride != null
-          ? existing!.wageTaxOverride!.toStringAsFixed(2)
-          : '',
-    );
     final notesController = TextEditingController(
       text: existing?.description ?? '',
     );
@@ -6698,8 +6686,6 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
     final wageFocusNode = FocusNode();
     final goldValueFocusNode = FocusNode();
     final wageCashFocusNode = FocusNode();
-    final goldTaxFocusNode = FocusNode();
-    final wageTaxFocusNode = FocusNode();
     final notesFocusNode = FocusNode();
 
     final allowedKarats = _allowedGoldKaratsForSelectedSafe();
@@ -6734,15 +6720,8 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
             final exemptKarats = _vatExemptKaratsFromSettings();
             final karatInt = karat.round();
             final isGoldVatExempt = exemptKarats.contains(karatInt);
-            final autoGoldTax = (_applyVatOnGold && !isGoldVatExempt)
-                ? autoGoldValue * vatRate
-                : 0.0;
-            final autoWageTax = autoWageCash * vatRate;
-
             final manualGoldValue = double.tryParse(goldValueController.text);
             final manualWageCash = double.tryParse(wageCashController.text);
-            final manualGoldTax = double.tryParse(goldTaxController.text);
-            final manualWageTax = double.tryParse(wageTaxController.text);
 
             final effectiveGoldValue = _manualPricing
                 ? (manualGoldValue ?? autoGoldValue)
@@ -6750,12 +6729,14 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
             final effectiveWageCash = _manualPricing
                 ? (manualWageCash ?? autoWageCash)
                 : autoWageCash;
-            final effectiveGoldTax = _manualPricing
-                ? (manualGoldTax ?? autoGoldTax)
-                : autoGoldTax;
-            final effectiveWageTax = _manualPricing
-                ? (manualWageTax ?? autoWageTax)
-                : autoWageTax;
+            final vat = _lineVat(
+              vatRate: vatRate,
+              goldTaxed: _applyVatOnGold && !isGoldVatExempt,
+              goldValue: effectiveGoldValue,
+              wageCash: effectiveWageCash,
+            );
+            final effectiveGoldTax = vat.goldTax;
+            final effectiveWageTax = vat.wageTax;
             final total =
                 effectiveGoldValue +
                 effectiveWageCash +
@@ -6892,71 +6873,13 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
                           ),
                         ],
                         onSubmitted: (_) =>
-                            focusAndSelect(goldTaxFocusNode, goldTaxController),
+                            focusAndSelect(notesFocusNode, notesController),
                         decoration: const InputDecoration(
                           labelText: 'أجور المصنعية (ريال)',
                           border: OutlineInputBorder(),
                           prefixIcon: Icon(Icons.construction),
                         ),
                         onChanged: (_) => setDialogState(() {}),
-                      ),
-                      const SizedBox(height: 12),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: TextField(
-                              controller: goldTaxController,
-                              focusNode: goldTaxFocusNode,
-                              keyboardType:
-                                  const TextInputType.numberWithOptions(
-                                    decimal: true,
-                                  ),
-                              textInputAction: TextInputAction.next,
-                              inputFormatters: [
-                                NormalizeNumberFormatter(),
-                                FilteringTextInputFormatter.allow(
-                                  RegExp(r'^[0-9]*\.?[0-9]*$'),
-                                ),
-                              ],
-                              onSubmitted: (_) => focusAndSelect(
-                                wageTaxFocusNode,
-                                wageTaxController,
-                              ),
-                              decoration: const InputDecoration(
-                                labelText: 'ضريبة الذهب',
-                                border: OutlineInputBorder(),
-                              ),
-                              onChanged: (_) => setDialogState(() {}),
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: TextField(
-                              controller: wageTaxController,
-                              focusNode: wageTaxFocusNode,
-                              keyboardType:
-                                  const TextInputType.numberWithOptions(
-                                    decimal: true,
-                                  ),
-                              textInputAction: TextInputAction.next,
-                              inputFormatters: [
-                                NormalizeNumberFormatter(),
-                                FilteringTextInputFormatter.allow(
-                                  RegExp(r'^[0-9]*\.?[0-9]*$'),
-                                ),
-                              ],
-                              decoration: const InputDecoration(
-                                labelText: 'ضريبة الأجور',
-                                border: OutlineInputBorder(),
-                              ),
-                              onChanged: (_) => setDialogState(() {}),
-                              onSubmitted: (_) => focusAndSelect(
-                                notesFocusNode,
-                                notesController,
-                              ),
-                            ),
-                          ),
-                        ],
                       ),
                     ],
                     const SizedBox(height: 12),
@@ -6999,12 +6922,6 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
                             wageCashOverride: _manualPricing
                                 ? manualWageCash
                                 : null,
-                            goldTaxOverride: _manualPricing
-                                ? manualGoldTax
-                                : null,
-                            wageTaxOverride: _manualPricing
-                                ? manualWageTax
-                                : null,
                             description: notesController.text.trim().isEmpty
                                 ? null
                                 : notesController.text.trim(),
@@ -7020,7 +6937,9 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
                     ),
                     const SizedBox(height: 16),
                     Card(
-                      color: const Color(0xFFFAF5E4),
+                      color: Theme.of(
+                        context,
+                      ).colorScheme.surfaceContainerHighest,
                       margin: EdgeInsets.zero,
                       child: Padding(
                         padding: const EdgeInsets.all(12),
@@ -7098,8 +7017,6 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
                         wageCashOverride: _manualPricing
                             ? manualWageCash
                             : null,
-                        goldTaxOverride: _manualPricing ? manualGoldTax : null,
-                        wageTaxOverride: _manualPricing ? manualWageTax : null,
                         description: notesController.text.trim().isEmpty
                             ? null
                             : notesController.text.trim(),
@@ -7119,15 +7036,11 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
     wagePerGramController.dispose();
     goldValueController.dispose();
     wageCashController.dispose();
-    goldTaxController.dispose();
-    wageTaxController.dispose();
     notesController.dispose();
     weightFocusNode.dispose();
     wageFocusNode.dispose();
     goldValueFocusNode.dispose();
     wageCashFocusNode.dispose();
-    goldTaxFocusNode.dispose();
-    wageTaxFocusNode.dispose();
     notesFocusNode.dispose();
 
     return result;
@@ -7417,8 +7330,6 @@ class PurchaseKaratLine {
   final double wagePerGram;
   final double? goldValueOverride;
   final double? wageCashOverride;
-  final double? goldTaxOverride;
-  final double? wageTaxOverride;
   final String? description;
 
   const PurchaseKaratLine({
@@ -7427,8 +7338,6 @@ class PurchaseKaratLine {
     required this.wagePerGram,
     this.goldValueOverride,
     this.wageCashOverride,
-    this.goldTaxOverride,
-    this.wageTaxOverride,
     this.description,
   });
 
@@ -7438,8 +7347,6 @@ class PurchaseKaratLine {
     double? wagePerGram,
     double? goldValueOverride,
     double? wageCashOverride,
-    double? goldTaxOverride,
-    double? wageTaxOverride,
     String? description,
   }) {
     return PurchaseKaratLine(
@@ -7448,8 +7355,6 @@ class PurchaseKaratLine {
       wagePerGram: wagePerGram ?? this.wagePerGram,
       goldValueOverride: goldValueOverride ?? this.goldValueOverride,
       wageCashOverride: wageCashOverride ?? this.wageCashOverride,
-      goldTaxOverride: goldTaxOverride ?? this.goldTaxOverride,
-      wageTaxOverride: wageTaxOverride ?? this.wageTaxOverride,
       description: description ?? this.description,
     );
   }

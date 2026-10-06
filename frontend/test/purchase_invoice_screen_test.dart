@@ -34,6 +34,8 @@ void main() {
     String settlement = 'credit',
     List<Map<String, dynamic>> karatLines = const [],
     List<Map<String, dynamic>> goldSettlements = const [],
+    bool withItem = true,
+    bool manualPricing = false,
   }) => {
     'version': 1,
     'supplier_id': supplierId,
@@ -44,14 +46,16 @@ void main() {
     'selected_gold_paid_karat': 21,
     'gold_settlements': goldSettlements,
     'karat_lines': karatLines,
+    'manual_pricing': manualPricing,
     'inline_items': [
-      {
-        'name': 'خاتم',
-        'karat': 21,
-        'weight_grams': 12.5,
-        'wage_per_gram': 18,
-        'entry_type': 'item',
-      },
+      if (withItem)
+        {
+          'name': 'خاتم',
+          'karat': 21,
+          'weight_grams': 12.5,
+          'wage_per_gram': 18,
+          'entry_type': 'item',
+        },
     ],
   };
 
@@ -338,4 +342,45 @@ void main() {
       );
     },
   );
+
+  group('manual weights (stage 2)', () {
+    testWidgets('a new invoice offers manual weights', (tester) async {
+      await open(tester, api: FakePurchaseApi());
+      expect(find.text('الأوزان اليدوية (اختياري)'), findsOneWidget);
+    });
+
+    testWidgets('a line priced by hand is taxed on its own values, as the '
+        'server checks it', (tester) async {
+      final api = FakePurchaseApi();
+      await open(
+        tester,
+        api: api,
+        saved: draft(
+          supplierId: 1, // has a tax number: with VAT
+          withItem: false,
+          manualPricing: true,
+          karatLines: [
+            {
+              'karat': 21,
+              'weight_grams': 10.0,
+              'wage_per_gram': 0,
+              'gold_value_override': 3000.0,
+              'wage_cash_override': 100.0,
+            },
+          ],
+        ),
+      );
+
+      expect(find.text('جاهز للحفظ'), findsOneWidget);
+      await pressCtrlS(tester);
+      await tester.tap(find.text('حفظ الفاتورة').last);
+      await settle(tester);
+
+      final line = (api.added.single['karat_lines'] as List).single as Map;
+      expect(line['gold_value_cash'], 3000.0);
+      expect(line['manufacturing_wage_cash'], 100.0);
+      expect(line['wage_tax'], 15.0); // 15 % of the wages typed, not of 0
+      expect(line['gold_tax'], 0.0);
+    });
+  });
 }
