@@ -8169,25 +8169,16 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
                 }), 400
         
         elif invoice_type == 'مرتجع شراء (مورد)':
-            # 6. مرتجع شراء (مورد) (عكس الشراء)
-            # الهيكل الصحيح: يعكس فاتورة الشراء بالضبط
-            #   مدين: حساب الجسر (قيمة الذهب النقدية - exclude_from_ledger كما في الشراء)
-            #   مدين: حساب المورد المالي (أجور مصنعية فقط إن وجدت)
+            # 6. مرتجع شراء (مورد): يعكس قيد الشراء سطرًا بسطر (RETURN-WAGE-1)
+            #   مدين: حساب المورد المالي (أجور مصنعية + ضريبتها + ضريبة الذهب)
             #   مدين: حساب مذكرة المورد الوزني (وزن الذهب)
-            #   دائن: حساب المخزون النقدي (exclude_from_ledger)
+            #   دائن: مخزون الأجور أو مصروفها (حسب معالجة الفاتورة الأصلية)
+            #   دائن: ضريبة المشتريات
             #   دائن: حساب مذكرة المخزون الوزني (exclude_from_ledger)
 
             # 🔥 استخدام الربط المحاسبي (نفس إعدادات "شراء")
             cash_acc_id = get_account_id_for_mapping('شراء', 'cash')
             suppliers_acc_id = get_account_id_for_mapping('شراء', 'suppliers')
-
-            # حساب الجسر (نفس منطق الشراء الأصلي)
-            bridge_acc_id = (
-                data.get('bridge_account_id')
-                or get_account_id_for_mapping('شراء', 'supplier_bridge')
-                or get_account_id_for_mapping('شراء', 'suppliers')
-                or cash_acc_id
-            )
 
             # Prefer posting to the supplier's own subledger account (root-fix).
             supplier_fin_account_id = None
@@ -8240,13 +8231,18 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
 
             has_gold_weight = any(float(v or 0) > 0 for v in gold_by_karat.values())
 
-            # استخراج جزء الأجور المصنعية (إن وجد) - يذهب لحساب المورد المالي مباشرة
+            # The return reverses its purchase line by line (RETURN-WAGE-1, the
+            # owner 7 Oct 2026). The purchase posts in cash only the wages (1320,
+            # or the wage expense under «expense» -- ADR-039) and their VAT and
+            # the gold VAT (1400) against the supplier; the gold by weight. So the
+            # return debits the supplier for those and credits where the purchase
+            # put them -- no cash for the gold's value, which the purchase never
+            # posted (the old lines put it on 2100 and took it off 1300).
             wage_cash = _to_float(
                 data.get('manufacturing_wage_cash') or data.get('wage_cash')
                 or data.get('total_wage') or data.get('wage_subtotal') or 0,
                 0.0
             )
-            # في المرتجع يجب عكس ضريبة الأجور من حساب المورد تماماً كما أُضيفت في الشراء
             _ret_wage_tax = _to_float(
                 data.get('wage_tax_total') or data.get('wage_tax') or 0,
                 0.0
@@ -8255,40 +8251,42 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
                 data.get('gold_tax_total') or data.get('gold_tax') or 0,
                 0.0
             )
-            # مبلغ الذهب = قيمة الذهب + ضريبة الذهب فقط (لا تشمل أجور ولا ضريبة الأجور)
-            gold_subtt = _to_float(data.get('gold_subtotal') or 0, 0.0)
-            if gold_subtt > 0:
-                gold_value_cash = max(round(gold_subtt + _ret_gold_tax, 2), 0.0)
-            else:
-                gold_value_cash = max(round(total_cash - wage_cash - _ret_wage_tax, 2), 0.0)
+            _ret_vat = round(_ret_wage_tax + _ret_gold_tax, 2)
 
-            # Line 1: مدين حساب الجسر (قيمة الذهب النقدية - كما في الشراء)
-            # يُعكس الدائن على الجسر من فاتورة الشراء الأصلية
-            if gold_value_cash > 0 and bridge_acc_id:
-                create_dual_journal_entry(
-                    journal_entry_id=journal_entry.id,
-                    account_id=bridge_acc_id,
-                    cash_debit=gold_value_cash,
-                    apply_golden_rule=False,
-                    exclude_from_ledger=True,
-                    description="مرتجع شراء (مورد) - عكس جسر التقييم"
-                )
-            elif total_cash > 0 and not bridge_acc_id:
-                # Fallback: لا يوجد حساب جسر → استخدم حساب المورد المالي
+            # The original's frozen treatment decides where its wages went.
+            _treatment_of = original_invoice if original_invoice is not None else new_invoice
+            _wages_capitalized = wages_are_capitalized(wage_mode_of(_treatment_of))
+            _ret_wage_acc_id = (
+                manufacturing_wage_inventory_account_id()
+                if _wages_capitalized
+                else manufacturing_wage_expense_account_id()
+            )
+            _ret_vat_acc_id = get_account_id_for_mapping('شراء', 'vat_receivable')
+            if not _ret_vat_acc_id:
+                _vat_acc = (Account.query.filter_by(account_number='1400').first()
+                            or Account.query.filter_by(account_number='1500').first())
+                _ret_vat_acc_id = _vat_acc.id if _vat_acc else None
+
+            if wage_cash > 0 and not _ret_wage_acc_id:
+                db.session.rollback()
+                return jsonify({
+                    'error': 'account_mapping_missing',
+                    'message': 'حساب أجور المصنعية غير موجود لعكسها في مرتجع الشراء.',
+                }), 400
+            if _ret_vat > 0 and not _ret_vat_acc_id:
+                db.session.rollback()
+                return jsonify({
+                    'error': 'vat_receivable_account_missing',
+                    'message': 'حساب ضريبة القيمة المضافة (مدفوعة) غير موجود لعكسها في مرتجع الشراء.',
+                }), 400
+
+            # Line 1: مدين حساب المورد المالي (أجور مصنعية + ضريبتها + ضريبة الذهب)
+            _supplier_back = round(wage_cash + _ret_vat, 2)
+            if _supplier_back > 0:
                 create_dual_journal_entry(
                     journal_entry_id=journal_entry.id,
                     account_id=acc_id,
-                    cash_debit=total_cash,
-                    description="مرتجع شراء (مورد)"
-                )
-
-            # Line 1b: مدين حساب المورد المالي (أجور مصنعية + ضريبة الأجور - عكس كامل لسطر الشراء)
-            _wage_with_tax = round(wage_cash + _ret_wage_tax, 2)
-            if _wage_with_tax > 0:
-                create_dual_journal_entry(
-                    journal_entry_id=journal_entry.id,
-                    account_id=acc_id,
-                    cash_debit=_wage_with_tax,
+                    cash_debit=_supplier_back,
                     description="مرتجع شراء (مورد) - رد أجور مصنعية وضريبتها"
                 )
 
@@ -8304,14 +8302,31 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
                         description="مرتجع شراء (مورد) - تخفيض وزن ذهب المورد"
                     )
 
-            # Line 3: دائن حساب المخزون النقدي (تقليص القيمة النقدية)
-            create_dual_journal_entry(
-                journal_entry_id=journal_entry.id,
-                account_id=inventory_acc_id,
-                cash_credit=total_cash,
-                exclude_from_ledger=True,
-                description="خصم من المخزون النقدي (مرتجع شراء مورد)"
-            )
+            # Line 3: دائن حساب الأجور كما رحّلها الشراء (مخزون الأجور أو مصروفها)
+            if wage_cash > 0:
+                create_dual_journal_entry(
+                    journal_entry_id=journal_entry.id,
+                    account_id=_ret_wage_acc_id,
+                    cash_credit=round(wage_cash, 2),
+                    apply_golden_rule=False,
+                    exclude_from_ledger=True,
+                    description=(
+                        "عكس أجور مصنعية من المخزون - مرتجع شراء (مورد)"
+                        if _wages_capitalized
+                        else "عكس أجور مصنعية مصروفة - مرتجع شراء (مورد)"
+                    )
+                )
+
+            # Line 3b: دائن ضريبة المشتريات (ضريبة الأجور والذهب كما رحّلها الشراء)
+            if _ret_vat > 0:
+                create_dual_journal_entry(
+                    journal_entry_id=journal_entry.id,
+                    account_id=_ret_vat_acc_id,
+                    cash_credit=_ret_vat,
+                    apply_golden_rule=False,
+                    exclude_from_ledger=True,
+                    description="عكس ضريبة المشتريات - مرتجع شراء (مورد)"
+                )
 
             # Line 4: دائن حساب مذكرة المخزون الوزني
             if has_gold_weight and weight_inventory_acc_id:
