@@ -18,6 +18,7 @@ import '../widgets/original_invoice_selector.dart';
 import '../widgets/party_picker_dialog.dart';
 import '../widgets/searchable_picker_field.dart';
 import '../utils/invoice_direct_print.dart';
+import '../utils/purchase_readiness.dart';
 import 'add_supplier_screen.dart';
 import '../utils.dart';
 
@@ -31,12 +32,9 @@ class _GoldSettlementLine {
   String commissionDirection = ''; // '' = بدون | 'earn' = عمولة | 'pay' = رسوم
   final TextEditingController commissionController;
 
-  _GoldSettlementLine({
-    this.safeBoxId,
-    this.karat,
-    String initialWeight = '',
-  })  : weightController = TextEditingController(text: initialWeight),
-        commissionController = TextEditingController();
+  _GoldSettlementLine({this.safeBoxId, this.karat, String initialWeight = ''})
+    : weightController = TextEditingController(text: initialWeight),
+      commissionController = TextEditingController();
 
   double commissionTotal(double weight) => weight * commissionPerGram;
 
@@ -68,7 +66,9 @@ class _CommissionToggleButton extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
         decoration: BoxDecoration(
-          color: selected ? effectiveColor.withOpacity(0.15) : Colors.transparent,
+          color: selected
+              ? effectiveColor.withOpacity(0.15)
+              : Colors.transparent,
           border: Border.all(
             color: selected ? effectiveColor : theme.colorScheme.outlineVariant,
             width: selected ? 1.5 : 1,
@@ -80,7 +80,9 @@ class _CommissionToggleButton extends StatelessWidget {
           style: TextStyle(
             fontSize: 11,
             fontWeight: selected ? FontWeight.bold : FontWeight.normal,
-            color: selected ? effectiveColor : theme.colorScheme.onSurfaceVariant,
+            color: selected
+                ? effectiveColor
+                : theme.colorScheme.onSurfaceVariant,
           ),
         ),
       ),
@@ -95,8 +97,12 @@ class PurchaseInvoiceScreen extends StatefulWidget {
   final int? editInvoiceId;
   final Map<String, dynamic>? editInvoiceData;
 
+  /// The server; tests pass a fake.
+  final ApiService? apiService;
+
   const PurchaseInvoiceScreen({
     super.key,
+    this.apiService,
     this.supplierId,
     this.supplierReturnMode = false,
     this.originalInvoiceId,
@@ -114,7 +120,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
   static const _prefKeyPurchaseWagePostingMode =
       'purchase_invoice.wage_posting_mode';
 
-  final ApiService _api = ApiService();
+  late final ApiService _api = widget.apiService ?? ApiService();
 
   bool _manualPricing = false;
   bool _applyVatOnGold = false;
@@ -122,6 +128,10 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
   bool _wagePostingModeFromPrefs = false;
   bool _isLoadingSuppliers = false;
   bool _isSavingInvoice = false;
+
+  /// Up from the save press until the flow ends -- through the review, which
+  /// waits on the supplier's statement -- so a second press opens nothing.
+  bool _saveFlowOpen = false;
   bool _showAdvancedPaymentOptions = false;
 
   bool _uiLockPriceEdits = false;
@@ -130,6 +140,19 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
   String _uiPaperSize = 'A4';
 
   bool _checkedLocalDraft = false;
+
+  // What the server enforces on gold settlements (from /settings and the
+  // signed-in employee): employee gold safes, and no gold on unposted invoices.
+  bool _employeeGoldSafesEnabled = false;
+  int? _employeeGoldSafeId;
+  bool _autoPostInvoices = true;
+
+  // Where each readiness reason is fixed, to bring it into view.
+  final _supplierSectionKey = GlobalKey();
+  final _goldPriceKey = GlobalKey();
+  final _itemsSectionKey = GlobalKey();
+  final _karatSectionKey = GlobalKey();
+  final _paymentSectionKey = GlobalKey();
 
   // Supplier return (مرتجع شراء (مورد))
   Map<String, dynamic>? _selectedOriginalInvoice;
@@ -431,130 +454,136 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-            Row(
-              children: [
-                Expanded(
-                  flex: 3,
-                  child: DropdownButtonFormField<int>(
-                    value: safeValue,
-                    decoration: const InputDecoration(
-                      labelText: 'خزينة الذهب',
-                      border: OutlineInputBorder(),
-                      isDense: true,
-                    ),
-                    items: availableSafes
-                        .where((b) => b.id != null)
-                        .map(
-                          (box) => DropdownMenuItem<int>(
-                            value: box.id!,
-                            child: Text(
-                              _goldSafeLabel(box),
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                        )
-                        .toList(),
-                    onChanged: (value) {
-                      setState(() {
-                        line.safeBoxId = value;
-
-                        final picked = _findGoldSafeBoxById(value);
-                        final fixed = picked?.karat;
-                        if (fixed != null && {18, 21, 22, 24}.contains(fixed)) {
-                          line.karat = fixed;
-                        } else {
-                          line.karat ??= _selectedGoldPaidKarat;
-                        }
-
-                        if (index == 0) {
-                          _selectedGoldSafeBoxId = value;
-                        }
-
-                        _refreshGoldPaidTotalFromLines();
-                      });
-                    },
-                  ),
-                ),
-                const SizedBox(width: 8),
-                SizedBox(
-                  width: 110,
-                  child: DropdownButtonFormField<int>(
-                    value: lineKarat,
-                    decoration: const InputDecoration(
-                      labelText: 'العيار',
-                      border: OutlineInputBorder(),
-                      isDense: true,
-                    ),
-                    items: const [24, 22, 21, 18]
-                        .map(
-                          (k) => DropdownMenuItem<int>(
-                            value: k,
-                            child: Text('عيار $k'),
-                          ),
-                        )
-                        .toList(),
-                    onChanged: (value) {
-                      if (value == null) return;
-                      setState(() {
-                        line.karat = value;
-
-                        final box = _findGoldSafeBoxById(line.safeBoxId);
-                        if (box != null && !_goldSafeAcceptsKarat(box, value)) {
-                          line.safeBoxId = null;
-                        }
-
-                        line.safeBoxId ??= _defaultGoldSafeIdForKarat(value);
-                        _refreshGoldPaidTotalFromLines();
-                      });
-                    },
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  flex: 2,
-                  child: TextFormField(
-                    controller: line.weightController,
-                    keyboardType: const TextInputType.numberWithOptions(
-                      decimal: true,
-                    ),
-                    inputFormatters: [
-                      NormalizeNumberFormatter(),
-                      FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
-                    ],
-                    decoration: const InputDecoration(
-                      labelText: 'وزن',
-                      border: OutlineInputBorder(),
-                      isDense: true,
-                      hintText: '0.000',
-                    ),
-                    onChanged: (_) {
-                      setState(() {
-                        _refreshGoldPaidTotalFromLines();
-                      });
-                    },
-                  ),
-                ),
-                const SizedBox(width: 8),
-                IconButton(
-                  tooltip: 'حذف',
-                  onPressed:
-                      (requiredSettlement && _goldSettlementLines.length <= 1)
-                      ? null
-                      : () {
+                Row(
+                  children: [
+                    Expanded(
+                      flex: 3,
+                      child: DropdownButtonFormField<int>(
+                        value: safeValue,
+                        decoration: const InputDecoration(
+                          labelText: 'خزينة الذهب',
+                          border: OutlineInputBorder(),
+                          isDense: true,
+                        ),
+                        items: availableSafes
+                            .where((b) => b.id != null)
+                            .map(
+                              (box) => DropdownMenuItem<int>(
+                                value: box.id!,
+                                child: Text(
+                                  _goldSafeLabel(box),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                            )
+                            .toList(),
+                        onChanged: (value) {
                           setState(() {
-                            final removed = _goldSettlementLines.removeAt(
-                              index,
-                            );
-                            removed.dispose();
+                            line.safeBoxId = value;
+
+                            final picked = _findGoldSafeBoxById(value);
+                            final fixed = picked?.karat;
+                            if (fixed != null &&
+                                {18, 21, 22, 24}.contains(fixed)) {
+                              line.karat = fixed;
+                            } else {
+                              line.karat ??= _selectedGoldPaidKarat;
+                            }
+
+                            if (index == 0) {
+                              _selectedGoldSafeBoxId = value;
+                            }
+
                             _refreshGoldPaidTotalFromLines();
                           });
                         },
-                  icon: const Icon(Icons.delete_outline),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    SizedBox(
+                      width: 110,
+                      child: DropdownButtonFormField<int>(
+                        value: lineKarat,
+                        decoration: const InputDecoration(
+                          labelText: 'العيار',
+                          border: OutlineInputBorder(),
+                          isDense: true,
+                        ),
+                        items: const [24, 22, 21, 18]
+                            .map(
+                              (k) => DropdownMenuItem<int>(
+                                value: k,
+                                child: Text('عيار $k'),
+                              ),
+                            )
+                            .toList(),
+                        onChanged: (value) {
+                          if (value == null) return;
+                          setState(() {
+                            line.karat = value;
+
+                            final box = _findGoldSafeBoxById(line.safeBoxId);
+                            if (box != null &&
+                                !_goldSafeAcceptsKarat(box, value)) {
+                              line.safeBoxId = null;
+                            }
+
+                            line.safeBoxId ??= _defaultGoldSafeIdForKarat(
+                              value,
+                            );
+                            _refreshGoldPaidTotalFromLines();
+                          });
+                        },
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      flex: 2,
+                      child: TextFormField(
+                        controller: line.weightController,
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true,
+                        ),
+                        inputFormatters: [
+                          NormalizeNumberFormatter(),
+                          FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
+                        ],
+                        decoration: const InputDecoration(
+                          labelText: 'وزن',
+                          border: OutlineInputBorder(),
+                          isDense: true,
+                          hintText: '0.000',
+                        ),
+                        onChanged: (_) {
+                          setState(() {
+                            _refreshGoldPaidTotalFromLines();
+                          });
+                        },
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    IconButton(
+                      tooltip: 'حذف',
+                      onPressed:
+                          (requiredSettlement &&
+                              _goldSettlementLines.length <= 1)
+                          ? null
+                          : () {
+                              setState(() {
+                                final removed = _goldSettlementLines.removeAt(
+                                  index,
+                                );
+                                removed.dispose();
+                                _refreshGoldPaidTotalFromLines();
+                              });
+                            },
+                      icon: const Icon(Icons.delete_outline),
+                    ),
+                  ],
                 ),
-              ],
-            ),
-            // صف العمولة / الرسوم
-            if (lineWeight > 0) _buildSettlementLineCommissionRow(line, lineWeight),
+                // صف العمولة / الرسوم
+                if (lineWeight > 0)
+                  _buildSettlementLineCommissionRow(line, lineWeight),
               ],
             ),
           );
@@ -610,7 +639,9 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
   }
 
   Widget _buildSettlementLineCommissionRow(
-      _GoldSettlementLine line, double weight) {
+    _GoldSettlementLine line,
+    double weight,
+  ) {
     final theme = Theme.of(context);
     final hasCommission = line.commissionDirection.isNotEmpty;
     final isEarn = line.commissionDirection == 'earn';
@@ -654,14 +685,20 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
               width: 90,
               child: TextFormField(
                 controller: line.commissionController,
-                keyboardType:
-                    const TextInputType.numberWithOptions(decimal: true),
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
                 decoration: InputDecoration(
                   labelText: 'ر.س/جم',
                   border: const OutlineInputBorder(),
                   isDense: true,
                   suffixText: 'ر.س',
-                  labelStyle: TextStyle(fontSize: 11, color: isEarn ? theme.colorScheme.tertiary : theme.colorScheme.error),
+                  labelStyle: TextStyle(
+                    fontSize: 11,
+                    color: isEarn
+                        ? theme.colorScheme.tertiary
+                        : theme.colorScheme.error,
+                  ),
                 ),
                 onChanged: (v) => setState(() {
                   line.commissionPerGram = double.tryParse(v) ?? 0;
@@ -1293,6 +1330,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
           .toList();
       setState(() {
         _goldSafeBoxes = goldBoxes;
+        _employeeGoldSafeId = employeeGoldSafeBoxId;
 
         final mainKarat = _mainKaratFromSettings();
         if (_selectedGoldPaidKarat <= 0) {
@@ -1568,6 +1606,12 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
     }
 
     if (!mounted || settings == null) return;
+
+    final loaded = settings;
+    setState(() {
+      _employeeGoldSafesEnabled = loaded['employee_gold_safes_enabled'] == true;
+      _autoPostInvoices = loaded['auto_post_invoices'] != false;
+    });
 
     final rawMode = settings['manufacturing_wage_mode'];
     final normalized = rawMode is String
@@ -2353,134 +2397,107 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
         .toList();
   }
 
-  bool _validateBeforeSave({bool forDraft = false}) {
-    if (_selectedBranchId == null) {
-      setState(() {
-        _branchError = 'يجب اختيار فرع';
-      });
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('يرجى اختيار الفرع قبل الحفظ')),
+  /// The one answer the save button and the status read: ready only when the
+  /// server would take the invoice as it stands (utils/purchase_readiness.dart).
+  PurchaseReadiness _readiness() {
+    final settings = context.read<SettingsProvider>();
+    // The server's VAT policy, which the screen's «disable VAT» switch does
+    // not change: the server checks manual lines against it.
+    final policyRate = settings.taxEnabled ? settings.taxRate : 0.0;
+    final exempt = _vatExemptKaratsFromSettings();
+
+    final karatLines = _karatLines.map((line) {
+      final snap = _snapshotFor(line);
+      final goldTaxed = _applyVatOnGold && !exempt.contains(line.karat.round());
+      return PurchaseKaratLineFacts(
+        weight: snap.weight,
+        goldTax: snap.goldTax,
+        wageTax: snap.wageTax,
+        expectedGoldTax: goldTaxed && snap.goldValue > 0
+            ? snap.goldValue * policyRate
+            : 0.0,
+        expectedWageTax: snap.wageCash > 0 ? snap.wageCash * policyRate : 0.0,
       );
-      return false;
-    }
+    }).toList();
 
-    if (_selectedSupplierId == null) {
-      setState(() {
-        _supplierError = 'يجب اختيار مورد';
-      });
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('يرجى اختيار المورد قبل الحفظ')),
+    final goldLines = _goldSettlementLines.map((line) {
+      final fixed = _findGoldSafeBoxById(line.safeBoxId)?.karat;
+      return PurchaseGoldLineFacts(
+        safeId: line.safeBoxId,
+        karat: _effectiveGoldSettlementLineKarat(line),
+        weight: _goldSettlementLineWeight(line),
+        safeFixedKarat: (fixed != null && {18, 21, 22, 24}.contains(fixed))
+            ? fixed
+            : null,
       );
-      return false;
-    }
+    }).toList();
 
-    if (forDraft) {
-      // Drafts: keep only the minimal required identifiers.
-      // Allow saving even if items/karat lines/weights are not complete yet.
-      return true;
-    }
-
-    if (_karatLines.isEmpty && _inlineItems.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('أضف أصنافاً أو قم بتعبئة بيانات العيارات قبل الحفظ'),
-        ),
-      );
-      return false;
-    }
-
-    if (_totalWeight <= 0) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('إجمالي الوزن يجب أن يكون أكبر من صفر')),
-      );
-      return false;
-    }
-
-    final paidCash = _cashPaid();
-
-    // Partial cash should not exceed cash due (no supplier advance credit in this screen).
-    if (_settlementMode == _PurchaseSettlementMode.partial) {
-      final dueCash = _cashDueForSupplier();
-      if ((paidCash - dueCash) > 0.01) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              'المدفوع النقدي لا يمكن أن يتجاوز النقد المستحق (${_formatCurrency(dueCash)})',
-            ),
-            backgroundColor: Colors.red,
-          ),
-        );
-        return false;
-      }
-    }
-
-    // Require payment method only if we are actually paying cash.
-    if (_settlementMode == _PurchaseSettlementMode.partial &&
-        paidCash > 0 &&
-        _paymentMethods.isNotEmpty &&
-        _selectedPaymentMethodId == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('اختر وسيلة الدفع قبل الحفظ')),
-      );
-      return false;
-    }
-
-    if (_isGoldSettlementContext) {
-      final requiresGold = _settlementMode == _PurchaseSettlementMode.barter;
-      final totalLines = _goldSettlementLinesTotalMainEquivalent();
-
-      if (requiresGold && totalLines <= 0) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('أضف سداد ذهب قبل الحفظ')));
-        return false;
-      }
-
-      for (final line in _goldSettlementLines) {
-        if (_isSettlementLineEffectivelyEmpty(line)) continue;
-
-        final weight = _toDouble(
-          normalizeNumber(line.weightController.text).trim(),
-        );
-
-        if (line.safeBoxId == null) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('اختر خزينة الذهب لكل سطر قبل الحفظ')),
-          );
-          return false;
-        }
-        if (weight <= 0) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('أدخل وزن السداد لكل خزينة')),
-          );
-          return false;
-        }
-      }
-    }
-
-    // Cash partial payments require backend setting allow_partial_invoice_payments.
-    // Full immediate cash payment (paid == due) is allowed even if partial payments are disabled.
-    if (_settlementMode == _PurchaseSettlementMode.partial && paidCash > 0) {
-      final dueCash = _cashDueForSupplier();
-      final isActuallyPartial = (dueCash - paidCash) > 0.01;
-      if (isActuallyPartial) {
-        final allowPartial = context
-            .read<SettingsProvider>()
-            .allowPartialInvoicePayments;
-        if (!allowPartial) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text(
-                'لا يمكن تسجيل دفعة نقدية جزئية إلا بعد تفعيل السماح بالدفع الجزئي من الإعدادات',
+    return purchaseReadiness(
+      PurchaseReadinessFacts(
+        branchChosen: _selectedBranchId != null,
+        supplierChosen: _selectedSupplierId != null,
+        goldPriceKnown: _toDouble(_goldPrice?['price_24k']) > 0,
+        manualPricing: _manualPricing,
+        items: _inlineItems
+            .map(
+              (item) => PurchaseItemFacts(
+                weight: item.weightGrams,
+                maxWeight: item.maxWeightGrams,
               ),
-            ),
-          );
-          return false;
-        }
-      }
-    }
+            )
+            .toList(),
+        karatLines: karatLines,
+        settlement: switch (_settlementMode) {
+          _PurchaseSettlementMode.credit => PurchaseSettlement.credit,
+          _PurchaseSettlementMode.barter => PurchaseSettlement.barter,
+          _PurchaseSettlementMode.partial => PurchaseSettlement.partial,
+        },
+        cashDue: _cashDueForSupplier(),
+        cashPaid: _cashPaid(),
+        paymentMethodsAvailable: _paymentMethods.isNotEmpty,
+        paymentMethodChosen: _selectedPaymentMethodId != null,
+        allowPartialPayments: settings.allowPartialInvoicePayments,
+        goldLines: goldLines,
+        goldSafesAvailable: _goldSafeBoxes.isNotEmpty,
+        forcedGoldSafeId: _employeeGoldSafesEnabled
+            ? _employeeGoldSafeId
+            : null,
+        autoPostInvoices: _autoPostInvoices,
+      ),
+      formatCash: _formatCurrency,
+    );
+  }
 
-    return true;
+  /// Marks the field that blocks the save and brings its section into view.
+  void _revealProblem(PurchaseReadiness readiness) {
+    setState(() {
+      if (readiness.target == PurchaseReadinessTarget.branch) {
+        _branchError = readiness.message;
+      }
+      if (readiness.target == PurchaseReadinessTarget.supplier) {
+        _supplierError = readiness.message;
+      }
+    });
+    final key = switch (readiness.target) {
+      PurchaseReadinessTarget.branch ||
+      PurchaseReadinessTarget.supplier => _supplierSectionKey,
+      PurchaseReadinessTarget.goldPrice => _goldPriceKey,
+      PurchaseReadinessTarget.item => _itemsSectionKey,
+      PurchaseReadinessTarget.karatLine =>
+        _karatLines.isEmpty ? _itemsSectionKey : _karatSectionKey,
+      PurchaseReadinessTarget.cashPaid ||
+      PurchaseReadinessTarget.paymentMethod ||
+      PurchaseReadinessTarget.goldLine => _paymentSectionKey,
+      PurchaseReadinessTarget.none => null,
+    };
+    final target = key?.currentContext;
+    if (target != null) {
+      Scrollable.ensureVisible(
+        target,
+        duration: const Duration(milliseconds: 250),
+        alignment: 0.1,
+      );
+    }
   }
 
   Map<String, dynamic> _buildInvoicePayload() {
@@ -2586,15 +2603,9 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
       }
     }
 
-    // Weight-sensitive settlement (gold barter/partial): keep ONE source of weight.
-    // If user filled both explicit karat_lines and inline items, prefer karat_lines.
-    final isWeightSensitiveSettlement = paidGoldWeight > 0;
-    if (isWeightSensitiveSettlement &&
-        linePayloads.isNotEmpty &&
-        inlineItemsPayload.isNotEmpty) {
-      payload['items'] = <dynamic>[];
-      payload['inline_items_omitted_reason'] = 'weight_sensitive_settlement';
-    }
+    // Gold settled with items and manual weights together is never sent: the
+    // server refuses it (payload_conflict_weight_sources) and readiness says so
+    // on the screen. Items are not dropped silently.
 
     // Invoice drafts are not supported.
 
@@ -2677,20 +2688,27 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
     return payload;
   }
 
+  /// One save at a time, from the press to the server's answer.
   Future<void> _saveInvoice() async {
-    if (_isSavingInvoice) return;
-    if (!_validateBeforeSave()) return;
-
-    final shouldProceed = await _showPreSaveInvoiceSummary();
-    if (!shouldProceed) return;
-
-    if (!mounted) return;
+    if (_saveFlowOpen) return;
+    final readiness = _readiness();
+    if (!readiness.isReady) {
+      _revealProblem(readiness);
+      return;
+    }
 
     setState(() {
-      _isSavingInvoice = true;
+      _saveFlowOpen = true;
     });
 
     try {
+      final shouldProceed = await _showPreSaveInvoiceSummary();
+      if (!shouldProceed || !mounted) return;
+
+      setState(() {
+        _isSavingInvoice = true;
+      });
+
       final payload = _buildInvoicePayload();
       final response = _isEditMode
           ? await _api.updateUnpostedInvoice(widget.editInvoiceId!, payload)
@@ -2863,6 +2881,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
       if (mounted) {
         setState(() {
           _isSavingInvoice = false;
+          _saveFlowOpen = false;
         });
       }
     }
@@ -3015,10 +3034,9 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
                 highlightCard: true,
                 details: [
                   InvoiceSummaryMetricDetail(
-                    label: _paymentMethods
-                            .where(
-                              (m) => m['id'] == _selectedPaymentMethodId,
-                            )
+                    label:
+                        _paymentMethods
+                            .where((m) => m['id'] == _selectedPaymentMethodId)
                             .map<String>(
                               (m) => m['name']?.toString() ?? 'غير محدد',
                             )
@@ -3119,24 +3137,26 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
     final size = MediaQuery.of(context).size;
     final isWideLayout = size.width >= 1100;
 
+    final readiness = _readiness();
+
     final leftColumn = <Widget>[
-      _buildSupplierSection(),
+      KeyedSubtree(key: _supplierSectionKey, child: _buildSupplierSection()),
       if (_isSupplierReturnMode) ...[
         const SizedBox(height: 16),
         _buildOriginalInvoiceSection(),
       ],
       const SizedBox(height: 24),
-      _buildInlineItemsSection(),
+      KeyedSubtree(key: _itemsSectionKey, child: _buildInlineItemsSection()),
       if (!_isSupplierReturnMode && _karatLines.isNotEmpty) ...[
         const SizedBox(height: 24),
-        _buildKaratLinesSection(),
+        KeyedSubtree(key: _karatSectionKey, child: _buildKaratLinesSection()),
       ],
       const SizedBox(height: 24),
-      _buildPaymentSection(),
+      KeyedSubtree(key: _paymentSectionKey, child: _buildPaymentSection()),
     ];
 
     final rightColumn = <Widget>[
-      _buildGoldPriceCard(),
+      KeyedSubtree(key: _goldPriceKey, child: _buildGoldPriceCard()),
       const SizedBox(height: 24),
       _buildPricingModeCard(),
       const SizedBox(height: 24),
@@ -3145,14 +3165,46 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
       _buildWagePostingModeCard(),
       const SizedBox(height: 24),
       _buildSettlementCard(),
-      const SizedBox(height: 20),
-      _buildSaveInvoiceButton(),
     ];
 
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) _confirmLeave();
+      },
+      child: CallbackShortcuts(
+        bindings: {
+          const SingleActivator(LogicalKeyboardKey.keyS, control: true):
+              _saveInvoice,
+          const SingleActivator(LogicalKeyboardKey.keyS, meta: true):
+              _saveInvoice,
+        },
+        child: Focus(
+          autofocus: true,
+          child: _buildScaffold(
+            readiness,
+            isWideLayout,
+            leftColumn,
+            rightColumn,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildScaffold(
+    PurchaseReadiness readiness,
+    bool isWideLayout,
+    List<Widget> leftColumn,
+    List<Widget> rightColumn,
+  ) {
     return Scaffold(
+      bottomNavigationBar: _buildFooter(readiness),
       appBar: AppBar(
         title: Text(
-          _isSupplierReturnMode ? 'مرتجع شراء (مورد)' : 'فاتورة شراء جديدة',
+          _isSupplierReturnMode
+              ? 'مرتجع شراء (مورد)'
+              : (_isEditMode ? 'تعديل فاتورة شراء' : 'فاتورة شراء جديدة'),
         ),
         bottom: PreferredSize(
           preferredSize: const Size.fromHeight(26.0),
@@ -4750,42 +4802,156 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
     );
   }
 
-  Widget _buildSaveInvoiceButton() {
-    final theme = Theme.of(context);
-    return Card(
-      elevation: theme.brightness == Brightness.dark ? 1 : 2,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: SizedBox(
-          width: double.infinity,
-          child: FilledButton.icon(
-            onPressed: _isSavingInvoice ? null : _saveInvoice,
-            icon: _isSavingInvoice
-                ? SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      color: theme.colorScheme.onSecondary,
-                    ),
-                  )
-                : const Icon(Icons.save_alt),
-            label: Text(
-              _isSavingInvoice
-                  ? 'جارٍ الحفظ...'
-                  : (_isSupplierReturnMode ? 'حفظ المرتجع' : 'حفظ الفاتورة'),
+  /// Anything typed that leaving would lose.
+  bool get _hasUnsavedWork =>
+      _inlineItems.isNotEmpty ||
+      _karatLines.isNotEmpty ||
+      _cashPaid() > 0 ||
+      _goldSettlementLines.any((l) => !_isSettlementLineEffectivelyEmpty(l));
+
+  /// Back, the system gesture, the app bar arrow: leave at once when nothing
+  /// was entered, otherwise ask -- the invoice is lost with the screen.
+  Future<void> _confirmLeave() async {
+    if (_saveFlowOpen) return;
+    if (!_hasUnsavedWork) {
+      Navigator.of(context).pop();
+      return;
+    }
+    final canKeepForLater = !_isSupplierReturnMode && !_isEditMode;
+    final choice = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('فاتورة غير محفوظة'),
+        content: const Text(
+          'في الفاتورة أصناف أو مبالغ لم تُحفظ. ماذا تريد أن تفعل؟',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop('stay'),
+            child: const Text('متابعة التحرير'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop('discard'),
+            child: const Text('خروج دون حفظ'),
+          ),
+          if (canKeepForLater)
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop('later'),
+              child: const Text('إكمال لاحقاً'),
             ),
-            style: FilledButton.styleFrom(
-              backgroundColor: theme.colorScheme.secondary,
-              foregroundColor: theme.colorScheme.onSecondary,
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 18),
-              textStyle: theme.textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.w800,
-              ),
+        ],
+      ),
+    );
+    if (!mounted) return;
+    if (choice == 'later') {
+      await _completeLater();
+    } else if (choice == 'discard') {
+      Navigator.of(context).pop();
+    }
+  }
+
+  Widget _buildFooter(PurchaseReadiness readiness) {
+    final theme = Theme.of(context);
+    return Container(
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        border: Border(
+          top: BorderSide(color: theme.colorScheme.outlineVariant),
+        ),
+      ),
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 10),
+          child: Row(
+            children: [
+              Expanded(child: _buildStatus(readiness)),
+              const SizedBox(width: 16),
+              _buildSaveButton(readiness),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// The one state the user reads: green only when the server would take the
+  /// invoice as it stands.
+  Widget _buildStatus(PurchaseReadiness readiness) {
+    final theme = Theme.of(context);
+    final tones = AppSemanticColors.of(context);
+    final (IconData icon, Color color, String text) = switch (readiness.kind) {
+      PurchaseReadinessKind.ready => (
+        Icons.check_circle,
+        tones.ready.fg,
+        'جاهز للحفظ',
+      ),
+      PurchaseReadinessKind.notReady => (
+        Icons.error_outline,
+        tones.blocked.fg,
+        'غير جاهز للحفظ — ${readiness.message}',
+      ),
+      PurchaseReadinessKind.empty => (
+        Icons.edit_note,
+        theme.colorScheme.onSurfaceVariant,
+        readiness.message,
+      ),
+    };
+    return Row(
+      children: [
+        Icon(icon, size: 20, color: color),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            text,
+            style: theme.textTheme.bodyLarge?.copyWith(
+              color: color,
+              fontWeight: FontWeight.w700,
             ),
           ),
         ),
+      ],
+    );
+  }
+
+  Widget _buildSaveButton(PurchaseReadiness readiness) {
+    final label = _isSupplierReturnMode ? 'حفظ المرتجع' : 'حفظ الفاتورة';
+    if (_isSavingInvoice) {
+      return const FilledButton(
+        onPressed: null,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SizedBox(
+              width: 16,
+              height: 16,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+            SizedBox(width: 8),
+            Text('جارٍ الحفظ…'),
+          ],
+        ),
+      );
+    }
+    if (readiness.isReady) {
+      return FilledButton.icon(
+        onPressed: _saveFlowOpen ? null : _saveInvoice,
+        icon: const Icon(Icons.check),
+        label: Text(label),
+      );
+    }
+    // Grey, not disabled: a press brings the reason into view.
+    final scheme = Theme.of(context).colorScheme;
+    return Tooltip(
+      message: readiness.message,
+      child: FilledButton.icon(
+        onPressed: _saveInvoice,
+        style: FilledButton.styleFrom(
+          backgroundColor: scheme.surfaceContainerHighest,
+          foregroundColor: scheme.onSurfaceVariant,
+        ),
+        icon: const Icon(Icons.block, size: 18),
+        label: Text(label),
       ),
     );
   }
