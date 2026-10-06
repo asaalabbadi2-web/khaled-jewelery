@@ -375,7 +375,6 @@ def _create_clearing_settlement_voucher(
         commission_vat_account_id = (
             commission_vat_account_id
             or get_account_id_for_mapping('بيع', 'commission_vat')
-            or _get_default_account_id('commission_vat')
         )
         if commission_vat_account_id:
             commission_vat_account = Account.query.get(commission_vat_account_id)
@@ -383,7 +382,6 @@ def _create_clearing_settlement_voucher(
         if not commission_vat_account:
             fallback_vat_id = (
                 get_account_id_for_mapping('بيع', 'vat_receivable')
-                or _get_default_account_id('vat_receivable')
             )
             if fallback_vat_id:
                 commission_vat_account = Account.query.get(fallback_vat_id)

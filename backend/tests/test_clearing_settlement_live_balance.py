@@ -156,3 +156,24 @@ def test_a_payment_settled_before_settlement_lines_is_not_offered_again(auth_hea
     data = _pending(auth_headers, mada['box'].id)
 
     assert [t['invoice_payment_id'] for t in data['transactions']] == [waiting.id]
+
+
+# ── a commission's VAT with no account is refused, by name ────────────────────
+
+def test_a_commission_vat_with_no_account_is_refused_by_name(auth_headers, mada, monkeypatch):
+    """With no mapping for the commission's VAT account, the settlement fell back
+    to _get_default_account_id -- a name defined nowhere since 26 Jan 2026 --
+    and died with NameError. Production maps both (773, 771), so it never ran;
+    unmapped, the settlement is refused by its own reason."""
+    import routes.clearing as clearing
+    ip = _sale_paid_by_mada(auth_headers, mada, 250.0)
+    fee_account = Account(account_number=f'83{uuid.uuid4().int % 10**6:06d}', name=f'عمولة {_uid()}', type='Expense')
+    db.session.add(fee_account)
+    db.session.flush()
+    monkeypatch.setattr(clearing, 'get_account_id_for_mapping', lambda *a, **k: None)
+
+    with pytest.raises(ValueError, match='^commission_vat_account_not_found$'):
+        clearing._create_clearing_settlement_voucher(
+            clearing_safe_box_id=mada['box'].id, bank_safe_box_id=mada['bank'].id,
+            gross_amount=250.0, fee_amount=2.0, fee_account_id=fee_account.id,
+            settlement_dt=datetime.now(), created_by='pytest', invoice_payment_ids=[ip.id])
