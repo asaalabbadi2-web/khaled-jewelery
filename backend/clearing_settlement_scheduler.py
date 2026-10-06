@@ -1,15 +1,11 @@
 """Automatic clearing settlements scheduler.
 
-Creates clearing settlement vouchers (Clearing → Bank) for payment methods that
-opt in via PaymentMethod auto-settlement settings.
-
-Important notes:
-- We currently auto-create settlements with fee_amount=0.0.
-  If a payment method uses commission_timing='settlement' and has commission_rate > 0,
-  we skip it to avoid silently missing commission entries.
-- Due calculation is based on SafeBoxTransaction ledger:
-  invoice_payment transactions up to a cutoff date minus previous clearing_settlement
-  voucher outs (FIFO-style approximation).
+Settles, for each payment method that opts in (auto_settlement_enabled), every
+deposit that has reached the bank by the method's schedule -- one voucher per
+deposit, dated the deposit day (ADR-037; services/settlement_schedule.py is
+the one reading of the schedule). What a method holds is read from its
+payments through settleable_payments_query and the approved settlement lines
+(method_open_payments). The overdue alarm reads the same (overdue_settlements).
 """
 
 from __future__ import annotations
@@ -17,15 +13,13 @@ from __future__ import annotations
 import os as _os
 import signal as _signal
 import threading as _threading
-from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
-from typing import NamedTuple, Optional
 from threading import Thread
 
 import schedule
-from sqlalchemy import case, func, select
+from sqlalchemy import func
 
-from models import db, Invoice, PaymentMethod, SafeBoxTransaction, Voucher, InvoicePayment, SettlementLine
+from models import db, Invoice, PaymentMethod, Voucher, InvoicePayment
 from services.gold_allocation_service import RETRACTED_INVOICE_STATUSES
 from services.invoice_payment_state_service import payment_voucher_not_cancelled
 from services.live_balances import live_balances_by_account_ids
@@ -70,88 +64,64 @@ def settleable_payments_query(safe_box_id: int):
 
 
 
-class SettlementDay(NamedTuple):
-    """What a payment method's schedule says about one day."""
-    runs: bool                    # is *day* a settlement day for this method?
-    cutoff_date: Optional[date]   # payments made up to the end of this day are due
-    schedule_type: str            # 'days' | 'weekday'
-    reason: Optional[str]         # why it does not run (the scheduler's skip reason)
+# ======================================================================
+# What the books say a method holds (ADR-037)
+# ======================================================================
+
+def method_open_payments(pm) -> list:
+    """(invoice_payment_id, sale day, open amount) for *pm*'s settleable payments
+    -- through settleable_payments_query, the one rule -- less what approved
+    settlement lines already settled. The scheduler settles from it and the
+    overdue alarm alarms from it: one reading."""
+    if not pm.default_safe_box_id:
+        return []
+    ips = (settleable_payments_query(pm.default_safe_box_id)
+           .filter(InvoicePayment.payment_method_id == pm.id)
+           .all())
+    settled = get_settled_amounts([ip.id for ip in ips])
+    out = []
+    for ip in ips:
+        rest = round(float(ip.amount or 0.0) - settled.get(ip.id, 0.0), 2)
+        if rest > 0.005 and ip.created_at is not None:
+            out.append((ip.id, ip.created_at.date(), rest))
+    return out
 
 
-def settlement_day(pm, day: date) -> SettlementDay:
-    """The ONE reading of a payment method's settlement schedule.
+def public_holidays() -> frozenset:
+    """The public holiday calendar (policy: the owner enters it)."""
+    from models import PublicHoliday
+    return frozenset(h.holiday_date for h in PublicHoliday.query.all())
 
-    process_due_settlements() asks it whether to settle today, and the overdue
-    alarm asks it which payments should already have been settled -- so the two
-    cannot disagree about when a payment falls due (ADR-032, the owner's rule, 29 Sep
-    2026: an alarm fires by each method's own schedule, never by elapsed time).
-    """
-    schedule_type = str(pm.settlement_schedule_type or 'days').strip().lower()
-    if schedule_type not in ('days', 'weekday'):
-        schedule_type = 'days'
 
-    # New: allow a separate deposit schedule (days|weekday) independent
-    # from settlement schedule. This supports:
-    # - settlement in same day (settlement_days=0)
-    # - deposit on a fixed weekday (e.g. every Wednesday)
-    deposit_schedule_type = str(
-        getattr(pm, 'deposit_schedule_type', 'days') or 'days'
-    ).strip().lower()
-    if deposit_schedule_type not in ('days', 'weekday'):
-        deposit_schedule_type = 'days'
+def settlement_fee(pm, gross_amount: float, transaction_count: int) -> float:
+    """The commission a settlement of *gross_amount* over *transaction_count*
+    payments carries -- 0 unless the method takes its commission at settlement."""
+    timing = str(getattr(pm, 'commission_timing', 'invoice') or 'invoice').strip().lower()
+    if timing != 'settlement':
+        return 0.0
+    rate = float(getattr(pm, 'commission_rate', 0.0) or 0.0)
+    fixed = float(getattr(pm, 'commission_fixed_amount', 0.0) or 0.0)
+    if rate <= 0.0 and fixed <= 0.0:
+        return 0.0
+    return round((gross_amount * rate / 100.0) + (fixed * max(transaction_count, 1)), 2)
 
-    # Determine if this method is due to run today, and compute cutoff.
-    cutoff_days = int(pm.settlement_days or 0)
-    if cutoff_days < 0:
-        cutoff_days = 0
 
-    deposit_delay = int(getattr(pm, 'deposit_delay_days', 0) or 0)
-    if deposit_delay < 0:
-        deposit_delay = 0
+def net_reaching_the_bank(pm):
+    """(gross, count) -> what reaches the bank: gross less the commission and
+    its VAT, as the settlement voucher computes them."""
+    from routes.clearing import commission_vat
 
-    if deposit_schedule_type == 'weekday':
-        deposit_weekday = getattr(pm, 'deposit_weekday', None)
-        if deposit_weekday is None:
-            return SettlementDay(False, None, schedule_type, 'deposit_weekday_not_configured')
-        try:
-            deposit_weekday = int(deposit_weekday)
-        except Exception:
-            return SettlementDay(False, None, schedule_type, 'deposit_weekday_invalid')
-        if deposit_weekday < 0 or deposit_weekday > 6:
-            return SettlementDay(False, None, schedule_type, f'deposit_weekday_out_of_range:{deposit_weekday}')
-        if deposit_weekday != day.weekday():
-            return SettlementDay(False, None, schedule_type, f'not_deposit_weekday:execution={deposit_weekday},today={day.weekday()}')
-        # When execution is fixed to a weekday, delay-in-days does not
-        # control execution timing.
-        effective_deposit_delay = 0
-    else:
-        effective_deposit_delay = deposit_delay
+    def net(gross, count):
+        fee = settlement_fee(pm, gross, count)
+        return round(gross - fee - commission_vat(fee), 2)
+    return net
 
-    if schedule_type == 'weekday':
-        if pm.settlement_weekday is None:
-            return SettlementDay(False, None, schedule_type, 'weekday_not_configured')
-        try:
-            configured_weekday = int(pm.settlement_weekday)
-        except Exception:
-            return SettlementDay(False, None, schedule_type, 'weekday_invalid')
-        if configured_weekday < 0 or configured_weekday > 6:
-            return SettlementDay(False, None, schedule_type, f'weekday_out_of_range:{configured_weekday}')
 
-        # Backward-compatible behavior:
-        # for deposit_schedule_type=days, execution weekday derives from
-        # (settlement weekday + deposit delay). For fixed deposit weekday,
-        # execution gating is already handled above.
-        if deposit_schedule_type == 'days':
-            execution_weekday = (configured_weekday + effective_deposit_delay) % 7
-            if execution_weekday != day.weekday():
-                return SettlementDay(False, None, schedule_type, f'not_scheduled_today:execution={execution_weekday},today={day.weekday()}')
-
-        cutoff_days = max(cutoff_days, 1) + effective_deposit_delay
-    else:
-        schedule_type = 'days'
-        cutoff_days = cutoff_days + effective_deposit_delay
-
-    return SettlementDay(True, day - timedelta(days=max(cutoff_days, 0)), schedule_type, None)
+def method_dues(pm, as_of: date, holidays=None) -> list:
+    """The deposits *pm* has received by *as_of*, by its schedule (ADR-037)."""
+    from services.settlement_schedule import due_deposits, schedule_of, validate
+    return due_deposits(validate(schedule_of(pm)), method_open_payments(pm), as_of,
+                        net_reaching_the_bank(pm), public_holidays() if holidays is None else holidays)
 
 
 # ======================================================================
@@ -179,16 +149,19 @@ def overdue_grace_hours() -> float:
 
 
 def overdue_settlements(now: datetime, grace_hours: float) -> list:
-    """One fact per payment method holding payments that should have been settled.
+    """One fact per payment method holding a deposit that should have been settled.
 
-    A payment is overdue when its method's last settlement day whose grace has
-    passed -- read through settlement_day(), the scheduler's own reading --
-    included it, and it is still unsettled. A day without card sales, a weekly
-    method before its weekday and an amount below the method's minimum raise
-    nothing. Read-only.
+    A deposit is overdue when its day -- by the method's schedule, the reading
+    the scheduler settles by (method_dues) -- began more than *grace_hours* ago
+    and its payments are still unsettled. A day without card sales, a weekly
+    batch before its deposit day and a flexible plan still below its minimum
+    raise nothing. Read-only.
     """
     from services.books_invariants import Fact
+    from services.settlement_schedule import ScheduleInvalid
 
+    as_of = (now - timedelta(hours=grace_hours)).date()
+    holidays = public_holidays()
     facts = []
     methods = (PaymentMethod.query
                .filter_by(is_active=True, auto_settlement_enabled=True)
@@ -196,44 +169,22 @@ def overdue_settlements(now: datetime, grace_hours: float) -> list:
     for pm in methods:
         if not pm.default_safe_box_id:
             continue
-        due_day = cutoff = None
-        for back in range(_LOOKBACK_DAYS + 1):
-            day = now.date() - timedelta(days=back)
-            reading = settlement_day(pm, day)
-            if reading.runs and datetime.combine(day, time.min) + timedelta(hours=grace_hours) <= now:
-                due_day, cutoff = day, reading.cutoff_date
-                break
-        if due_day is None:
+        try:
+            dues = method_dues(pm, as_of, holidays)
+        except ScheduleInvalid:
             continue
-
-        payments = (settleable_payments_query(pm.default_safe_box_id)
-                    .filter(InvoicePayment.payment_method_id == pm.id,
-                            InvoicePayment.created_at <= datetime.combine(cutoff, time.max))
-                    .all())
-        settled = get_settled_amounts([ip.id for ip in payments])
-        open_parts = [(ip, round(float(ip.amount or 0) - settled.get(ip.id, 0.0), 2)) for ip in payments]
-        open_parts = [(ip, rest) for ip, rest in open_parts if rest > 0.005]
-        amount = round(sum(rest for _, rest in open_parts), 2)
-        minimum = float(getattr(pm, 'min_settlement_amount', 0.0) or 0.0)
-        if amount < 0.01 or (minimum > 0.01 and amount < minimum):
+        if not dues:
             continue
-        oldest = min(ip.created_at for ip, _ in open_parts)
+        amount = round(sum(d.gross for d in dues), 2)
         facts.append(Fact(OVERDUE_KIND, f'payment_method:{pm.id}', amount, {
             'payment_method': pm.name,
-            'due_day': due_day.isoformat(),
-            'cutoff': cutoff.isoformat(),
-            'payments': len(open_parts),
-            'oldest_payment_at': oldest.isoformat() if oldest else None,
+            'due_day': dues[0].deposit_date.isoformat(),
+            'cutoff': dues[-1].close_date.isoformat(),
+            'payments': sum(len(d.payments) for d in dues),
+            'oldest_payment_at': min(d.first_sale_day for d in dues).isoformat(),
             'grace_hours': grace_hours,
         }))
     return facts
-
-
-@dataclass
-class _DueAmounts:
-    payments_up_to_cutoff: float
-    settled_total: float
-    due_amount: float
 
 
 class ClearingSettlementScheduler:
@@ -263,295 +214,17 @@ class ClearingSettlementScheduler:
             pass
         return fallback
 
-    def _compute_sbt_based_due(self, safe_box_id: int) -> float:
-        """Compute total due for a clearing safe box using SBT-based accounting.
-
-        due = sum(IP.amount via PM routing) - sum(SBT voucher_out for this safe box)
-
-        This mirrors _compute_clearing_due_amount() in routes.py and is more
-        reliable than SettlementLine-only approach when legacy settlements exist
-        (SBT records without matching SettlementLine entries).
-        """
-        # Through the ONE settleable rule. Summing every payment of the box by
-        # method alone counted rejected invoice 3123's 2,150 as money due — the
-        # same defect as routes/clearing.py::_compute_clearing_due_amount, which
-        # this function's own docstring says it mirrors.
-        _settleable_ids = (
-            settleable_payments_query(safe_box_id)
-            .with_entities(InvoicePayment.id)
-            .subquery()
-        )
-        ip_in = (
-            db.session.query(func.coalesce(func.sum(InvoicePayment.amount), 0.0))
-            .filter(InvoicePayment.id.in_(select(_settleable_ids.c.id)))
-            .scalar()
-        ) or 0.0
-
-        voucher_out = (
-            db.session.query(func.coalesce(func.sum(SafeBoxTransaction.amount_cash), 0.0))
-            .filter(
-                SafeBoxTransaction.safe_box_id == safe_box_id,
-                SafeBoxTransaction.ref_type == 'voucher',
-                SafeBoxTransaction.direction == 'out',
-            )
-            .scalar()
-        ) or 0.0
-
-        return round(float(ip_in) - float(voucher_out), 2)
-
-    def _compute_due_amount(self, safe_box_id: int, cutoff_dt: datetime) -> _DueAmounts:
-        # Sum invoice payments up to cutoff
-        payments_signed = func.coalesce(
-            func.sum(
-                case(
-                    (SafeBoxTransaction.direction == 'in', SafeBoxTransaction.amount_cash),
-                    else_=-SafeBoxTransaction.amount_cash,
-                )
-            ),
-            0.0,
-        )
-
-        payments_up_to_cutoff = (
-            db.session.query(payments_signed)
-            .filter(
-                SafeBoxTransaction.safe_box_id == safe_box_id,
-                SafeBoxTransaction.ref_type == 'invoice_payment',
-                SafeBoxTransaction.created_at <= cutoff_dt,
-            )
-            .scalar()
-            or 0.0
-        )
-
-        # Sum previous clearing settlements (including reversals) to avoid double-settling.
-        settled_signed = func.coalesce(
-            func.sum(
-                case(
-                    (SafeBoxTransaction.direction == 'out', SafeBoxTransaction.amount_cash),
-                    else_=-SafeBoxTransaction.amount_cash,
-                )
-            ),
-            0.0,
-        )
-
-        settled_total = (
-            db.session.query(settled_signed)
-            .join(Voucher, Voucher.id == SafeBoxTransaction.ref_id)
-            .filter(
-                SafeBoxTransaction.safe_box_id == safe_box_id,
-                SafeBoxTransaction.ref_type.in_(['voucher', 'voucher_reversal']),
-                Voucher.reference_type == 'clearing_settlement',
-            )
-            .scalar()
-            or 0.0
-        )
-
-        due_amount = float(payments_up_to_cutoff or 0.0) - float(settled_total or 0.0)
-        return _DueAmounts(
-            payments_up_to_cutoff=float(payments_up_to_cutoff or 0.0),
-            settled_total=float(settled_total or 0.0),
-            due_amount=float(due_amount or 0.0),
-        )
-
-    def _count_bulk_due_transactions(self, safe_box_id: int, cutoff_dt: datetime) -> int:
-        """Approximate how many invoice-payment rows belong to the next bulk settlement.
-
-        We use the latest clearing-settlement voucher timestamp on this safe box as the
-        lower bound, then count incoming invoice payments up to the current cutoff.
-        This enables fixed-fee auto settlement for bulk mode without changing the
-        voucher data model.
-        """
-
-        last_settlement_dt = (
-            db.session.query(func.max(Voucher.date))
-            .join(SafeBoxTransaction, SafeBoxTransaction.ref_id == Voucher.id)
-            .filter(
-                SafeBoxTransaction.safe_box_id == safe_box_id,
-                SafeBoxTransaction.ref_type.in_(['voucher', 'voucher_reversal']),
-                Voucher.reference_type == 'clearing_settlement',
-            )
-            .scalar()
-        )
-
-        query = SafeBoxTransaction.query.filter(
-            SafeBoxTransaction.safe_box_id == safe_box_id,
-            SafeBoxTransaction.ref_type == 'invoice_payment',
-            SafeBoxTransaction.direction == 'in',
-            SafeBoxTransaction.created_at <= cutoff_dt,
-        )
-        if last_settlement_dt is not None:
-            query = query.filter(SafeBoxTransaction.created_at > last_settlement_dt)
-
-        return int(query.count() or 0)
-
-    def _compute_bulk_fee_amount(self, *, pm, safe_box_id: int, cutoff_dt: datetime, gross_amount: float) -> tuple[float, int]:
-        timing = str(getattr(pm, 'commission_timing', 'invoice') or 'invoice').strip().lower()
-        if timing != 'settlement':
-            return 0.0, 0
-
-        rate = float(getattr(pm, 'commission_rate', 0.0) or 0.0)
-        fixed = float(getattr(pm, 'commission_fixed_amount', 0.0) or 0.0)
-        if rate <= 0.0 and fixed <= 0.0:
-            return 0.0, 0
-
-        transaction_count = self._count_bulk_due_transactions(safe_box_id, cutoff_dt)
-        effective_count = transaction_count if transaction_count > 0 else 1
-        fee_amount = round((gross_amount * rate / 100.0) + (fixed * effective_count), 2)
-        return fee_amount, transaction_count
-
-    def _compute_fee_amount_with_count(self, *, pm, gross_amount: float, transaction_count: int) -> tuple[float, int]:
-        """Compute fee using the given transaction_count (for day-level settlement)."""
-        timing = str(getattr(pm, 'commission_timing', 'invoice') or 'invoice').strip().lower()
-        if timing != 'settlement':
-            return 0.0, 0
-
-        rate = float(getattr(pm, 'commission_rate', 0.0) or 0.0)
-        fixed = float(getattr(pm, 'commission_fixed_amount', 0.0) or 0.0)
-        if rate <= 0.0 and fixed <= 0.0:
-            return 0.0, 0
-
-        effective_count = transaction_count if transaction_count > 0 else 1
-        fee_amount = round((gross_amount * rate / 100.0) + (fixed * effective_count), 2)
-        return fee_amount, transaction_count
-
-    # ------------------------------------------------------------------
-    # Last-settlement date detection
-    # ------------------------------------------------------------------
-    def _last_settlement_date_for_safe_box(self, safe_box_id: int) -> date | None:
-        """Return the date of the most recent clearing-settlement voucher for this safe box."""
-        last_dt = (
-            db.session.query(func.max(Voucher.date))
-            .join(SafeBoxTransaction, SafeBoxTransaction.ref_id == Voucher.id)
-            .filter(
-                SafeBoxTransaction.safe_box_id == safe_box_id,
-                SafeBoxTransaction.ref_type.in_(['voucher', 'voucher_reversal']),
-                Voucher.reference_type == 'clearing_settlement',
-            )
-            .scalar()
-        )
-        if last_dt is None:
-            return None
-        if isinstance(last_dt, datetime):
-            return last_dt.date()
-        return last_dt
-
-    # ------------------------------------------------------------------
-    # Due amount for a specific day window
-    # ------------------------------------------------------------------
-    def _compute_due_for_day(self, safe_box_id: int, day_start: datetime, day_end: datetime) -> float:
-        """Sum unsettled invoice-payment amounts in the [day_start, day_end] window.
-
-        Uses InvoicePayment as source and subtracts any SettlementLine amounts
-        to correctly handle partial settlements.
-        """
-        ips = (
-            settleable_payments_query(safe_box_id)
-            .filter(
-                InvoicePayment.created_at >= day_start,
-                InvoicePayment.created_at <= day_end,
-            )
-            .all()
-        )
-        if not ips:
-            return 0.0
-        ip_ids = [ip.id for ip in ips]
-        settled_by_ip = get_settled_amounts(ip_ids)
-        total = 0.0
-        for ip in ips:
-            ip_amt = float(ip.amount or 0)
-            sl_amt = settled_by_ip.get(ip.id, 0.0)
-            remaining = ip_amt - sl_amt
-            if remaining > 0.005:
-                total += remaining
-        return round(total, 2)
-
-    def _settleable_payments_query(self, safe_box_id: int):
-        return settleable_payments_query(safe_box_id)
-
-    def _get_unsettled_ip_ids_for_day(self, safe_box_id: int, day_start: datetime, day_end: datetime) -> list[int]:
-        """Return invoice_payment IDs with unsettled balance in the given day window."""
-        ips = (
-            self._settleable_payments_query(safe_box_id)
-            .filter(
-                InvoicePayment.created_at >= day_start,
-                InvoicePayment.created_at <= day_end,
-            )
-            .all()
-        )
-        if not ips:
-            return []
-        ip_ids = [ip.id for ip in ips]
-        settled_by_ip = get_settled_amounts(ip_ids)
-        result = []
-        for ip in ips:
-            ip_amt = float(ip.amount or 0)
-            sl_amt = settled_by_ip.get(ip.id, 0.0)
-            if ip_amt - sl_amt > 0.005:
-                result.append(ip.id)
-        return result
-
-    def _get_unsettled_ip_ids_up_to(self, safe_box_id: int, cutoff_dt: datetime) -> list[int]:
-        """Return all unsettled IP IDs for a safe box up to cutoff_dt."""
-        ips = (
-            self._settleable_payments_query(safe_box_id)
-            .filter(InvoicePayment.created_at <= cutoff_dt)
-            .all()
-        )
-        if not ips:
-            return []
-        ip_ids = [ip.id for ip in ips]
-        settled_by_ip = get_settled_amounts(ip_ids)
-        result = []
-        for ip in ips:
-            ip_amt = float(ip.amount or 0)
-            sl_amt = settled_by_ip.get(ip.id, 0.0)
-            if ip_amt - sl_amt > 0.005:
-                result.append(ip.id)
-        return result
-
-    def _trim_ip_ids_to_gross(self, ip_ids: list[int], gross_amount: float) -> list[int]:
-        """Return only the oldest IP IDs whose total remaining unsettled balance
-        fits within gross_amount (FIFO).
-
-        This prevents the scheduler from passing more IPs than the capped
-        gross_amount can cover, which would cause _create_clearing_settlement_voucher
-        to stop mid-list and leave newer IPs without SettlementLine records even
-        though they were included in the settlement voucher (phantom settlement).
-
-        IPs are sorted oldest-first so the order matches the settlement FIFO logic.
-        The last IP in the returned list may be partially settled if its full amount
-        exceeds the remaining gross — the route handles this correctly.
-        """
-        if not ip_ids or gross_amount <= 0.005:
-            return []
-        ip_rows = sorted(
-            InvoicePayment.query.filter(InvoicePayment.id.in_(ip_ids)).all(),
-            key=lambda x: x.created_at or datetime.min,
-        )
-        # Re-check settled amounts (SettlementLine) to get the actual remaining per IP.
-        all_ids = [ip.id for ip in ip_rows]
-        settled_by_ip = get_settled_amounts(all_ids)
-        result: list[int] = []
-        remaining = round(float(gross_amount), 2)
-        for ip in ip_rows:
-            if remaining <= 0.005:
-                break
-            ip_amt = round(float(ip.amount or 0), 2)
-            sl_amt = round(settled_by_ip.get(ip.id, 0.0), 2)
-            available = round(ip_amt - sl_amt, 2)
-            if available <= 0.005:
-                continue
-            result.append(ip.id)
-            remaining = round(remaining - available, 2)
-        return result
-
-    def process_due_settlements(self) -> dict:
-        """Run auto-settlement for all eligible payment methods.
+    def process_due_settlements(self, today: date | None = None) -> dict:
+        """Settle every deposit that has reached the bank, one voucher each,
+        dated the deposit day (ADR-037).
 
         Returns a diagnostic dict with keys:
-          - settled_count: number of bulk settlement vouchers created
+          - settled_count: number of settlement vouchers created
           - skipped: list of {pm_id, name, reason} for skipped PMs
           - enabled_methods: total PMs checked
         """
+        from services.settlement_schedule import ScheduleInvalid
+
         result: dict = {
             'settled_count': 0,
             'enabled_methods': 0,
@@ -559,9 +232,10 @@ class ClearingSettlementScheduler:
         }
         with self.app.app_context():
             from routes import _create_clearing_settlement_voucher
+            from routes.clearing import commission_vat
 
-            today = date.today()
-            weekday = today.weekday()  # 0=Mon .. 6=Sun
+            today = today or date.today()
+            holidays = public_holidays()
 
             methods = (
                 PaymentMethod.query
@@ -610,11 +284,9 @@ class ClearingSettlementScheduler:
                         continue
 
                     # ═══ Phase 0: Repair ════════════════════════════════════════
-                    # Runs before balance and schedule checks — SettlementLine gaps
-                    # must be repaired even when clearing_balance = 0 (the exact
-                    # condition that originally caused 07-06 IPs to be skipped).
+                    # SettlementLine gaps are repaired before anything is read --
+                    # the open payments are read from those lines.
                     # Idempotent: find_incomplete_vouchers returns [] if already clean.
-                    # At-most-once per safe box per scheduler run (deduplicated by ID).
                     if clearing_sb.id not in _repaired_sb_ids:
                         _repaired_sb_ids.add(clearing_sb.id)
                         try:
@@ -641,293 +313,66 @@ class ClearingSettlementScheduler:
                             )
                     # ════════════════════════════════════════════════════════════
 
-                    _day = settlement_day(pm, today)
-                    schedule_type = _day.schedule_type
-                    if not _day.runs:
-                        _skip(_day.reason)
-                        continue
-                    cutoff_date = _day.cutoff_date
-                    cutoff_dt = datetime.combine(cutoff_date, time.max)
-
-                    # Check if there are unsettled IPs (SettlementLine-aware)
-                    unsettled_ip_ids = self._get_unsettled_ip_ids_up_to(pm.default_safe_box_id, cutoff_dt)
-                    if not unsettled_ip_ids:
-                        _skip(f'no_unsettled_ips:cutoff={cutoff_dt.date().isoformat()}')
-                        continue
-
-                    # Compute total unsettled amount from those IPs
-                    _ip_rows = (
-                        db.session.query(InvoicePayment.id, InvoicePayment.amount)
-                        .filter(InvoicePayment.id.in_(unsettled_ip_ids))
-                        .all()
-                    )
-                    _settled_by_ip = get_settled_amounts(unsettled_ip_ids)
-                    gross_amount = round(sum(
-                        max(0.0, float(r[1]) - _settled_by_ip.get(r[0], 0.0)) for r in _ip_rows
-                    ), 2)
-
-                    # Nothing due
-                    if gross_amount < 0.01:
-                        _skip(f'due_amount_zero_sl:cutoff={cutoff_dt.date().isoformat()}')
-                        continue
-
-                    # فحص الحد الأدنى للتسوية
-                    min_settle = float(getattr(pm, 'min_settlement_amount', 0.0) or 0.0)
-                    if min_settle > 0.01 and gross_amount < min_settle:
-                        print(
-                            f"[ClearingSettlementScheduler] Skipping PM#{pm.id} ({pm.name}): "
-                            f"balance {gross_amount:.2f} < min_settlement_amount {min_settle:.2f}"
-                        )
-                        _skip(f'below_min_settlement:{gross_amount:.2f}<{min_settle:.2f}')
-                        continue
-
-                    # Cap to current clearing balance for safety
                     try:
-                        clearing_balance = self._live_cash_balance_for_safe_box(clearing_sb)
-                    except Exception:
-                        clearing_balance = 0.0
-
-                    if clearing_balance <= 0.0:
-                        _skip(f'clearing_balance_zero_or_negative:{clearing_balance:.2f}')
+                        dues = method_dues(pm, today, holidays)
+                    except ScheduleInvalid as exc:
+                        _skip(f'schedule_invalid:{exc}')
+                        continue
+                    if not dues:
+                        _skip('nothing_due')
                         continue
 
-                    # ================================================================
-                    # تسوية أسبوعية (weekday): سند واحد مجمّع لكل دفعات الأسبوع
-                    # ================================================================
-                    if schedule_type == 'weekday':
-                        if gross_amount > clearing_balance:
-                            gross_amount = round(clearing_balance, 2)
-                        if gross_amount < 0.01:
-                            _skip('gross_after_cap_zero')
+                    balance = self._live_cash_balance_for_safe_box(clearing_sb)
+                    for due in dues:
+                        gross = due.gross
+                        # The ledger must hold what the deposit carries; if not,
+                        # something else is wrong -- nothing is settled partly.
+                        if gross > balance + 0.01:
+                            _skip(f'clearing_balance_below_due:{balance:.2f}<{gross:.2f}')
+                            break
+                        fee = settlement_fee(pm, gross, len(due.payments))
+                        if fee >= gross:
+                            _skip(f'fee_exceeds_gross:{fee:.2f}>={gross:.2f}')
                             continue
-                        # Cap to SBT-based due to avoid exceeds_due_amount errors
-                        # caused by SettlementLine vs SBT accounting discrepancies
-                        sbt_due = self._compute_sbt_based_due(clearing_sb.id)
-                        if gross_amount > sbt_due + 0.01:
-                            gross_amount = round(min(gross_amount, max(sbt_due, 0.0)), 2)
-                        if gross_amount < 0.01:
-                            _skip('gross_after_sbt_cap_zero')
-                            continue
-
-                        reference_number = f"AUTO-PM-{pm.id}-W-{today.isoformat()}"
-
-                        # Collect all unsettled IP IDs up to cutoff for this safe box
-                        weekly_ip_ids = self._get_unsettled_ip_ids_up_to(clearing_sb.id, cutoff_dt)
-                        weekly_ip_ids = self._trim_ip_ids_to_gross(weekly_ip_ids, gross_amount)
-
-                        fee_amount, fee_tx_count = self._compute_fee_amount_with_count(
-                            pm=pm,
-                            gross_amount=gross_amount,
-                            transaction_count=len(weekly_ip_ids),
-                        )
-                        if fee_amount >= gross_amount:
-                            _skip(f'fee_exceeds_gross:{fee_amount:.2f}>={gross_amount:.2f}')
-                            continue
-
-                        _bulk_net = round(gross_amount - fee_amount, 2)
+                        net = round(gross - fee - commission_vat(fee), 2)
                         description = (
-                            f"تسوية أسبوعية تلقائية: {pm.name} "
-                            f"({clearing_sb.name} → {bank_sb.name}) "
-                            f"(إجمالي {gross_amount:.2f}، عمولة {fee_amount:.2f}، صافي {_bulk_net:.2f})"
+                            f"تسوية تلقائية: {pm.name} ({clearing_sb.name} → {bank_sb.name}) — "
+                            f"إيداع {due.deposit_date.isoformat()} لمبيعات {due.first_sale_day.isoformat()}"
+                            f"{'' if due.first_sale_day == due.close_date else ' إلى ' + due.close_date.isoformat()} "
+                            f"(إجمالي {gross:.2f}، عمولة {fee:.2f}، صافي {net:.2f})"
                         )
-
                         try:
                             voucher_result = _create_clearing_settlement_voucher(
                                 clearing_safe_box_id=clearing_sb.id,
                                 bank_safe_box_id=bank_sb.id,
-                                gross_amount=gross_amount,
-                                fee_amount=fee_amount,
-                                settlement_dt=datetime.now(),
-                                reference_number=reference_number,
+                                gross_amount=gross,
+                                fee_amount=fee,
+                                settlement_dt=datetime.combine(due.deposit_date, time(12, 0)),
+                                reference_number=f"AUTO-PM-{pm.id}-B-{due.close_date.isoformat()}",
                                 created_by='scheduler',
                                 fee_account_id=getattr(pm, 'fee_expense_account_id', None),
                                 description_override=description,
-                                notes='auto_settlement:weekly',
+                                notes=(f'auto_settlement:batch={due.close_date.isoformat()};'
+                                       f'deposit={due.deposit_date.isoformat()}'),
                                 ensure_unique_reference=True,
-                                invoice_payment_ids=weekly_ip_ids if weekly_ip_ids else None,
+                                invoice_payment_ids=[ip_id for ip_id, _ in due.payments],
                             )
                             if voucher_result.get('skipped'):
                                 db.session.rollback()
-                                _skip('duplicate_reference_skipped')
+                                _skip(f'duplicate_reference_skipped:{due.close_date.isoformat()}')
                                 continue
-
                             db.session.commit()
+                            balance -= gross
                             result['settled_count'] += 1
                             print(
-                                f"[ClearingSettlementScheduler] ✓ Weekly settled {gross_amount:.2f}"
-                                f" (fee {fee_amount:.2f}) for PM#{pm.id} ({pm.name})"
+                                f"[ClearingSettlementScheduler] ✓ Settled {gross:.2f} (fee {fee:.2f})"
+                                f" for PM#{pm.id} ({pm.name}) deposit={due.deposit_date.isoformat()}"
                             )
                         except Exception as exc:
                             db.session.rollback()
                             print(f"[ClearingSettlementScheduler] ❌ Failed PM#{pm.id} ({pm.name}): {exc}")
                             _skip(f'voucher_creation_error:{str(exc)[:120]}')
-                        continue
-
-                    # ================================================================
-                    # تسوية يومية (days): يوم بيوم عند التأخير
-                    # ================================================================
-                    # نبدأ من أقدم عملية غير مسوّاة (بدل last_settlement + 1)
-                    # هذا يضمن التقاط العمليات القديمة التي لم تشملها تسويات سابقة
-                    # ملاحظة: هذا الموضع الوحيد المتبقي خارج settlement_state_service
-                    # عمداً -- يحتاج التعبير مُركَّباً داخل HAVING على مستوى SQL
-                    # (للحصول على أقدم created_at عبر subquery)، لا قاموس Python
-                    # جاهز كباقي المواضع المرحَّلة. انظر settlement_state_service.py
-                    # لتفاصيل الاستثناء الآخر (routes.py:31108، فلتر approved).
-                    _unsettled_sub = (
-                        db.session.query(
-                            InvoicePayment.id,
-                            InvoicePayment.created_at,
-                        )
-                        .outerjoin(SettlementLine, SettlementLine.invoice_payment_id == InvoicePayment.id)
-                        # Through the ONE settleable rule. A dead payment is never
-                        # settled, so selecting it here made it the oldest
-                        # "unsettled" payment forever and pinned range_start to
-                        # its day — every run re-examined 26 Sep for invoice 3123.
-                        .filter(InvoicePayment.id.in_(select(
-                            settleable_payments_query(clearing_sb.id)
-                            .with_entities(InvoicePayment.id)
-                            .subquery().c.id
-                        )))
-                        .group_by(InvoicePayment.id)
-                        .having(
-                            InvoicePayment.amount - func.coalesce(func.sum(SettlementLine.amount_settled), 0.0) > 0.005
-                        )
-                        .subquery()
-                    )
-                    oldest_unsettled_ip = (
-                        db.session.query(func.min(_unsettled_sub.c.created_at)).scalar()
-                    )
-
-                    if oldest_unsettled_ip:
-                        if isinstance(oldest_unsettled_ip, datetime):
-                            range_start = oldest_unsettled_ip.date()
-                        elif isinstance(oldest_unsettled_ip, str):
-                            range_start = date.fromisoformat(oldest_unsettled_ip[:10])
-                        else:
-                            range_start = oldest_unsettled_ip
-                    else:
-                        range_start = cutoff_date + timedelta(days=1)  # nothing unsettled
-
-                    # لا نسوي أيام بعد cutoff_date
-                    if range_start > cutoff_date:
-                        _skip(f'no_days_due:range_start={range_start.isoformat()},cutoff={cutoff_date.isoformat()}')
-                        continue
-
-                    # بناء قائمة الأيام المستحقة
-                    due_days = []
-                    d = range_start
-                    while d <= cutoff_date:
-                        due_days.append(d)
-                        d += timedelta(days=1)
-
-                    if not due_days:
-                        _skip('no_due_days')
-                        continue
-
-                    # محاولة التسوية لكل يوم (cap بالرصيد المتاح وبالمستحق الفعلي)
-                    running_balance = clearing_balance
-                    # Use _compute_clearing_due_amount as the authoritative cap.
-                    # It includes transfer_in and handles partial SettlementLine gaps
-                    # better than _compute_sbt_based_due which can return 0 when
-                    # historical settlements covered total IPs but left partial residuals.
-                    try:
-                        from routes import _compute_clearing_due_amount
-                        running_clearing_due = _compute_clearing_due_amount(clearing_sb.id)
-                    except Exception:
-                        running_clearing_due = self._compute_sbt_based_due(clearing_sb.id)
-                    # Also keep SBT due as fallback floor — use the higher of both
-                    running_sbt_due = self._compute_sbt_based_due(clearing_sb.id)
-                    running_cap = max(running_clearing_due, running_sbt_due, gross_amount)
-                    days_settled = 0
-
-                    for settle_day in due_days:
-                        if running_balance < 0.01:
-                            break  # خزينة فارغة
-
-                        day_start = datetime.combine(settle_day, time.min)
-                        day_end = datetime.combine(settle_day, time.max)
-
-                        day_amount = self._compute_due_for_day(clearing_sb.id, day_start, day_end)
-                        if day_amount < 0.01:
-                            continue
-
-                        # فحص الحد الأدنى
-                        if min_settle > 0.01 and day_amount < min_settle:
-                            continue
-
-                        # cap بالرصيد المتبقي
-                        if day_amount > running_balance:
-                            day_amount = round(running_balance, 2)
-                        if day_amount < 0.01:
-                            break  # الرصيد نفد
-
-                        # Cap to clearing due (prevents exceeds_due_amount errors)
-                        if running_cap > 0.01 and day_amount > running_cap + 0.01:
-                            day_amount = round(min(day_amount, running_cap), 2)
-                        if day_amount < 0.01:
                             break
-
-                        reference_number = f"AUTO-PM-{pm.id}-{settle_day.isoformat()}"
-
-                        # Collect unsettled IP IDs for this day (for SettlementLine creation)
-                        day_ip_ids = self._get_unsettled_ip_ids_for_day(clearing_sb.id, day_start, day_end)
-                        day_ip_ids = self._trim_ip_ids_to_gross(day_ip_ids, day_amount)
-
-                        fee_amount_day, fee_tx_count = self._compute_fee_amount_with_count(
-                            pm=pm,
-                            gross_amount=day_amount,
-                            transaction_count=len(day_ip_ids),
-                        )
-                        if fee_amount_day >= day_amount:
-                            continue
-
-                        _day_net = round(day_amount - fee_amount_day, 2)
-                        description = (
-                            f"تسوية تلقائية لمستحقات التحصيل: {pm.name} "
-                            f"({clearing_sb.name} → {bank_sb.name}) "
-                            f"يوم {settle_day.isoformat()} "
-                            f"(إجمالي {day_amount:.2f}، عمولة {fee_amount_day:.2f}، صافي {_day_net:.2f})"
-                        )
-
-                        try:
-                            voucher_result = _create_clearing_settlement_voucher(
-                                clearing_safe_box_id=clearing_sb.id,
-                                bank_safe_box_id=bank_sb.id,
-                                gross_amount=day_amount,
-                                fee_amount=fee_amount_day,
-                                settlement_dt=datetime.combine(settle_day, time(12, 0)),
-                                reference_number=reference_number,
-                                created_by='scheduler',
-                                fee_account_id=getattr(pm, 'fee_expense_account_id', None),
-                                description_override=description,
-                                notes=f'auto_settlement:day={settle_day.isoformat()}',
-                                ensure_unique_reference=True,
-                                allow_continuation=True,
-                                invoice_payment_ids=day_ip_ids if day_ip_ids else None,
-                            )
-                            if voucher_result.get('skipped'):
-                                continue
-
-                            db.session.commit()
-                            running_balance -= day_amount
-                            running_sbt_due -= day_amount
-                            running_cap -= day_amount
-                            days_settled += 1
-                            result['settled_count'] += 1
-                            print(
-                                f"[ClearingSettlementScheduler] ✓ Settled {day_amount:.2f}"
-                                f" (fee {fee_amount_day:.2f}) for PM#{pm.id} ({pm.name})"
-                                f" day={settle_day.isoformat()}"
-                            )
-                        except Exception as exc:
-                            db.session.rollback()
-                            print(
-                                f"[ClearingSettlementScheduler] ❌ Failed PM#{pm.id} ({pm.name})"
-                                f" day={settle_day.isoformat()}: {exc}"
-                            )
-
-                    if days_settled == 0:
-                        _skip(f'no_days_had_due_amount:range={range_start.isoformat()}..{cutoff_date.isoformat()}')
 
                 except Exception as exc:
                     db.session.rollback()

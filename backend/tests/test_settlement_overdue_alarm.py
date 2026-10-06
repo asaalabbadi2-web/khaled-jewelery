@@ -9,8 +9,9 @@ have fired 5 times and let a real stoppage run three days.
 
 The owner's decision (29 Sep 2026): alarm when a payment has reached its
 settlement day -- read from its payment method's own schedule, the same
-reading the scheduler settles by (settlement_day) -- and is still unsettled a
-grace period after that day began. The grace is policy
+reading the scheduler settles by -- and is still unsettled a grace period after
+that day began. Since ADR-037 (6 Oct 2026) that day is the deposit day
+(services/settlement_schedule.py, read through method_dues). The grace is policy
 (SETTLEMENT_OVERDUE_GRACE_HOURS, default 6: the scheduler runs every 2 hours).
 
 Run:
@@ -28,7 +29,6 @@ from clearing_settlement_scheduler import (
     ClearingSettlementScheduler,
     overdue_grace_hours,
     overdue_settlements,
-    settlement_day,
 )
 from models import (
     Account,
@@ -95,12 +95,12 @@ def _overdue(pm, now, grace=6):
 
 class TestByTheMethodsOwnSchedule:
     def test_a_payment_due_today_waits_for_the_grace(self):
-        pm = _method(settlement_schedule_type='days', settlement_days=1)
+        pm = _method(settlement_schedule_type='days', deposit_delay_days=1)
         _paid(pm, 500.0, WED - timedelta(hours=14))         # Tue 10:00, due Wed
         assert _overdue(pm, WED.replace(hour=5)) == []       # Wed 05:00: still in grace
 
     def test_after_the_grace_it_is_overdue(self):
-        pm = _method(settlement_schedule_type='days', settlement_days=1)
+        pm = _method(settlement_schedule_type='days', deposit_delay_days=1)
         _, ip = _paid(pm, 500.0, WED - timedelta(hours=14))
         facts = _overdue(pm, WED.replace(hour=7))
         assert len(facts) == 1
@@ -110,29 +110,30 @@ class TestByTheMethodsOwnSchedule:
 
     def test_a_quiet_day_raises_nothing(self):
         """Nothing sold by card: no alarm, however long since the last settlement."""
-        pm = _method(settlement_schedule_type='days', settlement_days=1)
+        pm = _method(settlement_schedule_type='days', deposit_delay_days=1)
         assert _overdue(pm, WED.replace(hour=23)) == []
 
     def test_a_weekly_method_is_not_overdue_before_its_weekday(self):
-        pm = _method(settlement_schedule_type='weekday', settlement_weekday=4, settlement_days=0)  # Friday
+        pm = _method(settlement_schedule_type='weekday', settlement_weekday=3,   # batch ends Thursday,
+                         deposit_schedule_type='weekday', deposit_weekday=4)    # deposited Friday
         _paid(pm, 800.0, WED - timedelta(hours=14))          # Tuesday
         assert _overdue(pm, WED.replace(hour=12)) == []                          # Wednesday
         assert _overdue(pm, WED + timedelta(days=2, hours=5)) == []              # Friday 05:00
         assert len(_overdue(pm, WED + timedelta(days=2, hours=7))) == 1          # Friday 07:00
 
-    def test_a_deposit_delay_moves_the_due_day(self):
-        pm = _method(settlement_schedule_type='days', settlement_days=1, deposit_delay_days=2)
+    def test_the_deposit_days_move_the_due_day(self):
+        pm = _method(settlement_schedule_type='days', deposit_delay_days=3)
         _paid(pm, 300.0, WED - timedelta(hours=14))          # Tuesday: due Friday
         assert _overdue(pm, WED + timedelta(days=1, hours=12)) == []             # Thursday
         assert len(_overdue(pm, WED + timedelta(days=2, hours=7))) == 1          # Friday
 
     def test_below_the_minimum_settlement_amount_it_is_waiting(self):
-        pm = _method(settlement_schedule_type='days', settlement_days=1, min_settlement_amount=1000.0)
+        pm = _method(settlement_schedule_type='days', deposit_delay_days=1, min_settlement_amount=1000.0)
         _paid(pm, 500.0, WED - timedelta(hours=14))
         assert _overdue(pm, WED.replace(hour=7)) == []
 
     def test_a_settled_payment_is_not_overdue_and_a_partial_one_counts_its_rest(self):
-        pm = _method(settlement_schedule_type='days', settlement_days=1)
+        pm = _method(settlement_schedule_type='days', deposit_delay_days=1)
         _, full = _paid(pm, 500.0, WED - timedelta(hours=14))
         _, part = _paid(pm, 400.0, WED - timedelta(hours=13))
         v = Voucher(voucher_number=f'AV-{_uid()}', voucher_type='receipt', date=WED,
@@ -147,14 +148,15 @@ class TestByTheMethodsOwnSchedule:
 
     def test_a_payment_of_a_rejected_invoice_is_never_overdue(self):
         """The ONE settleable rule: a dead payment is never settled, so never late."""
-        pm = _method(settlement_schedule_type='days', settlement_days=1)
+        pm = _method(settlement_schedule_type='days', deposit_delay_days=1)
         _paid(pm, 500.0, WED - timedelta(hours=14), invoice_status='rejected')
         assert _overdue(pm, WED.replace(hour=7)) == []
 
     def test_another_methods_payments_are_not_counted(self):
         """Two methods may share a clearing box; each is judged by its own schedule."""
-        daily = _method(settlement_schedule_type='days', settlement_days=1)
-        weekly = _method(settlement_schedule_type='weekday', settlement_weekday=4, settlement_days=0)
+        daily = _method(settlement_schedule_type='days', deposit_delay_days=1)
+        weekly = _method(settlement_schedule_type='weekday', settlement_weekday=3,
+                         deposit_schedule_type='weekday', deposit_weekday=4)
         weekly.default_safe_box_id = daily.default_safe_box_id
         db.session.flush()
         _paid(weekly, 800.0, WED - timedelta(hours=14))
@@ -172,7 +174,7 @@ class TestTheFinding:
             kind='OVERDUE_SETTLEMENT', subject_key=f'payment_method:{pm.id}', resolved_at=None).all()
 
     def test_it_opens_while_overdue_and_resolves_once_settled(self, monkeypatch):
-        pm = _method(settlement_schedule_type='days', settlement_days=1)
+        pm = _method(settlement_schedule_type='days', deposit_delay_days=1)
         inv, _ = _paid(pm, 500.0, WED - timedelta(hours=14))
         self._scheduler(monkeypatch, WED.replace(hour=7))._emit_overdue_findings()
         assert len(self._open(pm)) == 1
@@ -193,19 +195,13 @@ class TestTheFinding:
 
 
 class TestOneReadingOfTheSchedule:
-    def test_the_scheduler_settles_by_settlement_day_and_restates_nothing(self):
-        src = inspect.getsource(ClearingSettlementScheduler.process_due_settlements)
-        assert 'settlement_day(pm, today)' in src
-        for restated in ('settlement_schedule_type', 'deposit_schedule_type', 'deposit_delay_days',
-                         'settlement_weekday'):
-            assert restated not in src, f'process_due_settlements reads {restated} itself'
-
-    def test_skip_reasons_are_unchanged(self):
-        pm = PaymentMethod(settlement_schedule_type='weekday', settlement_weekday=4, settlement_days=0)
-        day = settlement_day(pm, WED.date())
-        assert (day.runs, day.reason) == (False, 'not_scheduled_today:execution=4,today=2')
-        pm = PaymentMethod(settlement_schedule_type='days', settlement_days=2, deposit_delay_days=1)
-        assert settlement_day(pm, WED.date()).cutoff_date == (WED - timedelta(days=3)).date()
+    def test_the_scheduler_and_the_alarm_read_the_same_dues_and_restate_nothing(self):
+        for fn in (ClearingSettlementScheduler.process_due_settlements, overdue_settlements):
+            src = inspect.getsource(fn)
+            assert 'method_dues(pm, ' in src, f'{fn.__name__} does not read method_dues'
+            for restated in ('settlement_schedule_type', 'deposit_schedule_type', 'deposit_delay_days',
+                             'settlement_weekday', 'deposit_weekday', 'min_settlement_amount'):
+                assert restated not in src, f'{fn.__name__} reads {restated} itself'
 
 
 def test_the_grace_is_policy_with_a_default_of_six_hours(monkeypatch):

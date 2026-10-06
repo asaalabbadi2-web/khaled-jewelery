@@ -13,6 +13,7 @@ from models import (
     Account,
     PaymentMethod,
     PaymentType,
+    PublicHoliday,
     Invoice,
     InvoicePayment,
     PAYMENT_METHOD_ALLOWED_INVOICE_TYPES,
@@ -179,6 +180,27 @@ LEGACY_FALLBACK_PAYMENT_METHODS: List[Dict[str, Any]] = [
 ]
 
 payment_methods_api = Blueprint('payment_methods_api', __name__)
+
+
+def _weekend_value(raw) -> str:
+    """bank_weekend_days from the screen: a list [4, 5] or '4,5' -> '4,5'."""
+    from services.settlement_schedule import format_weekend, parse_weekend
+    if isinstance(raw, (list, tuple, set)):
+        raw = ','.join(str(v) for v in raw)
+    return format_weekend(parse_weekend(raw))
+
+
+def _schedule_refusal(pm):
+    """A method that settles automatically needs a schedule the one reading can
+    read (ADR-037); a 400 with the reason, or None."""
+    from services.settlement_schedule import ScheduleInvalid, schedule_of, validate
+    if not bool(getattr(pm, 'auto_settlement_enabled', False)):
+        return None
+    try:
+        validate(schedule_of(pm))
+    except ScheduleInvalid as exc:
+        return jsonify({'error': 'schedule_invalid', 'message': str(exc)}), 400
+    return None
 
 
 def _normalize_commission_timing(raw_value: Any) -> str:
@@ -760,6 +782,11 @@ def create_payment_method():
             return jsonify({'error': str(exc)}), 400
         if auto_settlement_enabled and deposit_schedule_type == 'weekday' and deposit_weekday is None:
             return jsonify({'error': 'يجب تحديد deposit_weekday عند اختيار جدولة إيداع أسبوعية'}), 400
+        from services.settlement_schedule import ScheduleInvalid
+        try:
+            bank_weekend_days = _weekend_value(data.get('bank_weekend_days'))
+        except ScheduleInvalid as exc:
+            return jsonify({'error': 'schedule_invalid', 'message': str(exc)}), 400
         try:
             payment_method = PaymentMethod(
                 payment_type=data['payment_type'],
@@ -778,6 +805,8 @@ def create_payment_method():
                 deposit_delay_days=deposit_delay_days,
                 deposit_schedule_type=deposit_schedule_type,
                 deposit_weekday=deposit_weekday,
+                bank_weekend_days=bank_weekend_days,
+                skip_public_holidays=bool(data.get('skip_public_holidays', False)),
                 is_active=data.get('is_active', True),
                 applicable_invoice_types=applicable_invoice_types,
                 default_safe_box_id=default_safe_box_id  # اختياري
@@ -792,6 +821,9 @@ def create_payment_method():
                 }), 500
             raise
 
+        refused = _schedule_refusal(payment_method)
+        if refused:
+            return refused
         db.session.add(payment_method)
         db.session.commit()
         
@@ -1054,12 +1086,20 @@ def update_payment_method(id):
                 payment_method.deposit_weekday = dwv
             except ValueError as exc:
                 return jsonify({'error': str(exc)}), 400
-        # Validate weekday consistency after both fields are applied
-        _dst_final = str(getattr(payment_method, 'deposit_schedule_type', 'days') or 'days')
-        _dwv_final = getattr(payment_method, 'deposit_weekday', None)
-        _auto_final = bool(getattr(payment_method, 'auto_settlement_enabled', False))
-        if _auto_final and _dst_final == 'weekday' and _dwv_final is None:
-            return jsonify({'error': 'يجب تحديد deposit_weekday عند اختيار جدولة إيداع أسبوعية'}), 400
+        if 'bank_weekend_days' in data:
+            from services.settlement_schedule import ScheduleInvalid
+            try:
+                payment_method.bank_weekend_days = _weekend_value(data.get('bank_weekend_days'))
+            except ScheduleInvalid as exc:
+                db.session.rollback()
+                return jsonify({'error': 'schedule_invalid', 'message': str(exc)}), 400
+        if 'skip_public_holidays' in data:
+            payment_method.skip_public_holidays = bool(data.get('skip_public_holidays'))
+        # The whole schedule, as it will be saved, through the one reading (ADR-037).
+        refused = _schedule_refusal(payment_method)
+        if refused:
+            db.session.rollback()
+            return refused
 
         db.session.commit()
         
@@ -1071,6 +1111,79 @@ def update_payment_method(id):
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': str(e)}), 500
+
+@payment_methods_api.route('/payment-methods/schedule-preview', methods=['POST'])
+@require_permission('business.setup')
+def preview_payment_method_schedule():
+    """What a schedule -- as the screen holds it, before it is saved -- does to
+    the next sale days: the batch each closes and the day it reaches the bank
+    (ADR-037). Reads; writes nothing. The screen computes no date itself."""
+    from datetime import date as _date
+    from services.settlement_schedule import ScheduleInvalid, describe, preview, schedule_of, validate
+    from clearing_settlement_scheduler import public_holidays
+
+    data = request.get_json() or {}
+    draft = PaymentMethod(
+        settlement_schedule_type=data.get('settlement_schedule_type') or 'days',
+        settlement_weekday=data.get('settlement_weekday'),
+        deposit_schedule_type=data.get('deposit_schedule_type') or 'days',
+        deposit_delay_days=data.get('deposit_delay_days') or 0,
+        deposit_weekday=data.get('deposit_weekday'),
+        skip_public_holidays=bool(data.get('skip_public_holidays', False)),
+        min_settlement_amount=data.get('min_settlement_amount') or 0.0,
+    )
+    try:
+        draft.bank_weekend_days = _weekend_value(data.get('bank_weekend_days'))
+        schedule = validate(schedule_of(draft))
+        first = _date.fromisoformat(data['from']) if data.get('from') else _date.today()
+    except ScheduleInvalid as exc:
+        return jsonify({'error': 'schedule_invalid', 'message': str(exc)}), 400
+    except (TypeError, ValueError):
+        return jsonify({'error': 'schedule_invalid', 'message': 'قيم الجدول غير صالحة'}), 400
+    return jsonify({
+        'summary': describe(schedule),
+        'rows': preview(schedule, first, days=int(data.get('days') or 14), holidays=public_holidays()),
+    }), 200
+
+
+@payment_methods_api.route('/public-holidays', methods=['GET'])
+@require_permission('business.setup')
+def list_public_holidays():
+    """The public holiday calendar a method may skip (ADR-037; policy)."""
+    rows = PublicHoliday.query.order_by(PublicHoliday.holiday_date).all()
+    return jsonify({'holidays': [h.to_dict() for h in rows]}), 200
+
+
+@payment_methods_api.route('/public-holidays', methods=['POST'])
+@require_permission('business.setup')
+def add_public_holiday():
+    from datetime import date as _date
+    data = request.get_json() or {}
+    name = (data.get('name') or '').strip()
+    try:
+        day = _date.fromisoformat(str(data.get('date') or ''))
+    except ValueError:
+        return jsonify({'error': 'invalid_date', 'message': 'تاريخ الإجازة غير صالح'}), 400
+    if not name:
+        return jsonify({'error': 'name_required', 'message': 'اكتب اسم الإجازة'}), 400
+    if PublicHoliday.query.filter_by(holiday_date=day).first():
+        return jsonify({'error': 'duplicate', 'message': 'هذا اليوم مسجّل إجازةً من قبل'}), 409
+    holiday = PublicHoliday(holiday_date=day, name=name[:100])
+    db.session.add(holiday)
+    db.session.commit()
+    return jsonify({'holiday': holiday.to_dict()}), 201
+
+
+@payment_methods_api.route('/public-holidays/<int:holiday_id>', methods=['DELETE'])
+@require_permission('business.setup')
+def delete_public_holiday(holiday_id):
+    holiday = db.session.get(PublicHoliday, holiday_id)
+    if holiday is None:
+        return jsonify({'error': 'not_found'}), 404
+    db.session.delete(holiday)
+    db.session.commit()
+    return jsonify({'deleted': holiday_id}), 200
+
 
 @payment_methods_api.route('/payment-methods/<int:id>', methods=['DELETE'])
 @require_permission('business.setup')

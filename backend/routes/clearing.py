@@ -171,6 +171,30 @@ def _compute_clearing_due_amount(safe_box_id):
 
     return round(pending_sl + net_transfer_in, 2)
 
+def commission_vat(fee_amount) -> float:
+    """VAT on a settlement's commission: the commission is entered net of VAT,
+    and its VAT is the settings' rate (0 when tax is off). The one computation:
+    the settlement voucher, and the net a flexible plan's minimum is measured
+    against (services/settlement_schedule.py, ADR-037)."""
+    fee_amount = float(fee_amount or 0.0)
+    if fee_amount <= 0:
+        return 0.0
+    try:
+        row = Settings.query.first()
+    except Exception:
+        row = None
+    tax_enabled = bool(getattr(row, 'tax_enabled', True)) if row else True
+    if not tax_enabled:
+        return 0.0
+    try:
+        rate = float(getattr(row, 'tax_rate', 0.15) if row else 0.15)
+    except (TypeError, ValueError):
+        rate = 0.15
+    if rate > 1.0:
+        rate = rate / 100.0
+    return round(fee_amount * abs(rate), 2)
+
+
 def _create_clearing_settlement_voucher(
     *,
     clearing_safe_box_id,
@@ -225,38 +249,7 @@ def _create_clearing_settlement_voucher(
     if fee_amount < 0:
         raise ValueError('fee_amount_must_be_non_negative')
 
-    # نحتسب ضريبة العمولة عند التسوية لأن النسبة المدخلة صافي ضريبة
-    # fee_is_net=True يعني أن fee_amount صافي بدون ضريبة قيمة مضافة
-    # إذا كانت الضريبة معطلة في الإعدادات، تكون zero
-    def _normalize_tax_rate(raw_value, fallback=0.15):
-        try:
-            val = float(raw_value)
-        except Exception:
-            val = float(fallback)
-        if val > 1.0:
-            val = val / 100.0
-        if val < 0:
-            val = abs(val)
-        return val
-
-    settings_row = None
-    try:
-        settings_row = Settings.query.first()
-    except Exception:
-        settings_row = None
-
-    tax_enabled = True
-    vat_rate = 0.15
-    try:
-        tax_enabled = bool(getattr(settings_row, 'tax_enabled', True)) if settings_row else True
-        vat_rate = _normalize_tax_rate(getattr(settings_row, 'tax_rate', 0.15) if settings_row else 0.15, fallback=0.15)
-    except Exception:
-        tax_enabled = True
-        vat_rate = 0.15
-
-    fee_vat = 0.0
-    if fee_is_net and tax_enabled and fee_amount > 0:
-        fee_vat = round(fee_amount * vat_rate, 2)
+    fee_vat = commission_vat(fee_amount) if fee_is_net else 0.0
 
     net_amount = round(gross_amount - fee_amount - fee_vat, 2)
     if net_amount < 0:

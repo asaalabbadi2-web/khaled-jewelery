@@ -42,7 +42,8 @@ import pytest
 
 from app import app as flask_app
 from clearing_settlement_scheduler import (
-    ClearingSettlementScheduler,
+    method_dues,
+    method_open_payments,
     settleable_payments_query,
 )
 from models import (
@@ -126,6 +127,11 @@ def _sale_paid_by(pm, amount, *, at, invoice_status='paid', voucher_status='appr
     return inv, ip
 
 
+def _open_ids(pm):
+    """The payments the scheduler would settle for *pm* (method_open_payments)."""
+    return [ip_id for ip_id, _, _ in method_open_payments(pm)]
+
+
 def _amounts(ip_ids):
     return round(sum(float(InvoicePayment.query.get(i).amount) for i in ip_ids), 2)
 
@@ -144,7 +150,7 @@ class TestIncident3123:
     def test_up_to_cutoff_settles_only_the_live_payments(self, app, mada):
         box, pm = mada
         dead, live = self._replay(pm)
-        ids = ClearingSettlementScheduler(app)._get_unsettled_ip_ids_up_to(box.id, DAY_END)
+        ids = _open_ids(pm)
         assert dead.id not in ids
         assert set(ids) == live
         assert _amounts(ids) == 4380.0
@@ -152,7 +158,7 @@ class TestIncident3123:
     def test_the_day_window_applies_the_same_rule(self, app, mada):
         box, pm = mada
         dead, live = self._replay(pm)
-        ids = ClearingSettlementScheduler(app)._get_unsettled_ip_ids_for_day(box.id, DAY, DAY_END)
+        ids = _open_ids(pm)
         assert dead.id not in ids
         assert set(ids) == live
         assert _amounts(ids) == 4380.0
@@ -168,9 +174,8 @@ class TestACancelledVoucherIsNotSettled:
         _, cancelled = _sale_paid_by(pm, 500.0, at=DAY.replace(hour=10),
                                      invoice_status='unpaid', voucher_status='cancelled')
         _, live = _sale_paid_by(pm, 700.0, at=DAY.replace(hour=11))
-        sched = ClearingSettlementScheduler(app)
-        assert sched._get_unsettled_ip_ids_up_to(box.id, DAY_END) == [live.id]
-        assert sched._get_unsettled_ip_ids_for_day(box.id, DAY, DAY_END) == [live.id]
+        assert _open_ids(pm) == [live.id]
+        assert _open_ids(pm) == [live.id]
 
 
 class TestLivePaymentsAreUnaffected:
@@ -184,31 +189,30 @@ class TestLivePaymentsAreUnaffected:
         box, pm = mada
         _, ip = _sale_paid_by(pm, 900.0, at=DAY.replace(hour=12),
                               invoice_status=invoice_status, voucher_status=voucher_status)
-        sched = ClearingSettlementScheduler(app)
-        assert sched._get_unsettled_ip_ids_up_to(box.id, DAY_END) == [ip.id]
-        assert sched._get_unsettled_ip_ids_for_day(box.id, DAY, DAY_END) == [ip.id]
+        assert _open_ids(pm) == [ip.id]
+        assert _open_ids(pm) == [ip.id]
 
     def test_a_payment_without_any_voucher_is_still_settled(self, app, mada):
         """source_voucher_id NULL: deferred payments and rows predating the
         column. The voucher rule cannot see them, so it must not drop them."""
         box, pm = mada
         _, ip = _sale_paid_by(pm, 300.0, at=DAY.replace(hour=13), with_voucher=False)
-        sched = ClearingSettlementScheduler(app)
-        assert sched._get_unsettled_ip_ids_up_to(box.id, DAY_END) == [ip.id]
-        assert sched._get_unsettled_ip_ids_for_day(box.id, DAY, DAY_END) == [ip.id]
+        assert _open_ids(pm) == [ip.id]
+        assert _open_ids(pm) == [ip.id]
 
 
 class TestAmountAndPaymentsComeFromOneRule:
     """The invariant the first version of this fix broke.
 
-    The per-day run takes its AMOUNT from _compute_due_for_day and its PAYMENTS
+    The per-day run took its AMOUNT from _compute_due_for_day and its PAYMENTS
     from _get_unsettled_ip_ids_for_day. The first fix corrected the second and
     missed the first -- 30 lines away in the same file -- so after AV-2026-00436
     was reversed in production the scheduler computed 6,530.00 due, selected
     4,380.00 of payments, and refused to settle at all
     ('no_days_had_due_amount'). Safe, but Sep 26 was left unsettled.
 
-    Testing each selector alone could not see that. This asserts the agreement.
+    Testing each selector alone could not see that. Since ADR-037 a deposit's
+    amount IS the sum of its payments (method_dues); this asserts it stays so.
     """
 
     def _replay(self, pm):
@@ -218,21 +222,19 @@ class TestAmountAndPaymentsComeFromOneRule:
         _sale_paid_by(pm, 1000.0, at=DAY.replace(hour=15, minute=35))
         _sale_paid_by(pm, 1230.0, at=DAY.replace(hour=15, minute=46))
 
-    def test_day_amount_equals_the_payments_it_will_settle(self, app, mada):
+    def test_the_deposit_amount_equals_the_payments_it_will_settle(self, app, mada):
         box, pm = mada
         self._replay(pm)
-        sched = ClearingSettlementScheduler(app)
-        amount = sched._compute_due_for_day(box.id, DAY, DAY_END)
-        payments = _amounts(sched._get_unsettled_ip_ids_for_day(box.id, DAY, DAY_END))
-        assert amount == payments == 4380.0
+        dues = method_dues(pm, DAY.date() + timedelta(days=30))
+        assert len(dues) == 1
+        assert dues[0].gross == _amounts([i for i, _ in dues[0].payments]) == 4380.0
 
     def test_agreement_holds_for_live_payments_too(self, app, mada):
         box, pm = mada
         _sale_paid_by(pm, 900.0, at=DAY.replace(hour=12))
         _sale_paid_by(pm, 300.0, at=DAY.replace(hour=13), with_voucher=False)
-        sched = ClearingSettlementScheduler(app)
-        assert sched._compute_due_for_day(box.id, DAY, DAY_END) == \
-            _amounts(sched._get_unsettled_ip_ids_for_day(box.id, DAY, DAY_END)) == 1200.0
+        dues = method_dues(pm, DAY.date() + timedelta(days=30))
+        assert dues[0].gross == _amounts([i for i, _ in dues[0].payments]) == 1200.0
 
 
 class TestThePendingScreenAndManualSettlement:

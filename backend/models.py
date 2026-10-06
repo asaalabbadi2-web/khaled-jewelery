@@ -423,22 +423,24 @@ class PaymentMethod(db.Model):
     # 🆕 إعدادات التسوية التلقائية (مستحقات تحصيل → بنك)
     auto_settlement_enabled = db.Column(db.Boolean, default=False, nullable=False)
 
-    # نوع الجدولة:
-    # - days: تسوية بعد N أيام (تستخدم settlement_days)
-    # - weekday: تسوية في يوم محدد من الأسبوع (0=Mon .. 6=Sun)
+    # جدول التسوية والإيداع (ADR-037) -- يقرؤه services/settlement_schedule.py وحده.
+    # أسماء الأعمدة أقدم من القرار:
+    # - settlement_schedule_type: الدفعة -- 'days' يومية (تُقفل منتصف الليل)،
+    #   'weekday' أسبوعية تُقفل نهاية settlement_weekday (0=الاثنين .. 6=الأحد)
     settlement_schedule_type = db.Column(db.String(20), default='days', nullable=False)
     settlement_weekday = db.Column(db.Integer, nullable=True)
 
-    # عدد أيام تأخير الإيداع بعد يوم التسوية (للجدولة الأسبوعية)
-    # مثال: التسوية السبت (weekday=5) + تأخير 4 أيام = إيداع الأربعاء
+    # - deposit_schedule_type: الإيداع -- 'days' بعد deposit_delay_days يومًا من
+    #   إقفال الدفعة، 'weekday' أول deposit_weekday بعد إقفالها
     deposit_delay_days = db.Column(db.Integer, default=0, nullable=False)
-
-    # نوع جدولة الإيداع (مستقل عن التسوية)
-    # - days: الإيداع بعد N أيام من التسوية (السلوك الافتراضي، يستخدم deposit_delay_days)
-    # - weekday: الإيداع في يوم ثابت بالأسبوع (مثل كل أحد) بغض النظر عن يوم التسوية
     deposit_schedule_type = db.Column(db.String(20), default='days', nullable=False)
-    # يوم الأسبوع للإيداع عند deposit_schedule_type='weekday' (0=الاثنين .. 6=الأحد)
     deposit_weekday = db.Column(db.Integer, nullable=True)
+
+    # - أيام لا يُودِع فيها البنك (اختياري): عطلته الأسبوعية '4,5' (الجمعة والسبت)،
+    #   والإجازات الرسمية (جدول public_holiday) إن اختيرت -- فيُرحَّل الإيداع
+    #   إلى أول يوم ليس منها
+    bank_weekend_days = db.Column(db.String(20), default='', nullable=False, server_default='')
+    skip_public_holidays = db.Column(db.Boolean, default=False, nullable=False, server_default=db.false())
 
     # الخزينة البنكية المستهدفة للتسوية التلقائية
     settlement_bank_safe_box_id = db.Column(
@@ -452,8 +454,8 @@ class PaymentMethod(db.Model):
         backref='payment_methods_settle_to_bank',
     )
 
-    # الحد الأدنى لمبلغ التسوية (0 = بلا حد أدنى)
-    # إذا كان رصيد التحصيل أقل من هذا المبلغ، تؤجل التسوية التلقائية
+    # - الحد الأدنى: 0 خطة ثابتة؛ > 0 خطة مرنة -- على صافي كل ما يُحتجز معًا
+    #   (بعد العمولة وضريبتها)، وما دونه ينتظر ويلحق الإيداع التالي
     min_settlement_amount = db.Column(db.Float, default=0.0, nullable=False)
 
     # نمط التسوية: bulk وحده — تسوية مجمّعة (سند لكل إيداع يغطي دفعاته).
@@ -523,6 +525,9 @@ class PaymentMethod(db.Model):
             'deposit_delay_days': int(getattr(self, 'deposit_delay_days', 0) or 0),
             'deposit_schedule_type': getattr(self, 'deposit_schedule_type', 'days') or 'days',
             'deposit_weekday': getattr(self, 'deposit_weekday', None),
+            'bank_weekend_days': getattr(self, 'bank_weekend_days', '') or '',
+            'skip_public_holidays': bool(getattr(self, 'skip_public_holidays', False)),
+            'schedule_summary': self._schedule_summary(),
             'settlement_bank_safe_box_id': getattr(self, 'settlement_bank_safe_box_id', None),
             'fee_expense_account_id': getattr(self, 'fee_expense_account_id', None),
             'min_settlement_amount': float(getattr(self, 'min_settlement_amount', 0.0) or 0.0),
@@ -538,8 +543,33 @@ class PaymentMethod(db.Model):
             'updated_at': self.updated_at.isoformat() if self.updated_at else None,
         }
     
+    def _schedule_summary(self):
+        """The schedule in one line, from the one reading (ADR-037); the
+        screens show it and compute nothing."""
+        from services.settlement_schedule import ScheduleInvalid, describe, schedule_of, validate
+        try:
+            return describe(validate(schedule_of(self)))
+        except ScheduleInvalid as exc:
+            return f'جدول غير مكتمل: {exc}'
+
     def __repr__(self):
         return f'<PaymentMethod {self.name}>'
+
+
+class PublicHoliday(db.Model):
+    """A day the banks deposit nothing (ADR-037): a method that skips public
+    holidays moves its deposit to the next day that is not one. POLICY -- the
+    owner enters the year's holidays (the two Eids, National Day ...)."""
+
+    __tablename__ = 'public_holiday'
+
+    id = db.Column(db.Integer, primary_key=True)
+    holiday_date = db.Column(db.Date, nullable=False, unique=True, index=True)
+    name = db.Column(db.String(100), nullable=False)
+    created_at = db.Column(db.DateTime, default=db.func.now())
+
+    def to_dict(self):
+        return {'id': self.id, 'date': self.holiday_date.isoformat(), 'name': self.name}
 
 
 class PaymentType(db.Model):
