@@ -1,5 +1,7 @@
 import 'package:flutter/services.dart';
 
+import '../utils.dart';
+
 /// يحول الأرقام العربية والهندية إلى أرقام عالمية (western digits) للسماح بإدخال الأرقام بشكل موحد.
 class ArabicNumberTextInputFormatter extends TextInputFormatter {
   final bool allowDecimal;
@@ -35,26 +37,9 @@ class ArabicNumberTextInputFormatter extends TextInputFormatter {
     return oldValue;
   }
 
-  /// يحول الأرقام العربية (٠-٩) والهندية (۰-۹) إلى أرقام عالمية (0-9)
-  static String convertToWesternNumbers(String input) {
-    const arabicNumbers = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩'];
-    const persianNumbers = ['۰', '۱', '۲', '۳', '۴', '۵', '۶', '۷', '۸', '۹'];
-    const westernNumbers = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'];
-
-    var output = input;
-
-    // تحويل الأرقام العربية
-    for (var i = 0; i < arabicNumbers.length; i++) {
-      output = output.replaceAll(arabicNumbers[i], westernNumbers[i]);
-    }
-
-    // تحويل الأرقام الفارسية/الهندية
-    for (var i = 0; i < persianNumbers.length; i++) {
-      output = output.replaceAll(persianNumbers[i], westernNumbers[i]);
-    }
-
-    return output;
-  }
+  /// يحول الأرقام العربية (٠-٩) والهندية (۰-۹) إلى أرقام عالمية (0-9)، والفاصلة
+  /// العشرية العربية «٫» إلى نقطة. تحويل واحد للتطبيق: [normalizeNumber].
+  static String convertToWesternNumbers(String input) => normalizeNumber(input);
 }
 
 /// formatter عام لحقول النص التي تقبل أي نوع من المحتوى مع تحويل الأرقام

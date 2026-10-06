@@ -160,4 +160,28 @@ void main() {
       expect(result, '05012345678');
     });
   });
+
+  // The Arabic decimal separator «٫»: the field refused it, so «٢٫٥» could not
+  // be typed at all. One conversion now -- normalizeNumber (utils.dart).
+  group('Arabic decimal separator', () {
+    test('«٫» is a decimal point and «٬» is dropped', () {
+      expect(
+        ArabicNumberTextInputFormatter.convertToWesternNumbers('٢٫٥'),
+        '2.5',
+      );
+      expect(
+        ArabicNumberTextInputFormatter.convertToWesternNumbers('١٬٢٥٠٫٥'),
+        '1250.5',
+      );
+    });
+
+    test('the field takes «٢٫٥» as 2.5 instead of refusing it', () {
+      const formatter = ArabicNumberTextInputFormatter();
+      final out = formatter.formatEditUpdate(
+        const TextEditingValue(text: '٢'),
+        const TextEditingValue(text: '٢٫٥'),
+      );
+      expect(out.text, '2.5');
+    });
+  });
 }
