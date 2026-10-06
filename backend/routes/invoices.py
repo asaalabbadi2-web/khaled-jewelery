@@ -3464,10 +3464,12 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
     vat_exempt_karats = {24}
     try:
         vat_enabled = bool(getattr(settings_row, 'tax_enabled', True)) if settings_row else True
+        sales_vat_enabled = bool(getattr(settings_row, 'sales_vat_enabled', True)) if settings_row else True
         vat_rate = _normalize_tax_rate(getattr(settings_row, 'tax_rate', 0.15) if settings_row else 0.15, fallback=0.15)
         vat_exempt_karats = _parse_vat_exempt_karats(settings_row)
     except Exception:
         vat_enabled = True
+        sales_vat_enabled = True
         vat_rate = 0.15
         vat_exempt_karats = {24}
 
@@ -4382,6 +4384,25 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
             except Exception:
                 posted_by_username = 'system'
 
+        # VAT on sales is the company's setting (SALES-VAT-1): when off, a sale
+        # carries none. Returns are not held to it -- a return of a sale taxed
+        # before reverses that VAT.
+        if invoice_type == 'بيع' and not sales_vat_enabled:
+            carried = max(
+                [_to_float(data.get('total_tax'), 0.0)]
+                + [
+                    _to_float(it.get('tax_amount', it.get('tax', 0)), 0.0)
+                    for it in (data.get('items') or [])
+                    if isinstance(it, dict)
+                ]
+            )
+            if carried > 0.01:
+                db.session.rollback()
+                return jsonify({
+                    'error': 'sales_vat_disabled',
+                    'message': f'ضريبة المبيعات غير مفعّلة في الإعدادات، والفاتورة تحمل ضريبة ({round(carried, 2)})',
+                }), 400
+
         # A supplier purchase's VAT decision (PURCHASE-VAT-1): recorded as
         # given; under «no VAT» the invoice carries none.
         vat_decision = None
@@ -4631,7 +4652,8 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
                 received_gold_tax = _extract_optional_float(line_data, 'gold_tax')
                 received_wage_tax = _extract_optional_float(line_data, 'wage_tax')
 
-                if not vat_enabled or vat_decision is False:
+                if (not vat_enabled or vat_decision is False
+                        or (invoice_type == 'بيع' and not sales_vat_enabled)):
                     gold_tax_val = 0.0
                     wage_tax_val = 0.0
                 else:

@@ -48,7 +48,10 @@ class _ScrapSalesInvoiceScreenState extends State<ScrapSalesInvoiceScreen> {
   final _customAmountController = TextEditingController(); // 🆕 للمبلغ المخصص
 
   bool _uiLockPriceEdits = false;
-  bool _uiDisableVat = false;
+  /// VAT on sales is the company's setting (SALES-VAT-1), read from the
+  /// server -- no longer a switch kept on this device.
+  bool get _uiDisableVat =>
+      !context.read<SettingsProvider>().salesVatEnabled;
   bool _uiAutoOpenPrintAfterSave = false;
   String _uiPaperSize = 'A4';
 
@@ -176,7 +179,6 @@ class _ScrapSalesInvoiceScreenState extends State<ScrapSalesInvoiceScreen> {
       if (!mounted) return;
       setState(() {
         _uiLockPriceEdits = loaded.lockPriceEdits;
-        _uiDisableVat = loaded.disableVat;
         _uiAutoOpenPrintAfterSave = loaded.autoOpenPrintAfterSave;
         _uiPaperSize = loaded.paperSize;
       });
@@ -2465,14 +2467,13 @@ class _ScrapSalesInvoiceScreenState extends State<ScrapSalesInvoiceScreen> {
                   await InvoiceSettingsSheet.show(
                     context,
                     contextType: InvoiceUiContext.scrapSale,
-                    supportsVatToggle: true,
+                    supportsVatToggle: false,
                     supportsLockEdits: true,
                     supportsAutoOpenPrint: true,
                     onChanged: (s) {
                       if (!mounted) return;
                       setState(() {
                         _uiLockPriceEdits = s.lockPriceEdits;
-                        _uiDisableVat = s.disableVat;
                         _uiAutoOpenPrintAfterSave = s.autoOpenPrintAfterSave;
                         _uiPaperSize = s.paperSize;
 

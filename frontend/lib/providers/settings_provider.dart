@@ -178,6 +178,11 @@ class SettingsProvider with ChangeNotifier {
   bool get allowManualInvoiceItems =>
       _safeBool(_settings['allow_manual_invoice_items'], fallback: true);
 
+  /// VAT on sales, apart from purchases (SALES-VAT-1): the company's setting,
+  /// not a switch kept on each device.
+  bool get salesVatEnabled =>
+      _safeBool(_settings['sales_vat_enabled'], fallback: true);
+
   bool get allowPartialInvoicePayments =>
       _safeBool(_settings['allow_partial_invoice_payments'], fallback: false);
 

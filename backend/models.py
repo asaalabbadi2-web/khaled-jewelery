@@ -2651,6 +2651,9 @@ class Settings(db.Model):
     # إعدادات الضريبة
     tax_rate = db.Column(db.Float, default=0.15)  # 15%
     tax_enabled = db.Column(db.Boolean, default=True)
+    # VAT on sales, apart from purchases (SALES-VAT-1): off since 1 May 2026,
+    # the owner's decision; the server refuses a taxed sale when off.
+    sales_vat_enabled = db.Column(db.Boolean, nullable=False, default=True, server_default=db.true())
 
     # 🆕 العيارات المعفاة من ضريبة الذهب (JSON list stored as TEXT)
     # مثال: ["24"] أو [24]
@@ -2894,6 +2897,7 @@ class Settings(db.Model):
             'sales_race_settings': sales_race_settings,
             'tax_rate': self.tax_rate,
             'tax_enabled': self.tax_enabled,
+            'sales_vat_enabled': bool(self.sales_vat_enabled),
             'vat_exempt_karats': exempt_karats,
             'payment_methods': payment_methods,
             'invoice_prefix': self.invoice_prefix,

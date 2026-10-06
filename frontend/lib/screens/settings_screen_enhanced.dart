@@ -113,6 +113,9 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
 
   bool _allowPartialInvoicePayments = false;
 
+  /// VAT on sales, apart from purchases (SALES-VAT-1).
+  bool _salesVatEnabled = true;
+
   /// How a purchase and a sale treat manufacturing wages (ADR-039).
   String _wageMode = kWageModeExpense;
 
@@ -365,6 +368,10 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
           settings['allow_partial_invoice_payments'],
           fallback: false,
         );
+        _salesVatEnabled = _safeBool(
+          settings['sales_vat_enabled'],
+          fallback: true,
+        );
         _wageMode =
             settings['manufacturing_wage_mode']?.toString() ==
                 kWageModeInventory
@@ -574,6 +581,7 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
       'idle_timeout_minutes': _idleTimeoutMinutes,
       'allow_partial_invoice_payments': _allowPartialInvoicePayments,
       'manufacturing_wage_mode': _wageMode,
+      'sales_vat_enabled': _salesVatEnabled,
 
       // 🆕 Feature toggles + default safes (employee routing)
       'employee_cash_safes_enabled': _employeeCashSafesEnabled,
@@ -1078,6 +1086,20 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
             const SizedBox(height: 8),
             _buildWageModeSetting(),
             const Divider(height: 32),
+            SwitchListTile.adaptive(
+              value: _salesVatEnabled,
+              onChanged: (value) => setState(() => _salesVatEnabled = value),
+              thumbColor: _thumbColorFor(_colors.tertiary),
+              trackColor: _trackColorFor(_colors.tertiary),
+              title: Text(
+                'ضريبة على المبيعات',
+                style: Theme.of(context).textTheme.titleSmall,
+              ),
+              subtitle: const Text(
+                'لكل فواتير البيع وبيع الكسر، من كل الأجهزة. عند الإيقاف لا تحمل فاتورة البيع ضريبة، ويرفض الخادم ما يحملها. لا يمسّ ضريبة المشتريات.',
+              ),
+            ),
+            const SizedBox(height: 8),
             SwitchListTile.adaptive(
               value: _taxEnabled,
               onChanged: (value) => setState(() => _taxEnabled = value),

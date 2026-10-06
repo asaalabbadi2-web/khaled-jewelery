@@ -685,6 +685,7 @@ def update_settings():
         'currency_symbol',
         'tax_rate',
         'tax_enabled',
+        'sales_vat_enabled',
         'vat_exempt_karats',
         'payment_methods',
         'invoice_prefix',
@@ -776,6 +777,11 @@ def update_settings():
         settings.tax_rate = data['tax_rate']
     if 'tax_enabled' in data:
         settings.tax_enabled = data['tax_enabled']
+    if 'sales_vat_enabled' in data:
+        if not isinstance(data['sales_vat_enabled'], bool):
+            return jsonify({'error': 'invalid_sales_vat_enabled',
+                            'message': 'ضريبة المبيعات إما مفعّلة (true) أو لا (false)'}), 400
+        settings.sales_vat_enabled = data['sales_vat_enabled']
 
     # 🆕 إعفاء العيارات من ضريبة الذهب
     if 'vat_exempt_karats' in data:

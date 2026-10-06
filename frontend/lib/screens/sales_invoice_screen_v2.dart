@@ -80,7 +80,10 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
   late SettingsProvider _settingsProvider;
 
   bool _uiLockPriceEdits = false;
-  bool _uiDisableVat = false;
+  /// VAT on sales is the company's setting (SALES-VAT-1), read from the
+  /// server -- no longer a switch kept on this device.
+  bool get _uiDisableVat =>
+      !context.read<SettingsProvider>().salesVatEnabled;
   bool _uiAutoOpenPrintAfterSave = false;
   String _uiPaperSize = 'A4';
 
@@ -158,7 +161,6 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
       'branch_id': _selectedBranchId,
       'custom_amount': _customAmountController.text,
       'ui_lock_price_edits': _uiLockPriceEdits,
-      'ui_disable_vat': _uiDisableVat,
       'ui_auto_print': _uiAutoOpenPrintAfterSave,
       'ui_paper_size': _uiPaperSize,
       'selected_payment_method_id': _selectedPaymentMethodId,
@@ -368,7 +370,6 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
         _customAmountController.text = (decoded?['custom_amount'] ?? '')
             .toString();
         _uiLockPriceEdits = decoded?['ui_lock_price_edits'] == true;
-        _uiDisableVat = decoded?['ui_disable_vat'] == true;
         _uiAutoOpenPrintAfterSave = decoded?['ui_auto_print'] == true;
         _uiPaperSize = (decoded?['ui_paper_size'] ?? _uiPaperSize).toString();
         _selectedPaymentMethodId = toInt(
@@ -572,7 +573,6 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
       if (!mounted) return;
       setState(() {
         _uiLockPriceEdits = loaded.lockPriceEdits;
-        _uiDisableVat = loaded.disableVat;
         _uiAutoOpenPrintAfterSave = loaded.autoOpenPrintAfterSave;
         _uiPaperSize = loaded.paperSize;
       });
@@ -3798,14 +3798,13 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                   await InvoiceSettingsSheet.show(
                     context,
                     contextType: InvoiceUiContext.saleNew,
-                    supportsVatToggle: true,
+                    supportsVatToggle: false,
                     supportsLockEdits: true,
                     supportsAutoOpenPrint: true,
                     onChanged: (s) {
                       if (!mounted) return;
                       setState(() {
                         _uiLockPriceEdits = s.lockPriceEdits;
-                        _uiDisableVat = s.disableVat;
                         _uiAutoOpenPrintAfterSave = s.autoOpenPrintAfterSave;
                         _uiPaperSize = s.paperSize;
 
