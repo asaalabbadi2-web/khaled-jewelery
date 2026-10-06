@@ -105,7 +105,7 @@ class AllocationService:
         """Compute FIFO allocation of gross_amount across IPs — no DB writes.
 
         Algorithm:
-          1. Fetch IPs, sort oldest-first.
+          1. Fetch IPs, sort oldest-first (ties by id).
           2. For each IP, compute remaining unsettled balance (IP.amount minus
              any existing approved SettlementLine rows).
           3. Allocate min(remaining, remaining_gross) to this IP.
@@ -130,7 +130,9 @@ class AllocationService:
             .filter(InvoicePayment.id.in_(invoice_payment_ids))
             .all()
         )
-        ip_rows = sorted(ip_rows, key=lambda x: x.created_at or datetime.min)
+        # Oldest first; payments of one moment (an invoice paid in parts) by
+        # id, so the order never depends on how the database returns the rows.
+        ip_rows = sorted(ip_rows, key=lambda x: (x.created_at or datetime.min, x.id))
 
         # Approved-only settled amounts (excludes phantom rows from cancelled vouchers)
         all_ids = [ip.id for ip in ip_rows]
