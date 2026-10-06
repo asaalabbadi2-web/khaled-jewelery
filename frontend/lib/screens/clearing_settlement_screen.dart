@@ -25,6 +25,9 @@ class ClearingSettlementScreen extends StatefulWidget {
   /// Number of selected transactions — pre-fills the tx-count field.
   final int? initialTxCount;
 
+  /// The server; tests pass a fake. Defaults to the app's [ApiService].
+  final ApiService? apiService;
+
   const ClearingSettlementScreen({
     super.key,
     this.initialClearingSafeBoxId,
@@ -32,6 +35,7 @@ class ClearingSettlementScreen extends StatefulWidget {
     this.initialDueAmount,
     this.initialInvoicePaymentIds,
     this.initialTxCount,
+    this.apiService,
   });
 
   @override
@@ -40,7 +44,7 @@ class ClearingSettlementScreen extends StatefulWidget {
 }
 
 class _ClearingSettlementScreenState extends State<ClearingSettlementScreen> {
-  final ApiService _api = ApiService();
+  late final ApiService _api = widget.apiService ?? ApiService();
 
   final TextEditingController _grossController = TextEditingController();
   final TextEditingController _feeController = TextEditingController(text: '0');
@@ -96,6 +100,25 @@ class _ClearingSettlementScreenState extends State<ClearingSettlementScreen> {
   bool _loadingHistory = false;
 
   DateTime _settlementDate = DateTime.now();
+
+  /// The payments this settlement settles, as chosen in the clearing monitor;
+  /// null when the screen was opened without a choice (then the server takes
+  /// the box's pending payments oldest-first). CLEARING-SEL-1: the screen once
+  /// sent every pending payment even when some were chosen, and the server
+  /// settled the oldest -- AV-2026-00472/00473 landed on the wrong invoice.
+  List<int>? get _chosenPaymentIds {
+    final ids = widget.initialInvoicePaymentIds;
+    return (ids == null || ids.isEmpty) ? null : ids;
+  }
+
+  /// The pending rows this settlement covers: the chosen ones, or all.
+  List<Map<String, dynamic>> get _coveredTransactions {
+    final chosen = _chosenPaymentIds;
+    if (chosen == null) return _pendingTransactions;
+    return _pendingTransactions
+        .where((tx) => chosen.contains(tx['invoice_payment_id']))
+        .toList();
+  }
 
   @override
   void initState() {
@@ -846,8 +869,19 @@ class _ClearingSettlementScreenState extends State<ClearingSettlementScreen> {
               ?.whereType<Map<String, dynamic>>()
               .toList() ??
           [];
-      final dueAmt = (res['due_amount'] as num?)?.toDouble();
-      final txCountForFee = (res['tx_count_for_fee'] as num?)?.toInt();
+      final chosen = _chosenPaymentIds;
+      // With a choice, what may be settled is what was chosen -- not the box.
+      final dueAmt = chosen == null
+          ? (res['due_amount'] as num?)?.toDouble()
+          : txList
+                .where((tx) => chosen.contains(tx['invoice_payment_id']))
+                .fold<double>(
+                  0.0,
+                  (sum, tx) => sum + ((tx['amount'] as num?)?.toDouble() ?? 0),
+                );
+      final txCountForFee = chosen == null
+          ? (res['tx_count_for_fee'] as num?)?.toInt()
+          : chosen.length;
       if (mounted) {
         setState(() {
           _pendingTransactions = txList;
@@ -1018,6 +1052,14 @@ class _ClearingSettlementScreenState extends State<ClearingSettlementScreen> {
       return;
     }
 
+    if (_chosenPaymentIds != null && _coveredTransactions.isEmpty) {
+      _showSnack(
+        'الدفعات المحددة لم تعد معلّقة — عُد إلى شاشة المراقبة وحدّث القائمة',
+        error: true,
+      );
+      return;
+    }
+
     // Check against due_amount (if known) or clearing balance
     final cap = (_dueAmount != null && _dueAmount! > 0)
         ? _dueAmount!
@@ -1060,14 +1102,14 @@ class _ClearingSettlementScreenState extends State<ClearingSettlementScreen> {
     setState(() => _submitting = true);
 
     try {
-      // Collect IP IDs: prefer pending transactions; fall back to monitor selection
-      final ipIds = _pendingTransactions.isNotEmpty
-          ? _pendingTransactions
+      // The chosen payments, exactly; only without a choice, the box's
+      // pending payments (the server settles those oldest-first).
+      final ipIds =
+          _chosenPaymentIds ??
+          _pendingTransactions
               .map((tx) => tx['invoice_payment_id'] as int?)
-              .where((id) => id != null)
-              .cast<int>()
-              .toList()
-          : (widget.initialInvoicePaymentIds ?? <int>[]);
+              .whereType<int>()
+              .toList();
 
       final res = await _api.createClearingSettlement(
         clearingSafeBoxId: clearingId,
@@ -1254,6 +1296,61 @@ class _ClearingSettlementScreenState extends State<ClearingSettlementScreen> {
     } finally {
       if (mounted) setState(() => _submitting = false);
     }
+  }
+
+  /// Which payments this settlement settles, shown before it is saved.
+  Widget _buildCoveredPaymentsCard() {
+    final chosen = _chosenPaymentIds != null;
+    final rows = _coveredTransactions;
+    final muted = TextStyle(fontSize: 12, color: Colors.grey.shade700);
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              chosen
+                  ? 'الدفعات المحددة للتسوية'
+                  : 'الدفعات المعلّقة في الخزينة',
+              style: const TextStyle(fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              chosen
+                  ? 'تُسوّى هذه الدفعات وحدها.'
+                  : 'لم تُحدَّد دفعات: سيُوزَّع المبلغ على أقدم الدفعات المعلّقة أولاً. '
+                        'لتسوية دفعة بعينها حدّدها من شاشة مراقبة المقاصة.',
+              style: muted,
+            ),
+            const Divider(),
+            if (rows.isEmpty)
+              Text('الدفعات المحددة لم تعد معلّقة.', style: muted)
+            else
+              for (final tx in rows)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 2),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          (tx['invoice_number'] ?? '').toString().isNotEmpty
+                              ? 'فاتورة: ${tx['invoice_number']}'
+                              : (tx['note'] ?? 'تحويل').toString(),
+                          style: const TextStyle(fontSize: 13),
+                        ),
+                      ),
+                      Text(
+                        _formatMoney((tx['amount'] as num?)?.toDouble() ?? 0),
+                        style: const TextStyle(fontWeight: FontWeight.w600),
+                      ),
+                    ],
+                  ),
+                ),
+          ],
+        ),
+      ),
+    );
   }
 
   @override
@@ -1550,6 +1647,13 @@ class _ClearingSettlementScreenState extends State<ClearingSettlementScreen> {
                       ),
                     ),
                   ),
+                ],
+
+                if (_settlementMode != 'per_transaction' &&
+                    !_loadingPendingTxs &&
+                    _pendingTransactions.isNotEmpty) ...[
+                  const SizedBox(height: 12),
+                  _buildCoveredPaymentsCard(),
                 ],
 
                 const SizedBox(height: 12),
