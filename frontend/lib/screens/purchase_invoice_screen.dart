@@ -19,6 +19,7 @@ import '../widgets/party_picker_dialog.dart';
 import '../widgets/searchable_picker_field.dart';
 import '../utils/invoice_direct_print.dart';
 import '../utils/purchase_readiness.dart';
+import '../utils/supplier_position.dart';
 import '../utils/wage_treatment.dart';
 import 'add_supplier_screen.dart';
 import '../utils.dart';
@@ -130,7 +131,6 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
   /// Up from the save press until the flow ends -- through the review, which
   /// waits on the supplier's statement -- so a second press opens nothing.
   bool _saveFlowOpen = false;
-  bool _showAdvancedPaymentOptions = false;
 
   bool _uiLockPriceEdits = false;
 
@@ -381,19 +381,6 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
       orElse: () => candidates.first,
     );
     return def.id;
-  }
-
-  int? _defaultGoldSafeIdForCurrentKarat() {
-    final karat = _selectedGoldPaidKarat;
-    final candidates = _goldSafeBoxesForKarat(karat);
-    if (candidates.isEmpty) return null;
-
-    final selected = _selectedGoldSafeBoxId;
-    if (selected != null && candidates.any((b) => b.id == selected)) {
-      return selected;
-    }
-
-    return _defaultGoldSafeIdForKarat(karat);
   }
 
   String _goldSafeLabel(SafeBoxModel box) {
@@ -653,6 +640,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
     double weight,
   ) {
     final theme = Theme.of(context);
+    final currency = context.read<SettingsProvider>().currencySymbolText;
     final hasCommission = line.commissionDirection.isNotEmpty;
     final isEarn = line.commissionDirection == 'earn';
     final total = line.commissionTotal(weight);
@@ -698,11 +686,16 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
                 keyboardType: const TextInputType.numberWithOptions(
                   decimal: true,
                 ),
+                // Arabic digits are read, not dropped to 0 (٢٫٥ was 0).
+                inputFormatters: [
+                  NormalizeNumberFormatter(),
+                  FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
+                ],
                 decoration: InputDecoration(
-                  labelText: 'ر.س/جم',
+                  labelText: '$currency/جم',
                   border: const OutlineInputBorder(),
                   isDense: true,
-                  suffixText: 'ر.س',
+                  suffixText: currency,
                   labelStyle: TextStyle(
                     fontSize: 11,
                     color: isEarn
@@ -711,13 +704,13 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
                   ),
                 ),
                 onChanged: (v) => setState(() {
-                  line.commissionPerGram = double.tryParse(v) ?? 0;
+                  line.commissionPerGram = _toDouble(normalizeNumber(v));
                 }),
               ),
             ),
             const SizedBox(width: 6),
             Text(
-              '= ${total.toStringAsFixed(2)} ر.س',
+              '= ${total.toStringAsFixed(2)} $currency',
               style: theme.textTheme.bodySmall?.copyWith(
                 fontWeight: FontWeight.bold,
                 color: isEarn
@@ -800,7 +793,6 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
       _inlineItems = [];
       _selectedOriginalInvoice = null;
       _originalInvoiceDetailsError = null;
-      _showAdvancedPaymentOptions = false;
       _selectedPaymentMethodId = null;
       _selectedSafeBoxId = null;
       _supplierError = null;
@@ -937,7 +929,6 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
       'vat_choice': _vatChoice,
       'ui_auto_print': _uiAutoOpenPrintAfterSave,
       'ui_paper_size': _uiPaperSize,
-      'show_advanced_payment_options': _showAdvancedPaymentOptions,
       'selected_payment_method_id': _selectedPaymentMethodId,
       'selected_safe_box_id': _selectedSafeBoxId,
       'settlement_mode': modeToString(_settlementMode),
@@ -1169,8 +1160,6 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
         _uiAutoOpenPrintAfterSave = payload['ui_auto_print'] == true;
         _uiPaperSize = (payload['ui_paper_size'] ?? _uiPaperSize).toString();
 
-        _showAdvancedPaymentOptions =
-            payload['show_advanced_payment_options'] == true;
         _selectedPaymentMethodId = toInt(payload['selected_payment_method_id']);
         _selectedSafeBoxId = toInt(payload['selected_safe_box_id']);
 
@@ -1382,6 +1371,41 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
     } catch (e) {
       debugPrint('فشل تحميل خزائن الذهب: $e');
     }
+  }
+
+  /// Changing how the invoice is settled clears what was entered for the old
+  /// way -- the cash typed and the gold lines -- so it asks first.
+  Future<void> _requestSettlementMode(_PurchaseSettlementMode mode) async {
+    if (mode == _settlementMode) return;
+    final cash = _cashPaid();
+    final goldLines = _goldSettlementLines
+        .where((l) => !_isSettlementLineEffectivelyEmpty(l))
+        .length;
+    if (cash > 0 || goldLines > 0) {
+      final lost = [
+        if (cash > 0) 'المدفوع نقدًا ${_formatCurrency(cash)}',
+        if (goldLines > 0) 'أسطر سداد الذهب ($goldLines)',
+      ].join(' و');
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: Text('تغيير السداد إلى «${_settlementModeLabel(mode)}»'),
+          content: Text('سيُمسح ما أُدخل: $lost.'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('إبقاء'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('تغيير ومسح'),
+            ),
+          ],
+        ),
+      );
+      if (confirmed != true || !mounted) return;
+    }
+    _setSettlementMode(mode);
   }
 
   void _setSettlementMode(_PurchaseSettlementMode mode) {
@@ -2866,7 +2890,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
       case _PurchaseSettlementMode.barter:
         return 'مقايضة';
       case _PurchaseSettlementMode.partial:
-        return 'جزئي';
+        return 'سداد الآن';
     }
   }
 
@@ -2948,14 +2972,25 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
       listen: false,
     ).currencySymbolText;
     final notices = <String>[];
-    if (netCashDue > 0.01) {
+    // What the save does to what we owe the supplier: a purchase adds to it,
+    // a return takes from it (it said «سيزداد» for both).
+    String cash(double v) => '${_fmtMoney(v)} $currency';
+    if (netCashDue.abs() > 0.01) {
       notices.add(
-        'سيزداد رصيد المورد النقدي بمقدار ${_fmtMoney(netCashDue)} $currency',
+        supplierCashEffect(
+          netCashDue,
+          isReturn: _isSupplierReturnMode,
+          formatCash: cash,
+        ),
       );
     }
-    if (netGoldDueMain > 0.001) {
+    if (netGoldDueMain.abs() > 0.001) {
       notices.add(
-        'سيزداد رصيد المورد الذهبي بمقدار ${_fmtWeight(netGoldDueMain)} جم',
+        supplierGoldEffect(
+          netGoldDueMain,
+          isReturn: _isSupplierReturnMode,
+          mainKarat: mainKarat,
+        ),
       );
     }
     // An exception to the supplier's usual VAT is seen, not missed (PURCHASE-VAT-1).
@@ -3048,21 +3083,28 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
                 accentColor: AppColors.info,
               ),
             InvoiceSummaryMetric(
-              label: 'نقدي مستحق',
+              label: _isSupplierReturnMode
+                  ? 'نقد يُخصم مما علينا بهذا المرتجع'
+                  : 'نقد علينا بهذه الفاتورة',
               value: '${_fmtMoney(netCashDue)} $currency',
               icon: Icons.money,
               accentColor: AppColors.success,
             ),
             InvoiceSummaryMetric(
-              label: 'ذهب مستحق (عيار $mainKarat)',
+              label: _isSupplierReturnMode
+                  ? 'ذهب يُخصم مما علينا بهذا المرتجع (عيار $mainKarat)'
+                  : 'ذهب علينا بهذه الفاتورة (عيار $mainKarat)',
               value: '${_fmtWeight(netGoldDueMain)} جم',
               icon: Icons.monitor_weight_outlined,
               accentColor: AppColors.karat24,
             ),
             if (currentGoldBalanceMain != null)
               InvoiceSummaryMetric(
-                label: 'وزن الرصيد الحالي (عيار $mainKarat)',
-                value: '${_fmtWeight(currentGoldBalanceMain)} جم',
+                label: 'مع المورد الآن (ذهب)',
+                value: supplierGoldPosition(
+                  currentGoldBalanceMain,
+                  mainKarat: mainKarat,
+                ),
                 icon: Icons.monitor_weight_outlined,
                 accentColor: AppColors.info,
                 badgeLabel: 'الحالي',
@@ -3070,8 +3112,11 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
               ),
             if (projectedGoldBalanceMain != null)
               InvoiceSummaryMetric(
-                label: 'وزن الرصيد بعد الحفظ (عيار $mainKarat)',
-                value: '${_fmtWeight(projectedGoldBalanceMain)} جم',
+                label: 'مع المورد بعد الحفظ (ذهب)',
+                value: supplierGoldPosition(
+                  projectedGoldBalanceMain,
+                  mainKarat: mainKarat,
+                ),
                 icon: Icons.monitor_weight_outlined,
                 accentColor: AppColors.primaryGold,
                 badgeLabel: 'بعد الحفظ',
@@ -3079,8 +3124,11 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
               ),
             if (currentCashBalance != null)
               InvoiceSummaryMetric(
-                label: 'الرصيد الحالي (نقد)',
-                value: '${_fmtMoney(currentCashBalance)} $currency',
+                label: 'مع المورد الآن (نقد)',
+                value: supplierCashPosition(
+                  currentCashBalance,
+                  formatCash: cash,
+                ),
                 icon: Icons.account_balance_outlined,
                 accentColor: AppColors.info,
                 badgeLabel: 'الحالي',
@@ -3088,8 +3136,11 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
               ),
             if (projectedCashBalance != null)
               InvoiceSummaryMetric(
-                label: 'الرصيد بعد الحفظ (نقد)',
-                value: '${_fmtMoney(projectedCashBalance)} $currency',
+                label: 'مع المورد بعد الحفظ (نقد)',
+                value: supplierCashPosition(
+                  projectedCashBalance,
+                  formatCash: cash,
+                ),
                 icon: Icons.trending_up_rounded,
                 accentColor: AppColors.primaryGold,
                 badgeLabel: 'بعد الحفظ',
@@ -3730,7 +3781,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
             ),
             const SizedBox(height: 6),
             Text(
-              'حدد طريقة السداد (آجل/مقايضة/جزئي) ثم أدخل تفاصيل الدفع إن وجدت.',
+              'آجل: لا سداد الآن. مقايضة: ذهب مقابل ذهب. سداد الآن: نقد أو ذهب أو كلاهما، كله أو بعضه.',
               style: theme.textTheme.bodyMedium,
             ),
             const SizedBox(height: 16),
@@ -3746,15 +3797,13 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
                 _settlementMode == _PurchaseSettlementMode.partial,
               ],
               borderRadius: BorderRadius.circular(12),
-              onPressed: (index) {
-                if (index == 0) {
-                  _setSettlementMode(_PurchaseSettlementMode.credit);
-                } else if (index == 1) {
-                  _setSettlementMode(_PurchaseSettlementMode.barter);
-                } else {
-                  _setSettlementMode(_PurchaseSettlementMode.partial);
-                }
-              },
+              onPressed: (index) => _requestSettlementMode(
+                const [
+                  _PurchaseSettlementMode.credit,
+                  _PurchaseSettlementMode.barter,
+                  _PurchaseSettlementMode.partial,
+                ][index],
+              ),
               children: const [
                 Padding(
                   padding: EdgeInsets.symmetric(horizontal: 16),
@@ -3766,62 +3815,44 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
                 ),
                 Padding(
                   padding: EdgeInsets.symmetric(horizontal: 16),
-                  child: Text('جزئي'),
+                  child: Text('سداد الآن'),
                 ),
               ],
             ),
 
             if (_settlementMode == _PurchaseSettlementMode.partial) ...[
               const SizedBox(height: 16),
-              if (_paymentMethods.isNotEmpty) ...[
-                Builder(
-                  builder: (context) {
-                    final cashControlsEnabled = _cashPaid() > 0;
-
-                    return Opacity(
-                      opacity: cashControlsEnabled ? 1.0 : 0.55,
-                      child: DropdownButtonFormField<int>(
-                        initialValue: _selectedPaymentMethodId,
-                        decoration: InputDecoration(
-                          labelText: 'وسيلة الدفع',
-                          border: const OutlineInputBorder(),
-                          prefixIcon: Icon(
-                            Icons.payment,
-                            color: colorScheme.primary,
-                          ),
+              _buildPartialSettlementMiniTable(),
+              // How the cash is paid, asked once there is cash to pay.
+              if (_cashPaid() > 0 && _paymentMethods.isNotEmpty) ...[
+                const SizedBox(height: 16),
+                DropdownButtonFormField<int>(
+                  initialValue: _selectedPaymentMethodId,
+                  decoration: InputDecoration(
+                    labelText: 'وسيلة الدفع',
+                    border: const OutlineInputBorder(),
+                    prefixIcon: Icon(Icons.payment, color: colorScheme.primary),
+                  ),
+                  dropdownColor: theme.cardColor,
+                  icon: Icon(Icons.arrow_drop_down, color: colorScheme.primary),
+                  items: _paymentMethods
+                      .map(
+                        (method) => DropdownMenuItem<int>(
+                          value: method['id'] as int,
+                          child: Text(method['name']?.toString() ?? 'بدون اسم'),
                         ),
-                        dropdownColor: theme.cardColor,
-                        icon: Icon(
-                          Icons.arrow_drop_down,
-                          color: colorScheme.primary,
-                        ),
-                        items: _paymentMethods
-                            .map(
-                              (method) => DropdownMenuItem<int>(
-                                value: method['id'] as int,
-                                child: Text(
-                                  method['name']?.toString() ?? 'بدون اسم',
-                                ),
-                              ),
-                            )
-                            .toList(),
-                        onChanged: cashControlsEnabled
-                            ? (value) {
-                                setState(() {
-                                  _selectedPaymentMethodId = value;
-                                });
-                                if (value != null) {
-                                  _loadSafeBoxesForPaymentMethod(value);
-                                }
-                              }
-                            : null,
-                      ),
-                    );
+                      )
+                      .toList(),
+                  onChanged: (value) {
+                    setState(() {
+                      _selectedPaymentMethodId = value;
+                    });
+                    if (value != null) {
+                      _loadSafeBoxesForPaymentMethod(value);
+                    }
                   },
                 ),
-                const SizedBox(height: 16),
               ],
-              _buildPartialSettlementMiniTable(),
             ],
 
             if (_settlementMode == _PurchaseSettlementMode.barter) ...[
@@ -3829,82 +3860,10 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
               _buildBarterSettlementInputs(),
             ],
 
-            const SizedBox(height: 16),
-            Row(
-              children: [
-                if (_settlementMode == _PurchaseSettlementMode.partial &&
-                    _safeBoxes.isNotEmpty)
-                  OutlinedButton.icon(
-                    onPressed: (_cashPaid() > 0)
-                        ? () {
-                            setState(() {
-                              _showAdvancedPaymentOptions =
-                                  !_showAdvancedPaymentOptions;
-
-                              if (_showAdvancedPaymentOptions &&
-                                  _safeBoxes.isNotEmpty) {
-                                final safeBoxesWithIds = _safeBoxes
-                                    .where((box) => box.id != null)
-                                    .toList();
-                                final uniqueSafeBoxesWithIds = <SafeBoxModel>[];
-                                final seenSafeBoxIds = <int>{};
-                                for (final box in safeBoxesWithIds) {
-                                  final id = box.id;
-                                  if (id != null && seenSafeBoxIds.add(id)) {
-                                    uniqueSafeBoxesWithIds.add(box);
-                                  }
-                                }
-
-                                final hasSelected =
-                                    _selectedSafeBoxId != null &&
-                                    uniqueSafeBoxesWithIds.any(
-                                      (box) => box.id == _selectedSafeBoxId,
-                                    );
-                                if (!hasSelected) {
-                                  final defaultBox = uniqueSafeBoxesWithIds
-                                      .firstWhere(
-                                        (box) =>
-                                            box.isDefault == true &&
-                                            box.id != null,
-                                        orElse: () => _safeBoxes.firstWhere(
-                                          (box) => box.id != null,
-                                          orElse: () => _safeBoxes.first,
-                                        ),
-                                      );
-                                  _selectedSafeBoxId = defaultBox.id;
-                                }
-                              }
-                            });
-                          }
-                        : null,
-                    icon: Icon(
-                      _showAdvancedPaymentOptions
-                          ? Icons.settings
-                          : Icons.settings_outlined,
-                      color: _showAdvancedPaymentOptions
-                          ? colorScheme.primary
-                          : colorScheme.primary.withValues(alpha: 0.6),
-                    ),
-                    label: Text(
-                      _showAdvancedPaymentOptions
-                          ? 'إخفاء خيارات الدفع'
-                          : 'خيارات الدفع',
-                    ),
-                    style: OutlinedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 12,
-                      ),
-                    ),
-                  ),
-              ],
-            ),
-
             if (_settlementMode == _PurchaseSettlementMode.partial &&
                 _safeBoxes.isNotEmpty &&
-                _showAdvancedPaymentOptions &&
                 _cashPaid() > 0) ...[
-              const SizedBox(height: 20),
+              const SizedBox(height: 16),
               Builder(
                 builder: (context) {
                   final safeBoxesWithIds = _safeBoxes
@@ -4018,7 +3977,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const Text(
-          'تفاصيل السداد (جزئي)',
+          'تفاصيل السداد',
           style: TextStyle(fontWeight: FontWeight.bold),
         ),
         const SizedBox(height: 10),
@@ -4114,29 +4073,6 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
                           ),
                         ),
                       ),
-                      const SizedBox(width: 8),
-                      DropdownButton<int>(
-                        value: _selectedGoldPaidKarat,
-                        items: const [24, 22, 21, 18]
-                            .map(
-                              (k) => DropdownMenuItem<int>(
-                                value: k,
-                                child: Text('عيار $k'),
-                              ),
-                            )
-                            .toList(),
-                        onChanged: (value) {
-                          if (value == null) return;
-                          setState(() {
-                            _selectedGoldPaidKarat = value;
-                            _clearIncompatibleGoldSettlementSafes();
-                            for (final line in _goldSettlementLines) {
-                              line.safeBoxId ??=
-                                  _defaultGoldSafeIdForCurrentKarat();
-                            }
-                          });
-                        },
-                      ),
                     ],
                   ),
                 ),
@@ -4186,26 +4122,6 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
                   helperText: 'محسوب تلقائياً من الأسطر',
                 ),
               ),
-            ),
-            const SizedBox(width: 12),
-            DropdownButton<int>(
-              value: _selectedGoldPaidKarat,
-              items: const [24, 22, 21, 18]
-                  .map(
-                    (k) =>
-                        DropdownMenuItem<int>(value: k, child: Text('عيار $k')),
-                  )
-                  .toList(),
-              onChanged: (value) {
-                if (value == null) return;
-                setState(() {
-                  _selectedGoldPaidKarat = value;
-                  _clearIncompatibleGoldSettlementSafes();
-                  for (final line in _goldSettlementLines) {
-                    line.safeBoxId ??= _defaultGoldSafeIdForCurrentKarat();
-                  }
-                });
-              },
             ),
           ],
         ),
@@ -4472,7 +4388,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
             _buildSummaryRow('إجمالي الضريبة', _formatCurrency(_taxTotal)),
             const Divider(),
             _buildSummaryRow(
-              'الإجمالي الكلي',
+              'قيمة الفاتورة (ذهب + أجور + ضريبة)',
               _formatCurrency(_grandTotal),
               highlight: true,
             ),
@@ -4558,9 +4474,14 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              'مستحقات المورد',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            // What the invoice puts on what we owe the supplier: gold (in the
+            // main karat) and cash -- not the invoice total, whose gold value
+            // is settled in gold. A return takes from it.
+            Text(
+              _isSupplierReturnMode
+                  ? 'يُخصم مما علينا للمورد بهذا المرتجع'
+                  : 'علينا للمورد بهذه الفاتورة',
+              style: theme.textTheme.titleMedium,
             ),
             const SizedBox(height: 12),
             Wrap(
@@ -4568,16 +4489,8 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
               runSpacing: 12,
               children: [
                 _buildMetricTile(
-                  icon: Icons.scale,
-                  label: 'ذهب مستحق',
-                  value: _totalWeight > 0
-                      ? _formatWeight(_totalWeight)
-                      : '0.000 جم',
-                  iconColor: theme.colorScheme.primary,
-                ),
-                _buildMetricTile(
                   icon: Icons.balance,
-                  label: 'ذهب مكافئ (عيار ${mainKarat.toStringAsFixed(0)})',
+                  label: 'ذهب (مكافئ عيار ${mainKarat.toStringAsFixed(0)})',
                   value: mainEquivalentWeight > 0
                       ? _formatWeight(mainEquivalentWeight)
                       : '0.000 جم',
@@ -4585,9 +4498,17 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
                 ),
                 _buildMetricTile(
                   icon: Icons.payments_outlined,
-                  label: 'نقد مستحق',
+                  label: 'نقد (أجور وضريبة)',
                   value: _formatCurrency(cashDue),
                   iconColor: theme.colorScheme.tertiary,
+                ),
+                _buildMetricTile(
+                  icon: Icons.scale,
+                  label: 'الوزن كما استُلم',
+                  value: _totalWeight > 0
+                      ? _formatWeight(_totalWeight)
+                      : '0.000 جم',
+                  iconColor: theme.colorScheme.primary,
                 ),
                 _buildMetricTile(
                   icon: Icons.design_services,

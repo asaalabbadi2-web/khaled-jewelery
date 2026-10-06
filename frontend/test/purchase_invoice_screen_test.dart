@@ -32,6 +32,7 @@ void main() {
   Map<String, dynamic> draft({
     int? supplierId = 1,
     String settlement = 'credit',
+    String cashPaid = '0.00',
     List<Map<String, dynamic>> karatLines = const [],
     List<Map<String, dynamic>> goldSettlements = const [],
     bool withItem = true,
@@ -41,7 +42,7 @@ void main() {
     'supplier_id': supplierId,
     'branch_id': 1,
     'settlement_mode': settlement,
-    'cash_paid': '0.00',
+    'cash_paid': cashPaid,
     'selected_payment_method_id': 1,
     'selected_gold_paid_karat': 21,
     'gold_settlements': goldSettlements,
@@ -381,6 +382,77 @@ void main() {
       expect(line['manufacturing_wage_cash'], 100.0);
       expect(line['wage_tax'], 15.0); // 15 % of the wages typed, not of 0
       expect(line['gold_tax'], 0.0);
+    });
+  });
+
+  group('what we owe the supplier, said in words (stage 3)', () {
+    testWidgets('the review says where we stand and what the save does', (
+      tester,
+    ) async {
+      final api = FakePurchaseApi(
+        statement: {
+          'closing_balance_cash': -1500,
+          'closing_balance_gold_normalized': -10,
+        },
+      );
+      await open(tester, api: api, saved: draft());
+
+      await pressCtrlS(tester);
+      expect(find.textContaining('علينا له 1500.00'), findsOneWidget);
+      expect(find.textContaining('(دائن)'), findsWidgets);
+      expect(
+        find.textContaining('سيزيد ما علينا للمورد نقدًا'),
+        findsOneWidget,
+      );
+      expect(find.textContaining('سيزداد رصيد المورد'), findsNothing);
+    });
+
+    testWidgets('changing how it is settled asks before clearing the cash', (
+      tester,
+    ) async {
+      await open(
+        tester,
+        api: FakePurchaseApi(),
+        saved: draft(settlement: 'partial', cashPaid: '200.00'),
+      );
+
+      await tester.tap(find.text('آجل'));
+      await tester.pumpAndSettle();
+      expect(find.text('تغيير السداد إلى «آجل»'), findsOneWidget);
+      expect(find.textContaining('المدفوع نقدًا'), findsWidgets);
+
+      await tester.tap(find.text('إبقاء'));
+      await tester.pumpAndSettle();
+      expect(find.text('200.00'), findsOneWidget); // still there
+
+      await tester.tap(find.text('آجل'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('تغيير ومسح'));
+      await tester.pumpAndSettle();
+      expect(find.text('200.00'), findsNothing);
+    });
+
+    testWidgets('a commission typed in Arabic digits is read', (tester) async {
+      await open(
+        tester,
+        api: FakePurchaseApi(),
+        saved: draft(
+          settlement: 'partial',
+          goldSettlements: [
+            {'safe_box_id': 5, 'karat': 21, 'weight': '20.000'},
+          ],
+        ),
+      );
+
+      await tester.tap(find.text('عمولة'));
+      await tester.pumpAndSettle();
+      final field = find.ancestor(
+        of: find.textContaining('/جم'),
+        matching: find.byType(TextFormField),
+      );
+      await tester.enterText(field, '٢٫٥');
+      await tester.pumpAndSettle();
+      expect(find.textContaining('= 50.00'), findsOneWidget);
     });
   });
 }

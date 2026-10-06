@@ -83,5 +83,9 @@ String normalizeNumber(String? input) {
     text = text.replaceAll(persian[i], i.toString());
   }
 
+  // الفاصلة العشرية العربية «٫» نقطة، وفاصل الآلاف «٬» يُحذف: كانت «٢٫٥»
+  // تصير 25 بعد أن يحذف مرشّح الحقل [0-9.] الفاصلة.
+  text = text.replaceAll('\u066B', '.').replaceAll('\u066C', '');
+
   return text;
 }

@@ -8,10 +8,13 @@ import 'package:frontend/models/safe_box_model.dart';
 /// and the invoices it was asked to save. [hold] keeps a save in flight.
 /// Values are fixed as the server would return them; no accounting is faked.
 class FakePurchaseApi extends ApiService {
-  FakePurchaseApi({this.settings = const {}})
+  FakePurchaseApi({this.settings = const {}, this.statement = const {}})
     : super(baseUrl: 'http://fake.test');
 
   final Map<String, dynamic> settings;
+
+  /// The supplier's statement as the server reports it: debit minus credit.
+  final Map<String, dynamic> statement;
   final added = <Map<String, dynamic>>[];
   Completer<void>? hold;
 
@@ -83,6 +86,7 @@ class FakePurchaseApi extends ApiService {
   Future<Map<String, dynamic>> getSupplierStatement(int supplierId) async => {
     'closing_balance_cash': 0,
     'closing_balance_gold_normalized': 0,
+    ...statement,
   };
 
   @override
