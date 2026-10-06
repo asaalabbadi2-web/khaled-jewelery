@@ -1099,6 +1099,9 @@ class Invoice(db.Model):
     gold_tax_total = db.Column(db.Float, default=0.0)
     wage_tax_total = db.Column(db.Float, default=0.0)
     apply_gold_tax = db.Column(db.Boolean, default=False)
+    # A supplier purchase's VAT decision (PURCHASE-VAT-1): True / False as the
+    # user decided it on the invoice; NULL where none was recorded.
+    vat_applied = db.Column(db.Boolean, nullable=True)
     avg_cost_per_gram_snapshot = db.Column(db.Float, default=0.0)
     avg_cost_gold_component = db.Column(db.Float, default=0.0)
     avg_cost_manufacturing_component = db.Column(db.Float, default=0.0)
@@ -1370,6 +1373,7 @@ class Invoice(db.Model):
             'wage_tax_total': self.wage_tax_total,
             'cash_obligation': self.cash_obligation,
             'apply_gold_tax': self.apply_gold_tax,
+            'vat_applied': self.vat_applied,
             'avg_cost_per_gram_snapshot': self.avg_cost_per_gram_snapshot,
             'avg_cost_gold_component': self.avg_cost_gold_component,
             'avg_cost_manufacturing_component': self.avg_cost_manufacturing_component,

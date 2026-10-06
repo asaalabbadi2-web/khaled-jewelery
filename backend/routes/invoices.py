@@ -4382,6 +4382,30 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
             except Exception:
                 posted_by_username = 'system'
 
+        # A supplier purchase's VAT decision (PURCHASE-VAT-1): recorded as
+        # given; under «no VAT» the invoice carries none.
+        vat_decision = None
+        if invoice_type in ('شراء', 'مرتجع شراء (مورد)') and 'vat_applied' in data:
+            vat_decision = data.get('vat_applied')
+            if not isinstance(vat_decision, bool):
+                db.session.rollback()
+                return jsonify({
+                    'error': 'invalid_vat_applied',
+                    'message': 'قرار الضريبة إما بضريبة (true) أو بلا ضريبة (false)',
+                }), 400
+            if vat_decision is False:
+                carried = max(
+                    _to_float(data.get('total_tax'), 0.0),
+                    _to_float(data.get('wage_tax_total'), 0.0),
+                    _to_float(data.get('gold_tax_total'), 0.0),
+                )
+                if carried > 0.01:
+                    db.session.rollback()
+                    return jsonify({
+                        'error': 'vat_decision_mismatch',
+                        'message': f'الفاتورة «بلا ضريبة» وتحمل ضريبة ({round(carried, 2)})',
+                    }), 400
+
         new_invoice = Invoice(
             invoice_type_id=next_invoice_type_id,
             customer_id=data.get('customer_id'),
@@ -4400,6 +4424,7 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
             gold_tax_total=_extract_float('gold_tax_total'),
             wage_tax_total=_extract_float('wage_tax_total'),
             apply_gold_tax=bool(data.get('apply_gold_tax', False)),
+            vat_applied=vat_decision,
             settlement_method=data.get('settlement_method'),
             payment_method=data.get('payment_method'),  # للتوافق مع الفواتير القديمة
             payment_method_id=payment_method_id,  # 🆕 Foreign key
@@ -4597,14 +4622,16 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
                     if key not in obj:
                         return None
                     raw = obj.get(key)
-                    if raw in (None, '', False):
+                    # A sent 0 is a figure, not an absence (0 == False in
+                    # Python): an untaxed line was silently taxed to policy.
+                    if raw is None or raw is False or raw == '':
                         return None
                     return _to_float(raw, 0.0)
 
                 received_gold_tax = _extract_optional_float(line_data, 'gold_tax')
                 received_wage_tax = _extract_optional_float(line_data, 'wage_tax')
 
-                if not vat_enabled:
+                if not vat_enabled or vat_decision is False:
                     gold_tax_val = 0.0
                     wage_tax_val = 0.0
                 else:

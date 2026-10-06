@@ -15,9 +15,12 @@ import 'package:flutter_test/flutter_test.dart';
 const baselinePath = 'test/theme_raw_color_baseline.json';
 const themeDir = 'lib/theme/';
 
+// `Colors.` also matches `AppColors.` -- on purpose: AppColors are fixed
+// values that do not follow the dark theme either. `AppSemanticColors.` is
+// the theme itself and is not counted.
 final rawColor = RegExp(
   r'Color\(0x|Color\.fromARGB\(|Color\.fromRGBO\(|'
-  r'Colors\.(?!transparent\b)[a-zA-Z]+',
+  r'(?<!Semantic)Colors\.(?!transparent\b)[a-zA-Z]+',
 );
 
 Map<String, int> countRawColors() {
@@ -42,6 +45,15 @@ Map<String, int> countRawColors() {
 }
 
 void main() {
+  test('what counts as a raw color', () {
+    int n(String s) => rawColor.allMatches(s).length;
+    expect(n('color: Colors.black54'), 1);
+    expect(n('Color(0xFFFAF5E4)'), 1);
+    expect(n('AppColors.info'), 1);
+    expect(n('AppSemanticColors.of(context).info.fg'), 0);
+    expect(n('Colors.transparent'), 0);
+  });
+
   test('no file gains a raw color', () {
     final now = countRawColors();
 

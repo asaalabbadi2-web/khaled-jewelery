@@ -62,10 +62,12 @@ void main() {
     required FakePurchaseApi api,
     Map<String, dynamic>? saved,
     Map<String, dynamic>? appSettings,
+    Map<String, Object> prefs = const {},
   }) async {
     SharedPreferences.setMockInitialValues({
       if (saved != null) draftKey: jsonEncode(saved),
       if (appSettings != null) 'app_settings': jsonEncode(appSettings),
+      ...prefs,
     });
     tester.view.physicalSize = const Size(1440, 2400);
     tester.view.devicePixelRatio = 1;
@@ -262,4 +264,78 @@ void main() {
     );
     expect(find.text('تحميل على المصروفات'), findsNothing); // no toggle
   });
+
+  group(
+    'VAT is decided on the invoice, from the supplier (PURCHASE-VAT-1)',
+    () {
+      Future<Map<String, dynamic>> save(
+        WidgetTester tester,
+        FakePurchaseApi api,
+      ) async {
+        await pressCtrlS(tester);
+        await tester.tap(find.text('حفظ الفاتورة').last);
+        await settle(tester);
+        return api.added.single;
+      }
+
+      testWidgets('a supplier with a tax number starts with VAT', (
+        tester,
+      ) async {
+        final api = FakePurchaseApi();
+        await open(tester, api: api, saved: draft(supplierId: 1));
+
+        expect(find.text('حسب المورد: له رقم ضريبي'), findsOneWidget);
+        final sent = await save(tester, api);
+        expect(sent['vat_applied'], isTrue);
+        expect(sent['wage_tax_total'], greaterThan(0));
+      });
+
+      testWidgets('a supplier without one starts without', (tester) async {
+        final api = FakePurchaseApi();
+        await open(tester, api: api, saved: draft(supplierId: 2));
+
+        expect(find.text('حسب المورد: ليس له رقم ضريبي'), findsOneWidget);
+        final sent = await save(tester, api);
+        expect(sent['vat_applied'], isFalse);
+        expect(sent['wage_tax_total'], 0);
+        expect(sent['total_tax'], 0);
+      });
+
+      testWidgets(
+        'changed for one invoice, the review says it is an exception',
+        (tester) async {
+          final api = FakePurchaseApi();
+          await open(tester, api: api, saved: draft(supplierId: 1));
+
+          await tester.tap(find.text('بلا ضريبة'));
+          await tester.pumpAndSettle();
+          expect(find.text('غُيِّر لهذه الفاتورة'), findsOneWidget);
+
+          await pressCtrlS(tester);
+          expect(find.text('بلا ضريبة، والمورد له رقم ضريبي'), findsOneWidget);
+          await tester.tap(find.text('حفظ الفاتورة').last);
+          await settle(tester);
+          expect(api.added.single['vat_applied'], isFalse);
+          expect(api.added.single['wage_tax_total'], 0);
+        },
+      );
+
+      testWidgets(
+        'the old «no VAT» switch kept on the device decides nothing',
+        (tester) async {
+          final api = FakePurchaseApi();
+          await open(
+            tester,
+            api: api,
+            saved: draft(supplierId: 1),
+            prefs: {'invoice_ui_settings_v1.purchase.disable_vat': true},
+          );
+
+          final sent = await save(tester, api);
+          expect(sent['vat_applied'], isTrue);
+          expect(sent['wage_tax_total'], greaterThan(0));
+        },
+      );
+    },
+  );
 }

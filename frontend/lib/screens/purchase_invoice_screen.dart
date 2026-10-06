@@ -116,9 +116,6 @@ class PurchaseInvoiceScreen extends StatefulWidget {
 }
 
 class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
-  static const _prefKeyPurchaseApplyVatOnGold =
-      'purchase_invoice.apply_vat_on_gold';
-
   late final ApiService _api = widget.apiService ?? ApiService();
 
   bool _manualPricing = false;
@@ -136,7 +133,19 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
   bool _showAdvancedPaymentOptions = false;
 
   bool _uiLockPriceEdits = false;
-  bool _uiDisableVat = false;
+
+  /// This invoice's VAT decision (PURCHASE-VAT-1): null follows the supplier
+  /// -- with a tax number it starts with VAT, without one it starts without;
+  /// true / false is the user's choice for this invoice alone.
+  bool? _vatChoice;
+
+  bool get _supplierHasTaxNumber =>
+      (_selectedSupplierMap()?['tax_number'] ?? '')
+          .toString()
+          .trim()
+          .isNotEmpty;
+
+  bool get _vatApplied => _vatChoice ?? _supplierHasTaxNumber;
   bool _uiAutoOpenPrintAfterSave = false;
   String _uiPaperSize = 'A4';
 
@@ -785,6 +794,8 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
     _goldSettlementLines.clear();
     setState(() {
       _selectedSupplierId = null;
+      _vatChoice = null;
+      _applyVatOnGold = false;
       _karatLines = [];
       _inlineItems = [];
       _selectedOriginalInvoice = null;
@@ -888,6 +899,12 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
     setState(() {
       _selectedSupplierId = toInt(data['supplier_id']);
       _selectedBranchId = toInt(data['branch_id']);
+      // Editing keeps the invoice's own decision, else what its tax says.
+      final vatApplied = data['vat_applied'];
+      _vatChoice = vatApplied is bool
+          ? vatApplied
+          : toDouble(data['total_tax']) > 0;
+      _applyVatOnGold = data['apply_gold_tax'] == true;
       _settlementMode = modeFromStr(data['settlement_method']?.toString());
       _karatLines = restoredKaratLines;
       _inlineItems = restoredInlineItems;
@@ -916,7 +933,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
       'manual_pricing': _manualPricing,
       'apply_vat_on_gold': _applyVatOnGold,
       'ui_lock_price_edits': _uiLockPriceEdits,
-      'ui_disable_vat': _uiDisableVat,
+      'vat_choice': _vatChoice,
       'ui_auto_print': _uiAutoOpenPrintAfterSave,
       'ui_paper_size': _uiPaperSize,
       'show_advanced_payment_options': _showAdvancedPaymentOptions,
@@ -1154,7 +1171,8 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
         _manualPricing = payload['manual_pricing'] == true;
         _applyVatOnGold = payload['apply_vat_on_gold'] == true;
         _uiLockPriceEdits = payload['ui_lock_price_edits'] == true;
-        _uiDisableVat = payload['ui_disable_vat'] == true;
+        final vatChoice = payload['vat_choice'];
+        _vatChoice = vatChoice is bool ? vatChoice : null;
         _uiAutoOpenPrintAfterSave = payload['ui_auto_print'] == true;
         _uiPaperSize = (payload['ui_paper_size'] ?? _uiPaperSize).toString();
 
@@ -1196,7 +1214,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
   }
 
   double _vatRateFromSettings() {
-    if (_uiDisableVat) return 0.0;
+    if (!_vatApplied) return 0.0;
     try {
       final settings = context.read<SettingsProvider>();
       return settings.taxEnabled ? settings.taxRate : 0.0;
@@ -1427,7 +1445,6 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
     _selectedSupplierId = widget.supplierId;
     _cashPaidController.text = '0.00';
     _goldPaidWeightController.text = '0.000';
-    _loadUiDefaultsFromPrefs();
     _loadInvoiceUiSettingsFromPrefs();
     _loadBranches();
     _loadSuppliers();
@@ -1459,42 +1476,12 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
       if (!mounted) return;
       setState(() {
         _uiLockPriceEdits = settings.lockPriceEdits;
-        _uiDisableVat = settings.disableVat;
         _uiAutoOpenPrintAfterSave = settings.autoOpenPrintAfterSave;
         _uiPaperSize = settings.paperSize;
       });
 
       if (!mounted) return;
       _applyCombinedTotals();
-    } catch (_) {
-      // ignore
-    }
-  }
-
-  Future<void> _loadUiDefaultsFromPrefs() async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-
-      final applyVatPref = prefs.getBool(_prefKeyPurchaseApplyVatOnGold);
-
-      if (!mounted) return;
-      setState(() {
-        if (applyVatPref != null) {
-          _applyVatOnGold = applyVatPref;
-        }
-      });
-
-      if (!mounted) return;
-      _applyCombinedTotals();
-    } catch (_) {
-      // ignore preferences failures
-    }
-  }
-
-  Future<void> _persistApplyVatOnGold(bool value) async {
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setBool(_prefKeyPurchaseApplyVatOnGold, value);
     } catch (_) {
       // ignore
     }
@@ -1644,6 +1631,8 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
       setState(() {
         _suppliers = suppliers;
         _selectedSupplierId = resolvedId;
+        // The supplier's tax number is now known: its VAT default may apply.
+        _applyCombinedTotals();
       });
 
       _applySupplierDefaultSafeBoxSelections();
@@ -1909,6 +1898,8 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
               );
               _selectedSupplierId = supplierId;
               _supplierError = null;
+              _vatChoice = null;
+              _applyCombinedTotals();
             });
 
             _applySupplierDefaultSafeBoxSelections();
@@ -1962,6 +1953,9 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
     setState(() {
       _selectedSupplierId = id;
       _supplierError = null;
+      // A new supplier: the VAT decision starts again from its tax number.
+      _vatChoice = null;
+      _applyCombinedTotals();
       // في وضع المرتجع: إعادة تعيين الفاتورة الأصلية عند تغيير المورد
       if (_isSupplierReturnMode) {
         _selectedOriginalInvoice = null;
@@ -2378,12 +2372,17 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
     final settings = context.read<SettingsProvider>();
     // The server's VAT policy, which the screen's «disable VAT» switch does
     // not change: the server checks manual lines against it.
-    final policyRate = settings.taxEnabled ? settings.taxRate : 0.0;
+    final policyRate = (_vatApplied && settings.taxEnabled)
+        ? settings.taxRate
+        : 0.0;
     final exempt = _vatExemptKaratsFromSettings();
 
     final karatLines = _karatLines.map((line) {
       final snap = _snapshotFor(line);
-      final goldTaxed = _applyVatOnGold && !exempt.contains(line.karat.round());
+      final goldTaxed =
+          _vatApplied &&
+          _applyVatOnGold &&
+          !exempt.contains(line.karat.round());
       return PurchaseKaratLineFacts(
         weight: snap.weight,
         goldTax: snap.goldTax,
@@ -2538,7 +2537,8 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
       'wage_subtotal': _round(_wageSubtotal, 2),
       'gold_tax_total': _round(_goldTaxTotal, 2),
       'wage_tax_total': _round(_wageTaxTotal, 2),
-      'apply_gold_tax': _applyVatOnGold,
+      'apply_gold_tax': _vatApplied && _applyVatOnGold,
+      'vat_applied': _vatApplied,
       'karat_lines': linePayloads,
       'items': inlineItemsPayload,
       'supplier_gold_lines': supplierGoldLines,
@@ -2960,6 +2960,12 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
         'سيزداد رصيد المورد الذهبي بمقدار ${_fmtWeight(netGoldDueMain)} جم',
       );
     }
+    // An exception to the supplier's usual VAT is seen, not missed (PURCHASE-VAT-1).
+    if (!_vatApplied && _supplierHasTaxNumber) {
+      notices.add('بلا ضريبة، والمورد له رقم ضريبي');
+    } else if (_vatApplied && !_supplierHasTaxNumber) {
+      notices.add('بضريبة، والمورد ليس له رقم ضريبي');
+    }
     if (statementError != null) {
       notices.add(
         'تعذر جلب الرصيد الحالي من السيرفر. سيتم المتابعة بدون عرض رصيد تفصيلي.',
@@ -2997,6 +3003,12 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
               icon: Icons.payments_outlined,
               accentColor: AppColors.primaryGold,
               emphasize: true,
+            ),
+            InvoiceSummaryMetric(
+              label: 'الضريبة',
+              value: _vatApplied ? 'بضريبة' : 'بلا ضريبة',
+              icon: Icons.receipt_long_outlined,
+              accentColor: AppSemanticColors.of(context).info.fg,
             ),
             if (_selectedPaymentMethodId != null && paidCash > 0.01)
               InvoiceSummaryMetric(
@@ -3311,14 +3323,13 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
               await InvoiceSettingsSheet.show(
                 context,
                 contextType: InvoiceUiContext.purchase,
-                supportsVatToggle: true,
+                supportsVatToggle: false,
                 supportsLockEdits: true,
                 supportsAutoOpenPrint: true,
                 onChanged: (s) {
                   if (!mounted) return;
                   setState(() {
                     _uiLockPriceEdits = s.lockPriceEdits;
-                    _uiDisableVat = s.disableVat;
                     _uiAutoOpenPrintAfterSave = s.autoOpenPrintAfterSave;
                     _uiPaperSize = s.paperSize;
                   });
@@ -3602,6 +3613,11 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
         _selectedOriginalInvoice = merged;
         _selectedSupplierId = supplierId;
         _selectedBranchId = branchId;
+        // A return mirrors its original's VAT decision.
+        final originalVat = merged['vat_applied'];
+        _vatChoice = originalVat is bool
+            ? originalVat
+            : _toDouble(merged['total_tax']) > 0;
         _supplierError = null;
         _branchError = null;
         _inlineItems = mapped;
@@ -4368,6 +4384,56 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
     );
   }
 
+  /// The invoice's VAT decision, on its face (PURCHASE-VAT-1): it starts from
+  /// the supplier's tax number and is changed for this invoice alone.
+  Widget _buildVatDecision() {
+    final theme = Theme.of(context);
+    final followsSupplier = _vatChoice == null;
+    final origin = followsSupplier
+        ? (_supplierHasTaxNumber
+              ? 'حسب المورد: له رقم ضريبي'
+              : 'حسب المورد: ليس له رقم ضريبي')
+        : 'غُيِّر لهذه الفاتورة';
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SegmentedButton<bool>(
+          segments: const [
+            ButtonSegment(value: true, label: Text('بضريبة')),
+            ButtonSegment(value: false, label: Text('بلا ضريبة')),
+          ],
+          selected: {_vatApplied},
+          onSelectionChanged: _uiLockPriceEdits
+              ? null
+              : (selection) => setState(() {
+                  final choice = selection.first;
+                  _vatChoice = choice == _supplierHasTaxNumber ? null : choice;
+                  _applyCombinedTotals();
+                }),
+        ),
+        const SizedBox(height: 4),
+        Text(origin, style: theme.textTheme.bodySmall),
+        if (_vatApplied)
+          SwitchListTile.adaptive(
+            contentPadding: EdgeInsets.zero,
+            value: _applyVatOnGold,
+            title: const Text('الضريبة على قيمة الذهب أيضًا'),
+            subtitle: Text(
+              _applyVatOnGold
+                  ? 'على قيمة الذهب وأجور المصنعية.'
+                  : 'على أجور المصنعية فقط.',
+            ),
+            onChanged: _uiLockPriceEdits
+                ? null
+                : (value) => setState(() {
+                    _applyVatOnGold = value;
+                    _applyCombinedTotals();
+                  }),
+          ),
+      ],
+    );
+  }
+
   Widget _buildTotalsCard() {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
@@ -4386,25 +4452,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
               style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 12),
-            SwitchListTile.adaptive(
-              contentPadding: EdgeInsets.zero,
-              value: _applyVatOnGold,
-              title: const Text('تطبيق ضريبة القيمة المضافة على قيمة الذهب'),
-              subtitle: Text(
-                _applyVatOnGold
-                    ? 'سيتم احتساب الضريبة على قيمة الذهب وأجور المصنعية.'
-                    : 'سيتم احتساب الضريبة على أجور المصنعية فقط.',
-              ),
-              onChanged: _uiLockPriceEdits
-                  ? null
-                  : (value) {
-                      setState(() {
-                        _applyVatOnGold = value;
-                        _applyCombinedTotals();
-                      });
-                      _persistApplyVatOnGold(value);
-                    },
-            ),
+            _buildVatDecision(),
             const SizedBox(height: 12),
             _buildSummaryRow('إجمالي الوزن', _formatWeight(_totalWeight)),
             _buildSummaryRow(

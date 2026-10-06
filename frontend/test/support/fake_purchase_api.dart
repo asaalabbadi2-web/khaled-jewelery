@@ -24,7 +24,12 @@ class FakePurchaseApi extends ApiService {
 
   @override
   Future<List<dynamic>> getSuppliers() async => [
-    {'id': 1, 'name': 'مصنع الريّان للذهب', 'default_wage_type': 'cash'},
+    {
+      'id': 1,
+      'name': 'مصنع الريّان للذهب',
+      'default_wage_type': 'cash',
+      'tax_number': '300000000000003',
+    },
     {'id': 2, 'name': 'مؤسسة النور', 'default_wage_type': 'cash'},
   ];
 
