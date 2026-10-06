@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import '../api_service.dart';
+import '../widgets/settlement_schedule_editor.dart';
 import '../models/safe_box_model.dart';
 import '../theme/app_theme.dart';
 import '../widgets/safe_box_picker_dialog.dart';
@@ -757,14 +758,26 @@ class _PaymentMethodsScreenEnhancedState
                       '${method['commission_fixed_amount'] ?? 0}',
                       _warningColor,
                     ),
-                    _buildInfoChip(
-                      Icons.calendar_today,
-                      'أيام التسوية',
-                      '${method['settlement_days'] ?? 0}',
-                      _infoColor,
-                    ),
                   ],
                 ),
+                // The schedule as the server reads it (ADR-037).
+                if (method['auto_settlement_enabled'] == true &&
+                    (method['schedule_summary'] ?? '').toString().isNotEmpty) ...[
+                  const SizedBox(height: 12),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(Icons.event_available, size: 18, color: _infoColor),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          method['schedule_summary'].toString(),
+                          style: TextStyle(fontSize: 12, color: _secondaryText),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
                 const SizedBox(height: 16),
                 Text(
                   'الفواتير المسموح بها',
@@ -934,64 +947,15 @@ class _PaymentMethodsScreenEnhancedState
     final settlementDaysController = TextEditingController(
       text: (editingMethod?['settlement_days'] ?? 0).toString(),
     );
-    final minSettlementAmountController = TextEditingController(
-      text: (editingMethod?['min_settlement_amount']?.toDouble() ?? 0.0)
-          .toString(),
-    );
-
     final rawAutoSettlement = editingMethod?['auto_settlement_enabled'];
     bool autoSettlementEnabled =
         rawAutoSettlement == true ||
         (rawAutoSettlement?.toString().trim().toLowerCase() == 'true');
 
-    String settlementScheduleType =
-        (editingMethod?['settlement_schedule_type']
-            ?.toString()
-            .trim()
-            .toLowerCase() ??
-        'days');
-    if (settlementScheduleType != 'days' &&
-        settlementScheduleType != 'weekday') {
-      settlementScheduleType = 'days';
-    }
-
-    int? settlementWeekday;
-    try {
-      final raw = editingMethod?['settlement_weekday'];
-      settlementWeekday = raw is int
-          ? raw
-          : int.tryParse(raw?.toString() ?? '');
-    } catch (_) {
-      settlementWeekday = null;
-    }
-
-    int depositDelayDays = 0;
-    try {
-      final raw = editingMethod?['deposit_delay_days'];
-      depositDelayDays = raw is int
-          ? raw
-          : int.tryParse(raw?.toString() ?? '0') ?? 0;
-    } catch (_) {
-      depositDelayDays = 0;
-    }
-    String depositScheduleType =
-        (editingMethod?['deposit_schedule_type']
-            ?.toString()
-            .trim()
-            .toLowerCase() ??
-        'days');
-    if (depositScheduleType != 'days' && depositScheduleType != 'weekday') {
-      depositScheduleType = 'days';
-    }
-    int? depositWeekday;
-    try {
-      final raw = editingMethod?['deposit_weekday'];
-      depositWeekday = raw is int ? raw : int.tryParse(raw?.toString() ?? '');
-    } catch (_) {
-      depositWeekday = null;
-    }
-    final depositDelayController = TextEditingController(
-      text: depositDelayDays.toString(),
+    // The settlement and deposit schedule (ADR-037): one value, edited by
+    // SettlementScheduleEditor, previewed by the server.
+    SettlementScheduleValue schedule = SettlementScheduleValue.fromMethod(
+      editingMethod,
     );
 
     int? settlementBankSafeBoxId;
@@ -1297,53 +1261,6 @@ class _PaymentMethodsScreenEnhancedState
 
                     SizedBox(height: 16),
 
-                    // أيام التسوية
-                    TextFormField(
-                      controller: settlementDaysController,
-                      decoration: InputDecoration(
-                        labelText: 'أيام التسوية',
-                        hintText: '0',
-                        prefixIcon: Icon(
-                          Icons.calendar_today,
-                          color: _infoColor,
-                        ),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        filled: true,
-                        fillColor: formFieldFill,
-                      ),
-                      keyboardType: TextInputType.number,
-                    ),
-
-                    SizedBox(height: 16),
-
-                    // الحد الأدنى لمبلغ التسوية
-                    TextFormField(
-                      controller: minSettlementAmountController,
-                      decoration: InputDecoration(
-                        labelText: 'الحد الأدنى لمبلغ التسوية',
-                        hintText: '0 = بلا حد أدنى',
-                        prefixIcon: Icon(
-                          Icons.account_balance_wallet_outlined,
-                          color: _infoColor,
-                        ),
-                        helperText:
-                            'لن تُنفَّذ التسوية التلقائية إلا بعد بلوغ هذا المبلغ',
-                        helperStyle: TextStyle(fontSize: 11),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        filled: true,
-                        fillColor: formFieldFill,
-                      ),
-                      keyboardType: const TextInputType.numberWithOptions(
-                        decimal: true,
-                      ),
-                    ),
-
-                    SizedBox(height: 16),
-
                     // التسوية التلقائية
                     Container(
                       padding: const EdgeInsets.all(12),
@@ -1372,241 +1289,13 @@ class _PaymentMethodsScreenEnhancedState
                           ),
                           if (autoSettlementEnabled) ...[
                             const SizedBox(height: 12),
-                            DropdownButtonFormField<String>(
-                              initialValue: settlementScheduleType,
-                              decoration: InputDecoration(
-                                labelText: 'نوع الجدولة',
-                                prefixIcon: Icon(
-                                  Icons.schedule,
-                                  color: _infoColor,
-                                ),
-                                border: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                                filled: true,
-                                fillColor: formFieldFill,
-                              ),
-                              items: const [
-                                DropdownMenuItem(
-                                  value: 'days',
-                                  child: Text('بعد عدد أيام (Days)'),
-                                ),
-                                DropdownMenuItem(
-                                  value: 'weekday',
-                                  child: Text('يوم محدد بالأسبوع (Weekday)'),
-                                ),
-                              ],
-                              onChanged: (value) {
-                                setDialogState(() {
-                                  settlementScheduleType = value ?? 'days';
-                                  if (settlementScheduleType != 'weekday') {
-                                    settlementWeekday = null;
-                                  }
-                                });
-                              },
+                            SettlementScheduleEditor(
+                              initial: schedule,
+                              api: apiService,
+                              fieldFill: formFieldFill,
+                              onChanged: (v) => schedule = v,
                             ),
                             const SizedBox(height: 12),
-
-                            if (settlementScheduleType == 'weekday')
-                              DropdownButtonFormField<int>(
-                                initialValue: settlementWeekday,
-                                decoration: InputDecoration(
-                                  labelText: 'يوم الأسبوع',
-                                  prefixIcon: Icon(
-                                    Icons.event,
-                                    color: _infoColor,
-                                  ),
-                                  border: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
-                                  filled: true,
-                                  fillColor: formFieldFill,
-                                ),
-                                items: const [
-                                  DropdownMenuItem(
-                                    value: 0,
-                                    child: Text('الاثنين'),
-                                  ),
-                                  DropdownMenuItem(
-                                    value: 1,
-                                    child: Text('الثلاثاء'),
-                                  ),
-                                  DropdownMenuItem(
-                                    value: 2,
-                                    child: Text('الأربعاء'),
-                                  ),
-                                  DropdownMenuItem(
-                                    value: 3,
-                                    child: Text('الخميس'),
-                                  ),
-                                  DropdownMenuItem(
-                                    value: 4,
-                                    child: Text('الجمعة'),
-                                  ),
-                                  DropdownMenuItem(
-                                    value: 5,
-                                    child: Text('السبت'),
-                                  ),
-                                  DropdownMenuItem(
-                                    value: 6,
-                                    child: Text('الأحد'),
-                                  ),
-                                ],
-                                onChanged: (value) {
-                                  setDialogState(() {
-                                    settlementWeekday = value;
-                                  });
-                                },
-                                validator: (value) {
-                                  if (autoSettlementEnabled &&
-                                      settlementScheduleType == 'weekday' &&
-                                      value == null) {
-                                    return 'مطلوب';
-                                  }
-                                  return null;
-                                },
-                              ),
-
-                            if (settlementScheduleType == 'weekday')
-                              const SizedBox(height: 12),
-
-                            if (autoSettlementEnabled)
-                              DropdownButtonFormField<String>(
-                                initialValue: depositScheduleType,
-                                decoration: InputDecoration(
-                                  labelText: 'جدولة الإيداع البنكي',
-                                  prefixIcon: Icon(
-                                    Icons.schedule_send,
-                                    color: _infoColor,
-                                  ),
-                                  border: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
-                                  filled: true,
-                                  fillColor: formFieldFill,
-                                ),
-                                items: const [
-                                  DropdownMenuItem(
-                                    value: 'days',
-                                    child: Text('بعد عدد أيام من التسوية'),
-                                  ),
-                                  DropdownMenuItem(
-                                    value: 'weekday',
-                                    child: Text('يوم ثابت بالأسبوع'),
-                                  ),
-                                ],
-                                onChanged: (value) {
-                                  setDialogState(() {
-                                    depositScheduleType = value ?? 'days';
-                                    if (depositScheduleType != 'weekday') {
-                                      depositWeekday = null;
-                                    }
-                                  });
-                                },
-                              ),
-
-                            if (autoSettlementEnabled)
-                              const SizedBox(height: 12),
-
-                            if (autoSettlementEnabled &&
-                                depositScheduleType == 'weekday')
-                              DropdownButtonFormField<int>(
-                                initialValue: depositWeekday,
-                                decoration: InputDecoration(
-                                  labelText: 'يوم الإيداع الأسبوعي',
-                                  prefixIcon: Icon(
-                                    Icons.event_available,
-                                    color: _infoColor,
-                                  ),
-                                  border: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
-                                  filled: true,
-                                  fillColor: formFieldFill,
-                                ),
-                                items: const [
-                                  DropdownMenuItem(
-                                    value: 0,
-                                    child: Text('الاثنين'),
-                                  ),
-                                  DropdownMenuItem(
-                                    value: 1,
-                                    child: Text('الثلاثاء'),
-                                  ),
-                                  DropdownMenuItem(
-                                    value: 2,
-                                    child: Text('الأربعاء'),
-                                  ),
-                                  DropdownMenuItem(
-                                    value: 3,
-                                    child: Text('الخميس'),
-                                  ),
-                                  DropdownMenuItem(
-                                    value: 4,
-                                    child: Text('الجمعة'),
-                                  ),
-                                  DropdownMenuItem(
-                                    value: 5,
-                                    child: Text('السبت'),
-                                  ),
-                                  DropdownMenuItem(
-                                    value: 6,
-                                    child: Text('الأحد'),
-                                  ),
-                                ],
-                                onChanged: (value) {
-                                  setDialogState(() {
-                                    depositWeekday = value;
-                                  });
-                                },
-                                validator: (value) {
-                                  if (autoSettlementEnabled &&
-                                      depositScheduleType == 'weekday' &&
-                                      value == null) {
-                                    return 'مطلوب';
-                                  }
-                                  return null;
-                                },
-                              ),
-
-                            if (autoSettlementEnabled &&
-                                depositScheduleType == 'weekday')
-                              const SizedBox(height: 12),
-
-                            if (autoSettlementEnabled &&
-                                depositScheduleType == 'days')
-                              TextFormField(
-                                controller: depositDelayController,
-                                keyboardType: TextInputType.number,
-                                decoration: InputDecoration(
-                                  labelText: 'أيام تأخير الإيداع بعد التسوية',
-                                  hintText:
-                                      'مثال: 3 = الإيداع بعد 3 أيام من موعد التسوية',
-                                  prefixIcon: Icon(
-                                    Icons.schedule_send,
-                                    color: _infoColor,
-                                  ),
-                                  border: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
-                                  filled: true,
-                                  fillColor: formFieldFill,
-                                ),
-                                validator: (value) {
-                                  final v = int.tryParse(value ?? '0') ?? 0;
-                                  if (v < 0 || v > 30) {
-                                    return 'يجب أن تكون بين 0 و 30';
-                                  }
-                                  return null;
-                                },
-                                onChanged: (value) {
-                                  depositDelayDays = int.tryParse(value) ?? 0;
-                                },
-                              ),
-
-                            if (autoSettlementEnabled &&
-                                depositScheduleType == 'days')
-                              const SizedBox(height: 12),
 
                             Builder(
                               builder: (context) {
@@ -2179,31 +1868,12 @@ class _PaymentMethodsScreenEnhancedState
                         double.tryParse(commissionFixedController.text) ?? 0.0;
                     final settlementDays =
                         int.tryParse(settlementDaysController.text) ?? 0; // 🆕
-                    final minSettlementAmount =
-                        double.tryParse(minSettlementAmountController.text) ??
-                        0.0;
                     final invoiceTypeList = selectedInvoiceTypes.toList();
 
                     if (autoSettlementEnabled) {
                       if (settlementBankSafeBoxId == null) {
                         _showMessage(
                           '⚠️ اختر خزينة بنكية للتسوية التلقائية',
-                          isError: true,
-                        );
-                        return;
-                      }
-                      if (settlementScheduleType == 'weekday' &&
-                          settlementWeekday == null) {
-                        _showMessage(
-                          '⚠️ اختر يوم الأسبوع للتسوية التلقائية',
-                          isError: true,
-                        );
-                        return;
-                      }
-                      if (depositScheduleType == 'weekday' &&
-                          depositWeekday == null) {
-                        _showMessage(
-                          '⚠️ اختر يوم الأسبوع للإيداع البنكي',
                           isError: true,
                         );
                         return;
@@ -2229,15 +1899,23 @@ class _PaymentMethodsScreenEnhancedState
                         commissionTiming: selectedCommissionTiming,
                         settlementDays: settlementDays, // 🆕
                         autoSettlementEnabled: autoSettlementEnabled,
-                        settlementScheduleType: settlementScheduleType,
-                        settlementWeekday: settlementWeekday,
+                        settlementScheduleType: schedule.batchPeriod,
+                        settlementWeekday: schedule.batchPeriod == 'weekday'
+                            ? schedule.closeWeekday
+                            : null,
                         settlementBankSafeBoxId: settlementBankSafeBoxId,
                         feeExpenseAccountId: feeExpenseAccountId,
-                        minSettlementAmount: minSettlementAmount,
+                        minSettlementAmount: schedule.minSettlementAmount,
                         settlementMode: selectedSettlementMode,
-                        depositDelayDays: depositDelayDays,
-                        depositScheduleType: depositScheduleType,
-                        depositWeekday: depositWeekday,
+                        depositDelayDays: schedule.depositRule == 'days'
+                            ? schedule.depositDays
+                            : 0,
+                        depositScheduleType: schedule.depositRule,
+                        depositWeekday: schedule.depositRule == 'weekday'
+                            ? schedule.depositWeekday
+                            : null,
+                        bankWeekendDays: schedule.bankWeekend.toList()..sort(),
+                        skipPublicHolidays: schedule.skipPublicHolidays,
                         isActive: isActive,
                         applicableInvoiceTypes: invoiceTypeList,
                       );
@@ -2252,15 +1930,23 @@ class _PaymentMethodsScreenEnhancedState
                         commissionTiming: selectedCommissionTiming,
                         settlementDays: settlementDays,
                         autoSettlementEnabled: autoSettlementEnabled,
-                        settlementScheduleType: settlementScheduleType,
-                        settlementWeekday: settlementWeekday,
+                        settlementScheduleType: schedule.batchPeriod,
+                        settlementWeekday: schedule.batchPeriod == 'weekday'
+                            ? schedule.closeWeekday
+                            : null,
                         settlementBankSafeBoxId: settlementBankSafeBoxId,
                         feeExpenseAccountId: feeExpenseAccountId,
-                        minSettlementAmount: minSettlementAmount,
+                        minSettlementAmount: schedule.minSettlementAmount,
                         settlementMode: selectedSettlementMode,
-                        depositDelayDays: depositDelayDays,
-                        depositScheduleType: depositScheduleType,
-                        depositWeekday: depositWeekday,
+                        depositDelayDays: schedule.depositRule == 'days'
+                            ? schedule.depositDays
+                            : 0,
+                        depositScheduleType: schedule.depositRule,
+                        depositWeekday: schedule.depositRule == 'weekday'
+                            ? schedule.depositWeekday
+                            : null,
+                        bankWeekendDays: schedule.bankWeekend.toList()..sort(),
+                        skipPublicHolidays: schedule.skipPublicHolidays,
                         isActive: isActive,
                         defaultSafeBoxId: selectedDefaultSafeBoxId,
                         applicableInvoiceTypes: invoiceTypeList,

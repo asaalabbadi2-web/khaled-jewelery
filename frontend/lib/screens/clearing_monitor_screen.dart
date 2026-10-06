@@ -890,51 +890,9 @@ class _ClearingMonitorScreenState extends State<ClearingMonitorScreen> {
         : 'ضمن الفاتورة';
     final rate = (pm['commission_rate'] as num?)?.toDouble() ?? 0.0;
     final autoEnabled = pm['auto_settlement_enabled'] == true;
-    final scheduleType = pm['settlement_schedule_type']?.toString() ?? 'days';
-    final days = pm['settlement_days'];
-    final depositScheduleType =
-        pm['deposit_schedule_type']?.toString().trim().toLowerCase() ?? 'days';
-    final depositDelayDays =
-        int.tryParse(pm['deposit_delay_days']?.toString() ?? '0') ?? 0;
-    final depositWeekday =
-        int.tryParse(pm['deposit_weekday']?.toString() ?? '') ?? -1;
-
-    String scheduleLabel = '—';
-    if (autoEnabled) {
-      const weekdays = [
-        'الاثنين',
-        'الثلاثاء',
-        'الأربعاء',
-        'الخميس',
-        'الجمعة',
-        'السبت',
-        'الأحد',
-      ];
-
-      String settlementLabel;
-      if (scheduleType == 'weekday') {
-        final idx =
-            int.tryParse(pm['settlement_weekday']?.toString() ?? '') ?? -1;
-        settlementLabel = (idx >= 0 && idx < weekdays.length)
-            ? 'أسبوعي / ${weekdays[idx]}'
-            : 'أسبوعي';
-      } else {
-        settlementLabel = 'كل ${days ?? 0} يوم';
-      }
-
-      String depositLabel;
-      if (depositScheduleType == 'weekday' &&
-          depositWeekday >= 0 &&
-          depositWeekday < weekdays.length) {
-        depositLabel = 'إيداع أسبوعي / ${weekdays[depositWeekday]}';
-      } else if (depositDelayDays > 0) {
-        depositLabel = 'إيداع بعد $depositDelayDays يوم';
-      } else {
-        depositLabel = 'إيداع فوري';
-      }
-
-      scheduleLabel = '$settlementLabel • $depositLabel';
-    }
+    // The schedule as the server reads it (ADR-037) -- not recomputed here.
+    final summary = pm['schedule_summary']?.toString() ?? '';
+    final scheduleLabel = autoEnabled && summary.isNotEmpty ? summary : '—';
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),

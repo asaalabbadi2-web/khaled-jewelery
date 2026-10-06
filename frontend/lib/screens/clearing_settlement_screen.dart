@@ -724,53 +724,9 @@ class _ClearingSettlementScreenState extends State<ClearingSettlementScreen> {
     bool autoSettlement = false;
     if (matched != null) {
       autoSettlement = matched['auto_settlement_enabled'] == true;
-      final scheduleType = matched['settlement_schedule_type']?.toString();
-      final settlementDays = matched['settlement_days'];
-      final settlementWeekday = matched['settlement_weekday'];
-      final depositScheduleType =
-          matched['deposit_schedule_type']?.toString().trim().toLowerCase() ??
-          'days';
-      final depositDelayDays =
-          int.tryParse(matched['deposit_delay_days']?.toString() ?? '0') ?? 0;
-      final depositWeekday =
-          int.tryParse(matched['deposit_weekday']?.toString() ?? '') ?? -1;
-
-      const weekdays = [
-        'الاثنين',
-        'الثلاثاء',
-        'الأربعاء',
-        'الخميس',
-        'الجمعة',
-        'السبت',
-        'الأحد',
-      ];
-
-      String? settlementLabel;
-      if (scheduleType == 'days' && settlementDays != null) {
-        settlementLabel = 'تسوية كل $settlementDays يوم';
-      } else if (scheduleType == 'weekday' && settlementWeekday != null) {
-        final idx = int.tryParse(settlementWeekday.toString()) ?? -1;
-        if (idx >= 0 && idx < weekdays.length) {
-          settlementLabel = 'تسوية أسبوعية يوم ${weekdays[idx]}';
-        } else {
-          settlementLabel = 'تسوية أسبوعية';
-        }
-      }
-
-      String? depositLabel;
-      if (depositScheduleType == 'weekday' &&
-          depositWeekday >= 0 &&
-          depositWeekday < weekdays.length) {
-        depositLabel = 'إيداع أسبوعي يوم ${weekdays[depositWeekday]}';
-      } else if (depositDelayDays > 0) {
-        depositLabel = 'إيداع بعد $depositDelayDays يوم';
-      }
-
-      if (settlementLabel != null && depositLabel != null) {
-        scheduleInfo = '$settlementLabel • $depositLabel';
-      } else {
-        scheduleInfo = settlementLabel;
-      }
+      // The schedule as the server reads it (ADR-037) -- not recomputed here.
+      final summary = matched['schedule_summary']?.toString() ?? '';
+      scheduleInfo = summary.isEmpty ? null : summary;
     }
 
     final timing = matched == null
@@ -1625,8 +1581,10 @@ class _ClearingSettlementScreenState extends State<ClearingSettlementScreen> {
                           style: TextStyle(fontWeight: FontWeight.w700),
                         ),
                         const SizedBox(height: 10),
+                        // The voucher's date is the bank statement's line
+                        // (ADR-037): the day the money reached the bank.
                         _PickerTile(
-                          title: 'تاريخ التسوية',
+                          title: 'تاريخ الإيداع في البنك',
                           value:
                               '${_settlementDate.year}-${_settlementDate.month.toString().padLeft(2, '0')}-${_settlementDate.day.toString().padLeft(2, '0')}',
                           icon: Icons.event,

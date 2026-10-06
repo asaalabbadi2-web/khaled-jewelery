@@ -3866,10 +3866,14 @@ class ApiService {
     int depositDelayDays = 0,
     String depositScheduleType = 'days',
     int? depositWeekday,
+    List<int> bankWeekendDays = const [],
+    bool skipPublicHolidays = false,
     bool isActive = true,
     List<String>? applicableInvoiceTypes,
   }) async {
     final payload = <String, dynamic>{
+      'bank_weekend_days': bankWeekendDays,
+      'skip_public_holidays': skipPublicHolidays,
       'payment_type': paymentType,
       'name': name,
       'commission_rate': commissionRate,
@@ -3932,6 +3936,8 @@ class ApiService {
     int depositDelayDays = 0,
     String depositScheduleType = 'days',
     int? depositWeekday,
+    List<int>? bankWeekendDays,
+    bool? skipPublicHolidays,
     required bool isActive,
     int? defaultSafeBoxId,
     List<String>? applicableInvoiceTypes,
@@ -3972,6 +3978,10 @@ class ApiService {
     payload['deposit_delay_days'] = depositDelayDays;
     payload['deposit_schedule_type'] = depositScheduleType;
     payload['deposit_weekday'] = depositWeekday;
+    if (bankWeekendDays != null) payload['bank_weekend_days'] = bankWeekendDays;
+    if (skipPublicHolidays != null) {
+      payload['skip_public_holidays'] = skipPublicHolidays;
+    }
 
     if (applicableInvoiceTypes != null && applicableInvoiceTypes.isNotEmpty) {
       payload['applicable_invoice_types'] = applicableInvoiceTypes;
@@ -3986,6 +3996,60 @@ class ApiService {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
       throw Exception('Failed to update payment method: ${response.body}');
+    }
+  }
+
+  /// What a schedule does to the next sale days -- the server's computation
+  /// (ADR-037): the screen previews it and computes no date itself.
+  /// Returns {'summary', 'rows': [{sale_day, close_day, deposit_day, ...}]},
+  /// or throws with the server's Arabic message.
+  Future<Map<String, dynamic>> previewPaymentMethodSchedule(
+    Map<String, dynamic> schedule,
+  ) async {
+    final response = await _authedPost(
+      Uri.parse('$_baseUrl/payment-methods/schedule-preview'),
+      body: json.encode(schedule),
+    );
+    final body = json.decode(utf8.decode(response.bodyBytes));
+    if (response.statusCode == 200 && body is Map<String, dynamic>) return body;
+    throw Exception(
+      (body is Map ? body['message'] : null) ?? 'تعذّرت معاينة الجدول',
+    );
+  }
+
+  /// The public holiday calendar a method may skip (ADR-037).
+  Future<List<Map<String, dynamic>>> getPublicHolidays() async {
+    final response = await _authedGet(Uri.parse('$_baseUrl/public-holidays'));
+    if (response.statusCode != 200) {
+      throw Exception('تعذّر تحميل الإجازات');
+    }
+    final body = json.decode(utf8.decode(response.bodyBytes));
+    return ((body['holidays'] as List?) ?? const [])
+        .whereType<Map<String, dynamic>>()
+        .toList();
+  }
+
+  Future<Map<String, dynamic>> addPublicHoliday({
+    required String date,
+    required String name,
+  }) async {
+    final response = await _authedPost(
+      Uri.parse('$_baseUrl/public-holidays'),
+      body: json.encode({'date': date, 'name': name}),
+    );
+    final body = json.decode(utf8.decode(response.bodyBytes));
+    if (response.statusCode == 201) return body['holiday'] as Map<String, dynamic>;
+    throw Exception(
+      (body is Map ? body['message'] : null) ?? 'تعذّرت إضافة الإجازة',
+    );
+  }
+
+  Future<void> deletePublicHoliday(int id) async {
+    final response = await _authedDelete(
+      Uri.parse('$_baseUrl/public-holidays/$id'),
+    );
+    if (response.statusCode != 200) {
+      throw Exception('تعذّر حذف الإجازة');
     }
   }
 
