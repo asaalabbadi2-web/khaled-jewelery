@@ -227,3 +227,44 @@ def test_the_wage_treatment_reads_the_wage_inventory_and_its_balance(auth_header
 def test_the_wage_treatment_is_not_read_without_permission(books):
     resp = flask_app.test_client().get('/api/settings/wage-treatment')
     assert resp.status_code == 401
+
+
+# ── the release's correction (alembic 20261006_wage_mode_matches_books) ─────
+
+def _migration():
+    import importlib.util
+    import pathlib
+    path = (pathlib.Path(__file__).resolve().parent.parent / 'alembic' / 'versions'
+            / '20261006_wage_mode_matches_books.py')
+    spec = importlib.util.spec_from_file_location('wage_mode_matches_books', path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_a_setting_that_lies_about_capitalized_books_is_corrected(auth_headers, books):
+    """Production: the setting says expense, the posted purchases capitalized."""
+    _settings('inventory')
+    _create(auth_headers, _purchase(books))          # posted onto 1320
+    _settings('expense')
+
+    before, after, evidence = _migration().correct_wage_mode(db.session.connection())
+
+    assert (before, after) == ('expense', 'inventory')
+    assert evidence >= 1
+    db.session.expire_all()
+    assert Settings.query.first().manufacturing_wage_mode == 'inventory'
+
+
+def test_a_company_with_no_capitalized_purchase_keeps_its_choice(books):
+    """A new company chose expense: there is nothing in the books to say otherwise."""
+    migration = _migration()
+    if migration.capitalized_purchase_lines(db.session.connection()):
+        pytest.skip('the test database already holds capitalized purchases')
+    _settings('expense')
+
+    before, after, evidence = migration.correct_wage_mode(db.session.connection())
+
+    assert (before, after, evidence) == ('expense', 'expense', 0)
+    db.session.expire_all()
+    assert Settings.query.first().manufacturing_wage_mode == 'expense'
