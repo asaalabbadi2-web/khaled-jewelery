@@ -268,3 +268,22 @@ def test_a_company_with_no_capitalized_purchase_keeps_its_choice(books):
     assert (before, after, evidence) == ('expense', 'expense', 0)
     db.session.expire_all()
     assert Settings.query.first().manufacturing_wage_mode == 'expense'
+
+
+def test_a_purchase_that_capitalized_records_it(auth_headers, books):
+    """Its snapshot said expense (the setting's lie); its entry put the wages on
+    1320 -- the release makes the record say what was posted."""
+    _settings('inventory')
+    capitalized = _create(auth_headers, _purchase(books))
+    _settings('expense')
+    expensed = _create(auth_headers, _purchase(books))
+    db.session.get(Invoice, capitalized['id']).manufacturing_wage_mode_snapshot = 'expense'
+    db.session.flush()
+
+    changed = _migration().correct_purchase_snapshots(db.session.connection())
+
+    assert changed >= 1
+    db.session.expire_all()
+    assert db.session.get(Invoice, capitalized['id']).manufacturing_wage_mode_snapshot == 'inventory'
+    # An expensed purchase has no wage-inventory line: its record stands.
+    assert db.session.get(Invoice, expensed['id']).manufacturing_wage_mode_snapshot == 'expense'
