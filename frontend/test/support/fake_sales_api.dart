@@ -68,6 +68,12 @@ class FakeSalesApi extends ApiService {
   Future<Map<String, dynamic>> getSettings() async => settings;
 
   @override
+  Future<List<dynamic>> getPurchaseItems() async => [];
+
+  @override
+  Future<double?> getSuggestedPurchasePrice() async => null;
+
+  @override
   Future<SafeBoxModel> getSafeBox(int id, {bool includeBalance = true}) async =>
       scrapSafe!;
 
@@ -83,6 +89,7 @@ class FakeSalesApi extends ApiService {
     Map<String, dynamic> invoiceData,
   ) async {
     updated.add(invoiceData);
+    if (hold != null) await hold!.future;
     return {'id': invoiceId, 'total': invoiceData['total'], 'items': []};
   }
 

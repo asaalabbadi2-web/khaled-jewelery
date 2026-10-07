@@ -13,6 +13,7 @@ import '../providers/auth_provider.dart';
 import '../providers/sales_race_refresh_provider.dart';
 import 'add_customer_screen.dart';
 import '../widgets/inline_number_cell.dart';
+import '../widgets/pay_box.dart';
 import '../widgets/invoice_settings_sheet.dart';
 import '../widgets/sales_category_entry_row.dart';
 import '../widgets/adaptive_invoice_summary_dialog.dart';
@@ -2929,25 +2930,6 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
   }
 
   // 🆕 Helper methods لأيقونات وألوان طرق الدفع
-  IconData _getPaymentIcon(String paymentType) {
-    switch (paymentType) {
-      case 'cash':
-        return Icons.money;
-      case 'bank_transfer':
-        return Icons.account_balance;
-      case 'credit_card':
-        return Icons.credit_card;
-      case 'mada':
-        return Icons.credit_card;
-      case 'check':
-        return Icons.receipt_long;
-      case 'other':
-        return Icons.more_horiz;
-      default:
-        return Icons.payment;
-    }
-  }
-
   // Open AddCustomerScreen for adding a new customer (no identity enforcement for standard sales)
   Future<void> _addNewCustomer() async {
     final result = await Navigator.push<bool?>(
@@ -5453,91 +5435,19 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
     );
   }
 
-  /// One way to pay (SALES-UX-4): type an amount -- or leave it, for what
-  /// remains -- and press the method. Two typed, the last presses for the
-  /// rest: any number of methods, one press each. 806 of the 827 sales since
-  /// June are paid by one or two; «نقداً + مدى» is the common pair.
+  /// One way to pay (SALES-UX-4): the shared PayBox.
   Widget _buildPayBox(ThemeData theme) {
-    final tones = AppSemanticColors.of(context);
     final currency = _settingsProvider.currencySymbolText;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        TextField(
-          controller: _customAmountController,
-          inputFormatters: [
-            NormalizeNumberFormatter(),
-            FilteringTextInputFormatter.deny(RegExp('[,،]')),
-            FilteringTextInputFormatter.allow(RegExp(r'^[0-9]*\.?[0-9]*$')),
-          ],
-          keyboardType: const TextInputType.numberWithOptions(decimal: true),
-          decoration: InputDecoration(
-            labelText: 'المبلغ',
-            hintText: _remainingAmount.toStringAsFixed(2),
-            helperText: 'فارغًا يُدفع المتبقي كله',
-            suffixText: currency,
-            border: const OutlineInputBorder(),
-            isDense: true,
-          ),
-        ),
-        const SizedBox(height: 10),
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: [
-            for (var i = 0; i < _paymentMethods.length; i++)
-              _payButton(_paymentMethods[i], prominent: i < 2, shortcut: i + 1),
-          ],
-        ),
-        const SizedBox(height: 10),
-        Container(
-          padding: const EdgeInsets.all(8),
-          decoration: BoxDecoration(
-            color: tones.warning.container,
-            borderRadius: BorderRadius.circular(6),
-          ),
-          child: _settingsProvider.buildText(
-            'المتبقي: ${_remainingAmount.toStringAsFixed(2)} $currency',
-            style: theme.textTheme.bodyMedium?.copyWith(
-              color: tones.warning.onContainer,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-        ),
-      ],
+    return PayBox(
+      amount: _customAmountController,
+      remaining: _remainingAmount,
+      currency: currency,
+      methods: _paymentMethods,
+      onPay: _payWith,
+      remainingText: _settingsProvider.buildText(
+        'المتبقي: ${_remainingAmount.toStringAsFixed(2)} $currency',
+      ),
     );
-  }
-
-  /// A method's button; the first two in the settings' order stand out.
-  Widget _payButton(
-    Map<String, dynamic> method, {
-    required bool prominent,
-    required int shortcut,
-  }) {
-    final rate = method['commission_rate'] ?? 0;
-    final label = Text(
-      // The rate isolated left-to-right: «(0.8%)», not «(%0.8)».
-      '${method['name'] ?? ''}${rate > 0 ? ' (\u2066$rate%\u2069)' : ''}',
-    );
-    final icon = Icon(_getPaymentIcon(method['payment_type'] ?? ''), size: 18);
-    final key = Key('quick-pay-${method['id']}');
-    void press() => _payWith(method['id'] as int);
-    final button = prominent
-        ? FilledButton.icon(
-            key: key,
-            onPressed: press,
-            icon: icon,
-            label: label,
-          )
-        : OutlinedButton.icon(
-            key: key,
-            onPressed: press,
-            icon: icon,
-            label: label,
-          );
-    return shortcut <= 9
-        ? Tooltip(message: 'Alt+$shortcut', child: button)
-        : button;
   }
 
   /// Alt+1 … Alt+9: the methods in the settings' order.

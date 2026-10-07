@@ -101,7 +101,7 @@
   "lib/screens/safe_transfer_screen.dart": 45,
   "lib/screens/sales_invoice_screen_v2.dart": 101,
   "lib/screens/sales_race_management_screen.dart": 82,
-  "lib/screens/scrap_purchase_invoice_screen.dart": 131,
+  "lib/screens/scrap_purchase_invoice_screen.dart": 87,
   "lib/screens/security_sessions_screen.dart": 1,
   "lib/screens/settings_screen_enhanced.dart": 1,
   "lib/screens/shift_closing_screen.dart": 12,

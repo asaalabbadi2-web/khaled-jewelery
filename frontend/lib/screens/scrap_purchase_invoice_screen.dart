@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'dart:io';
 import 'package:image_picker/image_picker.dart';
@@ -10,6 +11,8 @@ import '../providers/settings_provider.dart';
 import '../providers/auth_provider.dart';
 import 'add_customer_screen.dart';
 import '../widgets/invoice_settings_sheet.dart';
+import '../widgets/pay_box.dart';
+import '../utils/scrap_purchase_readiness.dart';
 import '../widgets/adaptive_invoice_summary_dialog.dart';
 import '../utils/invoice_direct_print.dart';
 import '../utils.dart';
@@ -35,6 +38,14 @@ bool warnsGoldGoesToMainScrapSafe({
   return true;
 }
 
+/// The walk-in customer, by the names the server knows it by
+/// (models.CASH_CUSTOMER_NAMES) -- a name that merely holds «نقد» is a
+/// customer, and needs their identity on file.
+const _cashCustomerNames = {'عميل نقدي', 'نقدي', 'عميل كاش'};
+
+String _foldSpaces(Object? value) =>
+    (value ?? '').toString().trim().split(RegExp(r'\s+')).join(' ');
+
 class ScrapPurchaseInvoiceScreen extends StatefulWidget {
   final List<Map<String, dynamic>> customers;
 
@@ -44,11 +55,15 @@ class ScrapPurchaseInvoiceScreen extends StatefulWidget {
   final int? editInvoiceId;
   final Map<String, dynamic>? editInvoiceData;
 
+  /// The server; a test hands its own.
+  final ApiService? apiService;
+
   const ScrapPurchaseInvoiceScreen({
     super.key,
     required this.customers,
     this.editInvoiceId,
     this.editInvoiceData,
+    this.apiService,
   });
 
   @override
@@ -58,6 +73,7 @@ class ScrapPurchaseInvoiceScreen extends StatefulWidget {
 
 class _ScrapPurchaseInvoiceScreenState
     extends State<ScrapPurchaseInvoiceScreen> {
+  late final ApiService _api = widget.apiService ?? ApiService();
   // ==================== State Variables ====================
   final _smartInputController = TextEditingController();
   final _smartInputFocus = FocusNode();
@@ -214,7 +230,7 @@ class _ScrapPurchaseInvoiceScreenState
     });
 
     try {
-      final api = ApiService();
+      final api = _api;
       final response = await api.getCategories();
       final parsed = response
           .whereType<Map>()
@@ -311,7 +327,7 @@ class _ScrapPurchaseInvoiceScreenState
     // the system default gold safe. Cash movement is handled via the payment method's
     // configured safe box — not this field.
     try {
-      final api = ApiService();
+      final api = _api;
       final goldSafe = await api.getDefaultSafeBox('gold');
       if (!mounted) return;
       setState(() {
@@ -336,7 +352,7 @@ class _ScrapPurchaseInvoiceScreenState
     });
 
     try {
-      final apiService = ApiService();
+      final apiService = _api;
       final raw = await apiService.getBranches(activeOnly: true);
       if (!mounted) return;
 
@@ -366,7 +382,7 @@ class _ScrapPurchaseInvoiceScreenState
 
   Future<void> _loadPurchaseItems() async {
     try {
-      final apiService = ApiService();
+      final apiService = _api;
       final response = await apiService.getPurchaseItems();
       if (!mounted) return;
       final normalized = response
@@ -409,7 +425,7 @@ class _ScrapPurchaseInvoiceScreenState
   // ==================== Data Loading ====================
   Future<void> _loadSettings() async {
     try {
-      final apiService = ApiService();
+      final apiService = _api;
       final priceData = await apiService.getGoldPrice();
       if (!mounted) return;
       setState(() {
@@ -426,7 +442,7 @@ class _ScrapPurchaseInvoiceScreenState
 
   Future<void> _loadPurchaseBaseline() async {
     try {
-      final apiService = ApiService();
+      final apiService = _api;
       // The server's suggestion (the last purchase price, else the average) --
       // the seller is not sent the cost snapshot (ADR-036, the owner 2 Oct 2026).
       final resolved = await apiService.getSuggestedPurchasePrice() ?? 0.0;
@@ -471,7 +487,7 @@ class _ScrapPurchaseInvoiceScreenState
   // 🆕 جلب وسائل الدفع النشطة
   Future<void> _loadPaymentMethods() async {
     try {
-      final apiService = ApiService();
+      final apiService = _api;
       final methods = await apiService.getActivePaymentMethods();
       if (!mounted) return;
 
@@ -612,6 +628,36 @@ class _ScrapPurchaseInvoiceScreenState
     });
   }
 
+  /// An amount as the cashier typed it: Arabic digits, «٫», a thousands
+  /// comma. Null when it is not a number -- never «the remainder» (an unread
+  /// amount was recorded as all that was due).
+  double? _readAmount(String text) => double.tryParse(
+    normalizeNumber(text).replaceAll(',', '').replaceAll('،', '').trim(),
+  );
+
+  /// The chosen method takes the amount typed, or what remains when none is.
+  void _addTypedPayment() {
+    final typed = _customAmountController.text.trim();
+    final customAmount = typed.isEmpty ? null : _readAmount(typed);
+    if (typed.isNotEmpty && customAmount == null) {
+      _showError('لم يُقرأ المبلغ «$typed»؛ اكتبه أرقامًا فقط');
+      return;
+    }
+    _addPayment(customAmount: customAmount);
+  }
+
+  /// One press: the method, and the amount typed or what remains.
+  void _payWith(int methodId) {
+    setState(() => _selectedPaymentMethodId = methodId);
+    _addTypedPayment();
+  }
+
+  void _payWithShortcut(int n) {
+    if (n > _paymentMethods.length) return;
+    if (_items.isEmpty || _remainingAmount <= 0.01) return;
+    _payWith(_paymentMethods[n - 1]['id'] as int);
+  }
+
   // 🆕 حذف دفعة
   void _removePayment(int index) {
     setState(() {
@@ -624,10 +670,6 @@ class _ScrapPurchaseInvoiceScreenState
       _payments.fold<double>(0, (sum, p) => sum + p.amount);
   double get _totalCommission =>
       _payments.fold<double>(0, (sum, p) => sum + p.commissionAmount);
-  double get _totalCommissionVAT =>
-      _payments.fold<double>(0, (sum, p) => sum + p.commissionVat);
-  double get _totalNet =>
-      _payments.fold<double>(0, (sum, p) => sum + p.netAmount);
   double get _remainingAmount {
     final remaining = _calculateGrandTotal() - _totalPayments;
     // تجاهل الفروقات الصغيرة (أقل من 0.01 ${context.read<SettingsProvider>().currencySymbolText})
@@ -712,7 +754,7 @@ class _ScrapPurchaseInvoiceScreenState
 
     // تحديث سعر الذهب قبل إضافة الصنف
     try {
-      final apiService = ApiService();
+      final apiService = _api;
       final priceData = await apiService.getGoldPrice();
       final newPrice = _parseDouble(priceData['price_24k']);
       if (newPrice > 0) {
@@ -832,64 +874,6 @@ class _ScrapPurchaseInvoiceScreenState
     });
   }
 
-  // ==================== Auto Distribution ====================
-  Future<void> _showAutoDistributeDialog() async {
-    final controller = TextEditingController();
-
-    await showDialog(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('توزيع تلقائي للمبلغ'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            _settingsProvider.buildText(
-              'الإجمالي الحالي: ${_calculateGrandTotal().toStringAsFixed(2)} ${_settingsProvider.currencySymbolText}',
-            ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: controller,
-              autofocus: true,
-              keyboardType: const TextInputType.numberWithOptions(
-                decimal: true,
-              ),
-              textInputAction: TextInputAction.done,
-              inputFormatters: [NormalizeNumberFormatter()],
-              decoration: InputDecoration(
-                labelText: 'المبلغ المستهدف',
-                suffixText: _settingsProvider.currencySymbolText,
-                border: const OutlineInputBorder(),
-              ),
-              onSubmitted: (_) {
-                final target = double.tryParse(controller.text);
-                if (target != null && target > 0) {
-                  _distributeAmount(target);
-                  Navigator.pop(dialogContext);
-                }
-              },
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('إلغاء'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              final target = double.tryParse(controller.text);
-              if (target != null && target > 0) {
-                _distributeAmount(target);
-                Navigator.pop(dialogContext);
-              }
-            },
-            child: const Text('توزيع'),
-          ),
-        ],
-      ),
-    );
-  }
-
   void _distributeAmount(double targetTotal) {
     if (_items.isEmpty) return;
 
@@ -993,7 +977,7 @@ class _ScrapPurchaseInvoiceScreenState
   // ==================== Submit Invoice ====================
   Future<void> _refreshLiveGoldPriceForValidation() async {
     try {
-      final apiService = ApiService();
+      final apiService = _api;
       final priceData = await apiService.getGoldPrice();
       if (!mounted) return;
       final fetched = _parseDouble(priceData['price_24k']);
@@ -1072,7 +1056,20 @@ class _ScrapPurchaseInvoiceScreenState
     return true;
   }
 
+  /// From the press to the server's answer, review included.
+  bool _saving = false;
+
   Future<void> _submitInvoice() async {
+    if (_saving) return;
+    setState(() => _saving = true);
+    try {
+      await _submitInvoiceOnce();
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  Future<void> _submitInvoiceOnce() async {
     if (_items.isEmpty) {
       _showError('يرجى إضافة أصناف قبل الحفظ');
       return;
@@ -1118,7 +1115,7 @@ class _ScrapPurchaseInvoiceScreenState
     );
     if (!proceed) return;
 
-    final apiService = ApiService();
+    final apiService = _api;
     int? customerId = _selectedCustomerId;
 
     try {
@@ -1412,27 +1409,22 @@ class _ScrapPurchaseInvoiceScreenState
     if (_purchaseNotesController.text.trim().isEmpty) {
       notices.add('لا توجد ملاحظات على الفاتورة.');
     }
-    if (totalWeight > 0 && _goldPrice24k > 0 && total > 0) {
-      final pricePerGram = total / totalWeight;
-      if (pricePerGram > _goldPrice24k * 2) {
-        notices.add(
-          '⚠️ سعر الجرام المحسوب ${pricePerGram.toStringAsFixed(0)} $currency أعلى بكثير من سعر السوق'
-          ' (${_goldPrice24k.toStringAsFixed(0)} $currency/جم). تأكد من صحة المبلغ والوزن.',
-        );
-      } else if (pricePerGram < _goldPrice24k * 0.15) {
-        notices.add(
-          '⚠️ سعر الجرام المحسوب ${pricePerGram.toStringAsFixed(0)} $currency أقل بكثير من سعر السوق'
-          ' (${_goldPrice24k.toStringAsFixed(0)} $currency/جم). تأكد من صحة المبلغ والوزن.',
-        );
-      }
-    }
+    notices.addAll(
+      scrapPurchasePriceWarnings(
+        lines: _lineFacts(),
+        goldPrice24k: _goldPrice24k,
+        formatCash: _formatCurrency,
+      ),
+    );
 
     return await showAdaptiveInvoiceSummaryDialog<bool>(
           context: context,
           title: 'مراجعة فاتورة ${InvoiceKind.purchaseScrap.label}',
           subtitle: 'راجع البيانات الأساسية سريعاً قبل تنفيذ الحفظ.',
           icon: Icons.receipt_long_rounded,
-          accentColor: AppColors.primaryGold,
+          accentColor: AppSemanticColors.of(
+            context,
+          ).invoice(InvoiceKind.purchaseScrap).fg,
           statusTitle: 'حالة السداد',
           statusMessage: remaining > 0.01
               ? 'متبقي ${remaining.toStringAsFixed(2)} $currency'
@@ -1515,11 +1507,6 @@ class _ScrapPurchaseInvoiceScreenState
     return _items.fold<double>(0.0, (sum, item) => sum + item.totalWithTax);
   }
 
-  // حساب إجمالي الضريبة من الأصناف (لا توجد ضريبة على شراء الكسر)
-  double _calculateTotalVAT() {
-    return 0.0;
-  }
-
   // ==================== Helpers ====================
   void _showError(String message) {
     if (!mounted) return;
@@ -1529,31 +1516,24 @@ class _ScrapPurchaseInvoiceScreenState
   }
 
   Map<String, dynamic>? _findCashCustomer() {
+    Map<String, dynamic>? best;
+    int? bestId;
     for (final customer in widget.customers) {
+      if (!_isCashCustomerEntry(customer)) continue;
       final rawId = customer['id'];
-      final id = rawId is int ? rawId : int.tryParse(rawId.toString());
+      final id = rawId is int ? rawId : int.tryParse('$rawId');
       if (id == null) continue;
-
-      if (_isCashCustomerEntry(customer)) {
-        return {...customer, 'id': id};
+      if (best == null || id < bestId!) {
+        best = {...customer, 'id': id};
+        bestId = id;
       }
     }
-    return null;
+    return best;
   }
 
-  bool _isCashCustomerEntry(Map<String, dynamic>? customer) {
-    if (customer == null) return false;
-    final name = customer['name']?.toString().toLowerCase() ?? '';
-    final code = customer['customer_code']?.toString().toLowerCase() ?? '';
-    return _containsCashKeyword(name) || _containsCashKeyword(code);
-  }
-
-  bool _containsCashKeyword(String value) {
-    if (value.isEmpty) return false;
-    return value.contains('نقد') ||
-        value.contains('كاش') ||
-        value.contains('cash');
-  }
+  bool _isCashCustomerEntry(Map<String, dynamic>? customer) =>
+      customer != null &&
+      _cashCustomerNames.contains(_foldSpaces(customer['name']));
 
   Future<Map<String, dynamic>?> _getOrCreateCashCustomer({
     bool promptIfMissing = true,
@@ -1612,7 +1592,7 @@ class _ScrapPurchaseInvoiceScreenState
 
   Future<Map<String, dynamic>?> _createCashCustomerRecord() async {
     try {
-      final api = ApiService();
+      final api = _api;
       final payload = {
         'name': 'عميل نقدي',
         'phone': '',
@@ -1793,52 +1773,13 @@ class _ScrapPurchaseInvoiceScreenState
         .toList();
   }
 
-  // 🆕 Helper methods لأيقونات وألوان طرق الدفع
-  IconData _getPaymentIcon(String paymentType) {
-    switch (paymentType) {
-      case 'cash':
-        return Icons.money;
-      case 'bank_transfer':
-        return Icons.account_balance;
-      case 'credit_card':
-        return Icons.credit_card;
-      case 'mada':
-        return Icons.credit_card;
-      case 'check':
-        return Icons.receipt_long;
-      case 'other':
-        return Icons.more_horiz;
-      default:
-        return Icons.payment;
-    }
-  }
-
-  Color _getPaymentColor(String paymentType) {
-    switch (paymentType) {
-      case 'cash':
-        return AppColors.success;
-      case 'bank_transfer':
-        return AppColors.info;
-      case 'credit_card':
-        return AppColors.karat24;
-      case 'mada':
-        return AppColors.karat22;
-      case 'check':
-        return AppColors.warning;
-      case 'other':
-        return Colors.grey;
-      default:
-        return AppColors.primaryGold;
-    }
-  }
-
   // Open the reusable AddCustomerScreen so we can enforce identity fields when needed
   Future<void> _addNewCustomer() async {
     final result = await Navigator.push<bool?>(
       context,
       MaterialPageRoute(
         builder: (_) => AddCustomerScreen(
-          api: ApiService(),
+          api: _api,
           enforceIdentityFields: true, // scrap purchases require identity data
           onCustomerSaved: (saved) {
             if (!mounted) return;
@@ -1990,7 +1931,7 @@ class _ScrapPurchaseInvoiceScreenState
                 }
 
                 try {
-                  final api = ApiService();
+                  final api = _api;
                   final created = await api.createPurchaseItem(
                     name: name,
                     karat: selectedKarat,
@@ -2041,7 +1982,6 @@ class _ScrapPurchaseInvoiceScreenState
     return Consumer<SettingsProvider>(
       builder: (context, settings, child) {
         final theme = Theme.of(context);
-        final colorScheme = theme.colorScheme;
         final size = MediaQuery.of(context).size;
         final isWideLayout = size.width >= 1100;
 
@@ -2071,15 +2011,13 @@ class _ScrapPurchaseInvoiceScreenState
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        _buildActionButtons(),
+                        _buildSummaryCard(),
                         const SizedBox(height: 24),
                         _buildGoldImagesSection(),
                         const SizedBox(height: 24),
                         _buildNotesSection(),
                         const SizedBox(height: 24),
                         _buildPaymentSection(),
-                        const SizedBox(height: 16),
-                        _buildSaveButton(theme, colorScheme),
                       ],
                     ),
                   ),
@@ -2090,21 +2028,21 @@ class _ScrapPurchaseInvoiceScreenState
               const SizedBox(height: 24),
               _buildDataTable(),
               const SizedBox(height: 24),
-              _buildActionButtons(),
+              _buildSummaryCard(),
               const SizedBox(height: 24),
               _buildGoldImagesSection(),
               const SizedBox(height: 24),
               _buildNotesSection(),
               const SizedBox(height: 24),
               _buildPaymentSection(),
-              const SizedBox(height: 16),
-              _buildSaveButton(theme, colorScheme),
             ],
             const SizedBox(height: 32),
           ],
         );
 
-        return Scaffold(
+        final readiness = _readiness();
+        final scaffold = Scaffold(
+          bottomNavigationBar: _buildFooter(theme, readiness),
           appBar: AppBar(
             backgroundColor: AppSemanticColors.invoiceBar(
               context,
@@ -2264,7 +2202,189 @@ class _ScrapPurchaseInvoiceScreenState
             ),
           ),
         );
+
+        return PopScope(
+          canPop: false,
+          onPopInvokedWithResult: (didPop, _) {
+            if (!didPop) _confirmLeave();
+          },
+          child: CallbackShortcuts(
+            bindings: {
+              const SingleActivator(LogicalKeyboardKey.keyS, control: true):
+                  _saveIfReady,
+              const SingleActivator(LogicalKeyboardKey.keyS, meta: true):
+                  _saveIfReady,
+              for (var n = 1; n <= 9; n++)
+                SingleActivator(
+                  LogicalKeyboardKey(LogicalKeyboardKey.digit0.keyId + n),
+                  alt: true,
+                ): () => _payWithShortcut(n),
+            },
+            // A scope, so a field left with Enter hands focus back under the
+            // shortcuts -- not to the route, where Ctrl+S is not heard.
+            child: FocusScope(autofocus: true, child: scaffold),
+          ),
+        );
       },
+    );
+  }
+
+  /// The one answer the footer and the save button read: ready only when the
+  /// purchase would be saved (utils/scrap_purchase_readiness.dart).
+  ScrapPurchaseReadiness _readiness() {
+    Map<String, dynamic>? customer;
+    for (final c in widget.customers) {
+      final rawId = c['id'];
+      final id = rawId is int ? rawId : int.tryParse('$rawId');
+      if (id != null && id == _selectedCustomerId) customer = c;
+    }
+    // The walk-in customer needs no identity; any other does.
+    String? missing;
+    if (customer != null && !_isCashCustomerEntry(customer)) {
+      bool blank(String k) => (customer?[k]?.toString().trim() ?? '').isEmpty;
+      if (blank('id_number') ||
+          blank('id_version_number') ||
+          blank('birth_date')) {
+        missing = _foldSpaces(customer['name']);
+      }
+    }
+    return scrapPurchaseReadiness(
+      ScrapPurchaseFacts(
+        branchChosen: _selectedBranchId != null,
+        lines: _lineFacts(),
+        total: _calculateGrandTotal(),
+        paid: _totalPayments,
+        customerMissingIdentity: missing,
+        goldPriceKnown: _goldPrice24k > 0,
+      ),
+      formatCash: _formatCurrency,
+    );
+  }
+
+  List<ScrapLineFacts> _lineFacts() => [
+    for (final i in _items)
+      ScrapLineFacts(
+        standing: i.standingWeight,
+        stones: i.stonesWeight,
+        weight: (i.standingWeight - i.stonesWeight) > 0
+            ? i.standingWeight - i.stonesWeight
+            : 0,
+        karat: i.karat,
+        total: i.totalWithTax,
+      ),
+  ];
+
+  String _formatCurrency(double amount) =>
+      '${amount.toStringAsFixed(2)} ${_settingsProvider.currencySymbolText}';
+
+  void _saveIfReady() {
+    if (_saving) return;
+    if (_readiness().isReady) _submitInvoice();
+  }
+
+  bool get _hasUnsavedWork => _items.isNotEmpty || _payments.isNotEmpty;
+
+  /// Back, the system gesture, the app bar arrow: leave at once when nothing
+  /// was entered, otherwise ask -- the invoice is lost with the screen.
+  Future<void> _confirmLeave() async {
+    if (_saving) return;
+    if (!_hasUnsavedWork) {
+      Navigator.of(context).pop();
+      return;
+    }
+    final discard = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('فاتورة غير محفوظة'),
+        content: const Text(
+          'في الفاتورة أصناف أو مبالغ لم تُحفظ. ماذا تريد أن تفعل؟',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('متابعة التحرير'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('خروج دون حفظ'),
+          ),
+        ],
+      ),
+    );
+    if (!mounted) return;
+    if (discard == true) Navigator.of(context).pop();
+  }
+
+  /// What stands between the buyer and a saved purchase, and the button that
+  /// saves it -- always in view, never a message that passes.
+  Widget _buildFooter(ThemeData theme, ScrapPurchaseReadiness readiness) {
+    final colorScheme = theme.colorScheme;
+    final tones = AppSemanticColors.of(context);
+    final ready = readiness.isReady;
+    final empty = readiness.kind == ScrapPurchaseReadinessKind.empty;
+    final tone = ready ? tones.ready : (empty ? tones.info : tones.blocked);
+    final text = _saving
+        ? 'جارٍ الحفظ…'
+        : ready
+        ? 'جاهز للحفظ'
+        : empty
+        ? readiness.message
+        : 'غير جاهز للحفظ — ${readiness.message}';
+    return Material(
+      color: colorScheme.surface,
+      elevation: 8,
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 10),
+          child: Row(
+            children: [
+              Expanded(
+                child: Row(
+                  children: [
+                    Icon(
+                      ready
+                          ? Icons.check_circle
+                          : (empty ? Icons.info_outline : Icons.error_outline),
+                      color: tone.fg,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        text,
+                        style: theme.textTheme.bodyLarge?.copyWith(
+                          color: tone.fg,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 16),
+              FilledButton.icon(
+                onPressed: ready && !_saving ? _submitInvoice : null,
+                icon: const Icon(Icons.check_circle_outline, size: 22),
+                label: _settingsProvider.buildText('حفظ الفاتورة'),
+                style: FilledButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(
+                    vertical: 16,
+                    horizontal: 24,
+                  ),
+                  textStyle: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+                  backgroundColor: colorScheme.primary,
+                  foregroundColor: colorScheme.onPrimary,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 
@@ -2904,6 +3024,8 @@ class _ScrapPurchaseInvoiceScreenState
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
       child: DataTable(
+        columnSpacing: 16,
+        horizontalMargin: 12,
         headingRowColor: WidgetStateProperty.all(
           colorScheme.primary.withValues(alpha: 0.15),
         ),
@@ -2922,7 +3044,6 @@ class _ScrapPurchaseInvoiceScreenState
           DataColumn(label: Text('وزن الأحجار', style: headerStyle)),
           DataColumn(label: Text('الوزن', style: headerStyle)),
           DataColumn(label: Text('تكلفة الشراء/جرام', style: headerStyle)),
-          DataColumn(label: Text('الصافي', style: headerStyle)),
           DataColumn(label: Text('الإجمالي', style: headerStyle)),
           DataColumn(label: Text('إجراءات', style: headerStyle)),
         ],
@@ -3038,7 +3159,6 @@ class _ScrapPurchaseInvoiceScreenState
                   style: cellStyle,
                 ),
               ),
-              DataCell(Text(item.net.toStringAsFixed(2), style: cellStyle)),
               DataCell(
                 InkWell(
                   onTap: () =>
@@ -3166,140 +3286,6 @@ class _ScrapPurchaseInvoiceScreenState
               foregroundColor: colorScheme.onPrimary,
             ),
             child: const Text('حفظ'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // ==================== Action Buttons ====================
-  Widget _buildActionButtons() {
-    final grandTotal = _calculateGrandTotal();
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
-    final isDark = theme.brightness == Brightness.dark;
-
-    return Container(
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: isDark
-              ? [
-                  colorScheme.surfaceContainerHighest,
-                  theme.scaffoldBackgroundColor,
-                ]
-              : [colorScheme.surface, theme.scaffoldBackgroundColor],
-        ),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: theme.dividerColor.withValues(alpha: 0.6)),
-      ),
-      padding: const EdgeInsets.all(20),
-      child: Column(
-        children: [
-          // Auto Distribute Button
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton.icon(
-              onPressed: _items.isEmpty ? null : _showAutoDistributeDialog,
-              icon: const Icon(Icons.auto_awesome, size: 22),
-              label: Text(
-                'توزيع تلقائي للمبلغ',
-                style: theme.textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              style: ElevatedButton.styleFrom(
-                minimumSize: const Size(0, 56),
-                backgroundColor: isDark
-                    ? AppColors.karat24
-                    : AppColors.primaryGold,
-                foregroundColor: isDark ? Colors.white : Colors.black,
-                disabledBackgroundColor: theme.disabledColor.withValues(
-                  alpha: 0.2,
-                ),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-              ),
-            ),
-          ),
-
-          const SizedBox(height: 16),
-
-          // Grand Total
-          Container(
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: [colorScheme.primary, AppColors.lightGold],
-              ),
-              borderRadius: BorderRadius.circular(12),
-              boxShadow: [
-                BoxShadow(
-                  color: colorScheme.primary.withValues(
-                    alpha: isDark ? 0.35 : 0.4,
-                  ),
-                  blurRadius: 12,
-                  offset: const Offset(0, 4),
-                ),
-              ],
-            ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'الإجمالي الكلي',
-                      style: theme.textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w600,
-                        color: isDark ? Colors.white : Colors.black87,
-                        shadows: !isDark
-                            ? [
-                                Shadow(
-                                  color: Colors.white.withValues(alpha: 0.8),
-                                  blurRadius: 2,
-                                ),
-                              ]
-                            : null,
-                      ),
-                    ),
-                    Text(
-                      '${_items.length} صنف',
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: isDark
-                            ? Colors.white.withValues(alpha: 0.9)
-                            : Colors.black87,
-                        fontWeight: FontWeight.w500,
-                        shadows: !isDark
-                            ? [
-                                Shadow(
-                                  color: Colors.white.withValues(alpha: 0.8),
-                                  blurRadius: 2,
-                                ),
-                              ]
-                            : null,
-                      ),
-                    ),
-                  ],
-                ),
-                _settingsProvider.buildText(
-                  '${grandTotal.toStringAsFixed(2)} ${_settingsProvider.currencySymbolText}',
-                  style: theme.textTheme.headlineMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
-                    color: isDark ? Colors.white : Colors.black87,
-                    shadows: !isDark
-                        ? [
-                            Shadow(
-                              color: Colors.white.withValues(alpha: 0.9),
-                              blurRadius: 3,
-                            ),
-                          ]
-                        : null,
-                  ),
-                ),
-              ],
-            ),
           ),
         ],
       ),
@@ -3490,26 +3476,115 @@ class _ScrapPurchaseInvoiceScreenState
     );
   }
 
-  Widget _buildSaveButton(ThemeData theme, ColorScheme colorScheme) {
-    return FilledButton.icon(
-      onPressed: _items.isEmpty || _payments.isEmpty || _remainingAmount > 0.01
-          ? null
-          : _submitInvoice,
-      icon: const Icon(Icons.check_circle_outline, size: 24),
-      label: _settingsProvider.buildText(
-        _remainingAmount > 0.01
-            ? 'أكمل الدفع (${_remainingAmount.toStringAsFixed(2)} ${_settingsProvider.currencySymbolText} متبقية)'
-            : 'حفظ الفاتورة',
-      ),
-      style: FilledButton.styleFrom(
-        minimumSize: const Size(double.infinity, 56),
-        padding: const EdgeInsets.symmetric(vertical: 18, horizontal: 24),
-        textStyle: theme.textTheme.titleLarge?.copyWith(
-          fontWeight: FontWeight.bold,
+  // ==================== Summary ====================
+  /// The total, what is paid and what remains, said once. The target amount
+  /// spreads a price over the lines (Enter).
+  Widget _buildSummaryCard() {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final tones = AppSemanticColors.of(context);
+    final currency = _settingsProvider.currencySymbolText;
+    final total = _calculateGrandTotal();
+    final remaining = _remainingAmount;
+    final weight = _items.fold<double>(0.0, (sum, i) => sum + i.weight);
+
+    Widget row(String label, String value, {Color? color, bool bold = false}) =>
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 3),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(label, style: theme.textTheme.bodyMedium),
+              _settingsProvider.buildText(
+                value,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  fontWeight: bold ? FontWeight.bold : FontWeight.w600,
+                  color: color,
+                ),
+              ),
+            ],
+          ),
+        );
+
+    return Card(
+      elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              'ملخص الفاتورة',
+              style: theme.textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 8),
+            _settingsProvider.buildText(
+              '${total.toStringAsFixed(2)} $currency',
+              style: theme.textTheme.headlineMedium?.copyWith(
+                fontWeight: FontWeight.bold,
+                color: colorScheme.primary,
+              ),
+            ),
+            Text(
+              '${_items.length} صنف • الوزن الصافي ${weight.toStringAsFixed(3)} جم',
+              style: theme.textTheme.bodySmall,
+            ),
+            const SizedBox(height: 8),
+            row('المدفوع', '${_totalPayments.toStringAsFixed(2)} $currency'),
+            if (_totalCommission > 0)
+              row(
+                'إجمالي العمولات',
+                '${_totalCommission.toStringAsFixed(2)} $currency',
+                color: tones.warning.fg,
+              ),
+            const Divider(height: 16),
+            if (_items.isEmpty)
+              const SizedBox.shrink()
+            else if (remaining > 0.01)
+              row(
+                'المتبقي',
+                '${remaining.toStringAsFixed(2)} $currency',
+                color: tones.blocked.fg,
+                bold: true,
+              )
+            else
+              Text(
+                '✓ تم الدفع بالكامل',
+                style: theme.textTheme.titleSmall?.copyWith(
+                  color: tones.ready.fg,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            const SizedBox(height: 12),
+            TextField(
+              key: const Key('target-amount'),
+              enabled: _items.isNotEmpty,
+              inputFormatters: [NormalizeNumberFormatter()],
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
+              textInputAction: TextInputAction.done,
+              decoration: InputDecoration(
+                labelText: 'المبلغ المطلوب',
+                helperText: 'يُوزَّع على الأسطر',
+                suffixText: currency,
+                border: const OutlineInputBorder(),
+                isDense: true,
+              ),
+              onSubmitted: (value) {
+                final target = _readAmount(value);
+                if (target == null || target <= 0) {
+                  _showError('اكتب المبلغ المطلوب أرقامًا');
+                  return;
+                }
+                _distributeAmount(target);
+              },
+            ),
+          ],
         ),
-        backgroundColor: colorScheme.primary,
-        foregroundColor: colorScheme.onPrimary,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       ),
     );
   }
@@ -3518,7 +3593,6 @@ class _ScrapPurchaseInvoiceScreenState
   Widget _buildPaymentSection() {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
-    final totalAmount = _calculateGrandTotal();
     final dividerColor = theme.dividerColor.withValues(alpha: 0.6);
     final isDark = theme.brightness == Brightness.dark;
 
@@ -3545,29 +3619,6 @@ class _ScrapPurchaseInvoiceScreenState
                       ),
                     ),
                   ],
-                ),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 6,
-                  ),
-                  decoration: BoxDecoration(
-                    color: AppColors.success.withValues(
-                      alpha: isDark ? 0.2 : 0.12,
-                    ),
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(
-                      color: AppColors.success.withValues(alpha: 0.4),
-                    ),
-                  ),
-                  child: _settingsProvider.buildText(
-                    'الإجمالي: ${totalAmount.toStringAsFixed(2)} ${_settingsProvider.currencySymbolText}',
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                      fontSize: 15,
-                      fontWeight: FontWeight.bold,
-                      color: AppColors.success,
-                    ),
-                  ),
                 ),
               ],
             ),
@@ -3827,616 +3878,19 @@ class _ScrapPurchaseInvoiceScreenState
               const SizedBox(height: 16),
             ],
 
-            // 🆕 إضافة وسيلة دفع جديدة
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: colorScheme.primary.withValues(
-                  alpha: isDark ? 0.15 : 0.12,
-                ),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(
-                  color: colorScheme.primary.withValues(alpha: 0.4),
-                  width: 2,
+            if (_items.isNotEmpty && _remainingAmount > 0.01) ...[
+              PayBox(
+                amount: _customAmountController,
+                remaining: _remainingAmount,
+                currency: _settingsProvider.currencySymbolText,
+                methods: _paymentMethods,
+                onPay: _payWith,
+                remainingText: _settingsProvider.buildText(
+                  'المتبقي: ${_remainingAmount.toStringAsFixed(2)} ${_settingsProvider.currencySymbolText}',
                 ),
               ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'إضافة وسيلة دفع',
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.bold,
-                      color: colorScheme.primary,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  // Row 1: وسيلة الدفع
-                  Row(
-                    children: [
-                      // Dropdown وسيلة الدفع - محسّن 🆕
-                      Expanded(
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 8,
-                          ),
-                          decoration: BoxDecoration(
-                            color: theme.colorScheme.surface,
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(
-                              color: colorScheme.primary.withValues(alpha: 0.5),
-                              width: 2,
-                            ),
-                            boxShadow: [
-                              BoxShadow(
-                                color: colorScheme.primary.withValues(
-                                  alpha: 0.16,
-                                ),
-                                blurRadius: 4,
-                                offset: const Offset(0, 2),
-                              ),
-                            ],
-                          ),
-                          child: DropdownButtonHideUnderline(
-                            child: DropdownButton<int>(
-                              value: _selectedPaymentMethodId,
-                              hint: Row(
-                                children: [
-                                  Icon(
-                                    Icons.payment,
-                                    color: theme.iconTheme.color,
-                                    size: 20,
-                                  ),
-                                  const SizedBox(width: 8),
-                                  Text(
-                                    'اختر وسيلة الدفع',
-                                    style: theme.textTheme.bodyMedium?.copyWith(
-                                      fontWeight: FontWeight.w500,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              isExpanded: true,
-                              dropdownColor: theme.colorScheme.surface,
-                              icon: Icon(
-                                Icons.arrow_drop_down,
-                                color: colorScheme.primary,
-                                size: 28,
-                              ),
-                              style: theme.textTheme.bodyLarge?.copyWith(
-                                fontWeight: FontWeight.w600,
-                              ),
-                              selectedItemBuilder: (BuildContext context) {
-                                return _paymentMethods.map<Widget>((method) {
-                                  return Row(
-                                    children: [
-                                      Icon(
-                                        _getPaymentIcon(
-                                          method['payment_type'] ?? '',
-                                        ),
-                                        color: _getPaymentColor(
-                                          method['payment_type'] ?? '',
-                                        ),
-                                        size: 20,
-                                      ),
-                                      const SizedBox(width: 10),
-                                      Flexible(
-                                        child: Text(
-                                          method['name'] ?? '',
-                                          style: theme.textTheme.bodyLarge
-                                              ?.copyWith(
-                                                fontWeight: FontWeight.w600,
-                                              ),
-                                          overflow: TextOverflow.ellipsis,
-                                        ),
-                                      ),
-                                    ],
-                                  );
-                                }).toList();
-                              },
-                              items: _paymentMethods.map((method) {
-                                final commission =
-                                    method['commission_rate'] ?? 0.0;
+            ],
 
-                                return DropdownMenuItem<int>(
-                                  value: method['id'],
-                                  child: Padding(
-                                    padding: const EdgeInsets.symmetric(
-                                      vertical: 4,
-                                      horizontal: 4,
-                                    ),
-                                    child: Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        Icon(
-                                          _getPaymentIcon(
-                                            method['payment_type'] ?? '',
-                                          ),
-                                          color: _getPaymentColor(
-                                            method['payment_type'] ?? '',
-                                          ),
-                                          size: 18,
-                                        ),
-                                        const SizedBox(width: 8),
-                                        Flexible(
-                                          child: Text(
-                                            method['name'] ?? '',
-                                            style: theme.textTheme.bodyMedium
-                                                ?.copyWith(
-                                                  fontWeight: FontWeight.w600,
-                                                ),
-                                            overflow: TextOverflow.ellipsis,
-                                            maxLines: 1,
-                                          ),
-                                        ),
-                                        if (commission > 0)
-                                          Flexible(
-                                            child: Padding(
-                                              padding: const EdgeInsets.only(
-                                                left: 4,
-                                              ),
-                                              child: Text(
-                                                '($commission%)',
-                                                style: theme.textTheme.bodySmall
-                                                    ?.copyWith(
-                                                      color: AppColors.warning,
-                                                      fontWeight:
-                                                          FontWeight.w600,
-                                                    ),
-                                                overflow: TextOverflow.ellipsis,
-                                              ),
-                                            ),
-                                          ),
-                                      ],
-                                    ),
-                                  ),
-                                );
-                              }).toList(),
-                              onChanged: (value) {
-                                setState(() {
-                                  _selectedPaymentMethodId = value;
-                                });
-                              },
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-
-                  // Row 2: المبلغ وزر الإضافة (في صف واحد)
-                  Row(
-                    children: [
-                      // حقل المبلغ مع أيقونة ملء باقي المبلغ
-                      Expanded(
-                        child: Container(
-                          decoration: BoxDecoration(
-                            color: theme.colorScheme.surface,
-                            borderRadius: BorderRadius.circular(8),
-                            border: Border.all(
-                              color: _remainingAmount > 0
-                                  ? colorScheme.primary
-                                  : dividerColor,
-                              width: _remainingAmount > 0 ? 2 : 1,
-                            ),
-                            boxShadow: _remainingAmount > 0
-                                ? [
-                                    BoxShadow(
-                                      color: colorScheme.primary.withValues(
-                                        alpha: 0.25,
-                                      ),
-                                      blurRadius: 4,
-                                      offset: const Offset(0, 2),
-                                    ),
-                                  ]
-                                : null,
-                          ),
-                          child: Row(
-                            children: [
-                              Expanded(
-                                child: TextField(
-                                  controller: _customAmountController,
-                                  decoration: InputDecoration(
-                                    labelText: 'المبلغ',
-                                    labelStyle: theme.textTheme.bodyMedium
-                                        ?.copyWith(
-                                          color: colorScheme.primary,
-                                          fontWeight: FontWeight.w600,
-                                        ),
-                                    hintText: _remainingAmount.toStringAsFixed(
-                                      0,
-                                    ),
-                                    hintStyle: theme.textTheme.bodySmall,
-                                    border: InputBorder.none,
-                                    contentPadding: const EdgeInsets.symmetric(
-                                      horizontal: 12,
-                                      vertical: 12,
-                                    ),
-                                    suffixText: context
-                                        .read<SettingsProvider>()
-                                        .currencySymbolText,
-                                    suffixStyle: theme.textTheme.bodySmall
-                                        ?.copyWith(fontWeight: FontWeight.w500),
-                                  ),
-                                  keyboardType:
-                                      const TextInputType.numberWithOptions(
-                                        decimal: true,
-                                      ),
-                                  style: theme.textTheme.bodyLarge?.copyWith(
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                  textAlign: TextAlign.center,
-                                ),
-                              ),
-                              if (_remainingAmount > 0)
-                                Container(
-                                  decoration: BoxDecoration(
-                                    border: Border(
-                                      right: BorderSide(
-                                        color: colorScheme.primary.withValues(
-                                          alpha: 0.4,
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                  child: IconButton(
-                                    icon: Icon(
-                                      Icons.playlist_add_check,
-                                      color: colorScheme.primary,
-                                      size: 24,
-                                    ),
-                                    tooltip:
-                                        'ملء باقي المبلغ (${_remainingAmount.toStringAsFixed(2)})',
-                                    onPressed: () {
-                                      setState(() {
-                                        _customAmountController.text =
-                                            _remainingAmount.toStringAsFixed(2);
-                                      });
-                                    },
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 8,
-                                    ),
-                                  ),
-                                ),
-                            ],
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      // زر الإضافة
-                      ElevatedButton.icon(
-                        onPressed: () {
-                          final customAmount = double.tryParse(
-                            _customAmountController.text,
-                          );
-                          _addPayment(customAmount: customAmount);
-                        },
-                        icon: const Icon(Icons.add_circle, size: 20),
-                        label: Text(
-                          'إضافة',
-                          style: theme.textTheme.titleMedium?.copyWith(
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        style: ElevatedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 20,
-                            vertical: 18,
-                          ),
-                          backgroundColor: colorScheme.primary,
-                          foregroundColor: colorScheme.onPrimary,
-                          elevation: 3,
-                          shadowColor: colorScheme.primary.withValues(
-                            alpha: 0.4,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 10),
-                  Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: AppColors.warning.withValues(
-                        alpha: isDark ? 0.18 : 0.12,
-                      ),
-                      borderRadius: BorderRadius.circular(6),
-                      border: Border.all(
-                        color: AppColors.warning.withValues(alpha: 0.4),
-                      ),
-                    ),
-                    child: Row(
-                      children: [
-                        Icon(
-                          Icons.info_outline,
-                          size: 18,
-                          color: AppColors.warning,
-                        ),
-                        const SizedBox(width: 8),
-                        _settingsProvider.buildText(
-                          'المتبقي: ${_remainingAmount.toStringAsFixed(2)} ${_settingsProvider.currencySymbolText}',
-                          style: theme.textTheme.bodyMedium?.copyWith(
-                            fontSize: 14,
-                            color: AppColors.warning,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-
-            // 🆕 ملخص النهائي
-            const SizedBox(height: 16),
-            Container(
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: _remainingAmount > 0
-                      ? [
-                          colorScheme.error.withValues(
-                            alpha: isDark ? 0.16 : 0.12,
-                          ),
-                          colorScheme.error.withValues(
-                            alpha: isDark ? 0.28 : 0.2,
-                          ),
-                        ]
-                      : [
-                          AppColors.success.withValues(
-                            alpha: isDark ? 0.16 : 0.12,
-                          ),
-                          AppColors.success.withValues(
-                            alpha: isDark ? 0.28 : 0.2,
-                          ),
-                        ],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(
-                  color: _remainingAmount > 0
-                      ? colorScheme.error.withValues(alpha: 0.5)
-                      : AppColors.success.withValues(alpha: 0.5),
-                  width: 2,
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color:
-                        (_remainingAmount > 0
-                                ? colorScheme.error
-                                : AppColors.success)
-                            .withValues(alpha: 0.12),
-                    blurRadius: 8,
-                    offset: const Offset(0, 2),
-                  ),
-                ],
-              ),
-              child: Column(
-                children: [
-                  // إجمالي الفاتورة مع ضريبة القيمة المضافة
-                  if (_items.isNotEmpty) ...[
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Row(
-                          children: [
-                            Icon(
-                              Icons.receipt,
-                              size: 18,
-                              color: theme.iconTheme.color,
-                            ),
-                            const SizedBox(width: 8),
-                            Text(
-                              'إجمالي الفاتورة:',
-                              style: theme.textTheme.bodyMedium,
-                            ),
-                          ],
-                        ),
-                        _settingsProvider.buildText(
-                          '${_calculateGrandTotal().toStringAsFixed(2)} ${_settingsProvider.currencySymbolText}',
-                          style: theme.textTheme.bodyMedium?.copyWith(
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 6),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Row(
-                          children: [
-                            Icon(
-                              Icons.description,
-                              size: 16,
-                              color: AppColors.info,
-                            ),
-                            const SizedBox(width: 8),
-                            Text(
-                              'ضريبة القيمة المضافة:',
-                              style: theme.textTheme.bodySmall,
-                            ),
-                          ],
-                        ),
-                        _settingsProvider.buildText(
-                          '${_calculateTotalVAT().toStringAsFixed(2)} ${_settingsProvider.currencySymbolText}',
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            fontWeight: FontWeight.w600,
-                            color: AppColors.info,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const Divider(height: 16, thickness: 1),
-                  ],
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Row(
-                        children: [
-                          Icon(
-                            Icons.account_balance_wallet,
-                            size: 20,
-                            color: theme.iconTheme.color,
-                          ),
-                          const SizedBox(width: 8),
-                          Text(
-                            'المدفوع:',
-                            style: theme.textTheme.bodyLarge?.copyWith(
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ],
-                      ),
-                      _settingsProvider.buildText(
-                        '${_totalPayments.toStringAsFixed(2)} ${_settingsProvider.currencySymbolText}',
-                        style: theme.textTheme.bodyLarge?.copyWith(
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ],
-                  ),
-                  if (_totalCommission > 0) ...[
-                    const SizedBox(height: 8),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Row(
-                          children: [
-                            Icon(
-                              Icons.percent,
-                              size: 18,
-                              color: AppColors.warning,
-                            ),
-                            const SizedBox(width: 8),
-                            Text(
-                              'إجمالي العمولات:',
-                              style: theme.textTheme.bodyMedium,
-                            ),
-                          ],
-                        ),
-                        _settingsProvider.buildText(
-                          '${_totalCommission.toStringAsFixed(2)} ${_settingsProvider.currencySymbolText}',
-                          style: theme.textTheme.bodyMedium?.copyWith(
-                            fontWeight: FontWeight.bold,
-                            color: AppColors.warning,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Row(
-                          children: [
-                            Icon(
-                              Icons.receipt_long,
-                              size: 16,
-                              color: AppColors.info,
-                            ),
-                            const SizedBox(width: 8),
-                            Text(
-                              'ضريبة العمولات (15%):',
-                              style: theme.textTheme.bodySmall,
-                            ),
-                          ],
-                        ),
-                        _settingsProvider.buildText(
-                          '${_totalCommissionVAT.toStringAsFixed(2)} ${_settingsProvider.currencySymbolText}',
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            fontWeight: FontWeight.w600,
-                            color: AppColors.info,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Row(
-                          children: [
-                            Icon(
-                              Icons.check_circle,
-                              size: 18,
-                              color: AppColors.success,
-                            ),
-                            const SizedBox(width: 8),
-                            Text(
-                              'صافي المستلم:',
-                              style: theme.textTheme.bodyMedium?.copyWith(
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ],
-                        ),
-                        _settingsProvider.buildText(
-                          '${_totalNet.toStringAsFixed(2)} ${_settingsProvider.currencySymbolText}',
-                          style: theme.textTheme.bodyMedium?.copyWith(
-                            fontWeight: FontWeight.bold,
-                            color: AppColors.success,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                  const Divider(height: 20, thickness: 1.5),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Row(
-                        children: [
-                          Icon(
-                            _remainingAmount > 0
-                                ? Icons.warning_amber_rounded
-                                : Icons.check_circle_outline,
-                            size: 22,
-                            color: _remainingAmount > 0
-                                ? colorScheme.error
-                                : AppColors.success,
-                          ),
-                          const SizedBox(width: 8),
-                          Text(
-                            _remainingAmount > 0
-                                ? 'المتبقي:'
-                                : '✓ تم الدفع بالكامل',
-                            style: theme.textTheme.titleMedium?.copyWith(
-                              fontWeight: FontWeight.bold,
-                              color: _remainingAmount > 0
-                                  ? colorScheme.error
-                                  : AppColors.success,
-                            ),
-                          ),
-                        ],
-                      ),
-                      if (_remainingAmount > 0)
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 6,
-                          ),
-                          decoration: BoxDecoration(
-                            color: colorScheme.error,
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: _settingsProvider.buildText(
-                            '${_remainingAmount.toStringAsFixed(2)} ${_settingsProvider.currencySymbolText}',
-                            style: theme.textTheme.bodyLarge?.copyWith(
-                              fontWeight: FontWeight.bold,
-                              color: colorScheme.onError,
-                            ),
-                          ),
-                        ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
           ],
         ),
       ),
