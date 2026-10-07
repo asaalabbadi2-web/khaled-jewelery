@@ -38,7 +38,6 @@ import 'settings_screen_enhanced.dart';
 import 'branches_management_screen.dart';
 import 'gold_price_manual_screen_enhanced.dart';
 import 'customize_quick_actions_screen.dart';
-import 'scrap_sales_invoice_screen.dart';
 import 'scrap_purchase_invoice_screen.dart'; // 🆕 فاتورة شراء الكسر المحسّنة
 import 'employees_screen.dart';
 import 'users_screen.dart';
@@ -860,7 +859,8 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
         final result = await Navigator.push(
           context,
           MaterialPageRoute(
-            builder: (_) => ScrapSalesInvoiceScreen(
+            builder: (_) => SalesInvoiceScreenV2(
+        scrap: true,
               customers: customers.cast<Map<String, dynamic>>(),
               items: items.cast<Map<String, dynamic>>(),
             ),
@@ -3632,7 +3632,8 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
         result = await Navigator.push(
           context,
           MaterialPageRoute(
-            builder: (_) => ScrapSalesInvoiceScreen(
+            builder: (_) => SalesInvoiceScreenV2(
+        scrap: true,
               customers: customers.cast<Map<String, dynamic>>(),
               items: items.cast<Map<String, dynamic>>(),
             ),

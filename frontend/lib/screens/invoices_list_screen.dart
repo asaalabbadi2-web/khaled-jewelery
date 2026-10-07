@@ -18,7 +18,6 @@ import 'add_return_invoice_screen.dart';
 import 'purchase_invoice_screen.dart';
 import 'sales_invoice_screen_v2.dart';
 import 'scrap_purchase_invoice_screen.dart';
-import 'scrap_sales_invoice_screen.dart';
 import 'voucher_details_screen.dart';
 // import 'add_invoice_screen.dart'; // TODO: Uncomment when implementing add invoice
 
@@ -5114,7 +5113,8 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
       if (isScrapSale(fullInvoice)) {
         final customers = _cloneDataList(await _getCachedCustomers());
         final items = _cloneDataList(await _getCachedItems());
-        screen = ScrapSalesInvoiceScreen(
+        screen = SalesInvoiceScreenV2(
+        scrap: true,
           customers: customers,
           items: items,
           editInvoiceId: invoiceId,
@@ -5400,7 +5400,8 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
           context,
           MaterialPageRoute(
             builder: (_) =>
-                ScrapSalesInvoiceScreen(customers: customers, items: items),
+                SalesInvoiceScreenV2(
+        scrap: true,customers: customers, items: items),
           ),
         );
         break;

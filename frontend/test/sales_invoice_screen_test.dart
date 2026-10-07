@@ -78,6 +78,9 @@ void main() {
     Map<String, dynamic> appSettings = const {},
     List<Map<String, dynamic>> items = const [],
     List<Map<String, dynamic>> customers = const [],
+    bool scrap = false,
+    int? editId,
+    Map<String, dynamic>? editData,
   }) async {
     SharedPreferences.setMockInitialValues({
       if (saved != null) draftKey: jsonEncode(saved),
@@ -119,6 +122,9 @@ void main() {
                             items: List.of(items),
                             customers: List.of(customers),
                             apiService: api,
+                            scrap: scrap,
+                            editInvoiceId: editId,
+                            editInvoiceData: editData,
                           ),
                         ),
                       ),
@@ -878,6 +884,145 @@ void main() {
       await tester.tap(find.text('حفظ الفاتورة').last);
       await settle(tester);
       expect((api.added.single['payments'] as List).single['safe_box_id'], 8);
+    });
+  });
+
+  group('a scrap sale is this screen, in its mode (SALES-UX-7)', () {
+    final scrapSafe = SafeBoxModel(
+      id: 31,
+      name: 'خزينة الكسر الرئيسية',
+      safeType: 'gold',
+      accountId: 310,
+    );
+    final goldSafe = SafeBoxModel(
+      id: 32,
+      name: 'خزينة الذهب',
+      safeType: 'gold',
+      accountId: 320,
+    );
+
+    Future<Map<String, dynamic>> save(
+      WidgetTester tester,
+      FakeSalesApi api,
+    ) async {
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyS);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+      await settle(tester);
+      await tester.tap(find.text('حفظ الفاتورة').last);
+      await settle(tester);
+      return api.added.single;
+    }
+
+    testWidgets('it says it is a scrap sale', (tester) async {
+      await open(tester, api: FakeSalesApi(), scrap: true);
+      expect(find.text('فاتورة بيع الكسر'), findsOneWidget);
+    });
+
+    testWidgets('it sends a scrap sale out of the main scrap safe', (
+      tester,
+    ) async {
+      final api = FakeSalesApi(
+        settings: {'main_scrap_gold_safe_box_id': 31},
+        scrapSafe: scrapSafe,
+        goldSafe: goldSafe,
+      );
+      await open(
+        tester,
+        api: api,
+        saved: draft(payments: paidInFull),
+        scrap: true,
+      );
+
+      final sent = await save(tester, api);
+      expect(sent['gold_type'], 'scrap');
+      expect(sent['invoice_type'], 'بيع');
+      expect(sent['safe_box_id'], 31);
+    });
+
+    testWidgets('with no main scrap safe set, the default gold safe', (
+      tester,
+    ) async {
+      final api = FakeSalesApi(goldSafe: goldSafe);
+      await open(
+        tester,
+        api: api,
+        saved: draft(payments: paidInFull),
+        scrap: true,
+      );
+
+      final sent = await save(tester, api);
+      expect(sent['safe_box_id'], 32);
+    });
+
+    testWidgets('a sale of new gold sends neither a kind nor that safe', (
+      tester,
+    ) async {
+      final api = FakeSalesApi(
+        settings: {'main_scrap_gold_safe_box_id': 31},
+        scrapSafe: scrapSafe,
+      );
+      await open(tester, api: api, saved: draft(payments: paidInFull));
+
+      final sent = await save(tester, api);
+      expect(sent.containsKey('gold_type'), isFalse);
+      expect(sent.containsKey('safe_box_id'), isFalse);
+    });
+
+    testWidgets('a scrap sale offers no barter: barter buys scrap in', (
+      tester,
+    ) async {
+      await open(tester, api: FakeSalesApi(), saved: draft(), scrap: true);
+      expect(find.text('مقايضة ذهب كسر'), findsNothing);
+    });
+
+    testWidgets('a sale of new gold still offers it', (tester) async {
+      await open(tester, api: FakeSalesApi(), saved: draft());
+      expect(find.text('مقايضة ذهب كسر'), findsOneWidget);
+    });
+
+    testWidgets('editing keeps its kind, its safe and its lines\' totals', (
+      tester,
+    ) async {
+      final api = FakeSalesApi(goldSafe: goldSafe);
+      await open(
+        tester,
+        api: api,
+        scrap: true,
+        editId: 1540,
+        editData: {
+          'customer_id': 8,
+          'branch_id': 1,
+          'gold_type': 'scrap',
+          'safe_box_id': 31,
+          'items': [
+            {'name': 'كسر', 'karat': 21, 'weight': 3.0, 'wage': 0,
+             'quantity': 1, 'net': 1200.0, 'tax': 0.0, 'price': 1200.0},
+          ],
+          'payments': [
+            {'payment_method_id': 1, 'payment_method_name': 'نقداً',
+             'amount': 1200.0, 'commission_rate': 0, 'commission_amount': 0,
+             'commission_vat': 0, 'net_amount': 1200.0, 'settlement_days': 0},
+          ],
+        },
+        customers: [
+          {'id': 8, 'name': 'عميل نقدي'},
+        ],
+      );
+      expect(find.text('تعديل فاتورة بيع الكسر'), findsOneWidget);
+
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyS);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+      await settle(tester);
+      await tester.tap(find.text('حفظ الفاتورة').last);
+      await settle(tester);
+
+      expect(api.added, isEmpty);
+      final sent = api.updated.single;
+      expect(sent['gold_type'], 'scrap');
+      expect(sent['safe_box_id'], 31); // the invoice's own, not today's default
+      expect(sent['total'], 1200.0);
     });
   });
 }

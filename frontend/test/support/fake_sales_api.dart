@@ -12,7 +12,18 @@ class FakeSalesApi extends ApiService {
       {'id': 1, 'name': 'نقداً', 'payment_type': 'cash', 'commission_rate': 0},
     ],
     this.safes = const [],
+    this.settings = const {},
+    this.scrapSafe,
+    this.goldSafe,
   });
+
+  final Map<String, dynamic> settings;
+
+  /// The «خزينة الكسر الرئيسية» the settings name, and the gold safe a
+  /// sale falls back to when they name none.
+  final SafeBoxModel? scrapSafe;
+  final SafeBoxModel? goldSafe;
+  final updated = <Map<String, dynamic>>[];
 
   final List<Map<String, dynamic>> categories;
   final List<Map<String, dynamic>> methods;
@@ -52,6 +63,28 @@ class FakeSalesApi extends ApiService {
 
   @override
   Future<List<dynamic>> getCategories() async => categories;
+
+  @override
+  Future<Map<String, dynamic>> getSettings() async => settings;
+
+  @override
+  Future<SafeBoxModel> getSafeBox(int id, {bool includeBalance = true}) async =>
+      scrapSafe!;
+
+  @override
+  Future<SafeBoxModel> getDefaultSafeBox(String safeType) async {
+    if (goldSafe == null) throw Exception('no gold safe');
+    return goldSafe!;
+  }
+
+  @override
+  Future<Map<String, dynamic>> updateUnpostedInvoice(
+    int invoiceId,
+    Map<String, dynamic> invoiceData,
+  ) async {
+    updated.add(invoiceData);
+    return {'id': invoiceId, 'total': invoiceData['total'], 'items': []};
+  }
 
   @override
   Future<Map<String, dynamic>> addCustomer(

@@ -45,6 +45,10 @@ class SalesInvoiceScreenV2 extends StatefulWidget {
   /// The server; a test hands its own.
   final ApiService? apiService;
 
+  /// A sale of scrap gold: the same screen in its mode (SALES-UX-7) -- sent
+  /// as a scrap sale, out of the main scrap safe, with no barter.
+  final bool scrap;
+
   const SalesInvoiceScreenV2({
     super.key,
     required this.items,
@@ -52,6 +56,7 @@ class SalesInvoiceScreenV2 extends StatefulWidget {
     this.editInvoiceId,
     this.editInvoiceData,
     this.apiService,
+    this.scrap = false,
   });
 
   @override
@@ -128,6 +133,36 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
 
   /// The name of each safe seen, for the payment lines.
   final Map<int, String> _safeNames = {};
+
+  /// A scrap sale leaves the main scrap safe: the settings' one, else the
+  /// default gold safe; an edited sale keeps the one it was made from. Not
+  /// the payments' safes below.
+  int? _scrapSafeBoxId;
+
+  Future<void> _loadScrapSafeBox() async {
+    try {
+      final raw = (await _api.getSettings())['main_scrap_gold_safe_box_id'];
+      final id = raw is int ? raw : int.tryParse(raw?.toString() ?? '');
+      if (id != null) {
+        final safe = await _api.getSafeBox(id, includeBalance: false);
+        if (!mounted) return;
+        setState(() => _scrapSafeBoxId ??= safe.id);
+        return;
+      }
+    } catch (_) {
+      // Fall back to the default gold safe.
+    }
+    try {
+      final safe = await _api.getDefaultSafeBox('gold');
+      if (!mounted) return;
+      setState(() => _scrapSafeBoxId ??= safe.id);
+    } catch (_) {
+      // None: the server resolves it from the system settings.
+    }
+  }
+
+  InvoiceUiContext get _uiContext =>
+      widget.scrap ? InvoiceUiContext.scrapSale : InvoiceUiContext.saleNew;
 
   // Safe Boxes - 🆕 الخزائن المتاحة للدفع
   List<SafeBoxModel> _safeBoxes = [];
@@ -492,6 +527,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
     _loadInvoiceUiSettingsFromPrefs();
     _loadSettings();
     _loadBranches();
+    if (widget.scrap && !_isEditMode) _loadScrapSafeBox();
     _ensureCategoriesLoaded();
     _loadPaymentMethods(); // 🆕 جلب وسائل الدفع
     _smartInputFocus.requestFocus();
@@ -516,6 +552,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
       // Customer & Branch
       _selectedCustomerId = _parseInt(data['customer_id']);
       _selectedBranchId = _parseInt(data['branch_id']);
+      if (widget.scrap) _scrapSafeBoxId = _parseInt(data['safe_box_id']);
 
       // Items
       final rawItems = data['items'];
@@ -550,6 +587,12 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
           // Restore profit so the totals match the original invoice
           final cost = item.cost;
           item.profit = net - cost;
+          // A scrap sale is priced by hand: each line keeps the total it was
+          // saved with, whatever the gold price is by the time it loads.
+          if (widget.scrap) {
+            final saved = net > 0 ? net + tax : _parseDouble(m['price']);
+            if (saved > 0) item.setManualTotal(saved);
+          }
           _items.add(item);
         }
       }
@@ -581,7 +624,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
 
   Future<void> _loadInvoiceUiSettingsFromPrefs() async {
     try {
-      final loaded = await InvoiceUiSettings.load(InvoiceUiContext.saleNew);
+      final loaded = await InvoiceUiSettings.load(_uiContext);
       if (!mounted) return;
       setState(() {
         _uiLockPriceEdits = loaded.lockPriceEdits;
@@ -2437,6 +2480,9 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
         'branch_id': _selectedBranchId,
         'invoice_type': 'بيع',
         'transaction_type': 'sell',
+        if (widget.scrap) 'gold_type': 'scrap',
+        if (widget.scrap && _scrapSafeBoxId != null)
+          'safe_box_id': _scrapSafeBoxId,
         if (sellerName.isNotEmpty) 'posted_by': sellerName,
         if (sellerEmployeeId != null) 'employee_id': sellerEmployeeId,
         'date': DateTime.now().toIso8601String(),
@@ -2530,7 +2576,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(approvalWarning),
-              backgroundColor: Colors.orange.shade800,
+              backgroundColor: AppSemanticColors.of(context).warning.fg,
               behavior: SnackBarBehavior.floating,
               duration: const Duration(seconds: 6),
             ),
@@ -2616,9 +2662,9 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
         // In edit mode, navigate back with success result
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('تم تعديل الفاتورة بنجاح'),
-              backgroundColor: Colors.green,
+            SnackBar(
+              content: const Text('تم تعديل الفاتورة بنجاح'),
+              backgroundColor: AppSemanticColors.of(context).ready.fg,
             ),
           );
           Navigator.of(context).pop(true);
@@ -3333,10 +3379,18 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
         final scaffold = Scaffold(
           bottomNavigationBar: _buildFooter(theme, readiness),
           appBar: AppBar(
-            backgroundColor: AppColors.invoiceSaleNew,
+            backgroundColor: widget.scrap
+                ? AppColors.invoiceSaleScrap
+                : AppColors.invoiceSaleNew,
             foregroundColor: Colors.white,
             iconTheme: const IconThemeData(color: Colors.white),
-            title: Text(_isEditMode ? 'تعديل فاتورة البيع' : 'فاتورة البيع '),
+            title: Text(
+              widget.scrap
+                  ? (_isEditMode
+                        ? 'تعديل فاتورة بيع الكسر'
+                        : 'فاتورة بيع الكسر')
+                  : (_isEditMode ? 'تعديل فاتورة البيع' : 'فاتورة البيع '),
+            ),
             bottom: PreferredSize(
               preferredSize: const Size.fromHeight(26.0),
               child: Container(
@@ -3461,7 +3515,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                 onPressed: () async {
                   await InvoiceSettingsSheet.show(
                     context,
-                    contextType: InvoiceUiContext.saleNew,
+                    contextType: _uiContext,
                     supportsVatToggle: false,
                     supportsLockEdits: true,
                     supportsAutoOpenPrint: true,
@@ -5031,6 +5085,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
             ],
 
             // 🆕 مقايضة ذهب كسر داخل وسائل الدفع
+            if (!widget.scrap) ...[
             Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
@@ -5387,6 +5442,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
             ),
 
             const SizedBox(height: 16),
+            ],
 
           ],
         ),

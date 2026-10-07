@@ -29,10 +29,7 @@ void main() {
 
   // The sales screens neither read nor offer the device switch: a gate on the
   // source, as the raw-color ratchet is.
-  for (final path in [
-    'lib/screens/sales_invoice_screen_v2.dart',
-    'lib/screens/scrap_sales_invoice_screen.dart',
-  ]) {
+  for (final path in ['lib/screens/sales_invoice_screen_v2.dart']) {
     test('$path takes VAT from the company setting, not the device', () {
       final source = File(path).readAsStringSync();
       expect(source, isNot(contains('.disableVat')));
