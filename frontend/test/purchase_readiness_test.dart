@@ -17,9 +17,8 @@ void main() {
     bool branchChosen = true,
     bool supplierChosen = true,
     bool goldPriceKnown = true,
-    bool manualPricing = false,
     List<PurchaseItemFacts> items = const [item],
-    List<PurchaseKaratLineFacts> karatLines = const [],
+    bool editsHeldWeightLines = false,
     PurchaseSettlement settlement = PurchaseSettlement.credit,
     double cashDue = 998.95,
     double cashPaid = 0,
@@ -34,9 +33,8 @@ void main() {
     branchChosen: branchChosen,
     supplierChosen: supplierChosen,
     goldPriceKnown: goldPriceKnown,
-    manualPricing: manualPricing,
     items: items,
-    karatLines: karatLines,
+    editsHeldWeightLines: editsHeldWeightLines,
     settlement: settlement,
     cashDue: cashDue,
     cashPaid: cashPaid,
@@ -51,6 +49,18 @@ void main() {
 
   test('a complete credit purchase is ready', () {
     expect(check(base()).isReady, isTrue);
+  });
+
+  test('an edited invoice holding weights without items is not saved here', () {
+    // An edit replaces the invoice with what the screen sends; the screen
+    // has no manual weights, so it would drop them (an office reservation's
+    // purchase is written with weight lines only).
+    final r = check(base(editsHeldWeightLines: true));
+    expect(r.isReady, isFalse);
+    expect(
+      r.message,
+      'في هذه الفاتورة أوزان بلا أصناف لا تعرضها هذه الشاشة، فلا تُعدَّل منها',
+    );
   });
 
   group('who and where', () {
@@ -94,62 +104,10 @@ void main() {
       );
     });
 
-    test('a manual weight line without weight names the line', () {
-      final r = check(
-        base(
-          items: const [],
-          karatLines: const [PurchaseKaratLineFacts(weight: 0)],
-        ),
-      );
-      expect(r.target, PurchaseReadinessTarget.karatLine);
-      expect(r.index, 0);
-    });
-
-    test('a manual line whose VAT is not the policy is refused', () {
-      // tax_policy_mismatch: the server checks each karat line's VAT.
-      final r = check(
-        base(
-          items: const [],
-          karatLines: const [
-            PurchaseKaratLineFacts(
-              weight: 10,
-              goldTax: 100,
-              expectedGoldTax: 150,
-            ),
-          ],
-        ),
-      );
-      expect(r.target, PurchaseReadinessTarget.karatLine);
-      expect(r.message, 'ضريبة الوزن اليدوي 1 لا توافق سياسة الضريبة');
-    });
-
-    test('a VAT within a cent of the policy is fine', () {
-      final r = check(
-        base(
-          items: const [],
-          karatLines: const [
-            PurchaseKaratLineFacts(
-              weight: 10,
-              wageTax: 22.505,
-              expectedWageTax: 22.5,
-            ),
-          ],
-        ),
-      );
-      expect(r.isReady, isTrue);
-    });
-
-    test('auto pricing without a gold price is not ready', () {
+    test('without a gold price it is not ready', () {
       final r = check(base(goldPriceKnown: false));
       expect(r.target, PurchaseReadinessTarget.goldPrice);
       expect(r.message, 'سعر الذهب لم يُحمَّل؛ حدّثه قبل الحفظ');
-    });
-
-    test('manual pricing does not need the gold price', () {
-      expect(
-        check(base(goldPriceKnown: false, manualPricing: true)).isReady,
-        isTrue,
-      );
     });
   });
 
@@ -323,22 +281,6 @@ void main() {
       expect(
         r.message,
         'الترحيل التلقائي معطّل، والفاتورة غير المرحّلة لا تقبل سداد ذهب؛ أزل سداد الذهب',
-      );
-    });
-
-    test('gold settled with items and manual weights together is refused', () {
-      // payload_conflict_weight_sources
-      final r = check(
-        base(
-          settlement: PurchaseSettlement.partial,
-          karatLines: const [PurchaseKaratLineFacts(weight: 3)],
-          goldLines: [line21],
-        ),
-      );
-      expect(r.target, PurchaseReadinessTarget.karatLine);
-      expect(
-        r.message,
-        'مع سداد الذهب تُدخل الأوزان من الأصناف أو من الأوزان اليدوية، لا من الاثنين',
       );
     });
 

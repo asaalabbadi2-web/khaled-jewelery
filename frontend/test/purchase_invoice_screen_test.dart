@@ -68,6 +68,7 @@ void main() {
     Map<String, dynamic>? saved,
     Map<String, dynamic>? appSettings,
     Map<String, Object> prefs = const {},
+    Map<String, dynamic>? editing,
   }) async {
     SharedPreferences.setMockInitialValues({
       if (saved != null) draftKey: jsonEncode(saved),
@@ -96,7 +97,11 @@ void main() {
                       MaterialPageRoute(
                         builder: (_) => Directionality(
                           textDirection: TextDirection.rtl,
-                          child: PurchaseInvoiceScreen(apiService: api),
+                          child: PurchaseInvoiceScreen(
+                            apiService: api,
+                            editInvoiceId: editing == null ? null : 77,
+                            editInvoiceData: editing,
+                          ),
                         ),
                       ),
                     ),
@@ -195,6 +200,20 @@ void main() {
     expect(api.added.single['settlement_method'], 'credit');
   });
 
+  testWidgets('Ctrl+S is still heard after a field is left with Enter', (
+    tester,
+  ) async {
+    // A field done with Enter gave focus to the route, above the shortcuts.
+    await open(tester, api: FakePurchaseApi(), saved: draft());
+
+    await tester.enterText(find.widgetWithText(TextField, '18.00'), '20');
+    await tester.testTextInput.receiveAction(TextInputAction.done);
+    await tester.pumpAndSettle();
+
+    await pressCtrlS(tester);
+    expect(find.text('مراجعة الفاتورة'), findsOneWidget);
+  });
+
   testWidgets('leaving with items in the invoice asks first', (tester) async {
     final api = FakePurchaseApi();
     await open(tester, api: api, saved: draft());
@@ -222,35 +241,6 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('فاتورة غير محفوظة'), findsNothing);
     expect(find.byType(PurchaseInvoiceScreen), findsNothing);
-  });
-
-  testWidgets('gold settled with items and manual weights is not sent, and '
-      'no item is dropped silently', (tester) async {
-    final api = FakePurchaseApi();
-    await open(
-      tester,
-      api: api,
-      saved: draft(
-        settlement: 'barter',
-        karatLines: [
-          {'karat': 21, 'weight_grams': 3.0, 'wage_per_gram': 0},
-        ],
-        goldSettlements: [
-          {'safe_box_id': 5, 'karat': 21, 'weight': '10.000'},
-        ],
-      ),
-    );
-
-    expect(
-      find.text(
-        'غير جاهز للحفظ — مع سداد الذهب تُدخل الأوزان من الأصناف أو من '
-        'الأوزان اليدوية، لا من الاثنين',
-      ),
-      findsOneWidget,
-    );
-    await tester.tap(footerSave());
-    await tester.pumpAndSettle();
-    expect(api.added, isEmpty);
   });
 
   testWidgets('the wage treatment is the company\'s, shown and not chosen '
@@ -344,20 +334,24 @@ void main() {
     },
   );
 
-  group('manual weights (stage 2)', () {
-    testWidgets('a new invoice offers manual weights', (tester) async {
-      await open(tester, api: FakePurchaseApi());
-      expect(find.text('الأوزان اليدوية (اختياري)'), findsOneWidget);
+  group('weights are entered as items, in one place', () {
+    testWidgets('the screen has no manual weights card and no manual pricing', (
+      tester,
+    ) async {
+      await open(tester, api: FakePurchaseApi(), saved: draft());
+
+      expect(find.text('الأوزان اليدوية (اختياري)'), findsNothing);
+      expect(find.text('قيمة يدوية'), findsNothing);
+      expect(find.text('الأصناف داخل الفاتورة'), findsOneWidget);
     });
 
-    testWidgets('a line priced by hand is taxed on its own values, as the '
-        'server checks it', (tester) async {
+    testWidgets('a draft kept with manual weights comes back as items, its '
+        'wages kept', (tester) async {
       final api = FakePurchaseApi();
       await open(
         tester,
         api: api,
         saved: draft(
-          supplierId: 1, // has a tax number: with VAT
           withItem: false,
           manualPricing: true,
           karatLines: [
@@ -377,11 +371,138 @@ void main() {
       await tester.tap(find.text('حفظ الفاتورة').last);
       await settle(tester);
 
-      final line = (api.added.single['karat_lines'] as List).single as Map;
-      expect(line['gold_value_cash'], 3000.0);
-      expect(line['manufacturing_wage_cash'], 100.0);
-      expect(line['wage_tax'], 15.0); // 15 % of the wages typed, not of 0
-      expect(line['gold_tax'], 0.0);
+      final sent = api.added.single;
+      expect(sent['karat_lines'], anyOf(isNull, isEmpty));
+      final item = (sent['items'] as List).single as Map;
+      expect(item['karat'], 21);
+      expect(item['weight'], 10.0);
+      expect(item['wage_total'], closeTo(100.0, 0.001));
+      expect(item.containsKey('create_inline'), isFalse); // no new stock item
+    });
+
+    testWidgets('an invoice holding weights without items is not edited here, '
+        'so they are not dropped', (tester) async {
+      final api = FakePurchaseApi();
+      await open(
+        tester,
+        api: api,
+        editing: {
+          'supplier_id': 1,
+          'branch_id': 1,
+          'settlement_method': 'credit',
+          'items': <Map<String, dynamic>>[],
+          'karat_lines': [
+            {'karat': 21, 'weight_grams': 69.76, 'gold_value_cash': 35000.0},
+          ],
+        },
+      );
+
+      expect(
+        find.text(
+          'غير جاهز للحفظ — في هذه الفاتورة أوزان بلا أصناف لا تعرضها هذه '
+          'الشاشة، فلا تُعدَّل منها',
+        ),
+        findsOneWidget,
+      );
+      await pressCtrlS(tester);
+      expect(api.updated, isEmpty);
+      expect(api.added, isEmpty);
+    });
+  });
+
+  group('items typed in one row (PURCHASE-UX-5)', () {
+    Future<Map<String, dynamic>> save(
+      WidgetTester tester,
+      FakePurchaseApi api,
+    ) async {
+      await pressCtrlS(tester);
+      await tester.tap(find.text('حفظ الفاتورة').last);
+      await settle(tester);
+      return api.added.single;
+    }
+
+    Future<void> typeWeight(WidgetTester tester, String weight) async {
+      await tester.enterText(
+        find.byKey(const Key('purchase-entry-weight')),
+        weight,
+      );
+      await tester.testTextInput.receiveAction(TextInputAction.done);
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('three weights of one item are typed with Enter, no dialog', (
+      tester,
+    ) async {
+      final api = FakePurchaseApi();
+      await open(tester, api: api, saved: draft(withItem: false));
+
+      await tester.enterText(
+        find.byKey(const Key('purchase-entry-name')),
+        'سلسال',
+      );
+      await tester.enterText(
+        find.byKey(const Key('purchase-entry-wage')),
+        '١٨',
+      );
+      for (final w in ['١٢٫٥', '3', '4.25']) {
+        await typeWeight(tester, w);
+        expect(find.byType(Dialog), findsNothing);
+      }
+      // The weight is cleared for the next one; the name and wage stay.
+      final weightField = tester.widget<TextField>(
+        find.byKey(const Key('purchase-entry-weight')),
+      );
+      expect(weightField.controller!.text, isEmpty);
+      expect(weightField.focusNode!.hasFocus, isTrue);
+
+      final items = (await save(tester, api))['items'] as List;
+      expect(items.map((i) => (i as Map)['weight']), [12.5, 3.0, 4.25]);
+      for (final i in items.cast<Map>()) {
+        expect(i['name'], 'سلسال');
+        expect(i['karat'], 21);
+        expect(i['wage_per_gram'], 18.0);
+        expect(i['create_inline'], isTrue);
+      }
+    });
+
+    testWidgets('without a name nothing is added, and it says so', (
+      tester,
+    ) async {
+      await open(tester, api: FakePurchaseApi(), saved: draft(withItem: false));
+
+      await typeWeight(tester, '5');
+      expect(find.text('اكتب اسم الصنف'), findsOneWidget);
+      expect(find.text('غير جاهز للحفظ — أضف أصناف الفاتورة'), findsNothing);
+      expect(find.textContaining('أضف أصناف الفاتورة'), findsWidgets);
+    });
+
+    testWidgets('a weight is corrected in its own cell', (tester) async {
+      final api = FakePurchaseApi();
+      await open(tester, api: api, saved: draft());
+
+      final cell = find.widgetWithText(TextField, '12.500');
+      await tester.enterText(cell, '13');
+      await tester.testTextInput.receiveAction(TextInputAction.done);
+      await tester.pumpAndSettle();
+
+      final item = ((await save(tester, api))['items'] as List).single as Map;
+      expect(item['weight'], 13.0);
+      expect(item['wage_total'], closeTo(13 * 18, 0.001));
+    });
+
+    testWidgets('a removed line is gone at once and can be put back', (
+      tester,
+    ) async {
+      await open(tester, api: FakePurchaseApi(), saved: draft());
+
+      await tester.tap(find.byTooltip('حذف'));
+      await tester.pumpAndSettle();
+      expect(find.byType(AlertDialog), findsNothing);
+      expect(find.widgetWithText(TextField, '12.500'), findsNothing);
+
+      await tester.tap(find.text('تراجع'));
+      await tester.pumpAndSettle();
+      expect(find.widgetWithText(TextField, '12.500'), findsOneWidget);
     });
   });
 
@@ -465,22 +586,6 @@ void main() {
       expect(find.text('مستحقات المورد'), findsNothing);
       // The gold price is in the app bar, not in a card of its own too.
       expect(find.text('سعر الذهب'), findsNothing);
-    });
-
-    testWidgets('manual pricing is chosen where manual weights are', (
-      tester,
-    ) async {
-      await open(tester, api: FakePurchaseApi(), saved: draft());
-
-      expect(find.text('طريقة التسعير'), findsNothing);
-      final section = find.ancestor(
-        of: find.text('الأوزان اليدوية (اختياري)'),
-        matching: find.byType(Card),
-      );
-      expect(
-        find.descendant(of: section, matching: find.text('قيمة يدوية')),
-        findsOneWidget,
-      );
     });
   });
 }

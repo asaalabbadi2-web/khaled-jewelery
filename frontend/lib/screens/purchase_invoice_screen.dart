@@ -16,6 +16,7 @@ import '../widgets/adaptive_invoice_summary_dialog.dart';
 import '../widgets/invoice_settings_sheet.dart';
 import '../widgets/original_invoice_selector.dart';
 import '../widgets/party_picker_dialog.dart';
+import '../widgets/purchase_item_entry_row.dart';
 import '../widgets/searchable_picker_field.dart';
 import '../utils/invoice_direct_print.dart';
 import '../utils/purchase_readiness.dart';
@@ -119,7 +120,6 @@ class PurchaseInvoiceScreen extends StatefulWidget {
 class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
   late final ApiService _api = widget.apiService ?? ApiService();
 
-  bool _manualPricing = false;
   bool _applyVatOnGold = false;
 
   /// The company's wage treatment, read from the server (ADR-039); null
@@ -160,7 +160,6 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
   // Where each readiness reason is fixed, to bring it into view.
   final _supplierSectionKey = GlobalKey();
   final _itemsSectionKey = GlobalKey();
-  final _karatSectionKey = GlobalKey();
   final _paymentSectionKey = GlobalKey();
 
   // Supplier return (مرتجع شراء (مورد))
@@ -767,7 +766,10 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
   String? _categoriesError;
 
   Map<String, dynamic>? _goldPrice;
-  List<PurchaseKaratLine> _karatLines = [];
+  // An invoice being edited holds weight lines without items (an office
+  // reservation's purchase). The screen neither shows nor sends them, so it
+  // does not save it: an edit replaces the invoice with what is sent.
+  bool _editsHeldWeightLines = false;
   List<PurchaseInlineItem> _inlineItems = [];
 
   double _totalWeight = 0;
@@ -788,7 +790,6 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
       _selectedSupplierId = null;
       _vatChoice = null;
       _applyVatOnGold = false;
-      _karatLines = [];
       _inlineItems = [];
       _selectedOriginalInvoice = null;
       _originalInvoiceDetailsError = null;
@@ -840,23 +841,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
       }
     }
 
-    final karatLinesList =
-        (data['karat_lines'] as List?)
-            ?.whereType<Map<String, dynamic>>()
-            .toList() ??
-        [];
-    final restoredKaratLines = karatLinesList
-        .map(
-          (line) => PurchaseKaratLine(
-            karat: toDouble(line['karat']),
-            weightGrams: toDouble(line['weight_grams']),
-            wagePerGram: 0,
-            goldValueOverride: toDouble(line['gold_value_cash']),
-            wageCashOverride: toDouble(line['manufacturing_wage_cash']),
-            description: line['description']?.toString(),
-          ),
-        )
-        .toList();
+    final heldWeightLines = (data['karat_lines'] as List?)?.isNotEmpty ?? false;
 
     final itemsList =
         (data['items'] as List?)?.whereType<Map<String, dynamic>>().toList() ??
@@ -888,9 +873,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
     setState(() {
       _selectedSupplierId = toInt(data['supplier_id']);
       _selectedBranchId = toInt(data['branch_id']);
-      // Manual lines come back with the values they were saved with; priced
-      // automatically they would be revalued at today's price, unseen.
-      if (restoredKaratLines.isNotEmpty) _manualPricing = true;
+      _editsHeldWeightLines = heldWeightLines;
       // Editing keeps the invoice's own decision, else what its tax says.
       final vatApplied = data['vat_applied'];
       _vatChoice = vatApplied is bool
@@ -898,7 +881,6 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
           : toDouble(data['total_tax']) > 0;
       _applyVatOnGold = data['apply_gold_tax'] == true;
       _settlementMode = modeFromStr(data['settlement_method']?.toString());
-      _karatLines = restoredKaratLines;
       _inlineItems = restoredInlineItems;
     });
     _applyCombinedTotals();
@@ -922,7 +904,6 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
       'version': 1,
       'supplier_id': _selectedSupplierId,
       'branch_id': _selectedBranchId,
-      'manual_pricing': _manualPricing,
       'apply_vat_on_gold': _applyVatOnGold,
       'ui_lock_price_edits': _uiLockPriceEdits,
       'vat_choice': _vatChoice,
@@ -941,18 +922,6 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
               'safe_box_id': l.safeBoxId,
               'karat': l.karat,
               'weight': l.weightController.text,
-            },
-          )
-          .toList(),
-      'karat_lines': _karatLines
-          .map(
-            (l) => {
-              'karat': l.karat,
-              'weight_grams': l.weightGrams,
-              'wage_per_gram': l.wagePerGram,
-              'gold_value_override': l.goldValueOverride,
-              'wage_cash_override': l.wageCashOverride,
-              'description': l.description,
             },
           )
           .toList(),
@@ -1078,25 +1047,6 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
       final decodedInlineItems =
           (payload['inline_items'] as List?)?.whereType<Map>().toList() ?? [];
 
-      final restoredKaratLines = <PurchaseKaratLine>[];
-      for (final rawLine in decodedKaratLines) {
-        final map = Map<String, dynamic>.from(rawLine);
-        restoredKaratLines.add(
-          PurchaseKaratLine(
-            karat: toDouble(map['karat']),
-            weightGrams: toDouble(map['weight_grams']),
-            wagePerGram: toDouble(map['wage_per_gram']),
-            goldValueOverride: map['gold_value_override'] == null
-                ? null
-                : toDouble(map['gold_value_override']),
-            wageCashOverride: map['wage_cash_override'] == null
-                ? null
-                : toDouble(map['wage_cash_override']),
-            description: map['description']?.toString(),
-          ),
-        );
-      }
-
       final restoredInlineItems = <PurchaseInlineItem>[];
       for (final rawItem in decodedInlineItems) {
         final map = Map<String, dynamic>.from(rawItem);
@@ -1118,6 +1068,28 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
             category: map['category']?.toString(),
             categoryId: toInt(map['category_id']),
             entryType: entryType,
+          ),
+        );
+      }
+
+      // A draft kept before the manual weights card was removed: its weights
+      // come back as items without a stock item, their wages as typed.
+      for (final rawLine in decodedKaratLines) {
+        final map = Map<String, dynamic>.from(rawLine);
+        final weight = toDouble(map['weight_grams']);
+        final wageCash = map['wage_cash_override'] == null
+            ? null
+            : toDouble(map['wage_cash_override']);
+        restoredInlineItems.add(
+          PurchaseInlineItem(
+            name: 'وزن عيار ${toDouble(map['karat']).toStringAsFixed(0)}',
+            karat: toDouble(map['karat']),
+            weightGrams: weight,
+            wagePerGram: wageCash != null && weight > 0
+                ? wageCash / weight
+                : toDouble(map['wage_per_gram']),
+            description: map['description']?.toString(),
+            entryType: PurchaseInlineEntryType.category,
           ),
         );
       }
@@ -1151,7 +1123,6 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
           ..addAll(restoredGoldSettlements);
         _selectedSupplierId = toInt(payload['supplier_id']);
         _selectedBranchId = toInt(payload['branch_id']);
-        _manualPricing = payload['manual_pricing'] == true;
         _applyVatOnGold = payload['apply_vat_on_gold'] == true;
         _uiLockPriceEdits = payload['ui_lock_price_edits'] == true;
         final vatChoice = payload['vat_choice'];
@@ -1173,7 +1144,6 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
             toInt(payload['selected_gold_paid_karat']) ??
             _selectedGoldPaidKarat;
 
-        _karatLines = restoredKaratLines;
         _inlineItems = restoredInlineItems;
 
         _gold24kSettlement = payload['gold24k_settlement'] == true;
@@ -1251,7 +1221,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
   }
 
   double _supplierMainEquivalentWeight() {
-    final weightSummary = _aggregateWeightByKarat();
+    final weightSummary = _aggregateInlineWeightByKarat();
     final wageType = _selectedSupplierDefaultWageType();
     final mainKarat = _mainKaratFromSettings().toDouble();
     if (mainKarat <= 0) return 0.0;
@@ -1976,7 +1946,6 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
       if (_isSupplierReturnMode) {
         _selectedOriginalInvoice = null;
         _inlineItems = [];
-        _karatLines = [];
         _applyTotals(_KaratTotals.zero);
       }
     });
@@ -2028,12 +1997,8 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
     final karatInt = line.karat.round();
     final isGoldVatExempt = exemptKarats.contains(karatInt);
 
-    final goldValue = _manualPricing
-        ? (line.goldValueOverride ?? autoGoldValue)
-        : autoGoldValue;
-    final wageCash = _manualPricing
-        ? (line.wageCashOverride ?? autoWageCash)
-        : autoWageCash;
+    final goldValue = autoGoldValue;
+    final wageCash = autoWageCash;
     final vat = _lineVat(
       vatRate: vatRate,
       goldTaxed: _applyVatOnGold && !isGoldVatExempt,
@@ -2094,17 +2059,8 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
         .toList();
   }
 
-  void _applyCombinedTotals({
-    List<PurchaseKaratLine>? manualLines,
-    List<PurchaseInlineItem>? inlineItems,
-  }) {
-    final resolvedManual = manualLines ?? _karatLines;
-    final resolvedInline = inlineItems ?? _inlineItems;
-    final combinedLines = [
-      ...resolvedManual,
-      ..._derivedInlineKaratLines(resolvedInline),
-    ];
-    _applyTotals(_calculateTotals(combinedLines));
+  void _applyCombinedTotals({List<PurchaseInlineItem>? inlineItems}) {
+    _applyTotals(_calculateTotals(_derivedInlineKaratLines(inlineItems)));
   }
 
   void _applyTotals(_KaratTotals totals) {
@@ -2118,13 +2074,6 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
     _grandTotal = _round(_subtotal + _taxTotal, 2);
   }
 
-  void _updateLines(List<PurchaseKaratLine> lines) {
-    setState(() {
-      _karatLines = lines;
-      _applyCombinedTotals(manualLines: lines);
-    });
-  }
-
   void _updateInlineItems(List<PurchaseInlineItem> items) {
     setState(() {
       _inlineItems = items;
@@ -2132,10 +2081,23 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
     });
   }
 
-  Future<void> _addInlineItem() async {
-    final item = await _showInlineItemDialog();
-    if (item == null) return;
-    _updateInlineItems([..._inlineItems, item]);
+  void _addEnteredItem(PurchaseItemEntry entry) {
+    _updateInlineItems([
+      ..._inlineItems,
+      PurchaseInlineItem(
+        name: entry.name,
+        karat: entry.karat.toDouble(),
+        weightGrams: entry.weight,
+        wagePerGram: entry.wagePerGram,
+        allowInlineCreation: !_isSupplierReturnMode,
+      ),
+    ]);
+  }
+
+  void _setInlineItem(int index, PurchaseInlineItem item) {
+    final updated = [..._inlineItems];
+    updated[index] = item;
+    _updateInlineItems(updated);
   }
 
   Future<void> _addInlineItemsBulk() async {
@@ -2186,117 +2148,24 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
     _updateInlineItems(updated);
   }
 
-  Future<void> _removeInlineItem(int index) async {
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('حذف الصنف'),
-        content: Text('هل تريد حذف الصنف "${_inlineItems[index].name}"؟'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: const Text('إلغاء'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: const Text('حذف'),
-          ),
-        ],
-      ),
-    );
-
-    if (confirm != true) return;
-
-    final updated = [..._inlineItems]..removeAt(index);
-    _updateInlineItems(updated);
-  }
-
-  Future<void> _editKaratLine(int index) async {
-    final existing = _karatLines[index];
-    final line = await _showKaratLineDialog(existing: existing);
-    if (line == null) return;
-
-    final updated = [..._karatLines];
-    updated[index] = line;
-    _updateLines(updated);
-  }
-
-  Future<void> _removeKaratLine(int index) async {
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) {
-        return AlertDialog(
-          title: const Text('حذف سطر العيار'),
-          content: const Text('هل أنت متأكد من حذف هذا السطر؟'),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(false),
-              child: const Text('إلغاء'),
-            ),
-            ElevatedButton(
-              onPressed: () => Navigator.of(dialogContext).pop(true),
-              child: const Text('حذف'),
-            ),
-          ],
-        );
-      },
-    );
-
-    if (confirm != true) return;
-
-    final updated = [..._karatLines]..removeAt(index);
-    _updateLines(updated);
-  }
-
-  Future<void> _addManualKaratLine() async {
-    final line = await _showKaratLineDialog();
-    if (line == null) return;
-
-    _updateLines([..._karatLines, line]);
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
+  void _removeInlineItem(int index) {
+    final removed = _inlineItems[index];
+    _updateInlineItems([..._inlineItems]..removeAt(index));
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.hideCurrentSnackBar();
+    messenger.showSnackBar(
       SnackBar(
-        content: Text(
-          'تمت إضافة وزن ${_formatWeight(line.weightGrams)} لعيار ${line.karat.toStringAsFixed(0)}',
+        content: Text('حُذف «${removed.name}»'),
+        action: SnackBarAction(
+          label: 'تراجع',
+          onPressed: () {
+            if (!mounted) return;
+            final at = math.min(index, _inlineItems.length);
+            _updateInlineItems([..._inlineItems]..insert(at, removed));
+          },
         ),
       ),
     );
-  }
-
-  Future<void> _addBulkWeights() async {
-    final result = await _showBulkWeightsDialog();
-    if (result == null) return;
-
-    final updated = [..._karatLines];
-    for (final weight in result.weights) {
-      updated.add(
-        PurchaseKaratLine(
-          karat: result.karat,
-          weightGrams: weight,
-          wagePerGram: result.wagePerGram,
-          description: result.notes,
-        ),
-      );
-    }
-
-    _updateLines(updated);
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          'تمت إضافة ${result.weights.length} من الأوزان لعيار ${result.karat.toStringAsFixed(0)}',
-        ),
-      ),
-    );
-  }
-
-  Map<String, double> _aggregateManualWeightByKarat() {
-    final Map<String, double> summary = {};
-    for (final line in _karatLines) {
-      final key = _normalizeKaratKey(line.karat);
-      summary[key] = (summary[key] ?? 0) + line.weightGrams;
-    }
-    return summary;
   }
 
   Map<String, double> _aggregateInlineWeightByKarat() {
@@ -2304,14 +2173,6 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
     for (final item in _inlineItems) {
       final key = _normalizeKaratKey(item.karat);
       summary[key] = (summary[key] ?? 0) + item.weightGrams;
-    }
-    return summary;
-  }
-
-  Map<String, double> _aggregateWeightByKarat() {
-    final summary = Map<String, double>.from(_aggregateManualWeightByKarat());
-    for (final entry in _aggregateInlineWeightByKarat().entries) {
-      summary[entry.key] = (summary[entry.key] ?? 0) + entry.value;
     }
     return summary;
   }
@@ -2391,30 +2252,6 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
   /// server would take the invoice as it stands (utils/purchase_readiness.dart).
   PurchaseReadiness _readiness() {
     final settings = context.read<SettingsProvider>();
-    // The server's VAT policy, which the screen's «disable VAT» switch does
-    // not change: the server checks manual lines against it.
-    final policyRate = (_vatApplied && settings.taxEnabled)
-        ? settings.taxRate
-        : 0.0;
-    final exempt = _vatExemptKaratsFromSettings();
-
-    final karatLines = _karatLines.map((line) {
-      final snap = _snapshotFor(line);
-      final goldTaxed =
-          _vatApplied &&
-          _applyVatOnGold &&
-          !exempt.contains(line.karat.round());
-      return PurchaseKaratLineFacts(
-        weight: snap.weight,
-        goldTax: snap.goldTax,
-        wageTax: snap.wageTax,
-        expectedGoldTax: goldTaxed && snap.goldValue > 0
-            ? snap.goldValue * policyRate
-            : 0.0,
-        expectedWageTax: snap.wageCash > 0 ? snap.wageCash * policyRate : 0.0,
-      );
-    }).toList();
-
     final goldLines = _goldSettlementLines.map((line) {
       final fixed = _findGoldSafeBoxById(line.safeBoxId)?.karat;
       return PurchaseGoldLineFacts(
@@ -2432,7 +2269,6 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
         branchChosen: _selectedBranchId != null,
         supplierChosen: _selectedSupplierId != null,
         goldPriceKnown: _toDouble(_goldPrice?['price_24k']) > 0,
-        manualPricing: _manualPricing,
         items: _inlineItems
             .map(
               (item) => PurchaseItemFacts(
@@ -2441,7 +2277,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
               ),
             )
             .toList(),
-        karatLines: karatLines,
+        editsHeldWeightLines: _editsHeldWeightLines,
         settlement: switch (_settlementMode) {
           _PurchaseSettlementMode.credit => PurchaseSettlement.credit,
           _PurchaseSettlementMode.barter => PurchaseSettlement.barter,
@@ -2478,8 +2314,6 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
       PurchaseReadinessTarget.supplier => _supplierSectionKey,
       PurchaseReadinessTarget.goldPrice => null, // in the app bar, in view
       PurchaseReadinessTarget.item => _itemsSectionKey,
-      PurchaseReadinessTarget.karatLine =>
-        _karatLines.isEmpty ? _itemsSectionKey : _karatSectionKey,
       PurchaseReadinessTarget.cashPaid ||
       PurchaseReadinessTarget.paymentMethod ||
       PurchaseReadinessTarget.goldLine => _paymentSectionKey,
@@ -2496,29 +2330,11 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
   }
 
   Map<String, dynamic> _buildInvoicePayload() {
-    // IMPORTANT:
-    // Backend enforces strict weight integrity in some contexts (scrap/barter/settlement).
-    // To avoid double-counting and payload conflicts, we keep `karat_lines` sourced ONLY
-    // from explicit karat lines (and keep `items` sourced ONLY from inline items).
-    final linePayloads = _karatLines.map((line) {
-      final snapshot = _snapshotFor(line);
-      return {
-        'karat': line.karat,
-        'weight_grams': _round(snapshot.weight, 3),
-        'gold_value_cash': _round(snapshot.goldValue, 2),
-        'manufacturing_wage_cash': _round(snapshot.wageCash, 2),
-        'gold_tax': _round(snapshot.goldTax, 2),
-        'wage_tax': _round(snapshot.wageTax, 2),
-        if (line.description?.isNotEmpty ?? false)
-          'description': line.description,
-      };
-    }).toList();
-
     final inlineItemsPayload = _inlineItems
         .map((item) => item.toPayload())
         .toList();
     final inlineWeights = _aggregateInlineWeightByKarat();
-    final weightByKarat = _aggregateWeightByKarat();
+    final weightByKarat = _aggregateInlineWeightByKarat();
     final supplierGoldLines = weightByKarat.entries
         .map(
           (entry) => {
@@ -2560,7 +2376,6 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
       'wage_tax_total': _round(_wageTaxTotal, 2),
       'apply_gold_tax': _vatApplied && _applyVatOnGold,
       'vat_applied': _vatApplied,
-      'karat_lines': linePayloads,
       'items': inlineItemsPayload,
       'supplier_gold_lines': supplierGoldLines,
       'supplier_gold_weights': weightByKarat.map(
@@ -3181,10 +2996,6 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
       ],
       const SizedBox(height: 24),
       KeyedSubtree(key: _itemsSectionKey, child: _buildInlineItemsSection()),
-      if (!_isSupplierReturnMode) ...[
-        const SizedBox(height: 24),
-        KeyedSubtree(key: _karatSectionKey, child: _buildKaratLinesSection()),
-      ],
       const SizedBox(height: 24),
       KeyedSubtree(key: _paymentSectionKey, child: _buildPaymentSection()),
     ];
@@ -3208,7 +3019,9 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
           const SingleActivator(LogicalKeyboardKey.keyS, meta: true):
               _saveInvoice,
         },
-        child: Focus(
+        // A scope, so a field left with Enter hands focus back here, under
+        // the shortcuts -- not to the route, where Ctrl+S is not heard.
+        child: FocusScope(
           autofocus: true,
           child: _buildScaffold(
             readiness,
@@ -3624,7 +3437,6 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
     setState(() {
       _isLoadingOriginalInvoiceDetails = true;
       _originalInvoiceDetailsError = null;
-      _karatLines = [];
       _inlineItems = [];
       _applyTotals(_KaratTotals.zero);
     });
@@ -3664,8 +3476,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
         _supplierError = null;
         _branchError = null;
         _inlineItems = mapped;
-        _karatLines = [];
-        _applyCombinedTotals(inlineItems: mapped, manualLines: const []);
+        _applyCombinedTotals(inlineItems: mapped);
       });
 
       _applySupplierDefaultSafeBoxSelections(onlyWhenEmpty: true);
@@ -4139,7 +3950,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
     final mainKarat = _mainKaratFromSettings();
     final goldOwed = _supplierMainEquivalentWeight();
     final cashOwed = _cashDueForSupplier();
-    final byKarat = _aggregateWeightByKarat();
+    final byKarat = _aggregateInlineWeightByKarat();
 
     return Card(
       child: Padding(
@@ -4425,7 +4236,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
                             ? 'تم تحميل أصناف الفاتورة الأصلية. عدّل الوزن أو احذف السطر لتحديد الأصناف المُرتجعة.'
                             : (_isSupplierReturnMode
                                   ? 'يمكنك إدخال المرتجع يدوياً، أو اختيار فاتورة أصلية (اختياري) للربط التلقائي.'
-                                  : 'أدخل وزناً واحداً للصنف أو ألصق عدة أوزان لنفس الصنف دفعة واحدة.'),
+                                  : 'اكتب الصنف وأجرته مرة، ثم أوزانه واحدًا بعد الآخر: Enter يضيف السطر.'),
                         style: Theme.of(context).textTheme.bodySmall,
                       ),
                     ],
@@ -4437,11 +4248,6 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
                     spacing: 8,
                     runSpacing: 8,
                     children: [
-                      FilledButton.icon(
-                        onPressed: _addInlineItem,
-                        icon: const Icon(Icons.add_circle_outline),
-                        label: const Text('إضافة وزن واحد'),
-                      ),
                       OutlinedButton.icon(
                         onPressed: _addInlineItemsBulk,
                         icon: const Icon(Icons.playlist_add),
@@ -4452,6 +4258,14 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
               ],
             ),
             const SizedBox(height: 12),
+            if (!lockedByReturn) ...[
+              PurchaseItemEntryRow(
+                karats: const [18, 21, 22, 24],
+                initialKarat: _mainKaratFromSettings(),
+                onAdd: _addEnteredItem,
+              ),
+              const SizedBox(height: 12),
+            ],
             if (_inlineItems.isEmpty)
               _buildInlineItemsEmptyState()
             else ...[
@@ -4470,7 +4284,6 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
   /// Anything typed that leaving would lose.
   bool get _hasUnsavedWork =>
       _inlineItems.isNotEmpty ||
-      _karatLines.isNotEmpty ||
       _cashPaid() > 0 ||
       _goldSettlementLines.any((l) => !_isSettlementLineEffectivelyEmpty(l));
 
@@ -4685,9 +4498,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
           color: Theme.of(context).colorScheme.onSurfaceVariant,
         ),
         SizedBox(height: 12),
-        Text(
-          'لا توجد أصناف بعد. استخدم زر "إضافة وزن واحد" أو "إضافة عدة أوزان".',
-        ),
+        Text('لا توجد أصناف بعد. اكتبها في السطر أعلاه، أو ألصق عدة أوزان.'),
       ],
     );
   }
@@ -4795,8 +4606,27 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
           ),
         ),
         DataCell(Text(item.karat.toStringAsFixed(0))),
-        DataCell(Text(item.weightGrams.toStringAsFixed(3))),
-        DataCell(Text(item.wagePerGram.toStringAsFixed(2))),
+        DataCell(
+          InlineNumberCell(
+            key: ValueKey('weight-$index'),
+            value: item.weightGrams,
+            fractionDigits: 3,
+            allowZero: false,
+            label: 'الوزن',
+            onChanged: (v) =>
+                _setInlineItem(index, item.copyWith(weightGrams: v)),
+          ),
+        ),
+        DataCell(
+          InlineNumberCell(
+            key: ValueKey('wage-$index'),
+            value: item.wagePerGram,
+            fractionDigits: 2,
+            label: 'الأجرة',
+            onChanged: (v) =>
+                _setInlineItem(index, item.copyWith(wagePerGram: v)),
+          ),
+        ),
         DataCell(
           Text((item.weightGrams * item.wagePerGram).toStringAsFixed(2)),
         ),
@@ -4818,8 +4648,8 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
             mainAxisSize: MainAxisSize.min,
             children: [
               IconButton(
-                icon: const Icon(Icons.edit),
-                tooltip: 'تعديل',
+                icon: const Icon(Icons.tune),
+                tooltip: 'تفاصيل',
                 onPressed: () => _editInlineItem(index),
               ),
               IconButton(
@@ -6169,842 +5999,6 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
     return result;
   }
 
-  Widget _buildKaratLinesSection() {
-    final snapshots = _karatLines.map(_snapshotFor).toList();
-
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-
-    return Card(
-      elevation: isDark ? 1 : 2,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'الأوزان اليدوية (اختياري)',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              'استخدم هذا القسم لإدخال أوزان مستلمة مباشرة بدون إنشاء صنف داخل الفاتورة.',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-            const SizedBox(height: 12),
-            // How these lines are priced -- it acts on them alone, so it sits
-            // with them (it was a card of its own across the screen).
-            SegmentedButton<bool>(
-              segments: const [
-                ButtonSegment(value: false, label: Text('سعر الذهب الحالي')),
-                ButtonSegment(value: true, label: Text('قيمة يدوية')),
-              ],
-              selected: {_manualPricing},
-              onSelectionChanged: _uiLockPriceEdits
-                  ? null
-                  : (selection) => setState(() {
-                      _manualPricing = selection.first;
-                      _applyCombinedTotals();
-                    }),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              _manualPricing
-                  ? 'تُدخل قيمة الذهب والأجور لكل وزن، والضريبة تُحسب عليها.'
-                  : 'تُحسب قيمة الذهب من الوزن وسعر الذهب الحالي، والضريبة عليها.',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-            const SizedBox(height: 12),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                FilledButton.icon(
-                  onPressed: _addManualKaratLine,
-                  icon: const Icon(Icons.add_circle_outline),
-                  label: const Text('إضافة وزن'),
-                ),
-                OutlinedButton.icon(
-                  onPressed: _addBulkWeights,
-                  icon: const Icon(Icons.playlist_add),
-                  label: const Text('إضافة عدة أوزان'),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            if (_karatLines.isNotEmpty) _buildKaratSummaryChips(),
-            if (_karatLines.isNotEmpty) const SizedBox(height: 12),
-            if (snapshots.isEmpty)
-              _buildKaratLinesEmptyState()
-            else
-              _buildKaratLinesTable(snapshots),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildKaratSummaryChips() {
-    final summary = _aggregateManualWeightByKarat();
-    final entries = summary.entries.toList()
-      ..sort(
-        (a, b) => (double.tryParse(a.key) ?? 0).compareTo(
-          double.tryParse(b.key) ?? 0,
-        ),
-      );
-
-    return Wrap(
-      spacing: 8,
-      runSpacing: 8,
-      children: entries
-          .map(
-            (entry) => Chip(
-              backgroundColor: const Color(0xFFFFD700).withValues(alpha: 0.15),
-              label: Text('عيار ${entry.key}: ${_formatWeight(entry.value)}'),
-            ),
-          )
-          .toList(),
-    );
-  }
-
-  Widget _buildKaratLinesEmptyState() {
-    return Column(
-      children: [
-        const SizedBox(height: 16),
-        Icon(
-          Icons.balance,
-          size: 64,
-          color: Theme.of(context).colorScheme.onSurfaceVariant,
-        ),
-        SizedBox(height: 12),
-        Text('لم يتم إضافة أسطر عيار بعد.'),
-      ],
-    );
-  }
-
-  Widget _buildKaratLinesTable(List<_KaratLineSnapshot> snapshots) {
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      child: DataTable(
-        headingRowHeight: 44,
-        dataRowMinHeight: 56,
-        dataRowMaxHeight: 100,
-        columnSpacing: 20,
-        columns: const [
-          DataColumn(label: Text('العيار')),
-          DataColumn(label: Text('الوزن (جم)')),
-          DataColumn(label: Text('سعر/جرام')),
-          DataColumn(label: Text('قيمة الذهب')),
-          DataColumn(label: Text('أجور المصنعية')),
-          DataColumn(label: Text('ضريبة الذهب')),
-          DataColumn(label: Text('ضريبة الأجور')),
-          DataColumn(label: Text('الإجمالي')),
-          DataColumn(label: Text('ملاحظات')),
-          DataColumn(label: Text('إجراءات')),
-        ],
-        rows: [
-          for (int index = 0; index < snapshots.length; index++)
-            _buildKaratLineRow(snapshots[index], index),
-        ],
-      ),
-    );
-  }
-
-  DataRow _buildKaratLineRow(_KaratLineSnapshot snapshot, int index) {
-    final description = snapshot.line.description;
-    return DataRow(
-      cells: [
-        DataCell(Text(snapshot.line.karat.toStringAsFixed(0))),
-        DataCell(Text(snapshot.weight.toStringAsFixed(3))),
-        DataCell(
-          Text(
-            snapshot.pricePerGram > 0
-                ? snapshot.pricePerGram.toStringAsFixed(2)
-                : '-',
-          ),
-        ),
-        DataCell(Text(snapshot.goldValue.toStringAsFixed(2))),
-        DataCell(Text(snapshot.wageCash.toStringAsFixed(2))),
-        DataCell(Text(snapshot.goldTax.toStringAsFixed(2))),
-        DataCell(Text(snapshot.wageTax.toStringAsFixed(2))),
-        DataCell(Text(snapshot.total.toStringAsFixed(2))),
-        DataCell(
-          description == null || description.isEmpty
-              ? const Text('-')
-              : Tooltip(
-                  message: description,
-                  child: Text(
-                    description,
-                    overflow: TextOverflow.ellipsis,
-                    maxLines: 1,
-                  ),
-                ),
-        ),
-        DataCell(
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              IconButton(
-                tooltip: 'تعديل',
-                icon: const Icon(Icons.edit),
-                onPressed: () => _editKaratLine(index),
-              ),
-              IconButton(
-                tooltip: 'حذف',
-                icon: const Icon(Icons.delete, color: Colors.red),
-                onPressed: () => _removeKaratLine(index),
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-
-  Future<PurchaseKaratLine?> _showKaratLineDialog({
-    PurchaseKaratLine? existing,
-  }) async {
-    final weightController = TextEditingController(
-      text: existing != null ? existing.weightGrams.toStringAsFixed(3) : '',
-    );
-    final wagePerGramController = TextEditingController(
-      text: existing != null ? existing.wagePerGram.toStringAsFixed(2) : '0',
-    );
-    final goldValueController = TextEditingController(
-      text: existing?.goldValueOverride != null
-          ? existing!.goldValueOverride!.toStringAsFixed(2)
-          : '',
-    );
-    final wageCashController = TextEditingController(
-      text: existing?.wageCashOverride != null
-          ? existing!.wageCashOverride!.toStringAsFixed(2)
-          : '',
-    );
-    final notesController = TextEditingController(
-      text: existing?.description ?? '',
-    );
-    final weightFocusNode = FocusNode();
-    final wageFocusNode = FocusNode();
-    final goldValueFocusNode = FocusNode();
-    final wageCashFocusNode = FocusNode();
-    final notesFocusNode = FocusNode();
-
-    final allowedKarats = _allowedGoldKaratsForSelectedSafe();
-    final defaultKarat = allowedKarats.isNotEmpty
-        ? allowedKarats.first.toDouble()
-        : 21.0;
-    double karat = existing?.karat ?? defaultKarat;
-    if (allowedKarats.isNotEmpty && !allowedKarats.contains(karat.round())) {
-      karat = defaultKarat;
-    }
-
-    void focusAndSelect(FocusNode focusNode, TextEditingController controller) {
-      focusNode.requestFocus();
-      controller.selection = TextSelection(
-        baseOffset: 0,
-        extentOffset: controller.text.length,
-      );
-    }
-
-    final result = await showDialog<PurchaseKaratLine>(
-      context: context,
-      builder: (dialogContext) {
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            final weight = double.tryParse(weightController.text) ?? 0;
-            final wagePerGram =
-                double.tryParse(wagePerGramController.text) ?? 0;
-            final autoPricePerGram = _resolveGoldPrice(karat);
-            final autoGoldValue = weight * autoPricePerGram;
-            final autoWageCash = weight * wagePerGram;
-            final vatRate = _vatRateFromSettings();
-            final exemptKarats = _vatExemptKaratsFromSettings();
-            final karatInt = karat.round();
-            final isGoldVatExempt = exemptKarats.contains(karatInt);
-            final manualGoldValue = double.tryParse(goldValueController.text);
-            final manualWageCash = double.tryParse(wageCashController.text);
-
-            final effectiveGoldValue = _manualPricing
-                ? (manualGoldValue ?? autoGoldValue)
-                : autoGoldValue;
-            final effectiveWageCash = _manualPricing
-                ? (manualWageCash ?? autoWageCash)
-                : autoWageCash;
-            final vat = _lineVat(
-              vatRate: vatRate,
-              goldTaxed: _applyVatOnGold && !isGoldVatExempt,
-              goldValue: effectiveGoldValue,
-              wageCash: effectiveWageCash,
-            );
-            final effectiveGoldTax = vat.goldTax;
-            final effectiveWageTax = vat.wageTax;
-            final total =
-                effectiveGoldValue +
-                effectiveWageCash +
-                effectiveGoldTax +
-                effectiveWageTax;
-
-            return AlertDialog(
-              title: Text(existing == null ? 'إضافة وزن' : 'تعديل سطر العيار'),
-              content: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    DropdownButtonFormField<double>(
-                      initialValue: karat,
-                      decoration: const InputDecoration(
-                        labelText: 'العيار',
-                        border: OutlineInputBorder(),
-                      ),
-                      items:
-                          (allowedKarats.isNotEmpty
-                                  ? allowedKarats
-                                        .map((k) => k.toDouble())
-                                        .toList()
-                                  : const [18.0, 21.0, 22.0, 24.0])
-                              .map(
-                                (value) => DropdownMenuItem<double>(
-                                  value: value,
-                                  child: Text(value.toStringAsFixed(0)),
-                                ),
-                              )
-                              .toList(),
-                      onChanged: (value) {
-                        if (value == null) return;
-                        setDialogState(() {
-                          karat = value;
-                        });
-                      },
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: weightController,
-                      focusNode: weightFocusNode,
-                      keyboardType: const TextInputType.numberWithOptions(
-                        decimal: true,
-                      ),
-                      textInputAction: TextInputAction.next,
-                      inputFormatters: [
-                        NormalizeNumberFormatter(),
-                        FilteringTextInputFormatter.allow(
-                          RegExp(r'^[0-9]*\.?[0-9]*$'),
-                        ),
-                      ],
-                      decoration: const InputDecoration(
-                        labelText: 'الوزن (جرام)',
-                        border: OutlineInputBorder(),
-                        prefixIcon: Icon(Icons.scale),
-                      ),
-                      onSubmitted: (_) =>
-                          focusAndSelect(wageFocusNode, wagePerGramController),
-                      onChanged: (_) => setDialogState(() {}),
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: wagePerGramController,
-                      focusNode: wageFocusNode,
-                      keyboardType: const TextInputType.numberWithOptions(
-                        decimal: true,
-                      ),
-                      textInputAction: _manualPricing
-                          ? TextInputAction.next
-                          : TextInputAction.next,
-                      inputFormatters: [
-                        NormalizeNumberFormatter(),
-                        FilteringTextInputFormatter.allow(
-                          RegExp(r'^[0-9]*\.?[0-9]*$'),
-                        ),
-                      ],
-                      decoration: const InputDecoration(
-                        labelText: 'أجرة المصنعية (ريال/جرام)',
-                        border: OutlineInputBorder(),
-                        prefixIcon: Icon(Icons.build),
-                      ),
-                      onChanged: (_) => setDialogState(() {}),
-                      onSubmitted: (_) {
-                        if (_manualPricing) {
-                          focusAndSelect(
-                            goldValueFocusNode,
-                            goldValueController,
-                          );
-                          return;
-                        }
-                        focusAndSelect(notesFocusNode, notesController);
-                      },
-                    ),
-                    if (_manualPricing) ...[
-                      const SizedBox(height: 12),
-                      TextField(
-                        controller: goldValueController,
-                        focusNode: goldValueFocusNode,
-                        keyboardType: const TextInputType.numberWithOptions(
-                          decimal: true,
-                        ),
-                        textInputAction: TextInputAction.next,
-                        inputFormatters: [
-                          NormalizeNumberFormatter(),
-                          FilteringTextInputFormatter.allow(
-                            RegExp(r'^[0-9]*\.?[0-9]*$'),
-                          ),
-                        ],
-                        onSubmitted: (_) => focusAndSelect(
-                          wageCashFocusNode,
-                          wageCashController,
-                        ),
-                        decoration: const InputDecoration(
-                          labelText: 'قيمة الذهب (ريال)',
-                          border: OutlineInputBorder(),
-                          prefixIcon: Icon(Icons.attach_money),
-                        ),
-                        onChanged: (_) => setDialogState(() {}),
-                      ),
-                      const SizedBox(height: 12),
-                      TextField(
-                        controller: wageCashController,
-                        focusNode: wageCashFocusNode,
-                        keyboardType: const TextInputType.numberWithOptions(
-                          decimal: true,
-                        ),
-                        textInputAction: TextInputAction.next,
-                        inputFormatters: [
-                          NormalizeNumberFormatter(),
-                          FilteringTextInputFormatter.allow(
-                            RegExp(r'^[0-9]*\.?[0-9]*$'),
-                          ),
-                        ],
-                        onSubmitted: (_) =>
-                            focusAndSelect(notesFocusNode, notesController),
-                        decoration: const InputDecoration(
-                          labelText: 'أجور المصنعية (ريال)',
-                          border: OutlineInputBorder(),
-                          prefixIcon: Icon(Icons.construction),
-                        ),
-                        onChanged: (_) => setDialogState(() {}),
-                      ),
-                    ],
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: notesController,
-                      focusNode: notesFocusNode,
-                      textInputAction: TextInputAction.done,
-                      onSubmitted: (_) {
-                        final weightValue =
-                            double.tryParse(weightController.text) ?? 0;
-                        final wageValue =
-                            double.tryParse(wagePerGramController.text) ?? 0;
-                        if (weightValue <= 0) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text('يرجى إدخال وزن صحيح'),
-                            ),
-                          );
-                          return;
-                        }
-                        if (wageValue < 0) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text(
-                                'لا يمكن أن تكون أجرة المصنعية سالبة',
-                              ),
-                            ),
-                          );
-                          return;
-                        }
-
-                        Navigator.of(dialogContext).pop(
-                          PurchaseKaratLine(
-                            karat: karat,
-                            weightGrams: weightValue,
-                            wagePerGram: wageValue,
-                            goldValueOverride: _manualPricing
-                                ? manualGoldValue
-                                : null,
-                            wageCashOverride: _manualPricing
-                                ? manualWageCash
-                                : null,
-                            description: notesController.text.trim().isEmpty
-                                ? null
-                                : notesController.text.trim(),
-                          ),
-                        );
-                      },
-                      decoration: const InputDecoration(
-                        labelText: 'ملاحظات (اختياري)',
-                        border: OutlineInputBorder(),
-                        prefixIcon: Icon(Icons.note_alt_outlined),
-                      ),
-                      maxLines: 2,
-                    ),
-                    const SizedBox(height: 16),
-                    Card(
-                      color: Theme.of(
-                        context,
-                      ).colorScheme.surfaceContainerHighest,
-                      margin: EdgeInsets.zero,
-                      child: Padding(
-                        padding: const EdgeInsets.all(12),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text(
-                              'معاينة السطر',
-                              style: TextStyle(fontWeight: FontWeight.bold),
-                            ),
-                            const SizedBox(height: 8),
-                            _previewRow(
-                              'قيمة الذهب',
-                              _formatCurrency(effectiveGoldValue),
-                            ),
-                            _previewRow(
-                              'أجور المصنعية',
-                              _formatCurrency(effectiveWageCash),
-                            ),
-                            _previewRow(
-                              'ضريبة الذهب',
-                              _formatCurrency(effectiveGoldTax),
-                            ),
-                            _previewRow(
-                              'ضريبة الأجور',
-                              _formatCurrency(effectiveWageTax),
-                            ),
-                            const Divider(),
-                            _previewRow(
-                              'الإجمالي',
-                              _formatCurrency(total),
-                              highlight: true,
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.of(dialogContext).pop(),
-                  child: const Text('إلغاء'),
-                ),
-                ElevatedButton(
-                  onPressed: () {
-                    final weightValue =
-                        double.tryParse(weightController.text) ?? 0;
-                    final wageValue =
-                        double.tryParse(wagePerGramController.text) ?? 0;
-                    if (weightValue <= 0) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('يرجى إدخال وزن صحيح')),
-                      );
-                      return;
-                    }
-                    if (wageValue < 0) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('لا يمكن أن تكون أجرة المصنعية سالبة'),
-                        ),
-                      );
-                      return;
-                    }
-
-                    Navigator.of(dialogContext).pop(
-                      PurchaseKaratLine(
-                        karat: karat,
-                        weightGrams: weightValue,
-                        wagePerGram: wageValue,
-                        goldValueOverride: _manualPricing
-                            ? manualGoldValue
-                            : null,
-                        wageCashOverride: _manualPricing
-                            ? manualWageCash
-                            : null,
-                        description: notesController.text.trim().isEmpty
-                            ? null
-                            : notesController.text.trim(),
-                      ),
-                    );
-                  },
-                  child: Text(existing == null ? 'إضافة' : 'تحديث'),
-                ),
-              ],
-            );
-          },
-        );
-      },
-    );
-
-    weightController.dispose();
-    wagePerGramController.dispose();
-    goldValueController.dispose();
-    wageCashController.dispose();
-    notesController.dispose();
-    weightFocusNode.dispose();
-    wageFocusNode.dispose();
-    goldValueFocusNode.dispose();
-    wageCashFocusNode.dispose();
-    notesFocusNode.dispose();
-
-    return result;
-  }
-
-  Future<_BulkWeightEntry?> _showBulkWeightsDialog() async {
-    final weightsController = TextEditingController();
-    final wageController = TextEditingController(text: '0');
-    final wageTotalController = TextEditingController(text: '0');
-    final notesController = TextEditingController();
-    final allowedKarats = _allowedGoldKaratsForSelectedSafe();
-    double karat = allowedKarats.isNotEmpty
-        ? allowedKarats.first.toDouble()
-        : 21.0;
-    int wageModeIndex = 0; // 0: per-gram, 1: total
-
-    wageController.selection = TextSelection(
-      baseOffset: 0,
-      extentOffset: wageController.text.length,
-    );
-
-    wageTotalController.selection = TextSelection(
-      baseOffset: 0,
-      extentOffset: wageTotalController.text.length,
-    );
-
-    List<double> parseWeights(String input) {
-      final tokens = input
-          .split(RegExp(r'[\s,;،]+'))
-          .map((token) => token.trim())
-          .where((token) => token.isNotEmpty)
-          .toList();
-      final values = <double>[];
-      for (final token in tokens) {
-        final normalized = token.replaceAll(',', '.');
-        final parsed = double.tryParse(normalized);
-        if (parsed != null && parsed > 0) {
-          values.add(parsed);
-        }
-      }
-      return values;
-    }
-
-    final parentContext = context;
-
-    final result = await showDialog<_BulkWeightEntry>(
-      context: context,
-      barrierDismissible: false,
-      builder: (dialogContext) {
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            final parsedWeights = parseWeights(weightsController.text);
-            final totalWeight = parsedWeights.fold<double>(
-              0,
-              (sum, value) => sum + value,
-            );
-            final wageIsTotal = wageModeIndex == 1;
-            final wagePerGramInput = double.tryParse(wageController.text) ?? 0;
-            final wageTotalInput =
-                double.tryParse(wageTotalController.text) ?? 0;
-            final effectiveWagePerGram = wageIsTotal
-                ? (totalWeight > 0 ? wageTotalInput / totalWeight : 0.0)
-                : wagePerGramInput;
-            final computedWageTotal = wageIsTotal
-                ? wageTotalInput
-                : (wagePerGramInput * totalWeight);
-            final statusText = parsedWeights.isEmpty
-                ? 'أدخل الأوزان المطلوب إضافتها (سطر لكل وزن).'
-                : 'سيتم إضافة ${parsedWeights.length} وزنًا بإجمالي ${_formatWeight(totalWeight)}';
-
-            return AlertDialog(
-              title: const Text('إضافة عدة أوزان دفعة واحدة'),
-              content: SingleChildScrollView(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    DropdownButtonFormField<double>(
-                      initialValue: karat,
-                      decoration: const InputDecoration(
-                        labelText: 'العيار',
-                        border: OutlineInputBorder(),
-                      ),
-                      items:
-                          (allowedKarats.isNotEmpty
-                                  ? allowedKarats
-                                        .map((k) => k.toDouble())
-                                        .toList()
-                                  : const [18.0, 21.0, 22.0, 24.0])
-                              .map(
-                                (value) => DropdownMenuItem<double>(
-                                  value: value,
-                                  child: Text(value.toStringAsFixed(0)),
-                                ),
-                              )
-                              .toList(),
-                      onChanged: (value) {
-                        if (value == null) return;
-                        setDialogState(() {
-                          karat = value;
-                        });
-                      },
-                    ),
-                    const SizedBox(height: 12),
-                    ToggleButtons(
-                      isSelected: [wageModeIndex == 0, wageModeIndex == 1],
-                      onPressed: (index) {
-                        setDialogState(() {
-                          wageModeIndex = index;
-                          if (wageModeIndex == 1) {
-                            wageTotalController.text =
-                                (wagePerGramInput * totalWeight)
-                                    .toStringAsFixed(2);
-                          } else {
-                            wageController.text = effectiveWagePerGram
-                                .toStringAsFixed(2);
-                          }
-                        });
-                      },
-                      children: const [
-                        Padding(
-                          padding: EdgeInsets.symmetric(horizontal: 12),
-                          child: Text('ريال/جرام'),
-                        ),
-                        Padding(
-                          padding: EdgeInsets.symmetric(horizontal: 12),
-                          child: Text('إجمالي الأجور'),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: wageIsTotal
-                          ? wageTotalController
-                          : wageController,
-                      keyboardType: const TextInputType.numberWithOptions(
-                        decimal: true,
-                      ),
-                      inputFormatters: [
-                        NormalizeNumberFormatter(),
-                        FilteringTextInputFormatter.allow(
-                          RegExp(r'^[0-9]*\.?[0-9]*$'),
-                        ),
-                      ],
-                      decoration: InputDecoration(
-                        labelText: wageIsTotal
-                            ? 'إجمالي الأجور (ريال)'
-                            : 'أجرة المصنعية (ريال/جرام)',
-                        helperText: wageIsTotal
-                            ? (totalWeight > 0
-                                  ? 'سيتم تحويلها إلى ${effectiveWagePerGram.toStringAsFixed(2)} ${context.read<SettingsProvider>().currencySymbolText}/جرام'
-                                  : 'أدخل الأوزان أولاً لحساب ${context.read<SettingsProvider>().currencySymbolText}/جرام')
-                            : (parsedWeights.isEmpty
-                                  ? null
-                                  : 'إجمالي الأجور: ${computedWageTotal.toStringAsFixed(2)} ${context.read<SettingsProvider>().currencySymbolText}'),
-                        border: OutlineInputBorder(),
-                        prefixIcon: const Icon(Icons.design_services),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: weightsController,
-                      keyboardType: const TextInputType.numberWithOptions(
-                        decimal: true,
-                      ),
-                      inputFormatters: [
-                        NormalizeNumberFormatter(),
-                        FilteringTextInputFormatter.allow(
-                          RegExp('[0-9\u0660-\u0669\u06F0-\u06F9.,،؛;\\s]'),
-                        ),
-                      ],
-                      minLines: 3,
-                      maxLines: 6,
-                      decoration: const InputDecoration(
-                        labelText: 'الأوزان المراد إضافتها',
-                        hintText: 'مثال:\n2.350\n1.780\n0.955',
-                        helperText:
-                            'افصل بين الأوزان بسطر جديد أو مسافة أو فاصلة.',
-                        alignLabelWithHint: true,
-                        border: OutlineInputBorder(),
-                      ),
-                      onChanged: (_) => setDialogState(() {}),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      statusText,
-                      style: TextStyle(
-                        color: parsedWeights.isEmpty
-                            ? Colors.redAccent
-                            : Colors.green.shade700,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: notesController,
-                      maxLines: 2,
-                      decoration: const InputDecoration(
-                        labelText: 'ملاحظات (اختياري)',
-                        border: OutlineInputBorder(),
-                        prefixIcon: Icon(Icons.note_alt_outlined),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.of(dialogContext).pop(),
-                  child: const Text('إلغاء'),
-                ),
-                FilledButton.icon(
-                  onPressed: () {
-                    final weights = parseWeights(weightsController.text);
-                    if (weights.isEmpty) {
-                      ScaffoldMessenger.of(parentContext).showSnackBar(
-                        const SnackBar(
-                          content: Text('يجب إضافة وزن واحد على الأقل'),
-                        ),
-                      );
-                      return;
-                    }
-
-                    final wagePerGram = effectiveWagePerGram;
-                    final wageTotal = computedWageTotal;
-                    if (wageTotal < 0 || wagePerGram < 0) {
-                      ScaffoldMessenger.of(parentContext).showSnackBar(
-                        const SnackBar(
-                          content: Text('لا يمكن أن تكون أجرة المصنعية سالبة'),
-                        ),
-                      );
-                      return;
-                    }
-
-                    Navigator.of(dialogContext).pop(
-                      _BulkWeightEntry(
-                        karat: karat,
-                        wagePerGram: wagePerGram,
-                        weights: weights,
-                        notes: notesController.text.trim().isEmpty
-                            ? null
-                            : notesController.text.trim(),
-                      ),
-                    );
-                  },
-                  icon: const Icon(Icons.save_alt),
-                  label: const Text('إضافة الأوزان'),
-                ),
-              ],
-            );
-          },
-        );
-      },
-    );
-
-    weightsController.dispose();
-    wageController.dispose();
-    wageTotalController.dispose();
-    notesController.dispose();
-
-    return result;
-  }
-
   Widget _previewRow(String label, String value, {bool highlight = false}) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 2),
@@ -7025,53 +6019,16 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
   }
 }
 
+/// One line of the totals: an item's karat, weight and wages.
 class PurchaseKaratLine {
   final double karat;
   final double weightGrams;
   final double wagePerGram;
-  final double? goldValueOverride;
-  final double? wageCashOverride;
-  final String? description;
 
   const PurchaseKaratLine({
     required this.karat,
     required this.weightGrams,
     required this.wagePerGram,
-    this.goldValueOverride,
-    this.wageCashOverride,
-    this.description,
-  });
-
-  PurchaseKaratLine copyWith({
-    double? karat,
-    double? weightGrams,
-    double? wagePerGram,
-    double? goldValueOverride,
-    double? wageCashOverride,
-    String? description,
-  }) {
-    return PurchaseKaratLine(
-      karat: karat ?? this.karat,
-      weightGrams: weightGrams ?? this.weightGrams,
-      wagePerGram: wagePerGram ?? this.wagePerGram,
-      goldValueOverride: goldValueOverride ?? this.goldValueOverride,
-      wageCashOverride: wageCashOverride ?? this.wageCashOverride,
-      description: description ?? this.description,
-    );
-  }
-}
-
-class _BulkWeightEntry {
-  final double karat;
-  final double wagePerGram;
-  final List<double> weights;
-  final String? notes;
-
-  const _BulkWeightEntry({
-    required this.karat,
-    required this.wagePerGram,
-    required this.weights,
-    this.notes,
   });
 }
 

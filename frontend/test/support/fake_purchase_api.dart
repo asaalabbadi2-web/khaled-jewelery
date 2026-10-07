@@ -95,4 +95,15 @@ class FakePurchaseApi extends ApiService {
     if (hold != null) await hold!.future;
     return {'id': 900 + added.length, 'total': invoice['total'], 'items': []};
   }
+
+  final updated = <Map<String, dynamic>>[];
+
+  @override
+  Future<Map<String, dynamic>> updateUnpostedInvoice(
+    int invoiceId,
+    Map<String, dynamic> invoice,
+  ) async {
+    updated.add(invoice);
+    return {'id': invoiceId, 'total': invoice['total'], 'items': []};
+  }
 }

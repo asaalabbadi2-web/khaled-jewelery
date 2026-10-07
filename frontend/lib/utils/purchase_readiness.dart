@@ -2,13 +2,16 @@
 /// reason and where it is.
 ///
 /// «Ready» means the server will take it (backend/routes/invoices.py
-/// add_invoice): branch and supplier, weights on every line, each manual
-/// line's VAT as the policy has it (tax_policy_mismatch), a return no heavier
-/// than its original line, gold settlement lines each on a gold safe that
-/// takes their karat (karat_mismatch_for_safe_box), on the employee's safe
-/// when employee gold safes are on (gold_settlement_forced_employee_safe),
-/// never on an unposted invoice (unposted_no_gold_settlement), and one source
-/// of weight when gold is settled (payload_conflict_weight_sources).
+/// add_invoice): branch and supplier, weights on every line, a return no
+/// heavier than its original line, gold settlement lines each on a gold safe
+/// that takes their karat (karat_mismatch_for_safe_box), on the employee's
+/// safe when employee gold safes are on (gold_settlement_forced_employee_safe),
+/// and never on an unposted invoice (unposted_no_gold_settlement).
+///
+/// Weights are entered as items only: the manual weights card is gone. An
+/// invoice being edited that holds weight lines without items (an office
+/// reservation's purchase) is not saved from this screen -- an edit replaces
+/// the invoice with what the screen sends, and it would drop them.
 ///
 /// Cash is held to the cash the supplier is owed (wages and VAT --
 /// Invoice.cash_obligation, Phase 13), stricter than add_invoice, which
@@ -23,7 +26,6 @@ enum PurchaseReadinessTarget {
   supplier,
   goldPrice,
   item,
-  karatLine,
   cashPaid,
   paymentMethod,
   goldLine,
@@ -33,21 +35,6 @@ class PurchaseItemFacts {
   final double weight;
   final double? maxWeight;
   const PurchaseItemFacts({required this.weight, this.maxWeight});
-}
-
-class PurchaseKaratLineFacts {
-  final double weight;
-  final double goldTax;
-  final double wageTax;
-  final double expectedGoldTax;
-  final double expectedWageTax;
-  const PurchaseKaratLineFacts({
-    required this.weight,
-    this.goldTax = 0,
-    this.wageTax = 0,
-    this.expectedGoldTax = 0,
-    this.expectedWageTax = 0,
-  });
 }
 
 class PurchaseGoldLineFacts {
@@ -72,9 +59,11 @@ class PurchaseReadinessFacts {
   final bool branchChosen;
   final bool supplierChosen;
   final bool goldPriceKnown;
-  final bool manualPricing;
   final List<PurchaseItemFacts> items;
-  final List<PurchaseKaratLineFacts> karatLines;
+
+  /// The invoice being edited holds weight lines without items, which this
+  /// screen neither shows nor sends.
+  final bool editsHeldWeightLines;
   final PurchaseSettlement settlement;
   final double cashDue;
   final double cashPaid;
@@ -96,9 +85,8 @@ class PurchaseReadinessFacts {
     required this.branchChosen,
     required this.supplierChosen,
     this.goldPriceKnown = true,
-    this.manualPricing = false,
     this.items = const [],
-    this.karatLines = const [],
+    this.editsHeldWeightLines = false,
     this.settlement = PurchaseSettlement.credit,
     this.cashDue = 0,
     this.cashPaid = 0,
@@ -146,6 +134,12 @@ PurchaseReadiness purchaseReadiness(
     index: index,
   );
 
+  if (facts.editsHeldWeightLines) {
+    return notReady(
+      'في هذه الفاتورة أوزان بلا أصناف لا تعرضها هذه الشاشة، فلا تُعدَّل منها',
+      PurchaseReadinessTarget.none,
+    );
+  }
   if (!facts.branchChosen) {
     return notReady('اختر الفرع', PurchaseReadinessTarget.branch);
   }
@@ -153,10 +147,10 @@ PurchaseReadiness purchaseReadiness(
     return notReady('اختر المورد', PurchaseReadinessTarget.supplier);
   }
 
-  if (facts.items.isEmpty && facts.karatLines.isEmpty) {
+  if (facts.items.isEmpty) {
     return const PurchaseReadiness._(
       PurchaseReadinessKind.empty,
-      message: 'أضف أصناف الفاتورة أو أوزانها',
+      message: 'أضف أصناف الفاتورة',
       target: PurchaseReadinessTarget.item,
     );
   }
@@ -181,27 +175,7 @@ PurchaseReadiness purchaseReadiness(
     }
   }
 
-  for (var i = 0; i < facts.karatLines.length; i++) {
-    final line = facts.karatLines[i];
-    if (line.weight <= 0) {
-      return notReady(
-        'أدخل وزن الوزن اليدوي ${i + 1}',
-        PurchaseReadinessTarget.karatLine,
-        i,
-      );
-    }
-    final goldOff = (line.goldTax - line.expectedGoldTax).abs();
-    final wageOff = (line.wageTax - line.expectedWageTax).abs();
-    if (goldOff > kPurchaseCashTolerance || wageOff > kPurchaseCashTolerance) {
-      return notReady(
-        'ضريبة الوزن اليدوي ${i + 1} لا توافق سياسة الضريبة',
-        PurchaseReadinessTarget.karatLine,
-        i,
-      );
-    }
-  }
-
-  if (!facts.manualPricing && !facts.goldPriceKnown) {
+  if (!facts.goldPriceKnown) {
     return notReady(
       'سعر الذهب لم يُحمَّل؛ حدّثه قبل الحفظ',
       PurchaseReadinessTarget.goldPrice,
@@ -287,21 +261,12 @@ PurchaseReadiness purchaseReadiness(
       }
     }
 
-    if (used.isNotEmpty) {
-      if (!facts.autoPostInvoices) {
-        return notReady(
-          'الترحيل التلقائي معطّل، والفاتورة غير المرحّلة لا تقبل سداد ذهب؛ '
-          'أزل سداد الذهب',
-          PurchaseReadinessTarget.goldLine,
-        );
-      }
-      if (facts.items.isNotEmpty && facts.karatLines.isNotEmpty) {
-        return notReady(
-          'مع سداد الذهب تُدخل الأوزان من الأصناف أو من الأوزان اليدوية، '
-          'لا من الاثنين',
-          PurchaseReadinessTarget.karatLine,
-        );
-      }
+    if (used.isNotEmpty && !facts.autoPostInvoices) {
+      return notReady(
+        'الترحيل التلقائي معطّل، والفاتورة غير المرحّلة لا تقبل سداد ذهب؛ '
+        'أزل سداد الذهب',
+        PurchaseReadinessTarget.goldLine,
+      );
     }
   }
 

@@ -61,7 +61,7 @@
   "lib/screens/permissions_management_screen.dart": 11,
   "lib/screens/posting_management_screen.dart": 150,
   "lib/screens/printing_center_screen.dart": 85,
-  "lib/screens/purchase_invoice_screen.dart": 51,
+  "lib/screens/purchase_invoice_screen.dart": 47,
   "lib/screens/quick_add_items_screen.dart": 14,
   "lib/screens/recurring_template_form.dart": 5,
   "lib/screens/recurring_templates_list_screen.dart": 32,
