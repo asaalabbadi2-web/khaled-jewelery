@@ -650,4 +650,93 @@ void main() {
       expect(find.text('لم تتم إضافة أصناف بعد'), findsNothing);
     });
   });
+
+  group('paying with one tap (stage 4)', () {
+    testWidgets('a method pays what remains, in one press', (tester) async {
+      await open(tester, api: FakeSalesApi(), saved: draft());
+
+      await tester.tap(find.byKey(const Key('quick-pay-1')));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('جاهز للحفظ'), findsOneWidget);
+      expect(find.textContaining('تم الدفع بالكامل'), findsOneWidget);
+      expect(find.byKey(const Key('quick-pay-1')), findsNothing);
+    });
+
+    testWidgets('with an amount typed, the method pays that amount', (
+      tester,
+    ) async {
+      await open(tester, api: FakeSalesApi(), saved: draft());
+
+      await tester.enterText(find.widgetWithText(TextField, 'المبلغ'), '٤٠٠');
+      await tester.tap(find.byKey(const Key('quick-pay-1')));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('المتبقي: 600.00'), findsWidgets);
+      // And what remains can be paid the same way.
+      expect(find.byKey(const Key('quick-pay-1')), findsOneWidget);
+    });
+
+    testWidgets('a paid sale offers no method to pay with', (tester) async {
+      await open(
+        tester,
+        api: FakeSalesApi(),
+        saved: draft(payments: paidInFull),
+      );
+      expect(find.byKey(const Key('quick-pay-1')), findsNothing);
+    });
+
+    testWidgets('an empty invoice offers none either', (tester) async {
+      await open(tester, api: FakeSalesApi());
+      expect(find.byKey(const Key('quick-pay-1')), findsNothing);
+    });
+  });
+
+  group('one summary, said once (stage 5)', () {
+    testWidgets('the total, what is paid and what remains are one card', (
+      tester,
+    ) async {
+      await open(tester, api: FakeSalesApi(), saved: draft());
+
+      expect(find.text('ملخص الفاتورة'), findsOneWidget);
+      // The total is said once in the side column, not in three places.
+      expect(find.textContaining('1000.00 ر.س'), findsWidgets);
+      expect(find.text('إجمالي الفاتورة:'), findsNothing);
+      expect(find.text('الإجمالي الكلي'), findsNothing);
+      expect(find.textContaining('الإجمالي: 1000.00'), findsNothing);
+    });
+
+    testWidgets('the cost card is gone', (tester) async {
+      await open(tester, api: FakeSalesApi(), saved: draft());
+      expect(find.text('معلومات التكلفة والتسعير'), findsNothing);
+    });
+
+    testWidgets('a target amount typed in the summary is spread over the '
+        'lines', (tester) async {
+      await open(tester, api: FakeSalesApi(), saved: draft());
+
+      expect(find.text('توزيع تلقائي للمبلغ'), findsNothing); // no big button
+      await tester.enterText(
+        find.byKey(const Key('target-amount')),
+        '٢٠٠٠',
+      );
+      await tester.testTextInput.receiveAction(TextInputAction.done);
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('2000.00 ر.س'), findsWidgets);
+      expect(find.byType(Dialog), findsNothing);
+    });
+
+    testWidgets('the customer is said once', (tester) async {
+      await open(
+        tester,
+        api: FakeSalesApi(),
+        saved: draft(customerId: 30),
+        customers: [
+          {'id': 30, 'name': 'مؤسسة الأمل', 'phone': '0500000000'},
+        ],
+      );
+      expect(find.textContaining('مؤسسة الأمل'), findsOneWidget);
+    });
+  });
 }

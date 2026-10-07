@@ -133,19 +133,9 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
 
   // Gold Costing Snapshot (Moving Average)
   bool _didBootstrapCosting = false;
-  bool _isLoadingCosting = false;
-  String? _costingError;
   double _avgGoldCostPerMainGram = 0.0;
   double _avgManufacturingCostPerMainGram = 0.0;
-  double _avgTotalCostPerMainGram = 0.0;
-  double _inventoryWeightMain = 0.0;
-  String? _costingMethod;
-  DateTime? _costingLastUpdated;
 
-  double _invoiceWeightMain = 0.0;
-  double _invoiceCostGoldComponent = 0.0;
-  double _invoiceCostManufacturingComponent = 0.0;
-  double _invoiceCostTotal = 0.0;
 
   void _resetAfterSave() {
     setState(() {
@@ -166,11 +156,6 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
       _barterGoldDepositSafeBoxes = [];
       _selectedBarterGoldDepositSafeBoxId = null;
       _isLoadingBarterGoldDepositSafeBoxes = false;
-
-      _invoiceWeightMain = 0.0;
-      _invoiceCostGoldComponent = 0.0;
-      _invoiceCostManufacturingComponent = 0.0;
-      _invoiceCostTotal = 0.0;
     });
     _smartInputFocus.requestFocus();
   }
@@ -979,138 +964,37 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
   }
 
   // ==================== Gold Costing Snapshot ====================
-  Future<void> _loadGoldCostingSnapshot({bool showFeedback = false}) async {
+  /// The moving averages the items' cost is held to (costing.view only,
+  /// ADR-036). The server still holds a sale under cost for approval whatever
+  /// the screen knows.
+  Future<void> _loadGoldCostingSnapshot() async {
     if (!mounted) return;
-    setState(() {
-      _isLoadingCosting = true;
-      if (!showFeedback) {
-        _costingError = null;
-      }
-    });
-
     try {
-      final apiService = _api;
-      final response = await apiService.getGoldCostingSnapshot();
+      final response = await _api.getGoldCostingSnapshot();
       final snapshot = Map<String, dynamic>.from(response['snapshot'] ?? {});
-      final config = Map<String, dynamic>.from(response['config'] ?? {});
-
-      final avgGold = _parseDouble(snapshot['avg_gold']);
-      final avgManufacturing = _parseDouble(snapshot['avg_manufacturing']);
-      final avgTotal = _parseDouble(snapshot['avg_total']);
-      final inventoryWeight = _parseDouble(config['total_inventory_weight']);
-      final costingMethod = config['costing_method']?.toString();
-      final updatedAt = _parseDateTime(config['last_updated']);
-
       if (!mounted) return;
       setState(() {
-        _avgGoldCostPerMainGram = avgGold;
-        _avgManufacturingCostPerMainGram = avgManufacturing;
-        _avgTotalCostPerMainGram = avgTotal;
-        _inventoryWeightMain = inventoryWeight;
-        _costingMethod = costingMethod;
-        _costingLastUpdated = updatedAt;
-        _costingError = null;
-      });
-
-      _applySnapshotToItems();
-
-      if (showFeedback && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Text('✅ تم تحديث متوسط التكلفة المتحرك'),
-            backgroundColor: AppColors.success,
-            duration: const Duration(seconds: 2),
-          ),
+        _avgGoldCostPerMainGram = _parseDouble(snapshot['avg_gold']);
+        _avgManufacturingCostPerMainGram = _parseDouble(
+          snapshot['avg_manufacturing'],
         );
-      }
-    } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _costingError = 'تعذر تحميل متوسط التكلفة: $e';
       });
-      if (showFeedback) {
-        _showError('فشل تحديث متوسط التكلفة: $e');
-      }
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isLoadingCosting = false;
-        });
-      }
-    }
-  }
-
-  // ignore: unused_element
-  Future<void> _recomputeGoldCosting() async {
-    final confirm =
-        await showDialog<bool>(
-          context: context,
-          builder: (dialogContext) {
-            return AlertDialog(
-              title: const Text('إعادة بناء متوسط التكلفة'),
-              content: const Text(
-                'سيتم إعادة احتساب متوسط التكلفة المتحرك بناءً على فواتير الشراء المسجلة. '
-                'قد يستغرق ذلك بعض الوقت حسب حجم البيانات. هل تريد المتابعة؟',
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(dialogContext, false),
-                  child: const Text('إلغاء'),
-                ),
-                FilledButton(
-                  onPressed: () => Navigator.pop(dialogContext, true),
-                  style: FilledButton.styleFrom(
-                    backgroundColor: AppColors.warning,
-                  ),
-                  child: const Text('متابعة'),
-                ),
-              ],
-            );
-          },
-        ) ??
-        false;
-
-    if (!confirm) return;
-
-    try {
-      if (mounted) {
-        setState(() {
-          _isLoadingCosting = true;
-        });
-      }
-      final apiService = _api;
-      await apiService.recomputeGoldCosting();
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: const Text('تمت إعادة بناء متوسط التكلفة بنجاح'),
-          backgroundColor: AppColors.success,
-        ),
-      );
-      await _loadGoldCostingSnapshot();
-    } catch (e) {
-      _showError('فشل إعادة بناء المتوسط: $e');
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isLoadingCosting = false;
-        });
-      }
+      _applySnapshotToItems();
+    } catch (_) {
+      // Without the averages an item's cost is the gold price's.
     }
   }
 
   void _applySnapshotToItems() {
-    if (_items.isEmpty) {
-      _recomputeCostingPreview();
-      return;
-    }
-    for (final item in _items) {
-      item.updateCostingSnapshot(
-        avgGoldPerMainGram: _avgGoldCostPerMainGram,
-        avgManufacturingPerMainGram: _avgManufacturingCostPerMainGram,
-      );
-    }
-    _recomputeCostingPreview();
+    if (_items.isEmpty) return;
+    setState(() {
+      for (final item in _items) {
+        item.updateCostingSnapshot(
+          avgGoldPerMainGram: _avgGoldCostPerMainGram,
+          avgManufacturingPerMainGram: _avgManufacturingCostPerMainGram,
+        );
+      }
+    });
   }
 
   void _applyGoldPriceToItems() {
@@ -1122,66 +1006,8 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
     });
   }
 
-  void _recomputeCostingPreview() {
-    final totalWeightMain = _items.fold<double>(
-      0.0,
-      (sum, item) => sum + item.weightInMainKarat,
-    );
-    final goldComponent = totalWeightMain * _avgGoldCostPerMainGram;
-    final manufacturingComponent =
-        totalWeightMain * _avgManufacturingCostPerMainGram;
-    final totalCost = goldComponent + manufacturingComponent;
-
-    if (!mounted) return;
-    setState(() {
-      _invoiceWeightMain = totalWeightMain;
-      _invoiceCostGoldComponent = goldComponent;
-      _invoiceCostManufacturingComponent = manufacturingComponent;
-      _invoiceCostTotal = totalCost;
-    });
-  }
-
-  DateTime? _parseDateTime(dynamic value) {
-    if (value == null) return null;
-    try {
-      return DateTime.parse(value.toString()).toLocal();
-    } catch (_) {
-      return null;
-    }
-  }
-
-  String _formatTimestamp(DateTime? value) {
-    if (value == null) return 'لم يتم التحديث بعد';
-    final date = value;
-    final y = date.year.toString().padLeft(4, '0');
-    final m = date.month.toString().padLeft(2, '0');
-    final d = date.day.toString().padLeft(2, '0');
-    final hh = date.hour.toString().padLeft(2, '0');
-    final mm = date.minute.toString().padLeft(2, '0');
-    return '$y-$m-$d $hh:$mm';
-  }
-
-  String _formatWeight(double grams) {
-    if (grams.abs() >= 1000) {
-      return '${(grams / 1000).toStringAsFixed(3)} كجم';
-    }
-    return '${grams.toStringAsFixed(3)} جم';
-  }
-
   String _formatCurrency(double amount) {
     return '${amount.toStringAsFixed(2)} ${_settingsProvider.currencySymbolText}';
-  }
-
-  String get _costingMethodLabel {
-    final method = (_costingMethod ?? 'moving_average').toLowerCase();
-    switch (method) {
-      case 'moving_average':
-        return 'متوسط متحرك';
-      case 'fifo':
-        return 'الوارد أولاً (FIFO)';
-      default:
-        return method.isEmpty ? 'غير محدد' : method;
-    }
   }
 
   // ignore: unused_element
@@ -1244,122 +1070,6 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
           ],
         ],
       ),
-    );
-  }
-
-  Widget _buildCompactMetric(
-    ThemeData theme,
-    String label,
-    String value,
-    IconData icon,
-    Color accentColor,
-  ) {
-    final isDark = theme.brightness == Brightness.dark;
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(14),
-        color: accentColor.withValues(alpha: isDark ? 0.15 : 0.08),
-        border: Border.all(color: accentColor.withValues(alpha: 0.4)),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: isDark ? 0.08 : 0.9),
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: Icon(icon, color: accentColor, size: 20),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  label,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: accentColor.withValues(alpha: 0.8),
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  value,
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w700,
-                    color: accentColor,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildCostingInfoChip(
-    ThemeData theme, {
-    required IconData icon,
-    required String label,
-  }) {
-    final colorScheme = theme.colorScheme;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-      decoration: BoxDecoration(
-        color: colorScheme.surfaceContainerHighest.withValues(
-          alpha: theme.brightness == Brightness.dark ? 0.25 : 0.7,
-        ),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 18, color: colorScheme.primary),
-          const SizedBox(width: 6),
-          Text(
-            label,
-            style: theme.textTheme.bodySmall?.copyWith(
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildCostingDetailRow(
-    ThemeData theme, {
-    required IconData icon,
-    required String title,
-    required String value,
-  }) {
-    final colorScheme = theme.colorScheme;
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        Row(
-          children: [
-            Icon(icon, size: 18, color: colorScheme.primary),
-            const SizedBox(width: 8),
-            Text(
-              title,
-              style: theme.textTheme.bodyMedium?.copyWith(
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ],
-        ),
-        _settingsProvider.buildText(
-          value,
-          style: theme.textTheme.bodyMedium?.copyWith(
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-      ],
     );
   }
 
@@ -1446,6 +1156,32 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
     });
   }
 
+  /// The chosen method takes the amount typed, or what remains when none is.
+  void _addTypedPayment() {
+    if (_safeBoxes.isNotEmpty && _selectedSafeBoxId == null) {
+      _showError('اختر الخزينة أولاً');
+      return;
+    }
+
+    // Empty pays what remains; anything else must read.
+    final typed = _customAmountController.text.trim();
+    final customAmount = typed.isEmpty ? null : _readAmount(typed);
+    if (typed.isNotEmpty && customAmount == null) {
+      _showError('لم يُقرأ المبلغ «$typed»؛ اكتبه أرقامًا فقط');
+      return;
+    }
+    _addPayment(customAmount: customAmount);
+  }
+
+  /// One press: the method, its default safe, and the amount typed or what
+  /// remains -- 806 of the 827 sales since June are paid by one or two.
+  Future<void> _payWith(int methodId) async {
+    setState(() => _selectedPaymentMethodId = methodId);
+    await _loadSafeBoxesForPaymentMethod(methodId);
+    if (!mounted) return;
+    _addTypedPayment();
+  }
+
   // 🆕 حذف دفعة
   void _removePayment(int index) {
     setState(() {
@@ -1458,8 +1194,6 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
       _payments.fold<double>(0, (sum, p) => sum + p.amount);
   double get _totalCommission =>
       _payments.fold<double>(0, (sum, p) => sum + p.commissionAmount);
-  double get _totalCommissionVAT =>
-      _payments.fold<double>(0, (sum, p) => sum + p.commissionVat);
   double get _totalNet =>
       _payments.fold<double>(0, (sum, p) => sum + p.netAmount);
 
@@ -1765,7 +1499,6 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
       );
     });
 
-    _recomputeCostingPreview();
     return true;
   }
 
@@ -2080,7 +1813,6 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
       _items.add(manualItem);
     });
 
-    _recomputeCostingPreview();
 
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -2206,7 +1938,6 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
       _items.add(item);
     });
 
-    _recomputeCostingPreview();
   }
 
   void _addEnteredCategory(SalesCategoryEntry e) => _addCategoryLine(
@@ -2312,7 +2043,6 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
       }
     });
 
-    _recomputeCostingPreview();
   }
 
   void _recalculateManualTargetIfNeeded(InvoiceItem item) {
@@ -2336,7 +2066,6 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
     setState(() {
       _items.removeAt(index);
     });
-    _recomputeCostingPreview();
 
     final messenger = ScaffoldMessenger.of(context);
     messenger.hideCurrentSnackBar();
@@ -2350,7 +2079,6 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
             setState(() {
               _items.insert(math.min(index, _items.length), removed);
             });
-            _recomputeCostingPreview();
           },
         ),
       ),
@@ -2358,62 +2086,6 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
   }
 
   // ==================== Auto Distribution ====================
-  Future<void> _showAutoDistributeDialog() async {
-    final controller = TextEditingController();
-
-    await showDialog(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('توزيع تلقائي للمبلغ'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            _settingsProvider.buildText(
-              'الإجمالي الحالي: ${_calculateGrandTotal().toStringAsFixed(2)} ${_settingsProvider.currencySymbolText}',
-            ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: controller,
-              autofocus: true,
-              keyboardType: const TextInputType.numberWithOptions(
-                decimal: true,
-              ),
-              textInputAction: TextInputAction.done,
-              onSubmitted: (_) {
-                final target = _readAmount(controller.text);
-                if (target != null && target > 0) {
-                  _distributeAmount(target);
-                  Navigator.pop(dialogContext);
-                }
-              },
-              decoration: InputDecoration(
-                labelText: 'المبلغ المستهدف',
-                suffixText: _settingsProvider.currencySymbolText,
-                border: const OutlineInputBorder(),
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('إلغاء'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              final target = _readAmount(controller.text);
-              if (target != null && target > 0) {
-                _distributeAmount(target);
-                Navigator.pop(dialogContext);
-              }
-            },
-            child: const Text('توزيع'),
-          ),
-        ],
-      ),
-    );
-  }
-
   void _distributeAmount(double targetTotal) {
     if (_items.isEmpty) return;
 
@@ -3634,7 +3306,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        _buildActionButtons(),
+                        _buildSummaryCard(),
                         const SizedBox(height: 24),
                         KeyedSubtree(
                           key: _paymentSectionKey,
@@ -3659,7 +3331,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                 ),
               ),
               const SizedBox(height: 24),
-              _buildActionButtons(),
+              _buildSummaryCard(),
               const SizedBox(height: 24),
               KeyedSubtree(
                 key: _paymentSectionKey,
@@ -3668,7 +3340,6 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
               const SizedBox(height: 10),
             ],
             const SizedBox(height: 32),
-            if (_seesCost) _buildCostingInsightCard(theme),
           ],
         );
 
@@ -4051,339 +3722,6 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
 
   bool get _seesCost => context.read<AuthProvider>().hasPermission('costing.view');
 
-  Widget _buildCostingInsightCard(ThemeData theme) {
-    final colorScheme = theme.colorScheme;
-    final hasSnapshot =
-        _avgTotalCostPerMainGram > 0 || _inventoryWeightMain > 0;
-    final invoiceRawWeight = _items.fold<double>(
-      0.0,
-      (sum, item) => sum + item.weight,
-    );
-
-    return Card(
-      elevation: 2,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
-        side: BorderSide(color: AppColors.lightGold.withValues(alpha: 0.4)),
-      ),
-      child: Theme(
-        data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
-        child: ExpansionTile(
-          tilePadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-          childrenPadding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
-          maintainState: true,
-          initiallyExpanded: false,
-          leading: Icon(
-            Icons.insights,
-            color: AppColors.invoiceSaleNew,
-            size: 28,
-          ),
-          title: Text(
-            'معلومات التكلفة والتسعير',
-            style: TextStyle(
-              fontWeight: FontWeight.bold,
-              fontSize: 16,
-              color: AppColors.deepGold,
-            ),
-          ),
-          subtitle: Padding(
-            padding: const EdgeInsets.only(top: 6),
-            child: _settingsProvider.buildText(
-              hasSnapshot
-                  ? 'متوسط: ${_formatCurrency(_avgTotalCostPerMainGram)}/جم${_invoiceCostTotal > 0 ? ' • تكلفة الفاتورة: ${_formatCurrency(_invoiceCostTotal)}' : ''}'
-                  : 'اضغط لعرض تفاصيل التكلفة والمتوسط المتحرك',
-              style: TextStyle(
-                color: Theme.of(context).textTheme.bodySmall?.color,
-                fontSize: 12,
-              ),
-            ),
-          ),
-          iconColor: AppColors.primaryGold,
-          collapsedIconColor: AppColors.primaryGold,
-          children: [
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Header with Title and Main Cost
-                Row(
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'متوسط التكلفة',
-                            style: theme.textTheme.bodyMedium?.copyWith(
-                              color: Colors.grey[600],
-                            ),
-                          ),
-                          Row(
-                            crossAxisAlignment: CrossAxisAlignment.baseline,
-                            textBaseline: TextBaseline.alphabetic,
-                            children: [
-                              Text(
-                                hasSnapshot
-                                    ? _formatCurrency(_avgTotalCostPerMainGram)
-                                    : '--',
-                                style: theme.textTheme.headlineSmall?.copyWith(
-                                  fontWeight: FontWeight.bold,
-                                  color: AppColors.invoiceSaleNew,
-                                ),
-                              ),
-                              const SizedBox(width: 4),
-                              Text(
-                                '/ جم',
-                                style: theme.textTheme.bodySmall?.copyWith(
-                                  color: AppColors.invoiceSaleNew,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
-                    if (_invoiceCostTotal > 0)
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 8,
-                        ),
-                        decoration: BoxDecoration(
-                          color: AppColors.invoiceSaleNew.withValues(
-                            alpha: 0.05,
-                          ),
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(
-                            color: AppColors.invoiceSaleNew.withValues(
-                              alpha: 0.2,
-                            ),
-                          ),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.end,
-                          children: [
-                            Text(
-                              'تكلفة الفاتورة',
-                              style: theme.textTheme.bodySmall?.copyWith(
-                                color: AppColors.invoiceSaleNew,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                            _settingsProvider.buildText(
-                              _formatCurrency(_invoiceCostTotal),
-                              style: theme.textTheme.titleMedium?.copyWith(
-                                fontWeight: FontWeight.bold,
-                                color: AppColors.invoiceSaleNew,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                  ],
-                ),
-
-                if (_isLoadingCosting) ...[
-                  const SizedBox(height: 16),
-                  const LinearProgressIndicator(minHeight: 2),
-                ],
-
-                if (_costingError != null) ...[
-                  const SizedBox(height: 16),
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: colorScheme.error.withValues(alpha: 0.1),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Row(
-                      children: [
-                        Icon(
-                          Icons.error_outline,
-                          size: 20,
-                          color: colorScheme.error,
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Text(
-                            _costingError!,
-                            style: TextStyle(color: colorScheme.error),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-
-                const SizedBox(height: 20),
-                const Divider(height: 1),
-                const SizedBox(height: 16),
-
-                // Details Grid
-                Row(
-                  children: [
-                    Expanded(
-                      child: _buildCompactMetric(
-                        theme,
-                        'ذهب / جم',
-                        hasSnapshot
-                            ? _formatCurrency(_avgGoldCostPerMainGram)
-                            : '--',
-                        Icons.grid_goldenratio,
-                        AppColors.invoiceSaleNew,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: _buildCompactMetric(
-                        theme,
-                        'مصنعية / جم',
-                        hasSnapshot
-                            ? _formatCurrency(_avgManufacturingCostPerMainGram)
-                            : '--',
-                        Icons.handyman,
-                        AppColors.warning,
-                      ),
-                    ),
-                  ],
-                ),
-
-                const SizedBox(height: 16),
-
-                // Footer Info
-                Wrap(
-                  spacing: 12,
-                  runSpacing: 8,
-                  children: [
-                    _buildCostingInfoChip(
-                      theme,
-                      icon: Icons.style,
-                      label: 'المنهجية: $_costingMethodLabel',
-                    ),
-                    _buildCostingInfoChip(
-                      theme,
-                      icon: Icons.inventory_2,
-                      label: 'المخزون: ${_formatWeight(_inventoryWeightMain)}',
-                    ),
-                    _buildCostingInfoChip(
-                      theme,
-                      icon: Icons.schedule,
-                      label: 'تحديث: ${_formatTimestamp(_costingLastUpdated)}',
-                    ),
-                  ],
-                ),
-
-                const SizedBox(height: 20),
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(18),
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(14),
-                    color: AppColors.invoiceSaleNew.withValues(alpha: 0.08),
-                    border: Border.all(
-                      color: AppColors.invoiceSaleNew.withValues(alpha: 0.4),
-                    ),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Icon(
-                            Icons.assignment,
-                            color: AppColors.invoiceSaleNew,
-                          ),
-                          const SizedBox(width: 8),
-                          Text(
-                            'التكلفة التقديرية للفاتورة الحالية',
-                            style: theme.textTheme.titleMedium?.copyWith(
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-                      if (_items.isEmpty)
-                        Text(
-                          'أضف أصنافاً لرؤية التكلفة بناءً على المتوسط المتحرك.',
-                          style: theme.textTheme.bodyMedium,
-                        )
-                      else ...[
-                        _buildCostingDetailRow(
-                          theme,
-                          icon: Icons.scale,
-                          title: 'إجمالي الوزن الفعلي',
-                          value: _formatWeight(invoiceRawWeight),
-                        ),
-                        const SizedBox(height: 6),
-                        _buildCostingDetailRow(
-                          theme,
-                          icon: Icons.compass_calibration,
-                          title:
-                              'الوزن المكافئ (${_settingsProvider.mainKarat}K)',
-                          value: _formatWeight(_invoiceWeightMain),
-                        ),
-                        const Divider(height: 24, thickness: 1.2),
-                        _buildCostingDetailRow(
-                          theme,
-                          icon: Icons.local_fire_department,
-                          title: 'تكلفة الذهب المتوقع',
-                          value: _formatCurrency(_invoiceCostGoldComponent),
-                        ),
-                        const SizedBox(height: 6),
-                        _buildCostingDetailRow(
-                          theme,
-                          icon: Icons.handyman,
-                          title: 'تكلفة المصنعية المتراكمة',
-                          value: _formatCurrency(
-                            _invoiceCostManufacturingComponent,
-                          ),
-                        ),
-                        const SizedBox(height: 10),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            vertical: 12,
-                            horizontal: 14,
-                          ),
-                          decoration: BoxDecoration(
-                            color: Colors.white.withValues(
-                              alpha: theme.brightness == Brightness.dark
-                                  ? 0.05
-                                  : 0.7,
-                            ),
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Text(
-                                'التكلفة الإجمالية المتوقعة',
-                                style: theme.textTheme.titleMedium?.copyWith(
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                              Text(
-                                _formatCurrency(_invoiceCostTotal),
-                                style: theme.textTheme.titleLarge?.copyWith(
-                                  fontWeight: FontWeight.w800,
-                                  color: AppColors.invoiceSaleNew,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
   Widget _buildCustomerSection(ThemeData theme) {
     final colorScheme = theme.colorScheme;
     final isDark = theme.brightness == Brightness.dark;
@@ -4567,112 +3905,8 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                 dropdownColor: theme.cardColor,
                 icon: Icon(Icons.arrow_drop_down, color: colorScheme.primary),
               ),
-            if (selectedCustomer != null) ...[
-              const SizedBox(height: 16),
-              _buildSelectedCustomerDetails(theme, selectedCustomer),
-            ],
           ],
         ),
-      ),
-    );
-  }
-
-  Widget _buildCustomerInfoChip(
-    ThemeData theme, {
-    required IconData icon,
-    required String label,
-  }) {
-    final colorScheme = theme.colorScheme;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(
-        color: colorScheme.surface,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: colorScheme.primary.withValues(alpha: 0.3)),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 18, color: colorScheme.primary),
-          const SizedBox(width: 6),
-          Text(
-            label,
-            style: theme.textTheme.bodySmall?.copyWith(
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildSelectedCustomerDetails(
-    ThemeData theme,
-    Map<String, dynamic> customer,
-  ) {
-    final colorScheme = theme.colorScheme;
-    final isDark = theme.brightness == Brightness.dark;
-
-    final name = (customer['name'] ?? '').toString();
-    final phone = (customer['phone'] ?? customer['phone_number'] ?? '')
-        .toString();
-    final address = (customer['address'] ?? customer['address_line_1'] ?? '')
-        .toString();
-    final code = customer['customer_code']?.toString();
-
-    final infoChips = <Widget>[];
-    if (phone.isNotEmpty) {
-      infoChips.add(
-        _buildCustomerInfoChip(theme, icon: Icons.phone_iphone, label: phone),
-      );
-    }
-    if (address.isNotEmpty) {
-      infoChips.add(
-        _buildCustomerInfoChip(
-          theme,
-          icon: Icons.location_on_outlined,
-          label: address,
-        ),
-      );
-    }
-    if (code != null && code.isNotEmpty) {
-      infoChips.add(
-        _buildCustomerInfoChip(
-          theme,
-          icon: Icons.qr_code_2,
-          label: 'رمز: $code',
-        ),
-      );
-    }
-
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: colorScheme.primary.withValues(alpha: isDark ? 0.18 : 0.12),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: colorScheme.primary.withValues(alpha: 0.4)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(Icons.verified_user, color: colorScheme.primary, size: 20),
-              const SizedBox(width: 8),
-              Text(
-                name,
-                style: theme.textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ],
-          ),
-          if (infoChips.isNotEmpty) ...[
-            const SizedBox(height: 8),
-            Wrap(spacing: 12, runSpacing: 8, children: infoChips),
-          ],
-        ],
       ),
     );
   }
@@ -5324,168 +4558,138 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
     );
   }
 
-  // ==================== Action Buttons ====================
-  Widget _buildActionButtons() {
-    final grandTotal = _calculateGrandTotal();
+  // ==================== Summary ====================
+  /// The total, what is paid and what remains, said once -- they were three
+  /// cards and two headers. The target amount spreads a price over the lines.
+  Widget _buildSummaryCard() {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
-    final isDark = theme.brightness == Brightness.dark;
-
-    final totalWeight = _items.fold<double>(
+    final currency = _settingsProvider.currencySymbolText;
+    final tones = AppSemanticColors.of(context);
+    final total = _calculateGrandTotal();
+    final remaining = _remainingAmount;
+    final weight = _items.fold<double>(0.0, (sum, i) => sum + i.weight);
+    final weight24 = _items.fold<double>(
       0.0,
-      (sum, item) => sum + item.weight,
-    );
-    final totalWeight24kEq = _items.fold<double>(
-      0.0,
-      (sum, item) => sum + (item.weight * (item.karat / 24.0)),
+      (sum, i) => sum + (i.weight * (i.karat / 24.0)),
     );
 
-    return Container(
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: isDark
-              ? [
-                  colorScheme.surfaceContainerHighest,
-                  theme.scaffoldBackgroundColor,
-                ]
-              : [colorScheme.surface, theme.scaffoldBackgroundColor],
+    Widget row(String label, String value, {Color? color, bool bold = false}) =>
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: 3),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(label, style: theme.textTheme.bodyMedium),
+              _settingsProvider.buildText(
+                value,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  fontWeight: bold ? FontWeight.bold : FontWeight.w600,
+                  color: color,
+                ),
+              ),
+            ],
+          ),
+        );
+
+    return Card(
+      elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              'ملخص الفاتورة',
+              style: theme.textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 8),
+            _settingsProvider.buildText(
+              '${total.toStringAsFixed(2)} $currency',
+              style: theme.textTheme.headlineMedium?.copyWith(
+                fontWeight: FontWeight.bold,
+                color: colorScheme.primary,
+              ),
+            ),
+            Text(
+              '${_items.length} صنف • الوزن ${weight.toStringAsFixed(3)} جم • معادل 24: ${weight24.toStringAsFixed(3)} جم',
+              style: theme.textTheme.bodySmall,
+            ),
+            const SizedBox(height: 8),
+            if (!_uiDisableVat)
+              row(
+                'ضريبة القيمة المضافة',
+                '${_calculateTotalVAT().toStringAsFixed(2)} $currency',
+              ),
+            row(
+              'المدفوع',
+              '${_totalPayments.toStringAsFixed(2)} $currency',
+            ),
+            if (_barterTotal > 0.01)
+              row(
+                'المقايضة',
+                '${_barterTotal.toStringAsFixed(2)} $currency',
+              ),
+            if (_totalCommission > 0) ...[
+              row(
+                'إجمالي العمولات',
+                '${_totalCommission.toStringAsFixed(2)} $currency',
+                color: tones.warning.fg,
+              ),
+              row(
+                'صافي المستلم',
+                '${_totalNet.toStringAsFixed(2)} $currency',
+                color: tones.ready.fg,
+              ),
+            ],
+            const Divider(height: 16),
+            if (_items.isEmpty)
+              const SizedBox.shrink()
+            else if (remaining > 0.01)
+              row(
+                'المتبقي',
+                '${remaining.toStringAsFixed(2)} $currency',
+                color: tones.blocked.fg,
+                bold: true,
+              )
+            else
+              Text(
+                '✓ تم الدفع بالكامل',
+                style: theme.textTheme.titleSmall?.copyWith(
+                  color: tones.ready.fg,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            const SizedBox(height: 12),
+            TextField(
+              key: const Key('target-amount'),
+              enabled: _items.isNotEmpty,
+              inputFormatters: [NormalizeNumberFormatter()],
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
+              textInputAction: TextInputAction.done,
+              decoration: InputDecoration(
+                labelText: 'المبلغ المطلوب',
+                helperText: 'يُوزَّع على الأسطر',
+                suffixText: currency,
+                border: const OutlineInputBorder(),
+                isDense: true,
+              ),
+              onSubmitted: (value) {
+                final target = _readAmount(value);
+                if (target == null || target <= 0) {
+                  _showError('اكتب المبلغ المطلوب أرقامًا');
+                  return;
+                }
+                _distributeAmount(target);
+              },
+            ),
+          ],
         ),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: theme.dividerColor.withValues(alpha: 0.6)),
-      ),
-      padding: const EdgeInsets.all(20),
-      child: Column(
-        children: [
-          // Auto Distribute Button
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton.icon(
-              onPressed: _items.isEmpty ? null : _showAutoDistributeDialog,
-              icon: const Icon(Icons.auto_awesome, size: 22),
-              label: Text(
-                'توزيع تلقائي للمبلغ',
-                style: theme.textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              style: ElevatedButton.styleFrom(
-                minimumSize: const Size(0, 56),
-                backgroundColor: isDark
-                    ? AppColors.karat24
-                    : AppColors.primaryGold,
-                foregroundColor: isDark ? Colors.white : Colors.black,
-                disabledBackgroundColor: theme.disabledColor.withValues(
-                  alpha: 0.2,
-                ),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-              ),
-            ),
-          ),
-
-          const SizedBox(height: 16),
-
-          // Grand Total
-          Container(
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: [colorScheme.primary, AppColors.lightGold],
-              ),
-              borderRadius: BorderRadius.circular(12),
-              boxShadow: [
-                BoxShadow(
-                  color: colorScheme.primary.withValues(
-                    alpha: isDark ? 0.35 : 0.4,
-                  ),
-                  blurRadius: 12,
-                  offset: const Offset(0, 4),
-                ),
-              ],
-            ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                // The weight line is long; it wraps rather than overflow the
-                // side column.
-                Expanded(
-                  child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'الإجمالي الكلي',
-                      style: theme.textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w600,
-                        color: isDark ? Colors.white : Colors.black87,
-                        shadows: !isDark
-                            ? [
-                                Shadow(
-                                  color: Colors.white.withValues(alpha: 0.8),
-                                  blurRadius: 2,
-                                ),
-                              ]
-                            : null,
-                      ),
-                    ),
-                    Text(
-                      '${_items.length} صنف',
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: isDark
-                            ? Colors.white.withValues(alpha: 0.9)
-                            : Colors.black87,
-                        fontWeight: FontWeight.w500,
-                        shadows: !isDark
-                            ? [
-                                Shadow(
-                                  color: Colors.white.withValues(alpha: 0.8),
-                                  blurRadius: 2,
-                                ),
-                              ]
-                            : null,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      'الوزن: ${totalWeight.toStringAsFixed(3)} جم • معادل 24: ${totalWeight24kEq.toStringAsFixed(3)} جم',
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: isDark
-                            ? Colors.white.withValues(alpha: 0.9)
-                            : Colors.black87,
-                        fontWeight: FontWeight.w600,
-                        shadows: !isDark
-                            ? [
-                                Shadow(
-                                  color: Colors.white.withValues(alpha: 0.8),
-                                  blurRadius: 2,
-                                ),
-                              ]
-                            : null,
-                      ),
-                    ),
-                  ],
-                ),
-                ),
-                const SizedBox(width: 8),
-                _settingsProvider.buildText(
-                  '${grandTotal.toStringAsFixed(2)} ${_settingsProvider.currencySymbolText}',
-                  style: theme.textTheme.headlineMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
-                    color: isDark ? Colors.white : Colors.black87,
-                    shadows: !isDark
-                        ? [
-                            Shadow(
-                              color: Colors.white.withValues(alpha: 0.9),
-                              blurRadius: 3,
-                            ),
-                          ]
-                        : null,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
       ),
     );
   }
@@ -5494,7 +4698,6 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
   Widget _buildPaymentSection() {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
-    final totalAmount = _calculateGrandTotal();
     final dividerColor = theme.dividerColor.withValues(alpha: 0.6);
     final isDark = theme.brightness == Brightness.dark;
 
@@ -5553,31 +4756,32 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                     ),
                   ],
                 ),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 6,
-                  ),
-                  decoration: BoxDecoration(
-                    color: AppColors.success.withValues(
-                      alpha: isDark ? 0.2 : 0.12,
-                    ),
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(
-                      color: AppColors.success.withValues(alpha: 0.4),
-                    ),
-                  ),
-                  child: _settingsProvider.buildText(
-                    'الإجمالي: ${totalAmount.toStringAsFixed(2)} ${_settingsProvider.currencySymbolText}',
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                      fontSize: 15,
-                      fontWeight: FontWeight.bold,
-                      color: AppColors.success,
-                    ),
-                  ),
-                ),
               ],
             ),
+            if (_items.isNotEmpty &&
+                _remainingAmount > 0.01 &&
+                _paymentMethods.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  for (final method in _paymentMethods)
+                    FilledButton.tonalIcon(
+                      key: Key('quick-pay-${method['id']}'),
+                      onPressed: () => _payWith(method['id'] as int),
+                      icon: Icon(
+                        _getPaymentIcon(method['payment_type'] ?? ''),
+                        size: 18,
+                      ),
+                      label: Text(
+                        '${method['name'] ?? ''}'
+                        '${(method['commission_rate'] ?? 0) > 0 ? ' (${method['commission_rate']}%)' : ''}',
+                      ),
+                    ),
+                ],
+              ),
+            ],
             const SizedBox(height: 16),
 
             // 🆕 جدول الدفعات المضافة
@@ -6636,26 +5840,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                       const SizedBox(width: 8),
                       // زر الإضافة
                       ElevatedButton.icon(
-                        onPressed: () {
-                          if (_safeBoxes.isNotEmpty &&
-                              _selectedSafeBoxId == null) {
-                            _showError('اختر الخزينة أولاً');
-                            return;
-                          }
-
-                          // Empty pays what remains; anything else must read.
-                          final typed = _customAmountController.text.trim();
-                          final customAmount = typed.isEmpty
-                              ? null
-                              : _readAmount(typed);
-                          if (typed.isNotEmpty && customAmount == null) {
-                            _showError(
-                              'لم يُقرأ المبلغ «$typed»؛ اكتبه أرقامًا فقط',
-                            );
-                            return;
-                          }
-                          _addPayment(customAmount: customAmount);
-                        },
+                        onPressed: _addTypedPayment,
                         icon: const Icon(Icons.add_circle, size: 20),
                         label: Text(
                           'إضافة',
@@ -6678,6 +5863,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                       ),
                     ],
                   ),
+                  if (_remainingAmount > 0.01) ...[
                   const SizedBox(height: 10),
                   Container(
                     padding: const EdgeInsets.all(8),
@@ -6709,277 +5895,11 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                       ],
                     ),
                   ),
+                  ],
                 ],
               ),
             ),
 
-            // 🆕 ملخص النهائي
-            const SizedBox(height: 16),
-            Container(
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: _remainingAmount > 0
-                      ? [
-                          colorScheme.error.withValues(
-                            alpha: isDark ? 0.16 : 0.12,
-                          ),
-                          colorScheme.error.withValues(
-                            alpha: isDark ? 0.28 : 0.2,
-                          ),
-                        ]
-                      : [
-                          AppColors.success.withValues(
-                            alpha: isDark ? 0.16 : 0.12,
-                          ),
-                          AppColors.success.withValues(
-                            alpha: isDark ? 0.28 : 0.2,
-                          ),
-                        ],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(
-                  color: _remainingAmount > 0
-                      ? colorScheme.error.withValues(alpha: 0.5)
-                      : AppColors.success.withValues(alpha: 0.5),
-                  width: 2,
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color:
-                        (_remainingAmount > 0
-                                ? colorScheme.error
-                                : AppColors.success)
-                            .withValues(alpha: 0.12),
-                    blurRadius: 8,
-                    offset: const Offset(0, 2),
-                  ),
-                ],
-              ),
-              child: Column(
-                children: [
-                  // إجمالي الفاتورة مع ضريبة القيمة المضافة
-                  if (_items.isNotEmpty) ...[
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Row(
-                          children: [
-                            Icon(
-                              Icons.receipt,
-                              size: 18,
-                              color: theme.iconTheme.color,
-                            ),
-                            const SizedBox(width: 8),
-                            Text(
-                              'إجمالي الفاتورة:',
-                              style: theme.textTheme.bodyMedium,
-                            ),
-                          ],
-                        ),
-                        _settingsProvider.buildText(
-                          '${_calculateGrandTotal().toStringAsFixed(2)} ${_settingsProvider.currencySymbolText}',
-                          style: theme.textTheme.bodyMedium?.copyWith(
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 6),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Row(
-                          children: [
-                            Icon(
-                              Icons.description,
-                              size: 16,
-                              color: AppColors.info,
-                            ),
-                            const SizedBox(width: 8),
-                            Text(
-                              'ضريبة القيمة المضافة:',
-                              style: theme.textTheme.bodySmall,
-                            ),
-                          ],
-                        ),
-                        _settingsProvider.buildText(
-                          '${_calculateTotalVAT().toStringAsFixed(2)} ${_settingsProvider.currencySymbolText}',
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            fontWeight: FontWeight.w600,
-                            color: AppColors.info,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const Divider(height: 16, thickness: 1),
-                  ],
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Row(
-                        children: [
-                          Icon(
-                            Icons.account_balance_wallet,
-                            size: 20,
-                            color: theme.iconTheme.color,
-                          ),
-                          const SizedBox(width: 8),
-                          Text(
-                            'المدفوع:',
-                            style: theme.textTheme.bodyLarge?.copyWith(
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ],
-                      ),
-                      _settingsProvider.buildText(
-                        '${_totalPayments.toStringAsFixed(2)} ${_settingsProvider.currencySymbolText}',
-                        style: theme.textTheme.bodyLarge?.copyWith(
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ],
-                  ),
-                  if (_totalCommission > 0) ...[
-                    const SizedBox(height: 8),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Row(
-                          children: [
-                            Icon(
-                              Icons.percent,
-                              size: 18,
-                              color: AppColors.warning,
-                            ),
-                            const SizedBox(width: 8),
-                            Text(
-                              'إجمالي العمولات:',
-                              style: theme.textTheme.bodyMedium,
-                            ),
-                          ],
-                        ),
-                        _settingsProvider.buildText(
-                          '${_totalCommission.toStringAsFixed(2)} ${_settingsProvider.currencySymbolText}',
-                          style: theme.textTheme.bodyMedium?.copyWith(
-                            fontWeight: FontWeight.bold,
-                            color: AppColors.warning,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Row(
-                          children: [
-                            Icon(
-                              Icons.receipt_long,
-                              size: 16,
-                              color: AppColors.info,
-                            ),
-                            const SizedBox(width: 8),
-                            Text(
-                              'ضريبة العمولات (15%):',
-                              style: theme.textTheme.bodySmall,
-                            ),
-                          ],
-                        ),
-                        _settingsProvider.buildText(
-                          '${_totalCommissionVAT.toStringAsFixed(2)} ${_settingsProvider.currencySymbolText}',
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            fontWeight: FontWeight.w600,
-                            color: AppColors.info,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Row(
-                          children: [
-                            Icon(
-                              Icons.check_circle,
-                              size: 18,
-                              color: AppColors.success,
-                            ),
-                            const SizedBox(width: 8),
-                            Text(
-                              'صافي المستلم:',
-                              style: theme.textTheme.bodyMedium?.copyWith(
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          ],
-                        ),
-                        _settingsProvider.buildText(
-                          '${_totalNet.toStringAsFixed(2)} ${_settingsProvider.currencySymbolText}',
-                          style: theme.textTheme.bodyMedium?.copyWith(
-                            fontWeight: FontWeight.bold,
-                            color: AppColors.success,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                  const Divider(height: 20, thickness: 1.5),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Row(
-                        children: [
-                          Icon(
-                            _remainingAmount > 0
-                                ? Icons.warning_amber_rounded
-                                : Icons.check_circle_outline,
-                            size: 22,
-                            color: _remainingAmount > 0
-                                ? colorScheme.error
-                                : AppColors.success,
-                          ),
-                          const SizedBox(width: 8),
-                          Text(
-                            _remainingAmount > 0
-                                ? 'المتبقي:'
-                                : '✓ تم الدفع بالكامل',
-                            style: theme.textTheme.titleMedium?.copyWith(
-                              fontWeight: FontWeight.bold,
-                              color: _remainingAmount > 0
-                                  ? colorScheme.error
-                                  : AppColors.success,
-                            ),
-                          ),
-                        ],
-                      ),
-                      if (_remainingAmount > 0)
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 6,
-                          ),
-                          decoration: BoxDecoration(
-                            color: colorScheme.error,
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: _settingsProvider.buildText(
-                            '${_remainingAmount.toStringAsFixed(2)} ${_settingsProvider.currencySymbolText}',
-                            style: theme.textTheme.bodyLarge?.copyWith(
-                              fontWeight: FontWeight.bold,
-                              color: colorScheme.onError,
-                            ),
-                          ),
-                        ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
           ],
         ),
       ),
