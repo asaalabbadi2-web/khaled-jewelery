@@ -15,6 +15,7 @@ import '../theme/app_theme.dart';
 import '../widgets/adaptive_invoice_summary_dialog.dart';
 import '../widgets/invoice_settings_sheet.dart';
 import '../widgets/original_invoice_selector.dart';
+import '../widgets/inline_number_cell.dart';
 import '../widgets/party_picker_dialog.dart';
 import '../widgets/purchase_item_entry_row.dart';
 import '../widgets/searchable_picker_field.dart';

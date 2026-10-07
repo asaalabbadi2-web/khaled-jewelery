@@ -349,16 +349,16 @@ void main() {
   });
 
   group('lines edited as typed (stage 1)', () {
-    testWidgets('a weight typed in Arabic digits is taken', (tester) async {
+    testWidgets('a weight typed in Arabic digits is taken, in its cell', (
+      tester,
+    ) async {
       await open(tester, api: FakeSalesApi(), saved: draft());
 
-      await tester.tap(find.text('10.00'));
-      await tester.pumpAndSettle();
-      await tester.enterText(find.byType(TextField).last, '١٢٫٥');
-      await tester.tap(find.widgetWithText(ElevatedButton, 'حفظ'));
+      await tester.enterText(find.widgetWithText(TextField, '10.000'), '١٢٫٥');
+      await tester.testTextInput.receiveAction(TextInputAction.done);
       await tester.pumpAndSettle();
 
-      expect(find.text('12.50'), findsOneWidget);
+      expect(find.text('12.500'), findsOneWidget);
     });
 
     testWidgets('a karat other than 18, 21, 22 or 24 is refused', (
@@ -537,6 +537,117 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('فاتورة غير محفوظة'), findsNothing);
       expect(find.byType(SalesInvoiceScreenV2), findsNothing);
+    });
+  });
+
+  group('category lines typed in one row (stage 3)', () {
+    const categories = [
+      {'id': 1, 'name': 'بناجر', 'karat': 21, 'default_wage': 15},
+      {'id': 2, 'name': 'سلاسل'},
+      {'id': 3, 'name': 'خواتم', 'karat': 18},
+    ];
+
+    Future<void> pick(WidgetTester tester, String typed, String name) async {
+      await tester.enterText(
+        find.byKey(const Key('sales-entry-category')),
+        typed,
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(name).last);
+      await tester.pumpAndSettle();
+    }
+
+    Future<void> weigh(WidgetTester tester, String weight) async {
+      await tester.enterText(
+        find.byKey(const Key('sales-entry-weight')),
+        weight,
+      );
+      await tester.testTextInput.receiveAction(TextInputAction.done);
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('a line is typed and added with Enter, no dialog', (
+      tester,
+    ) async {
+      await open(tester, api: FakeSalesApi(categories: categories));
+
+      await pick(tester, 'سل', 'سلاسل');
+      await weigh(tester, '٥٫٢٥');
+
+      expect(find.byType(Dialog), findsNothing);
+      expect(find.widgetWithText(TextField, '5.250'), findsOneWidget); // in the table
+      expect(find.text('1 صنف'), findsWidgets);
+      // The weight is cleared and held for the next line.
+      final field = tester.widget<TextField>(
+        find.byKey(const Key('sales-entry-weight')),
+      );
+      expect(field.controller!.text, isEmpty);
+      expect(field.focusNode!.hasFocus, isTrue);
+    });
+
+    testWidgets('a category with a karat holds it, and one with a wage', (
+      tester,
+    ) async {
+      await open(tester, api: FakeSalesApi(categories: categories));
+
+      await pick(tester, 'بنا', 'بناجر');
+
+      expect(find.text('الأجرة من التصنيف'), findsOneWidget);
+      expect(find.text('عيار التصنيف 21'), findsOneWidget);
+      await weigh(tester, '30');
+      expect(find.text('15.00'), findsWidgets); // the category's wage
+    });
+
+    testWidgets('the weight is the line\'s and the count a note', (
+      tester,
+    ) async {
+      await open(tester, api: FakeSalesApi(categories: categories));
+
+      await pick(tester, 'سل', 'سلاسل');
+      await tester.enterText(find.byKey(const Key('sales-entry-count')), '6');
+      await weigh(tester, '63.4');
+
+      expect(find.widgetWithText(TextField, '63.400'), findsOneWidget);
+      expect(find.text('للبيان فقط، لا يُضرب في الوزن'), findsWidgets);
+    });
+
+    testWidgets('without a category nothing is added, and it says so', (
+      tester,
+    ) async {
+      await open(tester, api: FakeSalesApi(categories: categories));
+
+      await weigh(tester, '5');
+
+      expect(find.text('اختر التصنيف'), findsOneWidget);
+      expect(find.text('لم تتم إضافة أصناف بعد'), findsOneWidget);
+    });
+
+    testWidgets('an amount typed fixes the line\'s total', (tester) async {
+      await open(tester, api: FakeSalesApi(categories: categories));
+
+      await pick(tester, 'سل', 'سلاسل');
+      await tester.enterText(
+        find.byKey(const Key('sales-entry-amount')),
+        '٢٬٥٠٠',
+      );
+      await weigh(tester, '5');
+
+      expect(find.textContaining('2500.00'), findsWidgets);
+    });
+
+    testWidgets('a removed line goes at once and can be put back', (
+      tester,
+    ) async {
+      await open(tester, api: FakeSalesApi(), saved: draft());
+
+      await tester.tap(find.byTooltip('حذف'));
+      await tester.pumpAndSettle();
+      expect(find.byType(AlertDialog), findsNothing);
+      expect(find.text('لم تتم إضافة أصناف بعد'), findsOneWidget);
+
+      await tester.tap(find.text('تراجع'));
+      await tester.pumpAndSettle();
+      expect(find.text('لم تتم إضافة أصناف بعد'), findsNothing);
     });
   });
 }

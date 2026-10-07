@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart'; // 🆕 للـ FilteringTextInputFormatter
 import 'dart:convert';
+import 'dart:math' as math;
 import 'package:mobile_scanner/mobile_scanner.dart';
 import '../api_service.dart';
 import '../theme/app_theme.dart';
@@ -11,7 +12,9 @@ import '../providers/settings_provider.dart';
 import '../providers/auth_provider.dart';
 import '../providers/sales_race_refresh_provider.dart';
 import 'add_customer_screen.dart';
+import '../widgets/inline_number_cell.dart';
 import '../widgets/invoice_settings_sheet.dart';
+import '../widgets/sales_category_entry_row.dart';
 import '../widgets/adaptive_invoice_summary_dialog.dart';
 import '../widgets/party_picker_dialog.dart';
 import '../widgets/searchable_picker_field.dart';
@@ -501,6 +504,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
     _loadInvoiceUiSettingsFromPrefs();
     _loadSettings();
     _loadBranches();
+    _ensureCategoriesLoaded();
     _loadPaymentMethods(); // 🆕 جلب وسائل الدفع
     _smartInputFocus.requestFocus();
     if (_isEditMode) {
@@ -2146,25 +2150,36 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
 
     if (result == null || !mounted) return;
 
-    final categoryId = result['categoryId'] as int?;
-    final categoryName = result['categoryName'] as String? ?? '';
-    final selectedKarat =
-        result['karat'] as int? ?? _settingsProvider.mainKarat;
-    final weight = result['weight'] as double? ?? 0;
-    final wage = result['wage'] as double? ?? 0;
-    final count = (result['count'] as int?) ?? 1;
-    final amount = result['amount'] as double? ?? 0;
+    _addCategoryLine(
+      categoryId: result['categoryId'] as int?,
+      categoryName: result['categoryName'] as String? ?? '',
+      karat: result['karat'] as int? ?? _settingsProvider.mainKarat,
+      weight: result['weight'] as double? ?? 0,
+      wage: result['wage'] as double? ?? 0,
+      count: (result['count'] as int?) ?? 1,
+      amount: result['amount'] as double? ?? 0,
+    );
+  }
 
+  /// A category line of the sale: the weight is the line's, the count a note,
+  /// and the category's wage holds when it has one.
+  void _addCategoryLine({
+    required int? categoryId,
+    required String categoryName,
+    required int karat,
+    required double weight,
+    required double wage,
+    required int count,
+    required double amount,
+  }) {
     if (categoryId == null || weight <= 0) return;
 
-    final selectedCat = _categories.where(
-      (c) => (c['id'] is num ? (c['id'] as num).toInt() : int.tryParse('${c['id']}')) == categoryId,
-    ).firstOrNull;
-    final catWage = selectedCat != null
-        ? (selectedCat['default_wage'] is num
-            ? (selectedCat['default_wage'] as num).toDouble()
-            : double.tryParse('${selectedCat['default_wage'] ?? ''}'))
-        : null;
+    final selectedCat = _categories
+        .where((c) => _parseInt(c['id']) == categoryId)
+        .firstOrNull;
+    final catWage = selectedCat == null
+        ? null
+        : _parseDouble(selectedCat['default_wage']);
     final wageIsLocked = catWage != null && catWage > 0;
 
     setState(() {
@@ -2172,7 +2187,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
         id: null,
         name: categoryName.isNotEmpty ? categoryName : 'تصنيف',
         barcode: '',
-        karat: selectedKarat.toDouble(),
+        karat: karat.toDouble(),
         weight: weight,
         wage: wage,
         wageLocked: wageIsLocked,
@@ -2181,22 +2196,28 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
         mainKarat: _settingsProvider.mainKarat,
         taxRate: _uiDisableVat
             ? 0.0
-            : _settingsProvider.taxRateForKarat(selectedKarat.toDouble()),
+            : _settingsProvider.taxRateForKarat(karat.toDouble()),
         avgGoldCostPerMainGram: _avgGoldCostPerMainGram,
         avgManufacturingCostPerMainGram: _avgManufacturingCostPerMainGram,
         categoryId: categoryId,
         categoryName: categoryName,
       );
-
-      if (amount > 0) {
-        item.setManualTotal(amount);
-      }
-
+      if (amount > 0) item.setManualTotal(amount);
       _items.add(item);
     });
 
     _recomputeCostingPreview();
   }
+
+  void _addEnteredCategory(SalesCategoryEntry e) => _addCategoryLine(
+    categoryId: _parseInt(e.category['id']),
+    categoryName: '${e.category['name'] ?? ''}',
+    karat: e.karat,
+    weight: e.weight,
+    wage: e.wage,
+    count: e.count,
+    amount: e.amount ?? 0,
+  );
 
   Future<void> _showManualItemFeatureGuide() async {
     if (!mounted) return;
@@ -2311,11 +2332,29 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
   }
 
   void _removeItem(int index) {
+    final removed = _items[index];
     setState(() {
       _items.removeAt(index);
     });
-
     _recomputeCostingPreview();
+
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.hideCurrentSnackBar();
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text('حُذف «${removed.name}»'),
+        action: SnackBarAction(
+          label: 'تراجع',
+          onPressed: () {
+            if (!mounted) return;
+            setState(() {
+              _items.insert(math.min(index, _items.length), removed);
+            });
+            _recomputeCostingPreview();
+          },
+        ),
+      ),
+    );
   }
 
   // ==================== Auto Distribution ====================
@@ -4644,6 +4683,50 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
     final colorScheme = theme.colorScheme;
     final allowManualItems = _settingsProvider.allowManualInvoiceItems;
 
+    final entryRow = allowManualItems && _categories.isNotEmpty
+        ? Padding(
+            padding: const EdgeInsets.only(bottom: 16),
+            child: Card(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'سطر تصنيف',
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'اختر التصنيف واكتب وزنه الكلي: Enter يضيف السطر.',
+                      style: theme.textTheme.bodySmall,
+                    ),
+                    const SizedBox(height: 12),
+                    SalesCategoryEntryRow(
+                      categories: _categories,
+                      mainKarat: _settingsProvider.mainKarat,
+                      onAdd: _addEnteredCategory,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          )
+        : const SizedBox.shrink();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [entryRow, _buildSmartInputBox(theme, colorScheme, allowManualItems)],
+    );
+  }
+
+  Widget _buildSmartInputBox(
+    ThemeData theme,
+    ColorScheme colorScheme,
+    bool allowManualItems,
+  ) {
     return Container(
       decoration: BoxDecoration(
         gradient: LinearGradient(
@@ -4975,6 +5058,8 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
       child: DataTable(
+        columnSpacing: 16,
+        horizontalMargin: 12,
         headingRowColor: WidgetStateProperty.all(
           colorScheme.primary.withValues(alpha: 0.15),
         ),
@@ -4992,9 +5077,15 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
           DataColumn(label: Text('الوزن (جم)', style: headerStyle)),
           DataColumn(label: Text('المصنعية', style: headerStyle)),
           DataColumn(label: Text('السعر/جم', style: headerStyle)),
-          DataColumn(label: Text('التكلفة', style: headerStyle)),
-          DataColumn(label: Text('الصافي', style: headerStyle)),
-          DataColumn(label: Text('الضريبة', style: headerStyle)),
+          // The cost is costing.view's (ADR-036): the seller sells without it.
+          if (_seesCost) DataColumn(label: Text('التكلفة', style: headerStyle)),
+          // With VAT off for the company (SALES-VAT-1) net is the total and
+          // tax is zero: two columns saying nothing, that pushed the actions
+          // out of view.
+          if (!_uiDisableVat) ...[
+            DataColumn(label: Text('الصافي', style: headerStyle)),
+            DataColumn(label: Text('الضريبة', style: headerStyle)),
+          ],
           DataColumn(label: Text('الإجمالي', style: headerStyle)),
           DataColumn(label: Text('إجراءات', style: headerStyle)),
         ],
@@ -5030,65 +5121,37 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                 ),
               ),
               DataCell(
-                InkWell(
-                  onTap: () => _showEditDialog(index, 'weight', item.weight),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 6,
-                    ),
-                    decoration: BoxDecoration(
-                      color: AppColors.success.withValues(alpha: 0.15),
-                      borderRadius: BorderRadius.circular(6),
-                      border: Border.all(
-                        color: AppColors.success.withValues(alpha: 0.3),
+                _uiLockPriceEdits
+                    ? Text(item.weight.toStringAsFixed(3), style: cellStyle)
+                    : InlineNumberCell(
+                        key: ObjectKey(item),
+                        value: item.weight,
+                        fractionDigits: 3,
+                        allowZero: false,
+                        label: 'الوزن',
+                        onChanged: (v) => _updateItem(index, 'weight', v),
                       ),
-                    ),
-                    child: Text(
-                      item.weight.toStringAsFixed(2),
-                      style: cellStyle,
-                    ),
-                  ),
-                ),
               ),
               DataCell(
-                InkWell(
-                  onTap: item.wageLocked
-                      ? null
-                      : () => _showEditDialog(index, 'wage', item.wage),
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 6,
-                    ),
-                    decoration: BoxDecoration(
-                      color: item.wageLocked
-                          ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.10)
-                          : AppColors.warning.withValues(alpha: 0.15),
-                      borderRadius: BorderRadius.circular(6),
-                      border: Border.all(
-                        color: item.wageLocked
-                            ? Theme.of(context).colorScheme.primary.withValues(alpha: 0.35)
-                            : AppColors.warning.withValues(alpha: 0.3),
-                      ),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        if (item.wageLocked)
-                          Padding(
-                            padding: const EdgeInsets.only(left: 4),
-                            child: Icon(
-                              Icons.lock,
-                              size: 11,
-                              color: Theme.of(context).colorScheme.primary,
+                (item.wageLocked || _uiLockPriceEdits)
+                    ? Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (item.wageLocked)
+                            const Padding(
+                              padding: EdgeInsets.only(left: 4),
+                              child: Icon(Icons.lock, size: 11),
                             ),
-                          ),
-                        Text(item.wage.toStringAsFixed(2), style: cellStyle),
-                      ],
-                    ),
-                  ),
-                ),
+                          Text(item.wage.toStringAsFixed(2), style: cellStyle),
+                        ],
+                      )
+                    : InlineNumberCell(
+                        key: ObjectKey(item),
+                        value: item.wage,
+                        fractionDigits: 2,
+                        label: 'المصنعية',
+                        onChanged: (v) => _updateItem(index, 'wage', v),
+                      ),
               ),
               DataCell(
                 Text(
@@ -5096,9 +5159,12 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                   style: cellStyle,
                 ),
               ),
-              DataCell(Text(item.cost.toStringAsFixed(2), style: cellStyle)),
-              DataCell(Text(item.net.toStringAsFixed(2), style: cellStyle)),
-              DataCell(Text(item.tax.toStringAsFixed(2), style: cellStyle)),
+              if (_seesCost)
+                DataCell(Text(item.cost.toStringAsFixed(2), style: cellStyle)),
+              if (!_uiDisableVat) ...[
+                DataCell(Text(item.net.toStringAsFixed(2), style: cellStyle)),
+                DataCell(Text(item.tax.toStringAsFixed(2), style: cellStyle)),
+              ],
               DataCell(
                 InkWell(
                   onTap: () =>
