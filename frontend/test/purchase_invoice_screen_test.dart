@@ -69,6 +69,7 @@ void main() {
     Map<String, dynamic>? appSettings,
     Map<String, Object> prefs = const {},
     Map<String, dynamic>? editing,
+    bool supplierReturn = false,
   }) async {
     SharedPreferences.setMockInitialValues({
       if (saved != null) draftKey: jsonEncode(saved),
@@ -99,6 +100,7 @@ void main() {
                           textDirection: TextDirection.rtl,
                           child: PurchaseInvoiceScreen(
                             apiService: api,
+                            supplierReturnMode: supplierReturn,
                             editInvoiceId: editing == null ? null : 77,
                             editInvoiceData: editing,
                           ),
@@ -154,7 +156,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(api.added, isEmpty);
-    expect(find.text('مراجعة الفاتورة'), findsNothing);
+    expect(find.text('مراجعة فاتورة شراء'), findsNothing);
     expect(find.text('اختر المورد'), findsNWidgets(2)); // and under it
   });
 
@@ -168,11 +170,11 @@ void main() {
 
     await tester.tap(footerSave());
     await settle(tester);
-    expect(find.text('مراجعة الفاتورة'), findsOneWidget);
+    expect(find.text('مراجعة فاتورة شراء'), findsOneWidget);
     // Reviewing is not saving; a second press opens nothing.
     expect(find.text('جارٍ الحفظ…'), findsNothing);
     await pressCtrlS(tester);
-    expect(find.text('مراجعة الفاتورة'), findsOneWidget);
+    expect(find.text('مراجعة فاتورة شراء'), findsOneWidget);
 
     await tester.tap(find.text('حفظ الفاتورة').last);
     await settle(tester);
@@ -191,7 +193,7 @@ void main() {
     await open(tester, api: api, saved: draft());
 
     await pressCtrlS(tester);
-    expect(find.text('مراجعة الفاتورة'), findsOneWidget);
+    expect(find.text('مراجعة فاتورة شراء'), findsOneWidget);
     await tester.tap(find.text('حفظ الفاتورة').last);
     await settle(tester);
 
@@ -211,7 +213,7 @@ void main() {
     await tester.pumpAndSettle();
 
     await pressCtrlS(tester);
-    expect(find.text('مراجعة الفاتورة'), findsOneWidget);
+    expect(find.text('مراجعة فاتورة شراء'), findsOneWidget);
   });
 
   testWidgets('leaving with items in the invoice asks first', (tester) async {
@@ -586,6 +588,41 @@ void main() {
       expect(find.text('مستحقات المورد'), findsNothing);
       // The gold price is in the app bar, not in a card of its own too.
       expect(find.text('سعر الذهب'), findsNothing);
+    });
+  });
+
+  group('the invoice says what it is (SALES-UX-8)', () {
+    Color barColor(WidgetTester tester) =>
+        tester.widget<AppBar>(find.byType(AppBar)).backgroundColor!;
+
+    testWidgets('a purchase from a supplier has its own color', (
+      tester,
+    ) async {
+      await open(tester, api: FakePurchaseApi(), saved: draft());
+      expect(
+        barColor(tester),
+        AppSemanticColors.light.invoice(InvoiceKind.purchase).fg,
+      );
+    });
+
+    testWidgets('a supplier return has the return color, not the purchase\'s', (
+      tester,
+    ) async {
+      await open(
+        tester,
+        api: FakePurchaseApi(),
+        supplierReturn: true,
+      );
+      expect(
+        barColor(tester),
+        AppSemanticColors.light.invoice(InvoiceKind.returned).fg,
+      );
+    });
+
+    testWidgets('the review names the type', (tester) async {
+      await open(tester, api: FakePurchaseApi(), saved: draft());
+      await pressCtrlS(tester);
+      expect(find.text('مراجعة فاتورة شراء'), findsOneWidget);
     });
   });
 }

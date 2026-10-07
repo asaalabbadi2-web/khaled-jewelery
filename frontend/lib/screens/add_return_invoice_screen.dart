@@ -2126,9 +2126,20 @@ class _AddReturnInvoiceScreenState extends State<AddReturnInvoiceScreen> {
     return Scaffold(
       appBar: AppBar(
         title: Text(_getReturnTypeDisplayName()),
-        backgroundColor: AppColors.invoiceReturn,
-        foregroundColor: Colors.white,
-        iconTheme: const IconThemeData(color: Colors.white),
+        backgroundColor: AppSemanticColors.invoiceBar(
+          context,
+          InvoiceKind.returned,
+        ).background,
+        foregroundColor: AppSemanticColors.invoiceBar(
+          context,
+          InvoiceKind.returned,
+        ).foreground,
+        iconTheme: IconThemeData(
+          color: AppSemanticColors.invoiceBar(
+            context,
+            InvoiceKind.returned,
+          ).foreground,
+        ),
         actions: [
           Consumer<AuthProvider>(
             builder: (context, auth, _) => Padding(

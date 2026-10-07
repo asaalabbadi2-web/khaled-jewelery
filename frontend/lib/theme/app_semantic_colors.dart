@@ -17,6 +17,19 @@ class SemanticTone {
       );
 }
 
+/// نوع الفاتورة: لكل نوع لونه وهو في كل شاشاته وفي نافذة مراجعته، ليُعرف
+/// النوع من النظرة الأولى فلا يقع خطأ إدخال بنوع الفاتورة.
+enum InvoiceKind {
+  sale('بيع'),
+  saleScrap('بيع كسر'),
+  purchase('شراء'),
+  purchaseScrap('شراء كسر'),
+  returned('مرتجع');
+
+  const InvoiceKind(this.label);
+  final String label;
+}
+
 /// الألوان ذات المعنى في التطبيق (ثيم-٠): حالة الجاهزية، ومدين/دائن،
 /// وذهب/نقد، والعيارات. لكل وضع نسخته، وتباين كل لون مع البطاقة
 /// والخلفية ونص حاويته لا يقل عن ٤٫٥:١.
@@ -37,6 +50,11 @@ class AppSemanticColors extends ThemeExtension<AppSemanticColors> {
     required this.karat21,
     required this.karat22,
     required this.karat24,
+    required this.invoiceSale,
+    required this.invoiceSaleScrap,
+    required this.invoicePurchase,
+    required this.invoicePurchaseScrap,
+    required this.invoiceReturn,
   });
 
   final SemanticTone ready;
@@ -51,6 +69,32 @@ class AppSemanticColors extends ThemeExtension<AppSemanticColors> {
   final SemanticTone karat21;
   final SemanticTone karat22;
   final SemanticTone karat24;
+  final SemanticTone invoiceSale;
+  final SemanticTone invoiceSaleScrap;
+  final SemanticTone invoicePurchase;
+  final SemanticTone invoicePurchaseScrap;
+  final SemanticTone invoiceReturn;
+
+  /// لون نوع الفاتورة.
+  SemanticTone invoice(InvoiceKind kind) => switch (kind) {
+    InvoiceKind.sale => invoiceSale,
+    InvoiceKind.saleScrap => invoiceSaleScrap,
+    InvoiceKind.purchase => invoicePurchase,
+    InvoiceKind.purchaseScrap => invoicePurchaseScrap,
+    InvoiceKind.returned => invoiceReturn,
+  };
+
+  /// شريط شاشة الفاتورة: في الفاتح لون النوع بنص أبيض، وفي الداكن حاوية
+  /// النوع بنصه الفاتح -- قراءته ٤٫٥:١ في الوضعين (اختبار التباين).
+  static ({Color background, Color foreground}) invoiceBar(
+    BuildContext context,
+    InvoiceKind kind,
+  ) {
+    final tone = of(context).invoice(kind);
+    return Theme.of(context).brightness == Brightness.dark
+        ? (background: tone.container, foreground: tone.onContainer)
+        : (background: tone.fg, foreground: const Color(0xFFFFFFFF));
+  }
 
   static AppSemanticColors of(BuildContext context) =>
       Theme.of(context).extension<AppSemanticColors>() ??
@@ -78,6 +122,11 @@ class AppSemanticColors extends ThemeExtension<AppSemanticColors> {
     'karat21': karat21,
     'karat22': karat22,
     'karat24': karat24,
+    'invoiceSale': invoiceSale,
+    'invoiceSaleScrap': invoiceSaleScrap,
+    'invoicePurchase': invoicePurchase,
+    'invoicePurchaseScrap': invoicePurchaseScrap,
+    'invoiceReturn': invoiceReturn,
   };
 
   static const light = AppSemanticColors(
@@ -128,6 +177,33 @@ class AppSemanticColors extends ThemeExtension<AppSemanticColors> {
       Color(0xFF4A148C),
       Color(0xFFF3EEF8),
       Color(0xFF4A148C),
+    ),
+    // أخضر زيتوني / تركواز / بنفسجي / برتقالي محمر / أحمر: كما كانت، وغُمِّقت
+    // لتُقرأ على البطاقة وعلى السطح وبنص أبيض (٤٫٥:١).
+    invoiceSale: SemanticTone(
+      Color(0xFF25702E),
+      Color(0xFFDDF1DF),
+      Color(0xFF0B3D14),
+    ),
+    invoiceSaleScrap: SemanticTone(
+      Color(0xFF00695C),
+      Color(0xFFD7F0EC),
+      Color(0xFF00332D),
+    ),
+    invoicePurchase: SemanticTone(
+      Color(0xFF5E35B1),
+      Color(0xFFE8E0F7),
+      Color(0xFF241047),
+    ),
+    invoicePurchaseScrap: SemanticTone(
+      Color(0xFFA9300A),
+      Color(0xFFFFE3D8),
+      Color(0xFF4A1403),
+    ),
+    invoiceReturn: SemanticTone(
+      Color(0xFFB71C1C),
+      Color(0xFFFFDAD6),
+      Color(0xFF410002),
     ),
   );
 
@@ -180,6 +256,31 @@ class AppSemanticColors extends ThemeExtension<AppSemanticColors> {
       Color(0xFF2E1D3D),
       Color(0xFFD1A8F0),
     ),
+    invoiceSale: SemanticTone(
+      Color(0xFF81C995),
+      Color(0xFF1B4D2B),
+      Color(0xFFD6F2DD),
+    ),
+    invoiceSaleScrap: SemanticTone(
+      Color(0xFF6FD8CB),
+      Color(0xFF0F4A44),
+      Color(0xFFCDF4EF),
+    ),
+    invoicePurchase: SemanticTone(
+      Color(0xFFB9A5E8),
+      Color(0xFF3A2A66),
+      Color(0xFFE6DDFA),
+    ),
+    invoicePurchaseScrap: SemanticTone(
+      Color(0xFFFFAB91),
+      Color(0xFF6B2A12),
+      Color(0xFFFFE0D4),
+    ),
+    invoiceReturn: SemanticTone(
+      Color(0xFFEF9A9A),
+      Color(0xFF7A1F1F),
+      Color(0xFFFFDAD6),
+    ),
   );
 
   @override
@@ -201,6 +302,23 @@ class AppSemanticColors extends ThemeExtension<AppSemanticColors> {
       karat21: SemanticTone.lerp(karat21, other.karat21, t),
       karat22: SemanticTone.lerp(karat22, other.karat22, t),
       karat24: SemanticTone.lerp(karat24, other.karat24, t),
+      invoiceSale: SemanticTone.lerp(invoiceSale, other.invoiceSale, t),
+      invoiceSaleScrap: SemanticTone.lerp(
+        invoiceSaleScrap,
+        other.invoiceSaleScrap,
+        t,
+      ),
+      invoicePurchase: SemanticTone.lerp(
+        invoicePurchase,
+        other.invoicePurchase,
+        t,
+      ),
+      invoicePurchaseScrap: SemanticTone.lerp(
+        invoicePurchaseScrap,
+        other.invoicePurchaseScrap,
+        t,
+      ),
+      invoiceReturn: SemanticTone.lerp(invoiceReturn, other.invoiceReturn, t),
     );
   }
 }

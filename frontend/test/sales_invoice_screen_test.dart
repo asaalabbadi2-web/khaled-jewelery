@@ -223,7 +223,7 @@ void main() {
 
       await tester.tap(saveButton(), warnIfMissed: false);
       await settle(tester);
-      expect(find.text('مراجعة الفاتورة'), findsNothing);
+      expect(find.text('مراجعة فاتورة بيع'), findsNothing);
       expect(api.added, hasLength(1));
       api.hold!.complete();
       await settle(tester);
@@ -452,7 +452,7 @@ void main() {
         saved: draft(payments: paidInFull),
       );
       await pressCtrlS(tester);
-      expect(find.text('مراجعة الفاتورة'), findsOneWidget);
+      expect(find.text('مراجعة فاتورة بيع'), findsOneWidget);
     });
 
     testWidgets('Ctrl+S is still heard after a field is left with Enter', (
@@ -471,7 +471,7 @@ void main() {
       await tester.pumpAndSettle();
 
       await pressCtrlS(tester);
-      expect(find.text('مراجعة الفاتورة'), findsOneWidget);
+      expect(find.text('مراجعة فاتورة بيع'), findsOneWidget);
     });
 
     testWidgets('the review says what was sold, to whom and what is owed', (
@@ -488,7 +488,7 @@ void main() {
       );
       await pressCtrlS(tester);
 
-      expect(find.text('مراجعة الفاتورة'), findsOneWidget);
+      expect(find.text('مراجعة فاتورة بيع'), findsOneWidget);
       expect(find.textContaining('سلسال'), findsWidgets); // the line
       expect(find.textContaining('مؤسسة الأمل'), findsWidgets);
       expect(
@@ -1023,6 +1023,51 @@ void main() {
       expect(sent['gold_type'], 'scrap');
       expect(sent['safe_box_id'], 31); // the invoice's own, not today's default
       expect(sent['total'], 1200.0);
+    });
+  });
+
+  group('the invoice says what it is (SALES-UX-8)', () {
+    Color barColor(WidgetTester tester) =>
+        tester.widget<AppBar>(find.byType(AppBar)).backgroundColor!;
+
+    Future<void> review(WidgetTester tester) async {
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyS);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+      await settle(tester);
+    }
+
+    testWidgets('a sale has the sale color and names itself in its review', (
+      tester,
+    ) async {
+      await open(
+        tester,
+        api: FakeSalesApi(),
+        saved: draft(payments: paidInFull),
+      );
+      expect(
+        barColor(tester),
+        AppSemanticColors.light.invoice(InvoiceKind.sale).fg,
+      );
+      await review(tester);
+      expect(find.text('مراجعة فاتورة بيع'), findsOneWidget);
+    });
+
+    testWidgets('a scrap sale has its own, and says «بيع كسر»', (
+      tester,
+    ) async {
+      await open(
+        tester,
+        api: FakeSalesApi(),
+        saved: draft(payments: paidInFull),
+        scrap: true,
+      );
+      expect(
+        barColor(tester),
+        AppSemanticColors.light.invoice(InvoiceKind.saleScrap).fg,
+      );
+      await review(tester);
+      expect(find.text('مراجعة فاتورة بيع كسر'), findsOneWidget);
     });
   });
 }

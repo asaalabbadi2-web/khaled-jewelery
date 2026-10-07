@@ -161,6 +161,10 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
     }
   }
 
+  /// What this invoice is: said by the bar's color, the title and the review.
+  InvoiceKind get _kind =>
+      widget.scrap ? InvoiceKind.saleScrap : InvoiceKind.sale;
+
   InvoiceUiContext get _uiContext =>
       widget.scrap ? InvoiceUiContext.scrapSale : InvoiceUiContext.saleNew;
 
@@ -2226,10 +2230,10 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
     );
     return await showAdaptiveInvoiceSummaryDialog<bool>(
           context: context,
-          title: 'مراجعة الفاتورة',
+          title: 'مراجعة فاتورة ${_kind.label}',
           subtitle: 'راجع البيانات الأساسية سريعاً قبل تنفيذ الحفظ.',
           icon: Icons.receipt_long_rounded,
-          accentColor: AppColors.primaryGold,
+          accentColor: AppSemanticColors.of(context).invoice(_kind).fg,
           statusTitle: 'حالة السداد',
           statusMessage: remaining > 0.01
               ? 'متبقي ${remaining.toStringAsFixed(2)} $currency'
@@ -3376,14 +3380,13 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
         );
 
         final readiness = _readiness();
+        final invoiceBar = AppSemanticColors.invoiceBar(context, _kind);
         final scaffold = Scaffold(
           bottomNavigationBar: _buildFooter(theme, readiness),
           appBar: AppBar(
-            backgroundColor: widget.scrap
-                ? AppColors.invoiceSaleScrap
-                : AppColors.invoiceSaleNew,
-            foregroundColor: Colors.white,
-            iconTheme: const IconThemeData(color: Colors.white),
+            backgroundColor: invoiceBar.background,
+            foregroundColor: invoiceBar.foreground,
+            iconTheme: IconThemeData(color: invoiceBar.foreground),
             title: Text(
               widget.scrap
                   ? (_isEditMode

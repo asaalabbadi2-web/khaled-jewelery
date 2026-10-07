@@ -1429,7 +1429,7 @@ class _ScrapPurchaseInvoiceScreenState
 
     return await showAdaptiveInvoiceSummaryDialog<bool>(
           context: context,
-          title: 'مراجعة الفاتورة',
+          title: 'مراجعة فاتورة ${InvoiceKind.purchaseScrap.label}',
           subtitle: 'راجع البيانات الأساسية سريعاً قبل تنفيذ الحفظ.',
           icon: Icons.receipt_long_rounded,
           accentColor: AppColors.primaryGold,
@@ -2106,9 +2106,20 @@ class _ScrapPurchaseInvoiceScreenState
 
         return Scaffold(
           appBar: AppBar(
-            backgroundColor: AppColors.invoicePurchaseScrap,
-            foregroundColor: Colors.white,
-            iconTheme: const IconThemeData(color: Colors.white),
+            backgroundColor: AppSemanticColors.invoiceBar(
+              context,
+              InvoiceKind.purchaseScrap,
+            ).background,
+            foregroundColor: AppSemanticColors.invoiceBar(
+              context,
+              InvoiceKind.purchaseScrap,
+            ).foreground,
+            iconTheme: IconThemeData(
+              color: AppSemanticColors.invoiceBar(
+                context,
+                InvoiceKind.purchaseScrap,
+              ).foreground,
+            ),
             title: const Text('فاتورة شراء الكسر'),
             bottom: PreferredSize(
               preferredSize: const Size.fromHeight(26.0),

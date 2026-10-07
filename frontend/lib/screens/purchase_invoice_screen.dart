@@ -2837,10 +2837,10 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
 
     return await showAdaptiveInvoiceSummaryDialog<bool>(
           context: context,
-          title: 'مراجعة الفاتورة',
+          title: 'مراجعة فاتورة ${_kind.label}',
           subtitle: 'راجع البيانات الأساسية سريعاً قبل تنفيذ الحفظ.',
           icon: Icons.receipt_long_rounded,
-          accentColor: AppColors.primaryGold,
+          accentColor: AppSemanticColors.of(context).invoice(_kind).fg,
           statusTitle: 'حالة التسوية',
           statusMessage: _settlementModeLabel(_settlementMode),
           statusTone: InvoiceSummaryStatusTone.neutral,
@@ -3035,15 +3035,23 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
     );
   }
 
+  /// What this invoice is: said by the bar's color, the title and the review.
+  InvoiceKind get _kind =>
+      _isSupplierReturnMode ? InvoiceKind.returned : InvoiceKind.purchase;
+
   Widget _buildScaffold(
     PurchaseReadiness readiness,
     bool isWideLayout,
     List<Widget> leftColumn,
     List<Widget> rightColumn,
   ) {
+    final invoiceBar = AppSemanticColors.invoiceBar(context, _kind);
     return Scaffold(
       bottomNavigationBar: _buildFooter(readiness),
       appBar: AppBar(
+        backgroundColor: invoiceBar.background,
+        foregroundColor: invoiceBar.foreground,
+        iconTheme: IconThemeData(color: invoiceBar.foreground),
         title: Text(
           _isSupplierReturnMode
               ? 'مرتجع شراء (مورد)'

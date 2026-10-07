@@ -82,6 +82,22 @@ void main() {
         expect(theme.dividerColor, s.outlineVariant);
       });
 
+      // The invoice bar of each type reads, and no two types look alike.
+      for (final kind in InvoiceKind.values) {
+        test('invoice bar ${kind.name} reads', () {
+          final tone = theme.extension<AppSemanticColors>()!.invoice(kind);
+          final dark = theme.brightness == Brightness.dark;
+          final bg = dark ? tone.container : tone.fg;
+          final fg = dark ? tone.onContainer : const Color(0xFFFFFFFF);
+          expect(contrast(fg, bg), greaterThanOrEqualTo(4.5));
+        });
+      }
+      test('the five invoice types have five different colors', () {
+        final sem = theme.extension<AppSemanticColors>()!;
+        final colors = {for (final k in InvoiceKind.values) sem.invoice(k).fg};
+        expect(colors, hasLength(InvoiceKind.values.length));
+      });
+
       final semantic = theme.extension<AppSemanticColors>();
       test('semantic colors are on the theme', () {
         expect(semantic, isNotNull);
