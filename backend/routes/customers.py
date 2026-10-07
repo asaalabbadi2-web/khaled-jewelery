@@ -433,11 +433,7 @@ def add_customer():
             return str(value or '').strip()
 
     requested_name = _norm_name(data.get('name'))
-    cash_customer_aliases = {
-        'عميل نقدي',
-        'نقدي',
-        'عميل كاش',
-    }
+    from models import CASH_CUSTOMER_NAMES as cash_customer_aliases
     if requested_name in cash_customer_aliases:
         try:
             from sqlalchemy import func

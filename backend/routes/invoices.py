@@ -15,6 +15,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import joinedload
 
 from models import (
+    is_cash_customer,
     purchase_cash_obligation,
     db,
     Account,
@@ -4111,6 +4112,21 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
         )
         if payable_total != data_total:
             payable_label = 'النقد المستحق للمورد'
+
+    # A sale that leaves something owed needs a customer who can owe it
+    # (SALES-UX-2, the owner 7 Oct 2026): not the walk-in customer, who is
+    # nobody. 17 sales on the 6 Oct copy were left open on «عميل نقدي».
+    if invoice_type == 'بيع':
+        _paid_now = (sum(_to_float_request(p.get('amount', 0.0)) for p in payments_data)
+                     if isinstance(payments_data, list) else 0.0) + (barter_total or 0.0)
+        if data_total - _paid_now > 0.01:
+            _debtor = Customer.query.get(data.get('customer_id')) if data.get('customer_id') else None
+            if _debtor is None or is_cash_customer(_debtor):
+                return jsonify({
+                    'error': 'credit_needs_customer',
+                    'message': 'البيع الآجل يحتاج عميلًا مسمّى، لا العميل النقدي',
+                    'remaining': round(data_total - _paid_now, 2),
+                }), 400
 
     # إذا كانت هناك وسائل دفع متعددة
     if payments_data and isinstance(payments_data, list) and len(payments_data) > 0:

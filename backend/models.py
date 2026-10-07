@@ -1055,6 +1055,17 @@ class Item(db.Model):
             })
         return report
 
+# The walk-in customer, by the names the company has used for it. One list:
+# POST /customers returns the existing one for these, and a credit sale is
+# refused to it (SALES-UX-2) -- it is nobody who can owe.
+CASH_CUSTOMER_NAMES = frozenset({'عميل نقدي', 'نقدي', 'عميل كاش'})
+
+
+def is_cash_customer(customer):
+    name = ' '.join(str(getattr(customer, 'name', '') or '').split())
+    return name in CASH_CUSTOMER_NAMES
+
+
 def purchase_cash_obligation(*, invoice_type, office_id, total, wage_subtotal,
                              wage_tax_total, gold_tax_total, supplier) -> float:
     """The cash an invoice can be paid -- the one formula (Invoice.cash_obligation,
