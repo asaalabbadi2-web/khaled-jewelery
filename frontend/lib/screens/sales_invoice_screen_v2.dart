@@ -20,9 +20,17 @@ import '../utils.dart';
 import '../utils/arabic_number_formatter.dart';
 import '../utils/invoice_direct_print.dart';
 import '../utils/currency_utils.dart' as cu;
+import '../utils/sales_readiness.dart';
 
 /// شاشة فاتورة البيع - النسخة الهجينة المحسّنة
 /// تجمع بين Smart Input (Progressive) و DataTable (Professional)
+/// The walk-in customer, by the names the server knows it by
+/// (models.CASH_CUSTOMER_NAMES).
+const _cashCustomerNames = {'عميل نقدي', 'نقدي', 'عميل كاش'};
+
+String _foldSpaces(Object? value) =>
+    (value ?? '').toString().trim().split(RegExp(r'\s+')).join(' ');
+
 class SalesInvoiceScreenV2 extends StatefulWidget {
   final List<Map<String, dynamic>> items;
   final List<Map<String, dynamic>> customers;
@@ -49,6 +57,11 @@ class SalesInvoiceScreenV2 extends StatefulWidget {
 
 class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
   late final ApiService _api = widget.apiService ?? ApiService();
+
+  // Where each readiness reason is fixed, to bring it into view.
+  final _customerSectionKey = GlobalKey();
+  final _itemsSectionKey = GlobalKey();
+  final _paymentSectionKey = GlobalKey();
 
   // ==================== Edit Mode ====================
   bool get _isEditMode => widget.editInvoiceId != null;
@@ -2420,35 +2433,35 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
     required double remaining,
     required bool allowPartialPayments,
   }) async {
-    final warnings = <String>[];
-    if (!allowPartialPayments && remaining.abs() > 0.01) {
-      warnings.add('هذا الإعداد يتطلب سداد كامل الفاتورة قبل الحفظ.');
-    }
-    if (remaining > 0.01) {
-      warnings.add('الفاتورة آجل/جزئي: يوجد مبلغ متبقي قبل الإغلاق.');
-    }
-    if (totalCost > 0 && total + 0.01 < totalCost) {
+    final currency = _settingsProvider.currencySymbolText;
+    final warnings = <String>[
+      if (remaining > 0.01)
+        'يبقى ${remaining.toStringAsFixed(2)} $currency آجلًا على «$customerLabel»',
+    ];
+    final priceWarnings = salesPriceWarnings(
+      lines: [
+        for (final i in _items)
+          SalesLineFacts(weight: i.weight, karat: i.karat),
+      ],
+      net: total - totalTax,
+      goldPrice24k: _goldPrice24k,
+      formatCash: (v) => '${v.toStringAsFixed(2)} $currency',
+    );
+    warnings.addAll(priceWarnings);
+    if (priceWarnings.isEmpty && totalCost > 0 && total + 0.01 < totalCost) {
       warnings.add(
         'سعر البيع أقل من التكلفة وقد تحتاج الفاتورة إلى اعتماد مدير.',
       );
     }
-    if (totalWeight > 0 && _goldPrice24k > 0 && total > 0) {
-      final pricePerGram = total / totalWeight;
-      final cur = _settingsProvider.currencySymbolText;
-      if (pricePerGram > _goldPrice24k * 2) {
-        warnings.add(
-          '⚠️ سعر الجرام المحسوب ${pricePerGram.toStringAsFixed(0)} $cur أعلى بكثير من سعر السوق'
-          ' (${_goldPrice24k.toStringAsFixed(0)} $cur/جم). تأكد من صحة المبلغ والوزن.',
-        );
-      } else if (pricePerGram < _goldPrice24k * 0.15) {
-        warnings.add(
-          '⚠️ سعر الجرام المحسوب ${pricePerGram.toStringAsFixed(0)} $cur أقل بكثير من سعر السوق'
-          ' (${_goldPrice24k.toStringAsFixed(0)} $cur/جم). تأكد من صحة المبلغ والوزن.',
-        );
-      }
-    }
-
-    final currency = _settingsProvider.currencySymbolText;
+    final lineDetails = [
+      for (final item in _items)
+        InvoiceSummaryMetricDetail(
+          label:
+              '${item.name} • ${item.karat.toStringAsFixed(0)}k • ${item.weight.toStringAsFixed(3)} جم',
+          value: '${item.totalWithTax.toStringAsFixed(2)} $currency',
+          accentColor: AppSemanticColors.of(context).karat(item.karat.round()).fg,
+        ),
+    ];
     final weightBreakdown = _buildWeightBreakdownLines(
       _items.map((item) => item.toJson()),
     );
@@ -2472,6 +2485,14 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
               icon: Icons.payments_outlined,
               accentColor: AppColors.primaryGold,
               emphasize: true,
+            ),
+            InvoiceSummaryMetric(
+              label: 'الأصناف',
+              value: '$itemsCount',
+              icon: Icons.inventory_2_outlined,
+              accentColor: AppColors.info,
+              fullWidth: true,
+              details: lineDetails,
             ),
             if (remaining > 0.01)
               InvoiceSummaryMetric(
@@ -2516,12 +2537,6 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                 icon: Icons.person_outline_rounded,
                 accentColor: AppColors.info,
               ),
-            InvoiceSummaryMetric(
-              label: 'عدد الأصناف',
-              value: itemsCount.toString(),
-              icon: Icons.inventory_2_outlined,
-              accentColor: AppColors.info,
-            ),
             if (totalTax > 0)
               InvoiceSummaryMetric(
                 label: 'الضريبة',
@@ -2928,7 +2943,6 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
   /// that merely contains «نقد» is a customer, not the cash customer -- and
   /// 21 «عميل نقدي» rows on the 6 Oct copy are not 21 cash customers.
   Map<String, dynamic>? _findCashCustomer() {
-    const names = {'عميل نقدي', 'نقدي', 'عميل كاش'};
     Map<String, dynamic>? best;
     int? bestId;
     var bestActive = false;
@@ -2936,7 +2950,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
       final name = (customer['name'] ?? '').toString().trim().split(
         RegExp(r'\s+'),
       ).join(' ');
-      if (!names.contains(name)) continue;
+      if (!_cashCustomerNames.contains(name)) continue;
       final id = _parseInt(customer['id']);
       if (id == null) continue;
       final active = customer['active'] != false;
@@ -3547,7 +3561,10 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
         final bodyContent = Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            _buildCustomerSection(theme),
+            KeyedSubtree(
+              key: _customerSectionKey,
+              child: _buildCustomerSection(theme),
+            ),
             const SizedBox(height: 24),
             if (isWideLayout)
               Row(
@@ -3558,9 +3575,17 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        _buildSmartInputSection(),
-                        const SizedBox(height: 24),
-                        _buildDataTable(),
+                        KeyedSubtree(
+                          key: _itemsSectionKey,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              _buildSmartInputSection(),
+                              const SizedBox(height: 24),
+                              _buildDataTable(),
+                            ],
+                          ),
+                        ),
                       ],
                     ),
                   ),
@@ -3572,9 +3597,10 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                       children: [
                         _buildActionButtons(),
                         const SizedBox(height: 24),
-                        _buildPaymentSection(),
-                        const SizedBox(height: 20),
-                        _buildSaveButton(theme),
+                        KeyedSubtree(
+                          key: _paymentSectionKey,
+                          child: _buildPaymentSection(),
+                        ),
                         const SizedBox(height: 10),
                       ],
                     ),
@@ -3582,15 +3608,24 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                 ],
               )
             else ...[
-              _buildSmartInputSection(),
-              const SizedBox(height: 24),
-              _buildDataTable(),
+              KeyedSubtree(
+                key: _itemsSectionKey,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    _buildSmartInputSection(),
+                    const SizedBox(height: 24),
+                    _buildDataTable(),
+                  ],
+                ),
+              ),
               const SizedBox(height: 24),
               _buildActionButtons(),
               const SizedBox(height: 24),
-              _buildPaymentSection(),
-              const SizedBox(height: 20),
-              _buildSaveButton(theme),
+              KeyedSubtree(
+                key: _paymentSectionKey,
+                child: _buildPaymentSection(),
+              ),
               const SizedBox(height: 10),
             ],
             const SizedBox(height: 32),
@@ -3598,7 +3633,9 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
           ],
         );
 
-        return Scaffold(
+        final readiness = _readiness();
+        final scaffold = Scaffold(
+          bottomNavigationBar: _buildFooter(theme, readiness),
           appBar: AppBar(
             backgroundColor: AppColors.invoiceSaleNew,
             foregroundColor: Colors.white,
@@ -3765,43 +3802,208 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
             ),
           ),
         );
+
+        return PopScope(
+          canPop: false,
+          onPopInvokedWithResult: (didPop, _) {
+            if (!didPop) _confirmLeave();
+          },
+          child: CallbackShortcuts(
+            bindings: {
+              const SingleActivator(LogicalKeyboardKey.keyS, control: true):
+                  _saveOrExplain,
+              const SingleActivator(LogicalKeyboardKey.keyS, meta: true):
+                  _saveOrExplain,
+            },
+            // A scope, so a field left with Enter hands focus back under
+            // the shortcuts -- not to the route, where Ctrl+S is not heard.
+            child: FocusScope(autofocus: true, child: scaffold),
+          ),
+        );
       },
     );
   }
 
-  /// Saved when there are items and it is paid -- or, with partial payments
-  /// on in the settings, with what remains on the customer's account.
-  Widget _buildSaveButton(ThemeData theme) {
-    final colorScheme = theme.colorScheme;
-    final onCredit = _settingsProvider.allowPartialInvoicePayments;
-    final remaining = _remainingAmount;
-    final paid = (_payments.isNotEmpty || _barterTotal > 0.01) &&
-        remaining <= 0.01;
-    final canSave = _items.isNotEmpty && !_saving && (paid || onCredit);
-    final due =
-        '${remaining.toStringAsFixed(2)} ${_settingsProvider.currencySymbolText}';
-    final label = _saving
-        ? 'جارٍ الحفظ…'
-        : remaining > 0.01 && !onCredit
-        ? 'أكمل الدفع ($due متبقية)'
-        : remaining > 0.01
-        ? 'حفظ الفاتورة — يبقى $due آجلًا'
-        : 'حفظ الفاتورة';
-    return SizedBox(
-      width: double.infinity,
-      child: FilledButton.icon(
-        onPressed: canSave ? _submitInvoice : null,
-        icon: const Icon(Icons.check_circle_outline, size: 24),
-        label: _settingsProvider.buildText(label),
-        style: FilledButton.styleFrom(
-          padding: const EdgeInsets.symmetric(vertical: 18, horizontal: 24),
-          textStyle: theme.textTheme.titleLarge?.copyWith(
-            fontWeight: FontWeight.bold,
+  /// The one answer the footer and the save button read: ready only when the
+  /// server would take the sale as it stands (utils/sales_readiness.dart).
+  SalesReadiness _readiness() {
+    final customerId = _selectedCustomerId;
+    Map<String, dynamic>? customer;
+    if (customerId != null) {
+      for (final c in widget.customers) {
+        if (_parseInt(c['id']) == customerId) customer = c;
+      }
+    }
+    final named =
+        customer != null &&
+        !_cashCustomerNames.contains(_foldSpaces(customer['name']));
+    return salesReadiness(
+      SalesReadinessFacts(
+        branchChosen: _selectedBranchId != null,
+        lines: [
+          for (final i in _items)
+            SalesLineFacts(weight: i.weight, karat: i.karat),
+        ],
+        total: _calculateGrandTotal(),
+        paid: _totalPayments,
+        barter: _barterTotal,
+        partialAllowed: _settingsProvider.allowPartialInvoicePayments,
+        namedCustomer: named,
+      ),
+      formatCash: _formatCurrency,
+    );
+  }
+
+  void _saveOrExplain() {
+    if (_saving) return;
+    final readiness = _readiness();
+    if (readiness.isReady) {
+      _submitInvoice();
+    } else {
+      _revealProblem(readiness);
+    }
+  }
+
+  /// Brings the section holding the reason into view.
+  void _revealProblem(SalesReadiness readiness) {
+    final key = switch (readiness.target) {
+      SalesReadinessTarget.branch ||
+      SalesReadinessTarget.customer => _customerSectionKey,
+      SalesReadinessTarget.items => _itemsSectionKey,
+      SalesReadinessTarget.payment => _paymentSectionKey,
+      SalesReadinessTarget.goldPrice || SalesReadinessTarget.none => null,
+    };
+    final target = key?.currentContext;
+    if (target != null) {
+      Scrollable.ensureVisible(
+        target,
+        duration: const Duration(milliseconds: 250),
+        alignment: 0.1,
+      );
+    }
+  }
+
+  /// Anything entered that leaving would lose.
+  bool get _hasUnsavedWork =>
+      _items.isNotEmpty || _payments.isNotEmpty || _barterLines.isNotEmpty;
+
+  /// Back, the system gesture, the app bar arrow: leave at once when nothing
+  /// was entered, otherwise ask -- the invoice is lost with the screen.
+  Future<void> _confirmLeave() async {
+    if (_saving) return;
+    if (!_hasUnsavedWork) {
+      Navigator.of(context).pop();
+      return;
+    }
+    final canKeepForLater = !_isEditMode;
+    final choice = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('فاتورة غير محفوظة'),
+        content: const Text(
+          'في الفاتورة أصناف أو مبالغ لم تُحفظ. ماذا تريد أن تفعل؟',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop('stay'),
+            child: const Text('متابعة التحرير'),
           ),
-          backgroundColor: colorScheme.primary,
-          foregroundColor: colorScheme.onPrimary,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop('discard'),
+            child: const Text('خروج دون حفظ'),
+          ),
+          if (canKeepForLater)
+            FilledButton(
+              onPressed: () => Navigator.of(dialogContext).pop('later'),
+              child: const Text('إكمال لاحقاً'),
+            ),
+        ],
+      ),
+    );
+    if (!mounted) return;
+    if (choice == 'later') {
+      await _completeLater();
+    } else if (choice == 'discard') {
+      Navigator.of(context).pop();
+    }
+  }
+
+  /// What stands between the seller and a saved sale, and the button that
+  /// saves it -- always in view, never a message that passes.
+  Widget _buildFooter(ThemeData theme, SalesReadiness readiness) {
+    final colorScheme = theme.colorScheme;
+    final tones = AppSemanticColors.of(context);
+    final ready = readiness.isReady;
+    final empty = readiness.kind == SalesReadinessKind.empty;
+    final tone = ready ? tones.ready : (empty ? tones.info : tones.blocked);
+    final remaining = _remainingAmount;
+    final onCredit = ready && remaining > 0.01;
+    final text = _saving
+        ? 'جارٍ الحفظ…'
+        : ready
+        ? (onCredit
+              ? 'جاهز للحفظ — يبقى ${_formatCurrency(remaining)} آجلًا'
+              : 'جاهز للحفظ')
+        : empty
+        ? readiness.message
+        : 'غير جاهز للحفظ — ${readiness.message}';
+    return Material(
+      color: theme.colorScheme.surface,
+      elevation: 8,
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 10),
+          child: Row(
+            children: [
+              Expanded(
+                child: InkWell(
+                  onTap: ready ? null : () => _revealProblem(readiness),
+                  child: Row(
+                    children: [
+                      Icon(
+                        ready
+                            ? Icons.check_circle
+                            : (empty
+                                  ? Icons.info_outline
+                                  : Icons.error_outline),
+                        color: tone.fg,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          text,
+                          style: theme.textTheme.bodyLarge?.copyWith(
+                            color: tone.fg,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(width: 16),
+              FilledButton.icon(
+                onPressed: ready && !_saving ? _submitInvoice : null,
+                icon: const Icon(Icons.check_circle_outline, size: 22),
+                label: _settingsProvider.buildText('حفظ الفاتورة'),
+                style: FilledButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(
+                    vertical: 16,
+                    horizontal: 24,
+                  ),
+                  textStyle: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+                  backgroundColor: colorScheme.primary,
+                  foregroundColor: colorScheme.onPrimary,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+              ),
+            ],
           ),
         ),
       ),
