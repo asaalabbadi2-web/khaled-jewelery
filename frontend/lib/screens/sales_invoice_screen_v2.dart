@@ -16,6 +16,7 @@ import '../widgets/adaptive_invoice_summary_dialog.dart';
 import '../widgets/party_picker_dialog.dart';
 import '../widgets/searchable_picker_field.dart';
 import 'settings_screen_enhanced.dart';
+import '../utils.dart';
 import '../utils/arabic_number_formatter.dart';
 import '../utils/invoice_direct_print.dart';
 import '../utils/currency_utils.dart' as cu;
@@ -30,12 +31,16 @@ class SalesInvoiceScreenV2 extends StatefulWidget {
   final int? editInvoiceId;
   final Map<String, dynamic>? editInvoiceData;
 
+  /// The server; a test hands its own.
+  final ApiService? apiService;
+
   const SalesInvoiceScreenV2({
     super.key,
     required this.items,
     required this.customers,
     this.editInvoiceId,
     this.editInvoiceData,
+    this.apiService,
   });
 
   @override
@@ -43,6 +48,8 @@ class SalesInvoiceScreenV2 extends StatefulWidget {
 }
 
 class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
+  late final ApiService _api = widget.apiService ?? ApiService();
+
   // ==================== Edit Mode ====================
   bool get _isEditMode => widget.editInvoiceId != null;
 
@@ -433,7 +440,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
     });
 
     try {
-      final apiService = ApiService();
+      final apiService = _api;
       final all = await apiService.getSafeBoxes();
       final goldBoxes = all
           .where((b) => b.safeType == 'gold' && b.id != null && b.isActive)
@@ -620,7 +627,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
   // ==================== Data Loading ====================
   Future<void> _loadSettings() async {
     try {
-      final apiService = ApiService();
+      final apiService = _api;
       final priceData = await apiService.getGoldPrice();
       if (!mounted) return;
       setState(() {
@@ -640,7 +647,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
     });
 
     try {
-      final apiService = ApiService();
+      final apiService = _api;
       final raw = await apiService.getBranches(activeOnly: true);
       if (!mounted) return;
 
@@ -717,8 +724,19 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
     if (value == null) return 0.0;
     if (value is double) return value;
     if (value is num) return value.toDouble();
-    return double.tryParse(value.toString()) ?? 0.0;
+    return double.tryParse(normalizeNumber(value.toString()).trim()) ?? 0.0;
   }
+
+  /// An amount as the cashier typed it: Arabic digits, «٫», and a comma as
+  /// the thousands separator. Null when it is not a number -- never «the
+  /// remainder» (an unread amount was recorded as all that was due).
+  double? _readAmount(String text) => double.tryParse(
+    normalizeNumber(text).replaceAll(',', '').replaceAll('،', '').trim(),
+  );
+
+  /// A number typed in a line's field (weight, wage, total, karat).
+  double? _readNumber(String text) =>
+      double.tryParse(normalizeNumber(text).replaceAll(',', '.').trim());
 
   Future<void> _loadAvailableItems() async {
     if (_isLoadingItems) return;
@@ -728,7 +746,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
     });
 
     try {
-      final apiService = ApiService();
+      final apiService = _api;
       final fetched = await apiService.getItems(inStockOnly: true);
       final normalized = fetched
           .whereType<Map<String, dynamic>>()
@@ -758,7 +776,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
   // 🆕 جلب وسائل الدفع النشطة
   Future<void> _loadPaymentMethods() async {
     try {
-      final apiService = ApiService();
+      final apiService = _api;
       final methods = await apiService
           .getActivePaymentMethods(); // ✅ استخدام getActivePaymentMethods بدلاً من getPaymentMethods
       if (!mounted) return;
@@ -825,7 +843,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
 
       final defaultSafeBoxId = method['default_safe_box_id'];
 
-      final apiService = ApiService();
+      final apiService = _api;
       final allBoxes = await apiService.getSafeBoxes();
 
       // Discard this response if the user has since switched to a different
@@ -954,7 +972,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
     });
 
     try {
-      final apiService = ApiService();
+      final apiService = _api;
       final response = await apiService.getGoldCostingSnapshot();
       final snapshot = Map<String, dynamic>.from(response['snapshot'] ?? {});
       final config = Map<String, dynamic>.from(response['config'] ?? {});
@@ -1043,7 +1061,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
           _isLoadingCosting = true;
         });
       }
-      final apiService = ApiService();
+      final apiService = _api;
       await apiService.recomputeGoldCosting();
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1544,32 +1562,27 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
   }
 
   // ==================== Smart Input Processing ====================
-  Map<String, dynamic>? _findItemBySmartInput(String input) {
-    final normalizedInput = input.toLowerCase();
-    final strategies = <bool Function(Map<String, dynamic>)>[
-      (item) {
-        final barcode = item['barcode']?.toString().toLowerCase();
-        return barcode != null && barcode == normalizedInput;
-      },
-      (item) {
-        final code = item['item_code']?.toString().toLowerCase();
-        return code != null && code == normalizedInput;
-      },
-      (item) {
-        final name = item['name']?.toString().toLowerCase();
-        return name?.contains(normalizedInput) ?? false;
-      },
-    ];
-
-    for (final matches in strategies) {
+  /// The piece a barcode or an item code names exactly.
+  Map<String, dynamic>? _findItemByCode(String input) {
+    final code = input.toLowerCase();
+    for (final key in ['barcode', 'item_code']) {
       for (final item in _availableItems) {
-        if (matches(item)) {
-          return item;
-        }
+        if (item[key]?.toString().toLowerCase() == code) return item;
       }
     }
-
     return null;
+  }
+
+  /// The pieces whose name holds [input]. Each piece is unique: when several
+  /// share it, the seller chooses -- the first was added unseen.
+  List<Map<String, dynamic>> _findItemsByName(String input) {
+    final part = input.toLowerCase();
+    return _availableItems
+        .where(
+          (item) =>
+              item['name']?.toString().toLowerCase().contains(part) ?? false,
+        )
+        .toList();
   }
 
   Future<void> _processSmartInput(String input) async {
@@ -1588,14 +1601,22 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
     }
 
     try {
-      final foundItem = _findItemBySmartInput(normalizedInput);
+      var foundItem = _findItemByCode(normalizedInput);
+      if (foundItem == null) {
+        final byName = _findItemsByName(normalizedInput);
+        if (byName.length > 1) {
+          await _showItemSelectionDialog(initialQuery: normalizedInput);
+          return;
+        }
+        if (byName.length == 1) foundItem = byName.single;
+      }
 
       if (foundItem != null && foundItem.isNotEmpty) {
-        await _addItemFromData(foundItem);
+        final added = await _addItemFromData(foundItem);
         _smartInputController.clear();
         _smartInputFocus.requestFocus();
 
-        if (mounted) {
+        if (added && mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text('✅ تمت إضافة: ${foundItem['name']}'),
@@ -1612,15 +1633,28 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
     }
   }
 
-  Future<void> _addItemFromData(Map<String, dynamic> itemData) async {
-    if (!mounted) return;
+  /// Whether the piece went into the invoice.
+  Future<bool> _addItemFromData(Map<String, dynamic> itemData) async {
+    if (!mounted) return false;
+
+    final pieceName = (itemData['name'] ?? '').toString();
+    final pieceId = _parseInt(itemData['id']);
+    if (pieceId != null && _items.any((i) => i.id == pieceId)) {
+      _showError('«$pieceName» مضافة في الفاتورة؛ كل قطعة تُباع مرة');
+      return false;
+    }
+    // A piece is sold at its recorded weight; 10 g was put in its place.
+    if (_parseDouble(itemData['weight']) <= 0) {
+      _showError('«$pieceName» بلا وزن مسجّل؛ صحّح وزنها في شاشة الأصناف');
+      return false;
+    }
 
     // الحصول على الإعدادات بشكل آمن
     final settings = Provider.of<SettingsProvider>(context, listen: false);
 
     // تحديث سعر الذهب قبل إضافة الصنف
     try {
-      final apiService = ApiService();
+      final apiService = _api;
       final priceData = await apiService.getGoldPrice();
       final newPrice = _parseDouble(priceData['price_24k']);
       if (newPrice > 0) {
@@ -1660,11 +1694,9 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
     double wage = _parseDouble(itemData['wage']);
     bool wageLocked = false;
 
-    // تحويل آمن للوزن
-    double weight = _parseDouble(itemData['weight']);
-    if (weight <= 0) weight = 10.0; // افتراضي إذا لم يكن موجود
+    final weight = _parseDouble(itemData['weight']);
 
-    if (!mounted) return;
+    if (!mounted) return false;
 
     final itemId = _parseInt(itemData['id']);
     String? categoryName = itemData['category_name'] as String?;
@@ -1717,6 +1749,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
     });
 
     _recomputeCostingPreview();
+    return true;
   }
 
   Future<void> _showManualItemDialog() async {
@@ -1855,9 +1888,9 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                           FilteringTextInputFormatter.digitsOnly,
                         ],
                         decoration: const InputDecoration(
-                          labelText: 'العدد (الكمية)',
+                          labelText: 'العدد',
                           prefixIcon: Icon(Icons.numbers),
-                          helperText: 'عدد القطع لهذا الصنف',
+                          helperText: 'للبيان فقط، لا يُضرب في الوزن',
                         ),
                         validator: (value) {
                           final count = int.tryParse(value ?? '');
@@ -1908,8 +1941,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                           ),
                         ],
                         decoration: const InputDecoration(
-                          labelText: 'وزن القطعة الواحدة (جم)',
-                          hintText: 'سيُضرب في العدد تلقائياً',
+                          labelText: 'الوزن الكلي للسطر (جم)',
                           prefixIcon: Icon(Icons.scale),
                         ),
                         validator: (value) {
@@ -2053,7 +2085,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
     });
 
     try {
-      final api = ApiService();
+      final api = _api;
       final raw = await api.getCategories();
       final parsed = raw
           .whereType<Map>()
@@ -2296,7 +2328,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
               ),
               textInputAction: TextInputAction.done,
               onSubmitted: (_) {
-                final target = double.tryParse(controller.text);
+                final target = _readAmount(controller.text);
                 if (target != null && target > 0) {
                   _distributeAmount(target);
                   Navigator.pop(dialogContext);
@@ -2317,7 +2349,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
           ),
           ElevatedButton(
             onPressed: () {
-              final target = double.tryParse(controller.text);
+              final target = _readAmount(controller.text);
               if (target != null && target > 0) {
                 _distributeAmount(target);
                 Navigator.pop(dialogContext);
@@ -2529,7 +2561,21 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
         false;
   }
 
+  /// From the press to the server's answer, including the review: a second
+  /// press saved a second invoice while the first was in flight.
+  bool _saving = false;
+
   Future<void> _submitInvoice() async {
+    if (_saving) return;
+    setState(() => _saving = true);
+    try {
+      await _submitInvoiceOnce();
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  Future<void> _submitInvoiceOnce() async {
     if (_items.isEmpty) {
       _showError('يرجى إضافة أصناف للفاتورة');
       return;
@@ -2612,7 +2658,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
     final suppressPostSaveApprovalWarning = false;
 
     try {
-      final apiService = ApiService();
+      final apiService = _api;
 
       // إذا لم يتم اختيار عميل، استخدم عميل "نقدي" (ID = 1)
       int customerId = _selectedCustomerId ?? 1;
@@ -2620,7 +2666,8 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
       Map<String, dynamic>? cashCustomer = _findCashCustomer();
 
       if (_selectedCustomerId == null) {
-        cashCustomer ??= await _getOrCreateCashCustomer(promptIfMissing: false);
+        // The server keeps one: asked to create it, it returns the one there.
+        cashCustomer ??= await _createCashCustomerRecord();
         if (cashCustomer == null || cashCustomer['id'] == null) {
           _showError(
             'لا يوجد عميل نقدي متاح. يرجى إنشاء عميل نقدي أو اختيار عميل محدد للمتابعة.',
@@ -2869,96 +2916,45 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
   // ==================== Helpers ====================
   void _showError(String message) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
       SnackBar(content: Text(message), backgroundColor: AppColors.error),
     );
   }
 
+  /// The company's one cash customer, as the server picks it (routes/
+  /// customers.py): the name exactly, the active first, the oldest. A name
+  /// that merely contains «نقد» is a customer, not the cash customer -- and
+  /// 21 «عميل نقدي» rows on the 6 Oct copy are not 21 cash customers.
   Map<String, dynamic>? _findCashCustomer() {
+    const names = {'عميل نقدي', 'نقدي', 'عميل كاش'};
+    Map<String, dynamic>? best;
+    int? bestId;
+    var bestActive = false;
     for (final customer in widget.customers) {
-      final rawId = customer['id'];
-      final id = rawId is int ? rawId : int.tryParse(rawId.toString());
+      final name = (customer['name'] ?? '').toString().trim().split(
+        RegExp(r'\s+'),
+      ).join(' ');
+      if (!names.contains(name)) continue;
+      final id = _parseInt(customer['id']);
       if (id == null) continue;
-
-      if (_isCashCustomerEntry(customer)) {
-        return {...customer, 'id': id};
+      final active = customer['active'] != false;
+      final better = best == null ||
+          (active && !bestActive) ||
+          (active == bestActive && id < bestId!);
+      if (better) {
+        best = {...customer, 'id': id};
+        bestId = id;
+        bestActive = active;
       }
     }
-    return null;
-  }
-
-  bool _isCashCustomerEntry(Map<String, dynamic>? customer) {
-    if (customer == null) return false;
-    final name = customer['name']?.toString().toLowerCase() ?? '';
-    final code = customer['customer_code']?.toString().toLowerCase() ?? '';
-    return _containsCashKeyword(name) || _containsCashKeyword(code);
-  }
-
-  bool _containsCashKeyword(String value) {
-    if (value.isEmpty) return false;
-    return value.contains('نقد') ||
-        value.contains('كاش') ||
-        value.contains('cash');
-  }
-
-  Future<Map<String, dynamic>?> _getOrCreateCashCustomer({
-    bool promptIfMissing = true,
-  }) async {
-    final existing = _findCashCustomer();
-    if (existing != null) return existing;
-
-    if (!promptIfMissing) {
-      return _createCashCustomerRecord();
-    }
-
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
-
-    final shouldCreate =
-        await showDialog<bool>(
-          context: context,
-          builder: (dialogContext) {
-            return AlertDialog(
-              backgroundColor: colorScheme.surface,
-              title: Text(
-                'لا يوجد عميل نقدي',
-                style: theme.textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              content: Text(
-                'لا يوجد عميل نقدي في قائمة العملاء الحالية. هل ترغب في إنشاء عميل نقدي افتراضي الآن؟',
-                style: theme.textTheme.bodyMedium,
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(dialogContext, false),
-                  child: Text('إلغاء', style: theme.textTheme.bodyMedium),
-                ),
-                FilledButton(
-                  style: FilledButton.styleFrom(
-                    backgroundColor: AppColors.success,
-                    foregroundColor: Colors.white,
-                  ),
-                  onPressed: () => Navigator.pop(dialogContext, true),
-                  child: const Text('إنشاء عميل نقدي'),
-                ),
-              ],
-            );
-          },
-        ) ??
-        false;
-
-    if (!shouldCreate) {
-      return null;
-    }
-
-    return _createCashCustomerRecord();
+    return best;
   }
 
   Future<Map<String, dynamic>?> _createCashCustomerRecord() async {
     try {
-      final api = ApiService();
+      final api = _api;
       final payload = {
         'name': 'عميل نقدي',
         'phone': '',
@@ -3197,7 +3193,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
       context,
       MaterialPageRoute(
         builder: (_) => AddCustomerScreen(
-          api: ApiService(),
+          api: _api,
           enforceIdentityFields: false,
           onCustomerSaved: (saved) {
             if (!mounted) return;
@@ -3231,7 +3227,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
     }
   }
 
-  Future<void> _showItemSelectionDialog() async {
+  Future<void> _showItemSelectionDialog({String initialQuery = ''}) async {
     if (_availableItems.isEmpty && !_isLoadingItems) {
       await _loadAvailableItems();
     }
@@ -3253,7 +3249,8 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
 
-    String searchQuery = '';
+    String searchQuery = initialQuery;
+    final searchController = TextEditingController(text: initialQuery);
     String? karatFilter;
     String sortMode = 'weight_desc';
 
@@ -3351,6 +3348,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     TextField(
+                      controller: searchController,
                       decoration: InputDecoration(
                         labelText: 'بحث بالاسم، الكود أو الباركود',
                         prefixIcon: const Icon(Icons.search),
@@ -3358,6 +3356,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                             ? IconButton(
                                 icon: const Icon(Icons.clear),
                                 onPressed: () {
+                                  searchController.clear();
                                   setDialogState(() => searchQuery = '');
                                 },
                               )
@@ -3542,11 +3541,8 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
     return Consumer<SettingsProvider>(
       builder: (context, settings, child) {
         final theme = Theme.of(context);
-        final colorScheme = theme.colorScheme;
         final size = MediaQuery.of(context).size;
         final isWideLayout = size.width >= 1100;
-
-        final hasAnySettlement = _payments.isNotEmpty || _barterTotal > 0.01;
 
         final bodyContent = Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -3578,41 +3574,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                         const SizedBox(height: 24),
                         _buildPaymentSection(),
                         const SizedBox(height: 20),
-                        // زر الحفظ أسفل بطاقة الإجماليات
-                        SizedBox(
-                          width: double.infinity,
-                          child: FilledButton.icon(
-                            onPressed:
-                                _items.isEmpty ||
-                                    !hasAnySettlement ||
-                                    _remainingAmount > 0.01
-                                ? null
-                                : _submitInvoice,
-                            icon: const Icon(
-                              Icons.check_circle_outline,
-                              size: 24,
-                            ),
-                            label: _settingsProvider.buildText(
-                              _remainingAmount > 0.01
-                                  ? 'أكمل الدفع (${_remainingAmount.toStringAsFixed(2)} ${_settingsProvider.currencySymbolText} متبقية)'
-                                  : 'حفظ الفاتورة',
-                            ),
-                            style: FilledButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(
-                                vertical: 18,
-                                horizontal: 24,
-                              ),
-                              textStyle: theme.textTheme.titleLarge?.copyWith(
-                                fontWeight: FontWeight.bold,
-                              ),
-                              backgroundColor: colorScheme.primary,
-                              foregroundColor: colorScheme.onPrimary,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                            ),
-                          ),
-                        ),
+                        _buildSaveButton(theme),
                         const SizedBox(height: 10),
                       ],
                     ),
@@ -3628,38 +3590,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
               const SizedBox(height: 24),
               _buildPaymentSection(),
               const SizedBox(height: 20),
-              // زر الحفظ مباشرة أسفل بطاقة الإجماليات
-              SizedBox(
-                width: double.infinity,
-                child: FilledButton.icon(
-                  onPressed:
-                      _items.isEmpty ||
-                          !hasAnySettlement ||
-                          _remainingAmount > 0.01
-                      ? null
-                      : _submitInvoice,
-                  icon: const Icon(Icons.check_circle_outline, size: 24),
-                  label: _settingsProvider.buildText(
-                    _remainingAmount > 0.01
-                        ? 'أكمل الدفع (${_remainingAmount.toStringAsFixed(2)} ${_settingsProvider.currencySymbolText} متبقية)'
-                        : 'حفظ الفاتورة',
-                  ),
-                  style: FilledButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(
-                      vertical: 18,
-                      horizontal: 24,
-                    ),
-                    textStyle: theme.textTheme.titleLarge?.copyWith(
-                      fontWeight: FontWeight.bold,
-                    ),
-                    backgroundColor: colorScheme.primary,
-                    foregroundColor: colorScheme.onPrimary,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
-                ),
-              ),
+              _buildSaveButton(theme),
               const SizedBox(height: 10),
             ],
             const SizedBox(height: 32),
@@ -3835,6 +3766,45 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
           ),
         );
       },
+    );
+  }
+
+  /// Saved when there are items and it is paid -- or, with partial payments
+  /// on in the settings, with what remains on the customer's account.
+  Widget _buildSaveButton(ThemeData theme) {
+    final colorScheme = theme.colorScheme;
+    final onCredit = _settingsProvider.allowPartialInvoicePayments;
+    final remaining = _remainingAmount;
+    final paid = (_payments.isNotEmpty || _barterTotal > 0.01) &&
+        remaining <= 0.01;
+    final canSave = _items.isNotEmpty && !_saving && (paid || onCredit);
+    final due =
+        '${remaining.toStringAsFixed(2)} ${_settingsProvider.currencySymbolText}';
+    final label = _saving
+        ? 'جارٍ الحفظ…'
+        : remaining > 0.01 && !onCredit
+        ? 'أكمل الدفع ($due متبقية)'
+        : remaining > 0.01
+        ? 'حفظ الفاتورة — يبقى $due آجلًا'
+        : 'حفظ الفاتورة';
+    return SizedBox(
+      width: double.infinity,
+      child: FilledButton.icon(
+        onPressed: canSave ? _submitInvoice : null,
+        icon: const Icon(Icons.check_circle_outline, size: 24),
+        label: _settingsProvider.buildText(label),
+        style: FilledButton.styleFrom(
+          padding: const EdgeInsets.symmetric(vertical: 18, horizontal: 24),
+          textStyle: theme.textTheme.titleLarge?.copyWith(
+            fontWeight: FontWeight.bold,
+          ),
+          backgroundColor: colorScheme.primary,
+          foregroundColor: colorScheme.onPrimary,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+        ),
+      ),
     );
   }
 
@@ -5012,50 +4982,76 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
         break;
     }
 
+    /// Why the typed value is not taken, or null when it is.
+    String? refusal(double? value) {
+      if (value == null) return 'اكتب رقمًا';
+      switch (field) {
+        case 'karat':
+          return const [18.0, 21.0, 22.0, 24.0].contains(value)
+              ? null
+              : 'العيار 18 أو 21 أو 22 أو 24';
+        case 'weight':
+        case 'total':
+          return value > 0 ? null : 'أكبر من صفر';
+        default:
+          return value >= 0 ? null : 'لا يكون سالبًا';
+      }
+    }
+
+    String? error;
     await showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Text(title),
-        content: TextField(
-          controller: controller,
-          autofocus: true,
-          keyboardType: const TextInputType.numberWithOptions(decimal: true),
-          onTap: () => controller.selection = TextSelection(
-            baseOffset: 0,
-            extentOffset: controller.text.length,
-          ),
-          decoration: InputDecoration(
-            labelText: label,
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-          ),
-          onSubmitted: (value) {
-            final numValue = double.tryParse(value);
-            if (numValue != null) {
-              _updateItem(index, field, numValue);
-              Navigator.pop(context);
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          void take() {
+            final value = _readNumber(controller.text);
+            final why = refusal(value);
+            if (why != null) {
+              setDialogState(() => error = why);
+              return;
             }
-          },
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('إلغاء'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              final value = double.tryParse(controller.text);
-              if (value != null) {
-                _updateItem(index, field, value);
-                Navigator.pop(context);
-              }
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: colorScheme.primary,
-              foregroundColor: colorScheme.onPrimary,
+            _updateItem(index, field, value!);
+            Navigator.pop(context);
+          }
+
+          return AlertDialog(
+            title: Text(title),
+            content: TextField(
+              controller: controller,
+              autofocus: true,
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
+              inputFormatters: [NormalizeNumberFormatter()],
+              onTap: () => controller.selection = TextSelection(
+                baseOffset: 0,
+                extentOffset: controller.text.length,
+              ),
+              decoration: InputDecoration(
+                labelText: label,
+                errorText: error,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+              onSubmitted: (_) => take(),
             ),
-            child: const Text('حفظ'),
-          ),
-        ],
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('إلغاء'),
+              ),
+              ElevatedButton(
+                onPressed: take,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: colorScheme.primary,
+                  foregroundColor: colorScheme.onPrimary,
+                ),
+                child: const Text('حفظ'),
+              ),
+            ],
+          );
+        },
       ),
     );
   }
@@ -5143,7 +5139,10 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Column(
+                // The weight line is long; it wraps rather than overflow the
+                // side column.
+                Expanded(
+                  child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
@@ -5198,6 +5197,8 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                     ),
                   ],
                 ),
+                ),
+                const SizedBox(width: 8),
                 _settingsProvider.buildText(
                   '${grandTotal.toStringAsFixed(2)} ${_settingsProvider.currencySymbolText}',
                   style: theme.textTheme.headlineMedium?.copyWith(
@@ -6289,6 +6290,15 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                               Expanded(
                                 child: TextField(
                                   controller: _customAmountController,
+                                  inputFormatters: [
+                                    NormalizeNumberFormatter(),
+                                    FilteringTextInputFormatter.deny(
+                                      RegExp('[,،]'),
+                                    ),
+                                    FilteringTextInputFormatter.allow(
+                                      RegExp(r'^[0-9]*\.?[0-9]*$'),
+                                    ),
+                                  ],
                                   decoration: InputDecoration(
                                     labelText: 'المبلغ',
                                     labelStyle: theme.textTheme.bodyMedium
@@ -6365,9 +6375,17 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                             return;
                           }
 
-                          final customAmount = double.tryParse(
-                            _customAmountController.text,
-                          );
+                          // Empty pays what remains; anything else must read.
+                          final typed = _customAmountController.text.trim();
+                          final customAmount = typed.isEmpty
+                              ? null
+                              : _readAmount(typed);
+                          if (typed.isNotEmpty && customAmount == null) {
+                            _showError(
+                              'لم يُقرأ المبلغ «$typed»؛ اكتبه أرقامًا فقط',
+                            );
+                            return;
+                          }
                           _addPayment(customAmount: customAmount);
                         },
                         icon: const Icon(Icons.add_circle, size: 20),
@@ -7421,7 +7439,7 @@ class _CategoryLineDialogState extends State<_CategoryLineDialog> {
                                     extentOffset: _weightController.text.length,
                                   ),
                               decoration: InputDecoration(
-                                labelText: 'الوزن (جم)',
+                                labelText: 'الوزن الكلي للسطر (جم)',
                                 border: OutlineInputBorder(
                                   borderRadius: BorderRadius.circular(12),
                                 ),
@@ -7515,6 +7533,7 @@ class _CategoryLineDialogState extends State<_CategoryLineDialog> {
                               decoration: InputDecoration(
                                 labelText: 'العدد',
                                 hintText: '1',
+                                helperText: 'للبيان فقط، لا يُضرب في الوزن',
                                 border: OutlineInputBorder(
                                   borderRadius: BorderRadius.circular(12),
                                 ),
