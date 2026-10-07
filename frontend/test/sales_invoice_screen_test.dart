@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:frontend/providers/auth_provider.dart';
 import 'package:frontend/providers/sales_race_refresh_provider.dart';
+import 'package:frontend/models/safe_box_model.dart';
 import 'package:frontend/providers/settings_provider.dart';
 import 'package:frontend/screens/sales_invoice_screen_v2.dart';
 import 'package:frontend/theme/app_theme.dart';
@@ -152,10 +153,8 @@ void main() {
     matching: find.byWidgetPredicate((w) => w is FilledButton),
   );
 
-  Finder addPaymentButton() => find.ancestor(
-    of: find.text('إضافة'),
-    matching: find.byWidgetPredicate((w) => w is ElevatedButton),
-  );
+  /// Paying is a method's button: it takes the amount typed, or what remains.
+  Finder addPaymentButton() => find.byKey(const Key('quick-pay-1'));
 
   group('money as typed (stage 1)', () {
     testWidgets('an amount typed in Arabic digits is the amount paid, not '
@@ -379,8 +378,8 @@ void main() {
       expect(find.text('21'), findsWidgets);
     });
 
-    testWidgets('the manual line says its weight is the line\'s, and the '
-        'count is a note', (tester) async {
+    testWidgets('the manual line says its weight is the line\'s, and does '
+        'not say the count multiplies it', (tester) async {
       await open(tester, api: FakeSalesApi());
 
       await tester.tap(find.byTooltip('إضافة صنف يدوي'));
@@ -388,7 +387,7 @@ void main() {
 
       expect(find.text('الوزن الكلي للسطر (جم)'), findsOneWidget);
       expect(find.textContaining('سيُضرب'), findsNothing);
-      expect(find.text('للبيان فقط، لا يُضرب في الوزن'), findsOneWidget);
+      expect(find.text('العدد'), findsWidgets);
     });
   });
 
@@ -459,8 +458,8 @@ void main() {
         saved: draft(payments: paidInFull),
       );
       await tester.enterText(
-        find.widgetWithText(TextField, 'المبلغ'),
-        '5',
+        find.widgetWithText(TextField, 'امسح الباركود أو ابحث...'),
+        'لا شيء',
       );
       await tester.testTextInput.receiveAction(TextInputAction.done);
       await tester.pumpAndSettle();
@@ -608,7 +607,7 @@ void main() {
       await weigh(tester, '63.4');
 
       expect(find.widgetWithText(TextField, '63.400'), findsOneWidget);
-      expect(find.text('للبيان فقط، لا يُضرب في الوزن'), findsWidgets);
+      expect(find.text('العدد'), findsWidgets);
     });
 
     testWidgets('without a category nothing is added, and it says so', (
@@ -737,6 +736,148 @@ void main() {
         ],
       );
       expect(find.textContaining('مؤسسة الأمل'), findsOneWidget);
+    });
+  });
+
+  group('one way to pay, any number of methods (stage 4b)', () {
+    const methods = [
+      {'id': 1, 'name': 'نقداً', 'payment_type': 'cash', 'commission_rate': 0, 'display_order': 1},
+      {'id': 2, 'name': 'مدى', 'payment_type': 'mada', 'commission_rate': 0, 'display_order': 2},
+      {'id': 3, 'name': 'تمارا', 'payment_type': 'tamara', 'commission_rate': 0, 'display_order': 5},
+      {'id': 4, 'name': 'تحويل', 'payment_type': 'bank_transfer', 'commission_rate': 0, 'display_order': 999},
+    ];
+
+    Future<void> pay(WidgetTester tester, String amount, int method) async {
+      if (amount.isNotEmpty) {
+        await tester.enterText(find.widgetWithText(TextField, 'المبلغ'), amount);
+      }
+      await tester.tap(find.byKey(Key('quick-pay-$method')));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('the old picker and its add button are gone', (tester) async {
+      await open(tester, api: FakeSalesApi(methods: methods), saved: draft());
+
+      expect(find.text('إضافة وسيلة دفع'), findsNothing);
+      expect(find.text('اختر وسيلة الدفع'), findsNothing);
+      expect(find.byType(DropdownButtonFormField<int>), findsOneWidget); // the branch
+    });
+
+    testWidgets('three methods: two amounts typed, the last takes the rest', (
+      tester,
+    ) async {
+      final api = FakeSalesApi(methods: methods);
+      await open(tester, api: api, saved: draft(total: 10000));
+
+      await pay(tester, '3000', 1);
+      expect(find.textContaining('المتبقي: 7000.00'), findsOneWidget);
+      await pay(tester, '٤٠٠٠', 2);
+      await pay(tester, '', 3);
+
+      expect(find.textContaining('تم الدفع بالكامل'), findsOneWidget);
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyS);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+      await settle(tester);
+      await tester.tap(find.text('حفظ الفاتورة').last);
+      await settle(tester);
+      final paid = (api.added.single['payments'] as List)
+          .map((p) => [(p as Map)['payment_method_id'], p['amount']])
+          .toList();
+      expect(paid, [
+        [1, 3000.0],
+        [2, 4000.0],
+        [3, 3000.0],
+      ]);
+    });
+
+    testWidgets('the same method twice is two payments', (tester) async {
+      await open(tester, api: FakeSalesApi(methods: methods), saved: draft());
+
+      await pay(tester, '600', 2);
+      await pay(tester, '', 2);
+
+      expect(find.textContaining('تم الدفع بالكامل'), findsOneWidget);
+    });
+
+    testWidgets('more than what remains is refused', (tester) async {
+      await open(tester, api: FakeSalesApi(methods: methods), saved: draft());
+
+      await pay(tester, '2000', 1);
+
+      expect(find.textContaining('أكبر من المتبقي'), findsOneWidget);
+      expect(find.textContaining('المتبقي: 1000.00'), findsOneWidget);
+    });
+
+    testWidgets('the field shows what remains while it is empty', (
+      tester,
+    ) async {
+      await open(tester, api: FakeSalesApi(methods: methods), saved: draft());
+      await pay(tester, '250', 1);
+
+      final field = tester.widget<TextField>(
+        find.widgetWithText(TextField, 'المبلغ'),
+      );
+      expect(field.controller!.text, isEmpty);
+      expect(field.decoration!.hintText, '750.00');
+    });
+
+    testWidgets('Alt+1 pays with the first method', (tester) async {
+      await open(tester, api: FakeSalesApi(methods: methods), saved: draft());
+
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.altLeft);
+      await tester.sendKeyEvent(LogicalKeyboardKey.digit1);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.altLeft);
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('تم الدفع بالكامل'), findsOneWidget);
+      expect(find.textContaining('نقداً'), findsWidgets);
+    });
+
+    testWidgets('the first two in the settings\' order stand out', (
+      tester,
+    ) async {
+      await open(
+        tester,
+        api: FakeSalesApi(methods: methods.reversed.toList()),
+        saved: draft(),
+      );
+
+      bool filled(int id) =>
+          tester.widget(find.byKey(Key('quick-pay-$id'))) is FilledButton;
+      expect(filled(1), isTrue);
+      expect(filled(2), isTrue);
+      expect(filled(3), isFalse);
+      expect(filled(4), isFalse);
+    });
+
+    testWidgets('a payment\'s safe is its method\'s default, and is changed '
+        'on its line', (tester) async {
+      final api = FakeSalesApi(
+        methods: methods,
+        safes: [
+          SafeBoxModel(id: 7, name: 'صندوق الفرع', safeType: 'cash', accountId: 70, isDefault: true),
+          SafeBoxModel(id: 8, name: 'صندوق الموظف', safeType: 'cash', accountId: 80),
+        ],
+      );
+      await open(tester, api: api, saved: draft(customerId: null));
+
+      await pay(tester, '', 1);
+      expect(find.text('صندوق الفرع'), findsOneWidget);
+
+      await tester.tap(find.text('صندوق الفرع'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('صندوق الموظف').last);
+      await tester.pumpAndSettle();
+      expect(find.text('صندوق الموظف'), findsOneWidget);
+
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyS);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+      await settle(tester);
+      await tester.tap(find.text('حفظ الفاتورة').last);
+      await settle(tester);
+      expect((api.added.single['payments'] as List).single['safe_box_id'], 8);
     });
   });
 }

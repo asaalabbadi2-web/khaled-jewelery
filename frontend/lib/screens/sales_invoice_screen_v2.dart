@@ -126,6 +126,9 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
   int? _selectedBarterGoldDepositSafeBoxId;
   bool _isLoadingBarterGoldDepositSafeBoxes = false;
 
+  /// The name of each safe seen, for the payment lines.
+  final Map<int, String> _safeNames = {};
+
   // Safe Boxes - 🆕 الخزائن المتاحة للدفع
   List<SafeBoxModel> _safeBoxes = [];
   int? _selectedSafeBoxId; // الخزينة المختارة للدفعة الحالية
@@ -847,6 +850,9 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
 
       final apiService = _api;
       final allBoxes = await apiService.getSafeBoxes();
+      for (final b in allBoxes) {
+        if (b.id != null) _safeNames[b.id!] = b.name;
+      }
 
       // Discard this response if the user has since switched to a different
       // payment method while we were waiting on the network -- otherwise an
@@ -1640,7 +1646,6 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                         decoration: const InputDecoration(
                           labelText: 'العدد',
                           prefixIcon: Icon(Icons.numbers),
-                          helperText: 'للبيان فقط، لا يُضرب في الوزن',
                         ),
                         validator: (value) {
                           final count = int.tryParse(value ?? '');
@@ -2893,25 +2898,6 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
     }
   }
 
-  Color _getPaymentColor(String paymentType) {
-    switch (paymentType) {
-      case 'cash':
-        return AppColors.success;
-      case 'bank_transfer':
-        return AppColors.info;
-      case 'credit_card':
-        return AppColors.karat24;
-      case 'mada':
-        return AppColors.karat22;
-      case 'check':
-        return AppColors.warning;
-      case 'other':
-        return Colors.grey;
-      default:
-        return AppColors.primaryGold;
-    }
-  }
-
   // Open AddCustomerScreen for adding a new customer (no identity enforcement for standard sales)
   Future<void> _addNewCustomer() async {
     final result = await Navigator.push<bool?>(
@@ -3524,6 +3510,11 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                   _saveOrExplain,
               const SingleActivator(LogicalKeyboardKey.keyS, meta: true):
                   _saveOrExplain,
+              for (var n = 1; n <= 9; n++)
+                SingleActivator(
+                  LogicalKeyboardKey(LogicalKeyboardKey.digit0.keyId + n),
+                  alt: true,
+                ): () => _payWithShortcut(n),
             },
             // A scope, so a field left with Enter hands focus back under
             // the shortcuts -- not to the route, where Ctrl+S is not heard.
@@ -4758,29 +4749,9 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                 ),
               ],
             ),
-            if (_items.isNotEmpty &&
-                _remainingAmount > 0.01 &&
-                _paymentMethods.isNotEmpty) ...[
+            if (_items.isNotEmpty && _remainingAmount > 0.01) ...[
               const SizedBox(height: 12),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  for (final method in _paymentMethods)
-                    FilledButton.tonalIcon(
-                      key: Key('quick-pay-${method['id']}'),
-                      onPressed: () => _payWith(method['id'] as int),
-                      icon: Icon(
-                        _getPaymentIcon(method['payment_type'] ?? ''),
-                        size: 18,
-                      ),
-                      label: Text(
-                        '${method['name'] ?? ''}'
-                        '${(method['commission_rate'] ?? 0) > 0 ? ' (${method['commission_rate']}%)' : ''}',
-                      ),
-                    ),
-                ],
-              ),
+              _buildPayBox(theme),
             ],
             const SizedBox(height: 16),
 
@@ -4951,6 +4922,27 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                                       fontWeight: FontWeight.w600,
                                     ),
                                   ),
+                                  if (payment.safeBoxId != null)
+                                    InkWell(
+                                      onTap: () => _changePaymentSafe(index),
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Flexible(
+                                            child: Text(
+                                              _safeNames[payment.safeBoxId] ??
+                                                  'خزينة ${payment.safeBoxId}',
+                                              style: theme.textTheme.bodySmall
+                                                  ?.copyWith(
+                                                    decoration: TextDecoration
+                                                        .underline,
+                                                  ),
+                                            ),
+                                          ),
+                                          const Icon(Icons.edit, size: 12),
+                                        ],
+                                      ),
+                                    ),
                                   if (payment.commissionRate > 0)
                                     Container(
                                       margin: const EdgeInsets.only(top: 4),
@@ -5396,514 +5388,172 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
 
             const SizedBox(height: 16),
 
-            // 🆕 إضافة وسيلة دفع جديدة
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: colorScheme.primary.withValues(
-                  alpha: isDark ? 0.15 : 0.12,
-                ),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(
-                  color: colorScheme.primary.withValues(alpha: 0.4),
-                  width: 2,
-                ),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'إضافة وسيلة دفع',
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.bold,
-                      color: colorScheme.primary,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  // Row 1: وسيلة الدفع
-                  Row(
-                    children: [
-                      // Dropdown وسيلة الدفع
-                      Expanded(
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 8,
-                          ),
-                          decoration: BoxDecoration(
-                            color: theme.colorScheme.surface,
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(
-                              color: colorScheme.primary.withValues(alpha: 0.5),
-                              width: 2,
-                            ),
-                            boxShadow: [
-                              BoxShadow(
-                                color: colorScheme.primary.withValues(
-                                  alpha: 0.16,
-                                ),
-                                blurRadius: 4,
-                                offset: const Offset(0, 2),
-                              ),
-                            ],
-                          ),
-                          child: DropdownButtonHideUnderline(
-                            child: DropdownButton<int>(
-                              value: _selectedPaymentMethodId,
-                              hint: Row(
-                                children: [
-                                  Icon(
-                                    Icons.payment,
-                                    color: theme.iconTheme.color,
-                                    size: 20,
-                                  ),
-                                  const SizedBox(width: 8),
-                                  Text(
-                                    'اختر وسيلة الدفع',
-                                    style: theme.textTheme.bodyMedium?.copyWith(
-                                      fontWeight: FontWeight.w500,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              isExpanded: true,
-                              dropdownColor: theme.colorScheme.surface,
-                              icon: Icon(
-                                Icons.arrow_drop_down,
-                                color: colorScheme.primary,
-                                size: 28,
-                              ),
-                              style: theme.textTheme.bodyLarge?.copyWith(
-                                fontWeight: FontWeight.w600,
-                              ),
-                              selectedItemBuilder: (BuildContext context) {
-                                return _paymentMethods.map<Widget>((method) {
-                                  return Row(
-                                    children: [
-                                      Icon(
-                                        _getPaymentIcon(
-                                          method['payment_type'] ?? '',
-                                        ),
-                                        color: _getPaymentColor(
-                                          method['payment_type'] ?? '',
-                                        ),
-                                        size: 20,
-                                      ),
-                                      const SizedBox(width: 10),
-                                      Flexible(
-                                        child: Text(
-                                          method['name'] ?? '',
-                                          style: theme.textTheme.bodyLarge
-                                              ?.copyWith(
-                                                fontWeight: FontWeight.w600,
-                                              ),
-                                          overflow: TextOverflow.ellipsis,
-                                        ),
-                                      ),
-                                    ],
-                                  );
-                                }).toList();
-                              },
-                              items: _paymentMethods.map((method) {
-                                final commission =
-                                    method['commission_rate'] ?? 0.0;
-
-                                return DropdownMenuItem<int>(
-                                  value: method['id'],
-                                  child: Padding(
-                                    padding: const EdgeInsets.symmetric(
-                                      vertical: 4,
-                                      horizontal: 4,
-                                    ),
-                                    child: Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        Icon(
-                                          _getPaymentIcon(
-                                            method['payment_type'] ?? '',
-                                          ),
-                                          color: _getPaymentColor(
-                                            method['payment_type'] ?? '',
-                                          ),
-                                          size: 18,
-                                        ),
-                                        const SizedBox(width: 8),
-                                        Flexible(
-                                          child: Text(
-                                            method['name'] ?? '',
-                                            style: theme.textTheme.bodyMedium
-                                                ?.copyWith(
-                                                  fontWeight: FontWeight.w600,
-                                                ),
-                                            overflow: TextOverflow.ellipsis,
-                                            maxLines: 1,
-                                          ),
-                                        ),
-                                        if (commission > 0)
-                                          Flexible(
-                                            child: Padding(
-                                              padding: const EdgeInsets.only(
-                                                left: 4,
-                                              ),
-                                              child: Text(
-                                                '($commission%)',
-                                                style: theme.textTheme.bodySmall
-                                                    ?.copyWith(
-                                                      color: AppColors.warning,
-                                                      fontWeight:
-                                                          FontWeight.w600,
-                                                    ),
-                                                overflow: TextOverflow.ellipsis,
-                                              ),
-                                            ),
-                                          ),
-                                      ],
-                                    ),
-                                  ),
-                                );
-                              }).toList(),
-                              onChanged: (value) async {
-                                setState(() {
-                                  _selectedPaymentMethodId = value;
-                                });
-                                // 🆕 تحميل الخزائن عند تغيير طريقة الدفع
-                                if (value != null) {
-                                  await _loadSafeBoxesForPaymentMethod(value);
-                                }
-                              },
-                            ),
-                          ),
-                        ),
-                      ),
-                      // 🎯 زر الإعدادات المتقدمة (إظهار/إخفاء الخزائن)
-                      if (_selectedPaymentMethodId != null &&
-                          _safeBoxes.isNotEmpty)
-                        Tooltip(
-                          message: _showAdvancedPaymentOptions
-                              ? 'إخفاء الخيارات المتقدمة'
-                              : 'إظهار الخيارات المتقدمة (اختيار الخزينة)',
-                          child: IconButton(
-                            icon: Icon(
-                              _showAdvancedPaymentOptions
-                                  ? Icons.settings
-                                  : Icons.settings_outlined,
-                              color: _showAdvancedPaymentOptions
-                                  ? Colors.amber.shade700
-                                  : Colors.grey.shade600,
-                              size: 22,
-                            ),
-                            onPressed: () {
-                              setState(() {
-                                _showAdvancedPaymentOptions =
-                                    !_showAdvancedPaymentOptions;
-                              });
-                            },
-                            splashRadius: 20,
-                          ),
-                        ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-
-                  // Row 2: الخزينة (تظهر فقط عند تفعيل الخيارات المتقدمة)
-                  if (_selectedPaymentMethodId != null &&
-                      _safeBoxes.isNotEmpty &&
-                      _showAdvancedPaymentOptions)
-                    AnimatedContainer(
-                      duration: const Duration(milliseconds: 300),
-                      curve: Curves.easeInOut,
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 12,
-                                vertical: 4,
-                              ),
-                              decoration: BoxDecoration(
-                                color: theme.colorScheme.surface,
-                                borderRadius: BorderRadius.circular(8),
-                                border: Border.all(
-                                  color: Colors.amber.shade600,
-                                  width: 1.5,
-                                ),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Colors.amber.withValues(alpha: 0.1),
-                                    blurRadius: 4,
-                                    offset: const Offset(0, 2),
-                                  ),
-                                ],
-                              ),
-                              child: DropdownButtonHideUnderline(
-                                child: DropdownButton<int>(
-                                  value: _selectedSafeBoxId,
-                                  hint: Row(
-                                    children: [
-                                      Icon(
-                                        Icons.account_balance_wallet,
-                                        color: Colors.amber.shade600,
-                                        size: 18,
-                                      ),
-                                      const SizedBox(width: 8),
-                                      Text(
-                                        'اختر الخزينة',
-                                        style: theme.textTheme.bodySmall
-                                            ?.copyWith(color: theme.hintColor),
-                                      ),
-                                    ],
-                                  ),
-                                  isExpanded: true,
-                                  dropdownColor: theme.colorScheme.surface,
-                                  icon: Icon(
-                                    Icons.arrow_drop_down,
-                                    color: Colors.amber.shade600,
-                                    size: 24,
-                                  ),
-                                  items: _safeBoxes.map((box) {
-                                    return DropdownMenuItem<int>(
-                                      value: box.id,
-                                      child: Row(
-                                        children: [
-                                          Icon(
-                                            box.icon,
-                                            color: box.typeColor,
-                                            size: 16,
-                                          ),
-                                          const SizedBox(width: 8),
-                                          Expanded(
-                                            child: Text(
-                                              box.name,
-                                              style: theme.textTheme.bodySmall
-                                                  ?.copyWith(
-                                                    fontWeight: FontWeight.w600,
-                                                  ),
-                                              overflow: TextOverflow.ellipsis,
-                                            ),
-                                          ),
-                                          if (box.isDefault == true)
-                                            Container(
-                                              padding:
-                                                  const EdgeInsets.symmetric(
-                                                    horizontal: 6,
-                                                    vertical: 2,
-                                                  ),
-                                              decoration: BoxDecoration(
-                                                color: Colors.green.withValues(
-                                                  alpha: 0.2,
-                                                ),
-                                                borderRadius:
-                                                    BorderRadius.circular(4),
-                                              ),
-                                              child: Text(
-                                                'افتراضي',
-                                                style: theme
-                                                    .textTheme
-                                                    .labelSmall
-                                                    ?.copyWith(
-                                                      color: Colors.green,
-                                                      fontWeight:
-                                                          FontWeight.bold,
-                                                    ),
-                                              ),
-                                            ),
-                                        ],
-                                      ),
-                                    );
-                                  }).toList(),
-                                  onChanged: (value) {
-                                    setState(() {
-                                      _selectedSafeBoxId = value;
-                                    });
-                                  },
-                                ),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-
-                  // المسافة بعد dropdown الخزينة (تظهر فقط إذا كانت الخزينة ظاهرة)
-                  if (_selectedPaymentMethodId != null &&
-                      _safeBoxes.isNotEmpty &&
-                      _showAdvancedPaymentOptions)
-                    const SizedBox(height: 8),
-
-                  // Row 2: المبلغ وزر الإضافة (في صف واحد)
-                  Row(
-                    children: [
-                      // حقل المبلغ مع أيقونة ملء باقي المبلغ
-                      Expanded(
-                        child: Container(
-                          decoration: BoxDecoration(
-                            color: theme.colorScheme.surface,
-                            borderRadius: BorderRadius.circular(8),
-                            border: Border.all(
-                              color: _remainingAmount > 0
-                                  ? colorScheme.primary
-                                  : dividerColor,
-                              width: _remainingAmount > 0 ? 2 : 1,
-                            ),
-                            boxShadow: _remainingAmount > 0
-                                ? [
-                                    BoxShadow(
-                                      color: colorScheme.primary.withValues(
-                                        alpha: 0.25,
-                                      ),
-                                      blurRadius: 4,
-                                      offset: const Offset(0, 2),
-                                    ),
-                                  ]
-                                : null,
-                          ),
-                          child: Row(
-                            children: [
-                              Expanded(
-                                child: TextField(
-                                  controller: _customAmountController,
-                                  inputFormatters: [
-                                    NormalizeNumberFormatter(),
-                                    FilteringTextInputFormatter.deny(
-                                      RegExp('[,،]'),
-                                    ),
-                                    FilteringTextInputFormatter.allow(
-                                      RegExp(r'^[0-9]*\.?[0-9]*$'),
-                                    ),
-                                  ],
-                                  decoration: InputDecoration(
-                                    labelText: 'المبلغ',
-                                    labelStyle: theme.textTheme.bodyMedium
-                                        ?.copyWith(
-                                          color: colorScheme.primary,
-                                          fontWeight: FontWeight.w600,
-                                        ),
-                                    hintText: _remainingAmount.toStringAsFixed(
-                                      0,
-                                    ),
-                                    hintStyle: theme.textTheme.bodySmall,
-                                    border: InputBorder.none,
-                                    contentPadding: const EdgeInsets.symmetric(
-                                      horizontal: 12,
-                                      vertical: 12,
-                                    ),
-                                    suffixText: context
-                                        .read<SettingsProvider>()
-                                        .currencySymbolText,
-                                    suffixStyle: theme.textTheme.bodySmall
-                                        ?.copyWith(fontWeight: FontWeight.w500),
-                                  ),
-                                  keyboardType:
-                                      const TextInputType.numberWithOptions(
-                                        decimal: true,
-                                      ),
-                                  style: theme.textTheme.bodyLarge?.copyWith(
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                  textAlign: TextAlign.center,
-                                ),
-                              ),
-                              if (_remainingAmount > 0)
-                                Container(
-                                  decoration: BoxDecoration(
-                                    border: Border(
-                                      right: BorderSide(
-                                        color: colorScheme.primary.withValues(
-                                          alpha: 0.4,
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                  child: IconButton(
-                                    icon: Icon(
-                                      Icons.playlist_add_check,
-                                      color: colorScheme.primary,
-                                      size: 24,
-                                    ),
-                                    tooltip:
-                                        'ملء باقي المبلغ (${_remainingAmount.toStringAsFixed(2)})',
-                                    onPressed: () {
-                                      setState(() {
-                                        _customAmountController.text =
-                                            _remainingAmount.toStringAsFixed(2);
-                                      });
-                                    },
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 8,
-                                    ),
-                                  ),
-                                ),
-                            ],
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      // زر الإضافة
-                      ElevatedButton.icon(
-                        onPressed: _addTypedPayment,
-                        icon: const Icon(Icons.add_circle, size: 20),
-                        label: Text(
-                          'إضافة',
-                          style: theme.textTheme.titleMedium?.copyWith(
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        style: ElevatedButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 20,
-                            vertical: 18,
-                          ),
-                          backgroundColor: colorScheme.primary,
-                          foregroundColor: colorScheme.onPrimary,
-                          elevation: 3,
-                          shadowColor: colorScheme.primary.withValues(
-                            alpha: 0.4,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  if (_remainingAmount > 0.01) ...[
-                  const SizedBox(height: 10),
-                  Container(
-                    padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(
-                      color: AppColors.warning.withValues(
-                        alpha: isDark ? 0.18 : 0.12,
-                      ),
-                      borderRadius: BorderRadius.circular(6),
-                      border: Border.all(
-                        color: AppColors.warning.withValues(alpha: 0.4),
-                      ),
-                    ),
-                    child: Row(
-                      children: [
-                        Icon(
-                          Icons.info_outline,
-                          size: 18,
-                          color: AppColors.warning,
-                        ),
-                        const SizedBox(width: 8),
-                        _settingsProvider.buildText(
-                          'المتبقي: ${_remainingAmount.toStringAsFixed(2)} ${_settingsProvider.currencySymbolText}',
-                          style: theme.textTheme.bodyMedium?.copyWith(
-                            fontSize: 14,
-                            color: AppColors.warning,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  ],
-                ],
-              ),
-            ),
-
           ],
         ),
       ),
     );
+  }
+
+  /// One way to pay (SALES-UX-4): type an amount -- or leave it, for what
+  /// remains -- and press the method. Two typed, the last presses for the
+  /// rest: any number of methods, one press each. 806 of the 827 sales since
+  /// June are paid by one or two; «نقداً + مدى» is the common pair.
+  Widget _buildPayBox(ThemeData theme) {
+    final tones = AppSemanticColors.of(context);
+    final currency = _settingsProvider.currencySymbolText;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        TextField(
+          controller: _customAmountController,
+          inputFormatters: [
+            NormalizeNumberFormatter(),
+            FilteringTextInputFormatter.deny(RegExp('[,،]')),
+            FilteringTextInputFormatter.allow(RegExp(r'^[0-9]*\.?[0-9]*$')),
+          ],
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          decoration: InputDecoration(
+            labelText: 'المبلغ',
+            hintText: _remainingAmount.toStringAsFixed(2),
+            helperText: 'فارغًا يُدفع المتبقي كله',
+            suffixText: currency,
+            border: const OutlineInputBorder(),
+            isDense: true,
+          ),
+        ),
+        const SizedBox(height: 10),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            for (var i = 0; i < _paymentMethods.length; i++)
+              _payButton(_paymentMethods[i], prominent: i < 2, shortcut: i + 1),
+          ],
+        ),
+        const SizedBox(height: 10),
+        Container(
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: tones.warning.container,
+            borderRadius: BorderRadius.circular(6),
+          ),
+          child: _settingsProvider.buildText(
+            'المتبقي: ${_remainingAmount.toStringAsFixed(2)} $currency',
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: tones.warning.onContainer,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// A method's button; the first two in the settings' order stand out.
+  Widget _payButton(
+    Map<String, dynamic> method, {
+    required bool prominent,
+    required int shortcut,
+  }) {
+    final rate = method['commission_rate'] ?? 0;
+    final label = Text(
+      // The rate isolated left-to-right: «(0.8%)», not «(%0.8)».
+      '${method['name'] ?? ''}${rate > 0 ? ' (\u2066$rate%\u2069)' : ''}',
+    );
+    final icon = Icon(_getPaymentIcon(method['payment_type'] ?? ''), size: 18);
+    final key = Key('quick-pay-${method['id']}');
+    void press() => _payWith(method['id'] as int);
+    final button = prominent
+        ? FilledButton.icon(
+            key: key,
+            onPressed: press,
+            icon: icon,
+            label: label,
+          )
+        : OutlinedButton.icon(
+            key: key,
+            onPressed: press,
+            icon: icon,
+            label: label,
+          );
+    return shortcut <= 9
+        ? Tooltip(message: 'Alt+$shortcut', child: button)
+        : button;
+  }
+
+  /// Alt+1 … Alt+9: the methods in the settings' order.
+  void _payWithShortcut(int n) {
+    if (n > _paymentMethods.length) return;
+    if (_items.isEmpty || _remainingAmount <= 0.01) return;
+    _payWith(_paymentMethods[n - 1]['id'] as int);
+  }
+
+  /// The safes a method's payment may go to: cash to cash, others to the
+  /// bank or a clearing safe (cheques to the bank or the cheques safe).
+  List<SafeBoxModel> _compatibleSafes(
+    String paymentType,
+    List<SafeBoxModel> all,
+  ) {
+    switch (paymentType) {
+      case 'cash':
+        return all.where((b) => b.safeType == 'cash').toList();
+      case 'check':
+        return all
+            .where((b) => b.safeType == 'bank' || b.safeType == 'check')
+            .toList();
+      default:
+        return all
+            .where((b) => b.safeType == 'bank' || b.safeType == 'clearing')
+            .toList();
+    }
+  }
+
+  /// A payment's safe, changed on its line after it is added.
+  Future<void> _changePaymentSafe(int index) async {
+    final payment = _payments[index];
+    final method = _paymentMethods.firstWhere(
+      (m) => m['id'] == payment.paymentMethodId,
+      orElse: () => const {},
+    );
+    final all = await _api.getSafeBoxes();
+    if (!mounted) return;
+    final options = _compatibleSafes(
+      (method['payment_type'] ?? '').toString(),
+      all,
+    ).where((b) => b.id != null && b.isActive).toList();
+    for (final b in options) {
+      _safeNames[b.id!] = b.name;
+    }
+    if (options.isEmpty) {
+      _showError('لا خزائن أخرى لهذه الوسيلة');
+      return;
+    }
+    final chosen = await showDialog<int>(
+      context: context,
+      builder: (dialogContext) => SimpleDialog(
+        title: const Text('خزينة الدفعة'),
+        children: [
+          for (final b in options)
+            SimpleDialogOption(
+              onPressed: () => Navigator.of(dialogContext).pop(b.id),
+              child: Row(
+                children: [
+                  Icon(
+                    b.id == payment.safeBoxId
+                        ? Icons.radio_button_checked
+                        : Icons.radio_button_unchecked,
+                    size: 18,
+                  ),
+                  const SizedBox(width: 8),
+                  Text(b.name),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+    if (chosen == null || !mounted) return;
+    setState(() => payment.safeBoxId = chosen);
   }
 }
 
@@ -6721,7 +6371,6 @@ class _CategoryLineDialogState extends State<_CategoryLineDialog> {
                               decoration: InputDecoration(
                                 labelText: 'العدد',
                                 hintText: '1',
-                                helperText: 'للبيان فقط، لا يُضرب في الوزن',
                                 border: OutlineInputBorder(
                                   borderRadius: BorderRadius.circular(12),
                                 ),

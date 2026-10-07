@@ -6,9 +6,17 @@ import 'package:frontend/models/safe_box_model.dart';
 /// The server as the sales screen sees it, in memory: what it was sent is
 /// kept to be read back; [hold] keeps a save in flight.
 class FakeSalesApi extends ApiService {
-  FakeSalesApi({this.categories = const []});
+  FakeSalesApi({
+    this.categories = const [],
+    this.methods = const [
+      {'id': 1, 'name': 'نقداً', 'payment_type': 'cash', 'commission_rate': 0},
+    ],
+    this.safes = const [],
+  });
 
   final List<Map<String, dynamic>> categories;
+  final List<Map<String, dynamic>> methods;
+  final List<SafeBoxModel> safes;
   Completer<void>? hold;
   final added = <Map<String, dynamic>>[];
   final customersAdded = <Map<String, dynamic>>[];
@@ -31,9 +39,7 @@ class FakeSalesApi extends ApiService {
   }) async => [];
 
   @override
-  Future<List<dynamic>> getActivePaymentMethods() async => [
-    {'id': 1, 'name': 'نقداً', 'payment_type': 'cash', 'commission_rate': 0},
-  ];
+  Future<List<dynamic>> getActivePaymentMethods() async => methods;
 
   @override
   Future<List<SafeBoxModel>> getSafeBoxes({
@@ -42,7 +48,7 @@ class FakeSalesApi extends ApiService {
     int? karat,
     bool includeAccount = false,
     bool includeBalance = false,
-  }) async => [];
+  }) async => safes;
 
   @override
   Future<List<dynamic>> getCategories() async => categories;

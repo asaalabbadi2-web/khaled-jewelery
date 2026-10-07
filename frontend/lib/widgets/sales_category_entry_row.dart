@@ -135,13 +135,11 @@ class _SalesCategoryEntryRowState extends State<SalesCategoryEntryRow> {
     _weightFocus.requestFocus();
   }
 
-  InputDecoration _decoration(String label, {String? helper}) =>
-      InputDecoration(
-        labelText: label,
-        helperText: helper,
-        border: const OutlineInputBorder(),
-        isDense: true,
-      );
+  InputDecoration _decoration(String label) => InputDecoration(
+    labelText: label,
+    border: const OutlineInputBorder(),
+    isDense: true,
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -250,14 +248,11 @@ class _SalesCategoryEntryRowState extends State<SalesCategoryEntryRow> {
     );
 
     final count = SizedBox(
-      width: 190,
+      width: 90,
       child: TextField(
         key: const Key('sales-entry-count'),
         controller: _count,
-        decoration: _decoration(
-          'العدد',
-          helper: 'للبيان فقط، لا يُضرب في الوزن',
-        ),
+        decoration: _decoration('العدد'),
         keyboardType: TextInputType.number,
         inputFormatters: typedNumberFormatters(),
         textInputAction: TextInputAction.next,
