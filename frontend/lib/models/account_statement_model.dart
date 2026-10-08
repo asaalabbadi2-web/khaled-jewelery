@@ -37,6 +37,13 @@ class AccountStatement {
   final double? valuationGoldValueEstimate;
   final double? valuationTotalValueEstimate;
 
+  /// Cancelled vouchers and their reversals the server left out of [lines]
+  /// (hidden by default; the owner, 9 Oct 2026). Their count is given either
+  /// way, so the screen can offer to show them.
+  final int cancelledCount;
+  final List<String> cancelledVoucherNumbers;
+  final bool cancelledHidden;
+
   AccountStatement({
     required this.openingBalanceGold,
     required this.openingBalanceCash,
@@ -65,6 +72,9 @@ class AccountStatement {
     this.goldPriceUpdatedAt,
     this.valuationGoldValueEstimate,
     this.valuationTotalValueEstimate,
+    this.cancelledCount = 0,
+    this.cancelledVoucherNumbers = const [],
+    this.cancelledHidden = false,
   });
 
   factory AccountStatement.fromJson(Map<String, dynamic> json) {
@@ -142,7 +152,14 @@ class AccountStatement {
     final rawVerifyUrl = (json['qr_verify_url'] ?? '').toString().trim();
     final qrVerifyUrl = rawVerifyUrl.isEmpty ? null : rawVerifyUrl;
 
+    final cancelled = json['cancelled_hidden'] as Map<String, dynamic>?;
+
     return AccountStatement(
+      cancelledCount: (cancelled?['count'] as num?)?.toInt() ?? 0,
+      cancelledVoucherNumbers: ((cancelled?['vouchers'] as List?) ?? const [])
+          .map((v) => v.toString())
+          .toList(),
+      cancelledHidden: cancelled?['hidden'] == true,
       openingBalanceGold:
           json['opening_balance_gold_normalized']?.toDouble() ?? 0.0,
       openingBalanceCash: json['opening_balance_cash']?.toDouble() ?? 0.0,

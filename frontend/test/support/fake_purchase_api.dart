@@ -84,7 +84,10 @@ class FakePurchaseApi extends ApiService {
   };
 
   @override
-  Future<Map<String, dynamic>> getSupplierStatement(int supplierId) async => {
+  Future<Map<String, dynamic>> getSupplierStatement(
+    int supplierId, {
+    bool includeCancelled = false,
+  }) async => {
     'closing_balance_cash': 0,
     'closing_balance_gold_normalized': 0,
     ...statement,

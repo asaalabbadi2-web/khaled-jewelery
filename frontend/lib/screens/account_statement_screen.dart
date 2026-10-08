@@ -18,6 +18,8 @@ import 'package:image/image.dart' as img;
 
 import '../api_service.dart';
 import '../models/account_statement_model.dart';
+import '../theme/app_semantic_colors.dart';
+import '../utils/bidi.dart';
 import '../pdf/account_statement_pdf_builder.dart';
 import '../providers/settings_provider.dart';
 import '../theme/app_theme.dart' as app_theme;
@@ -52,6 +54,10 @@ class AccountStatementScreen extends StatefulWidget {
 
 class _AccountStatementScreenState extends State<AccountStatementScreen> {
   bool _isLoading = true;
+
+  /// Cancelled vouchers and their reversals are hidden by default; the bar
+  /// above the lines shows them (the owner, 9 Oct 2026).
+  bool _includeCancelled = false;
   AccountStatement? _statement;
   List<StatementLine> _filteredLines = [];
   DateTimeRange? _dateRange;
@@ -370,9 +376,15 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
 
       // Call appropriate API based on entity type
       if (widget.entityType == 'customer') {
-        data = await ApiService().getCustomerStatement(widget.accountId);
+        data = await ApiService().getCustomerStatement(
+          widget.accountId,
+          includeCancelled: _includeCancelled,
+        );
       } else if (widget.entityType == 'supplier') {
-        data = await ApiService().getSupplierStatement(widget.accountId);
+        data = await ApiService().getSupplierStatement(
+          widget.accountId,
+          includeCancelled: _includeCancelled,
+        );
       } else {
         if (!_resolvedViewModeDefault) {
           _resolvedViewModeDefault = true;
@@ -386,7 +398,10 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
           }
         }
 
-        data = await ApiService().getAccountStatement(widget.accountId);
+        data = await ApiService().getAccountStatement(
+          widget.accountId,
+          includeCancelled: _includeCancelled,
+        );
       }
 
       if (!mounted) return;
@@ -1208,6 +1223,14 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
                 ),
               ),
 
+              if ((_statement?.cancelledCount ?? 0) > 0)
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
+                    child: _buildCancelledBar(),
+                  ),
+                ),
+
               // ── Sticky: Filter toolbar + totals bar ─────────────────
               SliverPersistentHeader(
                 pinned: true,
@@ -1288,6 +1311,49 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
     });
   }
 
+
+  /// Says how many cancelled vouchers the statement leaves out, and shows or
+  /// hides them. The server decides which (services/cancelled_vouchers.py):
+  /// a pair hidden never moves a balance.
+  Widget _buildCancelledBar() {
+    final tone = AppSemanticColors.of(context).info;
+    final count = _statement?.cancelledCount ?? 0;
+    final hidden = _statement?.cancelledHidden ?? false;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: tone.container,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            hidden ? Icons.visibility_off_outlined : Icons.visibility_outlined,
+            size: 18,
+            color: tone.onContainer,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              hidden
+                  ? 'أُخفيت ${ltrIsolate('$count')} من السندات الملغاة مع قيودها العكسية — لا يتغيّر بها الرصيد'
+                  : 'تُعرض ${ltrIsolate('$count')} من السندات الملغاة مع قيودها العكسية',
+              style: TextStyle(color: tone.onContainer, fontSize: 13),
+            ),
+          ),
+          TextButton(
+            onPressed: _isLoading
+                ? null
+                : () {
+                    setState(() => _includeCancelled = !_includeCancelled);
+                    _fetchAccountStatement();
+                  },
+            child: Text(hidden ? 'إظهار' : 'إخفاء'),
+          ),
+        ],
+      ),
+    );
+  }
 
   Widget _buildEmptyLinesState() {
     final theme = Theme.of(context);

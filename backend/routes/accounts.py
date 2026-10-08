@@ -155,6 +155,11 @@ def get_account_statement(account_id):
         .order_by(JournalEntry.date.asc(), JournalEntry.id.asc(), JournalEntryLine.id.asc())
         .all()
     )
+    # Cancelled vouchers and their reversals: hidden by default, shown on request
+    # (services/cancelled_vouchers.py) -- the books keep them; the view does not.
+    from services.cancelled_vouchers import include_cancelled_requested, without_cancelled_pairs
+    journal_lines, cancelled_hidden = without_cancelled_pairs(
+        journal_lines, include=include_cancelled_requested(request.args))
 
     statement_lines = []
     total_cash_debit = 0
@@ -250,6 +255,7 @@ def get_account_statement(account_id):
     qr_verify_url = _build_statement_verify_url(qr_verify_token)
 
     return jsonify({
+        'cancelled_hidden': cancelled_hidden,
         'account_id': account.id,
         'account_number': account.account_number,
         'account_name': account.name,
@@ -412,6 +418,11 @@ def get_account_statement_merged(account_id):
         .order_by(JournalEntry.date.asc(), JournalEntry.id.asc(), JournalEntryLine.id.asc())
         .all()
     )
+    # Cancelled vouchers and their reversals: hidden by default, shown on request
+    # (services/cancelled_vouchers.py) -- the books keep them; the view does not.
+    from services.cancelled_vouchers import include_cancelled_requested, without_cancelled_pairs
+    journal_lines, cancelled_hidden = without_cancelled_pairs(
+        journal_lines, include=include_cancelled_requested(request.args))
 
     lines_by_entry = {}
     for line in journal_lines:
@@ -535,6 +546,7 @@ def get_account_statement_merged(account_id):
     qr_verify_url = _build_statement_verify_url(qr_verify_token)
 
     return jsonify({
+        'cancelled_hidden': cancelled_hidden,
         'account_id': account.id,
         'account_number': account.account_number,
         'account_name': account.name,
