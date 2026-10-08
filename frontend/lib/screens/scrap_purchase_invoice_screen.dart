@@ -12,6 +12,7 @@ import '../providers/auth_provider.dart';
 import 'add_customer_screen.dart';
 import '../widgets/invoice_settings_sheet.dart';
 import '../widgets/pay_box.dart';
+import '../widgets/scrap_purchase_entry_row.dart';
 import '../utils/scrap_purchase_readiness.dart';
 import '../widgets/adaptive_invoice_summary_dialog.dart';
 import '../utils/invoice_direct_print.dart';
@@ -161,6 +162,7 @@ class _ScrapPurchaseInvoiceScreenState
     _loadDefaultSafeBox(); // 🆕 تحميل الخزينة النقدية
     _loadPurchaseBaseline();
     _loadPurchaseItems();
+    _ensureCategoriesLoaded();
     _smartInputFocus.requestFocus();
     if (_isEditMode) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _prefillFromExistingInvoice());
@@ -282,24 +284,56 @@ class _ScrapPurchaseInvoiceScreenState
 
     if (result == null || !mounted) return;
 
+    _addScrapLine(
+      name: result.categoryName,
+      karat: result.karat,
+      standing: result.weight,
+      stones: result.stonesWeight,
+      count: result.count,
+      wage: result.wage,
+      amount: result.amountCash,
+    );
+  }
+
+  /// A line typed in the entry row: one piece, no wage — those are the
+  /// dialog's.
+  void _addEnteredScrap(ScrapPurchaseEntry e) => _addScrapLine(
+    name: '${e.category['name'] ?? ''}',
+    karat: e.karat.toDouble(),
+    standing: e.standing,
+    stones: e.stones,
+    count: 1,
+    wage: 0,
+    amount: e.amount,
+  );
+
+  void _addScrapLine({
+    required String name,
+    required double karat,
+    required double standing,
+    required double stones,
+    required int count,
+    required double wage,
+    required double amount,
+  }) {
     setState(() {
       final item = InvoiceItem(
         itemId: null,
-        name: result.categoryName,
+        name: name,
         barcode: '',
-        karat: result.karat,
-        standingWeight: result.weight,
-        stonesWeight: result.stonesWeight,
-        quantity: result.count,
-        weight: result.weight,
-        wage: result.wage,
+        karat: karat,
+        standingWeight: standing,
+        stonesWeight: stones,
+        quantity: count,
+        weight: standing,
+        wage: wage,
         goldPrice24k: _effectivePurchasePrice24k,
         mainKarat: _settingsProvider.mainKarat,
         isCategoryLine: true,
       );
       item.updateWeightFromStandingAndStones();
-      if (result.amountCash > 0) {
-        item.setManualTotal(result.amountCash);
+      if (amount > 0) {
+        item.setManualTotal(amount);
       }
       _items.add(item);
     });
@@ -2731,6 +2765,44 @@ class _ScrapPurchaseInvoiceScreenState
   // ==================== Smart Input Section ====================
   Widget _buildSmartInputSection() {
     final theme = Theme.of(context);
+    if (_categories.isEmpty) return _buildQuickInputBox(theme);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Card(
+          margin: const EdgeInsets.only(bottom: 16),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'سطر كسر',
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'اكتب الوزن القائم أو المبلغ أو كليهما: Enter يضيف السطر.',
+                  style: theme.textTheme.bodySmall,
+                ),
+                const SizedBox(height: 12),
+                ScrapPurchaseEntryRow(
+                  categories: _categories,
+                  mainKarat: _settingsProvider.mainKarat,
+                  onAdd: _addEnteredScrap,
+                ),
+              ],
+            ),
+          ),
+        ),
+        _buildQuickInputBox(theme),
+      ],
+    );
+  }
+
+  Widget _buildQuickInputBox(ThemeData theme) {
     final colorScheme = theme.colorScheme;
 
     return Container(

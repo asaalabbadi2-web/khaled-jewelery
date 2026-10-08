@@ -369,4 +369,109 @@ void main() {
       expect(find.byKey(const Key('quick-pay-10')), findsNothing);
     });
   });
+
+  group('lines typed in one row (SALES-UX-9, entry)', () {
+    const categories = [
+      {'id': 1, 'name': 'كسر', 'karat': 21},
+      {'id': 2, 'name': 'كسر مختلط'},
+    ];
+
+    Future<void> pick(WidgetTester tester, String typed, String name) async {
+      await tester.enterText(
+        find.byKey(const Key('scrap-entry-category')),
+        typed,
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(name).last);
+      await tester.pumpAndSettle();
+    }
+
+    Future<void> type(WidgetTester tester, String key, String text) =>
+        tester.enterText(find.byKey(Key('scrap-entry-$key')), text);
+
+    Future<void> enter(WidgetTester tester) async {
+      await tester.testTextInput.receiveAction(TextInputAction.done);
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('a line is typed and added with Enter, no dialog', (
+      tester,
+    ) async {
+      await open(tester, api: FakeSalesApi(categories: categories));
+
+      await pick(tester, 'كس', 'كسر');
+      await type(tester, 'standing', '١٢٫٥');
+      await type(tester, 'stones', '0.5');
+      await type(tester, 'amount', '٤٨٠٠');
+      await enter(tester);
+
+      expect(find.byType(Dialog), findsNothing);
+      expect(find.text('12.50'), findsOneWidget); // standing
+      expect(find.text('12.00'), findsOneWidget); // net: standing - stones
+      expect(find.textContaining('4800.00'), findsWidgets);
+      // Ready for the next one: the weights cleared, back at the standing.
+      final standing = tester.widget<TextField>(
+        find.byKey(const Key('scrap-entry-standing')),
+      );
+      expect(standing.controller!.text, isEmpty);
+      expect(standing.focusNode!.hasFocus, isTrue);
+    });
+
+    testWidgets('a line with an amount and no weight is taken', (tester) async {
+      await open(tester, api: FakeSalesApi(categories: categories));
+
+      await pick(tester, 'كس', 'كسر');
+      await type(tester, 'amount', '1500');
+      await enter(tester);
+
+      expect(find.textContaining('1500.00'), findsWidgets);
+    });
+
+    testWidgets('stones heavier than the piece are refused', (tester) async {
+      await open(tester, api: FakeSalesApi(categories: categories));
+
+      await pick(tester, 'كس', 'كسر');
+      await type(tester, 'standing', '5');
+      await type(tester, 'stones', '6');
+      await type(tester, 'amount', '2000');
+      await enter(tester);
+
+      expect(find.text('الأحجار أثقل من الوزن القائم'), findsOneWidget);
+      expect(find.textContaining('2000.00'), findsNothing);
+    });
+
+    testWidgets('without a category nothing is added, and it says so', (
+      tester,
+    ) async {
+      await open(tester, api: FakeSalesApi(categories: categories));
+
+      await type(tester, 'amount', '2000');
+      await enter(tester);
+
+      expect(find.text('اختر التصنيف'), findsOneWidget);
+    });
+
+    testWidgets('neither a weight nor an amount: nothing is added', (
+      tester,
+    ) async {
+      await open(tester, api: FakeSalesApi(categories: categories));
+
+      await pick(tester, 'كس', 'كسر');
+      // Enter on the standing weight goes on to the stones; the line is
+      // added from the amount, or by the button.
+      await tester.tap(find.byKey(const Key('scrap-entry-add')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('أدخل الوزن القائم أو المبلغ'), findsOneWidget);
+      expect(find.byIcon(Icons.delete), findsNothing);
+    });
+
+    testWidgets('a category with a karat holds it', (tester) async {
+      await open(tester, api: FakeSalesApi(categories: categories));
+
+      await pick(tester, 'كس', 'كسر');
+
+      expect(find.text('عيار التصنيف 21'), findsOneWidget);
+    });
+  });
 }
