@@ -108,3 +108,39 @@ def without_cancelled_pairs(lines: List, *, include: bool,
     if include or not hidden_entries:
         return lines, summary
     return [line for line in lines if entry_id_of(line) not in hidden_entries], summary
+
+
+def hideable_pair_entries(date_from=None, date_to=None) -> Tuple[set, List[str]]:
+    """(entry ids, voucher numbers) of the cancelled pairs a LIST of entries may
+    hide: the voucher's entry and its posted reversals, all within the list's
+    dates (a range that cuts a pair shows it), netting to zero on every account
+    and column (a reversal that does not undo the whole voucher is shown)."""
+    from collections import defaultdict
+    from models import JournalEntryLine
+
+    vouchers = (Voucher.query.filter(Voucher.status == 'cancelled', Voucher.journal_entry_id.isnot(None)).all())
+    pairs = cancelled_pairs([v.journal_entry_id for v in vouchers])
+    if not pairs:
+        return set(), []
+    all_ids = {e for entries in pairs.values() for e in entries}
+    dates = dict(db.session.query(JournalEntry.id, JournalEntry.date).filter(JournalEntry.id.in_(all_ids)).all())
+    lines = JournalEntryLine.query.filter(JournalEntryLine.journal_entry_id.in_(all_ids),
+                                          JournalEntryLine.is_deleted.is_(False)).all()
+    by_entry = defaultdict(list)
+    for line in lines:
+        by_entry[line.journal_entry_id].append(line)
+
+    hidden, numbers = set(), []
+    for voucher, entries in pairs.items():
+        if any((date_from and dates[e] < date_from) or (date_to and dates[e] > date_to) for e in entries):
+            continue
+        per_account = defaultdict(lambda: [0.0] * len(_COLUMNS))
+        for e in entries:
+            for line in by_entry[e]:
+                for i, value in enumerate(_line_nets(line)):
+                    per_account[line.account_id][i] += value
+        if any(abs(t) > 0.005 for totals in per_account.values() for t in totals):
+            continue
+        hidden.update(entries)
+        numbers.append(voucher.voucher_number)
+    return hidden, sorted(numbers)

@@ -2274,8 +2274,10 @@ class ApiService {
     DateTime? dateTo,
     double? minCash,
     double? maxCash,
+    bool includeCancelled = false,
   }) async {
     final Map<String, String> queryParameters = {
+      if (includeCancelled) 'include_cancelled': '1',
       'page': page.toString(),
       'per_page': perPage.toString(),
       'sort_by': sortBy,
@@ -3570,8 +3572,10 @@ class ApiService {
     String? sortOrder,
     String? referenceType, // invoice, voucher, journal_entry, manual
     int? referenceId,
+    bool includeCancelled = false,
   }) async {
     final Map<String, String> queryParameters = {
+      if (includeCancelled) 'include_cancelled': '1',
       'page': page.toString(),
       'per_page': perPage.toString(),
     };

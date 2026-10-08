@@ -153,3 +153,37 @@ def test_the_party_statements_say_what_they_hide(auth_headers, route):
                                            query_string=params)
         assert resp.status_code == 200, resp.get_data(as_text=True)[:300]
         assert set(resp.get_json()['cancelled_hidden']) == {'count', 'vouchers', 'hidden'}
+
+
+# ── the lists: vouchers and journal entries ───────────────────────────────────
+
+def _get(headers, path, **params):
+    g.pop('current_user', None)
+    resp = flask_app.test_client().get(path, headers=headers, query_string=params)
+    assert resp.status_code == 200, resp.get_data(as_text=True)[:300]
+    return resp.get_json()
+
+
+def test_the_voucher_list_hides_cancelled_vouchers_unless_asked(auth_headers, books):
+    numbers = lambda body: {v['voucher_number'] for v in body['vouchers']}   # noqa: E731
+    search = 'RV-T-'                                         # this test's vouchers
+    hidden = _get(auth_headers, '/api/vouchers', search=search, per_page=100)
+    assert books['cancelled'].voucher_number not in numbers(hidden)
+    assert books['live'].voucher_number in numbers(hidden)
+    assert hidden['cancelled_hidden']['hidden'] is True and hidden['cancelled_hidden']['count'] >= 1
+    shown = _get(auth_headers, '/api/vouchers', search=search, per_page=100, include_cancelled=1)
+    assert books['cancelled'].voucher_number in numbers(shown)
+    chosen = _get(auth_headers, '/api/vouchers', search=search, per_page=100, status='cancelled')
+    assert books['cancelled'].voucher_number in numbers(chosen), 'choosing «ملغى» shows them'
+
+
+def test_the_journal_list_hides_the_pair_and_a_range_that_cuts_it_shows_it(auth_headers, books):
+    ids = lambda body: {e['id'] for e in body['journal_entries']}   # noqa: E731
+    pair = {books['original'].id, books['reversal'].id}
+    whole = _get(auth_headers, '/api/journal_entries', date_from='2026-10-01', date_to='2026-10-03', per_page=500)
+    assert not (pair & ids(whole)) and books['cancelled'].voucher_number in whole['cancelled_hidden']['vouchers']
+    shown = _get(auth_headers, '/api/journal_entries', date_from='2026-10-01', date_to='2026-10-03', per_page=500,
+                 include_cancelled=1)
+    assert pair <= ids(shown)
+    cut = _get(auth_headers, '/api/journal_entries', date_from='2026-10-01', date_to='2026-10-02', per_page=500)
+    assert books['original'].id in ids(cut), 'the reversal is outside the range: the entry is shown'

@@ -17,6 +17,7 @@ import 'voucher_details_screen.dart';
 import 'add_voucher_screen.dart';
 import '../theme/app_theme.dart' as theme;
 import '../providers/auth_provider.dart';
+import '../widgets/cancelled_vouchers_bar.dart';
 import '../widgets/widgets.dart';
 import 'package:provider/provider.dart';
 
@@ -52,6 +53,12 @@ class _VouchersListScreenState extends State<VouchersListScreen>
   // Filters
   String _selectedType = 'all'; // all, receipt, payment, adjustment
   String _selectedStatus = 'all';
+
+  // Cancelled vouchers: hidden by default when no status is chosen (the
+  // owner, 9 Oct 2026); the bar above the list shows them.
+  bool _includeCancelled = false;
+  int _cancelledCount = 0;
+  bool _cancelledHidden = false;
   DateTime? _dateFrom;
   DateTime? _dateTo;
   String _searchQuery = '';
@@ -179,10 +186,12 @@ class _VouchersListScreenState extends State<VouchersListScreen>
         party: _selectedParty,
         sortBy: _sortBy,
         sortOrder: _sortAscending ? 'asc' : 'desc',
+        includeCancelled: _includeCancelled,
       );
 
       if (!mounted) return;
 
+      final cancelled = data['cancelled_hidden'] as Map<String, dynamic>?;
       final vouchers = data['vouchers'] is List
           ? List<dynamic>.from(data['vouchers'] as List)
           : <dynamic>[];
@@ -211,6 +220,8 @@ class _VouchersListScreenState extends State<VouchersListScreen>
 
       setState(() {
         _vouchers = vouchers;
+        _cancelledCount = (cancelled?['count'] as num?)?.toInt() ?? 0;
+        _cancelledHidden = cancelled?['hidden'] == true;
         _currentPage = (data['current_page'] as num?)?.toInt() ?? page;
         _totalPages = ((data['pages'] as num?)?.toInt() ?? 1).clamp(1, 999999);
         _totalVouchers = (data['total'] as num?)?.toInt() ?? vouchers.length;
@@ -697,6 +708,20 @@ class _VouchersListScreenState extends State<VouchersListScreen>
                   padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
                   child: _buildSummarySection(themeData),
                 ),
+                if (_cancelledCount > 0 && _selectedStatus == 'all')
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
+                    child: CancelledVouchersBar(
+                      count: _cancelledCount,
+                      hidden: _cancelledHidden,
+                      busy: _isLoading,
+                      withReversals: false,
+                      onToggle: () {
+                        setState(() => _includeCancelled = !_includeCancelled);
+                        _loadVouchers();
+                      },
+                    ),
+                  ),
               ],
             ),
           ),

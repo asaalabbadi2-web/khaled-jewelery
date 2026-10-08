@@ -240,6 +240,15 @@ def get_journal_entries():
         elif search_type != 'amount' and search_type != 'gold':
             query = query.filter(or_(*base_search_filters))
 
+    # Cancelled vouchers and their reversals: hidden by default, whole pairs
+    # within the list's dates only (services/cancelled_vouchers.py).
+    from services.cancelled_vouchers import hideable_pair_entries, include_cancelled_requested
+    _pair_ids, _pair_numbers = hideable_pair_entries(date_from, date_to)
+    cancelled_hidden = {'count': len(_pair_numbers), 'vouchers': _pair_numbers, 'hidden': False}
+    if _pair_ids and not include_cancelled_requested(request.args):
+        query = query.filter(~JournalEntry.id.in_(list(_pair_ids)))
+        cancelled_hidden['hidden'] = True
+
     entries = query.order_by(
         JournalEntry.date.desc(),
         JournalEntry.id.desc(),
@@ -286,6 +295,7 @@ def get_journal_entries():
         )
 
         return jsonify({
+            'cancelled_hidden': cancelled_hidden,
             'journal_entries': serialized_page,
             'total': total_count,
             'pages': total_pages_sql,
@@ -404,6 +414,7 @@ def get_journal_entries():
     page_items = serialized_entries[start:end]
 
     return jsonify({
+        'cancelled_hidden': cancelled_hidden,
         'journal_entries': page_items,
         'total': total_entries,
         'pages': total_pages,

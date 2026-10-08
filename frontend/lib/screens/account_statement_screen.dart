@@ -18,9 +18,8 @@ import 'package:image/image.dart' as img;
 
 import '../api_service.dart';
 import '../models/account_statement_model.dart';
-import '../theme/app_semantic_colors.dart';
-import '../utils/bidi.dart';
 import '../pdf/account_statement_pdf_builder.dart';
+import '../widgets/cancelled_vouchers_bar.dart';
 import '../providers/settings_provider.dart';
 import '../theme/app_theme.dart' as app_theme;
 
@@ -1312,48 +1311,15 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
   }
 
 
-  /// Says how many cancelled vouchers the statement leaves out, and shows or
-  /// hides them. The server decides which (services/cancelled_vouchers.py):
-  /// a pair hidden never moves a balance.
-  Widget _buildCancelledBar() {
-    final tone = AppSemanticColors.of(context).info;
-    final count = _statement?.cancelledCount ?? 0;
-    final hidden = _statement?.cancelledHidden ?? false;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(
-        color: tone.container,
-        borderRadius: BorderRadius.circular(10),
-      ),
-      child: Row(
-        children: [
-          Icon(
-            hidden ? Icons.visibility_off_outlined : Icons.visibility_outlined,
-            size: 18,
-            color: tone.onContainer,
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              hidden
-                  ? 'أُخفيت ${ltrIsolate('$count')} من السندات الملغاة مع قيودها العكسية — لا يتغيّر بها الرصيد'
-                  : 'تُعرض ${ltrIsolate('$count')} من السندات الملغاة مع قيودها العكسية',
-              style: TextStyle(color: tone.onContainer, fontSize: 13),
-            ),
-          ),
-          TextButton(
-            onPressed: _isLoading
-                ? null
-                : () {
-                    setState(() => _includeCancelled = !_includeCancelled);
-                    _fetchAccountStatement();
-                  },
-            child: Text(hidden ? 'إظهار' : 'إخفاء'),
-          ),
-        ],
-      ),
-    );
-  }
+  Widget _buildCancelledBar() => CancelledVouchersBar(
+        count: _statement?.cancelledCount ?? 0,
+        hidden: _statement?.cancelledHidden ?? false,
+        busy: _isLoading,
+        onToggle: () {
+          setState(() => _includeCancelled = !_includeCancelled);
+          _fetchAccountStatement();
+        },
+      );
 
   Widget _buildEmptyLinesState() {
     final theme = Theme.of(context);
