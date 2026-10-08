@@ -9,7 +9,10 @@ import '../widgets/safe_box_picker_dialog.dart';
 
 /// شاشة إدارة وسائل الدفع المحسّنة بتصميم احترافي
 class PaymentMethodsScreenEnhanced extends StatefulWidget {
-  const PaymentMethodsScreenEnhanced({super.key});
+  /// The server; a test hands its own.
+  final ApiService? apiService;
+
+  const PaymentMethodsScreenEnhanced({super.key, this.apiService});
 
   @override
   State<PaymentMethodsScreenEnhanced> createState() =>
@@ -18,7 +21,7 @@ class PaymentMethodsScreenEnhanced extends StatefulWidget {
 
 class _PaymentMethodsScreenEnhancedState
     extends State<PaymentMethodsScreenEnhanced> {
-  final ApiService apiService = ApiService();
+  late final ApiService apiService = widget.apiService ?? ApiService();
   List<Map<String, dynamic>> _paymentMethods = [];
   List<Map<String, dynamic>> _paymentTypes = [];
   List<Map<String, dynamic>> _invoiceTypeOptions = [];
@@ -586,6 +589,30 @@ class _PaymentMethodsScreenEnhancedState
     );
   }
 
+  /// Moves a method one place and saves the whole order; on failure the
+  /// list goes back as it was and says so.
+  Future<void> _moveMethod(int index, int delta) async {
+    final target = index + delta;
+    if (target < 0 || target >= _paymentMethods.length) return;
+    final before = List<Map<String, dynamic>>.from(_paymentMethods);
+    setState(() {
+      final moved = _paymentMethods.removeAt(index);
+      _paymentMethods.insert(target, moved);
+      for (var i = 0; i < _paymentMethods.length; i++) {
+        _paymentMethods[i]['display_order'] = i + 1;
+      }
+    });
+    try {
+      await apiService.updatePaymentMethodsOrder(_paymentMethods);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _paymentMethods = before);
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('لم يُحفظ الترتيب: $e')));
+    }
+  }
+
   Widget _buildPaymentMethodsList() {
     return ListView.builder(
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 110),
@@ -701,6 +728,43 @@ class _PaymentMethodsScreenEnhancedState
                           fontWeight: FontWeight.w700,
                         ),
                       ),
+                    ),
+                    // The order the invoice screens show their pay buttons in
+                    // (PAY-ORDER-1): it was stored, but nothing set it.
+                    Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          'الترتيب ${index + 1}',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: _secondaryText,
+                          ),
+                        ),
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            IconButton(
+                              key: Key('order-up-${method['id']}'),
+                              tooltip: 'أعلى',
+                              visualDensity: VisualDensity.compact,
+                              icon: const Icon(Icons.arrow_upward),
+                              onPressed: index == 0
+                                  ? null
+                                  : () => _moveMethod(index, -1),
+                            ),
+                            IconButton(
+                              key: Key('order-down-${method['id']}'),
+                              tooltip: 'أسفل',
+                              visualDensity: VisualDensity.compact,
+                              icon: const Icon(Icons.arrow_downward),
+                              onPressed: index == _paymentMethods.length - 1
+                                  ? null
+                                  : () => _moveMethod(index, 1),
+                            ),
+                          ],
+                        ),
+                      ],
                     ),
                     PopupMenuButton(
                       icon: Icon(Icons.more_vert, color: _secondaryText),
