@@ -8,6 +8,7 @@ import '../providers/settings_provider.dart';
 import '../api_service.dart';
 import '../widgets/currency_manager_dialog.dart';
 import '../widgets/widgets.dart'; // Import shared widgets
+import '../widgets/pay_box.dart';
 import '../theme/app_theme.dart';
 import '../utils.dart';
 import '../utils/invoice_direct_print.dart';
@@ -273,10 +274,16 @@ class _AddReturnInvoiceScreenState extends State<AddReturnInvoiceScreen> {
   double get _originalInvoiceWeight =>
       _parseDouble(selectedOriginalInvoice?['total_weight']);
 
+  /// An amount as typed: Arabic digits, «٫», and a comma as the thousands
+  /// mark -- «1,000» was read as 1.000, a refund of one riyal.
+  double? _readAmount(String text) => double.tryParse(
+    normalizeNumber(text).replaceAll(',', '').replaceAll('،', '').trim(),
+  );
+
   double? get _enteredPaymentAmount {
     final raw = _customAmountController.text.trim();
     if (raw.isEmpty) return null;
-    final parsed = double.tryParse(raw.replaceAll(',', '.'));
+    final parsed = _readAmount(raw);
     if (parsed == null || parsed <= 0) return null;
     return parsed;
   }
@@ -363,6 +370,16 @@ class _AddReturnInvoiceScreenState extends State<AddReturnInvoiceScreen> {
       if (showErrors) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('وسيلة الدفع المحددة غير متاحة')),
+        );
+      }
+      return false;
+    }
+    if (_originalInvoiceTotal > 0 && amount > _originalInvoiceTotal + 0.01) {
+      if (showErrors) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('مبلغ المرتجع أكبر من إجمالي الفاتورة الأصلية'),
+          ),
         );
       }
       return false;
@@ -739,7 +756,11 @@ class _AddReturnInvoiceScreenState extends State<AddReturnInvoiceScreen> {
   // --- Fetch Payment Methods ---
   Future<void> _fetchPaymentMethods() async {
     try {
-      final List<dynamic> methods = await widget.api.getPaymentMethods();
+      // The active methods set for this return (PAY-TYPES-1) -- it read every
+      // method, the inactive ones too.
+      final List<dynamic> methods = await widget.api.getActivePaymentMethods(
+        invoiceType: widget.returnType,
+      );
       if (!mounted) return;
       final normalized =
           methods
@@ -849,7 +870,61 @@ class _AddReturnInvoiceScreenState extends State<AddReturnInvoiceScreen> {
   }
 
   // --- Save Return Invoice ---
+  bool _saving = false;
+
+  /// «إرجاع جزء فقط»: the wizard of lines and weights. The whole return is
+  /// one page (RETURN-FULL-1): every customer return so far was one.
+  bool _partial = false;
+
+  bool get _wholeMode =>
+      !_partial &&
+      widget.editInvoiceId == null &&
+      widget.returnType != 'مرتجع شراء (مورد)';
+
+  /// Work worth asking about: past the choice of items, or a refund keyed.
+  bool get _hasUnsavedWork => _currentStep >= 2 || _payments.isNotEmpty;
+
+  Future<void> _confirmLeave({bool force = false}) async {
+    if (_saving) return;
+    if (!force && !_hasUnsavedWork) {
+      Navigator.of(context).pop();
+      return;
+    }
+    final discard = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('مرتجع غير محفوظ'),
+        content: const Text('في المرتجع بيانات لم تُحفظ. ماذا تريد أن تفعل؟'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('متابعة التحرير'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('خروج دون حفظ'),
+          ),
+        ],
+      ),
+    );
+    if (!mounted) return;
+    if (discard == true) Navigator.of(context).pop();
+  }
+
+  /// From the press to the server's answer: a second press saved a second
+  /// return, which the server now refuses (RETURN-LIMIT-1) -- and should not
+  /// be asked.
   Future<void> _saveReturnInvoice() async {
+    if (_saving) return;
+    setState(() => _saving = true);
+    try {
+      await _saveReturnInvoiceOnce();
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  Future<void> _saveReturnInvoiceOnce() async {
     final selectedItems = _selectedItems;
     if (selectedItems.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -908,98 +983,104 @@ class _AddReturnInvoiceScreenState extends State<AddReturnInvoiceScreen> {
           : await widget.api.addInvoice(payload);
       if (!mounted) return;
 
-      final invoiceForPrint = Map<String, dynamic>.from(response);
-
-      if (selectedOriginalInvoice != null) {
-        invoiceForPrint['customer_name'] ??=
-            selectedOriginalInvoice!['customer_name'] ??
-            selectedOriginalInvoice!['name'];
-        invoiceForPrint['supplier_name'] ??=
-            selectedOriginalInvoice!['supplier_name'] ??
-            selectedOriginalInvoice!['name'];
-      }
-
-      final shouldPrint = _uiAutoOpenPrintAfterSave
-          ? 'print'
-          : await showDialog<String>(
-              context: context,
-              barrierDismissible: false,
-              builder: (dialogContext) {
-                return AlertDialog(
-                  title: const Text('تم حفظ المرتجع'),
-                  content: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Text(
-                        '✅ تم حفظ المرتجع #${invoiceForPrint['id'] ?? ''}\nاختر الإجراء:',
-                      ),
-                      const SizedBox(height: 16),
-                      FilledButton.icon(
-                        onPressed: () => Navigator.pop(dialogContext, 'print'),
-                        icon: const Icon(Icons.print),
-                        label: const Text('طباعة'),
-                      ),
-                      const SizedBox(height: 8),
-                      OutlinedButton.icon(
-                        onPressed: () => Navigator.pop(dialogContext, 'share'),
-                        icon: const Icon(Icons.share, size: 18),
-                        label: const Text('مشاركة'),
-                      ),
-                      const SizedBox(height: 4),
-                      TextButton(
-                        onPressed: () => Navigator.pop(dialogContext, null),
-                        child: const Text('تم'),
-                      ),
-                    ],
-                  ),
-                );
-              },
-            );
-
-      if (!mounted) return;
-      if (shouldPrint == 'print') {
-        try {
-          await printInvoiceDirect(
-            context: context,
-            invoice: invoiceForPrint,
-            paperSize: _uiPaperSize,
-            isArabic: true,
-          );
-        } catch (e) {
-          if (!mounted) return;
-          ScaffoldMessenger.of(
-            context,
-          ).showSnackBar(SnackBar(content: Text('تعذر فتح الطباعة: $e')));
-        }
-      } else if (shouldPrint == 'share') {
-        try {
-          await shareInvoicePdf(
-            context: context,
-            invoice: invoiceForPrint,
-            paperSize: _uiPaperSize,
-            isArabic: true,
-          );
-        } catch (e) {
-          if (!mounted) return;
-          ScaffoldMessenger.of(
-            context,
-          ).showSnackBar(SnackBar(content: Text('تعذر مشاركة الفاتورة: $e')));
-        }
-      }
-
-      if (!mounted) return;
-      if (widget.editInvoiceId != null) {
-        Navigator.pop(context, true);
-      } else {
-        _resetAfterSave();
-      }
+      await _afterSaved(response);
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text('خطأ في الحفظ: $e')));
       }
+    }
+  }
+
+  /// What follows a saved return: print or share it, then leave or begin
+  /// another. A whole reversal and a partial return end the same way.
+  Future<void> _afterSaved(Map<String, dynamic> response) async {
+    final invoiceForPrint = Map<String, dynamic>.from(response);
+
+    if (selectedOriginalInvoice != null) {
+      invoiceForPrint['customer_name'] ??=
+          selectedOriginalInvoice!['customer_name'] ??
+          selectedOriginalInvoice!['name'];
+      invoiceForPrint['supplier_name'] ??=
+          selectedOriginalInvoice!['supplier_name'] ??
+          selectedOriginalInvoice!['name'];
+    }
+
+    final shouldPrint = _uiAutoOpenPrintAfterSave
+        ? 'print'
+        : await showDialog<String>(
+            context: context,
+            barrierDismissible: false,
+            builder: (dialogContext) {
+              return AlertDialog(
+                title: const Text('تم حفظ المرتجع'),
+                content: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text(
+                      '✅ تم حفظ المرتجع #${invoiceForPrint['id'] ?? ''}\nاختر الإجراء:',
+                    ),
+                    const SizedBox(height: 16),
+                    FilledButton.icon(
+                      onPressed: () => Navigator.pop(dialogContext, 'print'),
+                      icon: const Icon(Icons.print),
+                      label: const Text('طباعة'),
+                    ),
+                    const SizedBox(height: 8),
+                    OutlinedButton.icon(
+                      onPressed: () => Navigator.pop(dialogContext, 'share'),
+                      icon: const Icon(Icons.share, size: 18),
+                      label: const Text('مشاركة'),
+                    ),
+                    const SizedBox(height: 4),
+                    TextButton(
+                      onPressed: () => Navigator.pop(dialogContext, null),
+                      child: const Text('تم'),
+                    ),
+                  ],
+                ),
+              );
+            },
+          );
+
+    if (!mounted) return;
+    if (shouldPrint == 'print') {
+      try {
+        await printInvoiceDirect(
+          context: context,
+          invoice: invoiceForPrint,
+          paperSize: _uiPaperSize,
+          isArabic: true,
+        );
+      } catch (e) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('تعذر فتح الطباعة: $e')));
+      }
+    } else if (shouldPrint == 'share') {
+      try {
+        await shareInvoicePdf(
+          context: context,
+          invoice: invoiceForPrint,
+          paperSize: _uiPaperSize,
+          isArabic: true,
+        );
+      } catch (e) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('تعذر مشاركة الفاتورة: $e')));
+      }
+    }
+
+    if (!mounted) return;
+    if (widget.editInvoiceId != null) {
+      Navigator.pop(context, true);
+    } else {
+      _resetAfterSave();
     }
   }
 
@@ -1210,6 +1291,368 @@ class _AddReturnInvoiceScreenState extends State<AddReturnInvoiceScreen> {
   }
 
   // --- Build Steps ---
+
+  // ==================== A whole return: one page ====================
+  /// Paid in part: its whole total is not refunded (the server refuses it,
+  /// invoice_not_fully_paid); said before anything is keyed.
+  bool get _originalNotFullyPaid {
+    final o = selectedOriginalInvoice;
+    if (o == null || !o.containsKey('amount_paid')) return false;
+    return _parseDouble(o['amount_paid']) < _originalInvoiceTotal - 0.01;
+  }
+
+  double get _wholeRemaining {
+    final r = _originalInvoiceTotal - _totalPayments;
+    return r.abs() < 0.01 ? 0.0 : r;
+  }
+
+  /// The first thing in the way of the reversal, or null when it is ready.
+  String? get _wholeBlocker {
+    if (selectedOriginalInvoice == null) return 'اختر الفاتورة الأصلية';
+    if (_invoiceDetailsError != null) {
+      return 'تعذّر تحميل الفاتورة؛ أعد اختيارها';
+    }
+    if (_isLoadingInvoiceDetails || _returnItems.isEmpty) {
+      return 'جارٍ تحميل الفاتورة…';
+    }
+    if (_originalNotFullyPaid) {
+      return 'الفاتورة غير مدفوعة بالكامل: لا يُرَدّ إجماليها كله؛ '
+          'استعمل «إرجاع جزء فقط»';
+    }
+    if (_returnReasonController.text.trim().isEmpty) return 'اكتب سبب الإرجاع';
+    if (_payments.isEmpty) return 'اختر وسيلة الإرجاع';
+    if (_wholeRemaining > 0.01) {
+      return 'أكمل الإرجاع: يتبقى ${_wholeRemaining.toStringAsFixed(2)} $currencySymbol';
+    }
+    return null;
+  }
+
+  /// One press: the method refunds the amount typed, or what remains.
+  void _refundWith(int methodId) {
+    final method = _paymentMethods.firstWhere(
+      (m) => m['id'] == methodId,
+      orElse: () => {},
+    );
+    if (method.isEmpty) return;
+    final typed = _customAmountController.text.trim();
+    final amount = typed.isEmpty ? _wholeRemaining : _readAmount(typed);
+    if (amount == null) {
+      _snack('لم يُقرأ المبلغ «$typed»؛ اكتبه أرقامًا فقط');
+      return;
+    }
+    if (amount <= 0.0 || amount > _wholeRemaining + 0.01) {
+      _snack(
+        'المبلغ أكبر من المتبقي (${_wholeRemaining.toStringAsFixed(2)} $currencySymbol)',
+      );
+      return;
+    }
+    setState(() {
+      _payments.add(_buildPaymentEntry(method: method, amount: amount));
+      _customAmountController.clear();
+    });
+  }
+
+  void _snack(String message) => ScaffoldMessenger.of(
+    context,
+  ).showSnackBar(SnackBar(content: Text(message)));
+
+  Future<void> _confirmAndReverse() async {
+    final id = _parseOptionalInt(selectedOriginalInvoice?['id']);
+    if (id == null || _wholeBlocker != null || _saving) return;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text('عكس الفاتورة #$id كاملة'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'يُعاد الإجمالي كله: ${_originalInvoiceTotal.toStringAsFixed(2)} $currencySymbol',
+            ),
+            const SizedBox(height: 8),
+            for (final p in _payments)
+              Text(
+                '${p.paymentMethodName}: ${p.amount.toStringAsFixed(2)} $currencySymbol',
+              ),
+            const SizedBox(height: 8),
+            Text('السبب: ${_returnReasonController.text.trim()}'),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('رجوع'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('عكس وحفظ'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    await _reverseWhole(id);
+  }
+
+  Future<void> _reverseWhole(int id) async {
+    if (_saving) return;
+    setState(() => _saving = true);
+    try {
+      final response = await widget.api.reverseInvoice(
+        invoiceId: id,
+        reason: _returnReasonController.text.trim(),
+        payments: [
+          for (final p in _payments)
+            {'payment_method_id': p.paymentMethodId, 'amount': p.amount},
+        ],
+      );
+      if (!mounted) return;
+      await _afterSaved(response);
+    } catch (e) {
+      if (mounted) _snack('لم يُحفظ المرتجع: $e');
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  Widget _buildWholeReturn() {
+    final theme = Theme.of(context);
+    final tones = AppSemanticColors.of(context);
+    final bar = AppSemanticColors.invoiceBar(context, InvoiceKind.returned);
+    final original = selectedOriginalInvoice;
+    final blocker = _wholeBlocker;
+    final ready = blocker == null;
+    final empty = original == null;
+    final tone = ready ? tones.ready : (empty ? tones.info : tones.blocked);
+    final id = _parseOptionalInt(original?['id']);
+
+    final body = <Widget>[
+      if (original == null)
+        OriginalInvoiceSelector(
+          api: widget.api,
+          invoiceType: _getOriginalInvoiceType(),
+          selectedInvoice: null,
+          onInvoiceSelected: (invoice) {
+            setState(() => selectedOriginalInvoice = invoice);
+            if (invoice['id'] != null) {
+              _loadOriginalInvoiceDetails(invoice['id']);
+            }
+          },
+        )
+      else ...[
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'عكس الفاتورة #$id كاملة',
+                        style: theme.textTheme.titleLarge?.copyWith(
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                    if (widget.prefilledOriginalInvoice == null)
+                      TextButton(
+                        onPressed: () => setState(() {
+                          selectedOriginalInvoice = null;
+                          _returnItems = [];
+                          _payments.clear();
+                        }),
+                        child: const Text('تغيير الفاتورة'),
+                      ),
+                    TextButton(
+                      onPressed: () => setState(() {
+                        _partial = true;
+                        _currentStep = 1;
+                      }),
+                      child: const Text('إرجاع جزء فقط'),
+                    ),
+                  ],
+                ),
+                if (original['customer_name'] != null)
+                  _buildInfoRow('العميل', '${original['customer_name']}'),
+                _buildInfoRow('التاريخ', '${original['date'] ?? 'غير متوفر'}'),
+                const Divider(),
+                if (_isLoadingInvoiceDetails)
+                  const LinearProgressIndicator(minHeight: 2),
+                for (final row in _returnItems)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    child: Row(
+                      children: [
+                        Expanded(child: Text(row.itemName)),
+                        Text('${row.karat.toStringAsFixed(0)}k'),
+                        const SizedBox(width: 16),
+                        Text('${row.originalWeight.toStringAsFixed(3)} جم'),
+                        const SizedBox(width: 16),
+                        Text(
+                          '${row.originalTotal.toStringAsFixed(2)} $currencySymbol',
+                          style: const TextStyle(fontWeight: FontWeight.w700),
+                        ),
+                      ],
+                    ),
+                  ),
+                const Divider(),
+                Text(
+                  'الإجمالي المُرجَع: ${_originalInvoiceTotal.toStringAsFixed(2)} $currencySymbol',
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 16),
+        TextField(
+          key: const Key('return-reason'),
+          controller: _returnReasonController,
+          onChanged: (_) => setState(() {}),
+          decoration: const InputDecoration(
+            labelText: 'سبب الإرجاع',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        const SizedBox(height: 16),
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(
+                  'كيف يُرجَع المبلغ',
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                for (var i = 0; i < _payments.length; i++)
+                  ListTile(
+                    dense: true,
+                    title: Text(_payments[i].paymentMethodName),
+                    trailing: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          '${_payments[i].amount.toStringAsFixed(2)} $currencySymbol',
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.delete),
+                          tooltip: 'حذف',
+                          onPressed: () => _removePayment(i),
+                        ),
+                      ],
+                    ),
+                  ),
+                if (_wholeRemaining > 0.01 && !_originalNotFullyPaid)
+                  PayBox(
+                    amount: _customAmountController,
+                    remaining: _wholeRemaining,
+                    currency: currencySymbol,
+                    methods: _paymentMethods,
+                    onPay: _refundWith,
+                    remainingText: Text(
+                      'المتبقي: ${_wholeRemaining.toStringAsFixed(2)} $currencySymbol',
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    ];
+
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) _confirmLeaveWhole();
+      },
+      child: Scaffold(
+        appBar: AppBar(
+          title: Text(_getReturnTypeDisplayName()),
+          backgroundColor: bar.background,
+          foregroundColor: bar.foreground,
+          iconTheme: IconThemeData(color: bar.foreground),
+        ),
+        bottomNavigationBar: Material(
+          elevation: 8,
+          color: theme.colorScheme.surface,
+          child: SafeArea(
+            top: false,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 10),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Row(
+                      children: [
+                        Icon(
+                          ready
+                              ? Icons.check_circle
+                              : (empty
+                                    ? Icons.info_outline
+                                    : Icons.error_outline),
+                          color: tone.fg,
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            _saving
+                                ? 'جارٍ الحفظ…'
+                                : ready
+                                ? 'جاهز للحفظ'
+                                : empty
+                                ? blocker
+                                : 'غير جاهز للحفظ — $blocker',
+                            style: theme.textTheme.bodyLarge?.copyWith(
+                              color: tone.fg,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  FilledButton(
+                    onPressed: ready && !_saving ? _confirmAndReverse : null,
+                    child: const Text('عكس الفاتورة كاملة'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+        body: SafeArea(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: body,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _confirmLeaveWhole() async {
+    if (_saving) return;
+    final work =
+        _returnReasonController.text.trim().isNotEmpty || _payments.isNotEmpty;
+    if (!work) {
+      Navigator.of(context).pop();
+      return;
+    }
+    await _confirmLeave(force: true);
+  }
 
   Widget _buildSelectInvoiceStep() {
     return Form(
@@ -1517,9 +1960,7 @@ class _AddReturnInvoiceScreenState extends State<AddReturnInvoiceScreen> {
 
     // Auto-fill: full weight → original invoice total, partial → proportional
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      final existing =
-          double.tryParse(_customAmountController.text.replaceAll(',', '.')) ??
-          0;
+      final existing = _readAmount(_customAmountController.text) ?? 0;
       if (existing <= 0 && _payments.isEmpty && _suggestedTotal > 0.005) {
         _customAmountController.text = _suggestedTotal.toStringAsFixed(2);
       }
@@ -1880,9 +2321,15 @@ class _AddReturnInvoiceScreenState extends State<AddReturnInvoiceScreen> {
                     label: const Text('إضافة'),
                     onPressed: () {
                       final txt = _customAmountController.text.trim();
-                      final custom = txt.isEmpty
-                          ? null
-                          : double.tryParse(txt.replaceAll(',', '.'));
+                      final custom = txt.isEmpty ? null : _readAmount(txt);
+                      if (txt.isNotEmpty && custom == null) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text('لم يُقرأ المبلغ «$txt»؛ اكتبه أرقامًا فقط'),
+                          ),
+                        );
+                        return;
+                      }
                       _addPayment(customAmount: custom);
                     },
                   ),
@@ -2123,7 +2570,9 @@ class _AddReturnInvoiceScreenState extends State<AddReturnInvoiceScreen> {
   Widget build(BuildContext context) {
     context.watch<SettingsProvider>();
 
-    return Scaffold(
+    if (_wholeMode) return _buildWholeReturn();
+
+    final scaffold = Scaffold(
       appBar: AppBar(
         title: Text(_getReturnTypeDisplayName()),
         backgroundColor: AppSemanticColors.invoiceBar(
@@ -2267,6 +2716,14 @@ class _AddReturnInvoiceScreenState extends State<AddReturnInvoiceScreen> {
           ),
         ],
       ),
+    );
+
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) _confirmLeave();
+      },
+      child: scaffold,
     );
   }
 }

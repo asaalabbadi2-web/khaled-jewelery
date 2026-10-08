@@ -831,7 +831,8 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
     try {
       final apiService = _api;
       final methods = await apiService
-          .getActivePaymentMethods(); // ✅ استخدام getActivePaymentMethods بدلاً من getPaymentMethods
+          // The methods set for a sale (PAY-TYPES-1).
+          .getActivePaymentMethods(invoiceType: 'بيع');
       if (!mounted) return;
 
       final normalizedMethods = methods

@@ -46,9 +46,10 @@ class FakePurchaseApi extends ApiService {
   };
 
   @override
-  Future<List<dynamic>> getActivePaymentMethods() async => [
-    {'id': 1, 'name': 'تحويل بنكي', 'payment_type': 'bank_transfer'},
-  ];
+  Future<List<dynamic>> getActivePaymentMethods({String? invoiceType}) async =>
+      [
+        {'id': 1, 'name': 'تحويل بنكي', 'payment_type': 'bank_transfer'},
+      ];
 
   @override
   Future<List<SafeBoxModel>> getSafeBoxes({

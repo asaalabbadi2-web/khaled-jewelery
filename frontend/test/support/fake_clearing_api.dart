@@ -52,15 +52,16 @@ class FakeClearingApi extends ApiService {
   ];
 
   @override
-  Future<List<dynamic>> getActivePaymentMethods() async => [
-    {
-      'id': 10,
-      'name': 'مدى',
-      'default_safe_box_id': 32,
-      'settlement_bank_safe_box_id': 37,
-      'commission_timing': 'invoice',
-    },
-  ];
+  Future<List<dynamic>> getActivePaymentMethods({String? invoiceType}) async =>
+      [
+        {
+          'id': 10,
+          'name': 'مدى',
+          'default_safe_box_id': 32,
+          'settlement_bank_safe_box_id': 37,
+          'commission_timing': 'invoice',
+        },
+      ];
 
   @override
   Future<List<dynamic>> getAccounts({bool skipBalances = false}) async => [];

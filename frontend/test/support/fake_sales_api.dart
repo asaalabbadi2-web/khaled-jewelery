@@ -15,7 +15,11 @@ class FakeSalesApi extends ApiService {
     this.settings = const {},
     this.scrapSafe,
     this.goldSafe,
+    this.invoices = const {},
   });
+
+  /// Invoices by id, for the screens that open one (a return's original).
+  final Map<int, Map<String, dynamic>> invoices;
 
   final Map<String, dynamic> settings;
 
@@ -50,7 +54,21 @@ class FakeSalesApi extends ApiService {
   }) async => [];
 
   @override
-  Future<List<dynamic>> getActivePaymentMethods() async => methods;
+  Future<List<dynamic>> getActivePaymentMethods({String? invoiceType}) async {
+    // As the server filters: a method with no list is set for every type.
+    activeAskedFor.add(invoiceType);
+    if (invoiceType == null) return methods;
+    return [
+      for (final m in methods)
+        if ((m['applicable_invoice_types'] as List?)?.isEmpty ?? true)
+          m
+        else if ((m['applicable_invoice_types'] as List).contains(invoiceType))
+          m,
+    ];
+  }
+
+  /// The invoice types the screens asked their methods for.
+  final activeAskedFor = <String?>[];
 
   @override
   Future<List<SafeBoxModel>> getSafeBoxes({
@@ -66,6 +84,27 @@ class FakeSalesApi extends ApiService {
 
   @override
   Future<Map<String, dynamic>> getSettings() async => settings;
+
+  /// What the screens asked the server to reverse in full.
+  final reversed = <Map<String, dynamic>>[];
+
+  @override
+  Future<Map<String, dynamic>> reverseInvoice({
+    required int invoiceId,
+    required String reason,
+    required List<Map<String, dynamic>> payments,
+  }) async {
+    reversed.add({'id': invoiceId, 'reason': reason, 'payments': payments});
+    if (hold != null) await hold!.future;
+    return {'id': 800 + reversed.length, 'invoice_type': 'مرتجع بيع'};
+  }
+
+  @override
+  Future<Map<String, dynamic>> getInvoiceById(int invoiceId) async =>
+      invoices[invoiceId]!;
+
+  @override
+  Future<List<dynamic>> getPaymentMethods() async => methods;
 
   @override
   Future<List<dynamic>> getPurchaseItems() async => [];

@@ -347,4 +347,26 @@ void main() {
       expect(actions.dx, lessThan(1440));
     });
   });
+
+  group('its methods are a setting (PAY-TYPES-1)', () {
+    testWidgets('a method set for scrap purchases is offered, whatever its '
+        'kind', (tester) async {
+      final api = FakeSalesApi(
+        methods: const [
+          {'id': 1, 'name': 'نقداً', 'payment_type': 'cash', 'commission_rate': 0,
+           'applicable_invoice_types': ['بيع', 'شراء من عميل']},
+          {'id': 7, 'name': 'STC Pay', 'payment_type': 'stc_pay', 'commission_rate': 0,
+           'applicable_invoice_types': ['شراء من عميل']},
+          {'id': 10, 'name': 'مدى', 'payment_type': 'mada', 'commission_rate': 0,
+           'applicable_invoice_types': ['بيع']},
+        ],
+      );
+      await open(tester, api: api, editing: invoice());
+
+      expect(api.activeAskedFor, contains('شراء من عميل'));
+      expect(find.byKey(const Key('quick-pay-1')), findsOneWidget);
+      expect(find.byKey(const Key('quick-pay-7')), findsOneWidget);
+      expect(find.byKey(const Key('quick-pay-10')), findsNothing);
+    });
+  });
 }

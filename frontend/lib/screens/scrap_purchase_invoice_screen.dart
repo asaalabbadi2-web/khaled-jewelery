@@ -488,7 +488,9 @@ class _ScrapPurchaseInvoiceScreenState
   Future<void> _loadPaymentMethods() async {
     try {
       final apiService = _api;
-      final methods = await apiService.getActivePaymentMethods();
+      final methods = await apiService.getActivePaymentMethods(
+        invoiceType: 'شراء من عميل',
+      );
       if (!mounted) return;
 
       final normalizedMethods = methods
@@ -511,21 +513,10 @@ class _ScrapPurchaseInvoiceScreenState
           .where((method) => method['id'] != null)
           .toList();
 
-      // 🆕 تصفية وسائل الدفع: نقد وتحويل فقط
-      final allowedTypes = {'cash', 'bank_transfer'};
-      final allowedKeywords = ['نقد', 'cash', 'تحويل', 'تحويل بنكي', 'bank'];
-
-      final filteredMethods = normalizedMethods.where((method) {
-        final type = method['type']?.toString().toLowerCase() ?? '';
-        final name = method['name']?.toString().toLowerCase() ?? '';
-
-        final matchesType = allowedTypes.contains(type);
-        final matchesName = allowedKeywords.any(
-          (keyword) => name.contains(keyword.toLowerCase()),
-        );
-
-        return matchesType || matchesName;
-      }).toList();
+      // The methods set for a scrap purchase (PAY-TYPES-1): the owner's
+      // setting, which the server filters by and holds the invoice to -- no
+      // longer a rule written here (cash and transfer).
+      final filteredMethods = normalizedMethods;
 
       final uniqueById = <int, Map<String, dynamic>>{};
       for (final method in filteredMethods) {

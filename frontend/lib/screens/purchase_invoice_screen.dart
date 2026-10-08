@@ -1680,7 +1680,10 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
 
   Future<void> _loadPaymentMethods() async {
     try {
-      final methods = await _api.getActivePaymentMethods();
+      // The methods set for this invoice type (PAY-TYPES-1).
+      final methods = await _api.getActivePaymentMethods(
+        invoiceType: _isSupplierReturnMode ? 'مرتجع شراء (مورد)' : 'شراء',
+      );
       if (!mounted) return;
 
       final normalizedMethods = methods

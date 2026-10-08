@@ -1410,6 +1410,24 @@ class ApiService {
     throw Exception([body['message'] ?? 'تعذّر حفظ المقايضة', if (inner != null) inner].join(' — '));
   }
 
+  /// A sale, or a scrap purchase from a customer, reversed in full: the server
+  /// builds the return from the original (RETURN-FULL-1) -- only the reason and
+  /// how it is refunded are sent.
+  Future<Map<String, dynamic>> reverseInvoice({
+    required int invoiceId,
+    required String reason,
+    required List<Map<String, dynamic>> payments,
+  }) async {
+    final response = await _authedPost(
+      Uri.parse('$_baseUrl/invoices/$invoiceId/reverse'),
+      body: json.encode({'reason': reason, 'payments': payments}),
+    );
+    if (response.statusCode == 201) {
+      return json.decode(utf8.decode(response.bodyBytes));
+    }
+    throw Exception(_errorMessageFromResponse(response));
+  }
+
   Future<Map<String, dynamic>> addInvoice(Map<String, dynamic> invoice) async {
     final response = await _authedPost(
       Uri.parse('$_baseUrl/invoices'),
@@ -3760,9 +3778,15 @@ class ApiService {
   }
 
   /// جلب وسائل الدفع النشطة فقط
-  Future<List<dynamic>> getActivePaymentMethods() async {
+  /// The active methods, in their order; with [invoiceType], only those set
+  /// for it (PAY-TYPES-1 -- the server holds an invoice to the same setting).
+  Future<List<dynamic>> getActivePaymentMethods({String? invoiceType}) async {
     final response = await http.get(
-      Uri.parse('$_baseUrl/payment-methods/active'),
+      Uri.parse('$_baseUrl/payment-methods/active').replace(
+        queryParameters: invoiceType == null
+            ? null
+            : {'invoice_type': invoiceType},
+      ),
       headers: _jsonHeaders(token: await _requireAuthToken()),
     );
     if (response.statusCode == 200) {
