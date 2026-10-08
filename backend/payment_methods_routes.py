@@ -601,7 +601,9 @@ def get_payment_methods():
         except ValueError as exc:
             return jsonify({'error': str(exc)}), 400
 
-        payment_methods = PaymentMethod.query.all()
+        # In the order the owner set (PAY-ORDER-1), then as created.
+        payment_methods = PaymentMethod.query.order_by(
+            PaymentMethod.display_order.asc(), PaymentMethod.id.asc()).all()
         payment_methods = _filter_payment_methods_by_invoice_type(payment_methods, invoice_type_filter)
         return jsonify([pm.to_dict() for pm in payment_methods]), 200
     except Exception as e:
@@ -619,7 +621,8 @@ def get_active_payment_methods():
         except ValueError as exc:
             return jsonify({'error': str(exc)}), 400
 
-        payment_methods = PaymentMethod.query.filter_by(is_active=True).all()
+        payment_methods = PaymentMethod.query.filter_by(is_active=True).order_by(
+            PaymentMethod.display_order.asc(), PaymentMethod.id.asc()).all()
         payment_methods = _filter_payment_methods_by_invoice_type(payment_methods, invoice_type_filter)
         return jsonify([pm.to_dict() for pm in payment_methods]), 200
     except Exception as e:

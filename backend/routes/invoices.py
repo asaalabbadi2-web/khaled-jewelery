@@ -3342,6 +3342,102 @@ def add_barter_sale():
     return jsonify({'sale': sale_body, 'purchase': purchase_body}), 201
 
 
+_REVERSAL_OF = {'بيع': 'مرتجع بيع', 'شراء من عميل': 'مرتجع شراء'}
+
+
+@invoices_bp.route('/invoices/<int:invoice_id>/reverse', methods=['POST'])
+@require_permission('invoices.create')
+def reverse_invoice(invoice_id):
+    """A sale, or a scrap purchase from a customer, reversed in full (RETURN-FULL-1).
+
+    The owner (8 Oct 2026): all nine customer returns on the 6 Oct copy are
+    whole returns at the original's exact total. The return is built here from
+    the original's own lines, weights, tax and total -- not from numbers the
+    screen typed -- and made by the one creation path (add_invoice), so its
+    entries are a manual whole return's. Body: {'reason': str, 'payments':
+    [{'payment_method_id': int, 'amount': float?}]}; a single method without an
+    amount refunds the whole total, several must add up to it.
+    """
+    data = request.get_json(silent=True) or {}
+    original = Invoice.query.get(invoice_id)
+    if original is None:
+        return jsonify({'error': 'invoice_not_found'}), 404
+    return_type = _REVERSAL_OF.get(original.invoice_type)
+    if return_type is None:
+        return jsonify({'error': 'reverse_not_supported',
+                        'message': 'هذا النوع من الفواتير لا يُعكس بهذه الطريقة'}), 400
+    if not original.is_posted:
+        return jsonify({'error': 'invoice_not_posted',
+                        'message': 'الفاتورة غير مرحّلة: تُعدَّل أو تُحذف بدل أن تُرجَع'}), 400
+    # A whole refund of a total never wholly received pays back money that
+    # never came in; how a return settles a debt is the owner's to decide.
+    if float(original.amount_paid or 0.0) < float(original.total or 0.0) - 0.01:
+        return jsonify({'error': 'invoice_not_fully_paid',
+                        'message': 'الفاتورة غير مدفوعة بالكامل: لا يُرَدّ إجماليها كله',
+                        'total': round(float(original.total or 0.0), 2),
+                        'paid': round(float(original.amount_paid or 0.0), 2)}), 400
+    already = Invoice.query.filter(
+        Invoice.original_invoice_id == original.id,
+        Invoice.invoice_type.in_(('مرتجع بيع', 'مرتجع شراء')),
+    ).count()
+    if already:
+        return jsonify({'error': 'already_returned',
+                        'message': 'للفاتورة مرتجع سابق؛ يُرجَع الباقي بمرتجع جزئي'}), 400
+    reason = str(data.get('reason') or '').strip()
+    if not reason:
+        return jsonify({'error': 'reason_required', 'message': 'سبب الإرجاع مطلوب'}), 400
+
+    items, total_cost, total_net_tax = [], 0.0, 0.0
+    for it in original.items:
+        net = float(it.net or 0.0)
+        tax = float(it.tax or 0.0)
+        line_total = (net + tax) if (net or tax) else float(it.price or 0.0)
+        total_cost += net
+        total_net_tax += tax
+        items.append({
+            'item_id': it.item_id, 'original_invoice_item_id': it.id,
+            'name': it.name, 'karat': it.karat, 'weight': it.weight,
+            'wage': float(it.wage or 0.0), 'quantity': it.quantity,
+            'cost': net, 'net': net, 'tax': tax, 'tax_amount': tax,
+            'price': line_total,
+        })
+    total = round(float(original.total or 0.0), 2)
+
+    methods = data.get('payments') if isinstance(data.get('payments'), list) else []
+    methods = [m for m in methods if isinstance(m, dict) and m.get('payment_method_id')]
+    if not methods:
+        return jsonify({'error': 'payment_required',
+                        'message': 'اختر وسيلة الإرجاع'}), 400
+    payments = []
+    if len(methods) == 1 and methods[0].get('amount') in (None, '', 0):
+        payments = [{'payment_method_id': methods[0]['payment_method_id'], 'amount': total}]
+    else:
+        try:
+            payments = [{'payment_method_id': m['payment_method_id'],
+                         'amount': round(float(m.get('amount') or 0.0), 2)} for m in methods]
+        except (TypeError, ValueError):
+            return jsonify({'error': 'refund_must_equal_total'}), 400
+        if abs(sum(p['amount'] for p in payments) - total) > 0.01:
+            return jsonify({'error': 'refund_must_equal_total',
+                            'message': 'مجموع ما يُرجَع يجب أن يساوي إجمالي الفاتورة',
+                            'total': total}), 400
+
+    payload = {
+        'customer_id': original.customer_id, 'branch_id': original.branch_id,
+        'date': datetime.now().isoformat(), 'invoice_type': return_type,
+        'original_invoice_id': original.id, 'return_reason': reason,
+        'total': total, 'total_weight': float(original.total_weight or 0.0),
+        'total_tax': round(total_net_tax, 2), 'total_cost': round(total_cost, 2),
+        'amount_paid': total, 'payments': payments, 'items': items,
+    }
+    _app = current_app._get_current_object()
+    headers = {'Authorization': request.headers.get('Authorization', '')}
+    with _app.test_request_context('/api/invoices', method='POST', json=payload, headers=headers):
+        rv = add_invoice()
+    resp_obj, status = (rv[0], rv[1]) if isinstance(rv, tuple) else (rv, 201)
+    return resp_obj, status
+
+
 @invoices_bp.route('/invoices', methods=['POST'])
 @require_permission('invoices.create')
 def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_invoice_type_id=None,
@@ -4045,6 +4141,37 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
     data_total = _to_float_request(data.get('total', 0.0))
     net_amount = data_total  # قد يكون محسوباً مسبقاً أو سيحسب من items
 
+    # A return is bounded by its original (RETURN-LIMIT-1, the owner 8 Oct
+    # 2026): what is refunded, across all its returns, no more than what was
+    # sold, and the weight given back no more than the weight sold. Whole
+    # returns at the original's exact total are the 9 on the 6 Oct copy.
+    if invoice_type in ('مرتجع بيع', 'مرتجع شراء') and original_invoice is not None:
+        _prior = Invoice.query.filter(
+            Invoice.original_invoice_id == original_invoice.id,
+            Invoice.invoice_type.in_(('مرتجع بيع', 'مرتجع شراء')),
+        ).all()
+        _prior_total = sum(float(r.total or 0.0) for r in _prior)
+        _prior_weight = sum(float(r.total_weight or 0.0) for r in _prior)
+        _orig_total = float(original_invoice.total or 0.0)
+        _orig_weight = float(original_invoice.total_weight or 0.0)
+        if _orig_total > 0 and _prior_total + data_total > _orig_total + 0.01:
+            return jsonify({
+                'error': 'return_refund_exceeds_original',
+                'message': 'مبلغ المرتجع أكبر مما بيع في الفاتورة الأصلية',
+                'original_total': round(_orig_total, 2),
+                'already_returned': round(_prior_total, 2),
+                'requested': round(data_total, 2),
+            }), 400
+        _this_weight = _to_float_request(data.get('total_weight', 0.0))
+        if _orig_weight > 0.001 and _prior_weight + _this_weight > _orig_weight + 0.001:
+            return jsonify({
+                'error': 'return_weight_exceeds_original',
+                'message': 'وزن المرتجع، مع مرتجعاتها السابقة، أكبر من وزن الفاتورة الأصلية',
+                'original_weight': round(_orig_weight, 3),
+                'already_returned': round(_prior_weight, 3),
+                'requested': round(_this_weight, 3),
+            }), 400
+
     # 🆕 Barter support: allow partial cash payments when part of the sale is settled via gold barter (offset).
     # The client should send `barter_total` (cash-equivalent) when barter is used.
     try:
@@ -4172,6 +4299,18 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
             
             if not pm_obj.is_active:
                 return jsonify({'error': f'Payment method "{pm_obj.name}" is not active'}), 400
+
+            # A method is taken only on the invoice types it is set for
+            # (PAY-TYPES-1): the owner's setting, read as the lists read it --
+            # an empty list is every type.
+            _pm_types = pm_obj.applicable_invoice_types or []
+            if _pm_types and invoice_type not in _pm_types:
+                return jsonify({
+                    'error': 'payment_method_not_for_invoice_type',
+                    'message': f'وسيلة الدفع «{pm_obj.name}» غير مضبوطة لفواتير «{invoice_type}»',
+                    'payment_method_id': pm_obj.id,
+                    'invoice_type': invoice_type,
+                }), 400
 
             # Commission policy:
             # - invoice (default): commission is recorded at invoice time
@@ -7306,6 +7445,10 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
             _orig_inv_id = data.get('original_invoice_id')
             if _orig_inv_id:
                 try:
+                    # Imported here as the file's other weight-closing paths do:
+                    # without it this block raised NameError, swallowed below,
+                    # and a returned sale's order stayed open (WCO-RETURN-1).
+                    from models import WeightClosingExecution, WeightClosingOrder
                     _orig_wco = WeightClosingOrder.query.filter_by(
                         invoice_id=int(_orig_inv_id)
                     ).first()
@@ -7399,7 +7542,8 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
 
                         db.session.flush()
                 except Exception as _wco_exc:
-                    print(f"⚠️ WeightClosingOrder update for sale return failed: {_wco_exc}")
+                    print(f"⚠️ WeightClosingOrder update for sale return failed: "
+                          f"{type(_wco_exc).__name__}: {_wco_exc}")
 
         elif invoice_type == 'مرتجع شراء':
             # 4. مرتجع شراء كسر (عكس الشراء من عميل)
