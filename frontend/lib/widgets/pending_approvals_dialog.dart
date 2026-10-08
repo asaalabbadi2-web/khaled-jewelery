@@ -3,7 +3,7 @@ import 'package:intl/intl.dart' hide TextDirection;
 import 'package:flutter_staggered_animations/flutter_staggered_animations.dart';
 import 'package:provider/provider.dart';
 import '../api_service.dart';
-import '../theme/app_theme.dart';
+import '../theme/app_semantic_colors.dart';
 import '../providers/auth_provider.dart';
 import '../screens/posting_management_screen.dart';
 
@@ -28,7 +28,7 @@ class PendingApprovalsDialog extends StatefulWidget {
     return showDialog(
       context: context,
       barrierDismissible: true,
-      barrierColor: Colors.black.withValues(alpha: 0.50),
+      barrierColor: Theme.of(context).colorScheme.scrim.withValues(alpha: 0.50),
       builder: (_) => Directionality(
         textDirection: isArabic ? TextDirection.rtl : TextDirection.ltr,
         child: PendingApprovalsDialog(
@@ -45,6 +45,10 @@ class PendingApprovalsDialog extends StatefulWidget {
 }
 
 class _PendingApprovalsDialogState extends State<PendingApprovalsDialog> {
+  // الألوان من الثيم (ثيم-٠): تتبع الوضعين.
+  ColorScheme get _cs => Theme.of(context).colorScheme;
+  AppSemanticColors get _tone => AppSemanticColors.of(context);
+
   bool _loading = true;
   String? _error;
 
@@ -155,7 +159,7 @@ class _PendingApprovalsDialogState extends State<PendingApprovalsDialog> {
               style: TextStyle(
                 fontFamily: 'Cairo',
                 fontSize: 12,
-                color: Colors.orange.shade700,
+                color: _tone.warning.fg,
               ),
             ),
           ],
@@ -168,7 +172,7 @@ class _PendingApprovalsDialogState extends State<PendingApprovalsDialog> {
           ),
           FilledButton(
             onPressed: () => Navigator.of(context).pop(true),
-            style: FilledButton.styleFrom(backgroundColor: AppColors.success),
+            style: FilledButton.styleFrom(backgroundColor: _tone.ready.fg),
             child: Text(
               isAr ? 'تنفيذ التسوية' : 'Execute',
               style: const TextStyle(
@@ -206,9 +210,9 @@ class _PendingApprovalsDialogState extends State<PendingApprovalsDialog> {
             isAr
                 ? 'تم تنفيذ التسوية — الفاتورة بانتظار الاعتماد'
                 : 'Settlement executed — invoice awaiting approval',
-            style: const TextStyle(fontFamily: 'Cairo'),
+            style: TextStyle(fontFamily: 'Cairo', color: _cs.onPrimary),
           ),
-          backgroundColor: AppColors.success,
+          backgroundColor: _tone.ready.fg,
           behavior: SnackBarBehavior.floating,
           duration: const Duration(seconds: 3),
         ));
@@ -219,9 +223,9 @@ class _PendingApprovalsDialogState extends State<PendingApprovalsDialog> {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
         content: Text(
           isAr ? 'فشل التسوية: $e' : 'Settlement failed: $e',
-          style: const TextStyle(fontFamily: 'Cairo'),
+          style: TextStyle(fontFamily: 'Cairo', color: _cs.onError),
         ),
-        backgroundColor: AppColors.error,
+        backgroundColor: _cs.error,
         behavior: SnackBarBehavior.floating,
       ));
     }
@@ -256,9 +260,9 @@ class _PendingApprovalsDialogState extends State<PendingApprovalsDialog> {
             widget.isArabic
                 ? 'تم ترحيل ${invoice['invoice_number']}'
                 : 'Posted ${invoice['invoice_number']}',
-            style: const TextStyle(fontFamily: 'Cairo'),
+            style: TextStyle(fontFamily: 'Cairo', color: _cs.onPrimary),
           ),
-          backgroundColor: AppColors.success,
+          backgroundColor: _tone.ready.fg,
           behavior: SnackBarBehavior.floating,
           duration: const Duration(seconds: 2),
         ));
@@ -273,9 +277,9 @@ class _PendingApprovalsDialogState extends State<PendingApprovalsDialog> {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
         content: Text(
           widget.isArabic ? 'فشل الترحيل: $e' : 'Posting failed: $e',
-          style: const TextStyle(fontFamily: 'Cairo'),
+          style: TextStyle(fontFamily: 'Cairo', color: _cs.onError),
         ),
-        backgroundColor: AppColors.error,
+        backgroundColor: _cs.error,
         behavior: SnackBarBehavior.floating,
       ));
     }
@@ -307,7 +311,7 @@ class _PendingApprovalsDialogState extends State<PendingApprovalsDialog> {
           ),
           TextButton(
             onPressed: () => Navigator.of(context).pop(true),
-            style: TextButton.styleFrom(foregroundColor: AppColors.error),
+            style: TextButton.styleFrom(foregroundColor: _tone.blocked.fg),
             child: Text(
               isAr ? 'رفض' : 'Reject',
               style: const TextStyle(
@@ -341,9 +345,9 @@ class _PendingApprovalsDialogState extends State<PendingApprovalsDialog> {
             isAr
                 ? 'تم رفض ${invoice['invoice_number']} — الحجز عاد للانتظار'
                 : 'Rejected ${invoice['invoice_number']} — reservation reset to pending',
-            style: const TextStyle(fontFamily: 'Cairo'),
+            style: TextStyle(fontFamily: 'Cairo', color: _cs.onError),
           ),
-          backgroundColor: AppColors.error,
+          backgroundColor: _cs.error,
           behavior: SnackBarBehavior.floating,
           duration: const Duration(seconds: 3),
         ));
@@ -354,9 +358,9 @@ class _PendingApprovalsDialogState extends State<PendingApprovalsDialog> {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
         content: Text(
           isAr ? 'فشل الرفض: $e' : 'Reject failed: $e',
-          style: const TextStyle(fontFamily: 'Cairo'),
+          style: TextStyle(fontFamily: 'Cairo', color: _cs.onError),
         ),
-        backgroundColor: AppColors.error,
+        backgroundColor: _cs.error,
         behavior: SnackBarBehavior.floating,
       ));
     }
@@ -387,7 +391,7 @@ class _PendingApprovalsDialogState extends State<PendingApprovalsDialog> {
       backgroundColor: Colors.transparent,
       builder: (_) => Container(
         decoration: BoxDecoration(
-          color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
+          color: (isDark ? _cs.surfaceContainerLow : _cs.surfaceContainerLowest),
           borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
         ),
         padding: EdgeInsets.fromLTRB(
@@ -423,8 +427,8 @@ class _PendingApprovalsDialogState extends State<PendingApprovalsDialog> {
                           horizontal: 10, vertical: 4),
                       decoration: BoxDecoration(
                         color: goldType == 'scrap'
-                            ? Colors.brown.withValues(alpha: 0.12)
-                            : AppColors.primaryGold.withValues(alpha: 0.12),
+                            ? _tone.bronze.fg.withValues(alpha: 0.12)
+                            : _cs.primary.withValues(alpha: 0.12),
                         borderRadius: BorderRadius.circular(8),
                       ),
                       child: Text(
@@ -433,8 +437,8 @@ class _PendingApprovalsDialogState extends State<PendingApprovalsDialog> {
                           fontSize: 12,
                           fontWeight: FontWeight.w700,
                           color: goldType == 'scrap'
-                              ? Colors.brown
-                              : AppColors.primaryGold,
+                              ? _tone.bronze.fg
+                              : _cs.primary,
                         ),
                       ),
                     ),
@@ -482,14 +486,14 @@ class _PendingApprovalsDialogState extends State<PendingApprovalsDialog> {
                           padding: const EdgeInsets.symmetric(
                               horizontal: 7, vertical: 2),
                           decoration: BoxDecoration(
-                            color: AppColors.primaryGold.withValues(alpha: 0.12),
+                            color: _cs.primary.withValues(alpha: 0.12),
                             borderRadius: BorderRadius.circular(4),
                           ),
                           child: Text('${karat}k',
-                              style: const TextStyle(
+                              style: TextStyle(
                                   fontSize: 11,
                                   fontWeight: FontWeight.bold,
-                                  color: AppColors.primaryGold)),
+                                  color: _cs.primary)),
                         ),
                         const SizedBox(width: 10),
                         Expanded(
@@ -518,7 +522,7 @@ class _PendingApprovalsDialogState extends State<PendingApprovalsDialog> {
                         : Icons.info_outline,
                     size: 18,
                     color:
-                        reason.isNotEmpty ? Colors.orange : theme.hintColor,
+                        reason.isNotEmpty ? _tone.warning.fg : theme.hintColor,
                   ),
                   const SizedBox(width: 8),
                   Expanded(
@@ -531,7 +535,7 @@ class _PendingApprovalsDialogState extends State<PendingApprovalsDialog> {
                       style: TextStyle(
                         fontSize: 13,
                         color: reason.isNotEmpty
-                            ? Colors.orange
+                            ? _tone.warning.fg
                             : theme.hintColor,
                         fontWeight: reason.isNotEmpty
                             ? FontWeight.w600
@@ -577,11 +581,11 @@ class _PendingApprovalsDialogState extends State<PendingApprovalsDialog> {
         constraints: const BoxConstraints(maxWidth: 520, maxHeight: 640),
         child: Container(
           decoration: BoxDecoration(
-            color: isDark ? const Color(0xFF1E1E1E) : Colors.white,
+            color: (isDark ? _cs.surfaceContainerLow : _cs.surfaceContainerLowest),
             borderRadius: BorderRadius.circular(16),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withValues(alpha: 0.20),
+                color: _cs.shadow.withValues(alpha: 0.20),
                 blurRadius: 24,
                 offset: const Offset(0, 8),
               ),
@@ -608,7 +612,7 @@ class _PendingApprovalsDialogState extends State<PendingApprovalsDialog> {
       decoration: BoxDecoration(
         border: Border(
           bottom: BorderSide(
-            color: isDark ? const Color(0xFF3D3D3D) : const Color(0xFFEEEEEE),
+            color: _cs.outlineVariant,
           ),
         ),
       ),
@@ -618,12 +622,12 @@ class _PendingApprovalsDialogState extends State<PendingApprovalsDialog> {
             width: 40,
             height: 40,
             decoration: BoxDecoration(
-              color: AppColors.primaryGold.withValues(alpha: 0.12),
+              color: _cs.primary.withValues(alpha: 0.12),
               shape: BoxShape.circle,
             ),
-            child: const Icon(
+            child: Icon(
               Icons.pending_actions_rounded,
-              color: AppColors.primaryGold,
+              color: _cs.primary,
               size: 22,
             ),
           ),
@@ -639,7 +643,7 @@ class _PendingApprovalsDialogState extends State<PendingApprovalsDialog> {
                     fontFamily: 'Cairo',
                     fontSize: 16,
                     fontWeight: FontWeight.w800,
-                    color: isDark ? Colors.white : const Color(0xFF212121),
+                    color: _cs.onSurface,
                   ),
                 ),
                 const SizedBox(height: 2),
@@ -656,9 +660,7 @@ class _PendingApprovalsDialogState extends State<PendingApprovalsDialog> {
                   style: TextStyle(
                     fontFamily: 'Cairo',
                     fontSize: 12,
-                    color: isDark
-                        ? const Color(0xFFBDBDBD)
-                        : const Color(0xFF757575),
+                    color: _cs.onSurfaceVariant,
                     fontWeight: FontWeight.w500,
                   ),
                 ),
@@ -669,7 +671,7 @@ class _PendingApprovalsDialogState extends State<PendingApprovalsDialog> {
             icon: const Icon(Icons.close_rounded, size: 22),
             onPressed: () => Navigator.of(context).pop(),
             tooltip: isAr ? 'إغلاق' : 'Close',
-            color: isDark ? const Color(0xFFBDBDBD) : const Color(0xFF616161),
+            color: _cs.onSurfaceVariant,
           ),
         ],
       ),
@@ -680,11 +682,11 @@ class _PendingApprovalsDialogState extends State<PendingApprovalsDialog> {
 
   Widget _buildBody(ThemeData theme, bool isDark, bool isAr) {
     if (_loading) {
-      return const SizedBox(
+      return SizedBox(
         height: 200,
         child: Center(
           child: CircularProgressIndicator(
-            color: AppColors.primaryGold,
+            color: _cs.primary,
             strokeWidth: 2.5,
           ),
         ),
@@ -715,7 +717,7 @@ class _PendingApprovalsDialogState extends State<PendingApprovalsDialog> {
               label: isAr
                   ? 'حجوزات بانتظار التسوية ($_totalReservations)'
                   : 'Pending Settlement ($_totalReservations)',
-              color: AppColors.primaryGold,
+              color: _cs.primary,
               isDark: isDark,
             ),
             AnimationLimiter(
@@ -744,9 +746,7 @@ class _PendingApprovalsDialogState extends State<PendingApprovalsDialog> {
               child: Divider(
                 height: 1,
                 thickness: 1,
-                color: isDark
-                    ? const Color(0xFF3D3D3D)
-                    : const Color(0xFFEEEEEE),
+                color: _cs.outlineVariant,
               ),
             ),
 
@@ -757,7 +757,7 @@ class _PendingApprovalsDialogState extends State<PendingApprovalsDialog> {
               label: isAr
                   ? 'فواتير بانتظار الاعتماد ($_totalInvoices)'
                   : 'Pending Approval ($_totalInvoices)',
-              color: AppColors.error,
+              color: _tone.blocked.fg,
               isDark: isDark,
             ),
             AnimationLimiter(
@@ -791,25 +791,25 @@ class _PendingApprovalsDialogState extends State<PendingApprovalsDialog> {
       margin: const EdgeInsets.fromLTRB(12, 8, 12, 4),
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: AppColors.error.withValues(alpha: isDark ? 0.18 : 0.08),
+        color: _tone.blocked.fg.withValues(alpha: isDark ? 0.18 : 0.08),
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: AppColors.error.withValues(alpha: 0.45)),
+        border: Border.all(color: _tone.blocked.fg.withValues(alpha: 0.45)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              const Icon(Icons.power_off_rounded, size: 18, color: AppColors.error),
+              Icon(Icons.power_off_rounded, size: 18, color: _tone.blocked.fg),
               const SizedBox(width: 6),
               Expanded(
                 child: Text(
                   title,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontFamily: 'Cairo',
                     fontSize: 14,
                     fontWeight: FontWeight.w800,
-                    color: AppColors.error,
+                    color: _tone.blocked.fg,
                   ),
                 ),
               ),
@@ -826,7 +826,7 @@ class _PendingApprovalsDialogState extends State<PendingApprovalsDialog> {
               style: TextStyle(
                 fontFamily: 'Cairo',
                 fontSize: 11.5,
-                color: isDark ? Colors.white70 : Colors.black54,
+                color: _cs.onSurfaceVariant,
               ),
             ),
           ],
@@ -836,7 +836,7 @@ class _PendingApprovalsDialogState extends State<PendingApprovalsDialog> {
             style: TextStyle(
               fontFamily: 'Cairo',
               fontSize: 11,
-              color: isDark ? Colors.white54 : Colors.black45,
+              color: _cs.onSurfaceVariant,
             ),
           ),
         ],
@@ -921,17 +921,17 @@ class _PendingApprovalsDialogState extends State<PendingApprovalsDialog> {
                       width: 44,
                       height: 44,
                       decoration: BoxDecoration(
-                        color: AppColors.primaryGold.withValues(alpha: 0.12),
+                        color: _cs.primary.withValues(alpha: 0.12),
                         borderRadius: BorderRadius.circular(10),
                       ),
                       child: Center(
                         child: Text(
                           karat.isNotEmpty ? '${karat}k' : '—',
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontFamily: 'Cairo',
                             fontSize: 13,
                             fontWeight: FontWeight.w800,
-                            color: AppColors.primaryGold,
+                            color: _cs.primary,
                           ),
                         ),
                       ),
@@ -950,20 +950,18 @@ class _PendingApprovalsDialogState extends State<PendingApprovalsDialog> {
                                     fontFamily: 'Cairo',
                                     fontSize: 13,
                                     fontWeight: FontWeight.w700,
-                                    color: isDark
-                                        ? Colors.white
-                                        : const Color(0xFF212121),
+                                    color: _cs.onSurface,
                                   ),
                                 ),
                               ),
                               Text(
                                 NumberFormat('#,##0', 'en')
                                     .format(total.round()),
-                                style: const TextStyle(
+                                style: TextStyle(
                                   fontFamily: 'Cairo',
                                   fontSize: 14,
                                   fontWeight: FontWeight.w800,
-                                  color: AppColors.primaryGold,
+                                  color: _cs.primary,
                                 ),
                               ),
                             ],
@@ -979,19 +977,17 @@ class _PendingApprovalsDialogState extends State<PendingApprovalsDialog> {
                                   style: TextStyle(
                                     fontFamily: 'Cairo',
                                     fontSize: 11,
-                                    color: isDark
-                                        ? const Color(0xFFBDBDBD)
-                                        : const Color(0xFF757575),
+                                    color: _cs.onSurfaceVariant,
                                   ),
                                 ),
                               ),
                               const SizedBox(width: 6),
                               Text(
                                 relativeTime,
-                                style: const TextStyle(
+                                style: TextStyle(
                                   fontFamily: 'Cairo',
                                   fontSize: 10.5,
-                                  color: Color(0xFF9E9E9E),
+                                  color: _cs.onSurfaceVariant,
                                 ),
                               ),
                             ],
@@ -1005,9 +1001,7 @@ class _PendingApprovalsDialogState extends State<PendingApprovalsDialog> {
                           ? Icons.keyboard_arrow_up_rounded
                           : Icons.keyboard_arrow_down_rounded,
                       size: 20,
-                      color: isDark
-                          ? const Color(0xFFBDBDBD)
-                          : const Color(0xFF9E9E9E),
+                      color: _cs.onSurfaceVariant,
                     ),
                   ],
                 ),
@@ -1026,9 +1020,7 @@ class _PendingApprovalsDialogState extends State<PendingApprovalsDialog> {
                               Container(
                                 padding: const EdgeInsets.all(12),
                                 decoration: BoxDecoration(
-                                  color: isDark
-                                      ? const Color(0xFF2A2A2A)
-                                      : const Color(0xFFF8F8F8),
+                                  color: _cs.surfaceContainer,
                                   borderRadius: BorderRadius.circular(8),
                                 ),
                                 child: Column(
@@ -1069,7 +1061,7 @@ class _PendingApprovalsDialogState extends State<PendingApprovalsDialog> {
                                 label: isSettling
                                     ? (isAr ? 'جارِ التسوية...' : 'Settling...')
                                     : (isAr ? 'تنفيذ التسوية' : 'Execute Settlement'),
-                                color: AppColors.success,
+                                color: _tone.ready.fg,
                                 isPrimary: true,
                                 isLoading: isSettling,
                                 onTap: isSettling ? null : () => _settleReservation(res),
@@ -1099,7 +1091,7 @@ class _PendingApprovalsDialogState extends State<PendingApprovalsDialog> {
               style: TextStyle(
                 fontFamily: 'Cairo',
                 fontSize: 11,
-                color: isDark ? const Color(0xFFBDBDBD) : const Color(0xFF757575),
+                color: _cs.onSurfaceVariant,
               ),
             ),
           ),
@@ -1110,7 +1102,7 @@ class _PendingApprovalsDialogState extends State<PendingApprovalsDialog> {
                 fontFamily: 'Cairo',
                 fontSize: 12,
                 fontWeight: FontWeight.w600,
-                color: isDark ? Colors.white : const Color(0xFF212121),
+                color: _cs.onSurface,
               ),
             ),
           ),
@@ -1190,9 +1182,7 @@ class _PendingApprovalsDialogState extends State<PendingApprovalsDialog> {
                               fontFamily: 'Cairo',
                               fontSize: 13,
                               fontWeight: FontWeight.w700,
-                              color: isDark
-                                  ? Colors.white
-                                  : const Color(0xFF212121),
+                              color: _cs.onSurface,
                             ),
                           ),
                         ),
@@ -1218,19 +1208,17 @@ class _PendingApprovalsDialogState extends State<PendingApprovalsDialog> {
                             style: TextStyle(
                               fontFamily: 'Cairo',
                               fontSize: 11,
-                              color: isDark
-                                  ? const Color(0xFFBDBDBD)
-                                  : const Color(0xFF757575),
+                              color: _cs.onSurfaceVariant,
                             ),
                           ),
                         ),
                         const SizedBox(width: 6),
                         Text(
                           relativeTime,
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontFamily: 'Cairo',
                             fontSize: 10.5,
-                            color: Color(0xFF9E9E9E),
+                            color: _cs.onSurfaceVariant,
                           ),
                         ),
                       ],
@@ -1242,7 +1230,7 @@ class _PendingApprovalsDialogState extends State<PendingApprovalsDialog> {
                           label: isPosting
                               ? (isAr ? 'جارِ الترحيل...' : 'Posting...')
                               : (isAr ? '✓ ترحيل' : '✓ Post'),
-                          color: AppColors.success,
+                          color: _tone.ready.fg,
                           isPrimary: true,
                           isLoading: isPosting,
                           onTap: (isPosting || isRejecting)
@@ -1254,7 +1242,7 @@ class _PendingApprovalsDialogState extends State<PendingApprovalsDialog> {
                           label: isRejecting
                               ? (isAr ? 'جارِ الرفض...' : 'Rejecting...')
                               : (isAr ? '✕ رفض' : '✕ Reject'),
-                          color: AppColors.error,
+                          color: _tone.blocked.fg,
                           isPrimary: false,
                           isLoading: isRejecting,
                           onTap: (isPosting || isRejecting)
@@ -1264,9 +1252,7 @@ class _PendingApprovalsDialogState extends State<PendingApprovalsDialog> {
                         const SizedBox(width: 6),
                         _buildActionButton(
                           label: isAr ? 'تفاصيل' : 'Details',
-                          color: isDark
-                              ? const Color(0xFFBDBDBD)
-                              : const Color(0xFF616161),
+                          color: _cs.onSurfaceVariant,
                           isPrimary: false,
                           isLoading: false,
                           onTap: (isPosting || isRejecting)
@@ -1339,8 +1325,8 @@ class _PendingApprovalsDialogState extends State<PendingApprovalsDialog> {
           SizedBox(
             width: 80,
             child: Text(label,
-                style: const TextStyle(
-                    fontFamily: 'Cairo', fontSize: 12, color: Color(0xFF9E9E9E))),
+                style: TextStyle(
+                    fontFamily: 'Cairo', fontSize: 12, color: _cs.onSurfaceVariant)),
           ),
           Expanded(
             child: Text(value,
@@ -1378,7 +1364,6 @@ class _PendingApprovalsDialogState extends State<PendingApprovalsDialog> {
   // ─────────────── Empty / Error ───────────────
 
   Widget _buildEmptyState(ThemeData theme, bool isAr) {
-    final isDark = theme.brightness == Brightness.dark;
     return Padding(
       padding: const EdgeInsets.all(40),
       child: Column(
@@ -1388,13 +1373,13 @@ class _PendingApprovalsDialogState extends State<PendingApprovalsDialog> {
             width: 64,
             height: 64,
             decoration: BoxDecoration(
-              color: AppColors.success.withValues(alpha: 0.12),
+              color: _tone.ready.fg.withValues(alpha: 0.12),
               shape: BoxShape.circle,
             ),
-            child: const Icon(
+            child: Icon(
               Icons.check_circle_rounded,
               size: 36,
-              color: AppColors.success,
+              color: _tone.ready.fg,
             ),
           ),
           const SizedBox(height: 16),
@@ -1404,7 +1389,7 @@ class _PendingApprovalsDialogState extends State<PendingApprovalsDialog> {
               fontFamily: 'Cairo',
               fontSize: 16,
               fontWeight: FontWeight.w800,
-              color: isDark ? Colors.white : const Color(0xFF212121),
+              color: _cs.onSurface,
             ),
           ),
           const SizedBox(height: 6),
@@ -1417,7 +1402,7 @@ class _PendingApprovalsDialogState extends State<PendingApprovalsDialog> {
               fontFamily: 'Cairo',
               fontSize: 12,
               color:
-                  isDark ? const Color(0xFFBDBDBD) : const Color(0xFF757575),
+                  _cs.onSurfaceVariant,
             ),
           ),
         ],
@@ -1431,8 +1416,8 @@ class _PendingApprovalsDialogState extends State<PendingApprovalsDialog> {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Icon(Icons.error_outline_rounded,
-              size: 40, color: AppColors.error),
+          Icon(Icons.error_outline_rounded,
+              size: 40, color: _tone.blocked.fg),
           const SizedBox(height: 12),
           Text(
             isAr ? 'تعذر التحميل' : 'Could not load',
@@ -1466,7 +1451,7 @@ class _PendingApprovalsDialogState extends State<PendingApprovalsDialog> {
         border: Border(
           top: BorderSide(
             color:
-                isDark ? const Color(0xFF3D3D3D) : const Color(0xFFEEEEEE),
+                _cs.outlineVariant,
           ),
         ),
       ),
@@ -1480,9 +1465,7 @@ class _PendingApprovalsDialogState extends State<PendingApprovalsDialog> {
             style: TextStyle(
               fontFamily: 'Cairo',
               fontSize: 11.5,
-              color: isDark
-                  ? const Color(0xFFBDBDBD)
-                  : const Color(0xFF757575),
+              color: _cs.onSurfaceVariant,
               fontWeight: FontWeight.w500,
             ),
           ),
@@ -1498,11 +1481,11 @@ class _PendingApprovalsDialogState extends State<PendingApprovalsDialog> {
                   children: [
                     Text(
                       isAr ? 'إدارة الترحيل' : 'Posting Management',
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontFamily: 'Cairo',
                         fontSize: 12,
                         fontWeight: FontWeight.w700,
-                        color: AppColors.darkGold,
+                        color: _tone.gold.fg,
                       ),
                     ),
                     const SizedBox(width: 4),
@@ -1511,7 +1494,7 @@ class _PendingApprovalsDialogState extends State<PendingApprovalsDialog> {
                           ? Icons.arrow_back_ios_new_rounded
                           : Icons.arrow_forward_ios_rounded,
                       size: 11,
-                      color: AppColors.darkGold,
+                      color: _tone.gold.fg,
                     ),
                   ],
                 ),
@@ -1528,34 +1511,34 @@ class _PendingApprovalsDialogState extends State<PendingApprovalsDialog> {
     switch (type) {
       case 'بيع':
       case 'sale':
-        return (isAr ? 'بيع' : 'Sale', AppColors.success);
+        return (isAr ? 'بيع' : 'Sale', _tone.invoiceSale.fg);
       case 'scrap_sale':
-        return (isAr ? 'بيع كسر' : 'Scrap Sale', const Color(0xFF00897B));
+        return (isAr ? 'بيع كسر' : 'Scrap Sale', _tone.invoiceSaleScrap.fg);
       case 'شراء':
       case 'purchase':
-        return (isAr ? 'شراء' : 'Purchase', const Color(0xFF5E35B1));
+        return (isAr ? 'شراء' : 'Purchase', _tone.invoicePurchase.fg);
       case 'شراء من عميل':
-        return (isAr ? 'شراء عميل' : 'Cust. Buy', const Color(0xFF5E35B1));
+        return (isAr ? 'شراء عميل' : 'Cust. Buy', _tone.invoicePurchaseScrap.fg);
       case 'scrap_purchase':
       case 'شراء خردة':
         return (
           isAr ? 'شراء كسر' : 'Scrap Buy',
-          const Color(0xFFD84315)
+          _tone.invoicePurchaseScrap.fg
         );
       case 'مرتجع بيع':
       case 'sales_return':
         return (
           isAr ? 'مرتجع بيع' : 'Sale Ret.',
-          const Color(0xFFE53935)
+          _tone.invoiceReturn.fg
         );
       case 'مرتجع شراء':
       case 'purchase_return':
         return (
           isAr ? 'مرتجع شراء' : 'Purch. Ret.',
-          const Color(0xFFFB8C00)
+          _tone.invoiceReturn.fg
         );
       default:
-        return (isAr ? 'فاتورة' : 'Invoice', AppColors.darkGold);
+        return (isAr ? 'فاتورة' : 'Invoice', _tone.gold.fg);
     }
   }
 

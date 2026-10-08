@@ -91,6 +91,16 @@ class HomeScreenEnhanced extends StatefulWidget {
 
 class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
     with RouteAware, WidgetsBindingObserver, SingleTickerProviderStateMixin {
+  // الألوان من الثيم لا من قيم مكتوبة هنا (ثيم-٠): تتبع الوضعين.
+  ColorScheme get _cs => Theme.of(context).colorScheme;
+  AppSemanticColors get _tone => AppSemanticColors.of(context);
+
+  /// لون ما يُكتب على الشريط العلوي: الذهب في الداكن، ولون النص على الذهب في الفاتح.
+  Color get _onBar => Theme.of(context).brightness == Brightness.dark ? _cs.primary : _cs.onPrimary;
+
+  /// ميدالية الترتيب: الذهب والفضة والبرونز.
+  SemanticTone _medal(int index) => switch (index) { 0 => _tone.gold, 1 => _tone.silver, _ => _tone.bronze };
+
   final ApiService api = ApiService();
 
   // Sun pulse animation for empty leaderboard banner
@@ -616,8 +626,8 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
         child: Container(
           padding: const EdgeInsetsDirectional.fromSTEB(8, 6, 12, 6),
           decoration: BoxDecoration(
-            color: AppColors.error.withValues(alpha: 0.16),
-            border: Border.all(color: AppColors.error.withValues(alpha: 0.45)),
+            color: _tone.blocked.fg.withValues(alpha: 0.16),
+            border: Border.all(color: _tone.blocked.fg.withValues(alpha: 0.45)),
             borderRadius: BorderRadius.circular(20),
           ),
           child: Row(
@@ -626,14 +636,14 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
               Container(
                 width: 22,
                 height: 22,
-                decoration: const BoxDecoration(color: AppColors.error, shape: BoxShape.circle),
+                decoration: BoxDecoration(color: _tone.blocked.fg, shape: BoxShape.circle),
                 child: Center(child: leading),
               ),
               const SizedBox(width: 5),
               Text(
                 label,
-                style: const TextStyle(
-                  color: Color(0xFFFFCDD2),
+                style: TextStyle(
+                  color: _onBar.withValues(alpha: 0.9),
                   fontSize: 12,
                   fontWeight: FontWeight.w700,
                   fontFamily: 'Cairo',
@@ -789,11 +799,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
           fontSize: 14,
           color: theme.colorScheme.onSurface,
         ) ??
-        const TextStyle(
-          fontFamily: 'Cairo',
-          fontSize: 14,
-          color: Colors.white70,
-        );
+        const TextStyle(fontFamily: 'Cairo', fontSize: 14);
     final TextStyle sectionStyle = baseLabelStyle.copyWith(
       fontSize: 15,
       fontWeight: FontWeight.bold,
@@ -1053,7 +1059,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
     addDestination(
       icon: Icons.point_of_sale,
       title: isAr ? 'فاتورة بيع' : 'Sales Invoice',
-      color: Colors.green,
+      color: _tone.sectionGreen.fg,
       onSelected: () async {
         final result = await Navigator.push(
           context,
@@ -1070,7 +1076,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
     addDestination(
       icon: Icons.recycling_outlined,
       title: isAr ? 'بيع ذهب كسر' : 'Scrap Gold Sale',
-      color: Colors.orangeAccent,
+      color: _tone.sectionOrange.fg,
       onSelected: () async {
         final result = await Navigator.push(
           context,
@@ -1088,7 +1094,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
     addDestination(
       icon: Icons.shopping_basket,
       title: isAr ? 'شراء كسر من عميل' : 'Buy Scrap from Customer',
-      color: Colors.amber.shade700,
+      color: _tone.sectionAmber.fg,
       onSelected: () async {
         final result = await Navigator.push(
           context,
@@ -1104,7 +1110,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
     addDestination(
       icon: Icons.business,
       title: isAr ? 'فاتورة شراء' : 'Purchase Invoice',
-      color: Colors.blue.shade400,
+      color: _tone.sectionBlue.fg,
       onSelected: () async {
         final result = await Navigator.push(
           context,
@@ -1116,7 +1122,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
     addDestination(
       icon: Icons.receipt_long,
       title: isAr ? 'جميع الفواتير' : 'All Invoices',
-      color: Colors.blueGrey,
+      color: _tone.sectionSlate.fg,
       onSelected: () async {
         await Navigator.push(
           context,
@@ -1127,7 +1133,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
     addDestination(
       icon: Icons.check_circle_outline,
       title: isAr ? 'اعتماد الترحيل' : 'Posting Management',
-      color: Colors.teal,
+      color: _tone.sectionTeal.fg,
       onSelected: () async {
         await Navigator.push(
           context,
@@ -1142,11 +1148,11 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
     // 2. المرتجعات
     // ════════════════════════════════════════════════════════════════════════
     addDivider();
-    addSection(isAr ? 'المرتجعات' : 'Returns', Colors.red.shade300);
+    addSection(isAr ? 'المرتجعات' : 'Returns', _tone.sectionRed.fg);
     addDestination(
       icon: Icons.keyboard_return,
       title: isAr ? 'مرتجع بيع' : 'Sales Return',
-      color: Colors.red.shade300,
+      color: _tone.sectionRed.fg,
       onSelected: () async {
         final result = await Navigator.push(
           context,
@@ -1161,7 +1167,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
     addDestination(
       icon: Icons.undo,
       title: isAr ? 'مرتجع شراء كسر' : 'Scrap Purchase Return',
-      color: Colors.red.shade300,
+      color: _tone.sectionRed.fg,
       onSelected: () async {
         final result = await Navigator.push(
           context,
@@ -1176,7 +1182,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
     addDestination(
       icon: Icons.assignment_return,
       title: isAr ? 'مرتجع شراء (مورد)' : 'Supplier Return',
-      color: Colors.red.shade300,
+      color: _tone.sectionRed.fg,
       onSelected: () async {
         final result = await Navigator.push(
           context,
@@ -1193,11 +1199,11 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
     // 3. العملاء والموردين
     // ════════════════════════════════════════════════════════════════════════
     addDivider();
-    addSection(isAr ? 'العملاء والموردين' : 'Customers & Suppliers', Colors.blue.shade300);
+    addSection(isAr ? 'العملاء والموردين' : 'Customers & Suppliers', _tone.sectionBlue.fg);
     addDestination(
       icon: Icons.people,
       title: isAr ? 'قائمة العملاء' : 'Customers',
-      color: Colors.blue.shade300,
+      color: _tone.sectionBlue.fg,
       onSelected: () async {
         await Navigator.push(
           context,
@@ -1210,7 +1216,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
     addDestination(
       icon: Icons.person_add,
       title: isAr ? 'إضافة عميل' : 'Add Customer',
-      color: Colors.blue.shade300,
+      color: _tone.sectionBlue.fg,
       onSelected: () async {
         await Navigator.push(
           context,
@@ -1221,7 +1227,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
     addDestination(
       icon: Icons.store,
       title: isAr ? 'قائمة الموردين' : 'Suppliers',
-      color: Colors.purple.shade300,
+      color: _tone.sectionPurple.fg,
       onSelected: () async {
         await Navigator.push(
           context,
@@ -1236,11 +1242,11 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
     // 4. الأصناف
     // ════════════════════════════════════════════════════════════════════════
     addDivider();
-    addSection(isAr ? 'الأصناف' : 'Items', Colors.orange.shade300);
+    addSection(isAr ? 'الأصناف' : 'Items', _tone.sectionOrange.fg);
     addDestination(
       icon: Icons.inventory_2,
       title: isAr ? 'قائمة الأصناف' : 'Items List',
-      color: Colors.orange.shade300,
+      color: _tone.sectionOrange.fg,
       onSelected: () async {
         await Navigator.push(
           context,
@@ -1251,7 +1257,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
     addDestination(
       icon: Icons.add_box,
       title: isAr ? 'إضافة صنف' : 'Add Item',
-      color: Colors.orange.shade300,
+      color: _tone.sectionOrange.fg,
       onSelected: () async {
         await Navigator.push(
           context,
@@ -1264,7 +1270,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
     addDestination(
       icon: Icons.autorenew,
       title: isAr ? 'التجديد والتكسير' : 'Melting & Renewal',
-      color: Colors.orange.shade300,
+      color: _tone.sectionOrange.fg,
       onSelected: () async {
         await Navigator.push(
           context,
@@ -1282,12 +1288,12 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
     addDivider();
     addSection(
       isAr ? 'التسكير والذهب الخام' : 'Gold & Closing',
-      AppColors.primaryGold,
+      _cs.primary,
     );
     addDestination(
       icon: Icons.lock_clock,
       title: isAr ? 'حجز ذهب خام' : 'Gold Reservation',
-      color: AppColors.primaryGold,
+      color: _cs.primary,
       onSelected: () async {
         final result = await Navigator.push(
           context,
@@ -1301,7 +1307,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
     addDestination(
       icon: Icons.business,
       title: isAr ? 'مكاتب التسكير' : 'Closing Offices',
-      color: AppColors.darkGold,
+      color: _tone.gold.fg,
       onSelected: () async {
         await Navigator.push(
           context,
@@ -1314,7 +1320,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
     addDestination(
       icon: Icons.scale,
       title: isAr ? 'تنفيذ التسكير الوزني' : 'Weight Closing',
-      color: AppColors.primaryGold,
+      color: _cs.primary,
       onSelected: () async {
         await Navigator.push(
           context,
@@ -1327,12 +1333,12 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
     // 6. الموارد البشرية (حسب الصلاحيات)
     // ════════════════════════════════════════════════════════════════════════
     addDivider();
-    addSection(isAr ? 'الموارد البشرية' : 'Human Resources', Colors.blueGrey.shade400);
+    addSection(isAr ? 'الموارد البشرية' : 'Human Resources', _tone.sectionSlate.fg);
     if (auth.hasPermission('employees.view')) {
       addDestination(
         icon: Icons.badge,
         title: isAr ? 'الموظفين' : 'Employees',
-        color: Colors.blueGrey.shade300,
+        color: _tone.sectionSlate.fg,
         onSelected: () async {
           await Navigator.push(
             context,
@@ -1345,7 +1351,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
       addDestination(
         icon: Icons.card_giftcard,
         title: isAr ? 'المكافآت' : 'Bonuses',
-        color: Colors.blueGrey.shade300,
+        color: _tone.sectionSlate.fg,
         onSelected: () async {
           await Navigator.push(
             context,
@@ -1361,7 +1367,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
       addDestination(
         icon: Icons.payments_rounded,
         title: isAr ? 'الرواتب' : 'Payroll',
-        color: Colors.blueGrey.shade300,
+        color: _tone.sectionSlate.fg,
         onSelected: () async {
           await Navigator.push(
             context,
@@ -1376,7 +1382,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
       addDestination(
         icon: Icons.event_available,
         title: isAr ? 'الحضور والانصراف' : 'Attendance',
-        color: Colors.blueGrey.shade300,
+        color: _tone.sectionSlate.fg,
         onSelected: () async {
           await Navigator.push(
             context,
@@ -1391,7 +1397,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
     addDestination(
       icon: Icons.emoji_events_rounded,
       title: isAr ? 'سباق الأداء' : 'Sales Race',
-      color: AppColors.primaryGold,
+      color: _cs.primary,
       onSelected: () async {
         await Navigator.push(
           context,
@@ -1407,7 +1413,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
       addDestination(
         icon: Icons.manage_accounts,
         title: isAr ? 'المستخدمين' : 'Users',
-        color: Colors.blueGrey.shade300,
+        color: _tone.sectionSlate.fg,
         onSelected: () async {
           await Navigator.push(
             context,
@@ -1432,7 +1438,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
       addDestination(
         icon: Icons.receipt_long,
         title: isAr ? 'السندات' : 'Vouchers',
-        color: Colors.cyan,
+        color: _tone.sectionCyan.fg,
         onSelected: () async {
           await Navigator.push(
             context,
@@ -1443,7 +1449,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
       addDestination(
         icon: Icons.south,
         title: isAr ? 'سند قبض' : 'Receipt Voucher',
-        color: Colors.green,
+        color: _tone.sectionGreen.fg,
         onSelected: () async {
           await Navigator.push(
             context,
@@ -1456,7 +1462,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
       addDestination(
         icon: Icons.north,
         title: isAr ? 'سند صرف' : 'Payment Voucher',
-        color: Colors.red,
+        color: _tone.sectionRed.fg,
         onSelected: () async {
           await Navigator.push(
             context,
@@ -1508,7 +1514,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
       addDestination(
         icon: Icons.repeat,
         title: isAr ? 'القيود الدورية' : 'Recurring Entries',
-        color: Colors.purple.shade600,
+        color: _tone.sectionPurple.fg,
         onSelected: () async {
           await Navigator.push(
             context,
@@ -1524,7 +1530,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
       addDestination(
         icon: Icons.menu_book,
         title: isAr ? 'دفتر الأستاذ العام' : 'General Ledger',
-        color: Colors.amber.shade700,
+        color: _tone.sectionAmber.fg,
         onSelected: () async {
           await Navigator.push(
             context,
@@ -1559,11 +1565,11 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
     // ════════════════════════════════════════════════════════════════════════
     if (_holdsAnyReport(auth)) {
       addDivider();
-      addSection(isAr ? 'التقارير' : 'Reports', Colors.indigo.shade300);
+      addSection(isAr ? 'التقارير' : 'Reports', _tone.sectionIndigo.fg);
       addDestination(
         icon: Icons.insights,
         title: isAr ? 'مركز التقارير' : 'Reports Center',
-        color: Colors.indigo.shade300,
+        color: _tone.sectionIndigo.fg,
         onSelected: () async {
           await Navigator.push(
             context,
@@ -1577,7 +1583,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
       addDestination(
         icon: Icons.auto_graph,
         title: isAr ? 'سعر الذهب - تاريخي' : 'Gold Price History',
-        color: Colors.amber.shade600,
+        color: _tone.sectionAmber.fg,
         onSelected: () async {
           await Navigator.push(
             context,
@@ -1594,7 +1600,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
         addDestination(
           icon: Icons.analytics,
           title: isAr ? 'تقارير الرواتب' : 'Payroll Reports',
-          color: Colors.blueGrey.shade300,
+          color: _tone.sectionSlate.fg,
           onSelected: () async {
             await Navigator.push(
               context,
@@ -1612,11 +1618,11 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
     // ════════════════════════════════════════════════════════════════════════
     if (auth.hasPermission('inventory.view')) {
       addDivider();
-      addSection(isAr ? 'الجرد الفعلي' : 'Inventory', Colors.teal.shade700);
+      addSection(isAr ? 'الجرد الفعلي' : 'Inventory', _tone.sectionTeal.fg);
       addDestination(
         icon: Icons.scale_outlined,
         title: isAr ? 'أرصدة الجرد' : 'Inventory Balance',
-        color: Colors.teal.shade700,
+        color: _tone.sectionTeal.fg,
         onSelected: () async {
           await Navigator.push(
             context,
@@ -1628,7 +1634,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
         addDestination(
           icon: Icons.fact_check_outlined,
           title: isAr ? 'مركز التدقيق' : 'Audit Center',
-          color: Colors.teal.shade700,
+          color: _tone.sectionTeal.fg,
           onSelected: () async {
             await Navigator.push(
               context,
@@ -1644,14 +1650,14 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
     // 10. الأدوات التشغيلية
     // ════════════════════════════════════════════════════════════════════════
     addDivider();
-    addSection(isAr ? 'الأدوات' : 'Tools', Colors.teal.shade400);
+    addSection(isAr ? 'الأدوات' : 'Tools', _tone.sectionTeal.fg);
     // The safes' balances and the shift closing are not the seller's: they
     // hold safe_boxes.view only to pick a safe in an invoice (ADR-036).
     if (auth.hasPermission('safe_boxes.transfer')) {
       addDestination(
         icon: Icons.savings,
         title: isAr ? 'إدارة الخزائن' : 'Safe Boxes',
-        color: Colors.amber.shade600,
+        color: _tone.sectionAmber.fg,
         onSelected: () async {
           await Navigator.push(
             context,
@@ -1667,7 +1673,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
       addDestination(
         icon: Icons.fact_check,
         title: isAr ? 'إغلاق اليومية' : 'Shift Closing',
-        color: Colors.teal.shade400,
+        color: _tone.sectionTeal.fg,
         onSelected: () async {
           await Navigator.push(
             context,
@@ -1683,7 +1689,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
       addDestination(
         icon: Icons.swap_horiz,
         title: isAr ? 'تسوية المقاصة' : 'Clearing Settlement',
-        color: Colors.teal.shade600,
+        color: _tone.sectionTeal.fg,
         onSelected: () async {
           await Navigator.push(
             context,
@@ -1698,7 +1704,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
       addDestination(
         icon: Icons.credit_card,
         title: isAr ? 'وسائل الدفع' : 'Payment Methods',
-        color: Colors.amber.shade600,
+        color: _tone.sectionAmber.fg,
         onSelected: () async {
           await Navigator.push(
             context,
@@ -1713,7 +1719,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
     addDestination(
       icon: Icons.print,
       title: isAr ? 'مركز الطباعة' : 'Printing Center',
-      color: Colors.purple.shade300,
+      color: _tone.sectionPurple.fg,
       onSelected: () async {
         await Navigator.push(
           context,
@@ -1736,7 +1742,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
                     ? 'ليس لديك صلاحية تحديث سعر الذهب'
                     : 'You do not have permission to update gold price',
               ),
-              backgroundColor: AppColors.warning,
+              backgroundColor: _tone.warning.fg,
             ),
           );
           return;
@@ -1760,7 +1766,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
       addDestination(
         icon: Icons.domain,
         title: isAr ? 'إدارة الفروع' : 'Branches',
-        color: Colors.amber.shade600,
+        color: _tone.sectionAmber.fg,
         onSelected: () async {
           await Navigator.push(
             context,
@@ -1786,7 +1792,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
       addDestination(
         icon: Icons.print,
         title: isAr ? 'إعدادات الطابعة' : 'Printer Settings',
-        color: Colors.purple.shade300,
+        color: _tone.sectionPurple.fg,
         onSelected: () async {
           await Navigator.push(
             context,
@@ -1804,7 +1810,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
       addDestination(
         icon: Icons.upload_file,
         title: isAr ? 'استيراد Excel' : 'Import Excel',
-        color: Colors.green.shade700,
+        color: _tone.sectionGreen.fg,
         onSelected: () async {
           await Navigator.push(
             context,
@@ -1818,7 +1824,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
       addDestination(
         icon: Icons.restore,
         title: isAr ? 'إعادة تهيئة النظام' : 'System Reset',
-        color: Colors.red.shade400,
+        color: _tone.sectionRed.fg,
         onSelected: () async {
           await Navigator.push(
             context,
@@ -1836,7 +1842,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
     addDestination(
       icon: Icons.info_outline,
       title: isAr ? 'حول التطبيق' : 'About',
-      color: Colors.teal.shade300,
+      color: _tone.sectionTeal.fg,
       onSelected: () async {
         await Navigator.push(
           context,
@@ -1976,19 +1982,17 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
     return Directionality(
       textDirection: isAr ? TextDirection.rtl : TextDirection.ltr,
       child: Scaffold(
-        drawer: _buildDrawer(isAr, AppColors.primaryGold),
+        drawer: _buildDrawer(isAr, _cs.primary),
         appBar: AppBar(
           automaticallyImplyLeading: false,
           toolbarHeight: 56,
           elevation: 0,
-          shadowColor: Colors.black.withValues(alpha: 0.14),
+          shadowColor: _cs.shadow.withValues(alpha: 0.14),
           surfaceTintColor: Colors.transparent,
           backgroundColor: Theme.of(context).brightness == Brightness.dark
-              ? const Color(0xFF2D2D2D)
-              : AppColors.darkGold,
-          foregroundColor: Theme.of(context).brightness == Brightness.dark
-              ? AppColors.primaryGold
-              : Colors.white,
+              ? _cs.surfaceContainerHigh
+              : _tone.gold.fg,
+          foregroundColor: _onBar,
           leadingWidth: 52,
           leading: Builder(
             builder: (context) => IconButton(
@@ -2001,9 +2005,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
           title: Row(
             children: [
               AppLogo.matchTextColor(
-                Theme.of(context).brightness == Brightness.dark
-                    ? AppColors.primaryGold
-                    : Colors.white,
+                _onBar,
                 width: 32,
                 height: 32,
               ),
@@ -2012,9 +2014,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
                 child: Text(
                   isAr ? 'مجوهرات خالد' : 'Khaled Jewelery',
                   style: TextStyle(
-                    color: Theme.of(context).brightness == Brightness.dark
-                        ? AppColors.primaryGold
-                        : Colors.white,
+                    color: _onBar,
                     fontWeight: FontWeight.w700,
                     fontFamily: 'Cairo',
                     fontSize: 16,
@@ -2027,7 +2027,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
             if (_systemAlertsCount > 0)
               _pendingChip(
                 isAr: isAr,
-                leading: const Icon(Icons.power_off_rounded, size: 18, color: Colors.white),
+                leading: Icon(Icons.power_off_rounded, size: 18, color: _onBar),
                 label: isAr ? 'المجدول متوقف' : 'Scheduler down',
               ),
             if (_pendingApprovalsCount > 0)
@@ -2035,8 +2035,8 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
                 isAr: isAr,
                 leading: Text(
                   '$_pendingApprovalsCount',
-                  style: const TextStyle(
-                    color: Colors.white,
+                  style: TextStyle(
+                    color: _onBar,
                     fontSize: 11,
                     fontWeight: FontWeight.w800,
                     fontFamily: 'Cairo',
@@ -2088,8 +2088,8 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
                           displayName: displayName,
                           photoBase64: photoBase64,
                           radius: 16,
-                          backgroundColor: isDark ? AppColors.primaryGold : Colors.white,
-                          foregroundColor: isDark ? const Color(0xFF1A1A1A) : AppColors.darkGold,
+                          backgroundColor: _onBar,
+                          foregroundColor: isDark ? _cs.onPrimary : _tone.gold.fg,
                           editable: true,
                           onUpload: (base64) => auth.updateUserPhoto(api, base64),
                         ),
@@ -2118,7 +2118,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                   style: TextStyle(
-                                    color: isDark ? AppColors.primaryGold : Colors.white,
+                                    color: _onBar,
                                     fontWeight: FontWeight.w700,
                                     fontSize: 13,
                                     fontFamily: 'Cairo',
@@ -2130,8 +2130,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
                                     style: TextStyle(
-                                      color: (isDark ? AppColors.primaryGold : Colors.white)
-                                          .withValues(alpha: 0.65),
+                                      color: _onBar.withValues(alpha: 0.65),
                                       fontSize: 10,
                                       fontFamily: 'Cairo',
                                     ),
@@ -2142,8 +2141,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
                           const SizedBox(width: 4),
                           Icon(
                             Icons.arrow_drop_down,
-                            color: (isDark ? AppColors.primaryGold : Colors.white)
-                                .withValues(alpha: 0.7),
+                            color: _onBar.withValues(alpha: 0.7),
                             size: 18,
                           ),
                           const SizedBox(width: 4),
@@ -2273,7 +2271,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
                                   ? 'لا يمكن فتح الملف: رقم المستخدم غير متوفر'
                                   : 'Cannot open profile: missing user id',
                             ),
-                            backgroundColor: AppColors.warning,
+                            backgroundColor: _tone.warning.fg,
                           ),
                         );
                         return;
@@ -2301,14 +2299,14 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
         body: isLoading
             ? Center(
                 child: CircularProgressIndicator(
-                  color: AppColors.primaryGold,
+                  color: _cs.primary,
                   strokeWidth: 3,
                 ),
               )
             : _buildSelectedTabContent(isAr),
         bottomNavigationBar: _buildBottomNavigationBar(
           isAr,
-          AppColors.primaryGold,
+          _cs.primary,
         ),
       ),
     );
@@ -2317,7 +2315,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
   Widget _buildBottomNavigationBar(bool isAr, Color gold) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
-    final bg = isDark ? const Color(0xFF1E1E1E) : Colors.white;
+    final bg = isDark ? _cs.surfaceContainerLow : _cs.surfaceContainerLowest;
     final items = _getBottomNavItems(isAr);
 
     return Container(
@@ -2325,7 +2323,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
         color: bg,
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: isDark ? 0.3 : 0.08),
+            color: _cs.shadow.withValues(alpha: isDark ? 0.3 : 0.08),
             blurRadius: 12,
             offset: const Offset(0, -2),
           ),
@@ -2352,14 +2350,14 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
                         width: selected ? 28 : 0,
                         margin: const EdgeInsets.only(bottom: 4),
                         decoration: BoxDecoration(
-                          color: AppColors.primaryGold,
+                          color: _cs.primary,
                           borderRadius: BorderRadius.circular(2),
                         ),
                       ),
                       IconTheme(
                         data: IconThemeData(
                           color: selected
-                              ? AppColors.primaryGold
+                              ? _cs.primary
                               : theme.unselectedWidgetColor,
                           size: 22,
                         ),
@@ -2375,7 +2373,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
                               ? FontWeight.bold
                               : FontWeight.normal,
                           color: selected
-                              ? AppColors.primaryGold
+                              ? _cs.primary
                               : theme.unselectedWidgetColor,
                         ),
                       ),
@@ -2494,7 +2492,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
         Expanded(
           child: RefreshIndicator(
             onRefresh: _loadAllData,
-            color: AppColors.primaryGold,
+            color: _cs.primary,
             child: SingleChildScrollView(
               physics: const AlwaysScrollableScrollPhysics(),
               child: Padding(
@@ -2599,8 +2597,8 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
       : targetProgress.clamp(0.0, 1.0);
     final isGoalAchieved = effectiveTargetProgress >= 0.9999;
     final Color goalColor = isGoalAchieved
-        ? AppColors.success
-      : (effectiveTargetProgress < 0.5 ? AppColors.warning : AppColors.info);
+        ? _tone.ready.fg
+      : (effectiveTargetProgress < 0.5 ? _tone.warning.fg : _tone.info.fg);
     final goalPercentText =
       '${(effectiveTargetProgress * 100).round()}%';
     final goalCurrentText = usePointsGoal
@@ -2694,18 +2692,18 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
       final isLeader = index == 0;
       final valueColor = isLeader ? colorScheme.primary : colorScheme.secondary;
       final progressColor = switch (index) {
-        1 => const Color(0xFF98A2B3),
-        2 => const Color(0xFFCD7F32),
+        1 => _tone.silver.fg,
+        2 => _tone.bronze.fg,
         _ => valueColor,
       };
       final medalAccent = switch (index) {
-        0 => AppColors.primaryGold,
-        1 => const Color(0xFF98A2B3),
-        2 => const Color(0xFFCD7F32),
+        0 => _cs.primary,
+        1 => _tone.silver.fg,
+        2 => _tone.bronze.fg,
         _ => valueColor,
       };
       final roleBadgeColor = index == 0
-          ? AppColors.darkGold
+          ? _tone.gold.fg
           : colorScheme.onSurface.withValues(alpha: 0.62);
       final invoiceLabelEn = count == 1 ? 'invoice' : 'invoices';
       final invoiceLabelAr = count == 1 ? 'فاتورة بيع' : 'فواتير بيع';
@@ -2751,40 +2749,40 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
             decoration: BoxDecoration(
               color: hovered
                   ? (index == 0
-                      ? (isDark ? colorScheme.surfaceContainerHigh : const Color(0xFFFFFBF0))
-                      : (isDark ? colorScheme.surfaceContainerHigh : Colors.white))
+                      ? (isDark ? colorScheme.surfaceContainerHigh : Color.alphaBlend(_tone.gold.container.withValues(alpha: 0.30), _cs.surfaceContainerLowest))
+                      : (isDark ? colorScheme.surfaceContainerHigh : _cs.surfaceContainerLowest))
                   : (isDark
                       ? colorScheme.surfaceContainerHigh
-                      : (index == 0 ? const Color(0xFFFFFDF5) : Colors.white)),
+                      : (index == 0 ? Color.alphaBlend(_tone.gold.container.withValues(alpha: 0.30), _cs.surfaceContainerLowest) : _cs.surfaceContainerLowest)),
               borderRadius: BorderRadius.circular(14),
               border: Border.all(
                 color: hovered
-                    ? AppColors.primaryGold.withValues(alpha: 0.42)
+                    ? _cs.primary.withValues(alpha: 0.42)
                     : (index == 0
-                        ? AppColors.primaryGold.withValues(alpha: 0.22)
+                        ? _cs.primary.withValues(alpha: 0.22)
                         : index == 1
-                            ? const Color(0xFF98A2B3).withValues(alpha: 0.20)
+                            ? _tone.silver.fg.withValues(alpha: 0.20)
                             : index == 2
-                                ? const Color(0xFFB07A39).withValues(alpha: 0.18)
+                                ? _tone.bronze.fg.withValues(alpha: 0.18)
                                 : colorScheme.onSurface.withValues(alpha: 0.07)),
                 width: hovered ? 1.2 : (index == 0 ? 1.1 : 1.0),
               ),
               boxShadow: hovered
                   ? [
                       BoxShadow(
-                        color: AppColors.primaryGold.withValues(alpha: 0.11),
+                        color: _cs.primary.withValues(alpha: 0.11),
                         blurRadius: 14,
                         spreadRadius: 0,
                         offset: const Offset(0, 4),
                       ),
                       BoxShadow(
-                        color: Colors.black.withValues(alpha: isDark ? 0.13 : 0.07),
+                        color: _cs.shadow.withValues(alpha: isDark ? 0.13 : 0.07),
                         blurRadius: 8,
                         offset: const Offset(0, 2),
                       ),
                     ]
                   : (index == 0
-                      ? [BoxShadow(color: AppColors.primaryGold.withValues(alpha: 0.08), blurRadius: 10, offset: const Offset(0, 3))]
+                      ? [BoxShadow(color: _cs.primary.withValues(alpha: 0.08), blurRadius: 10, offset: const Offset(0, 3))]
                       : null),
             ),
             child: Padding(
@@ -2859,8 +2857,8 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
                             valueColor: colorScheme.onSurface.withValues(alpha: 0.55),
                           ),
                           _buildCategoryChip(
-                            dotColor: AppColors.success,
-                            valueColor: AppColors.success,
+                            dotColor: _tone.ready.fg,
+                            valueColor: _tone.ready.fg,
                             label: isAr ? 'مبيعات' : 'Sales',
                             amount: showAmounts ? salesAmount : null,
                             points: showPoints && metric == 'points' ? pointsSales : null,
@@ -2870,8 +2868,8 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
                             numberFormat: numberFormat,
                           ),
                           _buildCategoryChip(
-                            dotColor: const Color(0xFF5E35B1),
-                            valueColor: const Color(0xFF5E35B1),
+                            dotColor: _tone.invoicePurchase.fg,
+                            valueColor: _tone.invoicePurchase.fg,
                             label: isAr ? 'مشتريات' : 'Purch',
                             amount: showAmounts ? purchaseAmount : null,
                             points: showPoints && metric == 'points' ? pointsPurchase : null,
@@ -2931,8 +2929,8 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
                             begin: Alignment.topLeft,
                             end: Alignment.bottomRight,
                             colors: [
-                              AppColors.primaryGold.withValues(alpha: 0.18),
-                              AppColors.primaryGold.withValues(alpha: 0.07),
+                              _cs.primary.withValues(alpha: 0.18),
+                              _cs.primary.withValues(alpha: 0.07),
                             ],
                           )
                         : null,
@@ -2940,7 +2938,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
                     borderRadius: BorderRadius.circular(12),
                     border: Border.all(
                       color: index == 0
-                          ? AppColors.primaryGold.withValues(alpha: 0.30)
+                          ? _cs.primary.withValues(alpha: 0.30)
                           : medalAccent.withValues(alpha: 0.18),
                     ),
                   ),
@@ -2954,7 +2952,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
                           fontFamily: 'Cairo',
                           fontWeight: FontWeight.w900,
                           fontSize: index == 0 ? 22 : 18,
-                          color: index == 0 ? AppColors.darkGold : medalAccent,
+                          color: index == 0 ? _tone.gold.fg : medalAccent,
                           height: 1.1,
                         ),
                       ),
@@ -2995,11 +2993,11 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
                   begin: AlignmentDirectional.topStart,
                   end: AlignmentDirectional.bottomEnd,
                   colors: [
-                    AppColors.primaryGold.withValues(alpha: 0.18),
-                    AppColors.lightGold.withValues(alpha: 0.10),
+                    _cs.primary.withValues(alpha: 0.18),
+                    _tone.gold.container.withValues(alpha: 0.10),
                     isDark
-                        ? Colors.black.withValues(alpha: 0.15)
-                        : Colors.white.withValues(alpha: 0.60),
+                        ? _cs.shadow.withValues(alpha: 0.15)
+                        : _cs.surfaceContainerLowest.withValues(alpha: 0.60),
                   ],
                   stops: const [0.0, 0.5, 1.0],
                 ),
@@ -3022,18 +3020,18 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
                             begin: Alignment.topLeft,
                             end: Alignment.bottomRight,
                             colors: [
-                              AppColors.primaryGold.withValues(alpha: 0.22),
-                              AppColors.darkGold.withValues(alpha: 0.10),
+                              _cs.primary.withValues(alpha: 0.22),
+                              _tone.gold.fg.withValues(alpha: 0.10),
                             ],
                           ),
                           borderRadius: BorderRadius.circular(14),
                           border: Border.all(
-                            color: AppColors.primaryGold.withValues(alpha: 0.18),
+                            color: _cs.primary.withValues(alpha: 0.18),
                           ),
                         ),
                         child: Icon(
                           Icons.emoji_events_rounded,
-                          color: AppColors.darkGold,
+                          color: _tone.gold.fg,
                           size: 24,
                         ),
                       ),
@@ -3056,7 +3054,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
                                             : 'Sales Race — Today'),  
                               style: theme.textTheme.titleMedium?.copyWith(
                                 fontWeight: FontWeight.w800,
-                                color: AppColors.deepGold,
+                                color: _tone.gold.fg,
                               ),
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
@@ -3071,7 +3069,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
                                   Icon(
                                     Icons.star_rounded,
                                     size: 14,
-                                    color: AppColors.primaryGold,
+                                    color: _cs.primary,
                                   ),
                                   const SizedBox(width: 4),
                                   Flexible(
@@ -3080,7 +3078,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
                                           ? 'المتصدر الآن: $championName'
                                           : 'Current leader: $championName',
                                       style: theme.textTheme.bodySmall?.copyWith(
-                                        color: AppColors.darkGold,
+                                        color: _tone.gold.fg,
                                         fontWeight: FontWeight.w700,
                                       ),
                                       maxLines: 1,
@@ -3152,16 +3150,16 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
                       vertical: 6,
                     ),
                     decoration: BoxDecoration(
-                      color: AppColors.lightGold.withValues(alpha: 0.35),
+                      color: _tone.gold.container.withValues(alpha: 0.35),
                       borderRadius: BorderRadius.circular(999),
                       border: Border.all(
-                        color: AppColors.primaryGold.withValues(alpha: 0.18),
+                        color: _cs.primary.withValues(alpha: 0.18),
                       ),
                     ),
                     child: Text(
                       metricPillText,
                       style: theme.textTheme.labelSmall?.copyWith(
-                        color: AppColors.deepGold,
+                        color: _tone.gold.fg,
                         fontWeight: FontWeight.w700,
                       ),
                     ),
@@ -3271,7 +3269,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
                       colors: [
                         isDark
                             ? colorScheme.surfaceContainerHighest
-                            : Colors.white,
+                            : _cs.surfaceContainerLowest,
                         goalColor.withValues(alpha: 0.06),
                       ],
                     ),
@@ -3334,7 +3332,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
                           Text(
                             goalTargetText,
                             style: theme.textTheme.bodyMedium?.copyWith(
-                              color: AppColors.primaryGold,
+                              color: _cs.primary,
                               fontWeight: FontWeight.w700,
                             ),
                           ),
@@ -3343,12 +3341,12 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
                             Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                Icon(Icons.timelapse_rounded, size: 13, color: AppColors.warning),
+                                Icon(Icons.timelapse_rounded, size: 13, color: _tone.warning.fg),
                                 const SizedBox(width: 4),
                                 Text(
                                   goalRemainingText,
                                   style: theme.textTheme.labelSmall?.copyWith(
-                                    color: AppColors.warning,
+                                    color: _tone.warning.fg,
                                     fontWeight: FontWeight.w700,
                                   ),
                                 ),
@@ -3414,11 +3412,11 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
                         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                         decoration: BoxDecoration(
                           color: isDark
-                              ? const Color(0xFF0D2A47)
-                              : const Color(0xFF1976D2).withValues(alpha: 0.05),
+                              ? _tone.info.container
+                              : _tone.info.fg.withValues(alpha: 0.05),
                           borderRadius: BorderRadius.circular(14),
                           border: Border.all(
-                            color: const Color(0xFF1976D2).withValues(alpha: 0.28),
+                            color: _tone.info.fg.withValues(alpha: 0.28),
                             strokeAlign: BorderSide.strokeAlignInside,
                           ),
                         ),
@@ -3434,18 +3432,18 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
                                 width: 42,
                                 height: 42,
                                 decoration: BoxDecoration(
-                                  color: const Color(0xFF1976D2).withValues(alpha: 0.13),
+                                  color: _tone.info.fg.withValues(alpha: 0.13),
                                   shape: BoxShape.circle,
-                                  border: Border.all(color: const Color(0xFF1976D2).withValues(alpha: 0.28)),
+                                  border: Border.all(color: _tone.info.fg.withValues(alpha: 0.28)),
                                 ),
                                 child: Center(
                                   child: Text(
                                     meAvatarText,
-                                    style: const TextStyle(
+                                    style: TextStyle(
                                       fontFamily: 'Cairo',
                                       fontWeight: FontWeight.w800,
                                       fontSize: 14,
-                                      color: Color(0xFF1976D2),
+                                      color: _tone.info.fg,
                                     ),
                                   ),
                                 ),
@@ -3459,11 +3457,11 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
                                 children: [
                                   Text(
                                     isAr ? 'أنت الآن' : 'Your Position',
-                                    style: const TextStyle(
+                                    style: TextStyle(
                                       fontFamily: 'Cairo',
                                       fontWeight: FontWeight.w700,
                                       fontSize: 11,
-                                      color: Color(0xFF1976D2),
+                                      color: _tone.info.fg,
                                     ),
                                   ),
                                   Text(
@@ -3485,7 +3483,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
                                     style: TextStyle(
                                       fontFamily: 'Cairo',
                                       fontSize: 10.5,
-                                      color: const Color(0xFF1976D2).withValues(alpha: 0.60),
+                                      color: _tone.info.fg.withValues(alpha: 0.60),
                                       fontWeight: FontWeight.w500,
                                     ),
                                   ),
@@ -3498,9 +3496,9 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
                               constraints: const BoxConstraints(minWidth: 48),
                               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                               decoration: BoxDecoration(
-                                color: const Color(0xFF1976D2).withValues(alpha: 0.10),
+                                color: _tone.info.fg.withValues(alpha: 0.10),
                                 borderRadius: BorderRadius.circular(12),
-                                border: Border.all(color: const Color(0xFF1976D2).withValues(alpha: 0.22)),
+                                border: Border.all(color: _tone.info.fg.withValues(alpha: 0.22)),
                               ),
                               child: Column(
                                 mainAxisSize: MainAxisSize.min,
@@ -3508,11 +3506,11 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
                                 children: [
                                   Text(
                                     meScoreText,
-                                    style: const TextStyle(
+                                    style: TextStyle(
                                       fontFamily: 'Cairo',
                                       fontWeight: FontWeight.w900,
                                       fontSize: 20,
-                                      color: Color(0xFF1976D2),
+                                      color: _tone.info.fg,
                                       height: 1.1,
                                     ),
                                   ),
@@ -3521,7 +3519,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
                                     style: TextStyle(
                                       fontFamily: 'Cairo',
                                       fontSize: 9,
-                                      color: const Color(0xFF1976D2).withValues(alpha: 0.55),
+                                      color: _tone.info.fg.withValues(alpha: 0.55),
                                       fontWeight: FontWeight.w600,
                                     ),
                                   ),
@@ -3579,12 +3577,12 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
                           vertical: 12,
                         ),
                         decoration: BoxDecoration(
-                          color: AppColors.primaryGold.withValues(
+                          color: _cs.primary.withValues(
                             alpha: _showAllLeaderboardEmployees ? 0.10 : 0.05,
                           ),
                           borderRadius: BorderRadius.circular(14),
                           border: Border.all(
-                            color: AppColors.primaryGold.withValues(alpha: 0.18),
+                            color: _cs.primary.withValues(alpha: 0.18),
                           ),
                         ),
                           child: Row(
@@ -3596,7 +3594,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
                                 child: Icon(
                                   Icons.keyboard_arrow_down_rounded,
                                   size: 18,
-                                  color: AppColors.darkGold,
+                                  color: _tone.gold.fg,
                                 ),
                               ),
                               const SizedBox(width: 6),
@@ -3614,7 +3612,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
                                             : 'Show progress for $remainingEmployeesCount more staff'),
                                   key: ValueKey<bool>(_showAllLeaderboardEmployees),
                                   style: theme.textTheme.bodySmall?.copyWith(
-                                    color: AppColors.darkGold,
+                                    color: _tone.gold.fg,
                                     fontWeight: FontWeight.w700,
                                   ),
                                 ),
@@ -3646,8 +3644,8 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
                             '${NumberFormat('#,##0', 'en').format(
                               ((adminSummary['total_sales_amount'] as num?) ?? 0).round(),
                             )} ${context.read<SettingsProvider>().currencySymbolText}',
-                        accent: AppColors.success,
-                        borderBottomColor: AppColors.success,
+                        accent: _tone.ready.fg,
+                        borderBottomColor: _tone.ready.fg,
                       ),
                     ),
                     const SizedBox(width: 8),
@@ -3663,8 +3661,8 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
                             '${NumberFormat('#,##0', 'en').format(
                               ((adminSummary['total_purchase_amount'] as num?) ?? 0).round(),
                             )} ${context.read<SettingsProvider>().currencySymbolText}',
-                        accent: const Color(0xFF5E35B1),
-                        borderBottomColor: const Color(0xFF5E35B1),
+                        accent: _tone.invoicePurchase.fg,
+                        borderBottomColor: _tone.invoicePurchase.fg,
                       ),
                     ),
                     const SizedBox(width: 8),
@@ -3679,8 +3677,8 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
                         value: isAr
                             ? '${adminSummary['total_points']} نقطة'
                             : '${adminSummary['total_points']} pts',
-                        accent: AppColors.deepGold,
-                        borderBottomColor: AppColors.primaryGold,
+                        accent: _tone.gold.fg,
+                        borderBottomColor: _cs.primary,
                       ),
                     ),
                 ],
@@ -3710,18 +3708,18 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
       ),
       foregroundColor: WidgetStateProperty.resolveWith((states) {
         if (states.contains(WidgetState.selected)) {
-          return Colors.white;
+          return _cs.onPrimary;
         }
         return colorScheme.onSurface.withValues(alpha: 0.68);
       }),
       backgroundColor: WidgetStateProperty.resolveWith((states) {
         if (states.contains(WidgetState.selected)) {
-          return AppColors.primaryGold;
+          return _cs.primary;
         }
-        return const Color(0xFFE8E8E8);
+        return _cs.surfaceContainerHighest;
       }),
       overlayColor: WidgetStateProperty.all(
-        AppColors.primaryGold.withValues(alpha: 0.08),
+        _cs.primary.withValues(alpha: 0.08),
       ),
       elevation: WidgetStateProperty.all(0),
     );
@@ -3751,11 +3749,11 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
         child: Container(
           padding: const EdgeInsets.all(18),
           decoration: BoxDecoration(
-            color: isDark ? theme.colorScheme.surfaceContainer : Colors.white,
+            color: isDark ? theme.colorScheme.surfaceContainer : _cs.surfaceContainerLowest,
             borderRadius: BorderRadius.circular(16),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withValues(alpha: isDark ? 0.18 : 0.08),
+                color: _cs.shadow.withValues(alpha: isDark ? 0.18 : 0.08),
                 blurRadius: 8,
                 offset: const Offset(0, 2),
               ),
@@ -3791,8 +3789,8 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
       decoration: BoxDecoration(
         gradient: LinearGradient(
           colors: [
-            AppColors.primaryGold.withValues(alpha: 0.10),
-            AppColors.primaryGold.withValues(alpha: 0.03),
+            _cs.primary.withValues(alpha: 0.10),
+            _cs.primary.withValues(alpha: 0.03),
           ],
           begin: AlignmentDirectional.centerEnd,
           end: AlignmentDirectional.centerStart,
@@ -3802,7 +3800,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
           bottomLeft: Radius.circular(8),
         ),
         border: BorderDirectional(
-          end: BorderSide(color: AppColors.primaryGold, width: 3),
+          end: BorderSide(color: _cs.primary, width: 3),
         ),
       ),
       child: Row(
@@ -3818,21 +3816,21 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
               width: 36,
               height: 36,
               decoration: BoxDecoration(
-                gradient: const LinearGradient(
-                  colors: [Color(0xFFFFD700), AppColors.primaryGold],
+                gradient: LinearGradient(
+                  colors: [_tone.gold.container, _cs.primary],
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
                 ),
                 shape: BoxShape.circle,
                 boxShadow: [
                   BoxShadow(
-                    color: AppColors.primaryGold.withValues(alpha: 0.40),
+                    color: _cs.primary.withValues(alpha: 0.40),
                     blurRadius: 10,
                     spreadRadius: 1,
                   ),
                 ],
               ),
-              child: const Icon(Icons.wb_sunny_rounded, color: Colors.white, size: 20),
+              child: Icon(Icons.wb_sunny_rounded, color: _cs.onPrimary, size: 20),
             ),
           ),
           const SizedBox(width: 12),
@@ -3843,14 +3841,14 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
                   fontSize: 12,
                   fontFamily: 'Cairo',
                   height: 1.5,
-                  color: isDark ? const Color(0xFFE0E0E0) : const Color(0xFF212121),
+                  color: _cs.onSurface,
                 ),
                 children: [
                   TextSpan(
                     text: title,
                     style: TextStyle(
                       fontWeight: FontWeight.w700,
-                      color: isDark ? AppColors.primaryGold : AppColors.darkGold,
+                      color: isDark ? _cs.primary : _tone.gold.fg,
                     ),
                   ),
                   TextSpan(text: description),
@@ -3865,18 +3863,11 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
 
   /// PATCH 4: شارة الترتيب — 50×50 مع تاج للمتصدر
   Widget _buildRankBadge(int index, Color medalAccent) {
-    final gradientColors = switch (index) {
-      0 => const [Color(0xFFFFE566), Color(0xFFBF8800)],
-      1 => const [Color(0xFFEEEEEE), Color(0xFF888888)],
-      2 => const [Color(0xFFE8A87C), Color(0xFF7A3F0E)],
-      _ => [medalAccent.withValues(alpha: 0.18), medalAccent.withValues(alpha: 0.08)],
-    };
-    final shadowColor = switch (index) {
-      0 => const Color(0xFFDAA520),
-      1 => const Color(0xFF9E9E9E),
-      2 => const Color(0xFFCD7F32),
-      _ => medalAccent,
-    };
+    final medal = _medal(index);
+    final gradientColors = index < 3
+        ? [medal.fg, Color.lerp(medal.fg, medal.onContainer, 0.5)!]
+        : [medalAccent.withValues(alpha: 0.18), medalAccent.withValues(alpha: 0.08)];
+    final shadowColor = index < 3 ? medal.fg : medalAccent;
 
     final Widget badge = CustomPaint(
       painter: _RankBadgeNotchPainter(
@@ -3895,9 +3886,9 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
               fontFamily: 'Cairo',
               fontWeight: FontWeight.w900,
               fontSize: 20,
-              color: index < 3 ? Colors.white : medalAccent,
+              color: index < 3 ? _cs.onPrimary : medalAccent,
               shadows: index < 3
-                  ? [const Shadow(color: Colors.black45, blurRadius: 5)]
+                  ? [Shadow(color: _cs.shadow.withValues(alpha: 0.45), blurRadius: 5)]
                   : null,
             ),
           ),
@@ -3920,10 +3911,10 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
             style: TextStyle(
               fontSize: 26,
               height: 1.0,
-              shadows: const [
-                Shadow(color: Colors.black38, blurRadius: 5, offset: Offset(0, 3)),
-                Shadow(color: Color(0xFFFFAA00), blurRadius: 20),
-                Shadow(color: Color(0xFFFFD700), blurRadius: 10),
+              shadows: [
+                Shadow(color: _cs.shadow.withValues(alpha: 0.38), blurRadius: 5, offset: const Offset(0, 3)),
+                Shadow(color: _tone.gold.fg, blurRadius: 20),
+                Shadow(color: _tone.gold.container, blurRadius: 10),
               ],
             ),
           ),
@@ -3968,7 +3959,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
               if (label.isNotEmpty)
                 TextSpan(
                   text: ' $label',
-                  style: const TextStyle(color: Color(0xFF9E9E9E)),
+                  style: TextStyle(color: _cs.onSurfaceVariant),
                 ),
             ],
           ),
@@ -3994,7 +3985,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
     String? pointsUnit,
   }) {
     if (amount == null && points == null) return const SizedBox.shrink();
-    const pointsColor = AppColors.darkGold;
+    final pointsColor = _tone.gold.fg;
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -4010,31 +4001,31 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
             children: [
               TextSpan(
                 text: '$label: ',
-                style: const TextStyle(
-                  color: Color(0xFF9E9E9E),
+                style: TextStyle(
+                  color: _cs.onSurfaceVariant,
                   fontWeight: FontWeight.w600,
                 ),
               ),
               if (points != null) ...[
                 TextSpan(
                   text: '$points ',
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontWeight: FontWeight.w800,
                     color: pointsColor,
                   ),
                 ),
                 TextSpan(
                   text: pointsUnit,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontWeight: FontWeight.w700,
                     color: pointsColor,
                     fontSize: 9.5,
                   ),
                 ),
                 if (amount != null)
-                  const TextSpan(
+                  TextSpan(
                     text: '  •  ',
-                    style: TextStyle(color: Color(0xFF9E9E9E)),
+                    style: TextStyle(color: _cs.onSurfaceVariant),
                   ),
               ],
               if (amount != null) ...[
@@ -4069,15 +4060,14 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
     required String value,
     required Color borderBottomColor,
   }) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Expanded(
       child: Container(
         padding: const EdgeInsets.fromLTRB(10, 12, 10, 10),
         decoration: BoxDecoration(
-          color: isDark ? const Color(0xFF252525) : const Color(0xFFF5F5F5),
+          color: _cs.surfaceContainer,
           borderRadius: BorderRadius.circular(8),
           border: Border.all(
-            color: isDark ? const Color(0xFF3D3D3D) : const Color(0xFFE0E0E0),
+            color: _cs.outlineVariant,
           ),
           boxShadow: [
             BoxShadow(
@@ -4107,7 +4097,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
                 fontSize: 10.5,
                 fontFamily: 'Cairo',
                 fontWeight: FontWeight.w600,
-                color: isDark ? const Color(0xFFBDBDBD) : const Color(0xFF616161),
+                color: _cs.onSurfaceVariant,
               ),
               textAlign: TextAlign.center,
             ),
@@ -4118,7 +4108,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
                 fontSize: 14,
                 fontFamily: 'Cairo',
                 fontWeight: FontWeight.w800,
-                color: isDark ? Colors.white : const Color(0xFF212121),
+                color: _cs.onSurface,
               ),
               textAlign: TextAlign.center,
             ),
@@ -4160,7 +4150,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
                 decoration: BoxDecoration(
                   color: isDark
                       ? colorScheme.surfaceContainerHigh
-                      : (hovered ? const Color(0xFFFAFAFA) : Colors.white),
+                      : (hovered ? _cs.surfaceContainerLow : _cs.surfaceContainerLowest),
                   borderRadius: BorderRadius.circular(14),
                   border: Border.all(
                     color: hovered
@@ -4176,14 +4166,14 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
                             offset: const Offset(0, 4),
                           ),
                           BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.07),
+                            color: _cs.shadow.withValues(alpha: 0.07),
                             blurRadius: 8,
                             offset: const Offset(0, 2),
                           ),
                         ]
                       : [
                           BoxShadow(
-                            color: Colors.black.withValues(
+                            color: _cs.shadow.withValues(
                               alpha: isDark ? 0.18 : 0.08,
                             ),
                             blurRadius: 8,
@@ -4268,7 +4258,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
           width: 4,
           height: 16,
           decoration: BoxDecoration(
-            color: AppColors.primaryGold,
+            color: _cs.primary,
             borderRadius: BorderRadius.circular(2),
           ),
         ),
@@ -4299,11 +4289,11 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
       decoration: BoxDecoration(
         color: isDark
             ? theme.colorScheme.surfaceContainerHighest
-            : Colors.white,
+            : _cs.surfaceContainerLowest,
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: isDark ? 0.18 : 0.08),
+            color: _cs.shadow.withValues(alpha: isDark ? 0.18 : 0.08),
             blurRadius: 8,
             offset: const Offset(0, 2),
           ),
@@ -4552,7 +4542,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
       builder: (context, provider, child) {
         if (provider.isLoading) {
           return Center(
-            child: CircularProgressIndicator(color: AppColors.primaryGold),
+            child: CircularProgressIndicator(color: _cs.primary),
           );
         }
 
@@ -4568,7 +4558,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
             ),
             child: Column(
               children: [
-                Icon(Icons.info_outline, color: AppColors.info, size: 40),
+                Icon(Icons.info_outline, color: _tone.info.fg, size: 40),
                 const SizedBox(height: 12),
                 Text(
                   isAr ? 'لا توجد أزرار وصول سريع مفعّلة' : 'No quick actions enabled',
@@ -4625,7 +4615,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
             _buildActionsCard(
               theme: theme,
               icon: Icons.receipt_long_rounded,
-              iconColor: AppColors.success,
+              iconColor: _tone.ready.fg,
               title: isAr ? 'المبيعات والمشتريات' : 'Sales & Purchases',
               trailing: _buildCustomizeTrailing(theme, QuickActionGroup.sales),
               child: Column(
@@ -4658,7 +4648,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
               _buildActionsCard(
                 theme: theme,
                 icon: Icons.menu_book_rounded,
-                iconColor: AppColors.info,
+                iconColor: _tone.info.fg,
                 title: isAr ? 'المحاسبة والتقارير' : 'Accounting & Reports',
                 trailing: _buildCustomizeTrailing(theme, QuickActionGroup.accounting),
                 child: Column(
@@ -4687,7 +4677,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
               _buildActionsCard(
                 theme: theme,
                 icon: Icons.settings_rounded,
-                iconColor: AppColors.darkGold,
+                iconColor: _tone.gold.fg,
                 title: isAr ? 'الإدارة' : 'Administration',
                 trailing: _buildCustomizeTrailing(theme, QuickActionGroup.admin),
                 child: Column(
@@ -4722,7 +4712,6 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
     required QuickActionItem action,
     required ThemeData theme,
   }) {
-    final isDark = theme.brightness == Brightness.dark;
     final isAr = widget.isArabic;
     var hovered = false;
     return StatefulBuilder(
@@ -4746,9 +4735,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
               ),
               decoration: BoxDecoration(
                 gradient: LinearGradient(
-                  colors: isDark
-                      ? [AppColors.darkGold, AppColors.deepGold]
-                      : [AppColors.primaryGold, AppColors.darkGold],
+                  colors: [_cs.primary, Color.lerp(_cs.primary, _cs.shadow, 0.25)!],
                   begin: Alignment.topRight,
                   end: Alignment.bottomLeft,
                 ),
@@ -4757,20 +4744,20 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
                     ? [
                         // ظل محيطي ذهبي فاتح متلاشٍ
                         BoxShadow(
-                          color: AppColors.primaryGold.withValues(alpha: 0.35),
+                          color: _cs.primary.withValues(alpha: 0.35),
                           blurRadius: 22,
                           spreadRadius: 2,
                           offset: const Offset(0, 4),
                         ),
                         BoxShadow(
-                          color: AppColors.darkGold.withValues(alpha: 0.22),
+                          color: _tone.gold.fg.withValues(alpha: 0.22),
                           blurRadius: 10,
                           offset: const Offset(0, 6),
                         ),
                       ]
                     : [
                         BoxShadow(
-                          color: AppColors.darkGold.withValues(alpha: 0.28),
+                          color: _tone.gold.fg.withValues(alpha: 0.28),
                           blurRadius: 12,
                           offset: const Offset(0, 4),
                         ),
@@ -4787,10 +4774,10 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
                       width: 40,
                       height: 40,
                       decoration: BoxDecoration(
-                        color: Colors.white.withValues(alpha: hovered ? 0.30 : 0.20),
+                        color: _cs.onPrimary.withValues(alpha: hovered ? 0.30 : 0.20),
                         borderRadius: BorderRadius.circular(10),
                       ),
-                      child: const Icon(Icons.add_rounded, color: Colors.white, size: 22),
+                      child: Icon(Icons.add_rounded, color: _cs.onPrimary, size: 22),
                     ),
                     const SizedBox(width: 14),
                     Expanded(
@@ -4800,8 +4787,8 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
                         children: [
                           Text(
                             isAr ? 'فاتورة بيع جديدة' : 'New Sales Invoice',
-                            style: const TextStyle(
-                              color: Colors.white,
+                            style: TextStyle(
+                              color: _cs.onPrimary,
                               fontSize: 15,
                               fontWeight: FontWeight.w800,
                               fontFamily: 'Cairo',
@@ -4812,7 +4799,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
                           Text(
                             isAr ? 'السريع · الأكثر استخداماً' : 'Quick · Most used',
                             style: TextStyle(
-                              color: Colors.white.withValues(alpha: 0.80),
+                              color: _cs.onPrimary.withValues(alpha: 0.80),
                               fontSize: 11,
                               fontFamily: 'Cairo',
                               fontWeight: FontWeight.w500,
@@ -4829,9 +4816,9 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
                       child: AnimatedOpacity(
                         duration: const Duration(milliseconds: 170),
                         opacity: hovered ? 1.0 : 0.70,
-                        child: const Icon(
+                        child: Icon(
                           Icons.arrow_back_rounded,
-                          color: Colors.white,
+                          color: _cs.onPrimary,
                           size: 22,
                         ),
                       ),
@@ -4876,10 +4863,10 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
               curve: Curves.easeOutCubic,
               decoration: BoxDecoration(
                 color: hovered
-                    ? (isDark ? theme.colorScheme.surface : Colors.white)
+                    ? (isDark ? theme.colorScheme.surface : _cs.surfaceContainerLowest)
                     : (isDark
                         ? theme.colorScheme.surfaceContainerHigh
-                        : const Color(0xFFF4F4F5)),
+                        : _cs.surfaceContainerLow),
                 borderRadius: BorderRadius.circular(14),
                 border: Border.all(
                   color: hovered
@@ -4895,14 +4882,14 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
                           offset: const Offset(0, 4),
                         ),
                         BoxShadow(
-                          color: Colors.black.withValues(alpha: isDark ? 0.13 : 0.06),
+                          color: _cs.shadow.withValues(alpha: isDark ? 0.13 : 0.06),
                           blurRadius: 6,
                           offset: const Offset(0, 2),
                         ),
                       ]
                     : [
                         BoxShadow(
-                          color: Colors.black.withValues(alpha: isDark ? 0.04 : 0.02),
+                          color: _cs.shadow.withValues(alpha: isDark ? 0.04 : 0.02),
                           blurRadius: 2,
                           offset: const Offset(0, 1),
                         ),
@@ -5056,16 +5043,16 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Row(children: [
-            const Icon(Icons.lock_outline, color: Colors.white, size: 20),
+            Icon(Icons.lock_outline, color: _cs.onError, size: 20),
             const SizedBox(width: 10),
             Expanded(child: Text(
               widget.isArabic
                   ? 'ليس لديك صلاحية لاستعراض هذا القسم'
                   : 'You do not have permission to access this section',
-              style: const TextStyle(fontWeight: FontWeight.w600),
+              style: TextStyle(fontWeight: FontWeight.w600, color: _cs.onError),
             )),
           ]),
-          backgroundColor: Colors.red.shade700,
+          backgroundColor: _cs.error,
           behavior: SnackBarBehavior.floating,
           duration: const Duration(seconds: 3),
         ),
@@ -5362,7 +5349,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
                       ? 'ليس لديك صلاحية تحديث سعر الذهب'
                       : 'You do not have permission to update gold price',
                 ),
-                backgroundColor: AppColors.warning,
+                backgroundColor: _tone.warning.fg,
               ),
             );
             result = false;
@@ -5513,7 +5500,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('هذه الميزة غير متوفرة حالياً'),
-            backgroundColor: AppColors.warning,
+            backgroundColor: _tone.warning.fg,
           ),
         );
     }

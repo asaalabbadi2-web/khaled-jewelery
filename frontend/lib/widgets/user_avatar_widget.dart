@@ -4,7 +4,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
-import '../theme/app_theme.dart';
+import '../theme/app_semantic_colors.dart';
 
 class UserAvatarWidget extends StatelessWidget {
   final String displayName;
@@ -28,9 +28,13 @@ class UserAvatarWidget extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // من الثيم (ثيم-٠): ذهب بنص داكن في الداكن، وسطح بنص ذهبي في الفاتح.
+    final scheme = Theme.of(context).colorScheme;
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final bgColor = backgroundColor ?? (isDark ? AppColors.primaryGold : Colors.white);
-    final fgColor = foregroundColor ?? (isDark ? const Color(0xFF1A1A1A) : AppColors.darkGold);
+    final bgColor = backgroundColor ??
+        (isDark ? scheme.primary : scheme.surfaceContainerLowest);
+    final fgColor = foregroundColor ??
+        (isDark ? scheme.onPrimary : AppSemanticColors.of(context).gold.fg);
     final initial = displayName.isNotEmpty ? displayName[0].toUpperCase() : '?';
 
     ImageProvider? imageProvider;
@@ -132,10 +136,10 @@ class _EditableAvatarState extends State<_EditableAvatar> {
         if (widget.photoBase64 != null && widget.photoBase64!.isNotEmpty)
           PopupMenuItem<String>(
             value: 'delete',
-            child: Row(children: const [
-              Icon(Icons.delete_outline, size: 20, color: Colors.red),
-              SizedBox(width: 10),
-              Text('حذف الصورة', style: TextStyle(color: Colors.red)),
+            child: Row(children: [
+              Icon(Icons.delete_outline, size: 20, color: Theme.of(context).colorScheme.error),
+              const SizedBox(width: 10),
+              Text('حذف الصورة', style: TextStyle(color: Theme.of(context).colorScheme.error)),
             ]),
           ),
       ],
@@ -234,11 +238,18 @@ class _EditableAvatarState extends State<_EditableAvatar> {
               width: widget.radius * 0.9,
               height: widget.radius * 0.9,
               decoration: BoxDecoration(
-                color: AppColors.primaryGold,
+                color: Theme.of(context).colorScheme.primary,
                 shape: BoxShape.circle,
-                border: Border.all(color: Colors.white, width: 1.5),
+                border: Border.all(
+                  color: Theme.of(context).colorScheme.surfaceContainerLowest,
+                  width: 1.5,
+                ),
               ),
-              child: Icon(Icons.camera_alt, size: widget.radius * 0.5, color: Colors.white),
+              child: Icon(
+                Icons.camera_alt,
+                size: widget.radius * 0.5,
+                color: Theme.of(context).colorScheme.onPrimary,
+              ),
             ),
           ),
         ],

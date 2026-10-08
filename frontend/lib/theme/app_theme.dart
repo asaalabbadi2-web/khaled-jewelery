@@ -156,6 +156,8 @@ class AppSchemes {
     inverseSurface: Color(0xFF353027),
     onInverseSurface: Color(0xFFF8EFE2),
     inversePrimary: Color(0xFFE6C24F),
+    shadow: Color(0xFF000000),
+    scrim: Color(0xFF000000),
   );
 
   static const ColorScheme dark = ColorScheme(
@@ -189,6 +191,8 @@ class AppSchemes {
     inverseSurface: Color(0xFFE8E2D6),
     onInverseSurface: Color(0xFF32302B),
     inversePrimary: Color(0xFF87600A),
+    shadow: Color(0xFF000000),
+    scrim: Color(0xFF000000),
   );
 }
 

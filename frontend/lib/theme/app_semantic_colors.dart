@@ -55,6 +55,18 @@ class AppSemanticColors extends ThemeExtension<AppSemanticColors> {
     required this.invoicePurchase,
     required this.invoicePurchaseScrap,
     required this.invoiceReturn,
+    required this.sectionGreen,
+    required this.sectionOrange,
+    required this.sectionAmber,
+    required this.sectionBlue,
+    required this.sectionSlate,
+    required this.sectionTeal,
+    required this.sectionRed,
+    required this.sectionPurple,
+    required this.sectionIndigo,
+    required this.sectionCyan,
+    required this.silver,
+    required this.bronze,
   });
 
   final SemanticTone ready;
@@ -74,6 +86,23 @@ class AppSemanticColors extends ThemeExtension<AppSemanticColors> {
   final SemanticTone invoicePurchase;
   final SemanticTone invoicePurchaseScrap;
   final SemanticTone invoiceReturn;
+
+  /// ألوان أقسام القائمة والدرج في الشاشة الرئيسية: لكل قسم لونه كما عرفه
+  /// الموظفون، وهو هنا ليتبع الوضع الداكن.
+  final SemanticTone sectionGreen;
+  final SemanticTone sectionOrange;
+  final SemanticTone sectionAmber;
+  final SemanticTone sectionBlue;
+  final SemanticTone sectionSlate;
+  final SemanticTone sectionTeal;
+  final SemanticTone sectionRed;
+  final SemanticTone sectionPurple;
+  final SemanticTone sectionIndigo;
+  final SemanticTone sectionCyan;
+
+  /// ميداليات الترتيب: الذهب `gold`، ثم هذان.
+  final SemanticTone silver;
+  final SemanticTone bronze;
 
   /// لون نوع الفاتورة.
   SemanticTone invoice(InvoiceKind kind) => switch (kind) {
@@ -127,6 +156,18 @@ class AppSemanticColors extends ThemeExtension<AppSemanticColors> {
     'invoicePurchase': invoicePurchase,
     'invoicePurchaseScrap': invoicePurchaseScrap,
     'invoiceReturn': invoiceReturn,
+    'sectionGreen': sectionGreen,
+    'sectionOrange': sectionOrange,
+    'sectionAmber': sectionAmber,
+    'sectionBlue': sectionBlue,
+    'sectionSlate': sectionSlate,
+    'sectionTeal': sectionTeal,
+    'sectionRed': sectionRed,
+    'sectionPurple': sectionPurple,
+    'sectionIndigo': sectionIndigo,
+    'sectionCyan': sectionCyan,
+    'silver': silver,
+    'bronze': bronze,
   };
 
   static const light = AppSemanticColors(
@@ -205,6 +246,66 @@ class AppSemanticColors extends ThemeExtension<AppSemanticColors> {
       Color(0xFFFFDAD6),
       Color(0xFF410002),
     ),
+    sectionGreen: SemanticTone(
+      Color(0xFF1E6B2C),
+      Color(0xFFDDF1DF),
+      Color(0xFF0B3D14),
+    ),
+    sectionOrange: SemanticTone(
+      Color(0xFFA04A00),
+      Color(0xFFFFE6D0),
+      Color(0xFF4A2000),
+    ),
+    sectionAmber: SemanticTone(
+      Color(0xFF7A5A00),
+      Color(0xFFFFEFC2),
+      Color(0xFF3A2A00),
+    ),
+    sectionBlue: SemanticTone(
+      Color(0xFF245A9E),
+      Color(0xFFDCE8FA),
+      Color(0xFF0B2A57),
+    ),
+    sectionSlate: SemanticTone(
+      Color(0xFF4A5D6E),
+      Color(0xFFE3E9EF),
+      Color(0xFF1A2733),
+    ),
+    sectionTeal: SemanticTone(
+      Color(0xFF00695C),
+      Color(0xFFD7F0EC),
+      Color(0xFF00332D),
+    ),
+    sectionRed: SemanticTone(
+      Color(0xFFA32D2D),
+      Color(0xFFFCE4E4),
+      Color(0xFF4A0E0E),
+    ),
+    sectionPurple: SemanticTone(
+      Color(0xFF6A2C91),
+      Color(0xFFEFE3F7),
+      Color(0xFF2E1042),
+    ),
+    sectionIndigo: SemanticTone(
+      Color(0xFF3949AB),
+      Color(0xFFE2E5F7),
+      Color(0xFF141B52),
+    ),
+    sectionCyan: SemanticTone(
+      Color(0xFF00677A),
+      Color(0xFFD3EEF3),
+      Color(0xFF00323D),
+    ),
+    silver: SemanticTone(
+      Color(0xFF5C6370),
+      Color(0xFFECEEF2),
+      Color(0xFF22262C),
+    ),
+    bronze: SemanticTone(
+      Color(0xFF8A4B14),
+      Color(0xFFF4E1CF),
+      Color(0xFF3E1F06),
+    ),
   );
 
   static const dark = AppSemanticColors(
@@ -281,6 +382,66 @@ class AppSemanticColors extends ThemeExtension<AppSemanticColors> {
       Color(0xFF7A1F1F),
       Color(0xFFFFDAD6),
     ),
+    sectionGreen: SemanticTone(
+      Color(0xFF7FD08A),
+      Color(0xFF1F3A24),
+      Color(0xFFCDEFD2),
+    ),
+    sectionOrange: SemanticTone(
+      Color(0xFFFFB074),
+      Color(0xFF4D2A0C),
+      Color(0xFFFFDDBF),
+    ),
+    sectionAmber: SemanticTone(
+      Color(0xFFF2CB5C),
+      Color(0xFF4A3C0E),
+      Color(0xFFFFE9A8),
+    ),
+    sectionBlue: SemanticTone(
+      Color(0xFF9DC2FF),
+      Color(0xFF17345E),
+      Color(0xFFDCE8FA),
+    ),
+    sectionSlate: SemanticTone(
+      Color(0xFFB7C6D6),
+      Color(0xFF2A3744),
+      Color(0xFFDCE6F2),
+    ),
+    sectionTeal: SemanticTone(
+      Color(0xFF6FD8CB),
+      Color(0xFF123733),
+      Color(0xFFCDF4EF),
+    ),
+    sectionRed: SemanticTone(
+      Color(0xFFFF9E9E),
+      Color(0xFF4D1A1A),
+      Color(0xFFFFDADA),
+    ),
+    sectionPurple: SemanticTone(
+      Color(0xFFD1A8F0),
+      Color(0xFF2E1D3D),
+      Color(0xFFEBD3FA),
+    ),
+    sectionIndigo: SemanticTone(
+      Color(0xFFB3BCF5),
+      Color(0xFF1F2548),
+      Color(0xFFDDE1FB),
+    ),
+    sectionCyan: SemanticTone(
+      Color(0xFF6FD3E6),
+      Color(0xFF0F3A44),
+      Color(0xFFCDF1F8),
+    ),
+    silver: SemanticTone(
+      Color(0xFFC4CBD6),
+      Color(0xFF2F343B),
+      Color(0xFFE3E7EE),
+    ),
+    bronze: SemanticTone(
+      Color(0xFFE3A66B),
+      Color(0xFF4A2E14),
+      Color(0xFFF5D9BC),
+    ),
   );
 
   @override
@@ -319,6 +480,18 @@ class AppSemanticColors extends ThemeExtension<AppSemanticColors> {
         t,
       ),
       invoiceReturn: SemanticTone.lerp(invoiceReturn, other.invoiceReturn, t),
+      sectionGreen: SemanticTone.lerp(sectionGreen, other.sectionGreen, t),
+      sectionOrange: SemanticTone.lerp(sectionOrange, other.sectionOrange, t),
+      sectionAmber: SemanticTone.lerp(sectionAmber, other.sectionAmber, t),
+      sectionBlue: SemanticTone.lerp(sectionBlue, other.sectionBlue, t),
+      sectionSlate: SemanticTone.lerp(sectionSlate, other.sectionSlate, t),
+      sectionTeal: SemanticTone.lerp(sectionTeal, other.sectionTeal, t),
+      sectionRed: SemanticTone.lerp(sectionRed, other.sectionRed, t),
+      sectionPurple: SemanticTone.lerp(sectionPurple, other.sectionPurple, t),
+      sectionIndigo: SemanticTone.lerp(sectionIndigo, other.sectionIndigo, t),
+      sectionCyan: SemanticTone.lerp(sectionCyan, other.sectionCyan, t),
+      silver: SemanticTone.lerp(silver, other.silver, t),
+      bronze: SemanticTone.lerp(bronze, other.bronze, t),
     );
   }
 }

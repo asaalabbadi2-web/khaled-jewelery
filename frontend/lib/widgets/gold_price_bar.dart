@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart' hide TextDirection;
 
-import '../theme/app_theme.dart';
+import '../theme/app_semantic_colors.dart';
 import 'gold_sparkline_enhanced.dart';
 
 class GoldPriceBar extends StatelessWidget {
@@ -72,8 +72,7 @@ class GoldPriceBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final palette = _GoldBarPalette(isDark: isDark);
+    final palette = _GoldBarPalette.of(context);
     final changePercent = _changePercent();
     final isUp = (changePercent ?? 0) >= 0;
 
@@ -120,15 +119,7 @@ class GoldPriceBar extends StatelessWidget {
                     isUp: isUp,
                   ),
                 ),
-                ..._otherKarats(mainKarat).asMap().entries.expand((entry) {
-                  final idx = entry.key;
-                  final k = entry.value;
-                  const colors = [
-                    Color(0xFFFF6B6B),
-                    Color(0xFF4ECDC4),
-                    Color(0xFF9B59B6),
-                    Color(0xFF2ECC71),
-                  ];
+                ..._otherKarats(mainKarat).expand((k) {
                   return [
                     const SizedBox(width: 14),
                     Expanded(
@@ -136,7 +127,7 @@ class GoldPriceBar extends StatelessWidget {
                       child: _buildOtherKaratCard(
                         palette: palette,
                         karat: k,
-                        color: colors[idx % colors.length],
+                        color: palette.karat(k),
                         ouncePrice: goldPrice,
                         trendText: _formatPercent(changePercent),
                         changeAbsGram: _changeAbsGram(k),
@@ -259,8 +250,8 @@ class GoldPriceBar extends StatelessWidget {
                   child: Center(
                     child: Text(
                       '${mainKarat}K',
-                      style: const TextStyle(
-                        color: Colors.white,
+                      style: TextStyle(
+                        color: palette.onGold,
                         fontWeight: FontWeight.w900,
                         fontSize: 12,
                         fontFamily: 'Cairo',
@@ -272,7 +263,7 @@ class GoldPriceBar extends StatelessWidget {
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
                   decoration: BoxDecoration(
-                    color: Colors.white,
+                    color: palette.surface,
                     borderRadius: BorderRadius.circular(4),
                   ),
                   child: Text(
@@ -298,7 +289,7 @@ class GoldPriceBar extends StatelessWidget {
                     label: 'بيع / جم',
                     value: sell,
                     unit: 'ريال',
-                    color: AppColors.success,
+                    color: palette.sell,
                     changePercent: _formatPercent(changePercent),
                     isUp: isUp,
                   ),
@@ -310,7 +301,7 @@ class GoldPriceBar extends StatelessWidget {
                     label: 'شراء / جم',
                     value: buy,
                     unit: 'ريال',
-                    color: const Color(0xFF5E35B1),
+                    color: palette.buy,
                     changePercent: _formatPercent(changePercent),
                     isUp: isUp,
                   ),
@@ -376,7 +367,7 @@ class GoldPriceBar extends StatelessWidget {
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
               decoration: BoxDecoration(
-                color: (isUp ? AppColors.success : AppColors.error).withValues(alpha: 0.15),
+                color: (isUp ? palette.up : palette.down).withValues(alpha: 0.15),
                 borderRadius: BorderRadius.circular(3),
               ),
               child: Text(
@@ -384,7 +375,7 @@ class GoldPriceBar extends StatelessWidget {
                 style: TextStyle(
                   fontSize: 10,
                   fontWeight: FontWeight.w700,
-                  color: isUp ? AppColors.success : AppColors.error,
+                  color: isUp ? palette.up : palette.down,
                   fontFamily: 'Cairo',
                 ),
               ),
@@ -452,7 +443,7 @@ class GoldPriceBar extends StatelessWidget {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
                 decoration: BoxDecoration(
-                  color: (isUp ? AppColors.success : AppColors.error).withValues(alpha: 0.15),
+                  color: (isUp ? palette.up : palette.down).withValues(alpha: 0.15),
                   borderRadius: BorderRadius.circular(3),
                 ),
                 child: Column(
@@ -464,7 +455,7 @@ class GoldPriceBar extends StatelessWidget {
                       style: TextStyle(
                         fontSize: 9,
                         fontWeight: FontWeight.w700,
-                        color: isUp ? AppColors.success : AppColors.error,
+                        color: isUp ? palette.up : palette.down,
                         fontFamily: 'Cairo',
                       ),
                     ),
@@ -474,7 +465,7 @@ class GoldPriceBar extends StatelessWidget {
                         style: TextStyle(
                           fontSize: 8.5,
                           fontWeight: FontWeight.w600,
-                          color: (isUp ? AppColors.success : AppColors.error)
+                          color: (isUp ? palette.up : palette.down)
                               .withValues(alpha: 0.8),
                           fontFamily: 'Cairo',
                         ),
@@ -492,7 +483,7 @@ class GoldPriceBar extends StatelessWidget {
                 style: TextStyle(
                   fontSize: 11.5,
                   fontWeight: FontWeight.w700,
-                  color: AppColors.success,
+                  color: palette.sell,
                   fontFamily: 'Cairo',
                 ),
               ),
@@ -506,10 +497,10 @@ class GoldPriceBar extends StatelessWidget {
               ),
               Text(
                 buy != null ? _formatPrice(buy) : '—',
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 11.5,
                   fontWeight: FontWeight.w700,
-                  color: Color(0xFF5E35B1),
+                  color: palette.buy,
                   fontFamily: 'Cairo',
                 ),
               ),
@@ -546,11 +537,11 @@ class GoldPriceBar extends StatelessWidget {
             height: 36,
             decoration: BoxDecoration(
               gradient: LinearGradient(
-                colors: [palette.primaryGold, palette.darkGold],
+                colors: [palette.primaryGold, palette.goldDeep],
               ),
               borderRadius: BorderRadius.circular(8),
             ),
-            child: const Icon(Icons.currency_exchange, color: Colors.white, size: 18),
+            child: Icon(Icons.currency_exchange, color: palette.onGold, size: 18),
           ),
           const SizedBox(width: 8),
           Expanded(
@@ -581,7 +572,7 @@ class GoldPriceBar extends StatelessWidget {
                       : '—',
                   style: TextStyle(
                     fontSize: 10.5,
-                    color: isUp ? AppColors.success : AppColors.error,
+                    color: isUp ? palette.up : palette.down,
                     fontWeight: FontWeight.w700,
                     fontFamily: 'Cairo',
                   ),
@@ -595,21 +586,34 @@ class GoldPriceBar extends StatelessWidget {
   }
 }
 
+/// ألوان شريط السعر من الثيم (ثيم-٠): كانت قيمًا ثابتة، فبقيت بطاقة العيار
+/// الأساسي كريمية بنص باهت في الوضع الداكن.
 class _GoldBarPalette {
-  final bool isDark;
+  _GoldBarPalette.of(BuildContext context)
+    : _cs = Theme.of(context).colorScheme,
+      _tone = AppSemanticColors.of(context),
+      _dark = Theme.of(context).brightness == Brightness.dark;
 
-  _GoldBarPalette({required this.isDark});
+  final ColorScheme _cs;
+  final AppSemanticColors _tone;
+  final bool _dark;
 
-  Color get primaryGold => const Color(0xFFD4AF37);
-  Color get darkGold => const Color(0xFFB8860B);
-  Color get lightGold => const Color(0xFFF4E4C1);
-  Color get surface => isDark ? const Color(0xFF2D2D2D) : Colors.white;
-  Color get surface2 => isDark ? const Color(0xFF252525) : const Color(0xFFF5F5F5);
-  Color get surface3 => isDark ? const Color(0xFF333028) : const Color(0xFFFAF8F2);
-  Color get text => isDark ? const Color(0xFFE8E8E8) : const Color(0xFF212121);
-  Color get textMuted => isDark ? const Color(0xFFBDBDBD) : const Color(0xFF616161);
-  Color get textSoft => isDark ? const Color(0xFF757575) : const Color(0xFF9E9E9E);
-  Color get divider => isDark ? const Color(0xFF3D3D3D) : const Color(0xFFE0E0E0);
-  Color get border => isDark ? const Color(0xFF3D3D3D) : const Color(0xFFE0E0E0);
+  Color get primaryGold => _cs.primary;
+  Color get goldDeep => Color.lerp(_cs.primary, _cs.shadow, 0.25)!;
+  Color get onGold => _cs.onPrimary;
+  Color get darkGold => _tone.gold.fg;
+  Color get lightGold => _tone.gold.container;
+  Color get surface => _dark ? _cs.surfaceContainerHigh : _cs.surfaceContainerLowest;
+  Color get surface2 => _cs.surfaceContainer;
+  Color get surface3 => _cs.surfaceContainerLow;
+  Color get text => _cs.onSurface;
+  Color get textMuted => _cs.onSurfaceVariant;
+  Color get textSoft => _cs.onSurfaceVariant;
+  Color get divider => _cs.outlineVariant;
+  Color get border => _cs.outlineVariant;
+  Color get up => _tone.ready.fg;
+  Color get down => _tone.blocked.fg;
+  Color get sell => _tone.invoiceSale.fg;
+  Color get buy => _tone.invoicePurchase.fg;
+  Color karat(int k) => _tone.karat(k).fg;
 }
-

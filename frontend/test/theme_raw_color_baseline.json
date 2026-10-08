@@ -41,7 +41,6 @@
   "lib/screens/gold_reservation_screen.dart": 15,
   "lib/screens/gold_reservations_list_screen.dart": 25,
   "lib/screens/home_screen_enhanced.backup.dart": 109,
-  "lib/screens/home_screen_enhanced.dart": 233,
   "lib/screens/import_documents_screen.dart": 2,
   "lib/screens/initial_setup_screen.dart": 4,
   "lib/screens/inventory_audit_screen.dart": 48,
@@ -131,19 +130,12 @@
   "lib/widgets/breadcrumb_bar.dart": 5,
   "lib/widgets/bucket_balance_card.dart": 8,
   "lib/widgets/currency_manager_dialog.dart": 1,
-  "lib/widgets/goal_achievement_celebration.dart": 54,
-  "lib/widgets/goal_progress_ring.dart": 10,
-  "lib/widgets/gold_price_bar.dart": 42,
-  "lib/widgets/gold_price_ticker_bar.dart": 21,
-  "lib/widgets/gold_sparkline_enhanced.dart": 37,
   "lib/widgets/gold_type_selector.dart": 2,
   "lib/widgets/invoice_attribution_sheet.dart": 2,
   "lib/widgets/invoice_type_banner.dart": 5,
   "lib/widgets/journal_balance_row.dart": 1,
   "lib/widgets/original_invoice_selector.dart": 12,
   "lib/widgets/party_picker_dialog.dart": 3,
-  "lib/widgets/pending_approvals_dialog.dart": 94,
   "lib/widgets/report_card.dart": 1,
-  "lib/widgets/safe_box_picker_dialog.dart": 4,
-  "lib/widgets/user_avatar_widget.dart": 9
+  "lib/widgets/safe_box_picker_dialog.dart": 4
 }

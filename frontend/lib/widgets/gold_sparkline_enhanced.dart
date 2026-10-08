@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart' hide TextDirection;
-import '../theme/app_theme.dart';
+import '../theme/app_semantic_colors.dart';
 
 /// نقطة في الـ sparkline
 class SparklinePoint {
@@ -48,6 +48,9 @@ class GoldSparklineEnhanced extends StatefulWidget {
 
 class _GoldSparklineEnhancedState extends State<GoldSparklineEnhanced>
     with SingleTickerProviderStateMixin {
+  /// ألوان المنحنى من الثيم (ثيم-٠).
+  _SparkPalette get _c => _SparkPalette.of(context);
+
   late final AnimationController _pulseController;
   late final Animation<double> _pulseAnimation;
 
@@ -166,7 +169,7 @@ class _GoldSparklineEnhancedState extends State<GoldSparklineEnhanced>
                                   maxIdx: stats.maxIdx,
                                   pulseScale: _pulseAnimation.value,
                                   hoveredIndex: _hoveredIndex,
-                                  isDark: isDark,
+                                  colors: _c,
                                   isUp: isUp,
                                 ),
                               );
@@ -210,9 +213,7 @@ class _GoldSparklineEnhancedState extends State<GoldSparklineEnhanced>
                   fontSize: 9.5,
                   fontWeight: FontWeight.w600,
                   fontFamily: 'Cairo',
-                  color: isDark
-                      ? const Color(0xFFBDBDBD)
-                      : AppColors.darkGold,
+                  color: (isDark ? _c.muted : _c.line),
                 ),
               ),
               const SizedBox(height: 1),
@@ -221,9 +222,7 @@ class _GoldSparklineEnhancedState extends State<GoldSparklineEnhanced>
                 style: TextStyle(
                   fontSize: 8,
                   fontFamily: 'Cairo',
-                  color: isDark
-                      ? const Color(0xFF757575)
-                      : const Color(0xFF9E9E9E),
+                  color: _c.muted,
                 ),
               ),
             ],
@@ -238,7 +237,7 @@ class _GoldSparklineEnhancedState extends State<GoldSparklineEnhanced>
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
                 decoration: BoxDecoration(
-                  color: (isUp ? AppColors.success : AppColors.error)
+                  color: (isUp ? _c.up : _c.down)
                       .withValues(alpha: 0.13),
                   borderRadius: BorderRadius.circular(3),
                 ),
@@ -248,7 +247,7 @@ class _GoldSparklineEnhancedState extends State<GoldSparklineEnhanced>
                     fontSize: 9,
                     fontWeight: FontWeight.w800,
                     fontFamily: 'Cairo',
-                    color: isUp ? AppColors.success : AppColors.error,
+                    color: isUp ? _c.up : _c.down,
                   ),
                 ),
               ),
@@ -257,10 +256,10 @@ class _GoldSparklineEnhancedState extends State<GoldSparklineEnhanced>
                 '${_formatPrice(firstPrice)} → ${_formatPrice(lastPrice)}',
                 overflow: TextOverflow.ellipsis,
                 maxLines: 1,
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 8,
                   fontFamily: 'Cairo',
-                  color: Color(0xFF9E9E9E),
+                  color: _c.muted,
                 ),
               ),
             ],
@@ -282,12 +281,10 @@ class _GoldSparklineEnhancedState extends State<GoldSparklineEnhanced>
       margin: const EdgeInsets.only(top: 4),
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
       decoration: BoxDecoration(
-        color: isDark
-            ? AppColors.primaryGold.withValues(alpha: 0.15)
-            : AppColors.darkGold.withValues(alpha: 0.10),
+        color: _c.gold.withValues(alpha: isDark ? 0.15 : 0.10),
         borderRadius: BorderRadius.circular(4),
         border: Border.all(
-          color: AppColors.primaryGold.withValues(alpha: 0.30),
+          color: _c.gold.withValues(alpha: 0.30),
           width: 0.5,
         ),
       ),
@@ -304,7 +301,7 @@ class _GoldSparklineEnhancedState extends State<GoldSparklineEnhanced>
               fontSize: 10,
               fontWeight: FontWeight.w800,
               fontFamily: 'Cairo',
-              color: AppColors.darkGold,
+              color: _c.line,
             ),
           ),
           Text(
@@ -315,9 +312,7 @@ class _GoldSparklineEnhancedState extends State<GoldSparklineEnhanced>
             style: TextStyle(
               fontSize: 8,
               fontFamily: 'Cairo',
-              color: isDark
-                  ? const Color(0xFFBDBDBD)
-                  : const Color(0xFF757575),
+              color: _c.muted,
             ),
           ),
         ],
@@ -340,8 +335,8 @@ class _GoldSparklineEnhancedState extends State<GoldSparklineEnhanced>
               Container(
                 width: 5,
                 height: 5,
-                decoration: const BoxDecoration(
-                  color: AppColors.error,
+                decoration: BoxDecoration(
+                  color: _c.down,
                   shape: BoxShape.circle,
                 ),
               ),
@@ -351,9 +346,7 @@ class _GoldSparklineEnhancedState extends State<GoldSparklineEnhanced>
                 style: TextStyle(
                   fontSize: 9,
                   fontFamily: 'Cairo',
-                  color: isDark
-                      ? const Color(0xFF9E9E9E)
-                      : const Color(0xFF757575),
+                  color: _c.muted,
                 ),
               ),
             ],
@@ -372,9 +365,7 @@ class _GoldSparklineEnhancedState extends State<GoldSparklineEnhanced>
                     fontSize: 8,
                     fontFamily: 'Cairo',
                     fontStyle: FontStyle.italic,
-                    color: isDark
-                        ? const Color(0xFF757575)
-                        : const Color(0xFF9E9E9E),
+                    color: _c.muted,
                   ),
                 ),
               ),
@@ -386,17 +377,15 @@ class _GoldSparklineEnhancedState extends State<GoldSparklineEnhanced>
                 style: TextStyle(
                   fontSize: 9,
                   fontFamily: 'Cairo',
-                  color: isDark
-                      ? const Color(0xFF9E9E9E)
-                      : const Color(0xFF757575),
+                  color: _c.muted,
                 ),
               ),
               const SizedBox(width: 3),
               Container(
                 width: 5,
                 height: 5,
-                decoration: const BoxDecoration(
-                  color: AppColors.success,
+                decoration: BoxDecoration(
+                  color: _c.up,
                   shape: BoxShape.circle,
                 ),
               ),
@@ -408,7 +397,6 @@ class _GoldSparklineEnhancedState extends State<GoldSparklineEnhanced>
   }
 
   Widget _buildEmptyState(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
     return SizedBox(
       width: widget.width,
       height: widget.height + 30,
@@ -420,9 +408,7 @@ class _GoldSparklineEnhancedState extends State<GoldSparklineEnhanced>
           style: TextStyle(
             fontSize: 11,
             fontFamily: 'Cairo',
-            color: isDark
-                ? const Color(0xFF757575)
-                : const Color(0xFF9E9E9E),
+            color: _c.muted,
           ),
         ),
       ),
@@ -451,7 +437,7 @@ class _SparklineEnhancedPainter extends CustomPainter {
   final int maxIdx;
   final double pulseScale;
   final int hoveredIndex;
-  final bool isDark;
+  final _SparkPalette colors;
   final bool isUp;
 
   _SparklineEnhancedPainter({
@@ -461,7 +447,7 @@ class _SparklineEnhancedPainter extends CustomPainter {
     required this.maxIdx,
     required this.pulseScale,
     required this.hoveredIndex,
-    required this.isDark,
+    required this.colors,
     required this.isUp,
   });
 
@@ -503,7 +489,7 @@ class _SparklineEnhancedPainter extends CustomPainter {
         Offset(0, y),
         Offset(size.width, y),
         Paint()
-          ..color = AppColors.primaryGold.withValues(alpha: 0.30)
+          ..color = colors.gold.withValues(alpha: 0.30)
           ..strokeWidth = 0.7
           ..style = PaintingStyle.stroke,
       );
@@ -535,8 +521,8 @@ class _SparklineEnhancedPainter extends CustomPainter {
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
           colors: [
-            AppColors.primaryGold.withValues(alpha: 0.40),
-            AppColors.primaryGold.withValues(alpha: 0.0),
+            colors.gold.withValues(alpha: 0.40),
+            colors.gold.withValues(alpha: 0.0),
           ],
         ).createShader(Rect.fromLTWH(0, 0, size.width, size.height)),
     );
@@ -544,7 +530,7 @@ class _SparklineEnhancedPainter extends CustomPainter {
     canvas.drawPath(
       linePath,
       Paint()
-        ..color = AppColors.darkGold
+        ..color = colors.line
         ..strokeWidth = 2.0
         ..style = PaintingStyle.stroke
         ..strokeJoin = StrokeJoin.round
@@ -554,13 +540,13 @@ class _SparklineEnhancedPainter extends CustomPainter {
     // 3. نقطة min (حمراء)
     if (minIdx >= 0 && minIdx < points.length && minIdx != points.length - 1) {
       _drawDot(canvas, Offset(toX(minIdx), toY(points[minIdx].price)),
-          AppColors.error, radius: 2.5);
+          colors.down, radius: 2.5);
     }
 
     // 4. نقطة max (خضراء)
     if (maxIdx >= 0 && maxIdx < points.length && maxIdx != points.length - 1) {
       _drawDot(canvas, Offset(toX(maxIdx), toY(points[maxIdx].price)),
-          AppColors.success, radius: 2.5);
+          colors.up, radius: 2.5);
     }
 
     // 5. crosshair عند hover
@@ -572,11 +558,11 @@ class _SparklineEnhancedPainter extends CustomPainter {
         Offset(hx, 0),
         Offset(hx, size.height),
         Paint()
-          ..color = AppColors.darkGold.withValues(alpha: 0.50)
+          ..color = colors.line.withValues(alpha: 0.50)
           ..strokeWidth = 0.8,
       );
-      _drawDot(canvas, Offset(hx, hy), AppColors.darkGold,
-          radius: 4, strokeWidth: 1.5, strokeColor: Colors.white);
+      _drawDot(canvas, Offset(hx, hy), colors.line,
+          radius: 4, strokeWidth: 1.5, strokeColor: colors.ring);
     }
 
     // 6. النقطة النابضة على آخر سعر
@@ -587,11 +573,11 @@ class _SparklineEnhancedPainter extends CustomPainter {
       Offset(lastX, lastY),
       7 * pulseScale,
       Paint()
-        ..color = AppColors.primaryGold.withValues(alpha: 0.35)
+        ..color = colors.gold.withValues(alpha: 0.35)
         ..style = PaintingStyle.fill,
     );
-    _drawDot(canvas, Offset(lastX, lastY), const Color(0xFFFFD700),
-        radius: 3.5, strokeWidth: 1.5, strokeColor: Colors.white);
+    _drawDot(canvas, Offset(lastX, lastY), colors.gold,
+        radius: 3.5, strokeWidth: 1.5, strokeColor: colors.ring);
   }
 
   void _drawDot(
@@ -649,6 +635,39 @@ class _SparklineEnhancedPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant _SparklineEnhancedPainter old) =>
       old.pulseScale != pulseScale ||
+      old.colors != colors ||
       old.hoveredIndex != hoveredIndex ||
       old.points.length != points.length;
+}
+
+/// ألوان المنحنى: الذهب للمسار، والجاهز/المحظور للأعلى/الأدنى.
+@immutable
+class _SparkPalette {
+  _SparkPalette.of(BuildContext context)
+    : gold = Theme.of(context).colorScheme.primary,
+      line = AppSemanticColors.of(context).gold.fg,
+      up = AppSemanticColors.of(context).ready.fg,
+      down = AppSemanticColors.of(context).blocked.fg,
+      muted = Theme.of(context).colorScheme.onSurfaceVariant,
+      ring = Theme.of(context).colorScheme.surfaceContainerLowest;
+
+  final Color gold;
+  final Color line;
+  final Color up;
+  final Color down;
+  final Color muted;
+  final Color ring;
+
+  @override
+  bool operator ==(Object other) =>
+      other is _SparkPalette &&
+      other.gold == gold &&
+      other.line == line &&
+      other.up == up &&
+      other.down == down &&
+      other.muted == muted &&
+      other.ring == ring;
+
+  @override
+  int get hashCode => Object.hash(gold, line, up, down, muted, ring);
 }

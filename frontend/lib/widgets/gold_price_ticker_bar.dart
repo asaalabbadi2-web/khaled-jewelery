@@ -3,7 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../api_service.dart';
-import '../theme/app_theme.dart';
+import '../theme/app_semantic_colors.dart';
 import '../utils/currency_utils.dart' as cu;
 
 /// Drives the ticker scroll via [FlowDelegate.paintChildren] only.
@@ -202,29 +202,15 @@ class _GoldPriceTickerBarState extends State<GoldPriceTickerBar>
     super.dispose();
   }
 
-  Color _karatAccentColor(int karat, {required bool isDark}) {
-    switch (karat) {
-      case 24:
-        return AppColors.karat24;
-      case 22:
-        return AppColors.karat22;
-      case 21:
-        return AppColors.karat21;
-      case 18:
-        return AppColors.karat18;
-      default:
-        return AppColors.primaryGold;
-    }
-  }
+  // الألوان من الثيم (ثيم-٠)؛ كل عيار بلونه، وكل وضع بنسخته.
+  Color _karatAccentColor(int karat, {required bool isDark}) =>
+      AppSemanticColors.of(context).karat(karat).fg;
 
   Color _trendColor(double delta, {required bool isDark}) {
-    if (delta > 0) {
-      return isDark ? const Color(0xFF66BB6A) : const Color(0xFF2E7D32);
-    }
-    if (delta < 0) {
-      return isDark ? const Color(0xFFEF5350) : const Color(0xFFC62828);
-    }
-    return isDark ? Colors.white70 : Colors.black54;
+    final tones = AppSemanticColors.of(context);
+    if (delta > 0) return tones.ready.fg;
+    if (delta < 0) return tones.blocked.fg;
+    return Theme.of(context).colorScheme.onSurfaceVariant;
   }
 
   double _rate() => widget.exchangeRate ?? 3.75;
@@ -455,7 +441,7 @@ class _GoldPriceTickerBarState extends State<GoldPriceTickerBar>
     required bool isArabic,
   }) {
     final ounce = _ouncePriceUsd ?? 0.0;
-    final accent = AppColors.primaryGold;
+    final accent = Theme.of(context).colorScheme.primary;
 
     final label = isArabic ? 'الأونصة' : 'Ounce';
     final value = ounce > 0 ? ounce.toStringAsFixed(2) : '--';
@@ -496,11 +482,11 @@ class _GoldPriceTickerBarState extends State<GoldPriceTickerBar>
   }) {
     final header = isArabic ? 'تحديث سعر الذهب' : 'Gold Price Update';
     final headerStyle = baseStyle.copyWith(
-      color: AppColors.primaryGold,
+      color: Theme.of(context).colorScheme.primary,
       fontWeight: FontWeight.w900,
     );
     final sepStyle = baseStyle.copyWith(
-      color: isDark ? Colors.white60 : Colors.black45,
+      color: Theme.of(context).colorScheme.onSurfaceVariant,
       fontWeight: FontWeight.w800,
     );
 
@@ -582,14 +568,13 @@ class _GoldPriceTickerBarState extends State<GoldPriceTickerBar>
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
 
-    final bg = isDark
-        ? const Color(0xFF0F1014).withValues(alpha: 0.92)
-        : Colors.white.withValues(alpha: 0.92);
+    final scheme = theme.colorScheme;
+    final bg = scheme.surfaceContainerLowest.withValues(alpha: 0.92);
 
     final textStyle = theme.textTheme.bodySmall?.copyWith(
       fontFamily: 'Cairo',
       fontWeight: FontWeight.w600,
-      color: isDark ? Colors.white : Colors.black87,
+      color: scheme.onSurface,
     );
 
     final effectiveStyle =
@@ -605,12 +590,12 @@ class _GoldPriceTickerBarState extends State<GoldPriceTickerBar>
           color: bg,
           borderRadius: BorderRadius.circular(14),
           border: Border.all(
-            color: AppColors.primaryGold.withValues(alpha: 0.35),
+            color: scheme.primary.withValues(alpha: 0.35),
             width: 0.8,
           ),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withValues(alpha: isDark ? 0.35 : 0.10),
+              color: scheme.shadow.withValues(alpha: isDark ? 0.35 : 0.10),
               blurRadius: 12,
               offset: const Offset(0, 6),
             ),

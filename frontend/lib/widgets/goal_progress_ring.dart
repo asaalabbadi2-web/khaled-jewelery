@@ -1,6 +1,8 @@
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
+import '../theme/app_semantic_colors.dart';
+
 /// حلقة تقدم احترافية حول أفاتار الموظف في سباق الأداء.
 ///
 /// الألوان حسب نسبة التقدم:
@@ -81,12 +83,13 @@ class _GoalProgressRingState extends State<GoalProgressRing>
     super.dispose();
   }
 
-  static Color _colorFor(double p) {
-    if (p >= 2.0) return const Color(0xFFD4AF37); // ذهبي فاخر (تجاوز الضعفين)
-    if (p >= 1.0) return const Color(0xFF22C55E); // أخضر فاخر (تحقق الهدف)
-    if (p >= 0.60) return const Color(0xFFD4AF37); // ذهبي
-    if (p >= 0.30) return const Color(0xFFF97316); // برتقالي
-    return const Color(0xFFEF4444);                // أحمر
+  /// لون الحلقة من الثيم (ثيم-٠).
+  static Color _colorFor(double p, AppSemanticColors t) {
+    if (p >= 2.0) return t.gold.fg; // ذهبي (تجاوز الضعفين)
+    if (p >= 1.0) return t.ready.fg; // أخضر (تحقق الهدف)
+    if (p >= 0.60) return t.gold.fg; // ذهبي
+    if (p >= 0.30) return t.warning.fg; // برتقالي
+    return t.blocked.fg; // أحمر
   }
 
   @override
@@ -96,7 +99,9 @@ class _GoalProgressRingState extends State<GoalProgressRing>
 
     final bool exceeded = p >= 1.0;
     final bool wayAhead = p >= 2.0;
-    final Color arcColor = _colorFor(p);
+    final tones = AppSemanticColors.of(context);
+    final scheme = Theme.of(context).colorScheme;
+    final Color arcColor = _colorFor(p, tones);
 
     final double totalSize =
         (widget.avatarRadius + widget.strokeWidth + 2.5) * 2;
@@ -128,6 +133,7 @@ class _GoalProgressRingState extends State<GoalProgressRing>
                   exceeded: exceeded && _anim.value > 0.95,
                   wayAhead: wayAhead,
                   glowIntensity: glowIntensity,
+                  glowColor: tones.gold.fg,
                 ),
                 child: Center(child: child),
               ),
@@ -142,11 +148,12 @@ class _GoalProgressRingState extends State<GoalProgressRing>
                     width: 14,
                     height: 14,
                     decoration: BoxDecoration(
-                      color: wayAhead
-                          ? const Color(0xFFD4AF37)
-                          : const Color(0xFF22C55E),
+                      color: wayAhead ? tones.gold.fg : tones.ready.fg,
                       shape: BoxShape.circle,
-                      border: Border.all(color: Colors.white, width: 1.5),
+                      border: Border.all(
+                        color: scheme.surfaceContainerLowest,
+                        width: 1.5,
+                      ),
                       boxShadow: [
                         BoxShadow(
                           color: arcColor.withValues(
@@ -155,8 +162,7 @@ class _GoalProgressRingState extends State<GoalProgressRing>
                         ),
                       ],
                     ),
-                    child:
-                        const Icon(Icons.check, size: 9, color: Colors.white),
+                    child: Icon(Icons.check, size: 9, color: scheme.onPrimary),
                   ),
                 ),
               ),
@@ -176,6 +182,7 @@ class _RingPainter extends CustomPainter {
   final bool exceeded;
   final bool wayAhead;
   final double glowIntensity; // 0.0–1.0 من أنيميشن النبض
+  final Color glowColor;
 
   const _RingPainter({
     required this.progress,
@@ -185,6 +192,7 @@ class _RingPainter extends CustomPainter {
     required this.exceeded,
     required this.wayAhead,
     required this.glowIntensity,
+    required this.glowColor,
   });
 
   @override
@@ -220,7 +228,7 @@ class _RingPainter extends CustomPainter {
             ..style = PaintingStyle.stroke
             ..strokeWidth = strokeWidth + 7 + g * 7
             ..strokeCap = StrokeCap.round
-            ..color = const Color(0xFFFFD700).withValues(alpha: 0.07 + g * 0.09)
+            ..color = glowColor.withValues(alpha: 0.07 + g * 0.09)
             ..maskFilter = MaskFilter.blur(BlurStyle.normal, 9 + g * 7),
         );
       }
@@ -276,6 +284,7 @@ class _RingPainter extends CustomPainter {
   bool shouldRepaint(_RingPainter old) =>
       old.progress != progress ||
       old.arcColor != arcColor ||
+      old.glowColor != glowColor ||
       old.exceeded != exceeded ||
       old.glowIntensity != glowIntensity;
 }

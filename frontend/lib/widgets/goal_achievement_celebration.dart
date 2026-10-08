@@ -14,7 +14,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-import '../theme/app_theme.dart';
+import '../theme/app_semantic_colors.dart';
 
 // ═══════════════════════════════════════════════════════════════
 // PART 1 — Data Model
@@ -105,19 +105,12 @@ class _ConfettiParticle {
     required this.delay,
   });
 
-  factory _ConfettiParticle.random(math.Random random, Size canvasSize) {
-    const colors = [
-      Color(0xFFFFD700), // gold
-      Color(0xFFFF6B6B), // coral
-      Color(0xFF4ECDC4), // teal
-      Color(0xFF9B59B6), // purple
-      Color(0xFFFF9F1C), // orange
-      Color(0xFFFFFFFF), // white
-      Color(0xFFFFE4B5), // peach
-      AppColors.primaryGold,
-      AppColors.success,
-      AppColors.info,
-    ];
+  /// [colors]: ألوان الاحتفال من الثيم (ثيم-٠).
+  factory _ConfettiParticle.random(
+    math.Random random,
+    Size canvasSize,
+    List<Color> colors,
+  ) {
 
     final startX = random.nextDouble() * canvasSize.width;
     return _ConfettiParticle(
@@ -222,7 +215,7 @@ class GoalAchievementOverlay extends StatefulWidget {
       context: context,
       barrierDismissible: true,
       barrierLabel: 'Achievement',
-      barrierColor: Colors.black.withValues(alpha: 0.65),
+      barrierColor: Theme.of(context).colorScheme.scrim.withValues(alpha: 0.65),
       transitionDuration: const Duration(milliseconds: 400),
       pageBuilder: (ctx, animation, secondaryAnimation) {
         return GoalAchievementOverlay(
@@ -246,6 +239,24 @@ class GoalAchievementOverlay extends StatefulWidget {
 
 class _GoalAchievementOverlayState extends State<GoalAchievementOverlay>
     with TickerProviderStateMixin {
+  // الألوان من الثيم (ثيم-٠): تتبع الوضعين.
+  ColorScheme get _cs => Theme.of(context).colorScheme;
+  AppSemanticColors get _tone => AppSemanticColors.of(context);
+
+  /// ألوان قصاصات الاحتفال: سطح، وذهب فاتح، ثم ألوان العيارات والأقسام.
+  List<Color> get _confettiColors => [
+    _cs.surfaceContainerLowest,
+    _tone.gold.container,
+    _tone.karat22.fg,
+    _tone.karat18.fg,
+    _tone.karat24.fg,
+    _tone.sectionOrange.fg,
+    _cs.primary,
+    _tone.gold.fg,
+    _tone.ready.fg,
+    _tone.info.fg,
+  ];
+
   late final AnimationController _confettiController;
   late final AnimationController _modalController;
   late final AnimationController _trophyController;
@@ -305,7 +316,7 @@ class _GoalAchievementOverlayState extends State<GoalAchievementOverlay>
       if (!mounted) return;
       final size = MediaQuery.sizeOf(context);
       for (int i = 0; i < 40; i++) {
-        _particles.add(_ConfettiParticle.random(_random, size));
+        _particles.add(_ConfettiParticle.random(_random, size, _confettiColors));
       }
     });
 
@@ -444,7 +455,7 @@ class _GoalAchievementOverlayState extends State<GoalAchievementOverlay>
       decoration: BoxDecoration(
         gradient: LinearGradient(
           colors: isChampion
-              ? [const Color(0xFFFFD700).withValues(alpha: 0.18), const Color(0xFFFFF3CD).withValues(alpha: 0.35)]
+              ? [_cs.primary.withValues(alpha: 0.18), _tone.gold.container.withValues(alpha: 0.35)]
               : [theme.colorScheme.surface, theme.colorScheme.surface.withValues(alpha: 0.7)],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
@@ -452,7 +463,7 @@ class _GoalAchievementOverlayState extends State<GoalAchievementOverlay>
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
           color: isChampion
-              ? AppColors.primaryGold.withValues(alpha: 0.6)
+              ? _cs.primary.withValues(alpha: 0.6)
               : theme.dividerColor.withValues(alpha: 0.25),
           width: isChampion ? 1.5 : 1.0,
         ),
@@ -470,11 +481,11 @@ class _GoalAchievementOverlayState extends State<GoalAchievementOverlay>
                   style: TextStyle(
                     fontSize: 15,
                     fontWeight: FontWeight.bold,
-                    color: isChampion ? AppColors.darkGold : theme.colorScheme.onSurface,
+                    color: isChampion ? _tone.gold.fg : theme.colorScheme.onSurface,
                   ),
                 ),
                 if (beatenLabel != null) ...[const SizedBox(height: 2), Text(beatenLabel, style: TextStyle(fontSize: 12, color: theme.colorScheme.onSurface.withValues(alpha: 0.6)))],
-                if (championLabel != null) ...[const SizedBox(height: 2), Text(championLabel, style: TextStyle(fontSize: 12, color: isChampion ? AppColors.primaryGold : theme.colorScheme.onSurface.withValues(alpha: 0.55)))],
+                if (championLabel != null) ...[const SizedBox(height: 2), Text(championLabel, style: TextStyle(fontSize: 12, color: isChampion ? _cs.primary : theme.colorScheme.onSurface.withValues(alpha: 0.55)))],
               ],
             ),
           ),
@@ -558,12 +569,12 @@ class _GoalAchievementOverlayState extends State<GoalAchievementOverlay>
             borderRadius: BorderRadius.circular(20),
             boxShadow: [
               BoxShadow(
-                color: AppColors.primaryGold.withValues(alpha: 0.3),
+                color: _cs.primary.withValues(alpha: 0.3),
                 blurRadius: 40,
                 offset: const Offset(0, 20),
               ),
               BoxShadow(
-                color: Colors.black.withValues(alpha: 0.2),
+                color: _cs.shadow.withValues(alpha: 0.2),
                 blurRadius: 20,
                 spreadRadius: 4,
               ),
@@ -593,14 +604,13 @@ class _GoalAchievementOverlayState extends State<GoalAchievementOverlay>
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.fromLTRB(24, 36, 24, 30),
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
           colors: [
-            AppColors.darkGold,
-            AppColors.primaryGold,
-            Color(0xFFFFD700),
+            Color.lerp(_cs.primary, _cs.shadow, 0.25)!,
+            _cs.primary,
           ],
         ),
       ),
@@ -624,10 +634,10 @@ class _GoalAchievementOverlayState extends State<GoalAchievementOverlay>
                     height: 80,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
-                      color: Colors.white.withValues(alpha: 0.15),
+                      color: _cs.onPrimary.withValues(alpha: 0.15),
                       boxShadow: [
                         BoxShadow(
-                          color: Colors.white.withValues(alpha: _glowValue.value * 0.5),
+                          color: _cs.onPrimary.withValues(alpha: _glowValue.value * 0.5),
                           blurRadius: 24 * _glowValue.value,
                           spreadRadius: 4 * _glowValue.value,
                         ),
@@ -647,11 +657,11 @@ class _GoalAchievementOverlayState extends State<GoalAchievementOverlay>
               Text(
                 achievement.goalName,
                 textAlign: TextAlign.center,
-                style: const TextStyle(
-                  color: Colors.white,
+                style: TextStyle(
+                  color: _cs.onPrimary,
                   fontSize: 20,
                   fontWeight: FontWeight.bold,
-                  shadows: [Shadow(blurRadius: 4, color: Colors.black26)],
+                  shadows: [Shadow(blurRadius: 4, color: _cs.shadow.withValues(alpha: 0.26))],
                 ),
               ),
               const SizedBox(height: 3),
@@ -660,7 +670,7 @@ class _GoalAchievementOverlayState extends State<GoalAchievementOverlay>
                 isAr ? '🎉 تهانينا! لقد حققت هدفك' : '🎉 Congratulations! Goal Achieved',
                 textAlign: TextAlign.center,
                 style: TextStyle(
-                  color: Colors.white.withValues(alpha: 0.9),
+                  color: _cs.onPrimary.withValues(alpha: 0.9),
                   fontSize: 13,
                 ),
               ),
@@ -677,10 +687,10 @@ class _GoalAchievementOverlayState extends State<GoalAchievementOverlay>
               icon: Container(
                 padding: const EdgeInsets.all(4),
                 decoration: BoxDecoration(
-                  color: Colors.black.withValues(alpha: 0.25),
+                  color: _cs.shadow.withValues(alpha: 0.25),
                   shape: BoxShape.circle,
                 ),
-                child: const Icon(Icons.close, color: Colors.white, size: 18),
+                child: Icon(Icons.close, color: _cs.onPrimary, size: 18),
               ),
             ),
           ),
@@ -691,14 +701,14 @@ class _GoalAchievementOverlayState extends State<GoalAchievementOverlay>
 
   List<Widget> _buildMiniConfetti() {
     final pieces = [
-      (l: 0.05, t: 0.05, color: const Color(0xFFFFFFFF), w: 8.0, h: 12.0),
-      (l: 0.15, t: 0.18, color: const Color(0xFFFFE4B5), w: 6.0, h: 6.0),
-      (l: 0.28, t: 0.08, color: const Color(0xFF4ECDC4), w: 8.0, h: 12.0),
-      (l: 0.42, t: 0.22, color: const Color(0xFFFF6B6B), w: 6.0, h: 6.0),
-      (l: 0.58, t: 0.06, color: const Color(0xFFFFFFFF), w: 8.0, h: 12.0),
-      (l: 0.72, t: 0.20, color: const Color(0xFF9B59B6), w: 6.0, h: 6.0),
-      (l: 0.85, t: 0.10, color: const Color(0xFFFFE4B5), w: 8.0, h: 12.0),
-      (l: 0.95, t: 0.25, color: const Color(0xFF4ECDC4), w: 6.0, h: 6.0),
+      (l: 0.05, t: 0.05, color: _confettiColors[0], w: 8.0, h: 12.0),
+      (l: 0.15, t: 0.18, color: _confettiColors[1], w: 6.0, h: 6.0),
+      (l: 0.28, t: 0.08, color: _confettiColors[2], w: 8.0, h: 12.0),
+      (l: 0.42, t: 0.22, color: _confettiColors[3], w: 6.0, h: 6.0),
+      (l: 0.58, t: 0.06, color: _confettiColors[0], w: 8.0, h: 12.0),
+      (l: 0.72, t: 0.20, color: _confettiColors[4], w: 6.0, h: 6.0),
+      (l: 0.85, t: 0.10, color: _confettiColors[1], w: 8.0, h: 12.0),
+      (l: 0.95, t: 0.25, color: _confettiColors[2], w: 6.0, h: 6.0),
     ];
 
     return pieces.map((p) {
@@ -748,15 +758,15 @@ class _GoalAchievementOverlayState extends State<GoalAchievementOverlay>
               height: 64,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-                gradient: const LinearGradient(
-                  colors: [AppColors.darkGold, AppColors.primaryGold],
+                gradient: LinearGradient(
+                  colors: [Color.lerp(_cs.primary, _cs.shadow, 0.25)!, _cs.primary],
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
                 ),
-                border: Border.all(color: Colors.white, width: 3),
+                border: Border.all(color: _cs.surfaceContainerLowest, width: 3),
                 boxShadow: [
                   BoxShadow(
-                    color: AppColors.primaryGold.withValues(alpha: 0.4),
+                    color: _cs.primary.withValues(alpha: 0.4),
                     blurRadius: 12,
                     spreadRadius: 2,
                   ),
@@ -765,8 +775,8 @@ class _GoalAchievementOverlayState extends State<GoalAchievementOverlay>
               child: Center(
                 child: Text(
                   achievement.initials,
-                  style: const TextStyle(
-                    color: Colors.white,
+                  style: TextStyle(
+                    color: _cs.onPrimary,
                     fontSize: 20,
                     fontWeight: FontWeight.bold,
                   ),
@@ -813,10 +823,10 @@ class _GoalAchievementOverlayState extends State<GoalAchievementOverlay>
           Container(
             padding: const EdgeInsets.all(13),
             decoration: BoxDecoration(
-              color: AppColors.primaryGold.withValues(alpha: 0.08),
+              color: _cs.primary.withValues(alpha: 0.08),
               borderRadius: BorderRadius.circular(12),
               border: Border.all(
-                color: AppColors.primaryGold.withValues(alpha: 0.25),
+                color: _cs.primary.withValues(alpha: 0.25),
               ),
             ),
             child: Row(
@@ -824,12 +834,12 @@ class _GoalAchievementOverlayState extends State<GoalAchievementOverlay>
                 Container(
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
-                    color: AppColors.primaryGold.withValues(alpha: 0.15),
+                    color: _cs.primary.withValues(alpha: 0.15),
                     shape: BoxShape.circle,
                   ),
-                  child: const Icon(
+                  child: Icon(
                     Icons.star_rounded,
-                    color: AppColors.primaryGold,
+                    color: _cs.primary,
                     size: 20,
                   ),
                 ),
@@ -879,10 +889,10 @@ class _GoalAchievementOverlayState extends State<GoalAchievementOverlay>
                     padding: const EdgeInsets.symmetric(
                         horizontal: 10, vertical: 6),
                     decoration: BoxDecoration(
-                      color: AppColors.darkGold.withValues(alpha: 0.12),
+                      color: _tone.gold.fg.withValues(alpha: 0.12),
                       borderRadius: BorderRadius.circular(10),
                       border: Border.all(
-                        color: AppColors.darkGold.withValues(alpha: 0.35),
+                        color: _tone.gold.fg.withValues(alpha: 0.35),
                       ),
                     ),
                     child: Column(
@@ -890,10 +900,10 @@ class _GoalAchievementOverlayState extends State<GoalAchievementOverlay>
                       children: [
                         Text(
                           _formatBonus(achievement.bonusAmount),
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontSize: 24,
                             fontWeight: FontWeight.bold,
-                            color: AppColors.darkGold,
+                            color: _tone.gold.fg,
                           ),
                         ),
                         Text(
@@ -901,7 +911,7 @@ class _GoalAchievementOverlayState extends State<GoalAchievementOverlay>
                           style: TextStyle(
                             fontSize: 11,
                             fontWeight: FontWeight.w600,
-                            color: AppColors.darkGold.withValues(alpha: 0.8),
+                            color: _tone.gold.fg.withValues(alpha: 0.8),
                           ),
                         ),
                       ],
@@ -938,8 +948,8 @@ class _GoalAchievementOverlayState extends State<GoalAchievementOverlay>
                       widget.onViewDetails?.call();
                     },
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: AppColors.primaryGold,
-                      foregroundColor: Colors.white,
+                      backgroundColor: _cs.primary,
+                      foregroundColor: _cs.onPrimary,
                       padding: const EdgeInsets.symmetric(vertical: 13),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(10),
@@ -961,8 +971,8 @@ class _GoalAchievementOverlayState extends State<GoalAchievementOverlay>
                 child: OutlinedButton(
                   onPressed: _dismiss,
                   style: OutlinedButton.styleFrom(
-                    foregroundColor: AppColors.darkGold,
-                    side: const BorderSide(color: AppColors.primaryGold),
+                    foregroundColor: _tone.gold.fg,
+                    side: BorderSide(color: _cs.primary),
                     padding: const EdgeInsets.symmetric(vertical: 13),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(10),
@@ -1023,10 +1033,10 @@ class _GoalAchievementOverlayState extends State<GoalAchievementOverlay>
                 children: [
                   Text(
                     _formatMetric(entry.value),
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 18,
                       fontWeight: FontWeight.bold,
-                      color: AppColors.primaryGold,
+                      color: _cs.primary,
                     ),
                   ),
                   const SizedBox(height: 2),
