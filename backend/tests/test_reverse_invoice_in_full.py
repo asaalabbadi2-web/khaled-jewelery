@@ -86,7 +86,7 @@ def test_the_amount_is_the_originals_not_the_clerks(auth_headers, world):
                      'payments': [{'payment_method_id': world['pm'].id, 'amount': 1500.0}]})
 
     assert resp.status_code == 400
-    assert resp.get_json()['error'] == 'refund_must_equal_total'
+    assert resp.get_json()['error'] == 'refund_must_equal_paid'
 
 
 def test_a_refund_split_in_two_that_adds_up_is_taken(auth_headers, world):
@@ -173,18 +173,6 @@ def test_a_scrap_purchase_from_a_customer_is_reversed_the_same_way(auth_headers,
     assert round(float(ret['total']), 2) == round(float(purchase['total']), 2)
 
 
-def test_an_invoice_not_fully_paid_is_not_refunded_in_full(auth_headers, world):
-    """Refunding the whole total of a sale paid in part pays back money never
-    received (17 such sales on the 6 Oct copy, all on the walk-in customer).
-    How a return settles what is still owed is the owner's to decide; until
-    then the whole reversal is refused, and says why."""
-    sale = _paid_sale(auth_headers, world)
-    inv = db.session.get(Invoice, sale['id'])
-    inv.amount_paid = 600.0
-    db.session.flush()
 
-    resp = _reverse(auth_headers, sale['id'],
-                    {'reason': 'x', 'payments': [{'payment_method_id': world['pm'].id}]})
-
-    assert resp.status_code == 400
-    assert resp.get_json()['error'] == 'invoice_not_fully_paid'
+# An invoice paid only in part is reversed refunding what was paid
+# (RETURN-OWED-1): tests/test_return_settles_what_is_owed.py.

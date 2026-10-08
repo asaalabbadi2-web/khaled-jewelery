@@ -1293,16 +1293,28 @@ class _AddReturnInvoiceScreenState extends State<AddReturnInvoiceScreen> {
   // --- Build Steps ---
 
   // ==================== A whole return: one page ====================
-  /// Paid in part: its whole total is not refunded (the server refuses it,
-  /// invoice_not_fully_paid); said before anything is keyed.
-  bool get _originalNotFullyPaid {
+  /// What is given back: what was paid (RETURN-OWED-1, the owner 8 Oct
+  /// 2026); the rest of what was owed goes with the goods. The server
+  /// computes it the same way and refuses any other refund.
+  double get _wholeRefund {
     final o = selectedOriginalInvoice;
-    if (o == null || !o.containsKey('amount_paid')) return false;
-    return _parseDouble(o['amount_paid']) < _originalInvoiceTotal - 0.01;
+    if (o == null || !o.containsKey('amount_paid')) return _originalInvoiceTotal;
+    final paid = _parseDouble(o['amount_paid']);
+    return paid < _originalInvoiceTotal ? paid : _originalInvoiceTotal;
   }
 
+  /// What of the debt goes with the goods: nothing on a paid invoice.
+  double get _wholeDebtDropped {
+    final d = _originalInvoiceTotal - _wholeRefund;
+    return d < 0.01 ? 0.0 : d;
+  }
+
+  String get _debtDroppedLabel => widget.returnType == 'مرتجع بيع'
+      ? 'يسقط من دين العميل'
+      : 'يسقط مما بقي للعميل';
+
   double get _wholeRemaining {
-    final r = _originalInvoiceTotal - _totalPayments;
+    final r = _wholeRefund - _totalPayments;
     return r.abs() < 0.01 ? 0.0 : r;
   }
 
@@ -1315,12 +1327,8 @@ class _AddReturnInvoiceScreenState extends State<AddReturnInvoiceScreen> {
     if (_isLoadingInvoiceDetails || _returnItems.isEmpty) {
       return 'جارٍ تحميل الفاتورة…';
     }
-    if (_originalNotFullyPaid) {
-      return 'الفاتورة غير مدفوعة بالكامل: لا يُرَدّ إجماليها كله؛ '
-          'استعمل «إرجاع جزء فقط»';
-    }
     if (_returnReasonController.text.trim().isEmpty) return 'اكتب سبب الإرجاع';
-    if (_payments.isEmpty) return 'اختر وسيلة الإرجاع';
+    if (_wholeRefund > 0.01 && _payments.isEmpty) return 'اختر وسيلة الإرجاع';
     if (_wholeRemaining > 0.01) {
       return 'أكمل الإرجاع: يتبقى ${_wholeRemaining.toStringAsFixed(2)} $currencySymbol';
     }
@@ -1368,8 +1376,15 @@ class _AddReturnInvoiceScreenState extends State<AddReturnInvoiceScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'يُعاد الإجمالي كله: ${_originalInvoiceTotal.toStringAsFixed(2)} $currencySymbol',
+              'إجمالي الفاتورة: ${_originalInvoiceTotal.toStringAsFixed(2)} $currencySymbol',
             ),
+            Text(
+              'يُرَدّ: ${_wholeRefund.toStringAsFixed(2)} $currencySymbol',
+            ),
+            if (_wholeDebtDropped > 0)
+              Text(
+                '$_debtDroppedLabel: ${_wholeDebtDropped.toStringAsFixed(2)} $currencySymbol',
+              ),
             const SizedBox(height: 8),
             for (final p in _payments)
               Text(
@@ -1505,6 +1520,17 @@ class _AddReturnInvoiceScreenState extends State<AddReturnInvoiceScreen> {
                     fontWeight: FontWeight.bold,
                   ),
                 ),
+                if (_wholeDebtDropped > 0) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    _wholeRefund > 0.01
+                        ? 'يُرَدّ ما دُفع: ${_wholeRefund.toStringAsFixed(2)} $currencySymbol'
+                        : 'لم يُدفع فيها شيء: لا يُرَدّ مال',
+                  ),
+                  Text(
+                    '$_debtDroppedLabel: ${_wholeDebtDropped.toStringAsFixed(2)} $currencySymbol',
+                  ),
+                ],
               ],
             ),
           ),
@@ -1520,6 +1546,7 @@ class _AddReturnInvoiceScreenState extends State<AddReturnInvoiceScreen> {
           ),
         ),
         const SizedBox(height: 16),
+        if (_wholeRefund > 0.01)
         Card(
           child: Padding(
             padding: const EdgeInsets.all(16),
@@ -1551,7 +1578,7 @@ class _AddReturnInvoiceScreenState extends State<AddReturnInvoiceScreen> {
                       ],
                     ),
                   ),
-                if (_wholeRemaining > 0.01 && !_originalNotFullyPaid)
+                if (_wholeRemaining > 0.01)
                   PayBox(
                     amount: _customAmountController,
                     remaining: _wholeRemaining,

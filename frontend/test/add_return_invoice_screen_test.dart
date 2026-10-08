@@ -366,21 +366,55 @@ void main() {
       expect(find.text('مرتجع غير محفوظ'), findsOneWidget);
     });
 
-    testWidgets('an original not fully paid says so before anything is sent', (
-      tester,
-    ) async {
+    // RETURN-OWED-1 (the owner, 8 Oct 2026): what was paid is given back,
+    // and the rest of the debt goes with the goods.
+    testWidgets('an original paid in part refunds what was paid, and says '
+        'what of the debt goes', (tester) async {
       final api = FakeSalesApi(
         invoices: {
           10: {...original, 'amount_paid': 600.0},
         },
       );
       await open(tester, api: api);
+      expect(find.textContaining('يُرَدّ ما دُفع: 600.00'), findsOneWidget);
+      expect(find.textContaining('يسقط من دين العميل: 400.00'), findsOneWidget);
 
-      expect(
-        find.textContaining('غير مدفوعة بالكامل'),
-        findsOneWidget,
+      await reason(tester);
+      await pay(tester, 1);
+      expect(find.text('جاهز للحفظ'), findsOneWidget);
+      await tester.tap(reverseButton());
+      await tester.pumpAndSettle();
+      expect(find.textContaining('يسقط من دين العميل: 400.00'), findsWidgets);
+      await tester.tap(find.text('عكس وحفظ'));
+      await tester.pumpAndSettle();
+
+      expect((api.reversed.single['payments'] as List).single, {
+        'payment_method_id': 1,
+        'amount': 600.0,
+      });
+    });
+
+    testWidgets('an original never paid is reversed refunding nothing', (
+      tester,
+    ) async {
+      final api = FakeSalesApi(
+        invoices: {
+          10: {...original, 'amount_paid': 0.0},
+        },
       );
+      await open(tester, api: api);
       expect(find.byKey(const Key('quick-pay-1')), findsNothing);
+      expect(find.textContaining('لم يُدفع فيها شيء'), findsOneWidget);
+
+      await reason(tester);
+      await tester.pumpAndSettle();
+      expect(find.text('جاهز للحفظ'), findsOneWidget);
+      await tester.tap(reverseButton());
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('عكس وحفظ'));
+      await tester.pumpAndSettle();
+
+      expect(api.reversed.single['payments'], isEmpty);
     });
 
     testWidgets('an original that could not be loaded says why, not «loading»', (

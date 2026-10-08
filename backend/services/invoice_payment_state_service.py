@@ -159,6 +159,20 @@ class InvoicePaymentStateService:
     """
 
     def recompute(self, invoice: Invoice) -> InvoicePaymentState:
+        state = self._recompute(invoice)
+        # A return's state is its original's too: what it takes of the debt
+        # counts there while it is posted (RETURN-OWED-1). One place, so
+        # creating, unposting and posting a return all reach it.
+        if (invoice.invoice_type in self._RETURN_TYPES
+                and getattr(invoice, 'original_invoice_id', None)):
+            original = db.session.get(Invoice, invoice.original_invoice_id)
+            if original is not None:
+                self._recompute(original)
+        return state
+
+    _RETURN_TYPES = ('مرتجع بيع', 'مرتجع شراء')
+
+    def _recompute(self, invoice: Invoice) -> InvoicePaymentState:
         if invoice.status == 'rejected':
             return InvoicePaymentState(
                 invoice_id=int(invoice.id),
@@ -191,7 +205,7 @@ class InvoicePaymentStateService:
             gold_tolerance = gold_settlement_tolerance()
         invoice.status = self._status_for(
             total=obligation_ceiling,
-            total_settled=total_settled,
+            total_settled=round(total_settled + self._settled_by_returns(invoice.id), 2),
             gold_required=gold_required,
             gold_settled=gold_settled,
             gold_tolerance=gold_tolerance,
@@ -228,6 +242,22 @@ class InvoicePaymentStateService:
             .scalar()
         )
         return round(float(total or 0.0), 2)
+
+    def _settled_by_returns(self, invoice_id: int) -> float:
+        """What this invoice's returns took of its debt (RETURN-OWED-1, the
+        owner 8 Oct 2026): each posted return credits the party its total and
+        refunds what it gives back; the rest went with the goods. Not cash --
+        amount_paid does not count it -- but nothing is owed for it."""
+        returns = Invoice.query.filter(
+            Invoice.original_invoice_id == invoice_id,
+            Invoice.invoice_type.in_(self._RETURN_TYPES),
+            Invoice.is_posted.is_(True),
+            Invoice.status != 'rejected',
+        ).all()
+        return round(sum(
+            max(0.0, float(r.total or 0.0) - self._sum_invoice_payments(r.id))
+            for r in returns
+        ), 2)
 
     @staticmethod
     def _status_for(

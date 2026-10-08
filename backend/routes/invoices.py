@@ -3356,7 +3356,12 @@ def reverse_invoice(invoice_id):
     screen typed -- and made by the one creation path (add_invoice), so its
     entries are a manual whole return's. Body: {'reason': str, 'payments':
     [{'payment_method_id': int, 'amount': float?}]}; a single method without an
-    amount refunds the whole total, several must add up to it.
+    amount refunds what was paid, several must add up to it.
+
+    What is refunded is what was paid (RETURN-OWED-1, the owner 8 Oct 2026):
+    the rest of what was owed goes with the goods -- the return credits the
+    party its whole total, the refund debits them what is given back. An
+    invoice never paid is reversed refunding nothing.
     """
     data = request.get_json(silent=True) or {}
     original = Invoice.query.get(invoice_id)
@@ -3369,13 +3374,6 @@ def reverse_invoice(invoice_id):
     if not original.is_posted:
         return jsonify({'error': 'invoice_not_posted',
                         'message': 'الفاتورة غير مرحّلة: تُعدَّل أو تُحذف بدل أن تُرجَع'}), 400
-    # A whole refund of a total never wholly received pays back money that
-    # never came in; how a return settles a debt is the owner's to decide.
-    if float(original.amount_paid or 0.0) < float(original.total or 0.0) - 0.01:
-        return jsonify({'error': 'invoice_not_fully_paid',
-                        'message': 'الفاتورة غير مدفوعة بالكامل: لا يُرَدّ إجماليها كله',
-                        'total': round(float(original.total or 0.0), 2),
-                        'paid': round(float(original.amount_paid or 0.0), 2)}), 400
     already = Invoice.query.filter(
         Invoice.original_invoice_id == original.id,
         Invoice.invoice_type.in_(('مرتجع بيع', 'مرتجع شراء')),
@@ -3402,25 +3400,29 @@ def reverse_invoice(invoice_id):
             'price': line_total,
         })
     total = round(float(original.total or 0.0), 2)
+    paid = round(min(float(original.amount_paid or 0.0), total), 2)
 
     methods = data.get('payments') if isinstance(data.get('payments'), list) else []
     methods = [m for m in methods if isinstance(m, dict) and m.get('payment_method_id')]
-    if not methods:
+    payments = []
+    if paid <= 0.01:
+        pass   # nothing came in, nothing goes back
+    elif not methods:
         return jsonify({'error': 'payment_required',
                         'message': 'اختر وسيلة الإرجاع'}), 400
-    payments = []
-    if len(methods) == 1 and methods[0].get('amount') in (None, '', 0):
-        payments = [{'payment_method_id': methods[0]['payment_method_id'], 'amount': total}]
+    elif len(methods) == 1 and methods[0].get('amount') in (None, '', 0):
+        payments = [{'payment_method_id': methods[0]['payment_method_id'], 'amount': paid}]
     else:
+        refused = jsonify({'error': 'refund_must_equal_paid',
+                           'message': 'مجموع ما يُرجَع يجب أن يساوي ما دُفع في الفاتورة',
+                           'total': total, 'paid': paid}), 400
         try:
             payments = [{'payment_method_id': m['payment_method_id'],
                          'amount': round(float(m.get('amount') or 0.0), 2)} for m in methods]
         except (TypeError, ValueError):
-            return jsonify({'error': 'refund_must_equal_total'}), 400
-        if abs(sum(p['amount'] for p in payments) - total) > 0.01:
-            return jsonify({'error': 'refund_must_equal_total',
-                            'message': 'مجموع ما يُرجَع يجب أن يساوي إجمالي الفاتورة',
-                            'total': total}), 400
+            return refused
+        if abs(sum(p['amount'] for p in payments) - paid) > 0.01:
+            return refused
 
     payload = {
         'customer_id': original.customer_id, 'branch_id': original.branch_id,
@@ -3428,7 +3430,7 @@ def reverse_invoice(invoice_id):
         'original_invoice_id': original.id, 'return_reason': reason,
         'total': total, 'total_weight': float(original.total_weight or 0.0),
         'total_tax': round(total_net_tax, 2), 'total_cost': round(total_cost, 2),
-        'amount_paid': total, 'payments': payments, 'items': items,
+        'amount_paid': paid if payments else 0.0, 'payments': payments, 'items': items,
     }
     _app = current_app._get_current_object()
     headers = {'Authorization': request.headers.get('Authorization', '')}
@@ -4172,6 +4174,23 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
                 'requested': round(_this_weight, 3),
             }), 400
 
+    # ... and what it gives back no more than came in (RETURN-OWED-1, the owner
+    # 8 Oct 2026): the rest of what was owed goes with the goods.
+    _return_refundable = None
+    if invoice_type in ('مرتجع بيع', 'مرتجع شراء') and original_invoice is not None:
+        _prior_refunds = sum(float(r.amount_paid or 0.0) for r in _prior)
+        _return_refundable = round(max(0.0, float(original_invoice.amount_paid or 0.0)
+                                       - _prior_refunds), 2)
+        _refund_now = (sum(_to_float_request(p.get('amount', 0.0)) for p in payments_data)
+                       if isinstance(payments_data, list) else 0.0)
+        if _refund_now > _return_refundable + 0.01:
+            return jsonify({
+                'error': 'return_refund_exceeds_paid',
+                'message': 'ما يُرَدّ أكثر مما دُفع في الفاتورة الأصلية',
+                'refundable': _return_refundable,
+                'requested': round(_refund_now, 2),
+            }), 400
+
     # 🆕 Barter support: allow partial cash payments when part of the sale is settled via gold barter (offset).
     # The client should send `barter_total` (cash-equivalent) when barter is used.
     try:
@@ -4239,6 +4258,9 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
         )
         if payable_total != data_total:
             payable_label = 'النقد المستحق للمورد'
+    if _return_refundable is not None and _return_refundable < data_total - 0.01:
+        payable_total = _return_refundable
+        payable_label = 'ما دُفع في الفاتورة الأصلية'
 
     # A sale that leaves something owed needs a customer who can owe it
     # (SALES-UX-2, the owner 7 Oct 2026): not the walk-in customer, who is
@@ -7594,7 +7616,11 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
             _net_purchase_ret = round(total_cash - _total_tax_purchase_ret, 2)
 
             # Line 1: مدين العميل/الصندوق (نقد فقط — الوزن عبر je_engine_v2 أدناه)
-            acc_id = customers_acc_id or cash_acc_id or party_account.id
+            # The customer's own account first, as the purchase credited it and
+            # as the sale return reads it (RETURN-OWED-1): the five returns on the
+            # 6 Oct copy (37,670) were debited to the parent «customers» account
+            # 1200 while their refunds were credited to the customer's own.
+            acc_id = (party_account.id if party_account else None) or customers_acc_id or cash_acc_id
             create_dual_journal_entry(
                 journal_entry_id=journal_entry.id,
                 account_id=acc_id,
