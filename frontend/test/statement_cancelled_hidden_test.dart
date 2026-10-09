@@ -14,8 +14,11 @@ void main() {
     final s = AccountStatement.fromJson(body({
       'count': 2,
       'vouchers': ['RV-2026-00010', 'PV-2026-00004'],
+      'corrections': 1,
+      'correction_vouchers': ['AV-2026-00481'],
       'hidden': true,
     }));
+    expect(s.correctionCount, 1);
     expect(s.cancelledCount, 2);
     expect(s.cancelledVoucherNumbers, ['RV-2026-00010', 'PV-2026-00004']);
     expect(s.cancelledHidden, isTrue);

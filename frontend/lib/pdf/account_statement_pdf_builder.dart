@@ -898,11 +898,14 @@ class AccountStatementPdfBuilder {
             children: [
               // A printed statement says what it leaves out (the owner,
               // 9 Oct 2026): it is not mistaken for every line of the books.
-              if (statement.cancelledHidden && statement.cancelledCount > 0) ...[
+              if (statement.cancelledHidden &&
+                  statement.cancelledCount + statement.correctionCount > 0) ...[
                 pw.Text(
                   pdfVisualArabic(
-                    'يستبعد هذا الكشف ${statement.cancelledCount} '
-                    'من السندات الملغاة مع قيودها العكسية، ولا يتغيّر بها الرصيد',
+                    'يستبعد هذا الكشف ${[
+                      if (statement.cancelledCount > 0) '${statement.cancelledCount} من السندات الملغاة مع قيودها العكسية',
+                      if (statement.correctionCount > 0) '${statement.correctionCount} من تصحيحات وسيلة الدفع',
+                    ].join(' و')}، ولا يتغيّر بها الرصيد',
                   ),
                   textDirection: pw.TextDirection.ltr,
                   textAlign: pw.TextAlign.center,

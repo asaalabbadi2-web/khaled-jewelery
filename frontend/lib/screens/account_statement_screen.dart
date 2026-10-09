@@ -1222,11 +1222,16 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
                 ),
               ),
 
-              if ((_statement?.cancelledCount ?? 0) > 0)
+              if ((_statement?.cancelledCount ?? 0) +
+                      (_statement?.correctionCount ?? 0) >
+                  0)
                 SliverToBoxAdapter(
                   child: Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
-                    child: _buildCancelledBar(),
+                    padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
+                    child: Align(
+                      alignment: AlignmentDirectional.centerStart,
+                      child: _buildCancelledBar(),
+                    ),
                   ),
                 ),
 
@@ -1313,6 +1318,7 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
 
   Widget _buildCancelledBar() => CancelledVouchersBar(
         count: _statement?.cancelledCount ?? 0,
+        corrections: _statement?.correctionCount ?? 0,
         hidden: _statement?.cancelledHidden ?? false,
         busy: _isLoading,
         onToggle: () {

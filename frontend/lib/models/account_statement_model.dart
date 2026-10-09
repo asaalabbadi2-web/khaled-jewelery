@@ -44,6 +44,10 @@ class AccountStatement {
   final List<String> cancelledVoucherNumbers;
   final bool cancelledHidden;
 
+  /// Payment-method corrections hidden with the payment they moved, in the
+  /// wrong method's statement (the owner, 9 Oct 2026).
+  final int correctionCount;
+
   AccountStatement({
     required this.openingBalanceGold,
     required this.openingBalanceCash,
@@ -75,6 +79,7 @@ class AccountStatement {
     this.cancelledCount = 0,
     this.cancelledVoucherNumbers = const [],
     this.cancelledHidden = false,
+    this.correctionCount = 0,
   });
 
   factory AccountStatement.fromJson(Map<String, dynamic> json) {
@@ -160,6 +165,7 @@ class AccountStatement {
           .map((v) => v.toString())
           .toList(),
       cancelledHidden: cancelled?['hidden'] == true,
+      correctionCount: (cancelled?['corrections'] as num?)?.toInt() ?? 0,
       openingBalanceGold:
           json['opening_balance_gold_normalized']?.toDouble() ?? 0.0,
       openingBalanceCash: json['opening_balance_cash']?.toDouble() ?? 0.0,

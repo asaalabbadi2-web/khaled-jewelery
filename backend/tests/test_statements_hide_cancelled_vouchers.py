@@ -96,7 +96,7 @@ def test_by_default_the_pair_is_hidden_and_said(auth_headers, books):
     assert books['original'].id not in entries and books['reversal'].id not in entries
     assert books['live'].journal_entry_id in entries
     assert body['cancelled_hidden'] == {'count': 1, 'vouchers': [books['cancelled'].voucher_number],
-                                        'hidden': True}
+                                        'corrections': 0, 'correction_vouchers': [], 'hidden': True}
 
 
 def test_on_request_it_is_shown(auth_headers, books):
@@ -152,7 +152,8 @@ def test_the_party_statements_say_what_they_hide(auth_headers, route):
         resp = flask_app.test_client().get(f'/api/{route}/{party.id}/statement', headers=auth_headers,
                                            query_string=params)
         assert resp.status_code == 200, resp.get_data(as_text=True)[:300]
-        assert set(resp.get_json()['cancelled_hidden']) == {'count', 'vouchers', 'hidden'}
+        assert set(resp.get_json()['cancelled_hidden']) == {'count', 'vouchers', 'corrections',
+                                                            'correction_vouchers', 'hidden'}
 
 
 # ── the lists: vouchers and journal entries ───────────────────────────────────
@@ -187,3 +188,75 @@ def test_the_journal_list_hides_the_pair_and_a_range_that_cuts_it_shows_it(auth_
     assert pair <= ids(shown)
     cut = _get(auth_headers, '/api/journal_entries', date_from='2026-10-01', date_to='2026-10-02', per_page=500)
     assert books['original'].id in ids(cut), 'the reversal is outside the range: the entry is shown'
+
+
+# ── a payment method correction, in the wrong method's statement ─────────────
+
+@pytest.fixture
+def corrected():
+    """SELL-2026-1612's shape: 4,150 recorded on Mada, moved to Visa by an approved
+    «إعادة تصنيف وسيلة دفع» voucher (AV-2026-00481)."""
+    from models import Invoice, InvoicePayment, PaymentMethod
+    mada = Account(account_number=f'7{_uid()[:6]}', name='مدى', type='Asset')
+    visa = Account(account_number=f'6{_uid()[:6]}', name='فيزا', type='Asset')
+    customer = Account(account_number=f'5{_uid()[:6]}', name='عميل', type='Asset')
+    db.session.add_all([mada, visa, customer])
+    db.session.flush()
+    pm = PaymentMethod(payment_type='mada', name=f'مدى {_uid()}', commission_rate=0.0, is_active=True)
+    inv = Invoice(invoice_type='بيع', invoice_type_id=990000 + int(_uid()[:4], 16) % 9999,
+                  date=datetime(2026, 10, 7), total=4150.0)
+    db.session.add_all([pm, inv])
+    db.session.flush()
+    ip = InvoicePayment(invoice_id=inv.id, payment_method_id=pm.id, amount=4150.0, net_amount=4150.0)
+    db.session.add(ip)
+    db.session.flush()
+    paid = _entry(mada, customer, 4150.0, day=7, ref_type='invoice_payments', ref_id=inv.id)
+    moved = JournalEntry(entry_number=f'T-{_uid()}', date=datetime(2026, 10, 8), description='إعادة تصنيف',
+                         entry_type='عادي', reference_type='payment_method_correction', reference_id=ip.id,
+                         is_posted=True, is_draft=False)
+    db.session.add(moved)
+    db.session.flush()
+    db.session.add_all([
+        JournalEntryLine(journal_entry_id=moved.id, account_id=visa.id, cash_debit=4150.0, cash_credit=0.0),
+        JournalEntryLine(journal_entry_id=moved.id, account_id=mada.id, cash_debit=0.0, cash_credit=4150.0),
+    ])
+    db.session.flush()
+    voucher = Voucher(voucher_number=f'AV-T-{_uid()}', voucher_type='adjustment', date=moved.date,
+                      status='approved', amount_cash=4150.0, journal_entry_id=moved.id)
+    db.session.add(voucher)
+    db.session.flush()
+    return {'mada': mada, 'visa': visa, 'paid': paid, 'moved': moved, 'voucher': voucher}
+
+
+def test_the_wrong_methods_statement_hides_the_payment_and_its_correction(auth_headers, corrected):
+    body = _statement(auth_headers, corrected['mada'])
+    assert body['lines'] == [] and body['closing_balance_cash'] == 0.0
+    assert body['cancelled_hidden']['corrections'] == 1
+    assert body['cancelled_hidden']['correction_vouchers'] == [corrected['voucher'].voucher_number]
+    shown = _statement(auth_headers, corrected['mada'], include_cancelled=1)
+    assert len(shown['lines']) == 2 and shown['closing_balance_cash'] == 0.0
+
+
+def test_the_right_methods_statement_keeps_the_receipt(auth_headers, corrected):
+    body = _statement(auth_headers, corrected['visa'])
+    assert [line['journal_entry_id'] for line in body['lines']] == [corrected['moved'].id]
+    assert body['cancelled_hidden']['corrections'] == 0
+
+
+def test_a_partial_correction_is_shown(auth_headers, corrected):
+    for line in corrected['moved'].lines:
+        if line.cash_credit:
+            line.cash_credit = 1000.0
+        else:
+            line.cash_debit = 1000.0
+    db.session.flush()
+    body = _statement(auth_headers, corrected['mada'])
+    assert len(body['lines']) == 2 and body['cancelled_hidden']['corrections'] == 0
+
+
+def test_a_correction_without_a_voucher_is_shown(auth_headers, corrected):
+    """Entry 3653 on production: a correction with no voucher behind it."""
+    corrected['voucher'].status = 'pending'
+    corrected['voucher'].journal_entry_id = None
+    db.session.flush()
+    assert len(_statement(auth_headers, corrected['mada'])['lines']) == 2

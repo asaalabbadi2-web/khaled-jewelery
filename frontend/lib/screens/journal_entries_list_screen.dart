@@ -2706,8 +2706,10 @@ class _JournalEntriesListScreenState extends State<JournalEntriesListScreen>
             if (_cancelledCount > 0)
               SliverToBoxAdapter(
                 child: Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
-                  child: CancelledVouchersBar(
+                  padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
+                  child: Align(
+                    alignment: AlignmentDirectional.centerStart,
+                    child: CancelledVouchersBar(
                     count: _cancelledCount,
                     hidden: _cancelledHidden,
                     busy: _isLoading,
@@ -2715,6 +2717,7 @@ class _JournalEntriesListScreenState extends State<JournalEntriesListScreen>
                       setState(() => _includeCancelled = !_includeCancelled);
                       _loadEntries(page: 1);
                     },
+                  ),
                   ),
                 ),
               ),

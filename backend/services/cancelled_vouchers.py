@@ -16,6 +16,14 @@ The LAWS (tests/test_statements_hide_cancelled_vouchers.py):
     and each karat): hiding never moves a balance;
   - what is hidden is said: the response names how many and which vouchers.
 
+The same, by the owner's decision of 9 Oct 2026, for a PAYMENT METHOD
+CORRECTION in the wrong method's statement: an invoice payment recorded on Mada
+and moved to Visa by an approved «إعادة تصنيف وسيلة دفع» voucher shows +4,150
+then -4,150 on Mada. There the payment's line and the correction's line are
+hidden together -- only when both are in the statement, on the same account, of
+the same amount (a partial correction is shown). On Visa the correction is a
+real receipt and stays.
+
 POLICY: hidden by default (HIDE_BY_DEFAULT, the owner's choice); a request
 with include_cancelled=1 shows them.
 """
@@ -72,6 +80,61 @@ def cancelled_pairs(entry_ids: Iterable[int]) -> dict:
     return {v: [int(v.journal_entry_id)] + by_voucher[v.id] for v in vouchers if by_voucher.get(v.id)}
 
 
+def _correction_pairs(lines) -> Tuple[set, List[str]]:
+    """(line ids, voucher numbers) of payment-method corrections the statement
+    holds whole on the wrong method's account: the payment's debit line and the
+    correction's credit line, same account, same amount."""
+    from collections import defaultdict
+    from models import InvoicePayment
+
+    by_entry = defaultdict(list)
+    for line in lines:
+        by_entry[line.journal_entry_id].append(line)
+    corrections = (JournalEntry.query
+                   .filter(JournalEntry.id.in_(list(by_entry)),
+                           JournalEntry.reference_type == 'payment_method_correction',
+                           JournalEntry.is_posted.is_(True), JournalEntry.is_deleted.is_(False))
+                   .all())
+    if not corrections:
+        return set(), []
+    vouchers = {v.journal_entry_id: v for v in Voucher.query.filter(
+        Voucher.journal_entry_id.in_([c.id for c in corrections]), Voucher.status == 'approved').all()}
+    payments = {ip.id: ip for ip in InvoicePayment.query.filter(
+        InvoicePayment.id.in_([c.reference_id for c in corrections if c.reference_id])).all()}
+
+    def karats_zero(line):
+        return all(abs(v) < 0.005 for v in _line_nets(line)[1:])
+
+    hidden, numbers, used = set(), [], set()
+    for c in corrections:
+        voucher, payment = vouchers.get(c.id), payments.get(c.reference_id)
+        if voucher is None or payment is None:
+            continue
+        sources = {e for (e,) in db.session.query(JournalEntry.id).filter(
+            JournalEntry.is_deleted.is_(False),
+            db.or_(db.and_(JournalEntry.reference_type == 'invoice_payments',
+                           JournalEntry.reference_id == payment.invoice_id),
+                   db.and_(JournalEntry.reference_type == 'invoice_payment',
+                           JournalEntry.reference_id == payment.id))).all()}
+        matched = False
+        for out in by_entry[c.id]:
+            moved = round(float(out.cash_credit or 0.0) - float(out.cash_debit or 0.0), 2)
+            if moved <= 0.005 or not karats_zero(out):
+                continue
+            source = next((line for e in sorted(sources) for line in by_entry.get(e, [])
+                           if line.id not in used and line.account_id == out.account_id and karats_zero(line)
+                           and abs(round(float(line.cash_debit or 0.0) - float(line.cash_credit or 0.0), 2)
+                                   - moved) < 0.005), None)
+            if source is None:
+                continue
+            used.add(source.id)
+            hidden.update({source.id, out.id})
+            matched = True
+        if matched:
+            numbers.append(voucher.voucher_number)
+    return hidden, sorted(numbers)
+
+
 def without_cancelled_pairs(lines: List, *, include: bool,
                             entry_id_of: Callable = lambda line: line.journal_entry_id,
                             nets_of: Callable = _line_nets) -> Tuple[List, dict]:
@@ -100,14 +163,20 @@ def without_cancelled_pairs(lines: List, *, include: bool,
         hidden_entries.update(entries)
         hidden_vouchers.append({'voucher_id': voucher.id, 'voucher_number': voucher.voucher_number})
 
+    remaining = [line for line in lines if entry_id_of(line) not in hidden_entries]
+    correction_lines, correction_numbers = (_correction_pairs(remaining)
+                                            if remaining and hasattr(remaining[0], 'account_id') else (set(), []))
+
     summary = {
         'count': len(hidden_vouchers),
         'vouchers': sorted(v['voucher_number'] for v in hidden_vouchers),
-        'hidden': not include and bool(hidden_vouchers),
+        'corrections': len(correction_numbers),
+        'correction_vouchers': correction_numbers,
+        'hidden': not include and bool(hidden_vouchers or correction_numbers),
     }
-    if include or not hidden_entries:
+    if include or not (hidden_entries or correction_lines):
         return lines, summary
-    return [line for line in lines if entry_id_of(line) not in hidden_entries], summary
+    return [line for line in remaining if line.id not in correction_lines], summary
 
 
 def hideable_pair_entries(date_from=None, date_to=None) -> Tuple[set, List[str]]:
