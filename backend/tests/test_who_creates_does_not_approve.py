@@ -128,13 +128,16 @@ def _manual_entry(headers, w):
 
 
 def test_an_accountant_posts_another_s_manual_entry_not_their_own(vworld):
+    """With «ترحيل القيود تلقائيًا» off. On, a manual entry is posted at creation
+    whoever creates it -- the owner's decision of 9 Oct 2026, which only the
+    system admin turns (tests/test_manual_entry_auto_post.py)."""
     row = Settings.query.first() or Settings()
-    row.auto_post_entries = True
+    row.auto_post_entries = False
     db.session.add(row)
     db.session.flush()
     me, mine_h = _user('accountant')
     entry = _manual_entry(mine_h, vworld)
-    assert entry.created_by == me.username and entry.is_posted is False, 'auto-post approved the creator\'s own'
+    assert entry.created_by == me.username and entry.is_posted is False, 'the setting off posted it'
     resp = _call('POST', f'/api/journal-entries/post/{entry.id}', mine_h)
     assert resp.status_code == 403 and resp.get_json()['error'] == 'own_document'
     assert _call('POST', f'/api/journal-entries/post/{entry.id}', _user('accountant')[1]).status_code == 200

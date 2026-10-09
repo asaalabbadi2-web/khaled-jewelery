@@ -10,6 +10,7 @@ import '../app_route_observer.dart';
 import '../providers/auth_provider.dart';
 import '../providers/settings_provider.dart';
 import '../utils/currency_utils.dart' as cu;
+import '../widgets/cancelled_vouchers_bar.dart';
 import '../widgets/widgets.dart';
 import 'journal_entry_form.dart';
 
@@ -43,6 +44,12 @@ class _JournalEntriesListScreenState extends State<JournalEntriesListScreen>
   Map<String, dynamic> _currentSummary = const {};
 
   bool _isLoading = true;
+
+  // Cancelled vouchers and their reversals: hidden by default (the owner,
+  // 9 Oct 2026); the bar above the list shows them.
+  bool _includeCancelled = false;
+  int _cancelledCount = 0;
+  bool _cancelledHidden = false;
   String? _error;
 
   int _currencyDecimalPlaces = 2;
@@ -157,6 +164,7 @@ class _JournalEntriesListScreenState extends State<JournalEntriesListScreen>
           dateTo: _dateRange?.end,
           minCash: _minCash,
           maxCash: _maxCash,
+          includeCancelled: _includeCancelled,
         ),
       ];
 
@@ -216,6 +224,9 @@ class _JournalEntriesListScreenState extends State<JournalEntriesListScreen>
         _availableCreators = nextCreators;
         _availableEntryTypes = nextEntryTypes;
         _currentSummary = _stringKeyMap(data['current_summary']);
+        final cancelled = _stringKeyMap(data['cancelled_hidden']);
+        _cancelledCount = _asInt(cancelled['count']) ?? 0;
+        _cancelledHidden = cancelled['hidden'] == true;
         _totalEntries = _asInt(data['total']) ?? nextEntries.length;
         _totalPages = math.max(1, _asInt(data['pages']) ?? 1);
         _currentPage = math.max(1, _asInt(data['current_page']) ?? targetPage);
@@ -2692,6 +2703,24 @@ class _JournalEntriesListScreenState extends State<JournalEntriesListScreen>
                 child: _buildStatisticsSection(),
               ),
             ),
+            if (_cancelledCount > 0)
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
+                  child: Align(
+                    alignment: AlignmentDirectional.centerStart,
+                    child: CancelledVouchersBar(
+                    count: _cancelledCount,
+                    hidden: _cancelledHidden,
+                    busy: _isLoading,
+                    onToggle: () {
+                      setState(() => _includeCancelled = !_includeCancelled);
+                      _loadEntries(page: 1);
+                    },
+                  ),
+                  ),
+                ),
+              ),
             _buildPinnedToolbarSliver(),
           ],
           body: Column(

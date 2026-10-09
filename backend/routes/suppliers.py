@@ -930,6 +930,11 @@ def get_supplier_weight_statement(supplier_id):
         .order_by(JournalEntry.date.asc(), JournalEntry.id.asc(), JournalEntryLine.id.asc())
         .all()
     )
+    # Cancelled vouchers and their reversals: hidden by default, shown on request
+    # (services/cancelled_vouchers.py) -- the books keep them; the view does not.
+    from services.cancelled_vouchers import include_cancelled_requested, without_cancelled_pairs
+    journal_lines, cancelled_hidden = without_cancelled_pairs(
+        journal_lines, include=include_cancelled_requested(request.args))
 
     try:
         journal_lines.sort(
@@ -1037,6 +1042,7 @@ def get_supplier_weight_statement(supplier_id):
         qr_verify_url = _build_statement_verify_url(qr_verify_token)
 
     return jsonify({
+        'cancelled_hidden': cancelled_hidden,
         'account_name': supplier.name,
         'main_karat': main_karat,
         'qr_issued_at': qr_issued_at,

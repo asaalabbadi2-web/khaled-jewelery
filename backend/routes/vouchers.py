@@ -349,6 +349,18 @@ def get_vouchers():
                 )
             )
 
+    # ── Cancelled vouchers: hidden by default when no status is chosen ────
+    # (the owner, 9 Oct 2026; services/cancelled_vouchers.py). Choosing the
+    # «ملغى» status, or include_cancelled=1, shows them.
+    from services.cancelled_vouchers import include_cancelled_requested
+    _is_cancelled = func.lower(func.coalesce(Voucher.status, '')) == 'cancelled'
+    cancelled_hidden = {'count': 0, 'hidden': False}
+    if status in ('', 'all'):
+        cancelled_hidden['count'] = int(query.order_by(None).filter(_is_cancelled).count() or 0)
+        if not include_cancelled_requested(request.args):
+            query = query.filter(~_is_cancelled)
+            cancelled_hidden['hidden'] = cancelled_hidden['count'] > 0
+
     # ── Summary via SQL aggregates (no full .all()) ──────────────────────
     # Clone the query to a scalar aggregate before adding ORDER BY / pagination.
     summary_q = query.order_by(None).with_entities(
@@ -442,6 +454,7 @@ def get_vouchers():
         'current_page': paginated_vouchers.page,
         'per_page': paginated_vouchers.per_page,
         'current_summary': current_summary,
+        'cancelled_hidden': cancelled_hidden,
         'available_creators': available_creators,
         'available_parties': available_parties,
     }

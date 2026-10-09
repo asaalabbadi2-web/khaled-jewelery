@@ -2426,14 +2426,23 @@ class _PostingManagementScreenState extends State<PostingManagementScreen>
                   ),
                 ),
                 const Divider(height: 1),
+                // Posted at creation whoever creates it when on; off, who
+                // creates does not post. Only the system admin turns it --
+                // the server refuses anyone else (the owner, 9 Oct 2026).
                 SwitchListTile(
                   title: const Text('ترحيل القيود تلقائياً'),
-                  subtitle: const Text('يتم ترحيل القيود فور حفظها'),
+                  subtitle: Text(
+                    context.watch<AuthProvider>().isSystemAdmin
+                        ? 'مفعّل: يُرحَّل القيد اليدوي فور حفظه أيًّا كان منشئه · معطّل: يرحّله غير منشئه'
+                        : 'يغيّره مسؤول النظام وحده',
+                  ),
                   value: _autoPostEntries,
-                  onChanged: (value) {
-                    setState(() => _autoPostEntries = value);
-                    _saveSettings();
-                  },
+                  onChanged: context.watch<AuthProvider>().isSystemAdmin
+                      ? (value) {
+                          setState(() => _autoPostEntries = value);
+                          _saveSettings();
+                        }
+                      : null,
                   activeThumbColor: theme.AppColors.primaryGold,
                   secondary: Icon(Icons.book, color: theme.AppColors.darkGold),
                 ),

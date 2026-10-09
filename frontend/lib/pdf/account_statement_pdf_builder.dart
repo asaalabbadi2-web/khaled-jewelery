@@ -896,6 +896,23 @@ class AccountStatementPdfBuilder {
           child: pw.Column(
             crossAxisAlignment: pw.CrossAxisAlignment.stretch,
             children: [
+              // A printed statement says what it leaves out (the owner,
+              // 9 Oct 2026): it is not mistaken for every line of the books.
+              if (statement.cancelledHidden &&
+                  statement.cancelledCount + statement.correctionCount > 0) ...[
+                pw.Text(
+                  pdfVisualArabic(
+                    'يستبعد هذا الكشف ${[
+                      if (statement.cancelledCount > 0) '${statement.cancelledCount} من السندات الملغاة مع قيودها العكسية',
+                      if (statement.correctionCount > 0) '${statement.correctionCount} من تصحيحات وسيلة الدفع',
+                    ].join(' و')}، ولا يتغيّر بها الرصيد',
+                  ),
+                  textDirection: pw.TextDirection.ltr,
+                  textAlign: pw.TextAlign.center,
+                  style: pw.TextStyle(font: baseFont, fontSize: 7),
+                ),
+                pw.SizedBox(height: 3),
+              ],
               pw.Container(height: 0.8, color: _PdfColors.borderLight),
               pw.SizedBox(height: 5),
               pw.Container(

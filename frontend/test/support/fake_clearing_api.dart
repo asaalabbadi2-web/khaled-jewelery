@@ -97,6 +97,7 @@ class FakeClearingApi extends ApiService {
     String? sortOrder,
     String? referenceType,
     int? referenceId,
+    bool includeCancelled = false,
   }) async => {'vouchers': []};
 
   @override

@@ -1846,9 +1846,11 @@ class ApiService {
   }
 
   // Statement Methods
-  Future<Map<String, dynamic>> getAccountStatement(int accountId) async {
+  Future<Map<String, dynamic>> getAccountStatement(int accountId, {bool includeCancelled = false}) async {
     final response = await _authedGet(
-      Uri.parse('$_baseUrl/accounts/$accountId/statement'),
+      Uri.parse('$_baseUrl/accounts/$accountId/statement').replace(
+        queryParameters: includeCancelled ? {'include_cancelled': '1'} : null,
+      ),
     );
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
@@ -1857,9 +1859,11 @@ class ApiService {
     }
   }
 
-  Future<Map<String, dynamic>> getAccountStatementMerged(int accountId) async {
+  Future<Map<String, dynamic>> getAccountStatementMerged(int accountId, {bool includeCancelled = false}) async {
     final response = await _authedGet(
-      Uri.parse('$_baseUrl/accounts/$accountId/statement_merged'),
+      Uri.parse('$_baseUrl/accounts/$accountId/statement_merged').replace(
+        queryParameters: includeCancelled ? {'include_cancelled': '1'} : null,
+      ),
     );
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
@@ -1868,9 +1872,11 @@ class ApiService {
     }
   }
 
-  Future<Map<String, dynamic>> getCustomerStatement(int customerId) async {
+  Future<Map<String, dynamic>> getCustomerStatement(int customerId, {bool includeCancelled = false}) async {
     final response = await _authedGet(
-      Uri.parse('$_baseUrl/customers/$customerId/statement'),
+      Uri.parse('$_baseUrl/customers/$customerId/statement').replace(
+        queryParameters: includeCancelled ? {'include_cancelled': '1'} : null,
+      ),
     );
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
@@ -1879,9 +1885,11 @@ class ApiService {
     }
   }
 
-  Future<Map<String, dynamic>> getSupplierStatement(int supplierId) async {
+  Future<Map<String, dynamic>> getSupplierStatement(int supplierId, {bool includeCancelled = false}) async {
     final response = await _authedGet(
-      Uri.parse('$_baseUrl/suppliers/$supplierId/statement'),
+      Uri.parse('$_baseUrl/suppliers/$supplierId/statement').replace(
+        queryParameters: includeCancelled ? {'include_cancelled': '1'} : null,
+      ),
     );
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
@@ -2266,8 +2274,10 @@ class ApiService {
     DateTime? dateTo,
     double? minCash,
     double? maxCash,
+    bool includeCancelled = false,
   }) async {
     final Map<String, String> queryParameters = {
+      if (includeCancelled) 'include_cancelled': '1',
       'page': page.toString(),
       'per_page': perPage.toString(),
       'sort_by': sortBy,
@@ -3562,8 +3572,10 @@ class ApiService {
     String? sortOrder,
     String? referenceType, // invoice, voucher, journal_entry, manual
     int? referenceId,
+    bool includeCancelled = false,
   }) async {
     final Map<String, String> queryParameters = {
+      if (includeCancelled) 'include_cancelled': '1',
       'page': page.toString(),
       'per_page': perPage.toString(),
     };

@@ -19,6 +19,7 @@ import 'package:image/image.dart' as img;
 import '../api_service.dart';
 import '../models/account_statement_model.dart';
 import '../pdf/account_statement_pdf_builder.dart';
+import '../widgets/cancelled_vouchers_bar.dart';
 import '../providers/settings_provider.dart';
 import '../theme/app_theme.dart' as app_theme;
 
@@ -52,6 +53,10 @@ class AccountStatementScreen extends StatefulWidget {
 
 class _AccountStatementScreenState extends State<AccountStatementScreen> {
   bool _isLoading = true;
+
+  /// Cancelled vouchers and their reversals are hidden by default; the bar
+  /// above the lines shows them (the owner, 9 Oct 2026).
+  bool _includeCancelled = false;
   AccountStatement? _statement;
   List<StatementLine> _filteredLines = [];
   DateTimeRange? _dateRange;
@@ -370,9 +375,15 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
 
       // Call appropriate API based on entity type
       if (widget.entityType == 'customer') {
-        data = await ApiService().getCustomerStatement(widget.accountId);
+        data = await ApiService().getCustomerStatement(
+          widget.accountId,
+          includeCancelled: _includeCancelled,
+        );
       } else if (widget.entityType == 'supplier') {
-        data = await ApiService().getSupplierStatement(widget.accountId);
+        data = await ApiService().getSupplierStatement(
+          widget.accountId,
+          includeCancelled: _includeCancelled,
+        );
       } else {
         if (!_resolvedViewModeDefault) {
           _resolvedViewModeDefault = true;
@@ -386,7 +397,10 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
           }
         }
 
-        data = await ApiService().getAccountStatement(widget.accountId);
+        data = await ApiService().getAccountStatement(
+          widget.accountId,
+          includeCancelled: _includeCancelled,
+        );
       }
 
       if (!mounted) return;
@@ -1208,6 +1222,19 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
                 ),
               ),
 
+              if ((_statement?.cancelledCount ?? 0) +
+                      (_statement?.correctionCount ?? 0) >
+                  0)
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
+                    child: Align(
+                      alignment: AlignmentDirectional.centerStart,
+                      child: _buildCancelledBar(),
+                    ),
+                  ),
+                ),
+
               // ── Sticky: Filter toolbar + totals bar ─────────────────
               SliverPersistentHeader(
                 pinned: true,
@@ -1288,6 +1315,17 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
     });
   }
 
+
+  Widget _buildCancelledBar() => CancelledVouchersBar(
+        count: _statement?.cancelledCount ?? 0,
+        corrections: _statement?.correctionCount ?? 0,
+        hidden: _statement?.cancelledHidden ?? false,
+        busy: _isLoading,
+        onToggle: () {
+          setState(() => _includeCancelled = !_includeCancelled);
+          _fetchAccountStatement();
+        },
+      );
 
   Widget _buildEmptyLinesState() {
     final theme = Theme.of(context);

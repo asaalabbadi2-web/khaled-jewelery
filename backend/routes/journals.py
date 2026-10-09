@@ -4,13 +4,14 @@ from __future__ import annotations
 from datetime import datetime, date, timedelta
 
 from flask import Blueprint, g, jsonify, request
-from services.approval_policy import actor, may_approve_own
+from services.approval_policy import actor
 from sqlalchemy import String, and_, cast, func, or_
 from sqlalchemy.orm import joinedload
 
 from models import (
     db,
     Account,
+    Settings,
     Invoice,
     JournalEntry,
     JournalEntryLine,
@@ -240,6 +241,15 @@ def get_journal_entries():
         elif search_type != 'amount' and search_type != 'gold':
             query = query.filter(or_(*base_search_filters))
 
+    # Cancelled vouchers and their reversals: hidden by default, whole pairs
+    # within the list's dates only (services/cancelled_vouchers.py).
+    from services.cancelled_vouchers import hideable_pair_entries, include_cancelled_requested
+    _pair_ids, _pair_numbers = hideable_pair_entries(date_from, date_to)
+    cancelled_hidden = {'count': len(_pair_numbers), 'vouchers': _pair_numbers, 'hidden': False}
+    if _pair_ids and not include_cancelled_requested(request.args):
+        query = query.filter(~JournalEntry.id.in_(list(_pair_ids)))
+        cancelled_hidden['hidden'] = True
+
     entries = query.order_by(
         JournalEntry.date.desc(),
         JournalEntry.id.desc(),
@@ -286,6 +296,7 @@ def get_journal_entries():
         )
 
         return jsonify({
+            'cancelled_hidden': cancelled_hidden,
             'journal_entries': serialized_page,
             'total': total_count,
             'pages': total_pages_sql,
@@ -404,6 +415,7 @@ def get_journal_entries():
     page_items = serialized_entries[start:end]
 
     return jsonify({
+        'cancelled_hidden': cancelled_hidden,
         'journal_entries': page_items,
         'total': total_entries,
         'pages': total_pages,
@@ -632,9 +644,11 @@ def add_journal_entry():
             except Exception:
                 _auto_post_je = False
 
-            # Who creates does not post (ADR-036 R4): auto-posting at creation is the
-            # owner's alone; anyone else's entry waits for another to post it.
-            if _auto_post_je and may_approve_own():
+            # The owner (9 Oct 2026): the setting on, a manual entry is posted at
+            # creation whoever creates it -- the company's deliberate choice, which
+            # only the system admin turns (routes/system.py). The setting off, who
+            # creates does not post (ADR-036 R4): another posts it.
+            if _auto_post_je:
                 new_entry.is_posted = True
                 new_entry.posted_at = datetime.now()
                 new_entry.posted_by = getattr(g, 'current_user', None) and getattr(g.current_user, 'username', 'system') or 'system'

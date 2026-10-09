@@ -899,6 +899,17 @@ def update_settings():
     if 'voucher_auto_post' in data:
         settings.voucher_auto_post = data['voucher_auto_post']
 
+    # Posting manual entries at creation is the system admin's to turn on or
+    # off (the owner, 9 Oct 2026) -- even for a user granted system.settings.
+    # Sending the value unchanged, as the settings screen does, is not a change.
+    if 'auto_post_entries' in data and bool(data['auto_post_entries']) != bool(settings.auto_post_entries):
+        from services.approval_policy import may_approve_own
+        if not may_approve_own():
+            return jsonify({
+                'error': 'auto_post_entries_owner_only',
+                'message': 'ترحيل القيود اليدوية تلقائيًا يغيّره مسؤول النظام وحده',
+            }), 403
+
     # 🆕 إعدادات الترحيل (Posting Preferences)
     for _pk in ('auto_post_invoices', 'auto_post_entries', 'require_approval_before_post', 'allow_unposting'):
         if _pk in data:
