@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../widgets/inline_number_cell.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'dart:io';
 import 'package:image_picker/image_picker.dart';
@@ -653,17 +654,11 @@ class _ScrapPurchaseInvoiceScreenState
     });
   }
 
-  /// An amount as the cashier typed it: Arabic digits, «٫», a thousands
-  /// comma. Null when it is not a number -- never «the remainder» (an unread
-  /// amount was recorded as all that was due).
-  double? _readAmount(String text) => double.tryParse(
-    normalizeNumber(text).replaceAll(',', '').replaceAll('،', '').trim(),
-  );
 
   /// The chosen method takes the amount typed, or what remains when none is.
   void _addTypedPayment() {
     final typed = _customAmountController.text.trim();
-    final customAmount = typed.isEmpty ? null : _readAmount(typed);
+    final customAmount = typed.isEmpty ? null : readTypedNumber(typed);
     if (typed.isNotEmpty && customAmount == null) {
       _showError('لم يُقرأ المبلغ «$typed»؛ اكتبه أرقامًا فقط');
       return;
@@ -3638,7 +3633,7 @@ class _ScrapPurchaseInvoiceScreenState
                 isDense: true,
               ),
               onSubmitted: (value) {
-                final target = _readAmount(value);
+                final target = readTypedNumber(value);
                 if (target == null || target <= 0) {
                   _showError('اكتب المبلغ المطلوب أرقامًا');
                   return;

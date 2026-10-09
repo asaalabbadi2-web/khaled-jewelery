@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:math' as math;
+import '../widgets/inline_number_cell.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -274,16 +275,11 @@ class _AddReturnInvoiceScreenState extends State<AddReturnInvoiceScreen> {
   double get _originalInvoiceWeight =>
       _parseDouble(selectedOriginalInvoice?['total_weight']);
 
-  /// An amount as typed: Arabic digits, «٫», and a comma as the thousands
-  /// mark -- «1,000» was read as 1.000, a refund of one riyal.
-  double? _readAmount(String text) => double.tryParse(
-    normalizeNumber(text).replaceAll(',', '').replaceAll('،', '').trim(),
-  );
 
   double? get _enteredPaymentAmount {
     final raw = _customAmountController.text.trim();
     if (raw.isEmpty) return null;
-    final parsed = _readAmount(raw);
+    final parsed = readTypedNumber(raw);
     if (parsed == null || parsed <= 0) return null;
     return parsed;
   }
@@ -1343,7 +1339,7 @@ class _AddReturnInvoiceScreenState extends State<AddReturnInvoiceScreen> {
     );
     if (method.isEmpty) return;
     final typed = _customAmountController.text.trim();
-    final amount = typed.isEmpty ? _wholeRemaining : _readAmount(typed);
+    final amount = typed.isEmpty ? _wholeRemaining : readTypedNumber(typed);
     if (amount == null) {
       _snack('لم يُقرأ المبلغ «$typed»؛ اكتبه أرقامًا فقط');
       return;
@@ -1987,7 +1983,7 @@ class _AddReturnInvoiceScreenState extends State<AddReturnInvoiceScreen> {
 
     // Auto-fill: full weight → original invoice total, partial → proportional
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      final existing = _readAmount(_customAmountController.text) ?? 0;
+      final existing = readTypedNumber(_customAmountController.text) ?? 0;
       if (existing <= 0 && _payments.isEmpty && _suggestedTotal > 0.005) {
         _customAmountController.text = _suggestedTotal.toStringAsFixed(2);
       }
@@ -2348,7 +2344,7 @@ class _AddReturnInvoiceScreenState extends State<AddReturnInvoiceScreen> {
                     label: const Text('إضافة'),
                     onPressed: () {
                       final txt = _customAmountController.text.trim();
-                      final custom = txt.isEmpty ? null : _readAmount(txt);
+                      final custom = txt.isEmpty ? null : readTypedNumber(txt);
                       if (txt.isNotEmpty && custom == null) {
                         ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(

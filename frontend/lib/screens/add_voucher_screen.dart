@@ -1,6 +1,9 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import '../widgets/inline_number_cell.dart';
+import '../utils/voucher_readiness.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -10,6 +13,7 @@ import '../models/employee_model.dart';
 import '../models/safe_box_model.dart';
 import '../providers/auth_provider.dart';
 import '../providers/settings_provider.dart';
+import '../theme/app_semantic_colors.dart';
 import '../theme/app_theme.dart';
 import 'voucher_preview_screen.dart';
 import '../utils.dart';
@@ -186,6 +190,9 @@ class AddVoucherScreen extends StatefulWidget {
   final int? initialOtherAccountId;
   final String? initialDescription;
 
+  /// The server; a test hands its own.
+  final ApiService? apiService;
+
   const AddVoucherScreen({
     super.key,
     required this.voucherType,
@@ -194,6 +201,7 @@ class AddVoucherScreen extends StatefulWidget {
     this.initialPartyType,
     this.initialOtherAccountId,
     this.initialDescription,
+    this.apiService,
   });
 
   @override
@@ -201,8 +209,12 @@ class AddVoucherScreen extends StatefulWidget {
 }
 
 class _AddVoucherScreenState extends State<AddVoucherScreen> {
+  // الألوان من الثيم (ثيم-٠): تتبع الوضعين.
+  ColorScheme get _cs => Theme.of(context).colorScheme;
+  AppSemanticColors get _tone => AppSemanticColors.of(context);
+
   final _formKey = GlobalKey<FormState>();
-  final ApiService _apiService = ApiService();
+  late final ApiService _apiService = widget.apiService ?? ApiService();
   final TextEditingController _descriptionController = TextEditingController();
   final TextEditingController _notesController = TextEditingController();
   final TextEditingController _receiverNameController = TextEditingController();
@@ -272,6 +284,9 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
 
   bool _isLoading = false;
   bool _isSaving = false;
+
+  /// The review is open: nothing is being sent yet.
+  bool _inReview = false;
 
   String _partyType = 'customer';
   String? _selectedTemplateId;
@@ -734,6 +749,231 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
       }
     }
     return totals;
+  }
+
+  /// The first thing in the way of saving, or null (VOUCHER-UX-1).
+  String? get _blocker {
+    final partyChosen = switch (_partyType) {
+      'customer' => _selectedCustomerId != null,
+      'supplier' => _selectedSupplierId != null,
+      'employee' => _selectedEmployeeId != null,
+      _ => _selectedOtherAccountId != null,
+    };
+    return voucherReadiness(
+      VoucherFacts(
+        partyType: _partyType,
+        partyChosen: partyChosen,
+        lines: [
+          for (final line in _accountLines)
+            VoucherLineFacts(
+              hasAccount: line.accountId != null,
+              isGold: line.amountType == 'gold',
+              amount: line.amount,
+              gold: [
+                if (line.amountType == 'gold')
+                  for (final e in _effectiveGoldEntries(line))
+                    VoucherGoldFacts(
+                      weight: e.amount,
+                      hasKarat: e.karat != null,
+                      gross: e.grossWeight,
+                      stones: e.stonesWeight,
+                    ),
+              ],
+            ),
+        ],
+        cashInvoiceMissing: _showCashPurposeSelector &&
+            _cashPaymentPurpose == 'invoice' &&
+            _cashPurposeInvoiceId == null,
+        cashExceedsInvoice: _cashPurposeExceedsInvoice,
+        unbalanced: _balanceDiff > 0.01,
+      ),
+    );
+  }
+
+  /// Something typed that leaving would lose.
+  bool get _hasEntries => _accountLines.any(
+    (l) =>
+        l.amount > 0 ||
+        (l.amountType == 'gold' &&
+            _effectiveGoldEntries(l).any((e) => e.amount > 0)),
+  );
+
+  void _saveIfReady() {
+    if (_blocker != null || _isSaving || _isLoading) return;
+    _saveVoucher();
+  }
+
+  Future<void> _confirmLeave() async {
+    final choice = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('سند غير محفوظ'),
+        content: const Text('ما كُتب في السند لم يُحفظ بعد.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, 'stay'),
+            child: const Text('البقاء'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, 'discard'),
+            child: const Text('اخرج دون حفظ'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, 'draft'),
+            child: const Text('احفظه مسودة واخرج'),
+          ),
+        ],
+      ),
+    );
+    if (!mounted || choice == null || choice == 'stay') return;
+    if (choice == 'draft') await _saveLocalDraft(showToast: false);
+    if (mounted) Navigator.of(context).pop(false);
+  }
+
+  String get _partyLabel {
+    switch (_partyType) {
+      case 'customer':
+        return '${_findById(_customers, _selectedCustomerId)?['name'] ?? '—'}';
+      case 'supplier':
+        return '${_findById(_suppliers, _selectedSupplierId)?['name'] ?? '—'}';
+      case 'employee':
+        return _findEmployeeById(_selectedEmployeeId)?.name ?? '—';
+      default:
+        return '${_findAccountById(_selectedOtherAccountId)?['name'] ?? '—'}';
+    }
+  }
+
+  String _lineAccountLabel(AccountLineModel line) =>
+      _findSafeByAccountId(line.accountId)?.name ??
+      '${_findAccountById(line.accountId)?['name'] ?? '—'}';
+
+  /// The review before saving: the party, the date, each line's account and
+  /// amount or weights, what it is for, and the saved vouchers like it.
+  Future<bool> _review(Map<String, dynamic> voucherData) async {
+    var similar = const <Map<String, dynamic>>[];
+    var similarUnknown = false;
+    try {
+      similar = await _apiService.similarVouchers({
+        ...voucherData,
+        if (widget.existingVoucher?['id'] != null)
+          'exclude_id': widget.existingVoucher!['id'],
+      });
+    } catch (_) {
+      similarUnknown = true;
+    }
+    if (!mounted) return false;
+
+    final isReceipt = widget.voucherType == 'receipt';
+    final tones = AppSemanticColors.of(context);
+    final theme = Theme.of(context);
+    String day(Object? iso) =>
+        '${iso ?? ''}'.length >= 10 ? '${iso ?? ''}'.substring(0, 10) : '${iso ?? ''}';
+    Widget row(String label, String value) => Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 120,
+            child: Text(label, style: theme.textTheme.bodyMedium),
+          ),
+          Expanded(
+            child: Text(
+              value,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    final invoiceNo = voucherData['reference_type'] == 'invoice'
+        ? '${_chosenCashInvoice?['invoice_number'] ?? '#${voucherData['reference_id']}'}'
+        : null;
+
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(isReceipt ? 'مراجعة سند قبض' : 'مراجعة سند صرف'),
+        content: SizedBox(
+          width: 460,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                row(isReceipt ? 'من' : 'إلى', _partyLabel),
+                row('التاريخ', day(_selectedDate.toIso8601String())),
+                const Divider(),
+                for (final line in _accountLines)
+                  if (line.amountType == 'gold')
+                    for (final e in _effectiveGoldEntries(line))
+                      if (e.amount > 0)
+                        row(
+                          _lineAccountLabel(line),
+                          '${e.amount.toStringAsFixed(3)} جم عيار ${(e.karat ?? 0).toStringAsFixed(0)}',
+                        )
+                      else
+                        const SizedBox.shrink()
+                  else
+                    row(_lineAccountLabel(line), _formatCash(line.amount)),
+                if (invoiceNo != null) row('تخص الفاتورة', invoiceNo),
+                if (_descriptionController.text.trim().isNotEmpty)
+                  row('البيان', _descriptionController.text.trim()),
+                if (similar.isNotEmpty) ...[
+                  const SizedBox(height: 12),
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: tones.warning.container,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'سند مشابه محفوظ — تأكد أنه ليس تكرارًا:',
+                          style: TextStyle(
+                            color: tones.warning.onContainer,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        for (final v in similar)
+                          Text(
+                            '${v['voucher_number'] ?? '#${v['id']}'} — ${day(v['date'])} — '
+                            '${((v['amount_cash'] as num?) ?? 0) > 0 ? _formatCash(((v['amount_cash'] as num?) ?? 0).toDouble()) : '${(((v['amount_gold'] as num?) ?? 0).toDouble()).toStringAsFixed(3)} جم'}',
+                            style: TextStyle(color: tones.warning.onContainer),
+                          ),
+                      ],
+                    ),
+                  ),
+                ] else if (similarUnknown) ...[
+                  const SizedBox(height: 12),
+                  Text(
+                    'تعذّر التحقق من السندات المشابهة.',
+                    style: TextStyle(color: tones.warning.fg),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('رجوع'),
+          ),
+          FilledButton(
+            key: const Key('voucher-review-save'),
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: Text(similar.isEmpty ? 'حفظ السند' : 'حفظ رغم التشابه'),
+          ),
+        ],
+      ),
+    );
+    return ok == true;
   }
 
   double get _balanceDiff {
@@ -1773,7 +2013,7 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
       SnackBar(
         content: const Text('تم تطبيق القالب بنجاح'),
         duration: const Duration(seconds: 2),
-        backgroundColor: AppColors.primaryGold,
+        backgroundColor: _cs.primary,
       ),
     );
   }
@@ -1959,9 +2199,9 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
     required String totalGoldText,
   }) {
     final theme = Theme.of(context);
-    final Color successColor = AppColors.success;
-    final Color warningColor = AppColors.warning;
-    final Color infoColor = AppColors.info;
+    final Color successColor = _tone.ready.fg;
+    final Color warningColor = _tone.warning.fg;
+    final Color infoColor = _tone.info.fg;
     final Color neutralColor = theme.colorScheme.outlineVariant;
 
     return Wrap(
@@ -1995,7 +2235,7 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
         if (hasSafeOverdraft)
           _buildStatusChip(
             icon: Icons.warning_amber_rounded,
-            color: AppColors.error,
+            color: _tone.blocked.fg,
             label: 'تحذير أرصدة الخزائن',
             subtitle: 'يوجد سطر يتجاوز الرصيد المتاح للخزينة المختارة.',
           )
@@ -2078,7 +2318,7 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(16),
         side: BorderSide(
-          color: AppColors.lightGold.withValues(alpha: 0.6),
+          color: _tone.gold.container.withValues(alpha: 0.6),
           width: 1.2,
         ),
       ),
@@ -2090,12 +2330,12 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
           maintainState: true,
           leading: Icon(
             Icons.dashboard_customize_outlined,
-            color: AppColors.primaryGold,
+            color: _cs.primary,
           ),
           title: Text(
             'مؤشرات السند',
             style: TextStyle(
-              color: AppColors.deepGold,
+              color: _tone.gold.fg,
               fontWeight: FontWeight.bold,
               fontSize: 16,
             ),
@@ -2110,8 +2350,8 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
               ),
             ),
           ),
-          iconColor: AppColors.primaryGold,
-          collapsedIconColor: AppColors.primaryGold,
+          iconColor: _cs.primary,
+          collapsedIconColor: _cs.primary,
           children: [
             const SizedBox(height: 8),
             _buildStatusChips(
@@ -2226,8 +2466,8 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
                             buildChip(
                               Icons.diamond_outlined,
                               'ذهب: $totalGoldText',
-                              AppColors.darkGold,
-                              background: AppColors.lightGold.withValues(
+                              _tone.gold.fg,
+                              background: _tone.gold.container.withValues(
                                 alpha: 0.25,
                               ),
                             ),
@@ -2238,13 +2478,13 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
                             isBalanced
                                 ? 'السند متوازن'
                                 : 'فرق: ${_formatWeight(_balanceDiff)}',
-                            isBalanced ? AppColors.success : AppColors.warning,
+                            isBalanced ? _tone.ready.fg : _tone.warning.fg,
                           ),
                           buildChip(
                             Icons.list_alt_outlined,
                             '${_accountLines.length} سطور',
-                            AppColors.mediumGold,
-                            background: AppColors.lightGold.withValues(
+                            _cs.secondary,
+                            background: _tone.gold.container.withValues(
                               alpha: 0.25,
                             ),
                           ),
@@ -2280,7 +2520,7 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
                     Text(
                       isReceipt ? 'نوع السند: تحصيل' : 'نوع السند: صرف',
                       style: theme.textTheme.bodySmall?.copyWith(
-                        color: AppColors.mediumGold,
+                        color: _cs.secondary,
                         fontWeight: FontWeight.w600,
                       ),
                     ),
@@ -2300,19 +2540,8 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
       initialDate: _selectedDate,
       firstDate: DateTime(2020),
       lastDate: DateTime(2030),
-      builder: (context, child) {
-        return Theme(
-          data: Theme.of(context).copyWith(
-            colorScheme: const ColorScheme.light(
-              primary: AppColors.primaryGold,
-              onPrimary: Colors.white,
-              surface: Colors.white,
-              onSurface: Colors.black,
-            ),
-          ),
-          child: child!,
-        );
-      },
+      // The theme's own scheme: a light one forced here was light in the
+      // dark theme too.
     );
     if (date != null) {
       setState(() => _selectedDate = date);
@@ -2325,7 +2554,7 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
         side: BorderSide(
-          color: AppColors.lightGold.withValues(alpha: 0.5),
+          color: _tone.gold.container.withValues(alpha: 0.5),
           width: 1,
         ),
       ),
@@ -2336,7 +2565,7 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
           children: [
             Row(
               children: [
-                Icon(Icons.group_outlined, color: AppColors.primaryGold),
+                Icon(Icons.group_outlined, color: _cs.primary),
                 const SizedBox(width: 8),
                 const Text(
                   'الطرف',
@@ -2597,7 +2826,7 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(10),
           border: Border.all(
-            color: isChosen ? AppColors.primaryGold : Colors.black12,
+            color: isChosen ? _cs.primary : _cs.outlineVariant,
             width: isChosen ? 2 : 1,
           ),
         ),
@@ -2653,7 +2882,7 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
       elevation: 2,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: AppColors.lightGold.withValues(alpha: 0.6)),
+        side: BorderSide(color: _tone.gold.container.withValues(alpha: 0.6)),
       ),
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -2662,7 +2891,7 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
           children: [
             Row(
               children: [
-                Icon(Icons.receipt_long_outlined, color: AppColors.primaryGold),
+                Icon(Icons.receipt_long_outlined, color: _cs.primary),
                 const SizedBox(width: 8),
                 const Expanded(
                   child: Text(
@@ -2675,16 +2904,16 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
               ],
             ),
             const SizedBox(height: 4),
-            const Text(
+            Text(
               'اختر الفاتورة التي تسددها الدفعة، أو اتركها على حساب المورد — ويمكن نسبها لاحقًا من شاشة السند.',
-              style: TextStyle(fontSize: 12, color: Colors.black54),
+              style: TextStyle(fontSize: 12, color: _cs.onSurfaceVariant),
             ),
             const SizedBox(height: 10),
             if (!_loadingCashPurposeCandidates && rows.isEmpty)
-              const Padding(
+              Padding(
                 padding: EdgeInsets.only(bottom: 8),
                 child: Text('لا توجد فواتير لهذا المورد عليها التزام نقدي مفتوح',
-                    style: TextStyle(fontSize: 12, color: Colors.black54)),
+                    style: TextStyle(fontSize: 12, color: _cs.onSurfaceVariant)),
               ),
             ...rows.map(invoiceTile),
             RadioListTile<String>(
@@ -2698,9 +2927,9 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
               }),
             ),
             if (_cashPurposeExceedsInvoice)
-              const Text(
+              Text(
                 'مبلغ السند أكبر من المتبقي على الفاتورة — قسّم الدفعة أو سجّلها على حساب المورد',
-                style: TextStyle(fontSize: 12, color: Colors.redAccent),
+                style: TextStyle(fontSize: 12, color: _tone.blocked.fg),
               ),
           ],
         ),
@@ -2720,13 +2949,13 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
-        color: (bad ? Colors.red : AppColors.lightGold).withValues(alpha: 0.12),
+        color: (bad ? _tone.blocked.fg : _tone.gold.container).withValues(alpha: 0.12),
         borderRadius: BorderRadius.circular(10),
       ),
       child: Row(
         children: [
           Icon(bad ? Icons.warning_amber_rounded : Icons.receipt_long_outlined,
-              size: 18, color: bad ? Colors.red : AppColors.primaryGold),
+              size: 18, color: bad ? _tone.blocked.fg : _cs.primary),
           const SizedBox(width: 8),
           Expanded(child: Text(text, style: const TextStyle(fontWeight: FontWeight.w600))),
         ],
@@ -2785,7 +3014,7 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
       elevation: 2,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: AppColors.lightGold.withValues(alpha: 0.4)),
+        side: BorderSide(color: _tone.gold.container.withValues(alpha: 0.4)),
       ),
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -2794,7 +3023,7 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
           children: [
             Row(
               children: [
-                Icon(Icons.call_split, color: AppColors.primaryGold),
+                Icon(Icons.call_split, color: _cs.primary),
                 const SizedBox(width: 8),
                 const Text(
                   'هذه الدفعة الذهبية تخص',
@@ -2803,9 +3032,9 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
               ],
             ),
             const SizedBox(height: 4),
-            const Text(
+            Text(
               'يُسجَّل الاختيار الآن لأنه لا يمكن استرجاعه لاحقًا',
-              style: TextStyle(fontSize: 12, color: Colors.black54),
+              style: TextStyle(fontSize: 12, color: _cs.onSurfaceVariant),
             ),
             const SizedBox(height: 8),
             RadioListTile<String>(
@@ -2826,9 +3055,9 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
                 child: _loadingGoldPurposeCandidates
                     ? const LinearProgressIndicator()
                     : (_goldPurposeCandidates.isEmpty
-                        ? const Text(
+                        ? Text(
                             'لا توجد فواتير لهذا المورد عليها التزام ذهب مفتوح',
-                            style: TextStyle(fontSize: 12, color: Colors.redAccent),
+                            style: TextStyle(fontSize: 12, color: _tone.blocked.fg),
                           )
                         : Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
@@ -2838,7 +3067,7 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
                                   margin: const EdgeInsets.only(bottom: 8),
                                   padding: const EdgeInsets.all(8),
                                   decoration: BoxDecoration(
-                                    color: AppColors.lightGold.withValues(alpha: 0.25),
+                                    color: _tone.gold.container.withValues(alpha: 0.25),
                                     borderRadius: BorderRadius.circular(8),
                                   ),
                                   child: Row(
@@ -2876,8 +3105,8 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
                                   color: (_goldSplitsAssigned - _goldLinesTotalWeight)
                                               .abs() <=
                                           0.01
-                                      ? Colors.green.shade700
-                                      : Colors.black54,
+                                      ? _tone.ready.fg
+                                      : _cs.onSurfaceVariant,
                                 ),
                               ),
                               const SizedBox(height: 6),
@@ -2928,7 +3157,7 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
                                               border: OutlineInputBorder(),
                                             ),
                                             onChanged: (v) {
-                                              final parsed = double.tryParse(v);
+                                              final parsed = readTypedNumber(v);
                                               if (parsed != null) {
                                                 setState(() =>
                                                     _goldInvoiceSplits[id] = parsed);
@@ -2982,7 +3211,7 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
       elevation: 2,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: AppColors.lightGold.withValues(alpha: 0.4)),
+        side: BorderSide(color: _tone.gold.container.withValues(alpha: 0.4)),
       ),
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -2991,7 +3220,7 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
           children: [
             Row(
               children: [
-                Icon(Icons.description_outlined, color: AppColors.primaryGold),
+                Icon(Icons.description_outlined, color: _cs.primary),
                 const SizedBox(width: 8),
                 const Text(
                   'البيان',
@@ -3010,13 +3239,13 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
                 enabledBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(8),
                   borderSide: BorderSide(
-                    color: AppColors.mediumGold.withValues(alpha: 0.3),
+                    color: _cs.secondary.withValues(alpha: 0.3),
                   ),
                 ),
                 focusedBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(8),
                   borderSide: BorderSide(
-                    color: AppColors.primaryGold,
+                    color: _cs.primary,
                     width: 2,
                   ),
                 ),
@@ -3034,7 +3263,7 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
       elevation: 2,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: AppColors.lightGold.withValues(alpha: 0.4)),
+        side: BorderSide(color: _tone.gold.container.withValues(alpha: 0.4)),
       ),
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -3043,7 +3272,7 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
           children: [
             Row(
               children: [
-                Icon(Icons.person_outline, color: AppColors.primaryGold),
+                Icon(Icons.person_outline, color: _cs.primary),
                 const SizedBox(width: 8),
                 const Text(
                   'اسم المستلم',
@@ -3062,13 +3291,13 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
                 enabledBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(8),
                   borderSide: BorderSide(
-                    color: AppColors.mediumGold.withValues(alpha: 0.3),
+                    color: _cs.secondary.withValues(alpha: 0.3),
                   ),
                 ),
                 focusedBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(8),
                   borderSide: BorderSide(
-                    color: AppColors.primaryGold,
+                    color: _cs.primary,
                     width: 2,
                   ),
                 ),
@@ -3087,9 +3316,9 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
       elevation: 2,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: AppColors.lightGold.withValues(alpha: 0.3)),
+        side: BorderSide(color: _tone.gold.container.withValues(alpha: 0.3)),
       ),
-      color: AppColors.lightGold.withValues(alpha: 0.12),
+      color: _tone.gold.container.withValues(alpha: 0.12),
       child: Theme(
         data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
         child: ExpansionTile(
@@ -3097,7 +3326,7 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
           childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 20),
           maintainState: true,
           initiallyExpanded: hasAttachments,
-          leading: Icon(Icons.attach_file, color: AppColors.primaryGold),
+          leading: Icon(Icons.attach_file, color: _cs.primary),
           title: Text(
             'المرفقات (اختياري)',
             style: TextStyle(
@@ -3117,8 +3346,8 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
               ),
             ),
           ),
-          iconColor: AppColors.primaryGold,
-          collapsedIconColor: AppColors.primaryGold,
+          iconColor: _cs.primary,
+          collapsedIconColor: _cs.primary,
           children: [
             Align(
               alignment: Alignment.centerLeft,
@@ -3126,8 +3355,8 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
                 icon: const Icon(Icons.add, size: 18),
                 label: const Text('إرفاق مستند'),
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.primaryGold,
-                  foregroundColor: Colors.white,
+                  backgroundColor: _cs.primary,
+                  foregroundColor: _cs.onPrimary,
                 ),
                 onPressed: _pickFiles,
               ),
@@ -3215,7 +3444,7 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
                   ),
                 ),
                 onChanged: (v) => setState(
-                    () => entry.commissionPerGram = double.tryParse(v) ?? 0),
+                    () => entry.commissionPerGram = readTypedNumber(v) ?? 0),
               ),
             ),
             const SizedBox(width: 6),
@@ -3242,7 +3471,7 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
           style: TextStyle(
             fontSize: 18,
             fontWeight: FontWeight.bold,
-            color: AppColors.deepGold,
+            color: _tone.gold.fg,
           ),
         ),
       ],
@@ -3251,12 +3480,12 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
 
   Widget _buildTotalsCard() {
     return Card(
-      color: AppColors.lightGold.withValues(alpha: 0.3),
+      color: _tone.gold.container.withValues(alpha: 0.3),
       elevation: 2,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
         side: BorderSide(
-          color: AppColors.primaryGold.withValues(alpha: 0.3),
+          color: _cs.primary.withValues(alpha: 0.3),
           width: 1,
         ),
       ),
@@ -3267,12 +3496,12 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
           children: [
             Row(
               children: [
-                Icon(Icons.attach_money, color: AppColors.darkGold),
+                Icon(Icons.attach_money, color: _tone.gold.fg),
                 const SizedBox(width: 8),
                 Text(
                   'مجموع النقد: ',
                   style: TextStyle(
-                    color: AppColors.darkGold,
+                    color: _tone.gold.fg,
                     fontWeight: FontWeight.bold,
                   ),
                 ),
@@ -3284,12 +3513,12 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
                   ),
                 ),
                 const SizedBox(width: 16),
-                Icon(Icons.circle, color: AppColors.primaryGold, size: 14),
+                Icon(Icons.circle, color: _cs.primary, size: 14),
                 const SizedBox(width: 4),
                 Text(
                   'مجموع الذهب:',
                   style: TextStyle(
-                    color: AppColors.darkGold,
+                    color: _tone.gold.fg,
                     fontWeight: FontWeight.bold,
                   ),
                 ),
@@ -3322,13 +3551,13 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
             const SizedBox(height: 8),
             Row(
               children: [
-                Icon(Icons.check_circle, color: AppColors.success),
+                Icon(Icons.check_circle, color: _tone.ready.fg),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
                     '✅ سيتم إضافة سطر الطرف تلقائياً لتوازن القيد',
                     style: TextStyle(
-                      color: AppColors.success,
+                      color: _tone.ready.fg,
                       fontWeight: FontWeight.bold,
                     ),
                   ),
@@ -3348,7 +3577,7 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
       elevation: 2,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: AppColors.lightGold.withValues(alpha: 0.4)),
+        side: BorderSide(color: _tone.gold.container.withValues(alpha: 0.4)),
       ),
       child: Theme(
         data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
@@ -3357,7 +3586,7 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
           childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 20),
           maintainState: true,
           initiallyExpanded: hasNotes,
-          leading: Icon(Icons.note_alt_outlined, color: AppColors.primaryGold),
+          leading: Icon(Icons.note_alt_outlined, color: _cs.primary),
           title: Text(
             'ملاحظات (اختياري)',
             style: TextStyle(
@@ -3377,8 +3606,8 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
               ),
             ),
           ),
-          iconColor: AppColors.primaryGold,
-          collapsedIconColor: AppColors.primaryGold,
+          iconColor: _cs.primary,
+          collapsedIconColor: _cs.primary,
           children: [
             TextFormField(
               controller: _notesController,
@@ -3395,82 +3624,102 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
   }
 
   Widget _buildSaveSection(Color accentColor) {
-    if (_balanceDiff > 0.01) {
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            width: double.infinity,
-            height: 50,
-            child: ElevatedButton(
-              onPressed: null,
-              style: ElevatedButton.styleFrom(backgroundColor: Colors.grey),
-              child: const Text('حفظ السند', style: TextStyle(fontSize: 18)),
+    // The save button and what stands in its way are in the footer; here only
+    // the balance's own correction stays.
+    if (_balanceDiff > 0.01 && _balanceDiff <= 0.1) {
+      return Align(
+        alignment: AlignmentDirectional.centerStart,
+        child: TextButton(
+          onPressed: () {
+            setState(() {
+              if (_accountLines.isNotEmpty) {
+                _accountLines.last.amount += _balanceDiff;
+              }
+            });
+          },
+          child: Text(
+            'تصحيح تلقائي للفرق (${_formatWeight(_balanceDiff)})',
+            style: TextStyle(
+              color: _cs.primary,
+              fontWeight: FontWeight.bold,
             ),
           ),
-          const SizedBox(height: 8),
-          Row(
+        ),
+      );
+    }
+    return const SizedBox.shrink();
+  }
+
+  Widget _buildFooter(Color accentColor) {
+    final theme = Theme.of(context);
+    final blocker = _blocker;
+    final ready = blocker == null;
+    final tones = AppSemanticColors.of(context);
+    final tone = ready ? tones.ready : tones.blocked;
+    return Material(
+      elevation: 8,
+      color: theme.colorScheme.surface,
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 10),
+          child: Row(
             children: [
-              Icon(Icons.warning_amber_rounded, color: AppColors.warning),
+              Icon(
+                ready ? Icons.check_circle : Icons.error_outline,
+                color: tone.fg,
+              ),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
-                  'لا يمكن الحفظ: السطور غير متوازنة (الفرق: ${_formatWeight(_balanceDiff)})',
-                  style: TextStyle(
-                    color: AppColors.warning,
-                    fontWeight: FontWeight.bold,
+                  _inReview
+                      ? 'مراجعة السند…'
+                      : _isSaving
+                      ? 'جارٍ الحفظ…'
+                      : ready
+                      ? 'جاهز للحفظ'
+                      : 'غير جاهز للحفظ — $blocker',
+                  style: theme.textTheme.bodyLarge?.copyWith(
+                    color: tone.fg,
+                    fontWeight: FontWeight.w700,
                   ),
                 ),
               ),
-              if (_balanceDiff <= 0.1)
-                TextButton(
-                  onPressed: () {
-                    setState(() {
-                      if (_accountLines.isNotEmpty) {
-                        _accountLines.last.amount += _balanceDiff;
-                      }
-                    });
-                  },
-                  child: Text(
-                    'تصحيح تلقائي',
-                    style: TextStyle(
-                      color: AppColors.primaryGold,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
+              const SizedBox(width: 16),
+              _buildSaveButton(accentColor, enabled: ready),
             ],
           ),
-        ],
-      );
-    }
+        ),
+      ),
+    );
+  }
 
+  Widget _buildSaveButton(Color accentColor, {required bool enabled}) {
     return SizedBox(
-      width: double.infinity,
-      height: 54,
+      height: 48,
       child: ElevatedButton.icon(
-        onPressed: _isSaving ? null : _saveVoucher,
+        onPressed: _isSaving || !enabled ? null : _saveIfReady,
         style: ElevatedButton.styleFrom(
           backgroundColor: accentColor,
-          foregroundColor: Colors.white,
+          foregroundColor: _cs.surfaceContainerLowest,
           elevation: 3,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(12),
           ),
           padding: const EdgeInsets.symmetric(vertical: 16),
         ),
-        icon: _isSaving
-            ? const SizedBox(
+        icon: _isSaving && !_inReview
+            ? SizedBox(
                 width: 20,
                 height: 20,
                 child: CircularProgressIndicator(
-                  color: Colors.white,
+                  color: _cs.surfaceContainerLowest,
                   strokeWidth: 2,
                 ),
               )
             : const Icon(Icons.save_outlined, size: 24),
         label: Text(
-          _isSaving ? 'جاري الحفظ...' : 'حفظ السند',
+          _isSaving && !_inReview ? 'جاري الحفظ...' : 'حفظ السند',
           style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
         ),
       ),
@@ -3484,34 +3733,34 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
     }
 
     final isReceipt = widget.voucherType == 'receipt';
-    final Color accentColor = isReceipt ? AppColors.success : AppColors.error;
+    final Color accentColor = isReceipt ? _tone.ready.fg : _tone.blocked.fg;
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: BoxDecoration(
         gradient: LinearGradient(
           colors: [
-            AppColors.lightGold.withValues(alpha: 0.2),
-            AppColors.lightGold.withValues(alpha: 0.05),
+            _tone.gold.container.withValues(alpha: 0.2),
+            _tone.gold.container.withValues(alpha: 0.05),
           ],
         ),
         border: Border(
           bottom: BorderSide(
-            color: AppColors.lightGold.withValues(alpha: 0.3),
+            color: _tone.gold.container.withValues(alpha: 0.3),
             width: 1,
           ),
         ),
       ),
       child: Row(
         children: [
-          Icon(Icons.flash_on, color: AppColors.primaryGold, size: 20),
+          Icon(Icons.flash_on, color: _cs.primary, size: 20),
           const SizedBox(width: 8),
           Text(
             'سريع:',
             style: TextStyle(
               fontSize: 14,
               fontWeight: FontWeight.bold,
-              color: AppColors.darkGold,
+              color: _tone.gold.fg,
             ),
           ),
           const SizedBox(width: 12),
@@ -3534,12 +3783,12 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
                             vertical: 8,
                           ),
                           decoration: BoxDecoration(
-                            color: isSelected ? accentColor : Colors.white,
+                            color: isSelected ? accentColor : _cs.surfaceContainerLowest,
                             borderRadius: BorderRadius.circular(20),
                             border: Border.all(
                               color: isSelected
                                   ? accentColor
-                                  : AppColors.lightGold.withValues(alpha: 0.5),
+                                  : _tone.gold.container.withValues(alpha: 0.5),
                               width: 1.5,
                             ),
                           ),
@@ -3549,8 +3798,8 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
                               Icon(
                                 template['icon'] as IconData,
                                 color: isSelected
-                                    ? Colors.white
-                                    : AppColors.primaryGold,
+                                    ? _cs.surfaceContainerLowest
+                                    : _cs.primary,
                                 size: 18,
                               ),
                               const SizedBox(width: 6),
@@ -3560,8 +3809,8 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
                                   fontSize: 13,
                                   fontWeight: FontWeight.w600,
                                   color: isSelected
-                                      ? Colors.white
-                                      : AppColors.darkGold,
+                                      ? _cs.surfaceContainerLowest
+                                      : _tone.gold.fg,
                                 ),
                               ),
                             ],
@@ -3642,7 +3891,7 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
       margin: const EdgeInsets.only(top: 12),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: AppColors.lightGold.withValues(alpha: 0.4)),
+        side: BorderSide(color: _tone.gold.container.withValues(alpha: 0.4)),
       ),
       child: Padding(
         padding: const EdgeInsets.all(12),
@@ -3651,13 +3900,13 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
           children: [
             Row(
               children: [
-                Icon(Icons.info_outline, color: AppColors.primaryGold),
+                Icon(Icons.info_outline, color: _cs.primary),
                 const SizedBox(width: 8),
                 Text(
                   title,
                   style: TextStyle(
                     fontWeight: FontWeight.bold,
-                    color: AppColors.deepGold,
+                    color: _tone.gold.fg,
                   ),
                 ),
               ],
@@ -3774,11 +4023,11 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
       }).toList();
 
       exceedsBalance = exceededEntry.isNotEmpty;
-      bgColor = exceedsBalance ? Colors.red.shade50 : Colors.green.shade50;
+      bgColor = exceedsBalance ? _tone.blocked.container : _tone.ready.container;
       borderColor = exceedsBalance
-          ? Colors.red.shade200
-          : Colors.green.shade200;
-      textColor = exceedsBalance ? Colors.red.shade700 : Colors.green.shade700;
+          ? _tone.blocked.fg.withValues(alpha: 0.4)
+          : _tone.ready.fg.withValues(alpha: 0.4);
+      textColor = exceedsBalance ? _tone.blocked.fg : _tone.ready.fg;
 
       if (exceedsBalance) {
         final first = exceededEntry.first;
@@ -3807,11 +4056,11 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
       final bool isOutflow = _isCashOutflowFromSafe(line);
       exceedsBalance =
           isOutflow && available != null && line.amount > available + 0.01;
-      bgColor = exceedsBalance ? Colors.red.shade50 : Colors.green.shade50;
+      bgColor = exceedsBalance ? _tone.blocked.container : _tone.ready.container;
       borderColor = exceedsBalance
-          ? Colors.red.shade200
-          : Colors.green.shade200;
-      textColor = exceedsBalance ? Colors.red.shade700 : Colors.green.shade700;
+          ? _tone.blocked.fg.withValues(alpha: 0.4)
+          : _tone.ready.fg.withValues(alpha: 0.4);
+      textColor = exceedsBalance ? _tone.blocked.fg : _tone.ready.fg;
 
       if (available == null) {
         message =
@@ -4299,6 +4548,17 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
         }
       }
 
+      // Reviewed before it is saved (VOUCHER-UX-1): what is about to be
+      // saved, and any saved voucher that looks like it.
+      setState(() => _inReview = true);
+      final confirmed = await _review(voucherData);
+      if (!mounted) return;
+      setState(() => _inReview = false);
+      if (!confirmed) {
+        setState(() => _isSaving = false);
+        return;
+      }
+
       // Create or update voucher
       Map<String, dynamic> response;
       if (widget.existingVoucher != null &&
@@ -4361,7 +4621,7 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
             ),
             action: SnackBarAction(
               label: 'معاينة',
-              textColor: AppColors.primaryGold,
+              textColor: _cs.primary,
               onPressed: () {
                 Navigator.push(
                   context,
@@ -4427,7 +4687,7 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
         side: BorderSide(
-          color: AppColors.lightGold.withValues(alpha: 0.5),
+          color: _tone.gold.container.withValues(alpha: 0.5),
           width: 1,
         ),
       ),
@@ -4446,7 +4706,7 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
                     vertical: 6,
                   ),
                   decoration: BoxDecoration(
-                    color: AppColors.lightGold.withValues(alpha: 0.4),
+                    color: _tone.gold.container.withValues(alpha: 0.4),
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Text(
@@ -4454,13 +4714,13 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
                     style: TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.bold,
-                      color: AppColors.deepGold,
+                      color: _tone.gold.fg,
                     ),
                   ),
                 ),
                 if (_accountLines.length > 1)
                   IconButton(
-                    icon: Icon(Icons.delete_outline, color: AppColors.error),
+                    icon: Icon(Icons.delete_outline, color: _tone.blocked.fg),
                     onPressed: () => _removeLine(index),
                   ),
               ],
@@ -4547,8 +4807,8 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
                                   : 'الرصيد الفعلي غير متاح'),
                         style: TextStyle(
                           color: insufficient
-                              ? AppColors.error
-                              : Colors.grey.shade700,
+                              ? _tone.blocked.fg
+                              : _cs.onSurfaceVariant,
                           fontWeight: insufficient
                               ? FontWeight.w600
                               : FontWeight.normal,
@@ -4560,7 +4820,7 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
                           child: Text(
                             'تنبيه: الرصيد لا يغطي مبلغ الصرف',
                             style: TextStyle(
-                              color: AppColors.error,
+                              color: _tone.blocked.fg,
                               fontWeight: FontWeight.w600,
                             ),
                           ),
@@ -4672,26 +4932,26 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
                         enabledBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(8),
                           borderSide: BorderSide(
-                            color: AppColors.mediumGold.withValues(alpha: 0.3),
+                            color: _cs.secondary.withValues(alpha: 0.3),
                           ),
                         ),
                         focusedBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(8),
                           borderSide: BorderSide(
-                            color: AppColors.primaryGold,
+                            color: _cs.primary,
                             width: 2,
                           ),
                         ),
                         prefixIcon: Icon(
                           Icons.attach_money,
-                          color: AppColors.primaryGold,
+                          color: _cs.primary,
                         ),
                       ),
                       keyboardType: TextInputType.number,
                       inputFormatters: [NormalizeNumberFormatter()],
                       onChanged: (value) {
                         setState(() {
-                          line.amount = double.tryParse(value) ?? 0;
+                          line.amount = readTypedNumber(value) ?? 0;
                         });
                       },
                     ),
@@ -4716,12 +4976,12 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
                           child: Container(
                             padding: const EdgeInsets.all(10),
                             decoration: BoxDecoration(
-                              color: AppColors.lightGold.withValues(
+                              color: _tone.gold.container.withValues(
                                 alpha: 0.14,
                               ),
                               borderRadius: BorderRadius.circular(10),
                               border: Border.all(
-                                color: AppColors.mediumGold.withValues(
+                                color: _cs.secondary.withValues(
                                   alpha: 0.28,
                                 ),
                               ),
@@ -4733,14 +4993,14 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
                                     Icon(
                                       Icons.diamond_outlined,
                                       size: 16,
-                                      color: AppColors.darkGold,
+                                      color: _tone.gold.fg,
                                     ),
                                     const SizedBox(width: 6),
                                     Text(
                                       'حقل ذهب ${entryIndex + 1} - عيار $karatLabel',
                                       style: TextStyle(
                                         fontWeight: FontWeight.w700,
-                                        color: AppColors.deepGold,
+                                        color: _tone.gold.fg,
                                       ),
                                     ),
                                   ],
@@ -4769,7 +5029,7 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
                                               8,
                                             ),
                                             borderSide: BorderSide(
-                                              color: AppColors.mediumGold
+                                              color: _cs.secondary
                                                   .withValues(alpha: 0.3),
                                             ),
                                           ),
@@ -4778,13 +5038,13 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
                                               8,
                                             ),
                                             borderSide: BorderSide(
-                                              color: AppColors.primaryGold,
+                                              color: _cs.primary,
                                               width: 2,
                                             ),
                                           ),
                                           prefixIcon: Icon(
                                             Icons.scale,
-                                            color: AppColors.primaryGold,
+                                            color: _cs.primary,
                                           ),
                                         ),
                                         keyboardType: TextInputType.number,
@@ -4794,7 +5054,7 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
                                         onChanged: (value) {
                                           setState(() {
                                             entry.amount =
-                                                double.tryParse(value) ?? 0;
+                                                readTypedNumber(value) ?? 0;
                                             _syncGoldSummary(line);
                                           });
                                         },
@@ -4819,7 +5079,7 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
                                               8,
                                             ),
                                             borderSide: BorderSide(
-                                              color: AppColors.mediumGold
+                                              color: _cs.secondary
                                                   .withValues(alpha: 0.3),
                                             ),
                                           ),
@@ -4828,13 +5088,13 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
                                               8,
                                             ),
                                             borderSide: BorderSide(
-                                              color: AppColors.primaryGold,
+                                              color: _cs.primary,
                                               width: 2,
                                             ),
                                           ),
                                           prefixIcon: Icon(
                                             Icons.diamond,
-                                            color: AppColors.primaryGold,
+                                            color: _cs.primary,
                                           ),
                                         ),
                                         items: _availableKarats
@@ -4869,7 +5129,7 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
                                         icon: const Icon(
                                           Icons.remove_circle_outline,
                                         ),
-                                        color: Colors.red.shade400,
+                                        color: _tone.blocked.fg,
                                         tooltip: 'حذف هذا الحقل',
                                       ),
                                     ],
@@ -4929,7 +5189,7 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
     final size = MediaQuery.of(context).size;
     final isWideLayout = size.width >= 1100;
     final isReceipt = widget.voucherType == 'receipt';
-    final Color accentColor = isReceipt ? AppColors.success : AppColors.error;
+    final Color accentColor = isReceipt ? _tone.ready.fg : _tone.blocked.fg;
     final String title = isReceipt ? 'سند قبض' : 'سند صرف';
     final IconData icon = isReceipt ? Icons.south : Icons.north;
 
@@ -4984,7 +5244,7 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
           onPressed: _addNewLine,
           style: ElevatedButton.styleFrom(
             backgroundColor: accentColor,
-            foregroundColor: Colors.white,
+            foregroundColor: _cs.surfaceContainerLowest,
             elevation: 2,
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(8),
@@ -5032,11 +5292,28 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
             ],
           );
 
-    return Scaffold(
+    // Ctrl+S saves a ready voucher; leaving with something typed asks first
+    // (VOUCHER-UX-1).
+    return PopScope(
+      canPop: !_hasEntries || _isSaving,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) _confirmLeave();
+      },
+      child: CallbackShortcuts(
+        bindings: {
+          const SingleActivator(LogicalKeyboardKey.keyS, control: true):
+              _saveIfReady,
+          const SingleActivator(LogicalKeyboardKey.keyS, meta: true):
+              _saveIfReady,
+        },
+        child: FocusScope(
+          autofocus: true,
+          child: Scaffold(
+      bottomNavigationBar: _isLoading ? null : _buildFooter(accentColor),
       appBar: AppBar(
         title: Text(title),
-        backgroundColor: AppColors.deepGold,
-        foregroundColor: Colors.white,
+        backgroundColor: _cs.primary,
+        foregroundColor: _cs.onPrimary,
         elevation: 2,
         actions: [
           if (widget.existingVoucher == null)
@@ -5049,10 +5326,10 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
                         Navigator.of(context).pop(false);
                       }
                     },
-              icon: const Icon(Icons.schedule, color: Colors.white70),
-              label: const Text(
+              icon: Icon(Icons.schedule, color: _cs.onPrimary.withValues(alpha: 0.8)),
+              label: Text(
                 'إكمال لاحقاً',
-                style: TextStyle(color: Colors.white70),
+                style: TextStyle(color: _cs.onPrimary.withValues(alpha: 0.8)),
               ),
             ),
           const SizedBox(width: 8),
@@ -5085,6 +5362,9 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
                 ),
               ),
             ),
+          ),
+        ),
+      ),
     );
   }
 

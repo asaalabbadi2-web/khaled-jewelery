@@ -780,12 +780,6 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
     return double.tryParse(normalizeNumber(value.toString()).trim()) ?? 0.0;
   }
 
-  /// An amount as the cashier typed it: Arabic digits, «٫», and a comma as
-  /// the thousands separator. Null when it is not a number -- never «the
-  /// remainder» (an unread amount was recorded as all that was due).
-  double? _readAmount(String text) => double.tryParse(
-    normalizeNumber(text).replaceAll(',', '').replaceAll('،', '').trim(),
-  );
 
   /// A number typed in a line's field (weight, wage, total, karat).
   double? _readNumber(String text) =>
@@ -1220,7 +1214,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
 
     // Empty pays what remains; anything else must read.
     final typed = _customAmountController.text.trim();
-    final customAmount = typed.isEmpty ? null : _readAmount(typed);
+    final customAmount = typed.isEmpty ? null : readTypedNumber(typed);
     if (typed.isNotEmpty && customAmount == null) {
       _showError('لم يُقرأ المبلغ «$typed»؛ اكتبه أرقامًا فقط');
       return;
@@ -4711,7 +4705,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                 isDense: true,
               ),
               onSubmitted: (value) {
-                final target = _readAmount(value);
+                final target = readTypedNumber(value);
                 if (target == null || target <= 0) {
                   _showError('اكتب المبلغ المطلوب أرقامًا');
                   return;

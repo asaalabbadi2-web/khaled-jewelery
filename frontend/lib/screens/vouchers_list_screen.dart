@@ -15,13 +15,16 @@ import '../api_service.dart';
 import 'clearing_settlement_screen.dart';
 import 'voucher_details_screen.dart';
 import 'add_voucher_screen.dart';
-import '../theme/app_theme.dart' as theme;
+import '../theme/app_semantic_colors.dart';
 import '../providers/auth_provider.dart';
 import '../widgets/widgets.dart';
 import 'package:provider/provider.dart';
 
 class VouchersListScreen extends StatefulWidget {
-  const VouchersListScreen({super.key});
+  /// The server; a test hands its own.
+  final ApiService? apiService;
+
+  const VouchersListScreen({super.key, this.apiService});
 
   @override
   State<VouchersListScreen> createState() => _VouchersListScreenState();
@@ -31,7 +34,11 @@ enum _VoucherListView { table, cards }
 
 class _VouchersListScreenState extends State<VouchersListScreen>
     with SingleTickerProviderStateMixin {
-  final ApiService _apiService = ApiService();
+  // الألوان من الثيم (ثيم-٠): تتبع الوضعين.
+  ColorScheme get _cs => Theme.of(context).colorScheme;
+  AppSemanticColors get _tone => AppSemanticColors.of(context);
+
+  late final ApiService _apiService = widget.apiService ?? ApiService();
   final ScrollController _scrollController = ScrollController();
   final ScrollController _voucherTableHorizontalController = ScrollController();
   final TextEditingController _searchController = TextEditingController();
@@ -266,7 +273,7 @@ class _VouchersListScreenState extends State<VouchersListScreen>
           ),
           TextButton(
             onPressed: () => Navigator.pop(context, true),
-            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            style: TextButton.styleFrom(foregroundColor: _tone.blocked.fg),
             child: const Text('إلغاء السند'),
           ),
         ],
@@ -310,7 +317,7 @@ class _VouchersListScreenState extends State<VouchersListScreen>
           ),
           TextButton(
             onPressed: () => Navigator.pop(context, true),
-            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            style: TextButton.styleFrom(foregroundColor: _tone.blocked.fg),
             child: const Text('حذف'),
           ),
         ],
@@ -470,7 +477,7 @@ class _VouchersListScreenState extends State<VouchersListScreen>
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
             colors: [
-              _withAlpha(theme.AppColors.lightGold, 0.32),
+              _withAlpha(_tone.gold.container, 0.32),
               themeData.scaffoldBackgroundColor,
             ],
           ),
@@ -482,7 +489,7 @@ class _VouchersListScreenState extends State<VouchersListScreen>
   }
 
   PreferredSizeWidget _buildAppBar(ThemeData themeData) {
-    final Color appBarForeground = Colors.black87;
+    final Color appBarForeground = _cs.onSurface;
 
     return AppBar(
       elevation: 0,
@@ -494,7 +501,7 @@ class _VouchersListScreenState extends State<VouchersListScreen>
       flexibleSpace: DecoratedBox(
         decoration: BoxDecoration(
           gradient: LinearGradient(
-            colors: [theme.AppColors.primaryGold, theme.AppColors.darkGold],
+            colors: [_cs.primary, _tone.gold.fg],
             begin: _gradientBegin(),
             end: _gradientEnd(),
           ),
@@ -525,7 +532,7 @@ class _VouchersListScreenState extends State<VouchersListScreen>
               Text(
                 'تحكم كامل بسندات القبض والصرف',
                 style: themeData.textTheme.bodyMedium?.copyWith(
-                  color: _withAlpha(Colors.black, 0.65),
+                  color: _withAlpha(_cs.onSurface, 0.65),
                 ),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
@@ -540,15 +547,15 @@ class _VouchersListScreenState extends State<VouchersListScreen>
           padding: const EdgeInsetsDirectional.fromSTEB(16, 0, 16, 8),
           child: DecoratedBox(
             decoration: BoxDecoration(
-              color: _withAlpha(Colors.white, 0.22),
+              color: _withAlpha(_cs.surfaceContainerLowest, 0.22),
               borderRadius: BorderRadius.circular(22),
             ),
             child: Padding(
               padding: const EdgeInsets.all(3),
               child: TabBar(
                 controller: _tabController,
-                labelColor: theme.AppColors.darkGold,
-                unselectedLabelColor: _withAlpha(Colors.black, 0.68),
+                labelColor: _tone.gold.fg,
+                unselectedLabelColor: _withAlpha(_cs.onSurface, 0.68),
                 labelStyle: themeData.textTheme.bodyMedium?.copyWith(
                   fontWeight: FontWeight.w700,
                 ),
@@ -558,8 +565,8 @@ class _VouchersListScreenState extends State<VouchersListScreen>
                 indicator: BoxDecoration(
                   gradient: LinearGradient(
                     colors: [
-                      theme.AppColors.lightGold,
-                      theme.AppColors.darkGold,
+                      _tone.gold.container,
+                      _tone.gold.fg,
                     ],
                     begin: _gradientBegin(),
                     end: _gradientEnd(),
@@ -567,7 +574,7 @@ class _VouchersListScreenState extends State<VouchersListScreen>
                   borderRadius: BorderRadius.circular(24),
                   boxShadow: [
                     BoxShadow(
-                      color: _withAlpha(Colors.black, 0.08),
+                      color: _withAlpha(_cs.shadow, 0.08),
                       blurRadius: 8,
                       offset: const Offset(0, 4),
                     ),
@@ -650,7 +657,7 @@ class _VouchersListScreenState extends State<VouchersListScreen>
               value: 'pdf',
               child: Row(
                 children: [
-                  Icon(Icons.picture_as_pdf, color: theme.AppColors.error),
+                  Icon(Icons.picture_as_pdf, color: _tone.blocked.fg),
                   const SizedBox(width: 8),
                   const Text('تصدير PDF'),
                 ],
@@ -660,7 +667,7 @@ class _VouchersListScreenState extends State<VouchersListScreen>
               value: 'excel',
               child: Row(
                 children: [
-                  Icon(Icons.table_chart, color: theme.AppColors.success),
+                  Icon(Icons.table_chart, color: _tone.ready.fg),
                   const SizedBox(width: 8),
                   const Text('تصدير Excel'),
                 ],
@@ -725,7 +732,7 @@ class _VouchersListScreenState extends State<VouchersListScreen>
             )
           : RefreshIndicator(
               onRefresh: _refresh,
-              color: theme.AppColors.primaryGold,
+              color: _cs.primary,
               displacement: 80,
               child: ListView(
                 primary: true,
@@ -790,7 +797,7 @@ class _VouchersListScreenState extends State<VouchersListScreen>
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.error_outline, size: 52, color: theme.AppColors.error),
+            Icon(Icons.error_outline, size: 52, color: _tone.blocked.fg),
             const SizedBox(height: 16),
             Text(
               'حدث خطأ أثناء تحميل السندات',
@@ -825,7 +832,7 @@ class _VouchersListScreenState extends State<VouchersListScreen>
       padding: const EdgeInsets.fromLTRB(14, 8, 14, 10),
       decoration: BoxDecoration(
         gradient: LinearGradient(
-          colors: [theme.AppColors.primaryGold, theme.AppColors.mediumGold],
+          colors: [_cs.primary, _cs.secondary],
           begin: _gradientBegin(),
           end: _gradientEnd(),
         ),
@@ -873,7 +880,7 @@ class _VouchersListScreenState extends State<VouchersListScreen>
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(Icons.search, color: theme.AppColors.darkGold, size: 18),
+                Icon(Icons.search, color: _tone.gold.fg, size: 18),
                 const SizedBox(width: 6),
                 PopupMenuButton<String>(
                   tooltip: 'نوع البحث',
@@ -980,10 +987,10 @@ class _VouchersListScreenState extends State<VouchersListScreen>
       children: statuses.map((status) {
         final bool selected = _selectedStatus == status['value'];
         // Make the label text gold for all status chips per request.
-        final Color foreground = theme.AppColors.darkGold;
+        final Color foreground = _tone.gold.fg;
         final Color background = selected
-            ? Colors.white
-            : _withAlpha(Colors.white, 0.12);
+            ? _cs.surfaceContainerLowest
+            : _withAlpha(_cs.surfaceContainerLowest, 0.12);
 
         return ChoiceChip(
           label: Row(
@@ -993,8 +1000,8 @@ class _VouchersListScreenState extends State<VouchersListScreen>
                 status['icon'] as IconData,
                 size: 16,
                 color: selected
-                    ? theme.AppColors.darkGold
-                    : _withAlpha(theme.AppColors.darkGold, 0.9),
+                    ? _tone.gold.fg
+                    : _withAlpha(_tone.gold.fg, 0.9),
               ),
               const SizedBox(width: 6),
               Text(
@@ -1016,13 +1023,13 @@ class _VouchersListScreenState extends State<VouchersListScreen>
             _loadVouchers(page: 1);
           },
           backgroundColor: background,
-          selectedColor: Colors.white,
+          selectedColor: _cs.surfaceContainerLowest,
           pressElevation: 0,
           elevation: 0,
           labelPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
           shape: StadiumBorder(
             side: BorderSide(
-              color: _withAlpha(Colors.white, selected ? 0 : 0.3),
+              color: _withAlpha(_cs.outlineVariant, selected ? 0 : 1),
             ),
           ),
         );
@@ -1076,7 +1083,7 @@ class _VouchersListScreenState extends State<VouchersListScreen>
         value: '$totalVouchers',
         subtitle: 'بعد الفلاتر الحالية',
         icon: Icons.receipt_long_outlined,
-        color: theme.AppColors.darkGold,
+        color: _tone.gold.fg,
       ),
       _buildSummaryCard(
         themeData,
@@ -1084,7 +1091,7 @@ class _VouchersListScreenState extends State<VouchersListScreen>
         value: '${_currencyFormat.format(totalCash)} ر.س',
         subtitle: 'لكل النتائج المطابقة',
         icon: Icons.payments_outlined,
-        color: const Color(0xFF2F80ED),
+        color: _tone.info.fg,
       ),
       _buildSummaryCard(
         themeData,
@@ -1092,7 +1099,7 @@ class _VouchersListScreenState extends State<VouchersListScreen>
         value: '${_goldFormat.format(totalGold)} غ',
         subtitle: 'بالمكافئ على العيار الرئيسي',
         icon: Icons.scale_outlined,
-        color: const Color(0xFFD4A017),
+        color: _tone.gold.fg,
         emphasize: true,
       ),
       _buildSummaryCard(
@@ -1101,7 +1108,7 @@ class _VouchersListScreenState extends State<VouchersListScreen>
         value: '$pendingCount',
         subtitle: 'جاهزة للمراجعة والاعتماد',
         icon: Icons.pending_actions_outlined,
-        color: theme.AppColors.info,
+        color: _tone.info.fg,
       ),
     ];
 
@@ -1150,7 +1157,7 @@ class _VouchersListScreenState extends State<VouchersListScreen>
         border: Border.all(color: _withAlpha(color, emphasize ? 0.28 : 0.16)),
         boxShadow: [
           BoxShadow(
-            color: _withAlpha(Colors.black, 0.06),
+            color: _withAlpha(_cs.shadow, 0.06),
             blurRadius: 12,
             offset: const Offset(0, 6),
           ),
@@ -1581,7 +1588,7 @@ class _VouchersListScreenState extends State<VouchersListScreen>
                   Expanded(
                     child: RefreshIndicator(
                       onRefresh: _refresh,
-                      color: theme.AppColors.primaryGold,
+                      color: _cs.primary,
                       child: ListView.builder(
                         primary: true,
                         padding: EdgeInsets.zero,
@@ -1675,7 +1682,7 @@ class _VouchersListScreenState extends State<VouchersListScreen>
             unit: 'ر.س',
             width: widths['cash']!,
             icon: Icons.payments_outlined,
-            color: const Color(0xFF2F80ED),
+            color: _tone.info.fg,
             onTap: () =>
                 _changeSort('cash', !(_sortBy == 'cash' && _sortAscending)),
             isActive: _sortBy == 'cash',
@@ -1686,7 +1693,7 @@ class _VouchersListScreenState extends State<VouchersListScreen>
             unit: 'غ',
             width: widths['gold']!,
             icon: Icons.scale_outlined,
-            color: const Color(0xFFD4A017),
+            color: _tone.gold.fg,
             onTap: () =>
                 _changeSort('gold', !(_sortBy == 'gold' && _sortAscending)),
             isActive: _sortBy == 'gold',
@@ -1812,7 +1819,7 @@ class _VouchersListScreenState extends State<VouchersListScreen>
                 width: widths['cash']!,
                 value: _formatCurrency(voucher['amount_cash']) ?? '—',
                 icon: Icons.payments_outlined,
-                color: const Color(0xFF2F80ED),
+                color: _tone.info.fg,
                 emphasize: false,
               ),
               _buildVoucherMetricValueCell(
@@ -1821,7 +1828,7 @@ class _VouchersListScreenState extends State<VouchersListScreen>
                     _formatPrimaryGoldDisplay(voucher) ??
                     '—',
                 icon: Icons.scale_outlined,
-                color: const Color(0xFFD4A017),
+                color: _tone.gold.fg,
                 emphasize: true,
               ),
               _buildVoucherBodyCell(
@@ -1892,7 +1899,7 @@ class _VouchersListScreenState extends State<VouchersListScreen>
               textAlign: TextAlign.center,
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
                 fontWeight: FontWeight.w800,
-                color: isActive ? theme.AppColors.darkGold : null,
+                color: isActive ? _tone.gold.fg : null,
               ),
             ),
           ),
@@ -1901,7 +1908,7 @@ class _VouchersListScreenState extends State<VouchersListScreen>
             Icon(
               ascending ? Icons.arrow_upward : Icons.arrow_downward,
               size: 14,
-              color: theme.AppColors.darkGold,
+              color: _tone.gold.fg,
             ),
           ],
         ],
@@ -2150,7 +2157,7 @@ class _VouchersListScreenState extends State<VouchersListScreen>
                   height: 28,
                   decoration: BoxDecoration(
                     color: isActive
-                        ? theme.AppColors.darkGold
+                        ? _tone.gold.fg
                         : Colors.transparent,
                     borderRadius: BorderRadius.circular(6),
                     border: isActive
@@ -2169,7 +2176,7 @@ class _VouchersListScreenState extends State<VouchersListScreen>
                           ? FontWeight.bold
                           : FontWeight.normal,
                       color: isActive
-                          ? Colors.white
+                          ? _cs.onPrimary
                           : _withAlpha(themeData.colorScheme.onSurface, 0.7),
                     ),
                   ),
@@ -2308,16 +2315,16 @@ class _VouchersListScreenState extends State<VouchersListScreen>
   _VoucherStatusVisuals _resolveVoucherStatusVisuals(String status) {
     switch (status) {
       case 'approved':
-        return const _VoucherStatusVisuals(label: 'معتمد', color: Colors.green);
+        return _VoucherStatusVisuals(label: 'معتمد', color: _tone.ready.fg);
       case 'cancelled':
-        return const _VoucherStatusVisuals(label: 'ملغى', color: Colors.red);
+        return _VoucherStatusVisuals(label: 'ملغى', color: _tone.blocked.fg);
       case 'rejected':
-        return const _VoucherStatusVisuals(
+        return _VoucherStatusVisuals(
           label: 'مرفوض',
-          color: Colors.redAccent,
+          color: _tone.blocked.fg,
         );
       default:
-        return const _VoucherStatusVisuals(label: 'معلق', color: Colors.orange);
+        return _VoucherStatusVisuals(label: 'معلق', color: _tone.warning.fg);
     }
   }
 
@@ -2344,15 +2351,9 @@ class _VouchersListScreenState extends State<VouchersListScreen>
     final String partyName = _resolveVoucherPartyName(voucher);
     final String description = (voucher['description'] ?? '').toString();
 
-    // Sample the card background (gradient between white and a light gold)
-    final Color cardBgStart = Colors.white;
-    final Color cardBgEnd = _withAlpha(theme.AppColors.lightGold, 0.08);
-    final Color cardBgSample = _sampleColor(cardBgStart, cardBgEnd, 0.5);
-    final bool cardBgIsLight = cardBgSample.computeLuminance() > 0.5;
-    final Color titleColor = _contrastOn(cardBgSample);
-    final Color secondaryTextColor = cardBgIsLight
-        ? _withAlpha(Colors.black, 0.6)
-        : _withAlpha(Colors.white, 0.85);
+    // The card is the theme's surface, so its text roles read on it.
+    final Color titleColor = _cs.onSurface;
+    final Color secondaryTextColor = _cs.onSurfaceVariant;
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -2360,20 +2361,20 @@ class _VouchersListScreenState extends State<VouchersListScreen>
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(22),
           gradient: LinearGradient(
-            colors: [Colors.white, _withAlpha(theme.AppColors.lightGold, 0.08)],
+            colors: [_cs.surfaceContainerLowest, _withAlpha(_tone.gold.container, 0.08)],
             begin: _gradientBegin(),
             end: _gradientEnd(),
           ),
           border: Border.all(
             color: _withAlpha(
-              isAutoGenerated ? theme.AppColors.info : visuals.color,
+              isAutoGenerated ? _tone.info.fg : visuals.color,
               0.35,
             ),
             width: 1.2,
           ),
           boxShadow: [
             BoxShadow(
-              color: _withAlpha(Colors.black, 0.08),
+              color: _withAlpha(_cs.shadow, 0.08),
               blurRadius: 16,
               offset: const Offset(0, 10),
             ),
@@ -2453,13 +2454,13 @@ class _VouchersListScreenState extends State<VouchersListScreen>
                                     ),
                                     decoration: BoxDecoration(
                                       color: _withAlpha(
-                                        theme.AppColors.info,
+                                        _tone.info.fg,
                                         0.12,
                                       ),
                                       borderRadius: BorderRadius.circular(20),
                                       border: Border.all(
                                         color: _withAlpha(
-                                          theme.AppColors.info,
+                                          _tone.info.fg,
                                           0.25,
                                         ),
                                       ),
@@ -2470,7 +2471,7 @@ class _VouchersListScreenState extends State<VouchersListScreen>
                                         Icon(
                                           Icons.auto_awesome,
                                           size: 14,
-                                          color: theme.AppColors.info,
+                                          color: _tone.info.fg,
                                         ),
                                         const SizedBox(width: 6),
                                         Text(
@@ -2478,7 +2479,7 @@ class _VouchersListScreenState extends State<VouchersListScreen>
                                           style: themeData.textTheme.bodySmall
                                               ?.copyWith(
                                                 fontWeight: FontWeight.w800,
-                                                color: theme.AppColors.info,
+                                                color: _tone.info.fg,
                                               ),
                                         ),
                                       ],
@@ -2518,7 +2519,7 @@ class _VouchersListScreenState extends State<VouchersListScreen>
                               'نقداً: $cashAmount ر.س',
                               style: themeData.textTheme.titleSmall?.copyWith(
                                 fontWeight: FontWeight.w800,
-                                color: const Color(0xFF2F80ED),
+                                color: _tone.info.fg,
                               ),
                             ),
                           if (goldPrimary != null)
@@ -2527,7 +2528,7 @@ class _VouchersListScreenState extends State<VouchersListScreen>
                               child: Text(
                                 goldPrimary,
                                 style: themeData.textTheme.bodyMedium?.copyWith(
-                                  color: const Color(0xFFD4A017),
+                                  color: _tone.gold.fg,
                                   fontWeight: FontWeight.w800,
                                 ),
                               ),
@@ -2619,7 +2620,7 @@ class _VouchersListScreenState extends State<VouchersListScreen>
                                 icon: const Icon(Icons.edit, size: 18),
                                 label: const Text('تعديل'),
                                 style: TextButton.styleFrom(
-                                  foregroundColor: theme.AppColors.darkGold,
+                                  foregroundColor: _tone.gold.fg,
                                 ),
                               ),
                             if (canApprove)
@@ -2631,7 +2632,7 @@ class _VouchersListScreenState extends State<VouchersListScreen>
                                 ),
                                 label: const Text('اعتماد'),
                                 style: TextButton.styleFrom(
-                                  foregroundColor: theme.AppColors.success,
+                                  foregroundColor: _tone.ready.fg,
                                 ),
                               ),
                             TextButton.icon(
@@ -2639,7 +2640,7 @@ class _VouchersListScreenState extends State<VouchersListScreen>
                               icon: const Icon(Icons.cancel_outlined, size: 18),
                               label: const Text('إلغاء'),
                               style: TextButton.styleFrom(
-                                foregroundColor: theme.AppColors.error,
+                                foregroundColor: _tone.blocked.fg,
                               ),
                             ),
                             TextButton.icon(
@@ -2650,7 +2651,7 @@ class _VouchersListScreenState extends State<VouchersListScreen>
                               ),
                               label: const Text('حذف'),
                               style: TextButton.styleFrom(
-                                foregroundColor: theme.AppColors.error,
+                                foregroundColor: _tone.blocked.fg,
                               ),
                             ),
                           ],
@@ -2675,7 +2676,7 @@ class _VouchersListScreenState extends State<VouchersListScreen>
           themeData: themeData,
           icon: Icons.pending_actions_outlined,
           label: 'معلق',
-          color: theme.AppColors.warning,
+          color: _tone.warning.fg,
         ),
       );
     }
@@ -2686,7 +2687,7 @@ class _VouchersListScreenState extends State<VouchersListScreen>
           themeData: themeData,
           icon: Icons.verified_outlined,
           label: 'معتمد',
-          color: theme.AppColors.success,
+          color: _tone.ready.fg,
         ),
       );
     }
@@ -2697,7 +2698,7 @@ class _VouchersListScreenState extends State<VouchersListScreen>
           themeData: themeData,
           icon: Icons.cancel_outlined,
           label: 'ملغى',
-          color: theme.AppColors.error,
+          color: _tone.blocked.fg,
         ),
       );
     }
@@ -2708,7 +2709,7 @@ class _VouchersListScreenState extends State<VouchersListScreen>
           themeData: themeData,
           icon: Icons.gpp_bad_outlined,
           label: 'مرفوض',
-          color: theme.AppColors.error,
+          color: _tone.blocked.fg,
         ),
       );
     }
@@ -2760,7 +2761,7 @@ class _VouchersListScreenState extends State<VouchersListScreen>
           borderRadius: BorderRadius.circular(28),
           boxShadow: [
             BoxShadow(
-              color: _withAlpha(Colors.black, 0.08),
+              color: _withAlpha(_cs.shadow, 0.08),
               blurRadius: 18,
               offset: const Offset(0, 12),
             ),
@@ -2771,7 +2772,7 @@ class _VouchersListScreenState extends State<VouchersListScreen>
             Icon(
               Icons.receipt_long_outlined,
               size: 58,
-              color: theme.AppColors.darkGold,
+              color: _tone.gold.fg,
             ),
             const SizedBox(height: 16),
             Text(
@@ -2794,8 +2795,8 @@ class _VouchersListScreenState extends State<VouchersListScreen>
               icon: const Icon(Icons.add),
               label: const Text('إنشاء سند'),
               style: OutlinedButton.styleFrom(
-                foregroundColor: theme.AppColors.darkGold,
-                backgroundColor: theme.AppColors.lightGold,
+                foregroundColor: _tone.gold.fg,
+                backgroundColor: _tone.gold.container,
                 side: BorderSide.none,
               ),
             ),
@@ -2814,7 +2815,7 @@ class _VouchersListScreenState extends State<VouchersListScreen>
           color: themeData.scaffoldBackgroundColor,
           boxShadow: [
             BoxShadow(
-              color: _withAlpha(Colors.black, 0.08),
+              color: _withAlpha(_cs.shadow, 0.08),
               blurRadius: 18,
               offset: const Offset(0, -6),
             ),
@@ -2826,7 +2827,7 @@ class _VouchersListScreenState extends State<VouchersListScreen>
               child: _buildQuickActionButton(
                 label: 'تسوية تحصيل',
                 icon: Icons.swap_horiz,
-                backgroundColor: theme.AppColors.warning,
+                backgroundColor: _tone.warning.fg,
                 onPressed: () async {
                   final changed = await Navigator.of(context).push<bool>(
                     MaterialPageRoute(
@@ -2844,7 +2845,7 @@ class _VouchersListScreenState extends State<VouchersListScreen>
               child: _buildQuickActionButton(
                 label: 'سند قبض',
                 icon: Icons.south,
-                backgroundColor: theme.AppColors.success,
+                backgroundColor: _tone.ready.fg,
                 onPressed: () => _navigateToAddVoucher('receipt'),
               ),
             ),
@@ -2853,7 +2854,7 @@ class _VouchersListScreenState extends State<VouchersListScreen>
               child: _buildQuickActionButton(
                 label: 'سند صرف',
                 icon: Icons.north,
-                backgroundColor: theme.AppColors.error,
+                backgroundColor: _tone.blocked.fg,
                 onPressed: () => _navigateToAddVoucher('payment'),
               ),
             ),
@@ -2875,7 +2876,7 @@ class _VouchersListScreenState extends State<VouchersListScreen>
         onPressed: onPressed,
         style: ElevatedButton.styleFrom(
           backgroundColor: backgroundColor,
-          foregroundColor: Colors.white,
+          foregroundColor: _cs.onPrimary,
           elevation: 0,
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
           shape: RoundedRectangleBorder(
@@ -2936,33 +2937,6 @@ class _VouchersListScreenState extends State<VouchersListScreen>
     final double normalized = opacity.clamp(0, 1);
     final int alphaValue = (normalized * 255).round();
     return color.withAlpha(alphaValue);
-  }
-
-  // Sample a color between two colors at t (0.0..1.0)
-  Color _sampleColor(Color a, Color b, double t) {
-    return Color.lerp(a, b, t.clamp(0.0, 1.0)) ?? a;
-  }
-
-  // Relative luminance (sRGB) used to decide readable foreground color.
-  double _relativeLuminance(Color c) {
-    double channel(int v) {
-      final vSrgb = v / 255.0;
-      return vSrgb <= 0.03928
-          ? vSrgb / 12.92
-          : math.pow((vSrgb + 0.055) / 1.055, 2.4).toDouble();
-    }
-
-    final int r = (c.r * 255).round();
-    final int g = (c.g * 255).round();
-    final int b = (c.b * 255).round();
-
-    return 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b);
-  }
-
-  // Return either black or white depending on background luminance to maximize contrast.
-  Color _contrastOn(Color background) {
-    final lum = _relativeLuminance(background);
-    return lum > 0.5 ? Colors.black : Colors.white;
   }
 
   bool _isAutoGeneratedVoucher(Map<String, dynamic> voucher) {
@@ -3080,25 +3054,25 @@ class _VouchersListScreenState extends State<VouchersListScreen>
       case 'receipt':
         return _VoucherVisuals(
           label: 'قبض',
-          color: theme.AppColors.success,
+          color: _tone.ready.fg,
           icon: Icons.south,
         );
       case 'payment':
         return _VoucherVisuals(
           label: 'صرف',
-          color: theme.AppColors.error,
+          color: _tone.blocked.fg,
           icon: Icons.north,
         );
       case 'adjustment':
         return _VoucherVisuals(
           label: 'تسوية',
-          color: theme.AppColors.warning,
+          color: _tone.warning.fg,
           icon: Icons.balance,
         );
       default:
-        return const _VoucherVisuals(
+        return _VoucherVisuals(
           label: 'غير محدد',
-          color: Colors.grey,
+          color: _cs.onSurfaceVariant,
           icon: Icons.help_outline,
         );
     }

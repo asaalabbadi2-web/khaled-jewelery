@@ -790,6 +790,79 @@ def _upsert_voucher_from_payload(voucher, data, *, is_create=False):
 
     return None
 
+# The owner (9 Oct 2026): a voucher like one already saved is said before it
+# is saved. Four of the 21 manual vouchers cancelled on the 6 Oct copy were
+# duplicates, found 4 hours to 206 days later.
+SIMILAR_VOUCHER_WINDOW_DAYS = 30
+
+
+@vouchers_bp.route('/vouchers/similar', methods=['POST'])
+@require_permission('vouchers.create')
+def similar_vouchers():
+    """The vouchers that look like the one about to be saved (VOUCHER-UX-1).
+
+    Body: what POST /vouchers takes, and `exclude_id` for the voucher being
+    edited. Like it: the same voucher type, the same party, not cancelled or
+    rejected, within SIMILAR_VOUCHER_WINDOW_DAYS of its date, and the same cash
+    amount or the same gold weight -- read by the summary a voucher is saved
+    with. A warning for the review; it refuses nothing and writes nothing.
+    """
+    data = request.get_json(silent=True) or {}
+    summary, error_response, status_code = _validate_and_summarize_voucher_account_lines(
+        data.get('account_lines') or [])
+    if error_response is not None:
+        return error_response, status_code
+    cash = round(float(summary['amount_cash'] or 0.0), 2)
+    gold = round(float(summary['amount_gold'] or 0.0), 3)
+    if cash <= 0.0 and gold <= 0.0:
+        return jsonify({'similar': []})
+
+    try:
+        when = datetime.fromisoformat(data['date']) if data.get('date') else datetime.now()
+    except (TypeError, ValueError):
+        return jsonify({'error': 'invalid_date'}), 400
+    window = timedelta(days=SIMILAR_VOUCHER_WINDOW_DAYS)
+
+    party_type = data.get('party_type')
+    query = Voucher.query.filter(
+        Voucher.voucher_type == data.get('voucher_type'),
+        Voucher.party_type == party_type,
+        Voucher.status.notin_(('cancelled', 'rejected')),
+        Voucher.date >= when - window,
+        Voucher.date <= when + window,
+    )
+    party_column = {'customer': Voucher.customer_id, 'supplier': Voucher.supplier_id,
+                    'employee': Voucher.employee_id}.get(party_type)
+    if party_column is not None:
+        party_id = data.get(f'{party_type}_id')
+        if not party_id:
+            return jsonify({'similar': []})
+        query = query.filter(party_column == party_id)
+    else:
+        name = str(data.get('party_name') or '').strip()
+        if not name:
+            return jsonify({'similar': []})
+        query = query.filter(Voucher.party_name == name)
+    if data.get('exclude_id'):
+        query = query.filter(Voucher.id != data['exclude_id'])
+
+    same = []
+    if cash > 0.0:
+        same.append(func.abs(func.coalesce(Voucher.amount_cash, 0.0) - cash) < 0.01)
+    if gold > 0.0:
+        same.append(func.abs(func.coalesce(Voucher.amount_gold, 0.0) - gold) < 0.001)
+    rows = query.filter(or_(*same)).order_by(Voucher.date.desc()).limit(5).all()
+    return jsonify({'similar': [{
+        'id': v.id,
+        'voucher_number': v.voucher_number,
+        'date': v.date.isoformat() if v.date else None,
+        'amount_cash': float(v.amount_cash or 0.0),
+        'amount_gold': float(v.amount_gold or 0.0),
+        'status': v.status,
+        'description': v.description,
+    } for v in rows]})
+
+
 @vouchers_bp.route('/vouchers', methods=['POST'])
 @require_permission('vouchers.create')
 def create_voucher():

@@ -3,9 +3,12 @@ import 'package:flutter/services.dart';
 
 import '../utils.dart';
 
-/// A number as typed: Arabic digits, «٫», a thousands mark (which is dropped).
-double? readTypedNumber(String text) =>
-    double.tryParse(normalizeNumber(text).trim());
+/// A number as typed: Arabic digits, «٫», a thousands mark «,» «،» «٬»
+/// (which is dropped) -- «1,000» was read as nothing, or as 1.000. The one
+/// reader of a typed amount.
+double? readTypedNumber(String text) => double.tryParse(
+  normalizeNumber(text).replaceAll(',', '').replaceAll('،', '').trim(),
+);
 
 List<TextInputFormatter> typedNumberFormatters() => [
   NormalizeNumberFormatter(),

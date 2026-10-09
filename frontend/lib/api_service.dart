@@ -3667,6 +3667,26 @@ class ApiService {
     }
   }
 
+  /// The saved vouchers that look like [voucherData] -- the same party, type
+  /// and amount or weight within 30 days (VOUCHER-UX-1). Writes nothing.
+  Future<List<Map<String, dynamic>>> similarVouchers(
+    Map<String, dynamic> voucherData,
+  ) async {
+    final response = await _authedPost(
+      Uri.parse('$_baseUrl/vouchers/similar'),
+      headers: {'Content-Type': 'application/json; charset=UTF-8'},
+      body: json.encode(voucherData),
+    );
+    if (response.statusCode == 200) {
+      final body = json.decode(utf8.decode(response.bodyBytes)) as Map;
+      return [
+        for (final row in (body['similar'] as List? ?? const []))
+          if (row is Map) Map<String, dynamic>.from(row),
+      ];
+    }
+    throw Exception(_errorMessageFromResponse(response));
+  }
+
   /// Approve a pending voucher (creates journal entry on backend)
   Future<Map<String, dynamic>> approveVoucher(
     int voucherId, {
