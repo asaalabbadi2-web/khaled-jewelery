@@ -4,13 +4,14 @@ from __future__ import annotations
 from datetime import datetime, date, timedelta
 
 from flask import Blueprint, g, jsonify, request
-from services.approval_policy import actor, may_approve_own
+from services.approval_policy import actor
 from sqlalchemy import String, and_, cast, func, or_
 from sqlalchemy.orm import joinedload
 
 from models import (
     db,
     Account,
+    Settings,
     Invoice,
     JournalEntry,
     JournalEntryLine,
@@ -643,9 +644,11 @@ def add_journal_entry():
             except Exception:
                 _auto_post_je = False
 
-            # Who creates does not post (ADR-036 R4): auto-posting at creation is the
-            # owner's alone; anyone else's entry waits for another to post it.
-            if _auto_post_je and may_approve_own():
+            # The owner (9 Oct 2026): the setting on, a manual entry is posted at
+            # creation whoever creates it -- the company's deliberate choice, which
+            # only the system admin turns (routes/system.py). The setting off, who
+            # creates does not post (ADR-036 R4): another posts it.
+            if _auto_post_je:
                 new_entry.is_posted = True
                 new_entry.posted_at = datetime.now()
                 new_entry.posted_by = getattr(g, 'current_user', None) and getattr(g.current_user, 'username', 'system') or 'system'
