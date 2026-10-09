@@ -3148,6 +3148,28 @@ class Voucher(db.Model):
             'gold_breakdown': breakdown_items,
         }
 
+    def _notes_payload(self):
+        raw = self.notes
+        if not raw or not str(raw).lstrip().startswith('{'):
+            return None
+        try:
+            parsed = json.loads(raw)
+        except (TypeError, ValueError):
+            return None
+        return parsed if isinstance(parsed, dict) else None
+
+    def _note_text(self):
+        payload = self._notes_payload()
+        if payload is None:
+            return self.notes
+        note = payload.get('note')
+        return note if isinstance(note, str) and note.strip() else None
+
+    def _chosen_invoice_ids(self):
+        payload = self._notes_payload() or {}
+        ids = payload.get('invoice_ids')
+        return [int(i) for i in ids] if isinstance(ids, list) else []
+
     def to_dict(self):
         """تحويل السند إلى dictionary"""
         gold_summary = self._gold_display_summary()
@@ -3181,6 +3203,10 @@ class Voucher(db.Model):
             'cancelled_at': self.cancelled_at.isoformat() if self.cancelled_at else None,
             'attachments': self.attachments,
             'notes': self.notes,
+            # The note the employee wrote, and the invoices they chose: the
+            # declared splits ride in `notes` as JSON (VOUCHER-ATTR-1).
+            'note_text': self._note_text(),
+            'invoice_ids': self._chosen_invoice_ids(),
             'receiver_name': self.receiver_name,
             'created_by': self.created_by,
             'created_at': self.created_at.isoformat() if self.created_at else None,

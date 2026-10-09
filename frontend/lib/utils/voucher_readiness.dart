@@ -1,6 +1,7 @@
 /// What stands in the way of saving a voucher (VOUCHER-UX-1): the first reason
 /// only, in the order the employee fills the screen -- the party, then each
-/// line's account and amount, then the invoice a payment is declared for.
+/// line's account and amount, then the balance. A payment more than its chosen
+/// invoices owe is not in the way: the rest stays on account (VOUCHER-ATTR-1).
 /// The save keeps its own checks; this is what the footer says before it.
 library;
 
@@ -41,11 +42,6 @@ class VoucherFacts {
   final bool partyChosen;
   final List<VoucherLineFacts> lines;
 
-  /// A supplier payment declared for an invoice that names none, or pays more
-  /// than is open on it.
-  final bool cashInvoiceMissing;
-  final bool cashExceedsInvoice;
-
   /// The lines entered by hand do not balance (debit against credit).
   final bool unbalanced;
 
@@ -53,8 +49,6 @@ class VoucherFacts {
     required this.partyType,
     required this.partyChosen,
     required this.lines,
-    this.cashInvoiceMissing = false,
-    this.cashExceedsInvoice = false,
     this.unbalanced = false,
   });
 }
@@ -91,7 +85,5 @@ String? voucherReadiness(VoucherFacts f) {
   }
 
   if (f.unbalanced) return 'السطور غير متوازنة';
-  if (f.cashInvoiceMissing) return 'اختر الفاتورة التي تخصها الدفعة';
-  if (f.cashExceedsInvoice) return 'مبلغ السند أكبر من المتبقي على الفاتورة';
   return null;
 }

@@ -9,15 +9,11 @@ void main() {
     String partyType = 'supplier',
     bool partyChosen = true,
     List<VoucherLineFacts> lines = const [cash],
-    bool cashInvoiceMissing = false,
-    bool cashExceedsInvoice = false,
     bool unbalanced = false,
   }) => VoucherFacts(
     partyType: partyType,
     partyChosen: partyChosen,
     lines: lines,
-    cashInvoiceMissing: cashInvoiceMissing,
-    cashExceedsInvoice: cashExceedsInvoice,
     unbalanced: unbalanced,
   );
 
@@ -108,16 +104,5 @@ void main() {
 
   test('lines that do not balance are said', () {
     expect(voucherReadiness(facts(unbalanced: true)), 'السطور غير متوازنة');
-  });
-
-  test('a payment declared for an invoice names it, and is within it', () {
-    expect(
-      voucherReadiness(facts(cashInvoiceMissing: true)),
-      'اختر الفاتورة التي تخصها الدفعة',
-    );
-    expect(
-      voucherReadiness(facts(cashExceedsInvoice: true)),
-      'مبلغ السند أكبر من المتبقي على الفاتورة',
-    );
   });
 }

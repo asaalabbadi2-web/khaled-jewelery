@@ -399,6 +399,19 @@ def sync_invoice_cash_payment_after_voucher_approval(voucher) -> int:
     if boundary and int(voucher.id) <= boundary:
         return 0
 
+    # The invoices the employee chose (VOUCHER-ATTR-1): the plan's splits, each
+    # through attribute_cash_to_invoice and its guards; what they leave stays on
+    # account. A split that can no longer be written fails the approval, as a
+    # gold split does -- never a part of the distribution silently.
+    declared = _declared_cash_splits(voucher)
+    if declared is not None:
+        for split in declared:
+            attribute_cash_to_invoice(
+                voucher=voucher, invoice_id=int(split['invoice_id']),
+                amount=float(split['amount']),
+                created_by=getattr(voucher, 'created_by', None))
+        return len(declared)
+
     cash_total = 0.0
     try:
         for line in voucher.account_lines.all():
@@ -487,6 +500,23 @@ def sync_invoice_payment_state_after_voucher_approval(voucher) -> None:
 # of who paid it: an InvoicePayment whose source is the voucher. Cancelling the
 # voucher un-counts it (payment_voucher_not_cancelled), as for every
 # voucher-sourced payment.
+
+def _declared_cash_splits(voucher):
+    """The cash splits a voucher written for chosen invoices carries in its
+    notes, or None when it carries no choice (VOUCHER-ATTR-1)."""
+    raw = getattr(voucher, 'notes', None)
+    if not raw:
+        return None
+    try:
+        import json
+        payload = json.loads(raw)
+    except Exception:
+        return None
+    if not isinstance(payload, dict) or not isinstance(payload.get('invoice_ids'), list):
+        return None
+    splits = payload.get('cash_invoice_splits')
+    return [s for s in splits if isinstance(s, dict)] if isinstance(splits, list) else []
+
 
 def voucher_cash_capacity(voucher) -> float:
     """The cash this voucher paid out to its party: its cash debit lines --

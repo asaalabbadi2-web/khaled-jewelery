@@ -34,6 +34,7 @@ from core.number_helpers import _coerce_float
 from auth_decorators import require_permission
 
 from pricing.karat_service import get_main_karat
+from services.supplier_payment_plan import plan_supplier_payment
 from accounting.voucher_engine import (
     generate_voucher_number,
     create_journal_entry_from_voucher,
@@ -635,6 +636,7 @@ def _upsert_voucher_from_payload(voucher, data, *, is_create=False):
         'karat_diff_total',
         'karat_diff_earn_total',
         'karat_diff_pay_total',
+        'invoice_ids',
     }
     unknown_keys = sorted(set(data.keys()) - allowed_keys)
     if unknown_keys:
@@ -713,6 +715,36 @@ def _upsert_voucher_from_payload(voucher, data, *, is_create=False):
     voucher.attachments = data.get('attachments', voucher.attachments)
     voucher.notes = data.get('notes')
     voucher.receiver_name = data.get('receiver_name')
+
+    # The invoices the employee chose (VOUCHER-ATTR-1): the payment is spread
+    # over them oldest first by the one plan, written as the voucher's declared
+    # splits, and attributed at approval; the rest stays on account.
+    if 'invoice_ids' in data:
+        chosen = data.get('invoice_ids') or []
+        if chosen:
+            if voucher_type != 'payment' or voucher.party_type != 'supplier' or not voucher.supplier_id:
+                return jsonify({'error': 'invoice_ids_for_supplier_payments_only'}), 400
+            gold_by_karat = {}
+            for line in summary['account_lines']:
+                if line['amount_type'] == 'gold' and line['line_type'] == 'debit' and line.get('karat'):
+                    k = float(line['karat'])
+                    gold_by_karat[k] = gold_by_karat.get(k, 0.0) + float(line['amount'] or 0.0)
+            try:
+                plan = plan_supplier_payment(
+                    supplier_id=voucher.supplier_id, invoice_ids=chosen,
+                    cash=summary['amount_cash'],
+                    gold=[{'karat': k, 'weight': w} for k, w in gold_by_karat.items()])
+            except ValueError as exc:
+                return jsonify({'error': str(exc).split(':', 1)[0], 'message': str(exc)}), 400
+            free = (data.get('notes') or '').strip()
+            voucher.notes = json.dumps({
+                **({'note': free} if free else {}),
+                'invoice_ids': [i['invoice_id'] for i in plan['invoices']],
+                'cash_invoice_splits': plan['cash'],
+                'gold_invoice_splits': plan['gold'],
+            }, ensure_ascii=False)
+            voucher.reference_type = 'invoice'
+            voucher.reference_id = plan['invoices'][0]['invoice_id']
 
     for existing_line in voucher.account_lines.all():
         db.session.delete(existing_line)
@@ -802,6 +834,22 @@ def _upsert_voucher_from_payload(voucher, data, *, is_create=False):
     voucher.karat_diff_pay_total = float(data.get('karat_diff_pay_total') or 0)
 
     return None
+
+@vouchers_bp.route('/suppliers/<int:supplier_id>/payment-plan', methods=['POST'])
+@require_permission('vouchers.create')
+def supplier_payment_plan(supplier_id):
+    """How a payment would spread over the chosen invoices (VOUCHER-ATTR-1):
+    the screen shows it before saving. Body: {'invoice_ids', 'cash', 'gold':
+    [{'karat', 'weight'}]}. Writes nothing."""
+    data = request.get_json(silent=True) or {}
+    try:
+        plan = plan_supplier_payment(
+            supplier_id=supplier_id, invoice_ids=data.get('invoice_ids') or [],
+            cash=_coerce_float(data.get('cash'), 0.0), gold=data.get('gold') or [])
+    except ValueError as exc:
+        return jsonify({'error': str(exc).split(':', 1)[0], 'message': str(exc)}), 400
+    return jsonify(plan)
+
 
 # The owner (9 Oct 2026): a voucher like one already saved is said before it
 # is saved. Four of the 21 manual vouchers cancelled on the 6 Oct copy were
@@ -1570,6 +1618,7 @@ def list_supplier_open_cash_obligations(supplier_id):
         open_cash = invoice_open_cash(inv)
         if open_cash > 0.01:
             rows.append({'invoice_id': inv.id, 'invoice_type_id': inv.invoice_type_id,
+                         'invoice_number': inv.invoice_number,
                          'invoice_type': inv.invoice_type,
                          'date': inv.date.isoformat() if inv.date else None,
                          'cash_obligation': round(float(inv.cash_obligation), 2),

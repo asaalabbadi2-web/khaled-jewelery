@@ -273,4 +273,204 @@ void main() {
       expect(api.created, hasLength(1));
     });
   });
+
+  group('paid to the invoices chosen, oldest first (VOUCHER-ATTR-1)', () {
+    const openCash = [
+      {'invoice_id': 12, 'invoice_number': 'PI-0012', 'date': '2026-09-02T00:00:00', 'open_cash': 800.0},
+      {'invoice_id': 11, 'invoice_number': 'PI-0011', 'date': '2026-09-01T00:00:00', 'open_cash': 700.0},
+    ];
+    const plan = {
+      'cash': [
+        {'invoice_id': 11, 'amount': 700.0},
+        {'invoice_id': 12, 'amount': 300.0},
+      ],
+      'gold': [],
+      'cash_on_account': 0.0,
+      'gold_on_account_main_karat': 0.0,
+      'invoices': [
+        {'invoice_id': 11, 'invoice_number': 'PI-0011', 'date': '2026-09-01T00:00:00'},
+        {'invoice_id': 12, 'invoice_number': 'PI-0012', 'date': '2026-09-02T00:00:00'},
+      ],
+    };
+
+    Future<void> choose(WidgetTester tester, int id) async {
+      await tester.tap(find.byKey(Key('invoice-pick-$id')));
+      await tester.pumpAndSettle();
+    }
+
+    Future<void> ready(WidgetTester tester, [String amount = '1000']) async {
+      await pickSafe(tester);
+      await tester.enterText(cashAmount(), amount);
+      await tester.pumpAndSettle();
+    }
+
+    String description(WidgetTester tester) => tester
+        .widget<TextField>(
+          find.descendant(
+            of: find.byKey(const Key('voucher-description')),
+            matching: find.byType(TextField),
+          ),
+        )
+        .controller!
+        .text;
+
+    testWidgets('the supplier\'s open invoices are listed oldest first, by '
+        'number, with what each owes', (tester) async {
+      await open(tester, api: FakeVoucherApi(openCash: openCash));
+
+      final first = tester.getTopLeft(find.byKey(const Key('invoice-pick-11')));
+      final second = tester.getTopLeft(find.byKey(const Key('invoice-pick-12')));
+      expect(first.dy, lessThan(second.dy));
+      expect(find.textContaining('PI-0011'), findsWidgets);
+      expect(find.textContaining('700.00'), findsWidgets);
+    });
+
+    testWidgets('choosing invoices asks the server how the payment spreads, '
+        'and shows each its share', (tester) async {
+      final api = FakeVoucherApi(openCash: openCash, plan: plan);
+      await open(tester, api: api);
+      await ready(tester);
+
+      await choose(tester, 12);
+      await choose(tester, 11);
+
+      final asked = api.planAsked.last;
+      expect(asked['supplier_id'], 5);
+      expect((asked['invoice_ids'] as List).toSet(), {11, 12});
+      expect(asked['cash'], 1000.0);
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('invoice-share-11')),
+          matching: find.textContaining('700.00'),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('invoice-share-12')),
+          matching: find.textContaining('300.00'),
+        ),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('what the chosen invoices do not owe is said to stay on '
+        'account', (tester) async {
+      final api = FakeVoucherApi(
+        openCash: openCash,
+        plan: {
+          ...plan,
+          'cash': [
+            {'invoice_id': 11, 'amount': 700.0},
+          ],
+          'cash_on_account': 300.0,
+        },
+      );
+      await open(tester, api: api);
+      await ready(tester);
+      await choose(tester, 11);
+
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('invoice-on-account')),
+          matching: find.textContaining('300.00'),
+        ),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('the description names the invoices, and a hand-written one '
+        'is kept', (tester) async {
+      final api = FakeVoucherApi(openCash: openCash, plan: plan);
+      await open(tester, api: api);
+      await ready(tester);
+
+      await choose(tester, 11);
+      expect(description(tester), 'سداد دفعة لفاتورة رقم PI-0011');
+
+      await choose(tester, 12);
+      expect(description(tester), 'سداد دفعة لفواتير رقم PI-0011، PI-0012');
+
+      await tester.enterText(
+        find.descendant(
+          of: find.byKey(const Key('voucher-description')),
+          matching: find.byType(TextField),
+        ),
+        'دفعة متفق عليها',
+      );
+      await choose(tester, 12);
+      expect(description(tester), 'دفعة متفق عليها');
+    });
+
+    testWidgets('it is saved with the chosen invoices, the server spreading it',
+        (tester) async {
+      final api = FakeVoucherApi(openCash: openCash, plan: plan);
+      await open(tester, api: api);
+      await ready(tester);
+      await choose(tester, 12);
+      await choose(tester, 11);
+      await save(tester);
+
+      final sent = api.created.single;
+      expect((sent['invoice_ids'] as List).toSet(), {11, 12});
+      expect(sent.containsKey('reference_id'), isFalse);
+    });
+
+    testWidgets('the review shows each invoice\'s share and what stays on '
+        'account', (tester) async {
+      final api = FakeVoucherApi(
+        openCash: openCash,
+        plan: {
+          ...plan,
+          'cash': [
+            {'invoice_id': 11, 'amount': 700.0},
+          ],
+          'cash_on_account': 300.0,
+        },
+      );
+      await open(tester, api: api);
+      await ready(tester);
+      await choose(tester, 11);
+      await tester.tap(find.text('حفظ السند').last);
+      await tester.pumpAndSettle();
+
+      final review = find.byType(AlertDialog);
+      expect(
+        find.descendant(of: review, matching: find.textContaining('PI-0011')),
+        findsWidgets,
+      );
+      expect(
+        find.descendant(
+          of: review,
+          matching: find.textContaining('يبقى على حساب المورد'),
+        ),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('with no invoice chosen it is saved on the supplier\'s '
+        'account', (tester) async {
+      final api = FakeVoucherApi(openCash: openCash, plan: plan);
+      await open(tester, api: api);
+      await ready(tester);
+      await save(tester);
+
+      expect(api.created.single.containsKey('invoice_ids'), isFalse);
+    });
+
+    testWidgets('the amount can be filled with what the chosen invoices owe',
+        (tester) async {
+      final api = FakeVoucherApi(openCash: openCash, plan: plan);
+      await open(tester, api: api);
+      await pickSafe(tester);
+      await choose(tester, 11);
+      await choose(tester, 12);
+
+      await tester.tap(find.byKey(const Key('fill-from-invoices')));
+      await tester.pumpAndSettle();
+      await save(tester);
+
+      expect(cashSent(api), 1500.0);
+    });
+  });
 }

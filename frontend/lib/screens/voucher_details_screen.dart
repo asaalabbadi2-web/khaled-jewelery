@@ -1077,14 +1077,15 @@ class _VoucherDetailsScreenState extends State<VoucherDetailsScreen> {
               const SizedBox(height: 12),
             ],
 
-            if (voucher['notes'] != null &&
-                voucher['notes'].toString().isNotEmpty)
+            // The note the employee wrote; a voucher written for chosen
+            // invoices carries its splits beside it in `notes` (VOUCHER-ATTR-1).
+            if ('${voucher['note_text'] ?? voucher['notes'] ?? ''}'.isNotEmpty)
               _buildSectionCard(
                 title: 'ملاحظات',
                 icon: Icons.sticky_note_2_outlined,
                 accentColor: Colors.brown,
                 child: Text(
-                  voucher['notes'],
+                  '${voucher['note_text'] ?? voucher['notes']}',
                   style: const TextStyle(
                     fontSize: 14,
                     color: Colors.black87,

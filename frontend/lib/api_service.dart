@@ -3679,6 +3679,28 @@ class ApiService {
     }
   }
 
+  /// How a supplier payment would spread over the chosen invoices, oldest
+  /// first (VOUCHER-ATTR-1): the server's plan, shown before saving.
+  /// [gold] is [{'karat', 'weight'}]. Writes nothing.
+  Future<Map<String, dynamic>> getSupplierPaymentPlan({
+    required int supplierId,
+    required List<int> invoiceIds,
+    required double cash,
+    required List<Map<String, dynamic>> gold,
+  }) async {
+    final response = await _authedPost(
+      Uri.parse('$_baseUrl/suppliers/$supplierId/payment-plan'),
+      headers: {'Content-Type': 'application/json; charset=UTF-8'},
+      body: json.encode({'invoice_ids': invoiceIds, 'cash': cash, 'gold': gold}),
+    );
+    if (response.statusCode == 200) {
+      return Map<String, dynamic>.from(
+        json.decode(utf8.decode(response.bodyBytes)) as Map,
+      );
+    }
+    throw Exception(_errorMessageFromResponse(response));
+  }
+
   /// The saved vouchers that look like [voucherData] -- the same party, type
   /// and amount or weight within 30 days (VOUCHER-UX-1). Writes nothing.
   Future<List<Map<String, dynamic>>> similarVouchers(

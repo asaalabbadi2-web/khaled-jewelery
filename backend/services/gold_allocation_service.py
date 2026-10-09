@@ -918,6 +918,10 @@ def sync_gold_attribution_after_voucher_approval(voucher) -> int:
             voucher=voucher, splits=splits,
             created_by=getattr(voucher, 'created_by', None),
         ))
+    # Invoices chosen whose plan gave them no gold (VOUCHER-ATTR-1): the gold
+    # stays on account -- never all of it on the first invoice.
+    if _declared_invoice_choice(voucher):
+        return 0
 
     by_karat: dict[float, float] = {}
     for line in voucher.account_lines.all():
@@ -965,6 +969,20 @@ def _declared_gold_splits(voucher):
         return []
     splits = payload.get('gold_invoice_splits')
     return splits if isinstance(splits, list) and splits else []
+
+
+def _declared_invoice_choice(voucher) -> bool:
+    """The voucher was written for invoices the employee chose, and carries the
+    plan's splits (VOUCHER-ATTR-1) -- then the splits are the whole answer."""
+    raw = getattr(voucher, 'notes', None)
+    if not raw:
+        return False
+    try:
+        import json
+        payload = json.loads(raw)
+    except Exception:
+        return False
+    return isinstance(payload, dict) and isinstance(payload.get('invoice_ids'), list)
 
 
 def attribute_gold_across_invoices(*, voucher, splits, created_by: str = None) -> list:

@@ -13,7 +13,19 @@ class FakeVoucherApi extends ApiService {
       {'id': 5, 'name': 'مورد الذهب', 'account_id': 50},
     ],
     this.similar = const [],
+    this.openCash = const [],
+    this.openGold = const [],
+    this.plan,
   });
+
+  /// The supplier's invoices still owing cash, and gold.
+  final List<Map<String, dynamic>> openCash;
+  final List<Map<String, dynamic>> openGold;
+
+  /// What the server answers for a payment over the chosen invoices; none
+  /// puts it all on account.
+  final Map<String, dynamic>? plan;
+  final planAsked = <Map<String, dynamic>>[];
 
   final List<Map<String, dynamic>> suppliers;
 
@@ -85,12 +97,26 @@ class FakeVoucherApi extends ApiService {
   @override
   Future<List<Map<String, dynamic>>> getSupplierOpenCashObligations(
     int supplierId,
-  ) async => [];
+  ) async => openCash;
 
   @override
   Future<List<Map<String, dynamic>>> getSupplierOpenGoldObligations(
     int supplierId,
-  ) async => [];
+  ) async => openGold;
+
+  @override
+  Future<Map<String, dynamic>> getSupplierPaymentPlan({
+    required int supplierId,
+    required List<int> invoiceIds,
+    required double cash,
+    required List<Map<String, dynamic>> gold,
+  }) async {
+    planAsked.add({'supplier_id': supplierId, 'invoice_ids': invoiceIds,
+                   'cash': cash, 'gold': gold});
+    return plan ??
+        {'cash': [], 'gold': [], 'cash_on_account': cash,
+         'gold_on_account_main_karat': 0.0, 'invoices': []};
+  }
 
   @override
   Future<List<Map<String, dynamic>>> similarVouchers(

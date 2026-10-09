@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../widgets/inline_number_cell.dart';
+import '../widgets/supplier_invoice_picker.dart';
 import '../utils/voucher_readiness.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
@@ -246,39 +247,21 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
   int? _selectedCustomerId;
   int? _selectedSupplierId;
 
-  /// What a gold payment to a supplier is FOR. Recorded at payment time
-  /// because it cannot be recovered later: of 113 historical gold vouchers not
-  /// one named an invoice, and at payment time 61% of them had two or more
-  /// plausible candidates. 'supplier' (a general settlement on account) is a
-  /// legitimate answer and stays the default — the employee is never pushed
-  /// into inventing a link to an invoice.
-  String _goldPaymentPurpose = 'supplier'; // 'invoice' | 'advance' | 'supplier'
-  int? _goldPurposeInvoiceId;
-  List<Map<String, dynamic>> _goldPurposeCandidates = const [];
-  bool _loadingGoldPurposeCandidates = false;
+  /// The invoices this supplier payment is for (VOUCHER-ATTR-1, the owner
+  /// 9 Oct 2026): ticked by the employee; the server spreads the payment over
+  /// them oldest first, and what they do not owe stays on account.
+  List<Map<String, dynamic>> _invoiceCandidates = const [];
+  bool _loadingInvoiceCandidates = false;
+  int? _candidatesSupplierId; // whose open invoices are loaded
+  final Set<int> _chosenInvoiceIds = {};
+  Map<String, dynamic>? _paymentPlan;
+  String? _planKey;
 
-  /// The cash side's declared purpose (2 Oct 2026): a supplier payment in cash
-  /// alone can name the invoice it pays, as a gold payment can. Default is the
-  /// supplier's account -- a choice, never inferred.
-  String _cashPaymentPurpose = 'supplier'; // 'invoice' | 'supplier'
-  int? _cashPurposeInvoiceId;
-  List<Map<String, dynamic>> _cashPurposeCandidates = const [];
-  bool _loadingCashPurposeCandidates = false;
-  int? _cashCandidatesSupplierId; // whose open invoices are loaded
-  int _amountFillEpoch = 0; // rebuilds the amount field when it is filled from an invoice
+  /// A gold payment for gold not yet bought (an advance), asked only when no
+  /// invoice is chosen.
+  bool _goldAdvance = false;
+  int _amountFillEpoch = 0; // rebuilds the amount field when it is filled
 
-  /// invoice_id -> weight the employee assigned to it. One payment covering
-  /// several invoices is the common real shape («سداد متبقيات سابقة + باقي
-  /// قيمة حجز»), and reference_id is a single integer that cannot say it.
-  final Map<int, double> _goldInvoiceSplits = {};
-
-  double get _goldLinesTotalWeight => _accountLines
-      .where((l) => l.amountType == 'gold')
-      .fold<double>(0.0, (sum, l) => sum + l.goldEntries
-          .fold<double>(0.0, (s2, e) => s2 + e.amount));
-
-  double get _goldSplitsAssigned =>
-      _goldInvoiceSplits.values.fold<double>(0.0, (a, b) => a + b);
   int? _selectedEmployeeId;
   int? _selectedOtherAccountId;
 
@@ -542,7 +525,15 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
         _selectedDate = DateTime.tryParse(v['date']) ?? _selectedDate;
       }
       _descriptionController.text = (v['description'] ?? '') as String;
-      _notesController.text = (v['notes'] ?? '') as String;
+      // The note the employee wrote, not the splits riding with it, and the
+      // invoices the voucher was written for (VOUCHER-ATTR-1).
+      _notesController.text = '${v['note_text'] ?? v['notes'] ?? ''}';
+      _chosenInvoiceIds
+        ..clear()
+        ..addAll([
+          for (final id in (v['invoice_ids'] as List? ?? const []))
+            if (id is num) id.toInt(),
+        ]);
       _receiverNameController.text = (v['receiver_name'] ?? '') as String;
 
       final partyType = (v['party_type'] ?? '') as String;
@@ -781,10 +772,6 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
               ],
             ),
         ],
-        cashInvoiceMissing: _showCashPurposeSelector &&
-            _cashPaymentPurpose == 'invoice' &&
-            _cashPurposeInvoiceId == null,
-        cashExceedsInvoice: _cashPurposeExceedsInvoice,
         unbalanced: _balanceDiff > 0.01,
       ),
     );
@@ -889,9 +876,7 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
       ),
     );
 
-    final invoiceNo = voucherData['reference_type'] == 'invoice'
-        ? '${_chosenCashInvoice?['invoice_number'] ?? '#${voucherData['reference_id']}'}'
-        : null;
+    final planLines = _planLines;
 
     final ok = await showDialog<bool>(
       context: context,
@@ -919,7 +904,10 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
                         const SizedBox.shrink()
                   else
                     row(_lineAccountLabel(line), _formatCash(line.amount)),
-                if (invoiceNo != null) row('تخص الفاتورة', invoiceNo),
+                if (planLines.isNotEmpty) ...[
+                  const Divider(),
+                  for (final line in planLines) Text(line),
+                ],
                 if (_descriptionController.text.trim().isNotEmpty)
                   row('البيان', _descriptionController.text.trim()),
                 if (similar.isNotEmpty) ...[
@@ -1088,13 +1076,14 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
     if (id == null) return;
     setState(() {
       _selectedSupplierId = id;
-      _smartFillDescriptionAndReceiver();
       // Another supplier's invoices are not this payment's candidates.
-      _cashPurposeCandidates = const [];
-      _cashPurposeInvoiceId = null;
+      _invoiceCandidates = const [];
+      _chosenInvoiceIds.clear();
+      _paymentPlan = null;
+      _planKey = null;
+      _smartFillDescriptionAndReceiver();
     });
-    _cashPaymentPurpose = 'supplier';
-    if (_showCashPurposeSelector) _loadCashPurposeCandidates();
+    if (_showInvoicePicker) _loadInvoiceCandidates();
   }
 
   Future<void> _loadData() async {
@@ -2118,6 +2107,11 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
         }
     }
 
+    // The chosen invoices name the payment (VOUCHER-ATTR-1).
+    if (!isReceipt && _partyType == 'supplier') {
+      newDesc = _invoiceDescription ?? newDesc;
+    }
+
     // ── تطبيق البيان ─────────────────────────────────────────────────────────
     if (newDesc != null) {
       final current = _descriptionController.text.trim();
@@ -2723,487 +2717,194 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
     );
   }
 
-  /// Only asked when the question is real: a gold payment to a supplier.
-  /// A cash-only voucher, or one with no supplier, has nothing to attribute.
-  bool get _showGoldPurposeSelector =>
-      _partyType == 'supplier' &&
-      _selectedSupplierId != null &&
-      _accountLines.any((l) => l.amountType == 'gold');
-
-  Future<void> _loadGoldPurposeCandidates() async {
-    final supplierId = _selectedSupplierId;
-    if (supplierId == null) return;
-    setState(() => _loadingGoldPurposeCandidates = true);
-    try {
-      final rows = await _apiService.getSupplierOpenGoldObligations(supplierId);
-      if (!mounted) return;
-      setState(() {
-        _goldPurposeCandidates = rows;
-        _loadingGoldPurposeCandidates = false;
-      });
-    } catch (_) {
-      if (!mounted) return;
-      // A failed lookup must not block recording the payment: the employee can
-      // still declare it a general supplier settlement, which is the truthful
-      // answer in most cases anyway.
-      setState(() {
-        _goldPurposeCandidates = const [];
-        _loadingGoldPurposeCandidates = false;
-      });
-    }
-  }
-
-  bool get _showCashPurposeSelector =>
+  /// Asked for a payment to a supplier: which of its invoices it is for.
+  bool get _showInvoicePicker =>
       widget.voucherType == 'payment' &&
       _partyType == 'supplier' &&
-      _selectedSupplierId != null &&
-      !_accountLines.any((l) => l.amountType == 'gold');
+      _selectedSupplierId != null;
 
-  List<AccountLineModel> get _cashLines =>
-      _accountLines.where((l) => l.amountType == 'cash').toList();
+  bool get _hasGoldLines => _accountLines.any((l) => l.amountType == 'gold');
 
-  Map<String, dynamic>? get _chosenCashInvoice {
-    for (final row in _cashPurposeCandidates) {
-      if ((row['invoice_id'] as num?)?.toInt() == _cashPurposeInvoiceId) return row;
+  /// The payment's gold by its own karats, as the plan takes it.
+  List<Map<String, dynamic>> get _goldForPlan {
+    final byKarat = <double, double>{};
+    for (final line in _accountLines.where((l) => l.amountType == 'gold')) {
+      for (final e in _effectiveGoldEntries(line)) {
+        if (e.amount <= 0 || e.karat == null) continue;
+        byKarat[e.karat!] = (byKarat[e.karat!] ?? 0) + e.amount;
+      }
     }
-    return null;
+    return [
+      for (final e in byKarat.entries) {'karat': e.key, 'weight': e.value},
+    ];
   }
 
-  /// The payment names an invoice, and its cash is more than that invoice still
-  /// owes: refused here rather than recorded as an overpayment.
-  bool get _cashPurposeExceedsInvoice {
-    if (!_showCashPurposeSelector || _cashPaymentPurpose != 'invoice') return false;
-    final open = (_chosenCashInvoice?['open_cash'] as num?)?.toDouble();
-    return open != null && _totalCash > open + 0.009;
+  /// The chosen invoices, oldest first: the order the plan fills them in.
+  List<Map<String, dynamic>> get _chosenInvoicesInOrder {
+    final rows = _invoiceCandidates
+        .where((r) => _chosenInvoiceIds.contains((r['invoice_id'] as num).toInt()))
+        .toList()
+      ..sort((a, b) => '${a['date'] ?? ''}'.compareTo('${b['date'] ?? ''}'));
+    return rows;
   }
 
-  Future<void> _loadCashPurposeCandidates() async {
+  /// «سداد دفعة لفاتورة رقم …» -- the chosen invoices by their numbers.
+  String? get _invoiceDescription {
+    final numbers = [
+      for (final r in _chosenInvoicesInOrder)
+        '${r['invoice_number'] ?? '#${r['invoice_id']}'}',
+    ];
+    if (numbers.isEmpty) return null;
+    return numbers.length == 1
+        ? 'سداد دفعة لفاتورة رقم ${numbers.single}'
+        : 'سداد دفعة لفواتير رقم ${numbers.join('، ')}';
+  }
+
+  /// The supplier's open invoices: what each owes in cash and in gold, in one
+  /// list. A failed lookup does not block the payment -- it stays on account.
+  Future<void> _loadInvoiceCandidates() async {
     final supplierId = _selectedSupplierId;
     if (supplierId == null) return;
-    setState(() => _loadingCashPurposeCandidates = true);
+    setState(() {
+      _loadingInvoiceCandidates = true;
+      _candidatesSupplierId = supplierId;
+    });
+    List<Map<String, dynamic>> cash = const [], gold = const [];
     try {
-      final rows = await _apiService.getSupplierOpenCashObligations(supplierId);
-      if (!mounted) return;
-      setState(() {
-        _cashPurposeCandidates = rows;
-        _cashCandidatesSupplierId = supplierId;
-        _loadingCashPurposeCandidates = false;
-      });
-    } catch (_) {
-      if (!mounted) return;
-      // A failed lookup must not block the payment: it stays on the supplier's account.
-      setState(() {
-        _cashPurposeCandidates = const [];
-        _cashCandidatesSupplierId = supplierId;
-        _loadingCashPurposeCandidates = false;
-      });
+      final r = await Future.wait([
+        _apiService.getSupplierOpenCashObligations(supplierId),
+        _apiService.getSupplierOpenGoldObligations(supplierId),
+      ]);
+      cash = r[0];
+      gold = r[1];
+    } catch (_) {}
+    if (!mounted || _selectedSupplierId != supplierId) return;
+    final byId = <int, Map<String, dynamic>>{};
+    for (final row in [...cash, ...gold]) {
+      final id = (row['invoice_id'] as num?)?.toInt();
+      if (id == null) continue;
+      final merged = byId.putIfAbsent(id, () => {'invoice_id': id});
+      for (final key in ['invoice_number', 'date', 'open_cash', 'open_main_karat']) {
+        if (row[key] != null) merged[key] = row[key];
+      }
     }
-  }
-
-  Widget _buildCashPurposeCard() {
-    // The list is there as soon as the supplier is: loaded once per supplier.
-    if (_cashCandidatesSupplierId != _selectedSupplierId && !_loadingCashPurposeCandidates) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted && _showCashPurposeSelector) _loadCashPurposeCandidates();
-      });
-    }
-    final rows = [
-      ..._cashPurposeCandidates.where((r) =>
-          _totalCash > 0 && (((r['open_cash'] as num?)?.toDouble() ?? 0) - _totalCash).abs() < 0.005),
-      ..._cashPurposeCandidates.where((r) =>
-          !(_totalCash > 0 && (((r['open_cash'] as num?)?.toDouble() ?? 0) - _totalCash).abs() < 0.005)),
-    ];
-    final selected = _cashPaymentPurpose == 'invoice' ? _cashPurposeInvoiceId : null;
-
-    Widget invoiceTile(Map<String, dynamic> row) {
-      final id = (row['invoice_id'] as num).toInt();
-      final open = (row['open_cash'] as num?)?.toDouble() ?? 0.0;
-      final date = DateTime.tryParse('${row['date'] ?? ''}');
-      final exact = _totalCash > 0 && (open - _totalCash).abs() < 0.005;
-      final isChosen = selected == id;
-      return Container(
-        margin: const EdgeInsets.only(bottom: 6),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(
-            color: isChosen ? _cs.primary : _cs.outlineVariant,
-            width: isChosen ? 2 : 1,
-          ),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            RadioListTile<int>(
-              value: id,
-              groupValue: selected,
-              dense: true,
-              title: Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      '${row['invoice_type'] ?? 'فاتورة'} #${row['invoice_type_id'] ?? id}'
-                      '${date != null ? ' · ${DateFormat('yyyy/MM/dd').format(date)}' : ''}',
-                      style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
-                    ),
-                  ),
-                  if (exact)
-                    const Chip(label: Text('يطابق المبلغ'), visualDensity: VisualDensity.compact),
-                ],
-              ),
-              subtitle: Text(
-                'المطلوب ${_formatCash(((row['cash_obligation'] as num?) ?? 0).toDouble())}'
-                ' · المدفوع ${_formatCash(((row['paid'] as num?) ?? 0).toDouble())}'
-                ' · المتبقي ${_formatCash(open)}',
-                style: const TextStyle(fontSize: 12),
-              ),
-              onChanged: (v) => setState(() {
-                _cashPaymentPurpose = 'invoice';
-                _cashPurposeInvoiceId = v;
-              }),
-            ),
-            if (isChosen && _cashLines.length == 1 && (_cashLines.first.amount - open).abs() >= 0.005)
-              Padding(
-                padding: const EdgeInsets.only(right: 16, bottom: 6),
-                child: TextButton.icon(
-                  icon: const Icon(Icons.edit_note, size: 18),
-                  label: Text('استخدم المتبقي مبلغًا (${_formatCash(open)})'),
-                  onPressed: () => setState(() {
-                    _cashLines.first.amount = open;
-                    _amountFillEpoch++;
-                  }),
-                ),
-              ),
-          ],
-        ),
-      );
-    }
-
-    return Card(
-      elevation: 2,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: _tone.gold.container.withValues(alpha: 0.6)),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(Icons.receipt_long_outlined, color: _cs.primary),
-                const SizedBox(width: 8),
-                const Expanded(
-                  child: Text(
-                    'لأي فاتورة هذه الدفعة النقدية؟',
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                  ),
-                ),
-                if (_loadingCashPurposeCandidates)
-                  const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)),
-              ],
-            ),
-            const SizedBox(height: 4),
-            Text(
-              'اختر الفاتورة التي تسددها الدفعة، أو اتركها على حساب المورد — ويمكن نسبها لاحقًا من شاشة السند.',
-              style: TextStyle(fontSize: 12, color: _cs.onSurfaceVariant),
-            ),
-            const SizedBox(height: 10),
-            if (!_loadingCashPurposeCandidates && rows.isEmpty)
-              Padding(
-                padding: EdgeInsets.only(bottom: 8),
-                child: Text('لا توجد فواتير لهذا المورد عليها التزام نقدي مفتوح',
-                    style: TextStyle(fontSize: 12, color: _cs.onSurfaceVariant)),
-              ),
-            ...rows.map(invoiceTile),
-            RadioListTile<String>(
-              value: 'supplier',
-              groupValue: _cashPaymentPurpose,
-              dense: true,
-              title: const Text('على حساب المورد (بلا فاتورة)'),
-              onChanged: (v) => setState(() {
-                _cashPaymentPurpose = 'supplier';
-                _cashPurposeInvoiceId = null;
-              }),
-            ),
-            if (_cashPurposeExceedsInvoice)
-              Text(
-                'مبلغ السند أكبر من المتبقي على الفاتورة — قسّم الدفعة أو سجّلها على حساب المورد',
-                style: TextStyle(fontSize: 12, color: _tone.blocked.fg),
-              ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  /// What the payment will pay, said once more beside «حفظ السند».
-  Widget _buildCashPurposeSummary() {
-    final row = _chosenCashInvoice;
-    final named = _cashPaymentPurpose == 'invoice' && row != null;
-    final text = named
-        ? 'تخص: ${row['invoice_type'] ?? 'فاتورة'} #${row['invoice_type_id'] ?? row['invoice_id']}'
-            ' · المتبقي ${_formatCash(((row['open_cash'] as num?) ?? 0).toDouble())}'
-        : 'تخص: حساب المورد (بلا فاتورة)';
-    final bad = _cashPurposeExceedsInvoice;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: BoxDecoration(
-        color: (bad ? _tone.blocked.fg : _tone.gold.container).withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(10),
-      ),
-      child: Row(
-        children: [
-          Icon(bad ? Icons.warning_amber_rounded : Icons.receipt_long_outlined,
-              size: 18, color: bad ? _tone.blocked.fg : _cs.primary),
-          const SizedBox(width: 8),
-          Expanded(child: Text(text, style: const TextStyle(fontWeight: FontWeight.w600))),
-        ],
-      ),
-    );
-  }
-
-  /// The declared distribution rides in notes because it must survive between
-  /// creating the voucher and approving it, while no attribution row may exist
-  /// before approval. The invoice-creation path already puts structured JSON in
-  /// this field, so this follows an existing shape.
-  String? _goldNotesPayload() {
-    final free = _notesController.text.trim();
-    final hasSplits = _goldPaymentPurpose == 'invoice' && _goldInvoiceSplits.length > 1;
-    if (!hasSplits) return free.isNotEmpty ? free : null;
-    return json.encode({
-      if (free.isNotEmpty) 'note': free,
-      'gold_invoice_splits': _goldInvoiceSplits.entries
-          .where((e) => e.value > 0)
-          .map((e) => {
-                'invoice_id': e.key,
-                'karat': _goldSplitKarat,
-                'weight': e.value,
-              })
-          .toList(),
+    setState(() {
+      _invoiceCandidates = byId.values.toList();
+      _loadingInvoiceCandidates = false;
     });
   }
 
-  /// The karat a split is expressed in — the real karat on the voucher's gold
-  /// lines, never a converted equivalent.
-  double get _goldSplitKarat {
-    for (final line in _accountLines) {
-      if (line.amountType != 'gold') continue;
-      for (final entry in line.goldEntries) {
-        if (entry.amount > 0) return (entry.karat ?? 21).toDouble();
+  void _toggleInvoice(int id) {
+    setState(() {
+      if (!_chosenInvoiceIds.remove(id)) _chosenInvoiceIds.add(id);
+      if (_chosenInvoiceIds.isNotEmpty) _goldAdvance = false;
+      _smartFillDescriptionAndReceiver();
+    });
+    _refreshPlan();
+  }
+
+  /// The server's plan for the payment as it stands; asked again only when
+  /// the choice or the amounts change.
+  Future<void> _refreshPlan() async {
+    final supplierId = _selectedSupplierId;
+    if (!_showInvoicePicker || supplierId == null || _chosenInvoiceIds.isEmpty) {
+      if (_paymentPlan != null || _planKey != null) {
+        setState(() {
+          _paymentPlan = null;
+          _planKey = null;
+        });
       }
+      return;
     }
-    return 21.0;
+    final ids = _chosenInvoiceIds.toList()..sort();
+    final gold = _goldForPlan;
+    final key = '$supplierId|$ids|${_totalCash.toStringAsFixed(2)}|$gold';
+    if (key == _planKey) return;
+    _planKey = key;
+    try {
+      final plan = await _apiService.getSupplierPaymentPlan(
+        supplierId: supplierId,
+        invoiceIds: ids,
+        cash: _totalCash,
+        gold: gold,
+      );
+      if (mounted && _planKey == key) setState(() => _paymentPlan = plan);
+    } catch (_) {
+      if (mounted && _planKey == key) setState(() => _paymentPlan = null);
+    }
   }
 
-  /// A suggestion, never a silent decision: if exactly one invoice's open
-  /// obligation matches this payment, say so and let the employee confirm.
-  Map<String, dynamic>? get _exactMatchCandidate {
-    if (_goldPurposeCandidates.isEmpty) return null;
-    final total = _goldLinesTotalWeight;
-    if (total <= 0) return null;
-    final matches = _goldPurposeCandidates.where((row) {
-      final open = (row['open_main_karat'] as num?)?.toDouble() ?? 0.0;
-      return (open - total).abs() <= 0.01;
-    }).toList();
-    return matches.length == 1 ? matches.first : null;
-  }
-
-  Widget _buildGoldPurposeCard() {
-    return Card(
-      elevation: 2,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: _tone.gold.container.withValues(alpha: 0.4)),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(Icons.call_split, color: _cs.primary),
-                const SizedBox(width: 8),
-                const Text(
-                  'هذه الدفعة الذهبية تخص',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                ),
-              ],
-            ),
-            const SizedBox(height: 4),
-            Text(
-              'يُسجَّل الاختيار الآن لأنه لا يمكن استرجاعه لاحقًا',
-              style: TextStyle(fontSize: 12, color: _cs.onSurfaceVariant),
-            ),
-            const SizedBox(height: 8),
-            RadioListTile<String>(
-              value: 'invoice',
-              groupValue: _goldPaymentPurpose,
-              dense: true,
-              title: const Text('فاتورة محددة'),
-              onChanged: (v) {
-                setState(() => _goldPaymentPurpose = v ?? 'supplier');
-                if (_goldPurposeCandidates.isEmpty) {
-                  _loadGoldPurposeCandidates();
-                }
-              },
-            ),
-            if (_goldPaymentPurpose == 'invoice')
-              Padding(
-                padding: const EdgeInsets.only(right: 24, bottom: 8),
-                child: _loadingGoldPurposeCandidates
-                    ? const LinearProgressIndicator()
-                    : (_goldPurposeCandidates.isEmpty
-                        ? Text(
-                            'لا توجد فواتير لهذا المورد عليها التزام ذهب مفتوح',
-                            style: TextStyle(fontSize: 12, color: _tone.blocked.fg),
-                          )
-                        : Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              if (_exactMatchCandidate != null)
-                                Container(
-                                  margin: const EdgeInsets.only(bottom: 8),
-                                  padding: const EdgeInsets.all(8),
-                                  decoration: BoxDecoration(
-                                    color: _tone.gold.container.withValues(alpha: 0.25),
-                                    borderRadius: BorderRadius.circular(8),
-                                  ),
-                                  child: Row(
-                                    children: [
-                                      const Icon(Icons.lightbulb_outline, size: 18),
-                                      const SizedBox(width: 6),
-                                      Expanded(
-                                        child: Text(
-                                          'وزن الدفعة يطابق التزام الفاتورة '
-                                          '#${_exactMatchCandidate!['invoice_id']} تمامًا',
-                                          style: const TextStyle(fontSize: 12),
-                                        ),
-                                      ),
-                                      TextButton(
-                                        onPressed: () => setState(() {
-                                          final id = (_exactMatchCandidate!['invoice_id']
-                                                  as num)
-                                              .toInt();
-                                          _goldInvoiceSplits
-                                            ..clear()
-                                            ..[id] = _goldLinesTotalWeight;
-                                        }),
-                                        child: const Text('اعتمدها'),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              Text(
-                                'وزّع ${_goldLinesTotalWeight.toStringAsFixed(2)} جم على '
-                                'فاتورة أو أكثر — الموزَّع '
-                                '${_goldSplitsAssigned.toStringAsFixed(2)} جم',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w600,
-                                  color: (_goldSplitsAssigned - _goldLinesTotalWeight)
-                                              .abs() <=
-                                          0.01
-                                      ? _tone.ready.fg
-                                      : _cs.onSurfaceVariant,
-                                ),
-                              ),
-                              const SizedBox(height: 6),
-                              ..._goldPurposeCandidates.map((row) {
-                                final id = (row['invoice_id'] as num).toInt();
-                                final open =
-                                    (row['open_main_karat'] as num?)?.toDouble() ?? 0.0;
-                                final date = (row['date'] ?? '').toString();
-                                final shortDate =
-                                    date.length >= 10 ? date.substring(0, 10) : date;
-                                final assigned = _goldInvoiceSplits[id] ?? 0.0;
-                                return Padding(
-                                  padding: const EdgeInsets.only(bottom: 4),
-                                  child: Row(
-                                    children: [
-                                      Checkbox(
-                                        value: assigned > 0,
-                                        onChanged: (checked) => setState(() {
-                                          if (checked == true) {
-                                            final left = _goldLinesTotalWeight -
-                                                _goldSplitsAssigned;
-                                            _goldInvoiceSplits[id] =
-                                                left > 0 && left < open ? left : open;
-                                          } else {
-                                            _goldInvoiceSplits.remove(id);
-                                          }
-                                        }),
-                                      ),
-                                      Expanded(
-                                        child: Text(
-                                          '#$id · $shortDate · متبقٍ '
-                                          '${open.toStringAsFixed(2)} جم',
-                                          style: const TextStyle(fontSize: 12),
-                                          overflow: TextOverflow.ellipsis,
-                                        ),
-                                      ),
-                                      if (assigned > 0)
-                                        SizedBox(
-                                          width: 90,
-                                          child: TextFormField(
-                                            key: ValueKey('split_$id'),
-                                            initialValue:
-                                                assigned.toStringAsFixed(2),
-                                            keyboardType: TextInputType.number,
-                                            decoration: const InputDecoration(
-                                              isDense: true,
-                                              labelText: 'جم',
-                                              border: OutlineInputBorder(),
-                                            ),
-                                            onChanged: (v) {
-                                              final parsed = readTypedNumber(v);
-                                              if (parsed != null) {
-                                                setState(() =>
-                                                    _goldInvoiceSplits[id] = parsed);
-                                              }
-                                            },
-                                          ),
-                                        ),
-                                    ],
-                                  ),
-                                );
-                              }),
-                            ],
-                          )),
-              ),
-            RadioListTile<String>(
-              value: 'advance',
-              groupValue: _goldPaymentPurpose,
-              dense: true,
-              title: const Text('سلفة ذهب'),
-              subtitle: const Text(
-                'تُسجَّل كسلفة، ولا تُنسب لأي فاتورة تلقائيًا',
-                style: TextStyle(fontSize: 11),
-              ),
-              onChanged: (v) => setState(() {
-                _goldPaymentPurpose = v ?? 'supplier';
-                _goldPurposeInvoiceId = null;
-              }),
-            ),
-            RadioListTile<String>(
-              value: 'supplier',
-              groupValue: _goldPaymentPurpose,
-              dense: true,
-              title: const Text('تسوية مورد عامة'),
-              subtitle: const Text(
-                'على حساب المورد، بلا نسب لفاتورة — وهي حالة صحيحة',
-                style: TextStyle(fontSize: 11),
-              ),
-              onChanged: (v) => setState(() {
-                _goldPaymentPurpose = v ?? 'supplier';
-                _goldPurposeInvoiceId = null;
-              }),
-            ),
-          ],
-        ),
-      ),
+  /// The payment filled with what the chosen invoices owe in cash.
+  void _fillFromInvoices() {
+    final owed = _chosenInvoicesInOrder.fold<double>(
+      0.0,
+      (s, r) => s + ((r['open_cash'] as num?)?.toDouble() ?? 0.0),
     );
+    final line = _accountLines.firstWhere(
+      (l) => l.amountType == 'cash',
+      orElse: () => _accountLines.first,
+    );
+    setState(() {
+      line.amountType = 'cash';
+      line.amount = double.parse(owed.toStringAsFixed(2));
+      _amountFillEpoch++;
+    });
+    _refreshPlan();
+  }
+
+  Widget _buildInvoicePicker() {
+    if (_candidatesSupplierId != _selectedSupplierId && !_loadingInvoiceCandidates) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && _showInvoicePicker) _loadInvoiceCandidates();
+      });
+    }
+    return SupplierInvoicePicker(
+      invoices: _invoiceCandidates,
+      chosen: _chosenInvoiceIds,
+      plan: _paymentPlan,
+      loading: _loadingInvoiceCandidates,
+      formatCash: _formatCash,
+      onToggle: _toggleInvoice,
+      onFill: _fillFromInvoices,
+      showAdvance: _hasGoldLines,
+      advance: _goldAdvance,
+      onAdvance: (v) => setState(() => _goldAdvance = v),
+    );
+  }
+
+  /// The distribution, said in the review: each chosen invoice's share, and
+  /// what stays on the supplier's account.
+  List<String> get _planLines {
+    final plan = _paymentPlan;
+    if (_chosenInvoiceIds.isEmpty) {
+      return _showInvoicePicker ? ['الدفعة على حساب المورد (بلا فاتورة)'] : const [];
+    }
+    if (plan == null) return const ['يُحسب توزيعها على الفواتير…'];
+    String share(int id) {
+      final cash = (plan['cash'] as List? ?? const [])
+          .where((s) => ((s as Map)['invoice_id'] as num).toInt() == id)
+          .fold<double>(0, (t, s) => t + ((s as Map)['amount'] as num).toDouble());
+      final gold = (plan['gold'] as List? ?? const [])
+          .map((s) => s as Map)
+          .where((s) => (s['invoice_id'] as num).toInt() == id);
+      return [
+        if (cash > 0) _formatCash(cash),
+        for (final g in gold)
+          '${((g['weight'] as num).toDouble()).toStringAsFixed(3)} جم عيار ${((g['karat'] as num).toDouble()).toStringAsFixed(0)}',
+      ].join(' • ');
+    }
+
+    final cashLeft = (plan['cash_on_account'] as num?)?.toDouble() ?? 0;
+    final goldLeft = (plan['gold_on_account_main_karat'] as num?)?.toDouble() ?? 0;
+    return [
+      for (final r in _chosenInvoicesInOrder)
+        '${r['invoice_number'] ?? '#${r['invoice_id']}'}: ${share((r['invoice_id'] as num).toInt()).isEmpty ? 'لا شيء' : share((r['invoice_id'] as num).toInt())}',
+      if (cashLeft > 0 || goldLeft > 0)
+        'يبقى على حساب المورد: ${[
+          if (cashLeft > 0) _formatCash(cashLeft),
+          if (goldLeft > 0) '${goldLeft.toStringAsFixed(3)} جم بالعيار الرئيسي',
+        ].join(' و')}',
+    ];
   }
 
   Widget _buildDescriptionCard() {
@@ -3230,6 +2931,7 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
             ),
             const SizedBox(height: 12),
             TextFormField(
+              key: const Key('voucher-description'),
               controller: _descriptionController,
               decoration: InputDecoration(
                 hintText: 'أدخل وصف السند أو سبب التحصيل/الصرف',
@@ -4172,19 +3874,6 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
       ).showSnackBar(const SnackBar(content: Text('يجب اختيار حساب')));
       return;
     }
-    if (_showCashPurposeSelector && _cashPaymentPurpose == 'invoice') {
-      if (_cashPurposeInvoiceId == null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('اختر الفاتورة التي تخصها الدفعة')));
-        return;
-      }
-      if (_cashPurposeExceedsInvoice) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-            content: Text('مبلغ السند أكبر من المتبقي على الفاتورة')));
-        return;
-      }
-    }
-
     setState(() => _isSaving = true);
 
     try {
@@ -4483,35 +4172,21 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
         'party_type': _partyType,
         if (createdBy.isNotEmpty) 'created_by': createdBy,
         'description': _descriptionController.text,
-        'notes': _goldNotesPayload(),
+        'notes': _notesController.text.trim().isEmpty
+            ? null
+            : _notesController.text.trim(),
         'receiver_name': _receiverNameController.text.isNotEmpty
             ? _receiverNameController.text
             : null,
         'account_lines': allAccountLines,
-        // The employee's declared purpose. 'invoice' keeps the existing
-        // discriminator, which the cash side relies on in seven places; the
-        // backend records the gold attribution at approval from it.
-        // The cash side's declared invoice: recorded as its payment at approval
-        // (sync_invoice_cash_payment_after_voucher_approval), as before for a
-        // voucher written for an invoice.
-        if (_showCashPurposeSelector &&
-            _cashPaymentPurpose == 'invoice' &&
-            _cashPurposeInvoiceId != null) ...{
-          'reference_type': 'invoice',
-          'reference_id': _cashPurposeInvoiceId,
-        },
-        if (_showGoldPurposeSelector) ...{
-          'reference_type': _goldPaymentPurpose == 'invoice'
-              ? 'invoice'
-              : (_goldPaymentPurpose == 'advance' ? 'gold_advance' : 'gold_supplier'),
-          // reference_id carries the single-invoice case, and must be set even
-          // when a distribution is declared with one entry: the CASH half of the
-          // settlement links through reference_type='invoice' + reference_id.
-          if (_goldPaymentPurpose == 'invoice')
-            'reference_id': _goldInvoiceSplits.length == 1
-                ? _goldInvoiceSplits.keys.first
-                : _goldPurposeInvoiceId,
-        },
+        // The invoices chosen (VOUCHER-ATTR-1): the server spreads the payment
+        // over them oldest first and records each share at approval; the rest
+        // stays on account. None chosen: the payment is on account -- for gold,
+        // a general settlement or an advance.
+        if (_showInvoicePicker && _chosenInvoiceIds.isNotEmpty)
+          'invoice_ids': _chosenInvoiceIds.toList()
+        else if (_showInvoicePicker && _hasGoldLines)
+          'reference_type': _goldAdvance ? 'gold_advance' : 'gold_supplier',
       };
 
       // عمولة / رسوم فرق العيار — احتساب per-line
@@ -5230,8 +4905,7 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
     final List<Widget> rightColumn = [
       // Which invoice this payment pays -- where the payment is composed, before
       // its lines, not in the other column after them (2 Oct 2026).
-      if (_showGoldPurposeSelector) ...[_buildGoldPurposeCard(), const SizedBox(height: 12)],
-      if (_showCashPurposeSelector) ...[_buildCashPurposeCard(), const SizedBox(height: 12)],
+      if (_showInvoicePicker) ...[_buildInvoicePicker(), const SizedBox(height: 12)],
       _buildAccountLinesHeader(),
       const SizedBox(height: 12),
       ...accountLineCards,
@@ -5258,7 +4932,6 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
       const SizedBox(height: 16),
       _buildNotesCard(),
       const SizedBox(height: 20),
-      if (_showCashPurposeSelector) ...[_buildCashPurposeSummary(), const SizedBox(height: 10)],
       _buildSaveSection(accentColor),
     ];
 
@@ -5291,6 +4964,13 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
               ...rightColumn,
             ],
           );
+
+    // The plan follows the amounts as they are typed; asked only on a change.
+    if (_chosenInvoiceIds.isNotEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _refreshPlan();
+      });
+    }
 
     // Ctrl+S saves a ready voucher; leaving with something typed asks first
     // (VOUCHER-UX-1).

@@ -341,6 +341,7 @@ def list_supplier_open_gold_obligations(supplier_id):
             'invoice_id': obligation.invoice_id,
             'invoice_type': obligation.invoice.invoice_type,
             'invoice_type_id': obligation.invoice.invoice_type_id,
+            'invoice_number': obligation.invoice.invoice_number,
             'date': obligation.invoice.date.isoformat() if obligation.invoice.date else None,
             'karats': [],
             'open_main_karat': 0.0,
