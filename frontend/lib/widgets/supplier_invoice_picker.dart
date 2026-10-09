@@ -7,7 +7,7 @@ import '../theme/app_semantic_colors.dart';
 /// owes; the employee ticks the ones the payment is for. How the payment
 /// spreads over them -- oldest first, each taking what it owes, the rest on the
 /// supplier's account -- is the server's plan ([plan]); this only shows it.
-class SupplierInvoicePicker extends StatelessWidget {
+class SupplierInvoicePicker extends StatefulWidget {
   /// Each: invoice_id, invoice_number, date, open_cash, open_main_karat.
   final List<Map<String, dynamic>> invoices;
   final Set<int> chosen;
@@ -24,6 +24,11 @@ class SupplierInvoicePicker extends StatelessWidget {
   final bool advance;
   final ValueChanged<bool>? onAdvance;
 
+  /// The card never grows past this height (the owner, 10 Oct 2026): the screen
+  /// passes the party card's height beside it, and a long list scrolls inside
+  /// the card instead of stretching the page. Null: a fixed fallback.
+  final double? maxHeight;
+
   const SupplierInvoicePicker({
     super.key,
     required this.invoices,
@@ -36,7 +41,38 @@ class SupplierInvoicePicker extends StatelessWidget {
     this.showAdvance = false,
     this.advance = false,
     this.onAdvance,
+    this.maxHeight,
   });
+
+  /// Above this many invoices the list can be searched by number.
+  static const searchFrom = 6;
+
+  /// The least room the card is given -- only to keep it from collapsing; the
+  /// rule is the party card's height, however short.
+  static const minCardHeight = 160.0;
+  static const fallbackCardHeight = 380.0;
+
+  @override
+  State<SupplierInvoicePicker> createState() => _SupplierInvoicePickerState();
+}
+
+class _SupplierInvoicePickerState extends State<SupplierInvoicePicker> {
+  final _search = TextEditingController();
+  final _scroll = ScrollController();
+  String _query = '';
+
+  @override
+  void dispose() {
+    _search.dispose();
+    _scroll.dispose();
+    super.dispose();
+  }
+
+  List<Map<String, dynamic>> get invoices => widget.invoices;
+  Set<int> get chosen => widget.chosen;
+  Map<String, dynamic>? get plan => widget.plan;
+  String Function(double) get formatCash => widget.formatCash;
+
 
   static double _num(Object? v) => v is num ? v.toDouble() : 0.0;
 
@@ -79,103 +115,179 @@ class SupplierInvoicePicker extends StatelessWidget {
         : 'يُنسب لها: ${parts.join(' • ')}';
   }
 
+  List<Map<String, dynamic>> get _shown {
+    final q = _query.trim().toLowerCase();
+    if (q.isEmpty) return _ordered;
+    return _ordered
+        .where((r) => '${r['invoice_number'] ?? r['invoice_id']}'.toLowerCase().contains(q))
+        .toList();
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     final tones = AppSemanticColors.of(context);
-    final rows = _ordered;
+    final all = _ordered;
+    final rows = _shown;
     final p = plan;
     final cashLeft = _num(p?['cash_on_account']);
     final goldLeft = _num(p?['gold_on_account_main_karat']);
+    final cap = (widget.maxHeight ?? SupplierInvoicePicker.fallbackCardHeight)
+        .clamp(SupplierInvoicePicker.minCardHeight, double.infinity)
+        .toDouble();
 
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Row(
-              children: [
-                Icon(Icons.receipt_long, color: scheme.primary),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    'لأي فواتير هذه الدفعة؟',
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.bold,
+    return ConstrainedBox(
+      constraints: BoxConstraints(maxHeight: cap),
+      child: Card(
+        margin: EdgeInsets.zero,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(14, 10, 14, 6),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // ── fixed head ──
+              Row(
+                children: [
+                  Tooltip(
+                    message: 'تُسدَّد الأقدم فالأحدث، كلٌّ بما بقي عليه، وما زاد يبقى على حساب المورد.',
+                    child: Icon(Icons.receipt_long, color: scheme.primary, size: 20),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'لأي فواتير هذه الدفعة؟',
+                      style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                  if (all.isNotEmpty)
+                    Text(
+                      'مختار ${chosen.length} من ${all.length}',
+                      key: const Key('invoice-count'),
+                      style: theme.textTheme.bodySmall,
+                    ),
+                ],
+              ),
+              if (all.length > SupplierInvoicePicker.searchFrom) ...[
+                const SizedBox(height: 6),
+                SizedBox(
+                  height: 36,
+                  child: TextField(
+                    key: const Key('invoice-search'),
+                    controller: _search,
+                    onChanged: (v) => setState(() => _query = v),
+                    decoration: InputDecoration(
+                      hintText: 'ابحث برقم الفاتورة',
+                      prefixIcon: const Icon(Icons.search, size: 18),
+                      suffixIcon: _query.isEmpty
+                          ? null
+                          : IconButton(
+                              icon: const Icon(Icons.close, size: 16),
+                              onPressed: () {
+                                _search.clear();
+                                setState(() => _query = '');
+                              },
+                            ),
+                      isDense: true,
+                      contentPadding: EdgeInsets.zero,
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
                     ),
                   ),
                 ),
               ],
-            ),
-            const SizedBox(height: 4),
-            Text(
-              'اختر الفواتير: تُسدَّد الأقدم فالأحدث، كلٌّ بما بقي عليه، '
-              'وما زاد يبقى على حساب المورد.',
-              style: theme.textTheme.bodySmall,
-            ),
-            const SizedBox(height: 8),
-            if (loading)
-              const LinearProgressIndicator(minHeight: 2)
-            else if (rows.isEmpty)
-              Text(
-                'لا توجد فواتير مفتوحة لهذا المورد — الدفعة على حسابه.',
-                style: theme.textTheme.bodyMedium,
-              )
-            else
-              for (final row in rows) _row(context, row),
-            if (chosen.isNotEmpty) ...[
-              const Divider(),
-              Container(
-                key: const Key('invoice-on-account'),
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: (cashLeft > 0 || goldLeft > 0)
-                      ? tones.warning.container
-                      : tones.ready.container,
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Text(
-                  p == null
-                      ? 'يُحسب التوزيع…'
-                      : (cashLeft > 0 || goldLeft > 0)
-                      ? 'يبقى على حساب المورد: ${[
-                          if (cashLeft > 0) formatCash(cashLeft),
-                          if (goldLeft > 0) '${_grams(goldLeft)} بالعيار الرئيسي',
-                        ].join(' و')}'
-                      : 'تُوزَّع الدفعة كلها على الفواتير المختارة',
-                  style: TextStyle(
-                    color: (cashLeft > 0 || goldLeft > 0)
-                        ? tones.warning.onContainer
-                        : tones.ready.onContainer,
-                    fontWeight: FontWeight.w700,
+              const SizedBox(height: 4),
+
+              // ── the list: takes what room is left, and scrolls inside it ──
+              if (widget.loading)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 8),
+                  child: LinearProgressIndicator(minHeight: 2),
+                )
+              else if (all.isEmpty)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  child: Text(
+                    'لا توجد فواتير مفتوحة لهذا المورد — الدفعة على حسابه.',
+                    style: theme.textTheme.bodyMedium,
                   ),
-                ),
-              ),
-              if (onFill != null && chosenOpenCash > 0)
-                Align(
-                  alignment: AlignmentDirectional.centerStart,
-                  child: TextButton.icon(
-                    key: const Key('fill-from-invoices'),
-                    onPressed: onFill,
-                    icon: const Icon(Icons.download_done),
-                    label: Text(
-                      'املأ المبلغ بما تبقّى عليها (${formatCash(chosenOpenCash)})',
+                )
+              else if (rows.isEmpty)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  child: Text('لا فاتورة بهذا الرقم.', style: theme.textTheme.bodySmall),
+                )
+              else
+                Flexible(
+                  child: Scrollbar(
+                    controller: _scroll,
+                    thumbVisibility: true,
+                    child: ListView(
+                      controller: _scroll,
+                      shrinkWrap: true,
+                      children: [for (final row in rows) _row(context, row)],
                     ),
                   ),
                 ),
-            ] else if (showAdvance)
-              CheckboxListTile(
-                dense: true,
-                contentPadding: EdgeInsets.zero,
-                value: advance,
-                onChanged: onAdvance == null
-                    ? null
-                    : (v) => onAdvance!(v ?? false),
-                title: const Text('دفعة ذهب مقدّمة (لذهب لم يُشترَ بعد)'),
-              ),
-          ],
+
+              // ── fixed foot ──
+              if (chosen.isNotEmpty) ...[
+                const Divider(height: 12),
+                Container(
+                  key: const Key('invoice-on-account'),
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: (cashLeft > 0 || goldLeft > 0)
+                        ? tones.warning.container
+                        : tones.ready.container,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    p == null
+                        ? 'يُحسب التوزيع…'
+                        : (cashLeft > 0 || goldLeft > 0)
+                        ? 'يبقى على حساب المورد: ${[
+                            if (cashLeft > 0) formatCash(cashLeft),
+                            if (goldLeft > 0) '${_grams(goldLeft)} بالعيار الرئيسي',
+                          ].join(' و')}'
+                        : 'تُوزَّع الدفعة كلها على الفواتير المختارة',
+                    style: TextStyle(
+                      color: (cashLeft > 0 || goldLeft > 0)
+                          ? tones.warning.onContainer
+                          : tones.ready.onContainer,
+                      fontWeight: FontWeight.w700,
+                      fontSize: 13,
+                    ),
+                  ),
+                ),
+                if (widget.onFill != null && chosenOpenCash > 0)
+                  Align(
+                    alignment: AlignmentDirectional.centerStart,
+                    child: TextButton.icon(
+                      key: const Key('fill-from-invoices'),
+                      onPressed: widget.onFill,
+                      style: TextButton.styleFrom(
+                        visualDensity: VisualDensity.compact,
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      ),
+                      icon: const Icon(Icons.download_done, size: 18),
+                      label: Text(
+                        'املأ المبلغ بما تبقّى عليها (${formatCash(chosenOpenCash)})',
+                      ),
+                    ),
+                  ),
+              ] else if (widget.showAdvance)
+                CheckboxListTile(
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  value: widget.advance,
+                  onChanged: widget.onAdvance == null
+                      ? null
+                      : (v) => widget.onAdvance!(v ?? false),
+                  title: const Text('دفعة ذهب مقدّمة (لذهب لم يُشترَ بعد)'),
+                ),
+            ],
+          ),
         ),
       ),
     );
@@ -194,20 +306,26 @@ class SupplierInvoicePicker extends StatelessWidget {
     return CheckboxListTile(
       key: Key('invoice-pick-$id'),
       dense: true,
+      visualDensity: VisualDensity.compact,
       contentPadding: EdgeInsets.zero,
       controlAffinity: ListTileControlAffinity.leading,
       value: isChosen,
-      onChanged: (_) => onToggle(id),
-      title: Text(
-        '${row['invoice_number'] ?? '#$id'} — ${_day(row['date'])}',
-        style: const TextStyle(fontWeight: FontWeight.w700),
-      ),
-      subtitle: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      onChanged: (_) => widget.onToggle(id),
+      title: Row(
         children: [
-          Text('متبقٍ عليها: $owes', style: theme.textTheme.bodySmall),
-          if (isChosen)
-            KeyedSubtree(
+          Expanded(
+            child: Text(
+              '${row['invoice_number'] ?? '#$id'} — ${_day(row['date'])}',
+              style: const TextStyle(fontWeight: FontWeight.w700),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          const SizedBox(width: 8),
+          Text(owes, style: theme.textTheme.bodySmall),
+        ],
+      ),
+      subtitle: isChosen
+          ? KeyedSubtree(
               key: Key('invoice-share-$id'),
               child: Text(
                 _share(id),
@@ -216,9 +334,8 @@ class SupplierInvoicePicker extends StatelessWidget {
                   fontWeight: FontWeight.w700,
                 ),
               ),
-            ),
-        ],
-      ),
+            )
+          : null,
     );
   }
 }

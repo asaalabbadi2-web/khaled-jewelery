@@ -473,4 +473,54 @@ void main() {
       expect(cashSent(api), 1500.0);
     });
   });
+
+  group('many invoices do not stretch the screen (the owner, 10 Oct 2026)', () {
+    final many = [
+      for (var i = 1; i <= 40; i++)
+        {
+          'invoice_id': 100 + i,
+          'invoice_number': 'PI-${(1000 + i)}',
+          'date': '2026-08-${(i % 28 + 1).toString().padLeft(2, '0')}T00:00:00',
+          'open_cash': 100.0 + i,
+        },
+    ];
+
+    Size card(WidgetTester tester, Key key) =>
+        tester.getSize(find.ancestor(of: find.byKey(key), matching: find.byType(Card)).first);
+
+    testWidgets('the invoice card is no taller than the party card beside it', (tester) async {
+      await open(tester, api: FakeVoucherApi(openCash: many));
+      await tester.pumpAndSettle();
+
+      final party = tester.getSize(find.byKey(const Key('voucher-party-card')).first);
+      final invoices = card(tester, const Key('invoice-count'));
+      expect(invoices.height, lessThanOrEqualTo(party.height + 1),
+          reason: 'forty invoices must scroll inside their card, not stretch the page');
+      expect(find.byKey(const Key('invoice-count')), findsOneWidget);
+      expect(find.text('مختار 0 من 40'), findsOneWidget);
+    });
+
+    testWidgets('the list can be searched by number, and the count follows the choice', (tester) async {
+      await open(tester, api: FakeVoucherApi(openCash: many));
+      await tester.pumpAndSettle();
+
+      await tester.enterText(find.byKey(const Key('invoice-search')), '1017');
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('invoice-pick-117')), findsOneWidget);
+      expect(find.byKey(const Key('invoice-pick-118')), findsNothing);
+
+      await tester.tap(find.byKey(const Key('invoice-pick-117')));
+      await tester.pumpAndSettle();
+      expect(find.text('مختار 1 من 40'), findsOneWidget);
+    });
+
+    testWidgets('the save button is wide enough to be found', (tester) async {
+      await open(tester);
+      final size = tester.getSize(
+        find.ancestor(of: find.text('حفظ السند'), matching: find.byWidgetPredicate((w) => w is ElevatedButton)).first,
+      );
+      expect(size.width, greaterThanOrEqualTo(240));
+      expect(size.height, greaterThanOrEqualTo(56));
+    });
+  });
 }

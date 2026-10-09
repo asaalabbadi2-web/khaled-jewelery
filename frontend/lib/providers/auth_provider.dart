@@ -1,14 +1,42 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
+import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../api_service.dart';
 import '../models/app_user_model.dart';
 
+/// Why a sign-in did not succeed, as the server said it -- or that the server
+/// could not be reached. [code]: the server's ('invalid_credentials',
+/// 'rate_limited', 'inactive_account', 'otp_required', 'otp_invalid', ...) or
+/// 'unreachable' (nobody answered).
+class LoginRefusal {
+  final String code;
+  final String message;
+
+  const LoginRefusal(this.code, this.message);
+
+  static const unreachable = LoginRefusal(
+    'unreachable',
+    'تعذّر الاتصال بالخادم — تحقق من الاتصال ثم أعد المحاولة',
+  );
+}
+
 class AuthProvider extends ChangeNotifier {
+  AuthProvider({ApiService Function()? api}) : _api = api ?? (() => ApiService());
+
+  /// The server; tests pass a fake.
+  final ApiService Function() _api;
+
   static const _storageKey = 'auth_current_user';
   static const _refreshTokenKey = 'refresh_token';
+
+  LoginRefusal? _loginRefusal;
+
+  /// Why the last [login] did not succeed; null after a success.
+  LoginRefusal? get loginRefusal => _loginRefusal;
 
   AppUserModel? _currentUser;
   bool _loading = false;
@@ -253,20 +281,21 @@ class AuthProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<bool> login(String username, String password) async {
+  Future<bool> login(String username, String password, {String? otp}) async {
     if (_loading) {
       return false;
     }
 
     _loading = true;
+    _loginRefusal = null;
     notifyListeners();
 
     try {
-      final api = ApiService();
+      final api = _api();
 
       // محاولة تسجيل الدخول بـ JWT أولاً
       try {
-        final response = await api.loginWithToken(username, password);
+        final response = await api.loginWithToken(username, password, otp: otp);
 
         if (response['success'] == true) {
           final token = response['token'] as String;
@@ -313,6 +342,18 @@ class AuthProvider extends ChangeNotifier {
 
           return true;
         }
+      } on LoginRefused catch (refused) {
+        // The server answered and said no: its reason is the screen's. Not asked
+        // again -- the old method posts the same credentials to the same route,
+        // so each wrong password cost two of the five attempts a minute.
+        _loginRefusal = LoginRefusal(refused.code, refused.message);
+        return false;
+      } on http.ClientException {
+        _loginRefusal = LoginRefusal.unreachable;
+        return false;
+      } on TimeoutException {
+        _loginRefusal = LoginRefusal.unreachable;
+        return false;
       } catch (jwtError) {
         if (kDebugMode) {
           debugPrint('JWT login failed, trying old method: $jwtError');
@@ -330,11 +371,13 @@ class AuthProvider extends ChangeNotifier {
         return true;
       }
 
+      _loginRefusal ??= const LoginRefusal('invalid_credentials', 'اسم المستخدم أو كلمة المرور غير صحيحة');
       return false;
     } catch (error) {
       if (kDebugMode) {
         debugPrint('AuthProvider.login error: $error');
       }
+      _loginRefusal ??= const LoginRefusal('invalid_credentials', 'اسم المستخدم أو كلمة المرور غير صحيحة');
       return false;
     } finally {
       _loading = false;

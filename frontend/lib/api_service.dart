@@ -109,6 +109,22 @@ class ApiException implements Exception {
   String toString() => message;
 }
 
+/// A sign-in the server answered and refused, with its own reason (the owner,
+/// 10 Oct 2026): [code] is the server's `error` ('invalid_credentials',
+/// 'rate_limited', 'inactive_account', 'otp_required', 'otp_invalid'), [message]
+/// its Arabic words. The screen says it as it is -- it no longer calls every
+/// refusal a wrong password.
+class LoginRefused implements Exception {
+  final int status;
+  final String code;
+  final String message;
+
+  const LoginRefused({required this.status, required this.code, required this.message});
+
+  @override
+  String toString() => message;
+}
+
 class ApiAuthException implements Exception {
   final String? code;
   final String message;
@@ -6515,20 +6531,41 @@ class ApiService {
   /// Login user with JWT authentication and get token
   Future<Map<String, dynamic>> loginWithToken(
     String username,
-    String password,
-  ) async {
-    final response = await http.post(
-      Uri.parse('$_baseUrl/auth/login'),
-      headers: {'Content-Type': 'application/json; charset=UTF-8'},
-      body: json.encode({'username': username, 'password': password}),
-    );
+    String password, {
+    String? otp,
+  }) async {
+    final response = await http
+        .post(
+          Uri.parse('$_baseUrl/auth/login'),
+          headers: {'Content-Type': 'application/json; charset=UTF-8'},
+          body: json.encode({
+            'username': username,
+            'password': password,
+            if (otp != null && otp.trim().isNotEmpty) 'otp': otp.trim(),
+          }),
+        )
+        .timeout(const Duration(seconds: 20));
 
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
-    } else {
-      final error = json.decode(utf8.decode(response.bodyBytes));
-      throw Exception(error['message'] ?? 'فشل تسجيل الدخول');
     }
+    Map<String, dynamic> body = const {};
+    try {
+      final decoded = json.decode(utf8.decode(response.bodyBytes));
+      if (decoded is Map<String, dynamic>) body = decoded;
+    } catch (_) {
+      // a gateway page, not the server's JSON: said as an unavailable server
+    }
+    final isServerAnswer = body['message'] != null || body['error'] != null;
+    throw LoginRefused(
+      status: response.statusCode,
+      code: (body['error'] ?? (isServerAnswer ? 'refused' : 'unavailable')).toString(),
+      message: (body['message'] ??
+              (response.statusCode >= 500
+                  ? 'الخادم غير متاح الآن — حاول بعد قليل'
+                  : 'فشل تسجيل الدخول'))
+          .toString(),
+    );
   }
 
   /// Username recovery (public). Returns a generic success message.

@@ -50,7 +50,6 @@
   "lib/screens/journal_entries_list_screen.dart": 64,
   "lib/screens/journal_entry_form.dart": 14,
   "lib/screens/journal_entry_print_screen.dart": 17,
-  "lib/screens/login_screen.dart": 32,
   "lib/screens/melting_renewal_screen.dart": 21,
   "lib/screens/offices_screen.dart": 35,
   "lib/screens/payment_methods_screen_enhanced.dart": 96,

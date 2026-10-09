@@ -215,6 +215,11 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
   AppSemanticColors get _tone => AppSemanticColors.of(context);
 
   final _formKey = GlobalKey<FormState>();
+
+  /// The party card is measured after it is drawn; the invoice card beside it
+  /// never grows past its height (the owner, 10 Oct 2026).
+  final _partyCardKey = GlobalKey();
+  double? _partyCardHeight;
   late final ApiService _apiService = widget.apiService ?? ApiService();
   final TextEditingController _descriptionController = TextEditingController();
   final TextEditingController _notesController = TextEditingController();
@@ -2869,6 +2874,7 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
       showAdvance: _hasGoldLines,
       advance: _goldAdvance,
       onAdvance: (v) => setState(() => _goldAdvance = v),
+      maxHeight: _partyCardHeight,
     );
   }
 
@@ -3397,8 +3403,8 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
   }
 
   Widget _buildSaveButton(Color accentColor, {required bool enabled}) {
-    return SizedBox(
-      height: 48,
+    return ConstrainedBox(
+      constraints: const BoxConstraints(minWidth: 240, minHeight: 56),
       child: ElevatedButton.icon(
         onPressed: _isSaving || !enabled ? null : _saveIfReady,
         style: ElevatedButton.styleFrom(
@@ -3408,7 +3414,7 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(12),
           ),
-          padding: const EdgeInsets.symmetric(vertical: 16),
+          padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
         ),
         icon: _isSaving && !_inReview
             ? SizedBox(
@@ -4874,7 +4880,10 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
       const SizedBox(height: 12),
       _buildStatusBoard(),
       const SizedBox(height: 12),
-      _buildPartySelectorCard(),
+      KeyedSubtree(
+        key: _partyCardKey,
+        child: KeyedSubtree(key: const Key('voucher-party-card'), child: _buildPartySelectorCard()),
+      ),
     ];
 
     final partyInfo = _buildPartyInfoCard();
@@ -4964,6 +4973,15 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
               ...rightColumn,
             ],
           );
+
+    if (_showInvoicePicker) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        final h = _partyCardKey.currentContext?.size?.height;
+        if (mounted && h != null && (_partyCardHeight == null || (_partyCardHeight! - h).abs() > 1)) {
+          setState(() => _partyCardHeight = h);
+        }
+      });
+    }
 
     // The plan follows the amounts as they are typed; asked only on a change.
     if (_chosenInvoiceIds.isNotEmpty) {
