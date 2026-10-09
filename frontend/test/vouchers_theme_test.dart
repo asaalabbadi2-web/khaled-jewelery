@@ -33,6 +33,7 @@ class _ListApi extends FakeVoucherApi {
     String? sortOrder,
     String? referenceType,
     int? referenceId,
+    bool includeCancelled = false,
   }) async => {
     'vouchers': [
       for (final (n, t, st, cash, gold) in [
