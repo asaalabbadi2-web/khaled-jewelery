@@ -94,7 +94,7 @@ Windows + Docker Postgres (no pg_dump installation on Windows):
 - If Postgres runs in Docker, you can run `pg_dump` inside the container and copy the dump to Windows.
 - This repo's compose defaults to Postgres container name: `yasargold-db`.
 - Example:
-  - `pwsh -NoProfile -ExecutionPolicy Bypass -File "C:\\path\\to\\yasargold\\backend\\backup_postgres_to_gdrive.ps1" -UseDockerPgDump -DockerContainerName "yasargold-db" -DockerDatabase "yasargold" -DockerUser "yasargold" -RcloneRemote "gdrive-crypt:"`
+  - `pwsh -NoProfile -ExecutionPolicy Bypass -File "C:\\path\\to\\yasargold\\backend\\backup_postgres_to_gdrive.ps1" -UseDockerPgDump -DockerContainerName "yasargold-db" -DockerDatabase "yasargold_db" -DockerUser "yasargold" -RcloneRemote "gdrive-crypt:"`
   - Avoid `-DockerPassword` when the container accepts local-socket auth; if you must use it, it travels only in the `PGPASSWORD` environment variable (never on the docker command line or in logs).
 
 Parameter aliases (same script):
@@ -104,7 +104,7 @@ Parameter aliases (same script):
 
 #### Step 11) اختبار النسخ الاحتياطي يدويًا (مرة واحدة)
 شغّل أمر اختبار (Docker `pg_dump` بدون تثبيت PostgreSQL على Windows):
-- `pwsh -NoProfile -ExecutionPolicy Bypass -File "C:\yasargold\backend\backup_postgres_to_gdrive.ps1" -UseDockerPgDump -DockerContainerName "yasargold-db" -DbUser "yasargold" -DbName "yasargold" -RcloneRemote "gdrive-crypt:" -DryRun`
+- `pwsh -NoProfile -ExecutionPolicy Bypass -File "C:\yasargold\backend\backup_postgres_to_gdrive.ps1" -UseDockerPgDump -DockerContainerName "yasargold-db" -DbUser "yasargold" -DbName "yasargold_db" -RcloneRemote "gdrive-crypt:" -DryRun`
 ثم شغّله بدون `-DryRun` بعد مراجعة المخرجات. السجلات في `backups\postgres\logs`.
 
 تأكد أن الملفات على Google Drive تظهر بأسماء “غير مفهومة” (هذا دليل التشفير يعمل عبر `rclone crypt`).

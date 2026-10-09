@@ -19,7 +19,7 @@ Prereqs: rclone in PATH; either pg_dump + pg_restore in PATH, or docker (-UseDoc
 
 Docker (production):
   pwsh -NoProfile -File .\backend\backup_postgres_to_gdrive.ps1 -UseDockerPgDump
-  # container yasargold-db, database/user yasargold, remote gdrive-crypt: (its root)
+  # container yasargold-db, database yasargold_db, user yasargold, remote gdrive-crypt: (its root)
 
 Safe rehearsal (no dump, no upload, no delete -- prints what it would do):
   pwsh -NoProfile -File .\backend\backup_postgres_to_gdrive.ps1 -UseDockerPgDump -DryRun
@@ -46,7 +46,7 @@ param(
   [string]$DockerContainerName = "yasargold-db",
 
   [Alias('DbName','DatabaseName')]
-  [string]$DockerDatabase = "yasargold",
+  [string]$DockerDatabase = "yasargold_db",
 
   [Alias('DbUser','DatabaseUser','Username')]
   [string]$DockerUser = "yasargold",
