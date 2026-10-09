@@ -86,13 +86,16 @@ Best-practice for Google Drive is to use `rclone` with a `crypt` remote so backu
 Windows script:
 - Script: `backend/backup_postgres_to_gdrive.ps1`
 - Example:
-  - `pwsh -NoProfile -ExecutionPolicy Bypass -File "C:\\path\\to\\yasargold\\backend\\backup_postgres_to_gdrive.ps1" -DatabaseUrl "postgresql://USER@HOST:5432/DBNAME" -RcloneRemote "gdrive-crypt:yasargold/postgres" -RetentionDays 14 -RemoteRetentionDays 90`
+  - `pwsh -NoProfile -ExecutionPolicy Bypass -File "C:\\path\\to\\yasargold\\backend\\backup_postgres_to_gdrive.ps1" -DatabaseUrl "postgresql://USER@HOST:5432/DBNAME" -RcloneRemote "gdrive-crypt:" -RetentionDays 14 -RemoteRetentionDays 90`
+  - The default `-RcloneRemote` is the crypt root (`gdrive-crypt:`). If your crypt remote already points at `gdrive:yasargold/postgres`, do NOT append `yasargold/postgres` again (it would nest the folders).
+  - The script refuses a non-crypt remote, verifies the dump (`pg_restore --list`), checks the upload (`rclone cryptcheck`), and only then applies retention. Rehearse with `-DryRun` first.
 
 Windows + Docker Postgres (no pg_dump installation on Windows):
 - If Postgres runs in Docker, you can run `pg_dump` inside the container and copy the dump to Windows.
 - This repo's compose defaults to Postgres container name: `yasargold-db`.
 - Example:
-  - `pwsh -NoProfile -ExecutionPolicy Bypass -File "C:\\path\\to\\yasargold\\backend\\backup_postgres_to_gdrive.ps1" -UseDockerPgDump -DockerContainerName "yasargold-db" -DockerDatabase "yasargold" -DockerUser "yasargold" -DockerPassword "YOUR_PASSWORD" -RcloneRemote "gdrive-crypt:yasargold/postgres"`
+  - `pwsh -NoProfile -ExecutionPolicy Bypass -File "C:\\path\\to\\yasargold\\backend\\backup_postgres_to_gdrive.ps1" -UseDockerPgDump -DockerContainerName "yasargold-db" -DockerDatabase "yasargold" -DockerUser "yasargold" -RcloneRemote "gdrive-crypt:"`
+  - Avoid `-DockerPassword` when the container accepts local-socket auth; if you must use it, it travels only in the `PGPASSWORD` environment variable (never on the docker command line or in logs).
 
 Parameter aliases (same script):
 - `-DbUser` is an alias for `-DockerUser`
@@ -101,7 +104,8 @@ Parameter aliases (same script):
 
 #### Step 11) اختبار النسخ الاحتياطي يدويًا (مرة واحدة)
 شغّل أمر اختبار (Docker `pg_dump` بدون تثبيت PostgreSQL على Windows):
-- `pwsh -NoProfile -ExecutionPolicy Bypass -File "C:\yasargold\backend\backup_postgres_to_gdrive.ps1" -UseDockerPgDump -DockerContainerName "yasargold-db" -DbUser "yasargold" -DbName "yasargold" -DbPassword "YOUR_PASSWORD" -RcloneRemote "gdrive-crypt:yasargold/postgres"`
+- `pwsh -NoProfile -ExecutionPolicy Bypass -File "C:\yasargold\backend\backup_postgres_to_gdrive.ps1" -UseDockerPgDump -DockerContainerName "yasargold-db" -DbUser "yasargold" -DbName "yasargold" -RcloneRemote "gdrive-crypt:" -DryRun`
+ثم شغّله بدون `-DryRun` بعد مراجعة المخرجات. السجلات في `backups\postgres\logs`.
 
 تأكد أن الملفات على Google Drive تظهر بأسماء “غير مفهومة” (هذا دليل التشفير يعمل عبر `rclone crypt`).
 
@@ -271,10 +275,13 @@ Example action (PostgreSQL hourly):
 - Add arguments:
   - `-NoProfile -ExecutionPolicy Bypass -File "C:\\path\\to\\yasargold\\backend\\backup_postgres.ps1" -DatabaseUrl "postgresql://USER@HOST:5432/DBNAME" -BackupDir "C:\\yasargold\\backups\\postgres" -RetentionDays 14`
 
-Example action (PostgreSQL hourly + upload to Google Drive via rclone crypt):
+Example action (daily upload to Google Drive via rclone crypt, Docker Postgres):
+- Trigger: **daily at 03:00** (the app's own nightly backup runs at 02:00 Asia/Riyadh, so the Google Drive job runs one hour after it, never at the same time)
 - Program/script: `pwsh.exe`
 - Add arguments:
-  - `-NoProfile -ExecutionPolicy Bypass -File "C:\\path\\to\\yasargold\\backend\\backup_postgres_to_gdrive.ps1" -DatabaseUrl "postgresql://USER@HOST:5432/DBNAME" -BackupDir "C:\\yasargold\\backups\\postgres" -RetentionDays 14 -RcloneRemote "gdrive-crypt:yasargold/postgres" -RemoteRetentionDays 90`
+  - `-NoProfile -ExecutionPolicy Bypass -File "C:\\Projects\\khaledjewels\\backend\\backup_postgres_to_gdrive.ps1" -UseDockerPgDump -RcloneRemote "gdrive-crypt:"`
+- Exit code 0 = verified on the remote; any other = failed (see `backups\postgres\logs`). Set "If the task fails, restart every 15 minutes, up to 3 times".
+- Register only after a manual `-DryRun`, a real run, and a restore test have passed.
 
 Recommended Task Scheduler settings (to avoid popups):
 - General: "Run whether user is logged on or not"
