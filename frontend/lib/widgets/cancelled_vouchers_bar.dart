@@ -42,12 +42,6 @@ class CancelledVouchersBar extends StatelessWidget {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Icon(
-          hidden ? Icons.visibility_off_outlined : Icons.visibility_outlined,
-          size: 14,
-          color: theme.hintColor,
-        ),
-        const SizedBox(width: 4),
         Flexible(
           child: Text(
             hidden ? 'مخفي $parts' : 'ظاهر $parts',
