@@ -93,3 +93,37 @@ def test_the_ledger_the_statement_and_the_balances_agree(auth_headers, books):
         == pytest.approx(live_balances_by_account_ids([books.id])[books.id]['cash']) \
         == pytest.approx(db.session.get(Account, books.id).balance_cash) \
         == pytest.approx(100.0)
+
+
+@pytest.mark.xfail(strict=True, reason='Known Gap STMT-SUPPLIER-RELAXED (architecture-v1 §4.6): the supplier '
+                                        'statement counts an unposted entry that is not a draft')
+def test_the_supplier_statement_counts_only_what_counts(auth_headers):
+    """The supplier statement's own filter is «posted OR not a draft», not the
+    one definition: an unposted entry left not-a-draft (the limbo the nightly
+    check reports) moves the supplier's statement and no balance. None exists
+    on the 10 Oct copy. When the statement reads counted_line_filters this
+    passes, and strict xfail fails the build until the marker goes."""
+    from models import Supplier
+    supplier = Supplier(supplier_code=f'S-{uuid.uuid4().hex[:6]}', name=f'مورد {uuid.uuid4().hex[:6]}')
+    db.session.add(supplier)
+    db.session.flush()
+    payable = Account(account_number=f'21{uuid.uuid4().hex[:5]}', name='دائنون', type='Liability')
+    other = _account()
+    db.session.add(payable)
+    db.session.flush()
+    for amount, posted in ((100.0, True), (50.0, False)):
+        je = JournalEntry(entry_number=f'JE-S-{uuid.uuid4().hex[:8]}', date=datetime(2026, 10, 1),
+                          description='اختبار', entry_type='عادي', is_posted=posted, is_draft=False,
+                          created_by='t')
+        db.session.add(je)
+        db.session.flush()
+        db.session.add_all([
+            JournalEntryLine(journal_entry_id=je.id, account_id=payable.id, supplier_id=supplier.id,
+                             cash_credit=amount, description='اختبار'),
+            JournalEntryLine(journal_entry_id=je.id, account_id=other.id, cash_debit=amount,
+                             description='اختبار'),
+        ])
+    db.session.flush()
+    statement = flask_app.test_client().get(f'/api/suppliers/{supplier.id}/statement',
+                                            headers=auth_headers).get_json()
+    assert abs(statement['closing_balance_cash']) == pytest.approx(100.0)

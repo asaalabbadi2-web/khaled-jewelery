@@ -23,9 +23,10 @@ def _configured_main_karat_f() -> float:
     Kept defensive because this can be called in varied app/migration contexts.
     """
     try:
-        settings = Settings.query.first()  # type: ignore[name-defined]
-        if settings and getattr(settings, 'main_karat', None):
-            return float(settings.main_karat)
+        from pricing.gold_price_service import get_main_karat
+        main = get_main_karat()   # read once per request (request_memo)
+        if main:
+            return float(main)
     except Exception:
         pass
 

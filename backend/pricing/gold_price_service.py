@@ -8,10 +8,42 @@ from __future__ import annotations
 from .constants import SAR_USD_PEG, TROY_OZ_TO_GRAMS
 
 
+def request_memo() -> dict | None:
+    """A dict that lives as long as the current request -- None outside one.
+
+    The main karat is live (§13): read from Settings, never frozen. But a
+    statement converts eight figures a line, and each conversion read Settings
+    again: 39,540 queries for the cash customer's 4,941 lines (10 Oct 2026). One
+    read per request; a change to the setting holds from the next request. Kept
+    on the request itself, not on flask.g, which outlives a request when an app
+    context is already pushed (the tests push one per module).
+    """
+    try:
+        from flask import has_request_context, request
+        if has_request_context():
+            return request.environ.setdefault('yasargold.request_memo', {})
+    except Exception:
+        pass
+    return None
+
+
+def forget_main_karat() -> None:
+    """The request that changes the setting reads the new one from here on."""
+    memo = request_memo()
+    if memo is not None:
+        memo.pop('main_karat', None)
+
+
 def get_main_karat() -> int:
+    memo = request_memo()
+    if memo is not None and 'main_karat' in memo:
+        return memo['main_karat']
     from models import Settings
     settings = Settings.query.first()
-    return settings.main_karat if settings else 21
+    value = settings.main_karat if settings else 21
+    if memo is not None:
+        memo['main_karat'] = value
+    return value
 
 
 def get_current_gold_price() -> dict:

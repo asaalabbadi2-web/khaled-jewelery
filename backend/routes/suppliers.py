@@ -5,6 +5,7 @@ from datetime import datetime, date, time, timedelta
 
 from flask import Blueprint, request, jsonify
 from sqlalchemy import func, or_, and_
+from sqlalchemy.orm import contains_eager
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import joinedload
 
@@ -532,6 +533,7 @@ def get_supplier_ledger(supplier_id):
     base_query_relaxed = (
         JournalEntryLine.query
         .join(JournalEntry, JournalEntry.id == JournalEntryLine.journal_entry_id)
+        .options(contains_eager(JournalEntryLine.journal_entry))
         .join(Account, JournalEntryLine.account_id == Account.id)
         .filter(supplier_line_filter)
         .filter(JournalEntryLine.is_deleted.is_(False))
@@ -833,6 +835,7 @@ def get_supplier_weight_statement(supplier_id):
     base_query_relaxed = (
         JournalEntryLine.query
         .join(JournalEntry)
+        .options(contains_eager(JournalEntryLine.journal_entry))
         .join(Account, JournalEntryLine.account_id == Account.id)
         .filter(supplier_line_filter)
         .filter(JournalEntryLine.is_deleted.is_(False))

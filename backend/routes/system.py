@@ -769,6 +769,8 @@ def update_settings():
     # إعدادات أساسية
     if 'main_karat' in data:
         settings.main_karat = data['main_karat']
+        from pricing.gold_price_service import forget_main_karat
+        forget_main_karat()
     if 'currency_symbol' in data:
         settings.currency_symbol = data['currency_symbol']
     

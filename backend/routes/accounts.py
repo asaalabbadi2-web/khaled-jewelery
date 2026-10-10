@@ -22,6 +22,13 @@ from pricing.gold_price_service import get_current_gold_price
 from pricing.karat_service import convert_to_main_karat, get_main_karat
 from services.live_balances import live_balances_by_account_ids
 from accounting.balances import counted_line_filters
+from sqlalchemy.orm import contains_eager
+
+
+def _counted_lines_query():
+    """Journal lines joined to their entry, the entry loaded from the join --
+    not one query per line (4,943 for the cash customer's statement, 10 Oct 2026)."""
+    return JournalEntryLine.query.join(JournalEntry).options(contains_eager(JournalEntryLine.journal_entry))
 from accounting.statement_verification import (
     _build_statement_qr_signed_payload,
     _sign_qr_payload,
@@ -113,7 +120,7 @@ def get_account_statement(account_id):
         *counted_line_filters(),
     ]
 
-    opening_journal_lines = JournalEntryLine.query.join(JournalEntry).filter(*opening_filters).all()
+    opening_journal_lines = _counted_lines_query().filter(*opening_filters).all()
 
     for line in opening_journal_lines:
         opening_balance_cash += (line.cash_debit or 0) - (line.cash_credit or 0)
@@ -141,7 +148,7 @@ def get_account_statement(account_id):
     ]
 
     journal_lines = (
-        JournalEntryLine.query.join(JournalEntry)
+        _counted_lines_query()
         .filter(*journal_filters)
         .order_by(JournalEntry.date.asc(), JournalEntry.id.asc(), JournalEntryLine.id.asc())
         .all()
@@ -339,7 +346,7 @@ def get_account_statement_merged(account_id):
         *counted_line_filters(),
     ]
 
-    opening_journal_lines = JournalEntryLine.query.join(JournalEntry).filter(*opening_filters).all()
+    opening_journal_lines = _counted_lines_query().filter(*opening_filters).all()
 
     for line in opening_journal_lines:
         opening_balance_cash += (line.cash_debit or 0) - (line.cash_credit or 0)
@@ -356,7 +363,7 @@ def get_account_statement_merged(account_id):
         ]
 
         memo_opening_lines = (
-            JournalEntryLine.query.join(JournalEntry)
+            _counted_lines_query()
             .filter(*memo_opening_filters)
             .all()
         )
@@ -389,7 +396,7 @@ def get_account_statement_merged(account_id):
     ]
 
     journal_lines = (
-        JournalEntryLine.query.join(JournalEntry)
+        _counted_lines_query()
         .filter(*journal_filters)
         .order_by(JournalEntry.date.asc(), JournalEntry.id.asc(), JournalEntryLine.id.asc())
         .all()
@@ -1469,7 +1476,7 @@ def get_account_ledger(account_id):
     end_date = request.args.get('end_date')
     karat_detail = request.args.get('karat_detail', 'true').lower() == 'true'
 
-    query = JournalEntryLine.query.join(JournalEntry).filter(
+    query = _counted_lines_query().filter(
         JournalEntryLine.account_id == account_id,
         *counted_line_filters(),
     )
@@ -1490,7 +1497,7 @@ def get_account_ledger(account_id):
     opening_24k = 0
 
     if start_dt:
-        opening_query = JournalEntryLine.query.join(JournalEntry).filter(
+        opening_query = _counted_lines_query().filter(
             JournalEntryLine.account_id == account_id,
             *counted_line_filters(),
             JournalEntry.date < start_dt

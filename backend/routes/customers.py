@@ -6,6 +6,7 @@ from datetime import datetime, date, time
 from flask import Blueprint, request, jsonify
 from auth_decorators import require_permission
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import contains_eager
 
 from models import db, Customer, Account, Invoice, JournalEntry, JournalEntryLine
 from party_account_service import ensure_customer_accounts
@@ -108,6 +109,7 @@ def get_customer_statement(id):
     opening_journal_lines = (
         JournalEntryLine.query
         .join(JournalEntry)
+        .options(contains_eager(JournalEntryLine.journal_entry))
         .join(Account, JournalEntryLine.account_id == Account.id)
         .filter(*opening_filters)
         .filter(Account.type == 'Asset')
@@ -150,6 +152,7 @@ def get_customer_statement(id):
     journal_lines = (
         JournalEntryLine.query
         .join(JournalEntry)
+        .options(contains_eager(JournalEntryLine.journal_entry))
         .join(Account, JournalEntryLine.account_id == Account.id)
         .filter(*journal_filters)
         .filter(Account.type == 'Asset')
