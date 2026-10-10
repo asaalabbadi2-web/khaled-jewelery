@@ -2,28 +2,9 @@ from __future__ import annotations
 
 from typing import Dict, Iterable
 
-from sqlalchemy import func, inspect
+from sqlalchemy import func
 
 from models import db, JournalEntry, JournalEntryLine
-
-
-_DB_COLUMN_CACHE: dict[tuple[str, str], bool] = {}
-
-
-def _db_has_column(table_name: str, column_name: str) -> bool:
-    key = (table_name, column_name)
-    cached = _DB_COLUMN_CACHE.get(key)
-    if cached is not None:
-        return cached
-
-    try:
-        columns = inspect(db.engine).get_columns(table_name)
-        exists = any((c.get("name") == column_name) for c in (columns or []))
-    except Exception:
-        exists = False
-
-    _DB_COLUMN_CACHE[key] = exists
-    return exists
 
 
 def live_balances_by_account_ids(account_ids: Iterable[int]) -> Dict[int, dict]:
