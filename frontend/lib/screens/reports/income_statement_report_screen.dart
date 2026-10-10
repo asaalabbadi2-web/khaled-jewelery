@@ -346,10 +346,9 @@ class _IncomeStatementReportScreenState
 
     final netMarginPct = _asDouble(summary['net_margin_pct']);
     final manufacturingWage = _asDouble(summary['manufacturing_wage_expense']);
-    final operatingExclWage = _asDouble(
-      summary['operating_expenses_excl_wage'],
-    );
     final operatingTotal = _asDouble(summary['operating_expenses']);
+    final costOfSales = _asDouble(summary['cost_of_sales']);
+    final costBasisNote = (summary['cost_basis_note'] ?? '').toString();
 
     final financialMetrics = [
       _SummaryMetric(
@@ -357,6 +356,13 @@ class _IncomeStatementReportScreenState
         value: _formatCurrency(_asDouble(summary['net_revenue'])),
         icon: Icons.attach_money,
         color: Colors.green,
+      ),
+      // The chart's 51 «تكلفة المبيعات» -- the wages among it (11 Oct 2026).
+      _SummaryMetric(
+        label: isArabic ? 'تكلفة المبيعات' : 'Cost of Sales',
+        value: _formatCurrency(costOfSales),
+        icon: Icons.inventory_2_outlined,
+        color: Theme.of(context).colorScheme.secondary,
       ),
       _SummaryMetric(
         label: isArabic ? 'الربح الإجمالي (مالي)' : 'Gross Profit (Cash)',
@@ -366,22 +372,14 @@ class _IncomeStatementReportScreenState
       ),
       _SummaryMetric(
         label: isArabic
-            ? 'مصروفات أجور المصنعية'
-            : 'Manufacturing Wages Expense',
+            ? 'منها أجور المصنعية'
+            : 'of which manufacturing wages',
         value: _formatCurrency(manufacturingWage),
         icon: Icons.home_repair_service,
         color: Colors.brown,
       ),
       _SummaryMetric(
-        label: isArabic
-            ? 'المصاريف التشغيلية الأخرى'
-            : 'Other Operating Expenses',
-        value: _formatCurrency(operatingExclWage),
-        icon: Icons.money_off,
-        color: Colors.orange,
-      ),
-      _SummaryMetric(
-        label: isArabic ? 'إجمالي المصاريف (مالي)' : 'Total Expenses (Cash)',
+        label: isArabic ? 'المصاريف التشغيلية' : 'Operating Expenses',
         value: _formatCurrency(operatingTotal),
         icon: Icons.receipt_long,
         color: Colors.deepOrange,
@@ -429,6 +427,18 @@ class _IncomeStatementReportScreenState
                   )
                   .toList(),
             ),
+            // Until the perpetual cost by weight is in (the owner, 11 Oct
+            // 2026), the cost of sales is the purchases' -- said, not hidden.
+            if (costBasisNote.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              Text(
+                costBasisNote,
+                key: const Key('income-cost-basis-note'),
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
+              ),
+            ],
           ],
         ),
       ),

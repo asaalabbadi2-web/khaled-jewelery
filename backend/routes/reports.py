@@ -5286,135 +5286,74 @@ def get_income_statement():
         start_date = datetime.strptime(start_date_str, '%Y-%m-%d')
         end_date = datetime.strptime(end_date_str, '%Y-%m-%d') + timedelta(days=1)
 
-        # جلب قيود اليومية المرحّلة فقط
-        entries = db.session.query(JournalEntryLine).join(JournalEntry).filter(
-            JournalEntry.date >= start_date,
-            JournalEntry.date < end_date,
-            or_(JournalEntry.is_posted == True, JournalEntry.is_posted.is_(None))
-        ).all()
-        
-        # حسابات الإيرادات (4xxx) والمصروفات (5xxx)
-        revenue_accounts = db.session.query(Account).filter(
-            Account.account_number.like('4%'),
-            ~Account.account_number.like('7%')  # استبعاد حسابات المذكرة
-        ).all()
-        
-        # تشمل المصروفات 5xxx (تكلفة/مصاريف) و6xxx (تشغيلية)، مع استبعاد 7xxx (مذكرة)
-        expense_accounts = db.session.query(Account).filter(
-            or_(
-                Account.account_number.like('5%'),
-                Account.account_number.like('6%')
-            ),
-            ~Account.account_number.like('7%')
-        ).all()
-        
-        revenue_ids = {acc.id for acc in revenue_accounts}
-        expense_ids = {acc.id for acc in expense_accounts}
-        
-        # حساب الإيرادات والمصروفات - النظام المالي
-        revenues = defaultdict(float)
-        expenses = defaultdict(float)
-        
-        for line in entries:
-            # النظام المالي
-            if line.account_id in revenue_ids:
-                # الإيرادات: الدائن - المدين
-                net_amount = line.cash_credit - line.cash_debit
-                revenues[line.account_id] += net_amount
-            elif line.account_id in expense_ids:
-                # المصروفات: المدين - الدائن
-                net_amount = line.cash_debit - line.cash_credit
-                expenses[line.account_id] += net_amount
-        
-        # بناء التقرير
-        revenue_details = []
-        total_revenue = 0.0
-        
-        for acc_id, amount in revenues.items():
-            if amount != 0:
-                account = db.session.query(Account).get(acc_id)
-                revenue_details.append({
-                    'account_code': account.account_number,
-                    'account_name': account.name,
-                    'amount': round(amount, 2)
-                })
-                total_revenue += amount
-        
-        expense_details = []
-        total_expense = 0.0
+        # The lines that count (the one definition: posted, not a draft, not
+        # deleted -- it took «posted or NULL» and kept deleted lines and drafts),
+        # summed per account in the database.
+        from accounting.balances import counted_line_filters
+        from services.income_accounts import income_account_groups
+        groups = income_account_groups()
+        wanted = groups['revenue'] | groups['cost_of_sales'] | groups['operating']
+        sums = (
+            db.session.query(JournalEntryLine.account_id,
+                             func.coalesce(func.sum(JournalEntryLine.cash_debit), 0.0),
+                             func.coalesce(func.sum(JournalEntryLine.cash_credit), 0.0))
+            .join(JournalEntry, JournalEntry.id == JournalEntryLine.journal_entry_id)
+            .filter(JournalEntry.date >= start_date, JournalEntry.date < end_date)
+            .filter(*counted_line_filters())
+            .filter(JournalEntryLine.account_id.in_(wanted or {-1}))
+            .group_by(JournalEntryLine.account_id)
+            .all()
+        )
+        accounts = {a.id: a for a in Account.query.filter(Account.id.in_([r[0] for r in sums] or [-1])).all()}
 
-        for acc_id, amount in expenses.items():
-            if amount != 0:
-                account = db.session.query(Account).get(acc_id)
-                expense_details.append({
-                    'account_code': account.account_number,
-                    'account_name': account.name,
-                    'account_id': acc_id,
-                    'amount': round(amount, 2)
-                })
-                total_expense += amount
+        def detail(account_id, amount):
+            account = accounts[account_id]
+            return {'account_code': account.account_number, 'account_name': account.name,
+                    'account_id': account_id, 'amount': round(amount, 2)}
 
-        # تحديد حساب مصروفات المصنعية وإخراجها بشكل صريح
-        # 
-        # ⚠️ ملاحظة هيكلية: حساب 51 (أجور مصنعية)
-        # - حالياً: 51 (رقم مكون من خانتين)
-        # - محاسبياً أدق: 510 أو 511 (ثلاث خانات)
-        # - السبب: تفادي التباس مع مجموعات أو parsing مستقبلي
-        # - ليس خطأ، لكن تحسين هيكلي طويل المدى
-        # - التغيير يتطلب: تعديل دليل الحسابات + migration للبيانات القديمة
-        # ─────────────────────────────────────────────
+        revenue_details, cost_of_goods_details, operating_expense_details = [], [], []
+        for account_id, debit, credit in sums:
+            if account_id in groups['revenue']:
+                amount = float(credit) - float(debit)
+                if abs(amount) >= 0.005:
+                    revenue_details.append(detail(account_id, amount))
+            else:
+                amount = float(debit) - float(credit)
+                if abs(amount) < 0.005:
+                    continue
+                # By the chart tree (services/income_accounts.py): 51 and what is
+                # under it is the cost of sales -- wages, scrap purchases, the cost
+                # of gold sold; the rest of group 5 is operating. It classified by
+                # prefixes («50», «52» as cost), and 2026's gross profit exceeded
+                # its revenue (the owner, 11 Oct 2026).
+                (cost_of_goods_details if account_id in groups['cost_of_sales']
+                 else operating_expense_details).append(detail(account_id, amount))
+
+        total_revenue = sum(d['amount'] for d in revenue_details)
+        total_cogs = sum(d['amount'] for d in cost_of_goods_details)
+        total_operating = sum(d['amount'] for d in operating_expense_details)
+        expense_details = cost_of_goods_details + operating_expense_details
+        total_expense = total_cogs + total_operating
+
+        # The manufacturing wage is a cost of sales (510, under 51), shown on its own.
         manufacturing_wage_acc_id = (
             get_account_id_for_mapping('بيع', 'manufacturing_wage')
             or _ensure_manufacturing_wage_expense_account()
-            or get_account_id_by_number('51')  # يُفضل استبداله بـ 510 أو 511 مستقبلاً
+            or get_account_id_by_number('51')
         )
-
-        manufacturing_wage_amount = 0.0
-        manufacturing_wage_detail = None
-        if manufacturing_wage_acc_id:
-            for detail in expense_details:
-                if detail.get('account_id') == manufacturing_wage_acc_id:
-                    manufacturing_wage_amount = detail['amount']
-                    manufacturing_wage_detail = detail
-                    break
-
-        # تقسيم المصروفات إلى تكلفة مبيعات ومصاريف تشغيلية (باستثناء مصروف المصنعية حتى نظهره مستقلاً)
-        # 
-        # ⚠️ ملاحظة مهمة عن COGS النقدي (5xxx):
-        # - يجب تسجيل قيد تكلفة البضاعة المباعة عند كل عملية بيع
-        # - يُحسب من متوسط تكلفة المخزون النقدية
-        # - إذا ظهر total_cogs = 0، فهذا يعني عدم وجود قيود COGS (خطأ محاسبي)
-        # - القيد الصحيح عند البيع:
-        #   مدين: 501 (تكلفة بضاعة مباعة) - بمتوسط التكلفة
-        #   دائن: 140 (مخزون) - نقدياً
-        # ─────────────────────────────────────────────
-        cost_of_goods_details = []
-        operating_expense_details = []
-        total_cogs = 0.0
-        total_operating = 0.0
-
-        # تشمل حسابات تكلفة المبيعات الشائعة 50xx و 52x، مع استثناء 51xx لأنها مصاريف تشغيلية وليست تكلفة مبيعات
-        cost_prefixes = ('50', '52', '520')
-
-        for detail in expense_details:
-            if manufacturing_wage_detail and detail is manufacturing_wage_detail:
-                # سيتم التعامل معه كمصروف مصنعية منفصل أدناه
-                continue
-
-            code = detail['account_code'] or ''
-            if code.startswith(cost_prefixes):
-                cost_of_goods_details.append(detail)
-                total_cogs += detail['amount']
-            else:
-                operating_expense_details.append(detail)
-                total_operating += detail['amount']
-
-        # إضافة مصروف المصنعية إلى المصاريف التشغيلية الإجمالية (مع عرضه بشكل مستقل)
-        operating_expenses_total = total_operating + manufacturing_wage_amount
+        manufacturing_wage_detail = next(
+            (d for d in cost_of_goods_details if d['account_id'] == manufacturing_wage_acc_id), None)
+        manufacturing_wage_amount = manufacturing_wage_detail['amount'] if manufacturing_wage_detail else 0.0
+        operating_expenses_total = total_operating
 
         gross_profit = total_revenue - total_cogs
         net_income = gross_profit - operating_expenses_total
-        
+        cost_basis_note = (
+            'تكلفة المبيعات على أساس المشتريات: يُحمَّل الذهب عند شرائه لا عند بيعه، '
+            'فالفترة التي تشتري أكثر مما تبيع تظهر أقل ربحًا من حقيقتها -- إلى أن تُعتمد '
+            'التكلفة المستمرة بالوزن (قرار المالك 11 أكتوبر 2026)'
+        )
+
         # حساب النسب المئوية
         net_margin_pct = (net_income / total_revenue * 100) if total_revenue != 0 else 0.0
         
@@ -5425,6 +5364,9 @@ def get_income_statement():
             'summary': {
                 # المؤشرات المالية (نقدي)
                 'net_revenue': round(total_revenue, 2),
+                'cost_of_sales': round(total_cogs, 2),
+                'cost_basis': 'purchases',
+                'cost_basis_note': cost_basis_note,
                 'gross_profit': round(gross_profit, 2),
                 'operating_expenses': round(operating_expenses_total, 2),
                 'operating_expenses_excl_wage': round(total_operating, 2),
@@ -7772,7 +7714,7 @@ def get_admin_dashboard():
             expense -- and the dashboard took sales - purchases - that for profit."""
             try:
                 from accounting.balances import counted_line_filters
-                from services.operating_expenses import operating_expense_account_ids
+                from services.income_accounts import operating_expense_account_ids
                 ids = operating_expense_account_ids()
                 if not ids:
                     return {'total_value': 0.0, 'by_account': []}

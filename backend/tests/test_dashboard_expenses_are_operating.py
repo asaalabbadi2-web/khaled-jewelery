@@ -96,7 +96,7 @@ def test_only_operating_expenses_count_net_of_reversals(auth_headers, chart):
 
 
 def test_the_operating_accounts_follow_the_chart_tree(chart):
-    from services.operating_expenses import operating_expense_account_ids
+    from services.income_accounts import operating_expense_account_ids
     ids = operating_expense_account_ids()
     assert chart['rent'].id in ids
     assert chart['scrap'].id not in ids, 'under 51 «تكلفة المبيعات»'
