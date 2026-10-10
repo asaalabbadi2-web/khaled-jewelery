@@ -8,22 +8,34 @@ import '../api_service.dart';
 import 'account_ledger_screen.dart';
 import 'account_statement_screen.dart';
 import '../utils/currency_utils.dart' as cu;
+import 'package:shared_preferences/shared_preferences.dart';
+import '../models/account_tree.dart';
+import '../theme/app_semantic_colors.dart';
+import '../utils/arabic_search.dart';
 
-enum _AccountsViewMode { cards, compact }
+enum _AccountsViewMode { cards, compact, tree }
 
 class AccountsScreen extends StatefulWidget {
   final bool initialOnlyDetailAccounts;
 
-  const AccountsScreen({super.key, this.initialOnlyDetailAccounts = false});
+  /// The server; tests pass a fake.
+  final ApiService? apiService;
+
+  const AccountsScreen({super.key, this.initialOnlyDetailAccounts = false, this.apiService});
 
   @override
   State<AccountsScreen> createState() => _AccountsScreenState();
 }
 
 class _AccountsScreenState extends State<AccountsScreen> {
+  late final ApiService _api = widget.apiService ?? ApiService();
   final TextEditingController _searchController = TextEditingController();
-  final ScrollController _scrollController = ScrollController();
-  final GlobalKey _topChromeKey = GlobalKey();
+
+  /// The view a viewer chose, kept on this device (10 Oct 2026).
+  static const _viewModeKey = 'accounts_view_mode';
+
+  /// The tree's folded parents; null until the accounts arrive.
+  Set<int>? _collapsed;
 
   List<Map<String, dynamic>> _allAccounts = const [];
   List<Map<String, dynamic>> _filteredAccounts = const [];
@@ -36,10 +48,9 @@ class _AccountsScreenState extends State<AccountsScreen> {
   final Set<int> _absorbedMemoIds = {};
   String _sortBy = 'number';
   bool _sortAscending = true;
-  _AccountsViewMode _viewMode = _AccountsViewMode.cards;
-
-  double _topChromeHeight = 0;
-  double _topChromeCollapseOffset = 0;
+  /// Null until restored or chosen: then compact on a wide screen, cards on a
+  /// narrow one -- 456 accounts in cards of three badges each was a long read.
+  _AccountsViewMode? _viewMode;
 
   final NumberFormat _cashFormat = NumberFormat('#,##0.00', 'ar');
   final NumberFormat _goldFormat = NumberFormat('#,##0.###', 'ar');
@@ -49,16 +60,40 @@ class _AccountsScreenState extends State<AccountsScreen> {
     super.initState();
     _onlyDetailAccounts = widget.initialOnlyDetailAccounts;
     _searchController.addListener(_filterAccounts);
-    _scrollController.addListener(_onContentScroll);
+    _restoreViewMode();
     _fetchAccounts();
   }
 
   @override
   void dispose() {
     _searchController.dispose();
-    _scrollController.dispose();
     super.dispose();
   }
+
+  Future<void> _restoreViewMode() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final saved = prefs.getString(_viewModeKey);
+      final mode = _AccountsViewMode.values.where((m) => m.name == saved).firstOrNull;
+      if (mode != null && mounted) setState(() => _viewMode = mode);
+    } catch (_) {
+      // The default for the screen's width stands.
+    }
+  }
+
+  Future<void> _setViewMode(_AccountsViewMode mode) async {
+    setState(() => _viewMode = mode);
+    _filterAccounts();
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_viewModeKey, mode.name);
+    } catch (_) {
+      // Not remembered on this device.
+    }
+  }
+
+  _AccountsViewMode _effectiveViewMode(double width) =>
+      _viewMode ?? (width >= 900 ? _AccountsViewMode.compact : _AccountsViewMode.cards);
 
   Future<void> _fetchAccounts() async {
     setState(() {
@@ -66,7 +101,7 @@ class _AccountsScreenState extends State<AccountsScreen> {
       _error = null;
     });
     try {
-      final allAccounts = await ApiService().getAccounts();
+      final allAccounts = await _api.getAccounts();
       if (!mounted) {
         return;
       }
@@ -78,6 +113,7 @@ class _AccountsScreenState extends State<AccountsScreen> {
           )
           .toList(growable: false);
       _allAccounts = _annotateMemoLinks(normalized);
+      _collapsed ??= accountTreeDefaultCollapsed(_allAccounts);
       _filterAccounts();
       setState(() {
         _isLoading = false;
@@ -86,13 +122,12 @@ class _AccountsScreenState extends State<AccountsScreen> {
       if (!mounted) {
         return;
       }
+      // Said once, in the page's error state, in words -- not the exception's
+      // raw text in a snackbar besides.
       setState(() {
         _isLoading = false;
-        _error = e.toString();
+        _error = e.toString().replaceFirst('Exception: ', '');
       });
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('تعذر تحميل الحسابات: $e')));
     }
   }
 
@@ -160,45 +195,6 @@ class _AccountsScreenState extends State<AccountsScreen> {
     return _tracksWeight(account) || account['_merged_weight_total'] != null;
   }
 
-  void _onContentScroll() {
-    final nextOffset = _scrollController.hasClients
-        ? _scrollController.offset.clamp(0.0, _topChromeHeight)
-        : 0.0;
-    if ((nextOffset - _topChromeCollapseOffset).abs() < 0.5) {
-      return;
-    }
-    setState(() {
-      _topChromeCollapseOffset = nextOffset;
-    });
-  }
-
-  void _measureTopChrome() {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) {
-        return;
-      }
-      final context = _topChromeKey.currentContext;
-      if (context == null) {
-        return;
-      }
-      final renderObject = context.findRenderObject();
-      if (renderObject is! RenderBox) {
-        return;
-      }
-      final measuredHeight = renderObject.size.height;
-      if (measuredHeight <= 0 ||
-          (measuredHeight - _topChromeHeight).abs() < 0.5) {
-        return;
-      }
-      setState(() {
-        _topChromeHeight = measuredHeight;
-        if (_topChromeCollapseOffset > measuredHeight) {
-          _topChromeCollapseOffset = measuredHeight;
-        }
-      });
-    });
-  }
-
   int? _asInt(dynamic value) {
     if (value is int) {
       return value;
@@ -226,6 +222,23 @@ class _AccountsScreenState extends State<AccountsScreen> {
     }
     return null;
   }
+
+  /// «مدين / دائن» after a balance, as an accountant reads it -- not a sign.
+  String _side(double value, {double epsilon = 0.005}) =>
+      value.abs() < epsilon ? '' : (value > 0 ? ' مدين' : ' دائن');
+
+  String _cashText(double value) =>
+      '${_cashFormat.format(value.abs())} ${context.read<SettingsProvider>().currencySymbolText}${_side(value)}';
+
+  String _goldText(double value) => '${_goldFormat.format(value.abs())} جم${_side(value, epsilon: 0.0005)}';
+
+  /// Gold is shown where it belongs: a weight account, or any with gold on it
+  /// -- a cash account's «0 جم» was noise.
+  bool _showsGold(Map<String, dynamic> account, double gold) =>
+      _effectivelyTracksWeight(account) || gold.abs() >= 0.0005;
+
+  int _childCount(Map<String, dynamic> account) =>
+      ((account['sub_accounts'] as List?) ?? const []).length;
 
   bool _hasChildren(Map<String, dynamic> account) {
     final subAccounts = account['sub_accounts'] as List?;
@@ -282,19 +295,15 @@ class _AccountsScreenState extends State<AccountsScreen> {
   }
 
   void _filterAccounts() {
-    final query = _searchController.text.trim().toLowerCase();
+    final query = normalizeForSearch(_searchController.text);
     final filtered = _allAccounts
         .where((account) {
-          final name = (account['name'] ?? '').toString().toLowerCase();
-          final accountNumber = _accountNumber(account).toLowerCase();
-          final type = _accountTypeLabel(account).toLowerCase();
-          final parent = _parentLabel(account).toLowerCase();
-          final memoName = (account['_merged_memo_name'] ?? '')
-              .toString()
-              .toLowerCase();
-          final memoNumber = (account['_merged_memo_number'] ?? '')
-              .toString()
-              .toLowerCase();
+          final name = normalizeForSearch((account['name'] ?? '').toString());
+          final accountNumber = normalizeForSearch(_accountNumber(account));
+          final type = normalizeForSearch(_accountTypeLabel(account));
+          final parent = normalizeForSearch(_parentLabel(account));
+          final memoName = normalizeForSearch((account['_merged_memo_name'] ?? '').toString());
+          final memoNumber = normalizeForSearch((account['_merged_memo_number'] ?? '').toString());
 
           final matchesQuery =
               query.isEmpty ||
@@ -345,9 +354,8 @@ class _AccountsScreenState extends State<AccountsScreen> {
           comparison = _accountTypeLabel(a).compareTo(_accountTypeLabel(b));
           break;
         case 'children':
-          comparison = (_hasChildren(a) ? 1 : 0).compareTo(
-            _hasChildren(b) ? 1 : 0,
-          );
+          // By how many, not by whether any (it sorted by has-children).
+          comparison = _childCount(a).compareTo(_childCount(b));
           break;
         default:
           comparison = _accountNumber(a).compareTo(_accountNumber(b));
@@ -373,7 +381,7 @@ class _AccountsScreenState extends State<AccountsScreen> {
     if (_onlyDetailAccounts) count++;
     if (_onlyWithBalance) count++;
     if (_onlyWeightAccounts) count++;
-    if (_sortBy != 'number' || !_sortAscending) count++;
+    // The order is how they are listed, not which: not a filter.
     return count;
   }
 
@@ -429,7 +437,7 @@ class _AccountsScreenState extends State<AccountsScreen> {
           border: Border.all(color: color.withValues(alpha: 0.16)),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withValues(alpha: 0.05),
+              color: theme.colorScheme.shadow.withValues(alpha: 0.05),
               blurRadius: 12,
               offset: const Offset(0, 6),
             ),
@@ -509,67 +517,28 @@ class _AccountsScreenState extends State<AccountsScreen> {
           value: '$detailAccounts',
           subtitle: 'جاهزة للكشوف والحركة',
           icon: Icons.account_tree_outlined,
-          color: Colors.teal,
+          color: Theme.of(context).colorScheme.tertiary,
         ),
         _buildSummaryCard(
           title: 'حسابات برصيد',
           value: '$withBalance',
           subtitle: 'نقدي أو وزني',
           icon: Icons.account_balance_wallet_outlined,
-          color: Colors.green,
+          color: AppSemanticColors.of(context).cash.fg,
         ),
         _buildSummaryCard(
           title: 'حسابات وزنية',
           value: '$weightAccounts',
           subtitle: 'تتعقب الذهب أو الوزن',
           icon: Icons.scale_outlined,
-          color: const Color(0xFFD4A017),
+          color: AppSemanticColors.of(context).gold.fg,
         ),
       ],
     );
   }
 
-  Widget _buildCollapsibleTopChrome() {
-    final content = KeyedSubtree(
-      key: _topChromeKey,
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-        child: _buildStatisticsSection(),
-      ),
-    );
-
-    _measureTopChrome();
-
-    if (_topChromeHeight <= 0) {
-      return content;
-    }
-
-    final collapse = _topChromeCollapseOffset.clamp(0.0, _topChromeHeight);
-    final visibleHeight = (_topChromeHeight - collapse).clamp(
-      0.0,
-      _topChromeHeight,
-    );
-    if (visibleHeight <= 0) {
-      return const SizedBox.shrink();
-    }
-
-    return ClipRect(
-      child: SizedBox(
-        height: visibleHeight,
-        child: OverflowBox(
-          alignment: Alignment.topCenter,
-          minHeight: _topChromeHeight,
-          maxHeight: _topChromeHeight,
-          child: Transform.translate(
-            offset: Offset(0, -collapse),
-            child: content,
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildManagementToolbar() {
+  Widget _buildManagementToolbar(_AccountsViewMode mode) {
+    final inTree = mode == _AccountsViewMode.tree;
     final theme = Theme.of(context);
     return Container(
       padding: const EdgeInsets.all(12),
@@ -590,6 +559,7 @@ class _AccountsScreenState extends State<AccountsScreen> {
                   spacing: 8,
                   runSpacing: 8,
                   children: [
+                    if (!inTree)
                     FilterChip(
                       label: const Text('فرعية فقط'),
                       selected: _onlyDetailAccounts,
@@ -631,8 +601,6 @@ class _AccountsScreenState extends State<AccountsScreen> {
                       _onlyDetailAccounts = false;
                       _onlyWithBalance = false;
                       _onlyWeightAccounts = false;
-                      _sortBy = 'number';
-                      _sortAscending = true;
                     });
                     _filterAccounts();
                   },
@@ -666,6 +634,7 @@ class _AccountsScreenState extends State<AccountsScreen> {
                   ),
                 ),
               ),
+              if (!inTree)
               SizedBox(
                 width: 170,
                 child: DropdownButtonFormField<String>(
@@ -703,6 +672,7 @@ class _AccountsScreenState extends State<AccountsScreen> {
                   },
                 ),
               ),
+              if (!inTree)
               OutlinedButton.icon(
                 onPressed: () {
                   setState(() {
@@ -919,20 +889,21 @@ class _AccountsScreenState extends State<AccountsScreen> {
                     child: _buildBalanceTile(
                       icon: Icons.payments_outlined,
                       label: 'الرصيد النقدي',
-                      value:
-                          '${_cashFormat.format(cashBalance)} ${context.read<SettingsProvider>().currencySymbolText}',
-                      color: Colors.green,
+                      value: _cashText(cashBalance),
+                      color: AppSemanticColors.of(context).cash.fg,
                     ),
                   ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: _buildBalanceTile(
-                      icon: Icons.auto_awesome_outlined,
-                      label: 'الرصيد الذهبي',
-                      value: '${_goldFormat.format(goldBalance)} جم',
-                      color: const Color(0xFFD4A017),
+                  if (_showsGold(account, goldBalance)) ...[
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: _buildBalanceTile(
+                        icon: Icons.auto_awesome_outlined,
+                        label: 'الرصيد الذهبي',
+                        value: _goldText(goldBalance),
+                        color: AppSemanticColors.of(context).gold.fg,
+                      ),
                     ),
-                  ),
+                  ],
                 ],
               ),
               const SizedBox(height: 12),
@@ -962,27 +933,44 @@ class _AccountsScreenState extends State<AccountsScreen> {
     );
   }
 
-  Widget _buildCompactRow(Map<String, dynamic> account) {
+  Widget _buildCompactRow(Map<String, dynamic> account, {AccountTreeRow? tree}) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
+    final tones = AppSemanticColors.of(context);
     final cashBalance = _cashBalanceOf(account);
     final goldBalance = _goldBalanceOf(account);
+    final id = _asInt(account['id']);
 
     return Material(
       color: colorScheme.surface,
       child: InkWell(
         onTap: () => _openStatement(account),
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          padding: EdgeInsetsDirectional.only(
+              start: 14 + (tree?.depth ?? 0) * 20.0, end: 6, top: 10, bottom: 10),
           decoration: BoxDecoration(
-            border: Border(
-              bottom: BorderSide(
-                color: colorScheme.outline.withValues(alpha: 0.1),
-              ),
-            ),
+            border: Border(bottom: BorderSide(color: colorScheme.outline.withValues(alpha: 0.1))),
           ),
           child: Row(
             children: [
+              if (tree != null)
+                SizedBox(
+                  width: 32,
+                  child: tree.hasChildren
+                      ? IconButton(
+                          key: Key('account-fold-$id'),
+                          visualDensity: VisualDensity.compact,
+                          padding: EdgeInsets.zero,
+                          tooltip: tree.expanded ? 'طيّ' : 'فتح',
+                          icon: Icon(tree.expanded ? Icons.expand_more : Icons.chevron_left, size: 20),
+                          onPressed: () => setState(() {
+                            final collapsed = _collapsed ??= <int>{};
+                            if (id == null) return;
+                            collapsed.contains(id) ? collapsed.remove(id) : collapsed.add(id);
+                          }),
+                        )
+                      : const SizedBox.shrink(),
+                ),
               Expanded(
                 flex: 4,
                 child: Column(
@@ -993,7 +981,7 @@ class _AccountsScreenState extends State<AccountsScreen> {
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: theme.textTheme.bodyLarge?.copyWith(
-                        fontWeight: FontWeight.w700,
+                        fontWeight: tree != null && tree.hasChildren ? FontWeight.w800 : FontWeight.w600,
                       ),
                     ),
                     const SizedBox(height: 2),
@@ -1001,9 +989,7 @@ class _AccountsScreenState extends State<AccountsScreen> {
                       '${_accountNumber(account)} • ${_accountTypeLabel(account)}',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: colorScheme.onSurface.withValues(alpha: 0.6),
-                      ),
+                      style: theme.textTheme.bodySmall?.copyWith(color: colorScheme.onSurfaceVariant),
                     ),
                   ],
                 ),
@@ -1011,42 +997,31 @@ class _AccountsScreenState extends State<AccountsScreen> {
               Expanded(
                 flex: 2,
                 child: cu.SarAwareText(
-                  '${_cashFormat.format(cashBalance)} ${context.read<SettingsProvider>().currencySymbolText}',
-              isNewSar: context.read<SettingsProvider>().currencyIsNewSar,
+                  _cashText(cashBalance),
+                  isNewSar: context.read<SettingsProvider>().currencyIsNewSar,
                   textAlign: TextAlign.end,
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    fontWeight: FontWeight.w700,
-                    color: Colors.green.shade700,
-                  ),
+                  style: theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w700, color: tones.cash.fg),
                 ),
               ),
               const SizedBox(width: 12),
               Expanded(
                 flex: 2,
                 child: Text(
-                  '${_goldFormat.format(goldBalance)} جم',
+                  _showsGold(account, goldBalance) ? _goldText(goldBalance) : '',
                   textAlign: TextAlign.end,
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    fontWeight: FontWeight.w700,
-                    color: const Color(0xFFD4A017),
-                  ),
+                  style: theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w700, color: tones.gold.fg),
                 ),
               ),
-              if (account['_merged_memo_account'] != null)
-                Tooltip(
-                  message: 'عرض كشف الحساب الوزني المرتبط',
-                  child: IconButton(
-                    icon: Icon(
-                      Icons.scale_outlined,
-                      size: 18,
-                      color: colorScheme.secondary,
-                    ),
-                    onPressed: () => _openStatement(
-                      account['_merged_memo_account'] as Map<String, dynamic>,
-                    ),
-                  ),
-                ),
-              const SizedBox(width: 12),
+              SizedBox(
+                width: 40,
+                child: account['_merged_memo_account'] != null
+                    ? IconButton(
+                        tooltip: 'عرض كشف الحساب الوزني المرتبط',
+                        icon: Icon(Icons.scale_outlined, size: 18, color: colorScheme.secondary),
+                        onPressed: () => _openStatement(account['_merged_memo_account'] as Map<String, dynamic>),
+                      )
+                    : null,
+              ),
               PopupMenuButton<String>(
                 onSelected: (value) {
                   if (value == 'statement') {
@@ -1066,6 +1041,27 @@ class _AccountsScreenState extends State<AccountsScreen> {
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _compactHeader() {
+    final theme = Theme.of(context);
+    TextStyle? head() => theme.textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w800);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.45),
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      child: Row(
+        children: [
+          Expanded(flex: 4, child: Text('الحساب', style: head())),
+          Expanded(flex: 2, child: Text('نقد', textAlign: TextAlign.end, style: head())),
+          const SizedBox(width: 12),
+          Expanded(flex: 2, child: Text('ذهب', textAlign: TextAlign.end, style: head())),
+          const SizedBox(width: 88),
+        ],
       ),
     );
   }
@@ -1102,22 +1098,34 @@ class _AccountsScreenState extends State<AccountsScreen> {
     );
   }
 
-  Widget _buildBody() {
+  /// The accounts as the tree shows them: every filter but the search and
+  /// «فرعية فقط» (the tree is the parents), a parent kept for a kept child.
+  List<AccountTreeRow> _treeRows() => accountTreeRows(
+        _allAccounts,
+        collapsed: _collapsed ?? const <int>{},
+        include: (account) {
+          final id = _asInt(account['id']);
+          if (!_onlyWeightAccounts && id != null && _absorbedMemoIds.contains(id)) return false;
+          if (_onlyWithBalance && !_hasAnyBalance(account)) return false;
+          if (_onlyWeightAccounts && !_effectivelyTracksWeight(account)) return false;
+          return true;
+        },
+      );
+
+  Widget _buildBody(_AccountsViewMode mode) {
     if (_isLoading) {
       return const Center(child: CircularProgressIndicator());
     }
 
-    if (_error != null && _filteredAccounts.isEmpty) {
+    if (_error != null && _allAccounts.isEmpty) {
       return Center(
         child: Padding(
           padding: const EdgeInsets.all(24),
           child: Column(
+            key: const Key('accounts-load-error'),
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Text(
-                'تعذر تحميل الحسابات',
-                style: Theme.of(context).textTheme.titleMedium,
-              ),
+              Text('تعذر تحميل الحسابات', style: Theme.of(context).textTheme.titleMedium),
               const SizedBox(height: 8),
               Text(_error!, textAlign: TextAlign.center),
               const SizedBox(height: 12),
@@ -1132,93 +1140,67 @@ class _AccountsScreenState extends State<AccountsScreen> {
       );
     }
 
+    // A search lists its matches flat, each with its parent named: a tree of
+    // matches would bury them under their ancestors.
+    final searching = _searchController.text.trim().isNotEmpty;
+    if (mode == _AccountsViewMode.tree && !searching) {
+      final rows = _treeRows();
+      if (rows.isEmpty) return _buildEmptyState();
+      return _framedList(
+        itemCount: rows.length,
+        itemBuilder: (i) => _buildCompactRow(rows[i].account, tree: rows[i]),
+      );
+    }
+
     if (_filteredAccounts.isEmpty) {
       return _buildEmptyState();
     }
 
-    if (_viewMode == _AccountsViewMode.compact) {
+    if (mode == _AccountsViewMode.cards) {
       return RefreshIndicator(
         onRefresh: _fetchAccounts,
-        child: ListView(
-          controller: _scrollController,
+        child: ListView.builder(
+          primary: true,
           padding: const EdgeInsets.fromLTRB(16, 10, 16, 16),
-          children: [
-            Container(
-              decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.surface,
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(
-                  color: Theme.of(
-                    context,
-                  ).colorScheme.outline.withValues(alpha: 0.12),
-                ),
-              ),
-              child: Column(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 14,
-                      vertical: 12,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Theme.of(context)
-                          .colorScheme
-                          .surfaceContainerHighest
-                          .withValues(alpha: 0.45),
-                      borderRadius: const BorderRadius.vertical(
-                        top: Radius.circular(16),
-                      ),
-                    ),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          flex: 4,
-                          child: Text(
-                            'الحساب',
-                            style: Theme.of(context).textTheme.bodySmall
-                                ?.copyWith(fontWeight: FontWeight.w800),
-                          ),
-                        ),
-                        Expanded(
-                          flex: 2,
-                          child: Text(
-                            'نقد',
-                            textAlign: TextAlign.end,
-                            style: Theme.of(context).textTheme.bodySmall
-                                ?.copyWith(fontWeight: FontWeight.w800),
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          flex: 2,
-                          child: Text(
-                            'ذهب',
-                            textAlign: TextAlign.end,
-                            style: Theme.of(context).textTheme.bodySmall
-                                ?.copyWith(fontWeight: FontWeight.w800),
-                          ),
-                        ),
-                        const SizedBox(width: 44),
-                      ],
-                    ),
-                  ),
-                  ..._filteredAccounts.map(_buildCompactRow),
-                ],
-              ),
-            ),
-          ],
+          itemCount: _filteredAccounts.length,
+          itemBuilder: (context, index) => _buildAccountCard(_filteredAccounts[index]),
         ),
       );
     }
 
-    return RefreshIndicator(
-      onRefresh: _fetchAccounts,
-      child: ListView.builder(
-        controller: _scrollController,
-        padding: const EdgeInsets.fromLTRB(16, 10, 16, 16),
-        itemCount: _filteredAccounts.length,
-        itemBuilder: (context, index) =>
-            _buildAccountCard(_filteredAccounts[index]),
+    return _framedList(
+      itemCount: _filteredAccounts.length,
+      itemBuilder: (i) => _buildCompactRow(_filteredAccounts[i]),
+    );
+  }
+
+  /// The compact table: a header, then rows built as they scroll into view --
+  /// it built all 456 at once.
+  Widget _framedList({required int itemCount, required Widget Function(int) itemBuilder}) {
+    final scheme = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 10, 16, 16),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: scheme.surface,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: scheme.outline.withValues(alpha: 0.12)),
+        ),
+        child: Column(
+          children: [
+            _compactHeader(),
+            Expanded(
+              child: RefreshIndicator(
+                onRefresh: _fetchAccounts,
+                child: ListView.builder(
+                  primary: true,
+                  itemCount: itemCount,
+                  itemBuilder: (context, index) => itemBuilder(index),
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -1227,44 +1209,58 @@ class _AccountsScreenState extends State<AccountsScreen> {
   Widget build(BuildContext context) {
     context.watch<SettingsProvider>();
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('كشوفات الحسابات'),
-        actions: [
-          IconButton(
-            tooltip: _viewMode == _AccountsViewMode.cards
-                ? 'عرض مضغوط'
-                : 'عرض البطاقات',
-            icon: Icon(
-              _viewMode == _AccountsViewMode.cards
-                  ? Icons.table_rows_outlined
-                  : Icons.view_agenda_outlined,
+    return LayoutBuilder(builder: (context, constraints) {
+      final mode = _effectiveViewMode(constraints.maxWidth);
+      return Scaffold(
+        appBar: AppBar(
+          title: const Text('كشوفات الحسابات'),
+          actions: [
+            PopupMenuButton<_AccountsViewMode>(
+              key: const Key('accounts-view-mode'),
+              tooltip: 'طريقة العرض',
+              icon: Icon(switch (mode) {
+                _AccountsViewMode.cards => Icons.view_agenda_outlined,
+                _AccountsViewMode.compact => Icons.table_rows_outlined,
+                _AccountsViewMode.tree => Icons.account_tree_outlined,
+              }),
+              initialValue: mode,
+              onSelected: _setViewMode,
+              itemBuilder: (_) => const [
+                PopupMenuItem(value: _AccountsViewMode.compact, child: Text('عرض مضغوط')),
+                PopupMenuItem(value: _AccountsViewMode.tree, child: Text('شجرة الحسابات')),
+                PopupMenuItem(value: _AccountsViewMode.cards, child: Text('بطاقات')),
+              ],
             ),
-            onPressed: () {
-              setState(() {
-                _viewMode = _viewMode == _AccountsViewMode.cards
-                    ? _AccountsViewMode.compact
-                    : _AccountsViewMode.cards;
-              });
-            },
+            IconButton(
+              tooltip: 'تحديث',
+              icon: const Icon(Icons.refresh),
+              onPressed: _fetchAccounts,
+            ),
+          ],
+        ),
+        // One scroll (10 Oct 2026): the summary is the page's head and scrolls
+        // away, the toolbar heads the list -- the screen rebuilt itself on
+        // every pixel of scrolling to fold the summary by hand.
+        body: NestedScrollView(
+          headerSliverBuilder: (context, _) => [
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+                child: _buildStatisticsSection(),
+              ),
+            ),
+          ],
+          body: Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                child: _buildManagementToolbar(mode),
+              ),
+              Expanded(child: _buildBody(mode)),
+            ],
           ),
-          IconButton(
-            tooltip: 'تحديث',
-            icon: const Icon(Icons.refresh),
-            onPressed: _fetchAccounts,
-          ),
-        ],
-      ),
-      body: Column(
-        children: [
-          _buildCollapsibleTopChrome(),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
-            child: _buildManagementToolbar(),
-          ),
-          Expanded(child: _buildBody()),
-        ],
-      ),
-    );
+        ),
+      );
+    });
   }
 }
