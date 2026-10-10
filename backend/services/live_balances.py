@@ -42,18 +42,9 @@ def live_balances_by_account_ids(account_ids: Iterable[int]) -> Dict[int, dict]:
     if not ids:
         return {}
 
-    jl_filters = [
-        JournalEntry.is_deleted == False,
-        JournalEntryLine.is_deleted == False,
-    ]
-
-    # Always require posted entries for accurate balances.
-    if _db_has_column("journal_entry", "is_posted"):
-        jl_filters.append(JournalEntry.is_posted == True)
-
-    # Additionally exclude drafts when the column exists.
-    if _db_has_column("journal_entry", "is_draft"):
-        jl_filters.append(JournalEntry.is_draft == False)
+    # The one definition of a line that counts (accounting/balances.py).
+    from accounting.balances import counted_line_filters
+    jl_filters = counted_line_filters()
 
     rows = (
         db.session.query(

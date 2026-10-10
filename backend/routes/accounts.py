@@ -21,6 +21,7 @@ _VALID_ACCOUNT_TYPES = frozenset({'Asset', 'Liability', 'Equity', 'Revenue', 'Ex
 from pricing.gold_price_service import get_current_gold_price
 from pricing.karat_service import convert_to_main_karat, get_main_karat
 from services.live_balances import live_balances_by_account_ids
+from accounting.balances import counted_line_filters
 from accounting.statement_verification import (
     _build_statement_qr_signed_payload,
     _sign_qr_payload,
@@ -109,13 +110,8 @@ def get_account_statement(account_id):
     opening_filters = [
         JournalEntryLine.account_id == account_id,
         JournalEntry.entry_type == 'افتتاحي',
-        JournalEntry.is_deleted == False,
-        JournalEntryLine.is_deleted == False,
+        *counted_line_filters(),
     ]
-    if _db_has_column('journal_entry', 'is_posted'):
-        opening_filters.append(JournalEntry.is_posted == True)
-    if _db_has_column('journal_entry', 'is_draft'):
-        opening_filters.append(JournalEntry.is_draft == False)
 
     opening_journal_lines = JournalEntryLine.query.join(JournalEntry).filter(*opening_filters).all()
 
@@ -141,13 +137,8 @@ def get_account_statement(account_id):
     journal_filters = [
         JournalEntryLine.account_id == account_id,
         or_(JournalEntry.entry_type.is_(None), JournalEntry.entry_type != 'افتتاحي'),
-        JournalEntry.is_deleted == False,
-        JournalEntryLine.is_deleted == False,
+        *counted_line_filters(),
     ]
-    if _db_has_column('journal_entry', 'is_posted'):
-        journal_filters.append(JournalEntry.is_posted == True)
-    if _db_has_column('journal_entry', 'is_draft'):
-        journal_filters.append(JournalEntry.is_draft == False)
 
     journal_lines = (
         JournalEntryLine.query.join(JournalEntry)
@@ -345,13 +336,8 @@ def get_account_statement_merged(account_id):
     opening_filters = [
         JournalEntryLine.account_id == primary_account_id,
         JournalEntry.entry_type == 'افتتاحي',
-        JournalEntry.is_deleted == False,
-        JournalEntryLine.is_deleted == False,
+        *counted_line_filters(),
     ]
-    if _db_has_column('journal_entry', 'is_posted'):
-        opening_filters.append(JournalEntry.is_posted == True)
-    if _db_has_column('journal_entry', 'is_draft'):
-        opening_filters.append(JournalEntry.is_draft == False)
 
     opening_journal_lines = JournalEntryLine.query.join(JournalEntry).filter(*opening_filters).all()
 
@@ -366,13 +352,8 @@ def get_account_statement_merged(account_id):
         memo_opening_filters = [
             JournalEntryLine.account_id == memo_account.id,
             JournalEntry.entry_type == 'افتتاحي',
-            JournalEntry.is_deleted == False,
-            JournalEntryLine.is_deleted == False,
+            *counted_line_filters(),
         ]
-        if _db_has_column('journal_entry', 'is_posted'):
-            memo_opening_filters.append(JournalEntry.is_posted == True)
-        if _db_has_column('journal_entry', 'is_draft'):
-            memo_opening_filters.append(JournalEntry.is_draft == False)
 
         memo_opening_lines = (
             JournalEntryLine.query.join(JournalEntry)
@@ -404,13 +385,8 @@ def get_account_statement_merged(account_id):
     journal_filters = [
         JournalEntryLine.account_id.in_(account_ids),
         or_(JournalEntry.entry_type.is_(None), JournalEntry.entry_type != 'افتتاحي'),
-        JournalEntry.is_deleted == False,
-        JournalEntryLine.is_deleted == False,
+        *counted_line_filters(),
     ]
-    if _db_has_column('journal_entry', 'is_posted'):
-        journal_filters.append(JournalEntry.is_posted == True)
-    if _db_has_column('journal_entry', 'is_draft'):
-        journal_filters.append(JournalEntry.is_draft == False)
 
     journal_lines = (
         JournalEntryLine.query.join(JournalEntry)
@@ -1495,7 +1471,7 @@ def get_account_ledger(account_id):
 
     query = JournalEntryLine.query.join(JournalEntry).filter(
         JournalEntryLine.account_id == account_id,
-        JournalEntryLine.is_deleted == False
+        *counted_line_filters(),
     )
 
     start_dt = None
@@ -1516,7 +1492,7 @@ def get_account_ledger(account_id):
     if start_dt:
         opening_query = JournalEntryLine.query.join(JournalEntry).filter(
             JournalEntryLine.account_id == account_id,
-            JournalEntryLine.is_deleted == False,
+            *counted_line_filters(),
             JournalEntry.date < start_dt
         )
         for line in opening_query.all():

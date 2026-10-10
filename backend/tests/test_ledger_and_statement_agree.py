@@ -1,0 +1,95 @@
+"""The account's two buttons give one balance (10 Oct 2026).
+
+The account card offers «كشف الحساب» and «دفتر الأستاذ». The ledger filtered
+out deleted lines only, so it counted unposted and deleted entries the
+statement leaves out: on the 10 Oct copy mada read 87,760.00 in the ledger and
+0.00 in the statement, tamara 3,600.00 more, and the cash customer 2,500.00
+more -- rejected invoice 3303's draft entry.
+
+One definition of a line that counts (accounting/balances.counted_line_filters)
+-- its entry posted, not a draft, not deleted, and the line not deleted -- read
+by the ledger, the statement, the live balance and the stored balance.
+
+Run:
+    python -m pytest tests/test_ledger_and_statement_agree.py -v
+"""
+import uuid
+from datetime import datetime
+
+import pytest
+
+from app import app as flask_app
+from models import Account, JournalEntry, JournalEntryLine, db
+
+
+@pytest.fixture(scope='module')
+def app():
+    flask_app.config['TESTING'] = True
+    with flask_app.app_context():
+        yield flask_app
+
+
+@pytest.fixture(autouse=True)
+def rollback_after_each(app, db_fence):
+    yield
+
+
+def _account():
+    a = Account(account_number=f'9{uuid.uuid4().hex[:6]}', name=f'ح {uuid.uuid4().hex[:6]}', type='Asset')
+    db.session.add(a)
+    db.session.flush()
+    return a
+
+
+def _entry(account, other, amount, *, posted=True, draft=False, deleted=False, line_deleted=False):
+    je = JournalEntry(entry_number=f'JE-T-{uuid.uuid4().hex[:8]}', date=datetime(2026, 10, 1),
+                      description='اختبار', entry_type='عادي', is_posted=posted, is_draft=draft,
+                      is_deleted=deleted, created_by='t')
+    db.session.add(je)
+    db.session.flush()
+    db.session.add_all([
+        JournalEntryLine(journal_entry_id=je.id, account_id=account.id, cash_debit=amount, cash_credit=0.0,
+                         is_deleted=line_deleted, description='اختبار'),
+        JournalEntryLine(journal_entry_id=je.id, account_id=other.id, cash_debit=0.0, cash_credit=amount,
+                         is_deleted=line_deleted, description='اختبار'),
+    ])
+    db.session.flush()
+
+
+@pytest.fixture
+def books():
+    account, other = _account(), _account()
+    _entry(account, other, 100.0)                                # counts
+    _entry(account, other, 500.0, posted=False, draft=True)      # a draft -- 3303's
+    _entry(account, other, 700.0, posted=False)                  # unposted, not a draft
+    _entry(account, other, 900.0, deleted=True)                  # its entry deleted
+    _entry(account, other, 300.0, line_deleted=True)             # its line deleted
+    return account
+
+
+def test_the_ledger_counts_only_what_counts(auth_headers, books):
+    resp = flask_app.test_client().get(f'/api/account_ledger/{books.id}', headers=auth_headers)
+    assert resp.status_code == 200, resp.get_json()
+    assert resp.get_json()['closing_balance']['cash'] == pytest.approx(100.0)
+
+
+def test_the_ledger_with_a_start_date_opens_on_what_counts(auth_headers, books):
+    resp = flask_app.test_client().get(f'/api/account_ledger/{books.id}?start_date=2026-10-02',
+                                       headers=auth_headers)
+    assert resp.status_code == 200, resp.get_json()
+    assert resp.get_json()['opening_balance']['cash'] == pytest.approx(100.0)
+
+
+def test_the_ledger_the_statement_and_the_balances_agree(auth_headers, books):
+    from accounting.balances import _recalculate_account_balances_for_accounts
+    from services.live_balances import live_balances_by_account_ids
+    client = flask_app.test_client()
+    ledger = client.get(f'/api/account_ledger/{books.id}', headers=auth_headers).get_json()
+    statement = client.get(f'/api/accounts/{books.id}/statement', headers=auth_headers).get_json()
+    _recalculate_account_balances_for_accounts([books.id])
+
+    assert ledger['closing_balance']['cash'] \
+        == pytest.approx(statement['closing_balance_cash']) \
+        == pytest.approx(live_balances_by_account_ids([books.id])[books.id]['cash']) \
+        == pytest.approx(db.session.get(Account, books.id).balance_cash) \
+        == pytest.approx(100.0)
