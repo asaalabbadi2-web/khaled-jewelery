@@ -25,3 +25,8 @@ def convert_from_main_karat(weight, karat):
     if k == 0:
         return 0
     return (weight * main) / k
+
+
+def by_karat_in_main_karat(by_karat: dict) -> float:
+    """{'18k': g, '21k': g, '22k': g, '24k': g} as grams at the main karat."""
+    return sum(convert_to_main_karat(float(by_karat.get(f'{k}k') or 0.0), k) for k in (18, 21, 22, 24))

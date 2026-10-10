@@ -19,7 +19,7 @@ _log = logging.getLogger(__name__)
 
 _VALID_ACCOUNT_TYPES = frozenset({'Asset', 'Liability', 'Equity', 'Revenue', 'Expense'})
 from pricing.gold_price_service import get_current_gold_price
-from pricing.karat_service import convert_to_main_karat, get_main_karat
+from pricing.karat_service import by_karat_in_main_karat, convert_to_main_karat, get_main_karat
 from services.live_balances import live_balances_by_account_ids
 from accounting.balances import counted_line_filters
 from sqlalchemy.orm import contains_eager
@@ -210,6 +210,10 @@ def get_account_statement(account_id):
             'cash_credit': line.cash_credit or 0,
             'gold_debit': gold_debit_normalized,
             'gold_credit': gold_credit_normalized,
+            # The balance after this line, as the closing is computed -- the screen
+            # shows it and a filter never recomputes it (10 Oct 2026).
+            'running_cash_balance': round(float(running_balance_cash or 0.0), 2),
+            'running_gold_balance': round(by_karat_in_main_karat(running_balances_gold), 3),
             'debit_18k': line.debit_18k or 0,
             'credit_18k': line.credit_18k or 0,
             'debit_21k': line.debit_21k or 0,
@@ -486,6 +490,10 @@ def get_account_statement_merged(account_id):
             'cash_credit': entry_data['cash_credit'],
             'gold_debit': gold_debit_normalized,
             'gold_credit': gold_credit_normalized,
+            # The balance after this line, as the closing is computed -- the screen
+            # shows it and a filter never recomputes it (10 Oct 2026).
+            'running_cash_balance': round(float(running_balance_cash or 0.0), 2),
+            'running_gold_balance': round(by_karat_in_main_karat(running_balances_gold), 3),
             'debit_18k': entry_data['debit_18k'],
             'credit_18k': entry_data['credit_18k'],
             'debit_21k': entry_data['debit_21k'],

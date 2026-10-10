@@ -18,6 +18,7 @@ import 'package:image/image.dart' as img;
 
 import '../api_service.dart';
 import '../models/account_statement_model.dart';
+import '../models/statement_period.dart';
 import '../pdf/account_statement_pdf_builder.dart';
 import '../widgets/cancelled_vouchers_bar.dart';
 import '../providers/settings_provider.dart';
@@ -39,12 +40,16 @@ class AccountStatementScreen extends StatefulWidget {
   final String accountName;
   final String entityType; // 'customer', 'supplier', 'account'
 
+  /// The server; tests pass a fake.
+  final ApiService? apiService;
+
   const AccountStatementScreen({
     super.key,
     required this.accountId,
     required this.accountName,
     this.entityType =
         'account', // default to account for backward compatibility
+    this.apiService,
   });
 
   @override
@@ -52,6 +57,7 @@ class AccountStatementScreen extends StatefulWidget {
 }
 
 class _AccountStatementScreenState extends State<AccountStatementScreen> {
+  late final ApiService _api = widget.apiService ?? ApiService();
   bool _isLoading = true;
 
   /// Cancelled vouchers and their reversals are hidden by default; the bar
@@ -194,137 +200,21 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
     return 2; // cash-only
   }
 
-  ({DateTime startInclusive, DateTime endExclusive}) _rangeBounds(
-    DateTimeRange range,
-  ) {
-    // Normalize to full-day bounds so statements with timestamps behave
-    // consistently across summary cards and table filtering.
-    final start = DateTime(
-      range.start.year,
-      range.start.month,
-      range.start.day,
-    );
-    final endExclusive = DateTime(
-      range.end.year,
-      range.end.month,
-      range.end.day,
-    ).add(const Duration(days: 1));
-    return (startInclusive: start, endExclusive: endExclusive);
+  StatementPeriod _periodSummary() {
+    final statement = _statement;
+    if (statement == null) {
+      return (openingGold: 0.0, openingCash: 0.0, movementGold: 0.0, movementCash: 0.0,
+              closingGold: 0.0, closingCash: 0.0);
+    }
+    return statementPeriod(statement, _dateRange);
   }
 
-  ({double gold, double cash}) _openingBalanceAt(DateTime? start) {
+  StatementTotals _periodDebitCreditTotals() {
     final statement = _statement;
-    if (statement == null || start == null) {
-      return (
-        gold: statement?.openingBalanceGold ?? 0.0,
-        cash: statement?.openingBalanceCash ?? 0.0,
-      );
+    if (statement == null) {
+      return (goldDebit: 0.0, goldCredit: 0.0, cashDebit: 0.0, cashCredit: 0.0);
     }
-
-    double gold = statement.openingBalanceGold;
-    double cash = statement.openingBalanceCash;
-
-    for (final line in statement.lines) {
-      if (line.date.isBefore(start)) {
-        gold += line.goldDebit - line.goldCredit;
-        cash += line.cashDebit - line.cashCredit;
-      }
-    }
-
-    return (gold: gold, cash: cash);
-  }
-
-  ({
-    double openingGold,
-    double openingCash,
-    double movementGold,
-    double movementCash,
-    double closingGold,
-    double closingCash,
-  })
-  _periodSummary() {
-    final statement = _statement;
-    if (statement == null || _dateRange == null) {
-      final movementGold = statement == null
-          ? 0.0
-          : (statement.totalDebitGold - statement.totalCreditGold);
-      final movementCash = statement == null
-          ? 0.0
-          : (statement.totalDebitCash - statement.totalCreditCash);
-      return (
-        openingGold: statement?.openingBalanceGold ?? 0.0,
-        openingCash: statement?.openingBalanceCash ?? 0.0,
-        movementGold: movementGold,
-        movementCash: movementCash,
-        closingGold: statement?.effectiveClosingGold ?? 0.0,
-        closingCash: statement?.effectiveClosingCash ?? 0.0,
-      );
-    }
-
-    final range = _dateRange!;
-    final bounds = _rangeBounds(range);
-    final opening = _openingBalanceAt(bounds.startInclusive);
-
-    double movementGold = 0.0;
-    double movementCash = 0.0;
-
-    for (final line in statement.lines) {
-      final dt = line.date;
-      final inRange =
-          !dt.isBefore(bounds.startInclusive) &&
-          dt.isBefore(bounds.endExclusive);
-      if (!inRange) continue;
-      movementGold += line.goldDebit - line.goldCredit;
-      movementCash += line.cashDebit - line.cashCredit;
-    }
-
-    return (
-      openingGold: opening.gold,
-      openingCash: opening.cash,
-      movementGold: movementGold,
-      movementCash: movementCash,
-      closingGold: opening.gold + movementGold,
-      closingCash: opening.cash + movementCash,
-    );
-  }
-
-  ({double goldDebit, double goldCredit, double cashDebit, double cashCredit})
-  _periodDebitCreditTotals() {
-    final statement = _statement;
-    if (statement == null || _dateRange == null) {
-      return (
-        goldDebit: statement?.totalDebitGold ?? 0.0,
-        goldCredit: statement?.totalCreditGold ?? 0.0,
-        cashDebit: statement?.totalDebitCash ?? 0.0,
-        cashCredit: statement?.totalCreditCash ?? 0.0,
-      );
-    }
-
-    final range = _dateRange!;
-    final bounds = _rangeBounds(range);
-    double goldDebit = 0.0;
-    double goldCredit = 0.0;
-    double cashDebit = 0.0;
-    double cashCredit = 0.0;
-
-    for (final line in statement.lines) {
-      final dt = line.date;
-      final inRange =
-          !dt.isBefore(bounds.startInclusive) &&
-          dt.isBefore(bounds.endExclusive);
-      if (!inRange) continue;
-      goldDebit += line.goldDebit;
-      goldCredit += line.goldCredit;
-      cashDebit += line.cashDebit;
-      cashCredit += line.cashCredit;
-    }
-
-    return (
-      goldDebit: goldDebit,
-      goldCredit: goldCredit,
-      cashDebit: cashDebit,
-      cashCredit: cashCredit,
-    );
+    return statementTotals(statement, _dateRange);
   }
 
   void _clearFilters() {
@@ -341,16 +231,14 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
   @override
   void initState() {
     super.initState();
-    // _fetchAccountStatement(); // We will call this from didChangeDependencies
+    // Once, after the first frame (it reads the theme): didChangeDependencies
+    // ran again on every window resize and fetched the whole statement anew.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _fetchAccountStatement();
+    });
     _searchController.addListener(_filterLines);
     _contentScrollController.addListener(_onContentScroll);
     _verticalController.addListener(_onContentScroll);
-  }
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    _fetchAccountStatement();
   }
 
   @override
@@ -375,12 +263,12 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
 
       // Call appropriate API based on entity type
       if (widget.entityType == 'customer') {
-        data = await ApiService().getCustomerStatement(
+        data = await _api.getCustomerStatement(
           widget.accountId,
           includeCancelled: _includeCancelled,
         );
       } else if (widget.entityType == 'supplier') {
-        data = await ApiService().getSupplierStatement(
+        data = await _api.getSupplierStatement(
           widget.accountId,
           includeCancelled: _includeCancelled,
         );
@@ -388,7 +276,7 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
         if (!_resolvedViewModeDefault) {
           _resolvedViewModeDefault = true;
           try {
-            final account = await ApiService().getAccountById(widget.accountId);
+            final account = await _api.getAccountById(widget.accountId);
             if (mounted) {
               setState(() => _viewMode = _defaultViewModeForAccount(account));
             }
@@ -397,7 +285,7 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
           }
         }
 
-        data = await ApiService().getAccountStatement(
+        data = await _api.getAccountStatement(
           widget.accountId,
           includeCancelled: _includeCancelled,
         );
@@ -444,7 +332,7 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
     setState(() {
       final mainKarat = (_statement?.mainKarat ?? 21).toDouble();
       final query = _searchController.text.trim().toLowerCase();
-      final bounds = _dateRange == null ? null : _rangeBounds(_dateRange!);
+      final bounds = _dateRange == null ? null : statementRangeBounds(_dateRange!);
 
       var filtered = _statement!.lines.where((line) {
         final date = line.date;
@@ -507,35 +395,15 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
             matchesMovement;
       }).toList();
 
-      // Recalculate running balances for the filtered list
-      final openingAtStart = _openingBalanceAt(bounds?.startInclusive);
-      double runningGold = openingAtStart.gold;
-      double runningCash = openingAtStart.cash;
-      _filteredLines = [];
-      for (var line in filtered) {
-        runningGold += line.goldDebit - line.goldCredit;
-        runningCash += line.cashDebit - line.cashCredit;
-        _filteredLines.add(
-          line.copyWith(
-            runningGoldBalance: runningGold,
-            runningCashBalance: runningCash,
-          ),
-        );
-      }
+      // A filter hides lines; each keeps the balance the server gave it.
+      _filteredLines = filtered;
 
       _applySort(_filteredLines, mainKarat);
     });
   }
 
   double _goldMovementForLine(StatementLine line, double mainKarat) {
-    return _convertToMainKarat(line.debit18k, 18, mainKarat) +
-        _convertToMainKarat(line.debit21k, 21, mainKarat) +
-        _convertToMainKarat(line.debit22k, 22, mainKarat) +
-        _convertToMainKarat(line.debit24k, 24, mainKarat) -
-        _convertToMainKarat(line.credit18k, 18, mainKarat) -
-        _convertToMainKarat(line.credit21k, 21, mainKarat) -
-        _convertToMainKarat(line.credit22k, 22, mainKarat) -
-        _convertToMainKarat(line.credit24k, 24, mainKarat);
+    return line.goldDebit - line.goldCredit;
   }
 
   double _cashMovementForLine(StatementLine line) {
@@ -627,15 +495,9 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
     }
 
     final debitMain =
-        _convertToMainKarat(line.debit18k, 18, mainKarat) +
-        _convertToMainKarat(line.debit21k, 21, mainKarat) +
-        _convertToMainKarat(line.debit22k, 22, mainKarat) +
-        _convertToMainKarat(line.debit24k, 24, mainKarat);
+        line.goldDebit;
     final creditMain =
-        _convertToMainKarat(line.credit18k, 18, mainKarat) +
-        _convertToMainKarat(line.credit21k, 21, mainKarat) +
-        _convertToMainKarat(line.credit22k, 22, mainKarat) +
-        _convertToMainKarat(line.credit24k, 24, mainKarat);
+        line.goldCredit;
 
     final netGold = debitMain - creditMain;
     final netCash = line.cashDebit - line.cashCredit;
@@ -1139,16 +1001,6 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
         'رصيد ختامي نقد (حسب الكشف): ${(_dateRange == null ? statement.closingBalanceCash : period.closingCash).toStringAsFixed(2)}',
       );
 
-    if (statement.hasEntityBalances) {
-      summary
-        ..writeln(
-          'الرصيد الحالي ذهب (من الملف): ${statement.effectiveClosingGold.toStringAsFixed(3)}',
-        )
-        ..writeln(
-          'الرصيد الحالي نقد (من الملف): ${statement.effectiveClosingCash.toStringAsFixed(2)}',
-        );
-    }
-
     await Clipboard.setData(ClipboardData(text: summary.toString()));
   }
 
@@ -1360,8 +1212,6 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
   Widget _buildFilteredTotalsBar() {
     if (_statement == null) return const SizedBox.shrink();
 
-    final mainKarat = (_statement?.mainKarat ?? 21).toDouble();
-
     double goldDebit = 0;
     double goldCredit = 0;
     double cashDebit = 0;
@@ -1369,15 +1219,9 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
 
     for (final line in _filteredLines) {
       final debitMain =
-          _convertToMainKarat(line.debit18k, 18, mainKarat) +
-          _convertToMainKarat(line.debit21k, 21, mainKarat) +
-          _convertToMainKarat(line.debit22k, 22, mainKarat) +
-          _convertToMainKarat(line.debit24k, 24, mainKarat);
+          line.goldDebit;
       final creditMain =
-          _convertToMainKarat(line.credit18k, 18, mainKarat) +
-          _convertToMainKarat(line.credit21k, 21, mainKarat) +
-          _convertToMainKarat(line.credit22k, 22, mainKarat) +
-          _convertToMainKarat(line.credit24k, 24, mainKarat);
+          line.goldCredit;
 
       goldDebit += debitMain;
       goldCredit += creditMain;
@@ -1472,9 +1316,7 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
 
     final period = _periodSummary();
 
-    final closingTitle = statement.hasEntityBalances
-        ? 'الرصيد الحالي (من الملف)'
-        : 'رصيد ختامي (موزون)';
+    const closingTitle = 'رصيد ختامي (موزون)';
 
     final openingTitle = _dateRange == null
         ? 'رصيد افتتاحي (عيار ${statement.mainKarat})'
@@ -1502,10 +1344,10 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
       _SummaryCard(
         title: closingTitle,
         goldValue: _dateRange == null
-            ? statement.effectiveClosingGold
+            ? statement.closingBalanceGoldNormalized
             : period.closingGold,
         cashValue: _dateRange == null
-            ? statement.effectiveClosingCash
+            ? statement.closingBalanceCash
             : period.closingCash,
         color: theme.colorScheme.tertiary,
         icon: Icons.summarize,
@@ -2223,14 +2065,7 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
     final goldMovement =
-        _convertToMainKarat(line.debit18k, 18, mainKarat) +
-        _convertToMainKarat(line.debit21k, 21, mainKarat) +
-        _convertToMainKarat(line.debit22k, 22, mainKarat) +
-        _convertToMainKarat(line.debit24k, 24, mainKarat) -
-        _convertToMainKarat(line.credit18k, 18, mainKarat) -
-        _convertToMainKarat(line.credit21k, 21, mainKarat) -
-        _convertToMainKarat(line.credit22k, 22, mainKarat) -
-        _convertToMainKarat(line.credit24k, 24, mainKarat);
+        line.goldDebit - line.goldCredit;
     final cashMovement = line.cashDebit - line.cashCredit;
     final subtitle = _subtitleForLine(line);
 
@@ -2402,7 +2237,7 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
   }
 
   Widget _buildClosingBreakdown(double mainKarat) {
-    final closingDetails = _statement!.effectiveClosingGoldDetails;
+    final closingDetails = _statement!.closingBalanceGoldDetails;
     if (closingDetails.isEmpty) {
       return const SizedBox.shrink();
     }
@@ -2574,14 +2409,14 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
       await _showDocumentSheet(
         title: 'فاتورة${line.referenceNumber != null ? "  #${line.referenceNumber}" : ""}',
         icon: Icons.receipt_long,
-        future: ApiService().getInvoiceById(refId),
+        future: _api.getInvoiceById(refId),
         builder: _buildInvoiceContent,
       );
     } else if (refType == 'voucher' && refId != null) {
       await _showDocumentSheet(
         title: 'سند${line.referenceNumber != null ? "  #${line.referenceNumber}" : ""}',
         icon: Icons.payments,
-        future: ApiService().getVoucher(refId),
+        future: _api.getVoucher(refId),
         builder: _buildVoucherContent,
       );
     } else if (refType == 'invoice_payments' && refId != null) {
@@ -2589,7 +2424,7 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
       await _showDocumentSheet(
         title: 'دفعة فاتورة${line.referenceNumber != null ? "  #${line.referenceNumber}" : ""}',
         icon: Icons.payments_outlined,
-        future: ApiService().getInvoiceById(refId),
+        future: _api.getInvoiceById(refId),
         builder: _buildInvoiceContent,
       );
     } else if (refType == 'journal_entry' ||
@@ -2598,7 +2433,7 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
       await _showDocumentSheet(
         title: 'قيد يومية${line.entryNumber != null ? "  #${line.entryNumber}" : ""}',
         icon: Icons.library_books,
-        future: ApiService().getJournalEntryById(jeId),
+        future: _api.getJournalEntryById(jeId),
         builder: _buildJournalEntryContent,
       );
     } else {
@@ -3247,25 +3082,11 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
                 if (_viewMode != 2) ...[
                   _buildDetailsRow(
                     'ذهب مدين (عيار ${_statement!.mainKarat})',
-                    _convertToMainKarat(
-                      line.debit21k +
-                          line.debit22k +
-                          line.debit24k +
-                          line.debit18k,
-                      21,
-                      mainKarat,
-                    ).toStringAsFixed(3),
+                    line.goldDebit.toStringAsFixed(3),
                   ),
                   _buildDetailsRow(
                     'ذهب دائن (عيار ${_statement!.mainKarat})',
-                    _convertToMainKarat(
-                      line.credit21k +
-                          line.credit22k +
-                          line.credit24k +
-                          line.credit18k,
-                      21,
-                      mainKarat,
-                    ).toStringAsFixed(3),
+                    line.goldCredit.toStringAsFixed(3),
                   ),
                   const SizedBox(height: 12),
                   Wrap(
@@ -3363,10 +3184,10 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
     if (_viewMode != 2) {
       buffer
         ..writeln(
-          'ذهب مدين (عيار ${_statement!.mainKarat}): ${_convertToMainKarat(line.debit18k + line.debit21k + line.debit22k + line.debit24k, 21, mainKarat).toStringAsFixed(3)}',
+          'ذهب مدين (عيار ${_statement!.mainKarat}): ${line.goldDebit.toStringAsFixed(3)}',
         )
         ..writeln(
-          'ذهب دائن (عيار ${_statement!.mainKarat}): ${_convertToMainKarat(line.credit18k + line.credit21k + line.credit22k + line.credit24k, 21, mainKarat).toStringAsFixed(3)}',
+          'ذهب دائن (عيار ${_statement!.mainKarat}): ${line.goldCredit.toStringAsFixed(3)}',
         );
     }
 
@@ -3701,7 +3522,19 @@ class _PinnedWidgetDelegate extends SliverPersistentHeaderDelegate {
     double shrinkOffset,
     bool overlapsContent,
   ) {
-    return SizedBox.expand(child: child);
+    // The child lays out at its own height, so _measureStickyHeaderHeight
+    // reads that and the header follows it. Forced to the last measured
+    // height (SizedBox.expand), it could never grow: a filter that added the
+    // results chips cut the bar's bottom off (10 Oct 2026). Clipped for the one
+    // frame before the new height is measured.
+    return ClipRect(
+      child: OverflowBox(
+        alignment: Alignment.topCenter,
+        minHeight: 0,
+        maxHeight: double.infinity,
+        child: child,
+      ),
+    );
   }
 
   @override

@@ -11,7 +11,7 @@ from sqlalchemy.orm import contains_eager
 from models import db, Customer, Account, Invoice, JournalEntry, JournalEntryLine
 from party_account_service import ensure_customer_accounts
 from pricing.gold_price_service import get_current_gold_price
-from pricing.karat_service import convert_to_main_karat, get_main_karat
+from pricing.karat_service import by_karat_in_main_karat, convert_to_main_karat, get_main_karat
 from core.database import _db_has_column
 from accounting.statement_verification import (
     _build_statement_qr_signed_payload,
@@ -222,6 +222,10 @@ def get_customer_statement(id):
             'cash_credit': float(line.cash_credit or 0.0),
             'gold_debit': float(gold_debit_normalized or 0.0),
             'gold_credit': float(gold_credit_normalized or 0.0),
+            # The balance after this line, as the closing is computed -- the screen
+            # shows it and a filter never recomputes it (10 Oct 2026).
+            'running_cash_balance': round(float(running_balance_cash or 0.0), 2),
+            'running_gold_balance': round(by_karat_in_main_karat(running_balances_gold), 3),
             'debit_18k': float(line.debit_18k or 0.0),
             'credit_18k': float(line.credit_18k or 0.0),
             'debit_21k': float(line.debit_21k or 0.0),

@@ -29,7 +29,7 @@ from auth_decorators import require_permission
 from party_account_service import ensure_supplier_accounts
 from pricing.gold_price_service import get_current_gold_price
 from services.party_live_balances import compute_live_supplier_balances
-from pricing.karat_service import convert_to_main_karat, get_main_karat
+from pricing.karat_service import by_karat_in_main_karat, convert_to_main_karat, get_main_karat
 from accounting.statement_verification import (
     _build_statement_qr_signed_payload,
     _sign_qr_payload,
@@ -989,6 +989,10 @@ def get_supplier_weight_statement(supplier_id):
             'cash_credit': line.cash_credit or 0.0,
             'gold_debit': gold_debit_normalized,
             'gold_credit': gold_credit_normalized,
+            # The balance after this line, as the closing is computed -- the screen
+            # shows it and a filter never recomputes it (10 Oct 2026).
+            'running_cash_balance': round(float(running_balance_cash or 0.0), 2),
+            'running_gold_balance': round(by_karat_in_main_karat(running_balances_gold), 3),
             'debit_18k': line.debit_18k or 0.0,
             'credit_18k': line.credit_18k or 0.0,
             'debit_21k': line.debit_21k or 0.0,

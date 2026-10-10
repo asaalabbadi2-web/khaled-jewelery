@@ -7,6 +7,7 @@ import 'package:pdf/pdf.dart' as pdf;
 import 'package:pdf/widgets.dart' as pw;
 
 import '../models/account_statement_model.dart';
+import '../models/statement_period.dart';
 import 'pdf_text_utils.dart';
 
 // ═══════════════════════════════════════════════════════════════════
@@ -65,150 +66,6 @@ class AccountStatementPdfBuilder {
       'يعتبر هذا الكشف مصدقاً وصحيحاً ما لم يرد اعتراض خطي خلال 7 أيام من تاريخه. تطبق الشروط والأحكام.';
   static const String digitalDocumentFooterText =
       'هذا المستند تم إنشاؤه آلياً وموثق رقمياً، ولا يحتاج إلى ختم يدوى   .';
-
-  static ({DateTime startInclusive, DateTime endExclusive}) _rangeBounds(
-    DateTimeRange range,
-  ) {
-    final start = DateTime(range.start.year, range.start.month, range.start.day);
-    final endExclusive = DateTime(
-      range.end.year,
-      range.end.month,
-      range.end.day,
-    ).add(const Duration(days: 1));
-    return (startInclusive: start, endExclusive: endExclusive);
-  }
-
-  static ({double gold, double cash}) _openingBalanceAt(
-    AccountStatement statement,
-    DateTime? start,
-  ) {
-    if (start == null) {
-      return (gold: statement.openingBalanceGold, cash: statement.openingBalanceCash);
-    }
-
-    double gold = statement.openingBalanceGold;
-    double cash = statement.openingBalanceCash;
-
-    for (final line in statement.lines) {
-      if (line.date.isBefore(start)) {
-        gold += line.goldDebit - line.goldCredit;
-        cash += line.cashDebit - line.cashCredit;
-      }
-    }
-
-    return (gold: gold, cash: cash);
-  }
-
-  static ({
-    double openingGold,
-    double openingCash,
-    double movementGold,
-    double movementCash,
-    double closingGold,
-    double closingCash,
-  }) _periodSummary(AccountStatement statement, DateTimeRange? dateRange) {
-    if (dateRange == null) {
-      final movementGold = statement.totalDebitGold - statement.totalCreditGold;
-      final movementCash = statement.totalDebitCash - statement.totalCreditCash;
-      return (
-        openingGold: statement.openingBalanceGold,
-        openingCash: statement.openingBalanceCash,
-        movementGold: movementGold,
-        movementCash: movementCash,
-        closingGold: statement.effectiveClosingGold,
-        closingCash: statement.effectiveClosingCash,
-      );
-    }
-
-    final bounds = _rangeBounds(dateRange);
-    final opening = _openingBalanceAt(statement, bounds.startInclusive);
-
-    double movementGold = 0.0;
-    double movementCash = 0.0;
-
-    for (final line in statement.lines) {
-      final dt = line.date;
-      final inRange =
-          !dt.isBefore(bounds.startInclusive) && dt.isBefore(bounds.endExclusive);
-      if (!inRange) continue;
-      movementGold += line.goldDebit - line.goldCredit;
-      movementCash += line.cashDebit - line.cashCredit;
-    }
-
-    return (
-      openingGold: opening.gold,
-      openingCash: opening.cash,
-      movementGold: movementGold,
-      movementCash: movementCash,
-      closingGold: opening.gold + movementGold,
-      closingCash: opening.cash + movementCash,
-    );
-  }
-
-  static ({double goldDebit, double goldCredit, double cashDebit, double cashCredit})
-      _periodDebitCreditTotals(AccountStatement statement, DateTimeRange? dateRange) {
-    if (dateRange == null) {
-      return (
-        goldDebit: statement.totalDebitGold,
-        goldCredit: statement.totalCreditGold,
-        cashDebit: statement.totalDebitCash,
-        cashCredit: statement.totalCreditCash,
-      );
-    }
-
-    final bounds = _rangeBounds(dateRange);
-    double goldDebit = 0.0;
-    double goldCredit = 0.0;
-    double cashDebit = 0.0;
-    double cashCredit = 0.0;
-
-    for (final line in statement.lines) {
-      final dt = line.date;
-      final inRange =
-          !dt.isBefore(bounds.startInclusive) && dt.isBefore(bounds.endExclusive);
-      if (!inRange) continue;
-      goldDebit += line.goldDebit;
-      goldCredit += line.goldCredit;
-      cashDebit += line.cashDebit;
-      cashCredit += line.cashCredit;
-    }
-
-    return (
-      goldDebit: goldDebit,
-      goldCredit: goldCredit,
-      cashDebit: cashDebit,
-      cashCredit: cashCredit,
-    );
-  }
-
-  static List<StatementLine> _ensureRunningBalances(AccountStatement statement) {
-    final anyMissing = statement.lines.any(
-      (l) => l.runningGoldBalance == null || l.runningCashBalance == null,
-    );
-    if (!anyMissing) return statement.lines;
-
-    final sorted = [...statement.lines]
-      ..sort((a, b) {
-        final byDate = a.date.compareTo(b.date);
-        if (byDate != 0) return byDate;
-        return a.id.compareTo(b.id);
-      });
-
-    double runningGold = statement.openingBalanceGold;
-    double runningCash = statement.openingBalanceCash;
-
-    final withBalances = <StatementLine>[];
-    for (final line in sorted) {
-      runningGold += line.goldDebit - line.goldCredit;
-      runningCash += line.cashDebit - line.cashCredit;
-      withBalances.add(
-        line.copyWith(runningGoldBalance: runningGold, runningCashBalance: runningCash),
-      );
-    }
-
-    final byId = {for (final l in withBalances) l.id: l};
-    return statement.lines.map((l) => byId[l.id] ?? l).toList();
-  }
 
   static pw.MemoryImage? _decodeBase64Image(String raw) {
     final s = raw.trim();
@@ -319,7 +176,7 @@ class AccountStatementPdfBuilder {
       );
     }
 
-    final statementLinesWithBalances = _ensureRunningBalances(statement);
+    final statementLinesWithBalances = statement.lines;
     final statementLineById = {
       for (final l in statementLinesWithBalances) l.id: l,
     };
@@ -328,14 +185,14 @@ class AccountStatementPdfBuilder {
         .toList(growable: false);
 
     // ── period computations ───────────────────────────────────────
-    final period = _periodSummary(statement, dateRange);
-    final totals = _periodDebitCreditTotals(statement, dateRange);
+    final period = statementPeriod(statement, dateRange);
+    final totals = statementTotals(statement, dateRange);
     final commaFmt = NumberFormat('#,##0.00', 'en_US');
 
     final periodClosingGold =
-        dateRange == null ? statement.effectiveClosingGold : period.closingGold;
+        dateRange == null ? statement.closingBalanceGoldNormalized : period.closingGold;
     final periodClosingCash =
-        dateRange == null ? statement.effectiveClosingCash : period.closingCash;
+        dateRange == null ? statement.closingBalanceCash : period.closingCash;
 
     final pricePerGram = statement.goldPricePerGramMainKarat;
     final valuationGoldValue = statement.valuationGoldValueEstimate ??

@@ -7,9 +7,6 @@ class AccountStatement {
   final double closingBalanceGoldNormalized;
   final double closingBalanceCash;
   final Map<String, double> closingBalanceGoldDetails;
-  final double? entityBalanceGoldNormalized;
-  final double? entityBalanceCash;
-  final Map<String, double> entityBalanceGoldDetails;
   final int mainKarat;
   final double totalDebitGold;
   final double totalCreditGold;
@@ -55,9 +52,6 @@ class AccountStatement {
     required this.closingBalanceGoldNormalized,
     required this.closingBalanceCash,
     required this.closingBalanceGoldDetails,
-    required this.entityBalanceGoldNormalized,
-    required this.entityBalanceCash,
-    required this.entityBalanceGoldDetails,
     required this.mainKarat,
     required this.totalDebitGold,
     required this.totalCreditGold,
@@ -88,29 +82,6 @@ class AccountStatement {
         .map((i) => StatementLine.fromJson(i))
         .toList();
 
-    double runningGold =
-        json['opening_balance_gold_normalized']?.toDouble() ?? 0.0;
-    double runningCash = json['opening_balance_cash']?.toDouble() ?? 0.0;
-
-    final entityBalances = json['entity_balances'] as Map<String, dynamic>?;
-    final entityBalanceGoldDetails =
-        (entityBalances?['gold_details'] as Map<String, dynamic>?)?.map(
-          (key, value) =>
-              MapEntry(key, (value is num) ? value.toDouble() : 0.0),
-        ) ??
-        {};
-
-    List<StatementLine> linesWithBalances = [];
-    for (var line in statementLines) {
-      runningGold += line.goldDebit - line.goldCredit;
-      runningCash += line.cashDebit - line.cashCredit;
-      linesWithBalances.add(
-        line.copyWith(
-          runningGoldBalance: runningGold,
-          runningCashBalance: runningCash,
-        ),
-      );
-    }
 
     final priceSnapshot = json['gold_price_snapshot'] as Map<String, dynamic>?;
     final valuation = json['valuation'] as Map<String, dynamic>?;
@@ -184,13 +155,6 @@ class AccountStatement {
                 MapEntry(key, (value is num) ? value.toDouble() : 0.0),
           ) ??
           {},
-      entityBalanceGoldNormalized: entityBalances?['gold_normalized'] != null
-          ? (entityBalances?['gold_normalized'] as num).toDouble()
-          : null,
-      entityBalanceCash: entityBalances?['cash'] != null
-          ? (entityBalances?['cash'] as num).toDouble()
-          : null,
-      entityBalanceGoldDetails: entityBalanceGoldDetails,
       mainKarat: json['main_karat'] ?? 21,
       totalDebitGold:
           json['totals']?['gold_debit_normalized']?.toDouble() ?? 0.0,
@@ -198,7 +162,7 @@ class AccountStatement {
           json['totals']?['gold_credit_normalized']?.toDouble() ?? 0.0,
       totalDebitCash: json['totals']?['cash_debit']?.toDouble() ?? 0.0,
       totalCreditCash: json['totals']?['cash_credit']?.toDouble() ?? 0.0,
-      lines: linesWithBalances,
+      lines: statementLines,
 
       isMerged: (json['is_merged'] == true) || (json['is_merged'] == 1),
       memoAccountName: (json['memo_account_name'] ?? '').toString().trim().isEmpty
@@ -222,21 +186,6 @@ class AccountStatement {
   }
 }
 
-extension AccountStatementDisplay on AccountStatement {
-  double get effectiveClosingGold =>
-      entityBalanceGoldNormalized ?? closingBalanceGoldNormalized;
-
-  double get effectiveClosingCash => entityBalanceCash ?? closingBalanceCash;
-
-  Map<String, double> get effectiveClosingGoldDetails =>
-      entityBalanceGoldDetails.isNotEmpty
-      ? entityBalanceGoldDetails
-      : closingBalanceGoldDetails;
-
-  bool get hasEntityBalances =>
-      entityBalanceCash != null || entityBalanceGoldNormalized != null;
-}
-
 @immutable
 class StatementLine {
   final int id;
@@ -246,6 +195,9 @@ class StatementLine {
   final double goldCredit;
   final double cashDebit;
   final double cashCredit;
+  /// The balance after this line, as the server computes the closing: the
+  /// screen shows it, and a filter hides lines without ever recomputing it
+  /// (10 Oct 2026 -- it used to restart from the filtered lines).
   final double? runningGoldBalance;
   final double? runningCashBalance;
 
@@ -310,6 +262,8 @@ class StatementLine {
       goldCredit: json['gold_credit']?.toDouble() ?? 0.0,
       cashDebit: json['cash_debit']?.toDouble() ?? 0.0,
       cashCredit: json['cash_credit']?.toDouble() ?? 0.0,
+      runningGoldBalance: (json['running_gold_balance'] as num?)?.toDouble(),
+      runningCashBalance: (json['running_cash_balance'] as num?)?.toDouble(),
       debit18k: json['debit_18k']?.toDouble() ?? 0.0,
       credit18k: json['credit_18k']?.toDouble() ?? 0.0,
       debit21k: json['debit_21k']?.toDouble() ?? 0.0,
@@ -318,36 +272,6 @@ class StatementLine {
       credit22k: json['credit_22k']?.toDouble() ?? 0.0,
       debit24k: json['debit_24k']?.toDouble() ?? 0.0,
       credit24k: json['credit_24k']?.toDouble() ?? 0.0,
-    );
-  }
-
-  StatementLine copyWith({
-    double? runningGoldBalance,
-    double? runningCashBalance,
-  }) {
-    return StatementLine(
-      id: id,
-      date: date,
-      description: description,
-      journalEntryId: journalEntryId,
-      entryNumber: entryNumber,
-      referenceType: referenceType,
-      referenceId: referenceId,
-      referenceNumber: referenceNumber,
-      goldDebit: goldDebit,
-      goldCredit: goldCredit,
-      cashDebit: cashDebit,
-      cashCredit: cashCredit,
-      runningGoldBalance: runningGoldBalance ?? this.runningGoldBalance,
-      runningCashBalance: runningCashBalance ?? this.runningCashBalance,
-      debit18k: debit18k,
-      credit18k: credit18k,
-      debit21k: debit21k,
-      credit21k: credit21k,
-      debit22k: debit22k,
-      credit22k: credit22k,
-      debit24k: debit24k,
-      credit24k: credit24k,
     );
   }
 

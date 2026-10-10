@@ -127,3 +127,47 @@ def test_the_supplier_statement_counts_only_what_counts(auth_headers):
     statement = flask_app.test_client().get(f'/api/suppliers/{supplier.id}/statement',
                                             headers=auth_headers).get_json()
     assert abs(statement['closing_balance_cash']) == pytest.approx(100.0)
+
+
+def test_each_statement_line_carries_the_balance_after_it(auth_headers, books):
+    """The screen shows it and never recomputes it (a filter used to restart the
+    balance from the lines it left). The last line's is the closing."""
+    statement = flask_app.test_client().get(f'/api/accounts/{books.id}/statement',
+                                            headers=auth_headers).get_json()
+    lines = statement['lines']
+    assert [l['running_cash_balance'] for l in lines] == [100.0]
+    assert lines[-1]['running_cash_balance'] == pytest.approx(statement['closing_balance_cash'])
+    assert lines[-1]['running_gold_balance'] == pytest.approx(statement['closing_balance_gold_normalized'])
+
+
+@pytest.mark.parametrize('route', ['/api/customers/{customer}/statement', '/api/suppliers/{supplier}/statement'])
+def test_customer_and_supplier_statements_carry_it_too(auth_headers, route):
+    from models import Customer, Supplier
+    customer = Customer(name=f'عميل {uuid.uuid4().hex[:6]}', customer_code=f'C-{uuid.uuid4().hex[:6]}')
+    supplier = Supplier(supplier_code=f'S-{uuid.uuid4().hex[:6]}', name=f'مورد {uuid.uuid4().hex[:6]}')
+    db.session.add_all([customer, supplier])
+    db.session.flush()
+    receivable = Account(account_number=f'12{uuid.uuid4().hex[:5]}', name='مدينون', type='Asset')
+    payable = Account(account_number=f'21{uuid.uuid4().hex[:5]}', name='دائنون', type='Liability')
+    other = _account()
+    db.session.add_all([receivable, payable])
+    db.session.flush()
+    for amount in (100.0, 250.0):
+        je = JournalEntry(entry_number=f'JE-R-{uuid.uuid4().hex[:8]}', date=datetime(2026, 10, 1),
+                          description='اختبار', entry_type='عادي', is_posted=True, is_draft=False, created_by='t')
+        db.session.add(je)
+        db.session.flush()
+        db.session.add_all([
+            JournalEntryLine(journal_entry_id=je.id, account_id=receivable.id, customer_id=customer.id,
+                             cash_debit=amount, description='اختبار'),
+            JournalEntryLine(journal_entry_id=je.id, account_id=payable.id, supplier_id=supplier.id,
+                             cash_credit=amount, description='اختبار'),
+            JournalEntryLine(journal_entry_id=je.id, account_id=other.id, cash_debit=0.0, description='اختبار'),
+        ])
+    db.session.flush()
+    statement = flask_app.test_client().get(route.format(customer=customer.id, supplier=supplier.id),
+                                            headers=auth_headers).get_json()
+    lines = statement['lines']
+    assert len(lines) == 2
+    assert abs(lines[0]['running_cash_balance']) == pytest.approx(100.0)
+    assert lines[-1]['running_cash_balance'] == pytest.approx(statement['closing_balance_cash'])
