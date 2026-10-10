@@ -7764,30 +7764,38 @@ def get_admin_dashboard():
                 return dict(_EMPTY_INV_SUMMARY)
 
         def _build_expenses_summary(start, end):
+            """The period's operating expenses, as the chart names them: group 5
+            without the 51 subtree (cost of sales -- wages, scrap purchases, the
+            cost of gold sold), net of reversals, by the one definition of a line
+            that counts (the owner, 11 Oct 2026). It summed the debits of every
+            5-account: 18,995,723.96 for the year against ~777,000 of operating
+            expense -- and the dashboard took sales - purchases - that for profit."""
             try:
-                exp_total = 0.0
-                exp_by_account: dict = {}
-                exp_rows = (
-                    db.session.query(JELine, AccModel)
-                    .join(AccModel, JELine.account_id == AccModel.id)
+                from accounting.balances import counted_line_filters
+                from services.operating_expenses import operating_expense_account_ids
+                ids = operating_expense_account_ids()
+                if not ids:
+                    return {'total_value': 0.0, 'by_account': []}
+                rows = (
+                    db.session.query(AccModel.id, AccModel.name, AccModel.account_number,
+                                     db.func.coalesce(db.func.sum(JELine.cash_debit), 0.0)
+                                     - db.func.coalesce(db.func.sum(JELine.cash_credit), 0.0))
+                    .join(JELine, JELine.account_id == AccModel.id)
                     .join(JE2, JELine.journal_entry_id == JE2.id)
-                    .filter(AccModel.account_number.like('5%'))
-                    .filter(JE2.is_posted.is_(True))
+                    .filter(AccModel.id.in_(ids))
+                    .filter(*counted_line_filters())
                     .filter(JE2.date >= start)
                     .filter(JE2.date < end)
+                    .group_by(AccModel.id, AccModel.name, AccModel.account_number)
                     .all()
                 )
-                for line, acc in exp_rows:
-                    amt = float(line.cash_debit or 0)
-                    exp_total += amt
-                    name = (acc.name or acc.account_number or '?').strip()
-                    exp_by_account[name] = exp_by_account.get(name, 0.0) + amt
+                by_account = [
+                    {'account': (name or number or '?').strip(), 'value': round(float(net or 0.0), 2)}
+                    for _id, name, number, net in rows if abs(float(net or 0.0)) >= 0.005
+                ]
                 return {
-                    'total_value': round(exp_total, 2),
-                    'by_account': sorted(
-                        [{'account': a, 'value': round(v, 2)} for a, v in exp_by_account.items() if v > 0],
-                        key=lambda x: -x['value']
-                    ),
+                    'total_value': round(sum(a['value'] for a in by_account), 2),
+                    'by_account': sorted(by_account, key=lambda x: -x['value']),
                 }
             except Exception:
                 return {'total_value': 0.0, 'by_account': []}

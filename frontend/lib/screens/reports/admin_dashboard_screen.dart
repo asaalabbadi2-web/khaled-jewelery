@@ -13,12 +13,10 @@ import '../../app_events.dart';
 import '../../providers/settings_provider.dart';
 import '../../utils/currency_utils.dart' as cu;
 import '../../theme/app_theme.dart';
-import '../audit_log_screen.dart';
 import '../safe_boxes_screen.dart';
 import 'gold_price_history_report_screen.dart';
 import 'safe_box_hero_details_screen.dart';
 import 'widgets/dashboard_summary_tabs_card.dart';
-import '../../widgets/alerts_dialog.dart';
 
 enum _TimeRange { today, month, year }
 
@@ -208,26 +206,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
       final result = await widget.api.getAdminDashboard();
       if (!mounted) return;
 
-      // Fallback: for any period where backend returns zeros, compute locally.
-      final sps = (result['sales_purchases_summary'] as Map<String, dynamic>?) ?? {};
-      final periodsNeedingFallback = ['today', 'month', 'year'].where((p) {
-        final pd = (sps[p] as Map<String, dynamic>?) ?? {};
-        return (_asDoubleSafe(pd['sales']?['total_value']) == 0.0) &&
-               (_asDoubleSafe(pd['purchases']?['total_value']) == 0.0) &&
-               ((pd['sales']?['docs'] ?? 0) == 0);
-      }).toList();
-
-      if (periodsNeedingFallback.isNotEmpty) {
-        final computed = await _computeSummaryLocally(periodsNeedingFallback);
-        if (computed != null) {
-          final mergedSps = Map<String, dynamic>.from(sps);
-          for (final p in periodsNeedingFallback) {
-            if (computed[p] != null) mergedSps[p] = computed[p];
-          }
-          result['sales_purchases_summary'] = mergedSps;
-        }
-      }
-
       setState(() => _response = result);
     } catch (e) {
       if (!mounted) return;
@@ -239,109 +217,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     }
   }
 
-  static double _asDoubleSafe(dynamic v) => v is num ? v.toDouble() : 0.0;
-
-  /// Computes sales_purchases_summary for the given periods by querying /api/invoices directly.
-  Future<Map<String, dynamic>?> _computeSummaryLocally(List<String> periods) async {
-    try {
-      final now = DateTime.now();
-      final todayStart = DateTime(now.year, now.month, now.day);
-      final tomorrowStart = todayStart.add(const Duration(days: 1));
-      final monthStart = DateTime(now.year, now.month, 1);
-      final yearStart = DateTime(now.year, 1, 1);
-
-      final periodBounds = {
-        'today': (start: todayStart, end: tomorrowStart),
-        'month': (start: monthStart, end: tomorrowStart),
-        'year':  (start: yearStart,  end: tomorrowStart),
-      };
-
-      final saleTypes = {'بيع': 1, 'sell': 1, 'sale': 1, 'مرتجع بيع': -1};
-      final purchaseTypes = {
-        'شراء': 1, 'شراء من عميل': 1,
-        'مرتجع شراء': -1, 'مرتجع شراء (مورد)': -1,
-      };
-      const scrapTypes = {'شراء': 1, 'شراء من عميل': 1, 'مرتجع شراء': -1};
-
-      Map<String, dynamic> empty() => {
-        'total_value': 0.0, 'total_weight': 0.0,
-        'docs': 0, 'by_user': [], 'by_karat': [],
-      };
-
-      Future<Map<String, dynamic>> fetchSummary(
-        Map<String, int> types, DateTime from, DateTime to, {String? goldType}) async {
-        try {
-          final resp = await widget.api.getInvoices(
-            perPage: 1000,
-            invoiceTypes: types.keys.toList(),
-            dateFrom: from,
-            dateTo: to,
-            goldType: goldType,
-          );
-          final items = (resp['invoices'] ?? resp['items'] ?? resp) as List? ?? [];
-          double totalValue = 0, totalWeight = 0;
-          int docCount = 0;
-          final Map<String, Map<String, double>> byUser = {};
-          for (final inv in items) {
-            if (inv['is_posted'] != true) continue;
-            if (goldType != null && inv['gold_type'] != goldType) continue;
-            final type = inv['invoice_type'] as String? ?? '';
-            final sign = (types[type] ?? 1).toDouble();
-            final val = _asDoubleSafe(inv['total']) * sign;
-            final wt = _asDoubleSafe(inv['total_weight']) * sign;
-            totalValue += val;
-            totalWeight += wt;
-            docCount++;
-            final user = (inv['posted_by'] as String? ?? 'غير معروف').trim();
-            byUser[user] ??= {'value': 0, 'weight': 0, 'docs': 0};
-            byUser[user]!['value'] = (byUser[user]!['value']! + val);
-            byUser[user]!['weight'] = (byUser[user]!['weight']! + wt);
-            byUser[user]!['docs'] = (byUser[user]!['docs']! + 1);
-          }
-          final byUserList = byUser.entries
-              .map((e) => {'user': e.key, 'value': e.value['value'], 'weight': e.value['weight'], 'docs': e.value['docs']?.toInt()})
-              .toList()
-            ..sort((a, b) => (_asDoubleSafe(b['value']) - _asDoubleSafe(a['value'])).sign.toInt());
-          return {
-            'total_value': double.parse(totalValue.toStringAsFixed(2)),
-            'total_weight': double.parse(totalWeight.toStringAsFixed(3)),
-            'docs': docCount,
-            'by_user': byUserList,
-            'by_karat': [],
-          };
-        } catch (_) {
-          return empty();
-        }
-      }
-
-      Map<String, dynamic> buildPeriod(Map<String, dynamic> sales,
-          Map<String, dynamic> purchases, Map<String, dynamic> scrap) => {
-        'sales': sales,
-        'purchases': purchases,
-        'expenses': {'total_value': 0.0, 'by_account': []},
-        'scrap_purchases': {...scrap, 'avg_rate': 0.0, 'avg_gold': 0.0, 'cumulative_weight': 0.0},
-      };
-
-      // Only fetch for the periods that need it (avoid unnecessary API calls).
-      final futures = <Future<Map<String, dynamic>>>[];
-      for (final p in periods) {
-        final bounds = periodBounds[p]!;
-        futures.add(fetchSummary(saleTypes, bounds.start, bounds.end));
-        futures.add(fetchSummary(purchaseTypes, bounds.start, bounds.end));
-        futures.add(fetchSummary(scrapTypes, bounds.start, bounds.end, goldType: 'scrap'));
-      }
-      final results = await Future.wait(futures);
-
-      final output = <String, dynamic>{};
-      for (int i = 0; i < periods.length; i++) {
-        output[periods[i]] = buildPeriod(results[i * 3], results[i * 3 + 1], results[i * 3 + 2]);
-      }
-      return output;
-    } catch (e) {
-      debugPrint('⚠️ _computeSummaryLocally failed: $e');
-      return null;
-    }
-  }
 
   Future<void> _loadGramProfit() async {
     try {
@@ -374,8 +249,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
 
   double _asDouble(dynamic value) => value is num ? value.toDouble() : 0.0;
 
-  double? _asDoubleOrNull(dynamic value) =>
-      value is num ? value.toDouble() : null;
 
   int _asInt(dynamic value) =>
       value is int ? value : (value is num ? value.toInt() : 0);
@@ -503,8 +376,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                     builder: (context, constraints) {
                       final isWide = constraints.maxWidth >= 760;
                       final gramKpi = _buildGramProfitKpi();
-                      final heroProfit = _buildHeroProfitSection(
-                          kpis, liquidity, salesPurchasesSummary);
+                      final heroProfit = _buildPeriodMovementCard(liquidity, salesPurchasesSummary);
                       if (isWide) {
                         return IntrinsicHeight(
                           child: Row(
@@ -1366,346 +1238,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     );
   }
 
-  // ══════════════════════════════════════════════════════════════════════════
-  // HERO PROFIT SECTION (follows selected time range) — compact side-by-side
-  // ══════════════════════════════════════════════════════════════════════════
-  Widget _buildHeroProfitSection(
-    Map<String, dynamic> kpis,
-    Map<String, dynamic> liquidity,
-    Map<String, dynamic> salesPurchasesSummary,
-  ) {
-    final theme = Theme.of(context);
-    final isArabic = widget.isArabic;
-
-    final periodData =
-        (salesPurchasesSummary[_summaryPeriod] as Map<String, dynamic>?) ?? {};
-    final salesData = (periodData['sales'] as Map<String, dynamic>?) ?? {};
-    final purchasesData =
-        (periodData['purchases'] as Map<String, dynamic>?) ?? {};
-    final expensesData =
-        (periodData['expenses'] as Map<String, dynamic>?) ?? {};
-
-    final periodSales = _asDouble(salesData['total_value']);
-    final periodPurchases = _asDouble(purchasesData['total_value']);
-    final periodExpenses = _asDouble(expensesData['total_value']);
-    final periodProfit = periodSales - periodPurchases - periodExpenses;
-    final periodMargin =
-        periodSales > 0 ? (periodProfit / periodSales) * 100 : null;
-    final cashAvailable = _asDouble(liquidity['cash_available']);
-
-    final vsYesterdayPct =
-        _timeRange == _TimeRange.today
-            ? _asDoubleOrNull(kpis['today_profit_vs_yesterday_pct'])
-            : null;
-
-    final isProfit = periodProfit >= 0;
-    final profitColor = isProfit ? AppColors.success : AppColors.error;
-
-    final String periodLabel;
-    switch (_timeRange) {
-      case _TimeRange.today:
-        periodLabel = isArabic ? 'اليوم' : 'Today';
-        break;
-      case _TimeRange.month:
-        periodLabel = isArabic ? 'الشهر' : 'Month';
-        break;
-      case _TimeRange.year:
-        periodLabel = isArabic ? 'السنة' : 'Year';
-        break;
-    }
-
-    final isAllZero =
-        periodSales == 0 && periodPurchases == 0 && periodExpenses == 0;
-
-    if (isAllZero) {
-      return Container(
-        padding: EdgeInsets.symmetric(horizontal: _s(16), vertical: _s(14)),
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            begin: AlignmentDirectional.centerStart,
-            end: AlignmentDirectional.centerEnd,
-            colors: [
-              AppColors.success.withValues(alpha: 0.08),
-              AppColors.success.withValues(alpha: 0.03),
-              theme.cardColor,
-            ],
-          ),
-          borderRadius: BorderRadius.circular(_s(14)),
-          border: Border.all(color: AppColors.success.withValues(alpha: 0.18)),
-        ),
-        child: Row(
-          children: [
-            Container(
-              width: _s(40),
-              height: _s(40),
-              decoration: BoxDecoration(
-                color: AppColors.success.withValues(alpha: 0.12),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Icon(Icons.trending_up_rounded,
-                  color: AppColors.success, size: _s(20)),
-            ),
-            SizedBox(width: _s(12)),
-            Expanded(
-              child: Text(
-                isArabic
-                    ? 'لا توجد عمليات بعد'
-                    : 'No transactions yet',
-                style: TextStyle(
-                    fontSize: _s(12), color: theme.hintColor),
-              ),
-            ),
-            _currencyAwareText('0 $_currencySymbol',
-                style: TextStyle(
-                    fontSize: _s(14),
-                    fontWeight: FontWeight.w800,
-                    color: theme.hintColor.withValues(alpha: 0.5))),
-          ],
-        ),
-      );
-    }
-
-    return Container(
-      padding: EdgeInsets.all(_s(14)),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topRight,
-          end: Alignment.bottomLeft,
-          colors: [profitColor.withValues(alpha: 0.06), theme.cardColor],
-        ),
-        borderRadius: BorderRadius.circular(_s(14)),
-        border: Border.all(color: profitColor.withValues(alpha: 0.20)),
-        boxShadow: [
-          BoxShadow(
-            color: profitColor.withValues(alpha: 0.05),
-            blurRadius: 10,
-            offset: const Offset(0, 3),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          // Header
-          Row(
-            children: [
-              Container(
-                width: _s(32),
-                height: _s(32),
-                decoration: BoxDecoration(
-                  color: profitColor.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Icon(
-                  isProfit
-                      ? Icons.trending_up_rounded
-                      : Icons.trending_down_rounded,
-                  color: profitColor,
-                  size: _s(16),
-                ),
-              ),
-              SizedBox(width: _s(8)),
-              Expanded(
-                child: Text(
-                  isArabic ? 'صافي الربح' : 'Net Profit',
-                  style: TextStyle(
-                    fontSize: _s(13),
-                    fontWeight: FontWeight.w700,
-                    color: profitColor,
-                  ),
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-              if (vsYesterdayPct != null)
-                Container(
-                  padding: EdgeInsets.symmetric(
-                      horizontal: _s(6), vertical: _s(2)),
-                  decoration: BoxDecoration(
-                    color: (vsYesterdayPct >= 0
-                            ? AppColors.success
-                            : AppColors.error)
-                        .withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        vsYesterdayPct >= 0
-                            ? Icons.arrow_upward
-                            : Icons.arrow_downward,
-                        size: _s(10),
-                        color: vsYesterdayPct >= 0
-                            ? AppColors.success
-                            : AppColors.error,
-                      ),
-                      Text(
-                        '${vsYesterdayPct.abs().toStringAsFixed(1)}%',
-                        style: TextStyle(
-                          fontSize: _s(9),
-                          fontWeight: FontWeight.bold,
-                          color: vsYesterdayPct >= 0
-                              ? AppColors.success
-                              : AppColors.error,
-                        ),
-                      ),
-                    ],
-                  ),
-                )
-              else
-                Container(
-                  padding: EdgeInsets.symmetric(
-                      horizontal: _s(8), vertical: _s(3)),
-                  decoration: BoxDecoration(
-                    color: profitColor.withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: Text(
-                    periodLabel,
-                    style: TextStyle(
-                      fontSize: _s(10),
-                      fontWeight: FontWeight.w600,
-                      color: profitColor,
-                    ),
-                  ),
-                ),
-            ],
-          ),
-          SizedBox(height: _s(10)),
-
-          // Hero number + margin badge
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Flexible(
-                child: FittedBox(
-                  fit: BoxFit.scaleDown,
-                  alignment: AlignmentDirectional.centerStart,
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      Text(
-                        _formatCurrency(periodProfit)
-                            .replaceAll(_currencySymbol, '')
-                            .trim(),
-                        style: TextStyle(
-                          fontWeight: FontWeight.w900,
-                          color: profitColor,
-                          fontSize: _s(22),
-                          letterSpacing: -0.5,
-                        ),
-                      ),
-                      SizedBox(width: _s(4)),
-                      Padding(
-                        padding: EdgeInsets.only(bottom: _s(3)),
-                        child: _currencyAwareText(
-                          _currencySymbol,
-                          style: TextStyle(
-                            color: profitColor.withValues(alpha: 0.7),
-                            fontWeight: FontWeight.w600,
-                            fontSize: _s(11),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              const Spacer(),
-              if (periodMargin != null)
-                Container(
-                  padding: EdgeInsets.symmetric(
-                      horizontal: _s(7), vertical: _s(3)),
-                  decoration: BoxDecoration(
-                    color: profitColor.withValues(alpha: 0.10),
-                    borderRadius: BorderRadius.circular(6),
-                  ),
-                  child: Text(
-                    '${periodMargin.toStringAsFixed(1)}%',
-                    style: TextStyle(
-                      fontSize: _s(10),
-                      fontWeight: FontWeight.bold,
-                      color: profitColor,
-                    ),
-                  ),
-                ),
-              SizedBox(width: _s(4)),
-              Container(
-                padding:
-                    EdgeInsets.symmetric(horizontal: _s(7), vertical: _s(3)),
-                decoration: BoxDecoration(
-                  color: profitColor.withValues(alpha: 0.10),
-                  borderRadius: BorderRadius.circular(6),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      isProfit ? Icons.check_circle : Icons.cancel,
-                      size: _s(10),
-                      color: profitColor,
-                    ),
-                    SizedBox(width: _s(2)),
-                    Text(
-                      isProfit
-                          ? (isArabic ? 'ربح' : 'Profit')
-                          : (isArabic ? 'خسارة' : 'Loss'),
-                      style: TextStyle(
-                        fontSize: _s(10),
-                        fontWeight: FontWeight.bold,
-                        color: profitColor,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          SizedBox(height: _s(10)),
-
-          // 3 chips: Liquidity, Sales, Purchases
-          Row(
-            children: [
-              Expanded(
-                child: _miniStatChip(
-                  icon: Icons.water_drop_outlined,
-                  label: isArabic ? 'السيولة' : 'Cash',
-                  value: _formatCurrency(cashAvailable)
-                      .replaceAll(_currencySymbol, '')
-                      .trim(),
-                  color: AppColors.primaryGold,
-                ),
-              ),
-              SizedBox(width: _s(6)),
-              Expanded(
-                child: _miniStatChip(
-                  icon: Icons.arrow_upward,
-                  label: isArabic ? 'مبيعات' : 'Sales',
-                  value: _formatCurrency(periodSales)
-                      .replaceAll(_currencySymbol, '')
-                      .trim(),
-                  color: AppColors.success,
-                ),
-              ),
-              SizedBox(width: _s(6)),
-              Expanded(
-                child: _miniStatChip(
-                  icon: Icons.arrow_downward,
-                  label: isArabic ? 'مشتريات' : 'Purch.',
-                  value: _formatCurrency(periodPurchases)
-                      .replaceAll(_currencySymbol, '')
-                      .trim(),
-                  color: AppColors.warning,
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
   Widget _miniStatChip({
     required IconData icon,
     required String label,
@@ -1754,11 +1286,79 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     );
   }
 
+  /// The period's sales, purchases and operating expenses, and the cash on
+  /// hand -- as the server says them, nothing subtracted. It was «صافي الربح»
+  /// = sales - purchases - every 5-account: a loss of 21 million for 2026,
+  /// stock counted twice (the owner, 11 Oct 2026: the gram profit beside it is
+  /// the dashboard's profit).
+  Widget _buildPeriodMovementCard(
+    Map<String, dynamic> liquidity,
+    Map<String, dynamic> salesPurchasesSummary,
+  ) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final tones = AppSemanticColors.of(context);
+    final isArabic = widget.isArabic;
+    final period = (salesPurchasesSummary[_summaryPeriod] as Map<String, dynamic>?) ?? {};
+    double value(String key) => _asDouble(((period[key] as Map<String, dynamic>?) ?? {})['total_value']);
+    final sales = value('sales');
+    final purchases = value('purchases');
+    final expenses = value('expenses');
+    final cash = _asDouble(liquidity['cash_available']);
+    final label = switch (_timeRange) {
+      _TimeRange.today => isArabic ? 'اليوم' : 'Today',
+      _TimeRange.month => isArabic ? 'الشهر' : 'Month',
+      _TimeRange.year => isArabic ? 'السنة' : 'Year',
+    };
 
+    Widget row(String name, double amount, Color color) => Padding(
+          padding: EdgeInsets.only(top: _s(8)),
+          child: Row(
+            children: [
+              Expanded(child: Text(name, style: theme.textTheme.bodyMedium?.copyWith(color: scheme.onSurfaceVariant))),
+              _currencyAwareText(
+                '${_formatCurrency(amount)} $_currencySymbol',
+                style: theme.textTheme.titleSmall?.copyWith(
+                  fontWeight: FontWeight.w800,
+                  color: color,
+                  fontFeatures: const [FontFeature.tabularFigures()],
+                ),
+              ),
+            ],
+          ),
+        );
 
-  // ══════════════════════════════════════════════════════════════════════════
-  // 3b. GRAM PROFIT KPI  (follows time range)
-  // ══════════════════════════════════════════════════════════════════════════
+    return Container(
+      key: const Key('dashboard-period-movement'),
+      padding: EdgeInsets.all(_s(16)),
+      decoration: BoxDecoration(
+        color: scheme.surface,
+        borderRadius: BorderRadius.circular(_s(14)),
+        border: Border.all(color: scheme.outlineVariant),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(isArabic ? 'حركة $label' : '$label activity',
+              style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w800)),
+          if (sales == 0 && purchases == 0 && expenses == 0)
+            Padding(
+              padding: EdgeInsets.only(top: _s(8)),
+              child: Text(isArabic ? 'لا توجد عمليات بعد' : 'No activity yet',
+                  style: theme.textTheme.bodyMedium?.copyWith(color: scheme.onSurfaceVariant)),
+            )
+          else ...[
+            row(isArabic ? 'المبيعات' : 'Sales', sales, tones.ready.fg),
+            row(isArabic ? 'المشتريات' : 'Purchases', purchases, tones.cash.fg),
+            row(isArabic ? 'المصروفات التشغيلية' : 'Operating expenses', expenses, tones.warning.fg),
+          ],
+          Divider(height: _s(20), color: scheme.outlineVariant),
+          row(isArabic ? 'السيولة الآن' : 'Cash now', cash, scheme.onSurface),
+        ],
+      ),
+    );
+  }
+
   Widget _buildGramProfitKpi() {
     final theme = Theme.of(context);
     final isArabic = widget.isArabic;
