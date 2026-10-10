@@ -87,7 +87,13 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
   // (field kept for future use)
   bool _resolvedViewModeDefault = false;
   _StatementSortColumn? _sortColumn = _StatementSortColumn.date;
-  bool _sortAscending = false; // newest first by default
+  bool _sortAscending = false; // newest first by default (the owner, 10 Oct 2026)
+
+  /// The order a viewer chose, kept on this device for the next statement.
+  static const _oldestFirstKey = 'account_statement_oldest_first';
+
+  /// Why the statement did not load -- said as such, never as an empty one.
+  String? _loadError;
 
   bool _pdfIncludeValuation = true;
   int? _pdfViewModeOverride;
@@ -233,7 +239,8 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
     super.initState();
     // Once, after the first frame (it reads the theme): didChangeDependencies
     // ran again on every window resize and fetched the whole statement anew.
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      await _restoreOrder();
       if (mounted) _fetchAccountStatement();
     });
     _searchController.addListener(_filterLines);
@@ -256,8 +263,60 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
   }
 
 
+  Future<void> _restoreOrder() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final oldestFirst = prefs.getBool(_oldestFirstKey);
+      if (oldestFirst != null && mounted) {
+        setState(() {
+          _sortColumn = _StatementSortColumn.date;
+          _sortAscending = oldestFirst;
+        });
+      }
+    } catch (_) {
+      // The default order stands.
+    }
+  }
+
+  bool get _byDate => _sortColumn == _StatementSortColumn.date;
+
+  Future<void> _setOrder({required bool oldestFirst}) async {
+    setState(() {
+      _sortColumn = _StatementSortColumn.date;
+      _sortAscending = oldestFirst;
+    });
+    _filterLines();
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(_oldestFirstKey, oldestFirst);
+    } catch (_) {
+      // Not remembered on this device; the choice holds for this statement.
+    }
+  }
+
+  /// Ready periods, so a month is one tap and not a calendar.
+  void _setPeriod(String key) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final DateTimeRange? range = switch (key) {
+      'today' => DateTimeRange(start: today, end: today),
+      'this_month' => DateTimeRange(start: DateTime(now.year, now.month, 1), end: today),
+      'last_month' => DateTimeRange(
+          start: DateTime(now.year, now.month - 1, 1),
+          end: DateTime(now.year, now.month, 0),
+        ),
+      'this_year' => DateTimeRange(start: DateTime(now.year, 1, 1), end: today),
+      _ => null,
+    };
+    setState(() => _dateRange = range);
+    _filterLines();
+  }
+
   Future<void> _fetchAccountStatement() async {
-    setState(() => _isLoading = true);
+    setState(() {
+      _isLoading = true;
+      _loadError = null;
+    });
     try {
       Map<String, dynamic> data;
 
@@ -308,10 +367,10 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
       });
     } catch (e) {
       if (!mounted) return;
-      setState(() => _isLoading = false);
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('تعذر تحميل كشف الحساب: $e')));
+      setState(() {
+        _isLoading = false;
+        _loadError = e.toString().replaceFirst('Exception: ', '');
+      });
     }
   }
 
@@ -1042,6 +1101,8 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
       body: SafeArea(
         child: _isLoading
             ? const Center(child: CircularProgressIndicator())
+            : _loadError != null
+            ? _buildLoadErrorState()
             : _statement == null
             ? _buildEmptyState()
             : _buildStatementContent(),
@@ -1129,10 +1190,18 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
                 SliverPadding(
                   padding: const EdgeInsets.fromLTRB(16, 10, 16, 16),
                   sliver: SliverList.separated(
-                    itemCount: filteredLines.length,
+                    itemCount: filteredLines.length + (_byDate ? 2 : 0),
                     separatorBuilder: (_, _) => const SizedBox(height: 10),
-                    itemBuilder: (context, index) =>
-                        _buildLineCard(filteredLines[index], mainKarat),
+                    itemBuilder: (context, rawIndex) {
+                      if (_byDate && rawIndex == 0) {
+                        return _buildBoundaryCard(opening: _sortAscending);
+                      }
+                      if (_byDate && rawIndex == filteredLines.length + 1) {
+                        return _buildBoundaryCard(opening: !_sortAscending);
+                      }
+                      return _buildLineCard(
+                          filteredLines[_byDate ? rawIndex - 1 : rawIndex], mainKarat);
+                    },
                   ),
                 )
               else ...[
@@ -1178,6 +1247,38 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
           _fetchAccountStatement();
         },
       );
+
+  /// A failed load says it failed and offers to try again -- it used to read
+  /// «لا توجد سجلات», as if the account had no movement.
+  Widget _buildLoadErrorState() {
+    final theme = Theme.of(context);
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          key: const Key('statement-load-error'),
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.cloud_off_outlined, size: 56, color: theme.colorScheme.error),
+            const SizedBox(height: 12),
+            Text('تعذّر تحميل الكشف', style: theme.textTheme.titleMedium),
+            const SizedBox(height: 6),
+            Text(
+              _loadError ?? '',
+              textAlign: TextAlign.center,
+              style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+            ),
+            const SizedBox(height: 16),
+            FilledButton.icon(
+              onPressed: _fetchAccountStatement,
+              icon: const Icon(Icons.refresh),
+              label: const Text('إعادة المحاولة'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 
   Widget _buildEmptyLinesState() {
     final theme = Theme.of(context);
@@ -1413,8 +1514,8 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
     if (_filterType != 'all') count++;
     if (_filterKarat != null) count++;
     if (_showOnlyMovement) count++;
-    if (!_includeBreakdown) count++;
-    if (_viewMode != 0) count++;
+    // The view (dual / gold / cash) and the karat column are how lines are
+    // shown, not which: not filters, and «مسح الفلاتر» leaves them.
     return count;
   }
 
@@ -1513,6 +1614,40 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
                         : 'ابحث بالبيان أو المرجع أو رقم القيد أو المبلغ',
                     isDense: isNarrow,
                   ),
+                ),
+              ),
+              SegmentedButton<bool>(
+                key: const Key('statement-order'),
+                showSelectedIcon: false,
+                segments: const [
+                  ButtonSegment(value: false, label: Text('الأحدث أولًا'), icon: Icon(Icons.south, size: 16)),
+                  ButtonSegment(value: true, label: Text('الأقدم أولًا'), icon: Icon(Icons.north, size: 16)),
+                ],
+                selected: {_byDate ? _sortAscending : false},
+                emptySelectionAllowed: !_byDate,
+                onSelectionChanged: (choice) {
+                  if (choice.isNotEmpty) _setOrder(oldestFirst: choice.first);
+                },
+              ),
+              PopupMenuButton<String>(
+                key: const Key('statement-periods'),
+                tooltip: 'فترات جاهزة',
+                onSelected: _setPeriod,
+                itemBuilder: (_) => const [
+                  PopupMenuItem(value: 'today', child: Text('اليوم')),
+                  PopupMenuItem(value: 'this_month', child: Text('هذا الشهر')),
+                  PopupMenuItem(value: 'last_month', child: Text('الشهر الماضي')),
+                  PopupMenuItem(value: 'this_year', child: Text('هذه السنة')),
+                  PopupMenuDivider(),
+                  PopupMenuItem(value: 'all', child: Text('كل الفترات')),
+                ],
+                child: const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+                  child: Row(mainAxisSize: MainAxisSize.min, children: [
+                    Icon(Icons.event_note, size: 18),
+                    SizedBox(width: 4),
+                    Text('فترة'),
+                  ]),
                 ),
               ),
               ElevatedButton.icon(
@@ -1680,10 +1815,12 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
     final widths = <String, double>{
       'date': 120,
       'description': 340,
-      if (_viewMode != 2) 'gold_movement': 150,
-      if (_viewMode != 2) 'gold_balance': 140,
-      if (_viewMode != 1) 'cash_movement': 150,
-      if (_viewMode != 1) 'cash_balance': 150,
+      if (_viewMode != 2) 'gold_debit': 115,
+      if (_viewMode != 2) 'gold_credit': 115,
+      if (_viewMode != 2) 'gold_balance': 160,
+      if (_viewMode != 1) 'cash_debit': 125,
+      if (_viewMode != 1) 'cash_credit': 125,
+      if (_viewMode != 1) 'cash_balance': 170,
       if (_includeBreakdown && _viewMode != 2) 'breakdown': 170,
       'actions': 56,
     };
@@ -1766,6 +1903,75 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
       );
     }
 
+    // Debit, credit and the balance after -- the columns an accountant reads.
+    List<Widget> amountCells({
+      required double goldDebit,
+      required double goldCredit,
+      required double? goldBalance,
+      required double cashDebit,
+      required double cashCredit,
+      required double? cashBalance,
+      bool bold = false,
+    }) {
+      return [
+        if (_viewMode != 2) ...[
+          bodyCell(width: widths['gold_debit']!, alignment: AlignmentDirectional.centerEnd,
+              child: _numCell(goldDebit, color: theme.colorScheme.onSurface, fractionDigits: 3)),
+          bodyCell(width: widths['gold_credit']!, alignment: AlignmentDirectional.centerEnd,
+              child: _numCell(goldCredit, color: theme.colorScheme.onSurface, fractionDigits: 3)),
+          bodyCell(width: widths['gold_balance']!, alignment: AlignmentDirectional.centerEnd,
+              child: _balanceCell(goldBalance, fractionDigits: 3, bold: bold)),
+        ],
+        if (_viewMode != 1) ...[
+          bodyCell(width: widths['cash_debit']!, alignment: AlignmentDirectional.centerEnd,
+              child: _numCell(cashDebit, color: theme.colorScheme.onSurface, fractionDigits: 2)),
+          bodyCell(width: widths['cash_credit']!, alignment: AlignmentDirectional.centerEnd,
+              child: _numCell(cashCredit, color: theme.colorScheme.onSurface, fractionDigits: 2)),
+          bodyCell(width: widths['cash_balance']!, alignment: AlignmentDirectional.centerEnd,
+              child: _balanceCell(cashBalance, fractionDigits: 2, bold: bold)),
+        ],
+      ];
+    }
+
+    // The period's opening and closing as rows of the table, where an
+    // accountant looks for them: the closing on top when the newest comes
+    // first, the opening on top when the oldest does. Only when the lines are
+    // in date order -- sorted by an amount, there is no «before» and «after».
+    final period = _periodSummary();
+    Widget boundaryRow({required bool opening}) {
+      final label = opening
+          ? (_dateRange == null ? 'الرصيد الافتتاحي' : 'رصيد أول الفترة')
+          : (_dateRange == null ? 'الرصيد الختامي' : 'رصيد آخر الفترة');
+      return Container(
+        key: Key(opening ? 'statement-opening-row' : 'statement-closing-row'),
+        height: 52,
+        decoration: BoxDecoration(
+          color: theme.colorScheme.secondaryContainer.withValues(alpha: 0.45),
+          border: Border(bottom: BorderSide(color: theme.colorScheme.outline.withValues(alpha: 0.14))),
+        ),
+        child: Row(
+          children: [
+            bodyCell(width: widths['date']!, alignment: Alignment.center, child: const SizedBox.shrink()),
+            bodyCell(
+              width: widths['description']!,
+              child: Text(label, style: theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w800)),
+            ),
+            ...amountCells(
+              goldDebit: 0, goldCredit: 0,
+              goldBalance: opening ? period.openingGold : period.closingGold,
+              cashDebit: 0, cashCredit: 0,
+              cashBalance: opening ? period.openingCash : period.closingCash,
+              bold: true,
+            ),
+            if (_includeBreakdown && _viewMode != 2)
+              bodyCell(width: widths['breakdown']!, child: const SizedBox.shrink()),
+            bodyCell(width: widths['actions']!, child: const SizedBox.shrink()),
+          ],
+        ),
+      );
+    }
+    final withBoundaries = _byDate;
+
     final tableHeight = (MediaQuery.sizeOf(context).height * 0.55).clamp(
       320.0,
       640.0,
@@ -1816,10 +2022,16 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
                             ),
                             if (_viewMode != 2)
                               headerCell(
-                                label: 'حركة الذهب (+/-)',
-                                width: widths['gold_movement']!,
+                                label: 'ذهب مدين',
+                                width: widths['gold_debit']!,
                                 alignment: AlignmentDirectional.centerEnd,
                                 sortColumn: _StatementSortColumn.goldMovement,
+                              ),
+                            if (_viewMode != 2)
+                              headerCell(
+                                label: 'ذهب دائن',
+                                width: widths['gold_credit']!,
+                                alignment: AlignmentDirectional.centerEnd,
                               ),
                             if (_viewMode != 2)
                               headerCell(
@@ -1830,10 +2042,16 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
                               ),
                             if (_viewMode != 1)
                               headerCell(
-                                label: 'حركة $cashLabel (+/-)',
-                                width: widths['cash_movement']!,
+                                label: '$cashLabel مدين',
+                                width: widths['cash_debit']!,
                                 alignment: AlignmentDirectional.centerEnd,
                                 sortColumn: _StatementSortColumn.cashMovement,
+                              ),
+                            if (_viewMode != 1)
+                              headerCell(
+                                label: '$cashLabel دائن',
+                                width: widths['cash_credit']!,
+                                alignment: AlignmentDirectional.centerEnd,
                               ),
                             if (_viewMode != 1)
                               headerCell(
@@ -1863,14 +2081,16 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
                             controller: _verticalController,
                             physics: const AlwaysScrollableScrollPhysics(),
                             padding: EdgeInsets.zero,
-                            itemCount: _filteredLines.length,
-                            itemBuilder: (context, index) {
+                            itemCount: _filteredLines.length + (withBoundaries ? 2 : 0),
+                            itemBuilder: (context, rawIndex) {
+                              if (withBoundaries && rawIndex == 0) {
+                                return boundaryRow(opening: _sortAscending);
+                              }
+                              if (withBoundaries && rawIndex == _filteredLines.length + 1) {
+                                return boundaryRow(opening: !_sortAscending);
+                              }
+                              final index = withBoundaries ? rawIndex - 1 : rawIndex;
                               final line = _filteredLines[index];
-                              final goldMovement = _goldMovementForLine(
-                                line,
-                                mainKarat,
-                              );
-                              final cashMovement = _cashMovementForLine(line);
 
                               return Material(
                                 color: index.isEven
@@ -1905,60 +2125,14 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
                                           width: widths['description']!,
                                           child: _buildDescriptionCell(line),
                                         ),
-                                        if (_viewMode != 2)
-                                          bodyCell(
-                                            width: widths['gold_movement']!,
-                                            alignment:
-                                                AlignmentDirectional.centerEnd,
-                                            child: _signedNumCell(
-                                              goldMovement,
-                                              positiveColor:
-                                                  theme.colorScheme.primary,
-                                              negativeColor:
-                                                  theme.colorScheme.error,
-                                              fractionDigits: 3,
-                                            ),
-                                          ),
-                                        if (_viewMode != 2)
-                                          bodyCell(
-                                            width: widths['gold_balance']!,
-                                            alignment:
-                                                AlignmentDirectional.centerEnd,
-                                            child: _numCell(
-                                              line.runningGoldBalance,
-                                              color: theme
-                                                  .colorScheme
-                                                  .onSurfaceVariant,
-                                              fractionDigits: 3,
-                                            ),
-                                          ),
-                                        if (_viewMode != 1)
-                                          bodyCell(
-                                            width: widths['cash_movement']!,
-                                            alignment:
-                                                AlignmentDirectional.centerEnd,
-                                            child: _signedNumCell(
-                                              cashMovement,
-                                              positiveColor:
-                                                  theme.colorScheme.primary,
-                                              negativeColor:
-                                                  theme.colorScheme.error,
-                                              fractionDigits: 2,
-                                            ),
-                                          ),
-                                        if (_viewMode != 1)
-                                          bodyCell(
-                                            width: widths['cash_balance']!,
-                                            alignment:
-                                                AlignmentDirectional.centerEnd,
-                                            child: _numCell(
-                                              line.runningCashBalance,
-                                              color: theme
-                                                  .colorScheme
-                                                  .onSurfaceVariant,
-                                              fractionDigits: 2,
-                                            ),
-                                          ),
+                                        ...amountCells(
+                                          goldDebit: line.goldDebit,
+                                          goldCredit: line.goldCredit,
+                                          goldBalance: line.runningGoldBalance,
+                                          cashDebit: line.cashDebit,
+                                          cashCredit: line.cashCredit,
+                                          cashBalance: line.runningCashBalance,
+                                        ),
                                         if (_includeBreakdown && _viewMode != 2)
                                           bodyCell(
                                             width: widths['breakdown']!,
@@ -2058,6 +2232,35 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
       child: _buildClosingBreakdown(mainKarat),
+    );
+  }
+
+  /// The period's opening or closing, as a card in the narrow layout -- the
+  /// same rows the table shows, in the same place for the order chosen.
+  Widget _buildBoundaryCard({required bool opening}) {
+    final theme = Theme.of(context);
+    final period = _periodSummary();
+    final label = opening
+        ? (_dateRange == null ? 'الرصيد الافتتاحي' : 'رصيد أول الفترة')
+        : (_dateRange == null ? 'الرصيد الختامي' : 'رصيد آخر الفترة');
+    final gold = opening ? period.openingGold : period.closingGold;
+    final cash = opening ? period.openingCash : period.closingCash;
+    return Card(
+      key: Key(opening ? 'statement-opening-row' : 'statement-closing-row'),
+      color: theme.colorScheme.secondaryContainer.withValues(alpha: 0.45),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        child: Row(
+          children: [
+            Expanded(
+              child: Text(label, style: theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w800)),
+            ),
+            if (_viewMode != 2) _balanceCell(gold, fractionDigits: 3, bold: true),
+            if (_viewMode == 0) const SizedBox(width: 16),
+            if (_viewMode != 1) _balanceCell(cash, fractionDigits: 2, bold: true),
+          ],
+        ),
+      ),
     );
   }
 
@@ -2292,26 +2495,36 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
     );
   }
 
-  Widget _signedNumCell(
-    double value, {
-    required Color positiveColor,
-    required Color negativeColor,
-    int fractionDigits = 3,
-  }) {
-    if (value.abs() < 0.0001) {
-      return const Text('', textAlign: TextAlign.end);
-    }
-    final isPositive = value > 0;
-    final sign = isPositive ? '+' : '-';
-    final absText = value.abs().toStringAsFixed(fractionDigits);
-    return Text(
-      '$sign$absText',
+  /// Which side a balance is on: «عليه / له» in a customer's or supplier's
+  /// statement, «مدين / دائن» in any account's.
+  String _balanceSide(double value) {
+    if (value.abs() < 0.0005) return '';
+    final party = widget.entityType == 'customer' || widget.entityType == 'supplier';
+    if (value > 0) return party ? 'عليه' : 'مدين';
+    return party ? 'له' : 'دائن';
+  }
+
+  Widget _balanceCell(double? value, {int fractionDigits = 3, bool bold = false}) {
+    if (value == null) return const Text('', textAlign: TextAlign.end);
+    final theme = Theme.of(context);
+    final side = _balanceSide(value);
+    return Text.rich(
+      TextSpan(children: [
+        TextSpan(
+          text: value.abs().toStringAsFixed(fractionDigits),
+          style: TextStyle(
+            fontWeight: bold ? FontWeight.w800 : FontWeight.w600,
+            fontFeatures: const [ui.FontFeature.tabularFigures()],
+          ),
+        ),
+        if (side.isNotEmpty)
+          TextSpan(
+            text: ' $side',
+            style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+          ),
+      ]),
       textAlign: TextAlign.end,
-      style: TextStyle(
-        color: isPositive ? positiveColor : negativeColor,
-        fontWeight: FontWeight.w500,
-        fontFeatures: const [ui.FontFeature.tabularFigures()],
-      ),
+      textDirection: ui.TextDirection.rtl,
     );
   }
 

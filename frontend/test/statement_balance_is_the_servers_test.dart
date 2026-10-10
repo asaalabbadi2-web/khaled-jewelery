@@ -53,8 +53,19 @@ final _statementJson = <String, dynamic>{
 };
 
 class _FakeApi extends ApiService {
+  _FakeApi({this.fail = false});
+
+  /// The server cannot be reached.
+  final bool fail;
+
   @override
-  Future<Map<String, dynamic>> getAccountStatement(int accountId, {bool includeCancelled = false}) async =>
+  Future<Map<String, dynamic>> getAccountStatement(int accountId, {bool includeCancelled = false}) async {
+    if (fail) throw Exception('تعذّر الاتصال بالخادم');
+    return _statementJson;
+  }
+
+  @override
+  Future<Map<String, dynamic>> getCustomerStatement(int customerId, {bool includeCancelled = false}) async =>
       _statementJson;
 
   @override
@@ -82,38 +93,101 @@ void main() {
     expect(statementBalanceBefore(statement, DateTime(2026, 9, 2)).cash, 1000.0);
   });
 
-  testWidgets('a search hides lines; the line it leaves shows the account\'s balance', (tester) async {
+  Future<void> open(WidgetTester tester, {_FakeApi? api, String entityType = 'account',
+      Map<String, Object> prefs = const {}}) async {
     final cairo = FontLoader('Cairo');
     for (final w in ['Regular', 'SemiBold', 'Bold']) {
       cairo.addFont(rootBundle.load('assets/fonts/Cairo-$w.ttf'));
     }
     await cairo.load();
-    SharedPreferences.setMockInitialValues({'app_settings': jsonEncode({'main_karat': 21})});
-    tester.view.physicalSize = const Size(1440, 2000);
+    SharedPreferences.setMockInitialValues({'app_settings': jsonEncode({'main_karat': 21}), ...prefs});
+    tester.view.physicalSize = const Size(1600, 2000);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
     final settings = SettingsProvider();
     await settings.loadSettings(fetchRemote: false);
-
     await tester.pumpWidget(ChangeNotifierProvider.value(
       value: settings,
       child: MaterialApp(
         theme: LightTheme.theme,
         home: Directionality(
           textDirection: TextDirection.rtl,
-          child: AccountStatementScreen(accountId: 925, accountName: 'عميل نقدي', apiService: _FakeApi()),
+          child: AccountStatementScreen(
+              accountId: 925, accountName: 'عميل نقدي', entityType: entityType, apiService: api ?? _FakeApi()),
         ),
       ),
     ));
     await tester.pumpAndSettle();
+  }
+
+  double top(WidgetTester tester, Finder f) => tester.getTopLeft(f.first).dy;
+
+  testWidgets('a search hides lines; the line it leaves shows the account\'s balance', (tester) async {
+    await open(tester);
 
     await tester.enterText(find.byType(TextField).first, 'تسديد');
     await tester.pumpAndSettle();
 
     expect(find.textContaining('تسديد عميل'), findsWidgets);
     expect(find.textContaining('بيع نقدي'), findsNothing);
-    expect(find.text('-500.00'), findsOneWidget,
-        reason: 'the payment\'s movement only -- recomputed from the filtered lines, its balance read -500.00 too');
-    expect(find.text('2500.00'), findsNWidgets(3), reason: 'the line\'s balance, beside the two closing figures');
+    expect(find.text('2500.00 مدين'), findsWidgets, reason: 'the balance after the payment');
+    expect(find.text('500.00 دائن'), findsNothing,
+        reason: 'recomputed from the filtered lines, the payment read as a balance of -500.00');
+    expect(find.text('الفلاتر النشطة: 1'), findsOneWidget,
+        reason: 'the search; the cash view chosen for a cash account is not a filter');
+  });
+
+  testWidgets('newest first: the closing on top, the opening at the bottom', (tester) async {
+    await open(tester);
+    final closing = find.byKey(const Key('statement-closing-row'));
+    final opening = find.byKey(const Key('statement-opening-row'));
+    expect(top(tester, closing), lessThan(top(tester, find.textContaining('تسديد عميل'))));
+    expect(top(tester, find.textContaining('تسديد عميل')), lessThan(top(tester, find.text('2026-09-01'))));
+    expect(top(tester, find.text('2026-09-01')), lessThan(top(tester, opening)));
+    expect(find.textContaining('الرصيد الختامي'), findsWidgets);
+  });
+
+  testWidgets('oldest first, chosen once, is kept for the next statement', (tester) async {
+    await open(tester);
+    await tester.tap(find.text('الأقدم أولًا'));
+    await tester.pumpAndSettle();
+
+    final opening = find.byKey(const Key('statement-opening-row'));
+    final closing = find.byKey(const Key('statement-closing-row'));
+    expect(top(tester, opening), lessThan(top(tester, find.text('2026-09-01'))));
+    expect(top(tester, find.textContaining('تسديد عميل')), lessThan(top(tester, closing)));
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getBool('account_statement_oldest_first'), isTrue);
+  });
+
+  testWidgets('a statement opens in the order last chosen', (tester) async {
+    await open(tester, prefs: {'account_statement_oldest_first': true});
+    expect(top(tester, find.byKey(const Key('statement-opening-row'))),
+        lessThan(top(tester, find.byKey(const Key('statement-closing-row')))));
+  });
+
+  testWidgets('a customer\'s balance reads «عليه», an account\'s «مدين»', (tester) async {
+    await open(tester, entityType: 'customer');
+    expect(find.text('2500.00 عليه'), findsWidgets);
+    expect(find.text('2500.00 مدين'), findsNothing);
+  });
+
+  testWidgets('a failed load says so and offers to try again -- not «no records»', (tester) async {
+    await open(tester, api: _FakeApi(fail: true));
+    expect(find.byKey(const Key('statement-load-error')), findsOneWidget);
+    expect(find.textContaining('تعذّر الاتصال بالخادم'), findsOneWidget);
+    expect(find.text('إعادة المحاولة'), findsOneWidget);
+    expect(find.textContaining('لا توجد'), findsNothing);
+  });
+
+  testWidgets('a ready period sets the range in one tap', (tester) async {
+    await open(tester);
+    expect(find.text('نطاق التاريخ'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('statement-periods')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('هذا الشهر').last);
+    await tester.pumpAndSettle();
+    expect(find.text('نطاق التاريخ'), findsNothing);
+    expect(find.textContaining('رصيد آخر الفترة'), findsWidgets);
   });
 }
