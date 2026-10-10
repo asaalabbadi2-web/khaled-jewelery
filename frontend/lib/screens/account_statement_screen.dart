@@ -17,10 +17,14 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:image/image.dart' as img;
 
 import '../api_service.dart';
+import '../web_file_io.dart' as web_io;
 import '../models/account_statement_model.dart';
 import '../models/statement_period.dart';
 import '../pdf/account_statement_pdf_builder.dart';
 import '../widgets/cancelled_vouchers_bar.dart';
+import '../theme/app_semantic_colors.dart';
+import '../utils/bidi.dart';
+import '../utils/currency_utils.dart' as cu;
 import '../providers/settings_provider.dart';
 import '../theme/app_theme.dart' as app_theme;
 
@@ -722,10 +726,17 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
     }
 
     final csvData = const ListToCsvConverter().convert(rows);
+    final fileName =
+        'account_statement_${widget.accountId}_${DateFormat('yyyyMMdd_HHmm').format(DateTime.now())}.csv';
+    if (kIsWeb) {
+      // The browser downloads it: a temporary directory and opening a file
+      // do not exist there, so the export did nothing in production (10 Oct
+      // 2026). The BOM lets Excel read the Arabic as UTF-8.
+      web_io.downloadBytes(fileName, [0xEF, 0xBB, 0xBF, ...utf8.encode(csvData)], 'text/csv;charset=utf-8');
+      return;
+    }
     final directory = await getTemporaryDirectory();
-    final file = File(
-      '${directory.path}/account_statement_${widget.accountId}_${DateFormat('yyyyMMdd_HHmm').format(DateTime.now())}.csv',
-    );
+    final file = File('${directory.path}/$fileName');
     await file.writeAsString(csvData, encoding: utf8);
     await OpenFile.open(file.path);
   }
@@ -1132,18 +1143,22 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
                   ),
                 ),
               ),
-            if (!isCard) SliverToBoxAdapter(child: _buildClosingBreakdownSliver(mainKarat)),
+            const SliverToBoxAdapter(child: SizedBox(height: 12)),
           ],
           body: Column(
             children: [
-              Material(
-                elevation: 1,
-                color: Theme.of(context).scaffoldBackgroundColor,
+              DecoratedBox(
+                decoration: BoxDecoration(
+                  color: Theme.of(context).scaffoldBackgroundColor,
+                  border: Border(bottom: BorderSide(color: Theme.of(context).colorScheme.outlineVariant)),
+                ),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    Padding(padding: const EdgeInsets.fromLTRB(16, 8, 16, 0), child: toolbarWidget),
-                    Padding(padding: const EdgeInsets.fromLTRB(16, 6, 16, 8), child: totalsWidget),
+                    Padding(padding: const EdgeInsets.fromLTRB(16, 10, 16, 8), child: toolbarWidget),
+                    if (_activeFiltersCount > 0)
+                      Padding(padding: const EdgeInsets.fromLTRB(20, 0, 20, 8), child: totalsWidget),
                   ],
                 ),
               ),
@@ -1293,83 +1308,34 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
     );
   }
 
+  /// What the filtered lines add up to -- only while a filter works: without
+  /// one it repeated the summary's movement in seven chips.
   Widget _buildFilteredTotalsBar() {
-    if (_statement == null) return const SizedBox.shrink();
-
-    double goldDebit = 0;
-    double goldCredit = 0;
-    double cashDebit = 0;
-    double cashCredit = 0;
-
+    if (_statement == null || _activeFiltersCount == 0) return const SizedBox.shrink();
+    double goldDebit = 0, goldCredit = 0, cashDebit = 0, cashCredit = 0;
     for (final line in _filteredLines) {
-      final debitMain =
-          line.goldDebit;
-      final creditMain =
-          line.goldCredit;
-
-      goldDebit += debitMain;
-      goldCredit += creditMain;
+      goldDebit += line.goldDebit;
+      goldCredit += line.goldCredit;
       cashDebit += line.cashDebit;
       cashCredit += line.cashCredit;
     }
-
     final theme = Theme.of(context);
-    final chips = <Widget>[
-      Chip(
-        label: Text('النتائج: ${_filteredLines.length}'),
-        backgroundColor: theme.colorScheme.surfaceContainerHighest,
-      ),
+    final parts = [
+      'النتائج: ${ltrIsolate('${_filteredLines.length}')}',
+      if (_viewMode != 2)
+        'ذهب — مدين ${ltrIsolate(_goldFmt.format(goldDebit))} · دائن ${ltrIsolate(_goldFmt.format(goldCredit))}',
+      if (_viewMode != 1)
+        'نقد — مدين ${ltrIsolate(_cashFmt.format(cashDebit))} · دائن ${ltrIsolate(_cashFmt.format(cashCredit))}',
     ];
-
-    if (_viewMode != 2) {
-      chips.addAll([
-        Chip(
-          label: Text('ذهب مدين: ${goldDebit.toStringAsFixed(3)}'),
-          backgroundColor: theme.colorScheme.surfaceContainerHighest,
-        ),
-        Chip(
-          label: Text('ذهب دائن: ${goldCredit.toStringAsFixed(3)}'),
-          backgroundColor: theme.colorScheme.surfaceContainerHighest,
-        ),
-        Chip(
-          label: Text(
-            'صافي ذهب: ${(goldDebit - goldCredit).toStringAsFixed(3)}',
-          ),
-          backgroundColor: theme.colorScheme.surfaceContainerHighest,
-        ),
-      ]);
-    }
-
-    if (_viewMode != 1) {
-      chips.addAll([
-        Chip(
-          label: Text('نقد مدين: ${cashDebit.toStringAsFixed(2)}'),
-          backgroundColor: theme.colorScheme.surfaceContainerHighest,
-        ),
-        Chip(
-          label: Text('نقد دائن: ${cashCredit.toStringAsFixed(2)}'),
-          backgroundColor: theme.colorScheme.surfaceContainerHighest,
-        ),
-        Chip(
-          label: Text(
-            'صافي نقد: ${(cashDebit - cashCredit).toStringAsFixed(2)}',
-          ),
-          backgroundColor: theme.colorScheme.surfaceContainerHighest,
-        ),
-      ]);
-    }
-
-    return Card(
-      elevation: 0,
-      color: theme.colorScheme.surface,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: Padding(
-        padding: const EdgeInsets.all(12.0),
-        child: Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          crossAxisAlignment: WrapCrossAlignment.center,
-          children: chips,
+    return Align(
+      alignment: AlignmentDirectional.centerStart,
+      child: Text(
+        parts.join('    |    '),
+        key: const Key('statement-filtered-totals'),
+        style: theme.textTheme.bodySmall?.copyWith(
+          color: theme.colorScheme.onSurfaceVariant,
+          fontWeight: FontWeight.w600,
+          fontFeatures: const [ui.FontFeature.tabularFigures()],
         ),
       ),
     );
@@ -1394,99 +1360,150 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
     );
   }
 
-  Widget _buildSummaryOverview(double maxWidth) {
+  static final NumberFormat _cashFmt = NumberFormat('#,##0.00', 'en_US');
+  static final NumberFormat _goldFmt = NumberFormat('#,##0.000', 'en_US');
+
+  /// A figure with its side, as the statement's columns say it.
+  String _withSide(double value, NumberFormat fmt, String unit, {bool movement = false}) {
+    final side = movement
+        ? (value.abs() < 0.0005 ? '' : (value > 0 ? 'مدين' : 'دائن'))
+        : _balanceSide(value);
+    final unitPart = unit.isEmpty ? '' : ' $unit';
+    return '${ltrIsolate(fmt.format(value.abs()))}$unitPart${side.isEmpty ? '' : ' $side'}';
+  }
+
+  Widget _summaryLine(String label, String value, Color color, {bool cash = false}) {
     final theme = Theme.of(context);
+    final style = theme.textTheme.titleSmall?.copyWith(
+      fontWeight: FontWeight.w800,
+      color: color,
+      fontFeatures: const [ui.FontFeature.tabularFigures()],
+    );
+    return Padding(
+      padding: const EdgeInsets.only(top: 6),
+      child: Row(
+        children: [
+          Text(label, style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
+          const SizedBox(width: 8),
+          Expanded(
+            child: cash
+                ? cu.SarAwareText(value,
+                    isNewSar: context.read<SettingsProvider>().currencyIsNewSar,
+                    textAlign: TextAlign.end, style: style, maxLines: 1, overflow: TextOverflow.ellipsis)
+                : Text(value, textAlign: TextAlign.end, style: style, maxLines: 1, overflow: TextOverflow.ellipsis),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _summaryTile({
+    required Key key,
+    required String title,
+    required List<Widget> lines,
+    bool emphasized = false,
+    String? footnote,
+  }) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return Container(
+      key: key,
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+      decoration: BoxDecoration(
+        color: emphasized ? scheme.primaryContainer.withValues(alpha: 0.55) : scheme.surface,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: emphasized ? scheme.primary.withValues(alpha: 0.35) : scheme.outlineVariant),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(title,
+              style: theme.textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w800, color: scheme.onSurfaceVariant)),
+          ...lines,
+          if (footnote != null && footnote.isNotEmpty) ...[
+            const SizedBox(height: 6),
+            Text(footnote,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.labelSmall?.copyWith(color: scheme.onSurfaceVariant)),
+          ],
+        ],
+      ),
+    );
+  }
+
+  /// Opening, movement, closing and the live valuation: one light row on a
+  /// wide screen, two by two on a narrow one (the owner, 10 Oct 2026 -- four
+  /// heavy cards, boxes in boxes, split three and one).
+  Widget _buildSummaryOverview(double maxWidth) {
     final statement = _statement!;
-
+    final tones = AppSemanticColors.of(context);
+    final currency = context.read<SettingsProvider>().currencySymbolText;
     final period = _periodSummary();
+    final showGold = _viewMode != 2;
+    final showCash = _viewMode != 1;
+    final ranged = _dateRange != null;
 
-    const closingTitle = 'رصيد ختامي (موزون)';
+    List<Widget> figures(double gold, double cash, {bool movement = false}) => [
+          if (showGold)
+            _summaryLine('ذهب ع${statement.mainKarat}', _withSide(gold, _goldFmt, 'جم', movement: movement), tones.gold.fg),
+          if (showCash)
+            _summaryLine(statement.isMerged ? 'قيمة' : 'نقد', _withSide(cash, _cashFmt, currency, movement: movement),
+                tones.cash.fg, cash: true),
+        ];
 
-    final openingTitle = _dateRange == null
-        ? 'رصيد افتتاحي (عيار ${statement.mainKarat})'
-        : 'رصيد افتتاحي للفترة (عيار ${statement.mainKarat})';
+    final karats = !ranged && showGold
+        ? statement.closingBalanceGoldDetails.entries
+            .where((e) => e.value.abs() >= 0.0005)
+            .map((e) => '${e.key.replaceAll('k', '')}: ${ltrIsolate(_goldFmt.format(e.value))}')
+            .join('  ·  ')
+        : '';
 
-    final movementTitle = _dateRange == null ? 'إجمالي الحركة' : 'حركة الفترة';
-
-    final cards = <Widget>[
-      _SummaryCard(
-        title: openingTitle,
-        goldValue: period.openingGold,
-        cashValue: period.openingCash,
-        color: theme.colorScheme.primary,
-        icon: Icons.lock_clock,
-        mainKarat: statement.mainKarat,
+    final tiles = <Widget>[
+      _summaryTile(
+        key: const Key('summary-opening'),
+        title: ranged ? 'رصيد أول الفترة' : 'الرصيد الافتتاحي',
+        lines: figures(period.openingGold, period.openingCash),
       ),
-      _SummaryCard(
-        title: movementTitle,
-        goldValue: period.movementGold,
-        cashValue: period.movementCash,
-        color: theme.colorScheme.secondary,
-        icon: Icons.sync_alt,
-        mainKarat: statement.mainKarat,
+      _summaryTile(
+        key: const Key('summary-movement'),
+        title: ranged ? 'حركة الفترة' : 'حركة الكشف',
+        lines: figures(period.movementGold, period.movementCash, movement: true),
       ),
-      _SummaryCard(
-        title: closingTitle,
-        goldValue: _dateRange == null
-            ? statement.closingBalanceGoldNormalized
-            : period.closingGold,
-        cashValue: _dateRange == null
-            ? statement.closingBalanceCash
-            : period.closingCash,
-        color: theme.colorScheme.tertiary,
-        icon: Icons.summarize,
-        mainKarat: statement.mainKarat,
+      _summaryTile(
+        key: const Key('summary-closing'),
+        title: ranged ? 'رصيد آخر الفترة' : 'الرصيد الختامي',
+        lines: figures(period.closingGold, period.closingCash),
+        emphasized: true,
+        footnote: karats.isEmpty ? null : 'بالعيار: $karats',
       ),
     ];
 
-    final hasLivePrice =
-        (statement.goldPricePerGramMainKarat ?? 0) > 0 ||
-        (statement.valuationTotalValueEstimate ?? 0) != 0;
-
-    if (hasLivePrice) {
-      cards.add(
-        _ValuationCard(
-          mainKarat: statement.mainKarat,
-          pricePerGramMainKarat: statement.goldPricePerGramMainKarat,
-          priceSource: statement.goldPriceSource,
-          priceUpdatedAt: statement.goldPriceUpdatedAt,
-          totalValueEstimate: statement.valuationTotalValueEstimate,
-          goldValueEstimate: statement.valuationGoldValueEstimate,
-        ),
-      );
+    final price = statement.goldPricePerGramMainKarat ?? 0;
+    final value = statement.valuationTotalValueEstimate;
+    if (price > 0 || (value ?? 0) != 0) {
+      final at = statement.goldPriceUpdatedAt;
+      tiles.add(_summaryTile(
+        key: const Key('summary-valuation'),
+        title: 'التقييم الحيّ (تقديري)',
+        lines: [
+          if (value != null) _summaryLine('القيمة', '${ltrIsolate(_cashFmt.format(value))} $currency', tones.cash.fg, cash: true),
+          if (price > 0)
+            _summaryLine('جرام ع${statement.mainKarat}', '${ltrIsolate(_cashFmt.format(price))} $currency', tones.gold.fg,
+                cash: true),
+        ],
+        // §13: a live price, not a frozen figure of the statement.
+        footnote: 'بسعر لحظي${at == null ? '' : ' ${DateFormat('HH:mm').format(at.toLocal())}'} — يتغيّر ولا يُجمَّد',
+      ));
     }
 
-    final isCompact = maxWidth < 720;
-
-    if (isCompact) {
-      // Cards scroll horizontally as one row instead of stacking full-width,
-      // so they don't push the table/list far below the fold on small screens.
-      return SizedBox(
-        height: 180,
-        child: ListView.separated(
-          scrollDirection: Axis.horizontal,
-          itemCount: cards.length,
-          separatorBuilder: (_, _) => const SizedBox(width: 12),
-          itemBuilder: (_, index) =>
-              SizedBox(width: 280, child: cards[index]),
-        ),
-      );
-    }
-
-    final cardsPerRow = cards.length == 4 ? 2 : 3;
-    final cardWidth = (maxWidth - (12 * (cardsPerRow - 1))) / cardsPerRow;
-
+    const gap = 12.0;
+    final columns = maxWidth >= 1000 ? tiles.length : 2;
+    final width = (maxWidth - gap * (columns - 1)) / columns;
     return Wrap(
-      spacing: 12,
-      runSpacing: 12,
-      children: cards
-          .map(
-            (card) => SizedBox(
-              width: cardWidth.clamp(260, 420).toDouble(),
-              child: card,
-            ),
-          )
-          .toList(),
+      spacing: gap,
+      runSpacing: gap,
+      children: [for (final t in tiles) SizedBox(width: width, child: t)],
     );
   }
 
@@ -1506,25 +1523,30 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
   int get _panelFiltersCount =>
       (_filterType != 'all' ? 1 : 0) + (_filterKarat != null ? 1 : 0) + (_showOnlyMovement ? 1 : 0);
 
+  String get _periodLabel {
+    final r = _dateRange;
+    if (r == null) return 'كل الفترات';
+    final f = DateFormat('dd/MM/yyyy');
+    return r.start == r.end ? f.format(r.start) : '${f.format(r.start)} – ${f.format(r.end)}';
+  }
+
   Widget _buildToolbar(double maxWidth) {
     final isNarrow = maxWidth < 500;
     final isCompact = maxWidth < 700;
-
-    // View-mode labels
-    const viewModeLabels = {0: 'مزدوج', 1: 'ذهب فقط', 2: 'نقدي فقط'};
-
     final theme = Theme.of(context);
     // The panel is open when asked, or when a filter in it hides lines -- a
     // filter at work is never out of sight.
     final panelOpen = _filtersOpen || _panelFiltersCount > 0;
+    const segmentStyle = ButtonStyle(
+      visualDensity: VisualDensity.compact,
+      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+    );
     return Container(
-      padding: const EdgeInsets.all(10),
+      padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
       decoration: BoxDecoration(
         color: theme.colorScheme.surface,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: theme.colorScheme.outline.withValues(alpha: 0.14),
-        ),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: theme.colorScheme.outlineVariant),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1554,8 +1576,32 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
                   ),
                 ),
               ),
+              // One control for the period: the ready ones, or a range.
+              PopupMenuButton<String>(
+                key: const Key('statement-periods'),
+                tooltip: 'الفترة',
+                onSelected: (key) => key == 'custom' ? _pickDateRange() : _setPeriod(key),
+                itemBuilder: (_) => const [
+                  PopupMenuItem(value: 'today', child: Text('اليوم')),
+                  PopupMenuItem(value: 'this_month', child: Text('هذا الشهر')),
+                  PopupMenuItem(value: 'last_month', child: Text('الشهر الماضي')),
+                  PopupMenuItem(value: 'this_year', child: Text('هذه السنة')),
+                  PopupMenuDivider(),
+                  PopupMenuItem(value: 'custom', child: Text('نطاق مخصص…')),
+                  PopupMenuItem(value: 'all', child: Text('كل الفترات')),
+                ],
+                child: IgnorePointer(
+                  child: OutlinedButton.icon(
+                    onPressed: () {},
+                    style: OutlinedButton.styleFrom(visualDensity: VisualDensity.compact),
+                    icon: const Icon(Icons.event_note, size: 18),
+                    label: Text(_periodLabel, overflow: TextOverflow.ellipsis),
+                  ),
+                ),
+              ),
               SegmentedButton<bool>(
                 key: const Key('statement-order'),
+                style: segmentStyle,
                 showSelectedIcon: false,
                 segments: const [
                   ButtonSegment(value: false, label: Text('الأحدث أولًا'), icon: Icon(Icons.south, size: 16)),
@@ -1567,67 +1613,14 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
                   if (choice.isNotEmpty) _setOrder(oldestFirst: choice.first);
                 },
               ),
-              PopupMenuButton<String>(
-                key: const Key('statement-periods'),
-                tooltip: 'فترات جاهزة',
-                onSelected: _setPeriod,
-                itemBuilder: (_) => const [
-                  PopupMenuItem(value: 'today', child: Text('اليوم')),
-                  PopupMenuItem(value: 'this_month', child: Text('هذا الشهر')),
-                  PopupMenuItem(value: 'last_month', child: Text('الشهر الماضي')),
-                  PopupMenuItem(value: 'this_year', child: Text('هذه السنة')),
-                  PopupMenuDivider(),
-                  PopupMenuItem(value: 'all', child: Text('كل الفترات')),
-                ],
-                child: const Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 8, vertical: 10),
-                  child: Row(mainAxisSize: MainAxisSize.min, children: [
-                    Icon(Icons.event_note, size: 18),
-                    SizedBox(width: 4),
-                    Text('فترة'),
-                  ]),
-                ),
-              ),
-              ElevatedButton.icon(
-                onPressed: _pickDateRange,
-                icon: const Icon(Icons.date_range, size: 18),
-                label: Text(
-                  _dateRange == null
-                      ? 'نطاق التاريخ'
-                      : '${DateFormat('dd/MM/yyyy').format(_dateRange!.start)} - ${DateFormat('dd/MM/yyyy').format(_dateRange!.end)}',
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-              if (isNarrow)
-                SizedBox(
-                  width: 130,
-                  child: DropdownButtonFormField<int>(
-                    value: _viewMode,
-                    decoration: const InputDecoration(
-                      labelText: 'العرض',
-                      isDense: true,
-                    ),
-                    items: viewModeLabels.entries
-                        .map(
-                          (e) => DropdownMenuItem(
-                            value: e.key,
-                            child: Text(e.value),
-                          ),
-                        )
-                        .toList(),
-                    onChanged: (value) {
-                      if (value == null) return;
-                      setState(() => _viewMode = value);
-                      _filterLines();
-                    },
-                  ),
-                )
-              else
+              if (!isNarrow)
                 SegmentedButton<int>(
+                  style: segmentStyle,
+                  showSelectedIcon: false,
                   segments: const [
                     ButtonSegment(value: 0, label: Text('مزدوج')),
-                    ButtonSegment(value: 1, label: Text('ذهب فقط')),
-                    ButtonSegment(value: 2, label: Text('نقدي فقط')),
+                    ButtonSegment(value: 1, label: Text('ذهب')),
+                    ButtonSegment(value: 2, label: Text('نقد')),
                   ],
                   selected: {_viewMode},
                   onSelectionChanged: (value) {
@@ -1645,7 +1638,7 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
                 TextButton.icon(
                   onPressed: _clearFilters,
                   icon: const Icon(Icons.close, size: 16),
-                  label: const Text('مسح الفلاتر'),
+                  label: const Text('مسح'),
                 ),
               _buildExportMenu(),
             ],
@@ -1655,6 +1648,24 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
             _buildFilterRow(
               isCompact: isCompact,
               children: [
+                if (isNarrow)
+                  SizedBox(
+                    width: 130,
+                    child: DropdownButtonFormField<int>(
+                      value: _viewMode,
+                      decoration: const InputDecoration(labelText: 'العرض', isDense: true),
+                      items: const [
+                        DropdownMenuItem(value: 0, child: Text('مزدوج')),
+                        DropdownMenuItem(value: 1, child: Text('ذهب فقط')),
+                        DropdownMenuItem(value: 2, child: Text('نقدي فقط')),
+                      ],
+                      onChanged: (value) {
+                        if (value == null) return;
+                        setState(() => _viewMode = value);
+                        _filterLines();
+                      },
+                    ),
+                  ),
               SizedBox(
                 width: 120,
                 child: DropdownButtonFormField<String>(
@@ -1752,7 +1763,8 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
   }
 
   Widget _buildExportMenu() {
-    return ElevatedButton.icon(
+    return OutlinedButton.icon(
+      style: OutlinedButton.styleFrom(visualDensity: VisualDensity.compact),
       onPressed: _isExporting ? null : _showExportSheet,
       icon: _isExporting
           ? const SizedBox(
@@ -1779,7 +1791,7 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
       if (_viewMode != 1) 'cash_debit': 125,
       if (_viewMode != 1) 'cash_credit': 125,
       if (_viewMode != 1) 'cash_balance': 170,
-      if (_includeBreakdown && _viewMode != 2) 'breakdown': 170,
+      if (_includeBreakdown && _viewMode != 2) 'breakdown': 64,
       'actions': 56,
     };
     final baseWidth = widths.values.fold<double>(
@@ -2015,7 +2027,7 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
                               ),
                             if (_includeBreakdown && _viewMode != 2)
                               headerCell(
-                                label: 'العيارات',
+                                label: 'عيارات',
                                 width: widths['breakdown']!,
                                 alignment: Alignment.center,
                               ),
@@ -2090,19 +2102,11 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
                                           bodyCell(
                                             width: widths['breakdown']!,
                                             alignment: Alignment.center,
-                                            child: OutlinedButton(
-                                              onPressed: () => _showLineDetails(
-                                                line,
-                                                mainKarat,
-                                              ),
-                                              style: OutlinedButton.styleFrom(
-                                                minimumSize: const Size(0, 36),
-                                                padding:
-                                                    const EdgeInsets.symmetric(
-                                                      horizontal: 10,
-                                                    ),
-                                              ),
-                                              child: const Text('تفصيل'),
+                                            child: IconButton(
+                                              tooltip: 'تفصيل العيارات',
+                                              visualDensity: VisualDensity.compact,
+                                              icon: const Icon(Icons.scale_outlined, size: 18),
+                                              onPressed: () => _showLineDetails(line, mainKarat),
                                             ),
                                           ),
                                         bodyCell(
@@ -2178,14 +2182,6 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
             ),
           ),
         );
-  }
-
-  Widget _buildClosingBreakdownSliver(double mainKarat) {
-    if (_statement == null) return const SizedBox.shrink();
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-      child: _buildClosingBreakdown(mainKarat),
-    );
   }
 
   /// The period's opening or closing, as a card in the narrow layout -- the
@@ -2392,53 +2388,13 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
     );
   }
 
-  Widget _buildClosingBreakdown(double mainKarat) {
-    final closingDetails = _statement!.closingBalanceGoldDetails;
-    if (closingDetails.isEmpty) {
-      return const SizedBox.shrink();
-    }
-
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            'تفصيل الرصيد الختامي حسب العيارات',
-            style: TextStyle(fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 8),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: closingDetails.entries
-                .map(
-                  (entry) => Chip(
-                    avatar: const Icon(Icons.scale, size: 16),
-                    label: Text(
-                      '${entry.key}: ${entry.value.toStringAsFixed(3)} جم ≈ ${_convertToMainKarat(entry.value, int.tryParse(entry.key.replaceAll(RegExp(r'[^0-9]'), '')) ?? 21, mainKarat).toStringAsFixed(3)} (${_statement!.mainKarat}k)',
-                    ),
-                  ),
-                )
-                .toList(),
-          ),
-        ],
-      ),
-    );
-  }
-
-  double _convertToMainKarat(double value, int karat, double mainKarat) {
-    if (value == 0) return 0;
-    return (value * karat) / mainKarat;
-  }
-
   Widget _numCell(double? value, {Color? color, int fractionDigits = 3}) {
     if (value == null || value.abs() < 0.0001) {
       return const Text('', textAlign: TextAlign.end);
     }
 
     return Text(
-      value.toStringAsFixed(fractionDigits),
+      (fractionDigits == 3 ? _goldFmt : _cashFmt).format(value),
       textAlign: TextAlign.end,
       style: TextStyle(
         color: color ?? Theme.of(context).colorScheme.onSurface,
@@ -2464,7 +2420,7 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
     return Text.rich(
       TextSpan(children: [
         TextSpan(
-          text: value.abs().toStringAsFixed(fractionDigits),
+          text: (fractionDigits == 3 ? _goldFmt : _cashFmt).format(value.abs()),
           style: TextStyle(
             fontWeight: bold ? FontWeight.w800 : FontWeight.w600,
             fontFeatures: const [ui.FontFeature.tabularFigures()],
@@ -3364,303 +3320,6 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
     }
 
     return buffer.toString();
-  }
-}
-
-class _SummaryCard extends StatelessWidget {
-  final String title;
-  final double goldValue;
-  final double cashValue;
-  final Color color;
-  final IconData icon;
-  final int mainKarat;
-
-  const _SummaryCard({
-    required this.title,
-    required this.goldValue,
-    required this.cashValue,
-    required this.color,
-    required this.icon,
-    required this.mainKarat,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final textTheme = theme.textTheme;
-    final borderColor = theme.colorScheme.outlineVariant;
-    final goldColor = app_theme.AppColors.primaryGold;
-    final cashColor = app_theme.AppColors.success;
-
-    return Card(
-      elevation: 0,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
-        side: BorderSide(color: borderColor),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Container(
-                  width: 40,
-                  height: 40,
-                  decoration: BoxDecoration(
-                    color: color.withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Icon(icon, color: color),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Text(
-                    title,
-                    style: textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(
-                  child: _SummaryMetric(
-                    label: 'ذهب (جم)',
-                    value: goldValue.toStringAsFixed(3),
-                    subtitle: 'مكافئ عيار $mainKarat',
-                    color: goldColor,
-                    icon: Icons.scale,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: _SummaryMetric(
-                    label: 'نقد (ر.س)',
-                    value: cashValue.toStringAsFixed(2),
-                    color: cashColor,
-                    icon: Icons.payments,
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _ValuationCard extends StatelessWidget {
-  final int mainKarat;
-  final double? pricePerGramMainKarat;
-  final String? priceSource;
-  final DateTime? priceUpdatedAt;
-  final double? totalValueEstimate;
-  final double? goldValueEstimate;
-
-  const _ValuationCard({
-    required this.mainKarat,
-    required this.pricePerGramMainKarat,
-    required this.priceSource,
-    required this.priceUpdatedAt,
-    required this.totalValueEstimate,
-    required this.goldValueEstimate,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final textTheme = theme.textTheme;
-    final borderColor = theme.colorScheme.outlineVariant;
-    final goldColor = app_theme.AppColors.primaryGold;
-    final cashColor = app_theme.AppColors.success;
-
-    String updatedLabel() {
-      final local = priceUpdatedAt?.toLocal();
-      if (local == null) return '';
-      try {
-        return DateFormat('yyyy-MM-dd HH:mm').format(local);
-      } catch (_) {
-        return '';
-      }
-    }
-
-    final priceText = (pricePerGramMainKarat ?? 0) > 0
-        ? pricePerGramMainKarat!.toStringAsFixed(2)
-        : '—';
-    final totalText = totalValueEstimate?.toStringAsFixed(2) ?? '—';
-    final goldValueText = goldValueEstimate?.toStringAsFixed(2);
-
-    final source = (priceSource ?? '').trim();
-    final updatedAt = updatedLabel();
-    final subtitleParts = <String>['عيار $mainKarat'];
-    if (source.isNotEmpty) subtitleParts.add(source);
-    if (updatedAt.isNotEmpty) subtitleParts.add(updatedAt);
-
-    return Card(
-      elevation: 0,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
-        side: BorderSide(color: borderColor),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Container(
-                  width: 40,
-                  height: 40,
-                  decoration: BoxDecoration(
-                    color: theme.colorScheme.primary.withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Icon(
-                    Icons.price_check,
-                    color: theme.colorScheme.primary,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'السعر اللحظي والتقييم',
-                        style: textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.bold,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        subtitleParts.join(' • '),
-                        style: textTheme.labelSmall?.copyWith(
-                          color: theme.colorScheme.onSurfaceVariant,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(
-                  child: _SummaryMetric(
-                    label: 'سعر الجرام (ر.س)',
-                    value: priceText,
-                    subtitle: 'مكافئ عيار $mainKarat',
-                    color: goldColor,
-                    icon: Icons.attach_money,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: _SummaryMetric(
-                    label: 'قيمة تقديرية (ر.س)',
-                    value: totalText,
-                    subtitle: goldValueText == null
-                        ? null
-                        : 'ذهب: $goldValueText',
-                    color: cashColor,
-                    icon: Icons.assessment,
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _SummaryMetric extends StatelessWidget {
-  final String label;
-  final String value;
-  final Color color;
-  final IconData icon;
-  final String? subtitle;
-
-  const _SummaryMetric({
-    required this.label,
-    required this.value,
-    required this.color,
-    required this.icon,
-    this.subtitle,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.08),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          Icon(icon, color: color, size: 20),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  label,
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: color.withValues(alpha: 0.8),
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                const SizedBox(height: 4),
-                FittedBox(
-                  alignment: AlignmentDirectional.centerStart,
-                  fit: BoxFit.scaleDown,
-                  child: Text(
-                    value,
-                    style: TextStyle(
-                      fontWeight: FontWeight.w700,
-                      color: color,
-                      fontSize: 15,
-                      fontFeatures: const [ui.FontFeature.tabularFigures()],
-                    ),
-                  ),
-                ),
-                if (subtitle != null) ...[
-                  const SizedBox(height: 2),
-                  Text(
-                    subtitle!,
-                    style: theme.textTheme.labelSmall?.copyWith(
-                      color: theme.colorScheme.onSurfaceVariant,
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ],
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
   }
 }
 

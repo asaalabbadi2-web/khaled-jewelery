@@ -154,7 +154,7 @@ void main() {
 
     expect(find.textContaining('تسديد عميل'), findsWidgets);
     expect(find.textContaining('بيع نقدي'), findsNothing);
-    expect(find.text('2500.00 مدين'), findsWidgets, reason: 'the balance after the payment');
+    expect(find.text('2,500.00 مدين'), findsWidgets, reason: 'the balance after the payment');
     expect(find.text('500.00 دائن'), findsNothing,
         reason: 'recomputed from the filtered lines, the payment read as a balance of -500.00');
     expect(find.text('فلاتر (1)'), findsOneWidget,
@@ -192,8 +192,8 @@ void main() {
 
   testWidgets('a customer\'s balance reads «عليه», an account\'s «مدين»', (tester) async {
     await open(tester, entityType: 'customer');
-    expect(find.text('2500.00 عليه'), findsWidgets);
-    expect(find.text('2500.00 مدين'), findsNothing);
+    expect(find.text('2,500.00 عليه'), findsWidgets);
+    expect(find.text('2,500.00 مدين'), findsNothing);
   });
 
   testWidgets('a failed load says so and offers to try again -- not «no records»', (tester) async {
@@ -206,18 +206,18 @@ void main() {
 
   testWidgets('a ready period sets the range in one tap', (tester) async {
     await open(tester);
-    expect(find.text('نطاق التاريخ'), findsOneWidget);
+    expect(find.text('كل الفترات'), findsOneWidget);
     await tester.tap(find.byKey(const Key('statement-periods')));
     await tester.pumpAndSettle();
     await tester.tap(find.text('هذا الشهر').last);
     await tester.pumpAndSettle();
-    expect(find.text('نطاق التاريخ'), findsNothing);
+    expect(find.text('كل الفترات'), findsNothing);
     expect(find.textContaining('رصيد آخر الفترة'), findsWidgets);
   });
 
   testWidgets('one scroll: dragging the lines first takes the summary away', (tester) async {
     await open(tester, api: _FakeApi(long: true));
-    final summary = find.textContaining('رصيد افتتاحي');
+    final summary = find.byKey(const Key('summary-opening'));
     final before = top(tester, summary);
 
     await tester.drag(find.text('بيع رقم 50'), const Offset(0, -500));
@@ -257,5 +257,31 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('statement-skeleton')), findsNothing);
     expect(find.textContaining('تسديد عميل'), findsWidgets);
+  });
+
+  testWidgets('the summary: one row of light tiles, figures with their side and thousands', (tester) async {
+    await open(tester);
+    final tiles = ['summary-opening', 'summary-movement', 'summary-closing']
+        .map((k) => tester.getRect(find.byKey(Key(k))))
+        .toList();
+    expect(tiles.map((r) => r.top).toSet(), hasLength(1), reason: 'one row on a wide screen, not three and one');
+    final closing = find.byKey(const Key('summary-closing'));
+    expect(find.descendant(of: closing, matching: find.textContaining('2,500.00')), findsOneWidget);
+    expect(find.descendant(of: find.byKey(const Key('summary-movement')), matching: find.textContaining('مدين')),
+        findsWidgets, reason: 'a movement says its side, not a sign');
+    for (final k in ['summary-opening', 'summary-movement', 'summary-closing']) {
+      expect(find.descendant(of: find.byKey(Key(k)), matching: find.textContaining('-')), findsNothing,
+          reason: 'no signed figure in $k');
+    }
+  });
+
+  testWidgets('the totals line appears only while a filter works', (tester) async {
+    await open(tester);
+    expect(find.byKey(const Key('statement-filtered-totals')), findsNothing,
+        reason: 'without a filter it repeated the summary');
+    await tester.enterText(find.byType(TextField).first, 'بيع');
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('statement-filtered-totals')), findsOneWidget);
+    expect(find.textContaining('النتائج: '), findsOneWidget);
   });
 }
