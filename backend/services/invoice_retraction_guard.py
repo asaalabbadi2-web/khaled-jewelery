@@ -15,6 +15,16 @@ Two questions, answered here once and asked by every retraction path:
       are refused while any remains: cancel it, or move its attribution to the
       invoice that replaces this one.
 
+  closing_executions_of(invoice_id)
+      Gold already closed against the invoice's weight-closing order: a
+      purchase consumed it and booked its cost of sale. Rejecting and unposting
+      are refused while any stands -- a return reverses it, not a retraction.
+
+  retracted_posting_refusal(invoice)
+      A rejected invoice is not posted again, from any door (10 Oct 2026: the
+      posting screen listed rejected 3303 and posted it -- a second sale of the
+      gold re-entered as 3304, and 2,500 owed with no receipt).
+
   financial_history_of(invoice_id)
       Every row some OTHER document or process wrote about the invoice --
       payments (cancelled included), attributions, returns, closings, bonuses,
@@ -260,6 +270,43 @@ def financial_history_of(invoice_id: int, skip_payment_ids=frozenset()) -> list[
     for t in foreign_rows.order_by(SafeBoxTransaction.id).limit(20).all():
         labels.append(f'حركة خزينة ({t.ref_type or "بلا نوع"}) #{t.id}')
     return labels
+
+
+def retracted_posting_refusal(invoice) -> str | None:
+    """Why *invoice* may not be posted: it was retracted. None: it may."""
+    from services.gold_allocation_service import RETRACTED_INVOICE_STATUSES
+    if (getattr(invoice, 'status', None) or '') in RETRACTED_INVOICE_STATUSES:
+        return 'لا تُرحَّل فاتورة مرفوضة: رفضها نهائي، وما أُعيد إدخاله يُرحَّل في فاتورته الجديدة'
+    return None
+
+
+def closing_executions_of(invoice_id: int) -> float:
+    """Main-karat grams already closed against the invoice's weight-closing order."""
+    from models import WeightClosingExecution, WeightClosingOrder
+    total = (db.session.query(sa.func.coalesce(sa.func.sum(WeightClosingExecution.weight_main_karat), 0.0))
+             .join(WeightClosingOrder, WeightClosingOrder.id == WeightClosingExecution.order_id)
+             .filter(WeightClosingOrder.invoice_id == invoice_id)
+             .scalar())
+    return round(float(total or 0.0), 6)
+
+
+def closing_executions_message(action: str, grams: float) -> str:
+    return (f'لا يمكن {action} الفاتورة: نُفّذ من أمر تسكيرها {grams:.3f} جم '
+            'وسُجّلت تكلفة بيعه — يُعالَج ذلك بفاتورة مرتجع')
+
+
+def withdraw_closing_order(invoice) -> None:
+    """The invoice no longer stands: its weight-closing order is cancelled, so no
+    purchase ever closes gold against a sale that did not happen. Caller has
+    refused first if anything was executed (closing_executions_of)."""
+    from models import WeightClosingOrder
+    order = WeightClosingOrder.query.filter_by(invoice_id=invoice.id).first()
+    if order is None or order.status == 'cancelled':
+        return
+    order.status = 'cancelled'
+    order.remaining_weight_main_karat = 0.0
+    invoice.weight_closing_status = 'cancelled'
+    invoice.weight_closing_remaining_weight = 0.0
 
 
 def draft_payments_of(invoice) -> list:

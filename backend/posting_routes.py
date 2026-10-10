@@ -1891,7 +1891,12 @@ def close_shift():
 def get_unposted_invoices():
     """عرض جميع الفواتير غير المرحلة"""
     try:
-        invoices = Invoice.query.filter_by(is_posted=False).order_by(Invoice.date.desc()).all()
+        # A rejected invoice is not awaiting posting: listed here, it was one
+        # click from being posted again (3303, 10 Oct 2026).
+        from services.gold_allocation_service import RETRACTED_INVOICE_STATUSES
+        invoices = (Invoice.query.filter_by(is_posted=False)
+                    .filter(db.func.coalesce(Invoice.status, '').notin_(list(RETRACTED_INVOICE_STATUSES)))
+                    .order_by(Invoice.date.desc()).all())
         
         return jsonify({
             'success': True,
@@ -2092,8 +2097,12 @@ def post_invoice_document(invoice: Invoice, posted_by: str) -> None:
     movements and inventory ledger (both idempotent -- written at creation for
     an invoice posted at once, never for one that waited); its approval alert
     closed; the cached balances of every account its entries touch.
-    Caller checks is_posted first and commits.
+    Caller checks is_posted and retracted_posting_refusal first, and commits.
     """
+    from services.invoice_retraction_guard import retracted_posting_refusal
+    refusal = retracted_posting_refusal(invoice)
+    if refusal:
+        raise ValueError(refusal)
     now = datetime.now()
     invoice.is_posted = True
     invoice.posted_at = now
@@ -2283,7 +2292,12 @@ def post_invoice(invoice_id):
                 'success': False, 
                 'message': 'الفاتورة مرحلة بالفعل'
             }), 400
-        
+
+        from services.invoice_retraction_guard import retracted_posting_refusal
+        refusal = retracted_posting_refusal(invoice)
+        if refusal:
+            return jsonify({'success': False, 'error': 'invoice_retracted', 'message': refusal}), 409
+
         post_invoice_document(invoice, posted_by)
 
         db.session.commit()
@@ -2395,6 +2409,11 @@ def approve_large_discount_invoice(invoice_id):
         if getattr(invoice, 'is_posted', False):
             return jsonify({'success': False, 'message': 'الفاتورة مرحلة بالفعل'}), 400
 
+        from services.invoice_retraction_guard import retracted_posting_refusal
+        refusal = retracted_posting_refusal(invoice)
+        if refusal:
+            return jsonify({'success': False, 'error': 'invoice_retracted', 'message': refusal}), 409
+
         # The ONE posting (APPROVE-001): the same result as «✓ ترحيل».
         post_invoice_document(invoice, approved_by)
 
@@ -2449,7 +2468,11 @@ def post_invoices_batch():
         posted_count = 0
         skipped_count = 0
         
+        from services.invoice_retraction_guard import retracted_posting_refusal
         for invoice in invoices:
+            if not invoice.is_posted and retracted_posting_refusal(invoice):
+                skipped_count += 1   # rejected: never posted, whoever selects it
+                continue
             if not invoice.is_posted:
                 post_invoice_document(invoice, posted_by)
                 posted_count += 1
@@ -2567,7 +2590,13 @@ def unpost_invoice(invoice_id):
         # unpost their JEs, set them 'pending' -- and re-posting never wrote the
         # safe-box rows back: 1641/1779/2204/2478 read 92,385.00 short in the
         # cash and Mada statements. See services/invoice_retraction_guard.py.
-        from services.invoice_retraction_guard import live_payments_message, live_payments_of
+        from services.invoice_retraction_guard import (
+            closing_executions_message, closing_executions_of, live_payments_message, live_payments_of,
+        )
+        closed = closing_executions_of(invoice_id)
+        if closed > 0:
+            return jsonify({'success': False, 'error': 'has_closing_executions',
+                            'message': closing_executions_message('إلغاء ترحيل', closed)}), 409
         standing = live_payments_of(invoice_id)
         if standing:
             message = live_payments_message('إلغاء ترحيل', standing)
@@ -3000,10 +3029,15 @@ def unpost_invoices_batch():
 
         # All or nothing, asked before anything is written: one invoice with a
         # standing payment stops the batch, and the reply names it.
-        from services.invoice_retraction_guard import live_payments_message, live_payments_of
+        from services.invoice_retraction_guard import (
+            closing_executions_of, live_payments_message, live_payments_of,
+        )
         blocked = {}
         for invoice in invoices:
             standing = live_payments_of(invoice.id)
+            closed = closing_executions_of(invoice.id)
+            if closed > 0:
+                standing = list(standing) + [f'تسكير منفَّذ {closed:.3f} جم']
             if standing:
                 blocked[str(invoice.id)] = standing
         if blocked:

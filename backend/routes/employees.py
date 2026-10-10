@@ -1890,7 +1890,15 @@ def check_goal_progress():
             if metric == 'points':
                 # نستدعي المحرك المشترك بنفس إعدادات سباق الأداء — Single Source of Truth
                 # يضمن تطابق نقاط الهدف مع نقاط اللوحة تماماً
-                from points.engine import compute_invoices_points
+                # ومرتجع بيعٍ له في الفترة يسترد نقاط بيعه (قرار المالك 10 أكتوبر 2026)
+                from points.engine import compute_invoices_points, sale_returns_against
+
+                def _sold_by(original):
+                    if _goal_username:
+                        return or_(original.employee_id == employee_id, original.posted_by == _goal_username)
+                    return original.employee_id == employee_id
+
+                invoices = invoices + sale_returns_against(_sold_by, start_dt, end_dt)
                 return compute_invoices_points(
                     invoices,
                     points_source=_race_points_source,

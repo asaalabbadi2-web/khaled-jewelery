@@ -157,7 +157,7 @@ def _check(session):
     pending = session.info.get('journal_entry_guard')
     if not pending:
         return
-    from models import Invoice, JournalEntry, Voucher
+    from models import Invoice, JournalEntry, Voucher, db
     problems = []
     with session.no_autoflush:
         invoice_ids = set(pending['invoices'])
@@ -169,7 +169,19 @@ def _check(session):
             inv = session.get(Invoice, inv_id)
             if inv is None:
                 continue
-            for je in session.query(JournalEntry).filter_by(reference_type='invoice', reference_id=inv_id).all():
+            entries = session.query(JournalEntry).filter_by(reference_type='invoice', reference_id=inv_id).all()
+            # A posted entry taken back by a posted reversal no longer counts
+            # (stage 4 corrected rejected 2821 and 3123 so, by entries): under
+            # an unposted invoice it is withdrawn, not a lone touch. Without
+            # this, any later write to those invoices was refused (10 Oct 2026).
+            taken_back = {rid for (rid,) in session.query(JournalEntry.reference_id).filter(
+                JournalEntry.reference_type == 'journal_entry_reversal',
+                JournalEntry.reference_id.in_([je.id for je in entries] or [-1]),
+                JournalEntry.is_posted.is_(True),
+                db.func.coalesce(JournalEntry.is_deleted, False).is_(False))}
+            for je in entries:
+                if je.is_posted and not inv.is_posted and je.id in taken_back:
+                    continue
                 if bool(je.is_posted) != bool(inv.is_posted):
                     problems.append(f'entry {je.id} is {"posted" if je.is_posted else "unposted"} '
                                     f'but invoice {inv_id} is {"posted" if inv.is_posted else "unposted"}')

@@ -111,3 +111,26 @@ def test_the_documents_own_operations_pass(auth_headers, world):
     assert client.post(f"/api/invoices/post/{inv['id']}", headers=auth_headers, json={}).status_code == 200
     held = _create(auth_headers, world, 'scrap_purchase_paid', held=True)
     assert client.post(f"/api/invoices/{held['id']}/reject", headers=auth_headers, json={}).status_code == 200
+
+
+def test_an_invoice_whose_posted_entry_was_reversed_by_an_entry_may_be_written(auth_headers, world):
+    """Stage 4 took back rejected 2821's and 3123's posted entries by reversing
+    entries and left them posted (never edit a posted row). Writing to those
+    invoices afterwards -- cancelling their closing orders (10 Oct 2026) -- was
+    refused as a lone touch. A reversed entry no longer counts; one not
+    reversed still does."""
+    from datetime import datetime
+    from journal_entry_guard import _check
+    inv = _create(auth_headers, world, 'scrap_purchase_unpaid', held=False)
+    je = _entry_of(inv['id'])
+    db.session.get(Invoice, inv['id']).is_posted = False
+    db.session.flush()
+    with pytest.raises(DocumentEntryTouchedAlone):
+        _check(db.session)
+
+    db.session.add(JournalEntry(entry_number=f'REV-T-{je.id}', date=datetime.now(), description='عكس',
+                                entry_type='عادي', is_posted=True, reference_type='journal_entry_reversal',
+                                reference_id=je.id, created_by='t'))
+    db.session.get(Invoice, inv['id']).weight_closing_status = 'cancelled'
+    db.session.flush()
+    _check(db.session)   # passes: the posted entry was taken back

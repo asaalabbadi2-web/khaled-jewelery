@@ -50,6 +50,7 @@ from models import (
     Voucher,
     VoucherAccountLine,
     VoucherInvoiceGoldAttribution,
+    WeightClosingOrder,
     db,
 )
 from services.safebox_subledger import (
@@ -64,6 +65,8 @@ POSTED_ENTRY_OF_UNPOSTED_INVOICE = 'POSTED_ENTRY_OF_UNPOSTED_INVOICE'
 GOLD_ATTRIBUTION_MISSING = 'GOLD_ATTRIBUTION_MISSING'
 SAFEBOX_SUBLEDGER_DRIFT = 'SAFEBOX_SUBLEDGER_DRIFT'
 SAFEBOX_GOLD_DRIFT = 'SAFEBOX_GOLD_DRIFT'
+RETRACTED_INVOICE_POSTED = 'RETRACTED_INVOICE_POSTED'
+OPEN_CLOSING_OF_RETRACTED_INVOICE = 'OPEN_CLOSING_OF_RETRACTED_INVOICE'
 
 KINDS = (
     ORPHAN_POSTED_ENTRY,
@@ -71,6 +74,8 @@ KINDS = (
     GOLD_ATTRIBUTION_MISSING,
     SAFEBOX_SUBLEDGER_DRIFT,
     SAFEBOX_GOLD_DRIFT,
+    RETRACTED_INVOICE_POSTED,
+    OPEN_CLOSING_OF_RETRACTED_INVOICE,
 )
 
 # An invoice in one of these states is retracted: its entries must not count
@@ -112,11 +117,22 @@ def _entry_cash(entry_ids) -> dict:
 
 def _not_reversed():
     """An entry with a posted reversal no longer counts -- corrected by an entry,
-    as stage 4 corrects (services/repair/rejected_invoice_reversal.py)."""
+    as stage 4 corrects (services/repair/rejected_invoice_reversal.py), or as a
+    cancelled voucher is: its entry stands and its voucher_reversal takes it back
+    (3303's receipt 7864 and REV-2026-00047 were reported as damage, 10 Oct 2026)."""
     rev = aliased(JournalEntry)
-    return ~exists().where(and_(rev.reference_type == 'journal_entry_reversal', rev.reference_id == JournalEntry.id,
-                                func.coalesce(rev.is_posted, False) == True,  # noqa: E712
-                                func.coalesce(rev.is_deleted, False) == False))  # noqa: E712
+    voucher_rev = aliased(JournalEntry)
+    return and_(
+        ~exists().where(and_(rev.reference_type == 'journal_entry_reversal', rev.reference_id == JournalEntry.id,
+                             func.coalesce(rev.is_posted, False) == True,  # noqa: E712
+                             func.coalesce(rev.is_deleted, False) == False)),  # noqa: E712
+        ~exists().where(and_(Voucher.journal_entry_id == JournalEntry.id,
+                             Voucher.status == 'cancelled',
+                             voucher_rev.reference_type == 'voucher_reversal',
+                             voucher_rev.reference_id == Voucher.id,
+                             func.coalesce(voucher_rev.is_posted, False) == True,  # noqa: E712
+                             func.coalesce(voucher_rev.is_deleted, False) == False)),  # noqa: E712
+    )
 
 
 def _moves_something():
@@ -355,6 +371,46 @@ def check_safebox_gold_drift(threshold: float = GOLD_DRIFT_THRESHOLD) -> list:
     return facts
 
 
+def check_retracted_invoices_posted() -> list:
+    """A rejected invoice that is posted: a sale or purchase that was withdrawn
+    counts again, in every balance. The posting screen listed rejected invoices
+    and posted them (3303 on a copy, 10 Oct 2026) -- and the check above, which
+    asks for a posted entry under an UNPOSTED invoice, could not see it."""
+    rows = (Invoice.query
+            .filter(func.coalesce(Invoice.is_posted, False) == True)  # noqa: E712
+            .filter(func.coalesce(Invoice.status, '').in_(list(RETRACTED_INVOICE_STATUSES)))
+            .all())
+    return [
+        Fact(RETRACTED_INVOICE_POSTED, f'invoice:{inv.id}', round(float(inv.total or 0.0), 2), {
+            'invoice_type': inv.invoice_type, 'number': inv.invoice_type_id, 'status': inv.status,
+            'total': round(float(inv.total or 0.0), 2),
+        })
+        for inv in rows
+    ]
+
+
+def check_open_closings_of_retracted_invoices() -> list:
+    """A weight-closing order still open for an invoice that does not stand.
+
+    Purchases close gold against open orders oldest first and book its cost of
+    sale; an order of a rejected sale would take real gold for a sale that never
+    was. Rejected 2821, 3123 and 3303 kept 5,706 g open (10 Oct 2026)."""
+    rows = (db.session.query(WeightClosingOrder, Invoice)
+            .join(Invoice, Invoice.id == WeightClosingOrder.invoice_id)
+            .filter(WeightClosingOrder.status.in_(['open', 'partially_closed']))
+            .filter(func.coalesce(Invoice.status, '').in_(list(RETRACTED_INVOICE_STATUSES)))
+            .all())
+    return [
+        Fact(OPEN_CLOSING_OF_RETRACTED_INVOICE, f'invoice:{inv.id}',
+             round(float(order.remaining_weight_main_karat or 0.0), 3), {
+                 'order_number': order.order_number, 'invoice_type': inv.invoice_type,
+                 'number': inv.invoice_type_id, 'status': inv.status,
+                 'remaining_main_karat': round(float(order.remaining_weight_main_karat or 0.0), 3),
+             })
+        for order, inv in rows
+    ]
+
+
 CHECKS = {
     ORPHAN_POSTED_ENTRY: check_orphan_posted_entries,
     UNPOSTED_ENTRY_IN_LIMBO: check_unposted_entries_in_limbo,
@@ -362,6 +418,8 @@ CHECKS = {
     GOLD_ATTRIBUTION_MISSING: check_gold_attribution_missing,
     SAFEBOX_SUBLEDGER_DRIFT: check_safebox_subledger_drift,
     SAFEBOX_GOLD_DRIFT: check_safebox_gold_drift,
+    RETRACTED_INVOICE_POSTED: check_retracted_invoices_posted,
+    OPEN_CLOSING_OF_RETRACTED_INVOICE: check_open_closings_of_retracted_invoices,
 }
 
 

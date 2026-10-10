@@ -2172,6 +2172,11 @@ def approve_invoice(invoice_id: int):
     if invoice.is_posted:
         return jsonify({'error': 'already_posted', 'message': 'الفاتورة مرحّلة بالفعل'}), 400
 
+    from services.invoice_retraction_guard import retracted_posting_refusal
+    refusal = retracted_posting_refusal(invoice)
+    if refusal:
+        return jsonify({'error': 'invoice_retracted', 'message': refusal}), 409
+
     data = request.get_json(silent=True) or {}
     approved_by = (
         (getattr(getattr(g, 'current_user', None), 'username', None))
@@ -2262,6 +2267,19 @@ def reject_invoice(invoice_id: int):
                 'payments': standing,
             }), 409
 
+        # ── أمر التسكير: الفاتورة لم تبقَ قائمة، فلا يُسكَّر ذهب على بيعها ──
+        # Rejected 2821, 3123 and 3303 kept theirs open -- 5,706 g waiting to
+        # take real purchases and book a cost of sale for sales that never were.
+        from services.invoice_retraction_guard import (
+            closing_executions_message, closing_executions_of, withdraw_closing_order,
+        )
+        closed = closing_executions_of(invoice_id)
+        if closed > 0:
+            db.session.rollback()
+            return jsonify({'error': 'has_closing_executions',
+                            'message': closing_executions_message('رفض', closed)}), 409
+        withdraw_closing_order(invoice)
+
         # ── سحب دليل الذهب: الفاتورة لم تبقَ قائمة ─────────────────────────
         # النسب تُحذف (الذهب سُلّم فعلًا ويبقى سنده، لكن نسبته لهذه الفاتورة
         # صارت دعوى غير صحيحة فيعود «غير منسوب»)، والتخصيصات تُحرَّر، وصفوف
@@ -2337,7 +2355,13 @@ def unpost_invoice(invoice_id: int):
     # Same rule as reject, asked before anything is written. Unpost used to
     # sweep the payments along -- and re-post never gave their safe-box rows
     # back (1641/1779/2204/2478, 92,385.00). See invoice_retraction_guard.
-    from services.invoice_retraction_guard import live_payments_message, live_payments_of
+    from services.invoice_retraction_guard import (
+        closing_executions_message, closing_executions_of, live_payments_message, live_payments_of,
+    )
+    closed = closing_executions_of(invoice_id)
+    if closed > 0:
+        return jsonify({'error': 'has_closing_executions',
+                        'message': closing_executions_message('إلغاء ترحيل', closed)}), 409
     standing = live_payments_of(invoice_id)
     if standing:
         return jsonify({
@@ -3884,6 +3908,14 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
             pass
     if gold_type not in ['new', 'scrap']:
         return jsonify({'error': 'gold_type must be either "new" or "scrap"'}), 400
+
+    # A returned line is the original's line coming back: it takes its category,
+    # so the category's weight and the inventory ledger's bucket get it back.
+    # Every sale return from April to 3300 (9 Oct 2026) was saved without one --
+    # the gold returned to no category, and 60, 55, 45 and 28 stayed short.
+    if invoice_type in ('مرتجع بيع', 'مرتجع شراء', 'مرتجع شراء (مورد)') and data.get('original_invoice_id'):
+        from services.return_lines import inherit_original_categories
+        inherit_original_categories(data.get('items') or [], int(data['original_invoice_id']))
     
     # 🆕 دعم وسائل دفع متعددة في الفاتورة الواحدة
     # يمكن إرسال إما:

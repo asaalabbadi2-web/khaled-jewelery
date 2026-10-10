@@ -97,8 +97,16 @@ def _auto_consume_weight_closing(
     if requested_weight <= 0:
         return summary
 
+    # Only a sale that stands is closed against: an order whose invoice is not
+    # posted (awaiting approval, unposted) or was retracted takes no purchase.
+    # Rejected 2821, 3123 and 3303 left 5,706 g open in this queue (10 Oct 2026).
+    from services.gold_allocation_service import RETRACTED_INVOICE_STATUSES
     orders = (
-        WeightClosingOrder.query.filter(WeightClosingOrder.status.in_(['open', 'partially_closed']))
+        WeightClosingOrder.query
+        .join(Invoice, Invoice.id == WeightClosingOrder.invoice_id)
+        .filter(WeightClosingOrder.status.in_(['open', 'partially_closed']))
+        .filter(Invoice.is_posted.is_(True))
+        .filter(db.func.coalesce(Invoice.status, '').notin_(list(RETRACTED_INVOICE_STATUSES)))
         .order_by(WeightClosingOrder.created_at.asc())
         .all()
     )

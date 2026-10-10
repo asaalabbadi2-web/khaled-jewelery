@@ -776,3 +776,56 @@ class TestManualRepairStillPostsStatusBlind:
 
         assert db.session.get(JournalEntry, je.id).is_posted is False, (
             "a pending voucher's entry reached the ledger through the manual repair")
+
+
+class TestWithdrawnSaleStaysWithdrawn:
+    """3303 (10 Oct 2026): unposted, rejected, its receipt cancelled and reversed
+    by REV-2026-00047 -- and the receipt's entry was still reported as damage;
+    while a mistaken posting of the rejected invoice, and the closing order it
+    left open, went unseen."""
+
+    def test_a_cancelled_receipt_with_its_reversal_is_not_damage(self, app):
+        from services.books_invariants import check_posted_entries_of_unposted_invoices
+        inv = _invoice(posted=False, status='rejected')
+        receipt = _entry(posted=True, reference_type='invoice_payments', reference_id=inv.id,
+                         lines=[(_account().id, 2500.0, 0.0, None)])
+        v = _voucher(status='cancelled', reference_type='invoice', reference_id=inv.id)
+        v.journal_entry_id = receipt.id
+        db.session.flush()
+        assert f'journal_entry:{receipt.id}' in _subjects(check_posted_entries_of_unposted_invoices()), \
+            'cancelled but not yet reversed: still counts'
+
+        _entry(posted=True, reference_type='voucher_reversal', reference_id=v.id,
+               lines=[(_account().id, 0.0, 2500.0, None)])
+
+        assert f'journal_entry:{receipt.id}' not in _subjects(check_posted_entries_of_unposted_invoices())
+
+    def test_a_rejected_invoice_that_is_posted_is_reported(self, app):
+        from services.books_invariants import RETRACTED_INVOICE_POSTED, CHECKS
+        posted_again = _invoice(posted=True, status='rejected')
+        rejected = _invoice(posted=False, status='rejected')
+        standing = _invoice(posted=True, status='paid')
+        subjects = _subjects(CHECKS[RETRACTED_INVOICE_POSTED]())
+        assert f'invoice:{posted_again.id}' in subjects
+        assert f'invoice:{rejected.id}' not in subjects and f'invoice:{standing.id}' not in subjects
+
+    def test_an_open_closing_order_of_a_rejected_sale_is_reported(self, app):
+        from models import WeightClosingOrder
+        from services.books_invariants import OPEN_CLOSING_OF_RETRACTED_INVOICE, CHECKS
+
+        def order(inv, status):
+            o = WeightClosingOrder(invoice_id=inv.id, order_number=f'WCO-T-{_uid()}', status=status,
+                                   main_karat=21, close_price_per_gram=440.0, total_weight_main_karat=2.9,
+                                   executed_weight_main_karat=0.0, remaining_weight_main_karat=2.9)
+            db.session.add(o)
+            db.session.flush()
+
+        left_open, withdrawn, standing = (_invoice(posted=False, status='rejected'),
+                                          _invoice(posted=False, status='rejected'),
+                                          _invoice(posted=True, status='paid'))
+        order(left_open, 'open')
+        order(withdrawn, 'cancelled')
+        order(standing, 'open')
+        facts = {f.subject_key: f for f in CHECKS[OPEN_CLOSING_OF_RETRACTED_INVOICE]()}
+        assert f'invoice:{left_open.id}' in facts and facts[f'invoice:{left_open.id}'].metric == 2.9
+        assert f'invoice:{withdrawn.id}' not in facts and f'invoice:{standing.id}' not in facts

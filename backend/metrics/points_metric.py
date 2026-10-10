@@ -34,7 +34,9 @@ class PointsMetric(RaceMetric):
 
     @property
     def invoice_types(self) -> list[str]:
-        return ['بيع', 'شراء من عميل']
+        # A sale return takes its sale's points back in its own period, from the
+        # one who sold (the owner, 10 Oct 2026).
+        return ['بيع', 'شراء من عميل', 'مرتجع بيع']
 
     @property
     def require_employee_id(self) -> bool:
@@ -118,8 +120,19 @@ class PointsMetric(RaceMetric):
         return None
 
     @staticmethod
+    def _is_return(inv) -> bool:
+        return str(getattr(inv, 'invoice_type', '') or '').strip() == 'مرتجع بيع'
+
+    @staticmethod
     def _infer_actor(inv) -> tuple[int, str] | None:
         from models import Employee
+
+        # A return is its sale's: the points go back from the one who sold it,
+        # not from the one who recorded the return (1089: sold by 18, returned by 19).
+        if PointsMetric._is_return(inv):
+            inv = getattr(inv, 'original_invoice', None)
+            if inv is None:
+                return None
 
         emp_id = PointsMetric._infer_employee_id(inv)
         if emp_id:
@@ -178,9 +191,14 @@ class PointsMetric(RaceMetric):
             actor_id, actor_name = actor
             aid = int(actor_id)
             actor_name_map[aid] = actor_name
+            inv_total = float(getattr(inv, 'total', 0.0) or 0.0)
+            if self._is_return(inv):
+                counts.setdefault(aid, 0)
+                sales_amount[aid] = sales_amount.get(aid, 0.0) - inv_total
+                actor_sales_invs.setdefault(aid, []).append(inv)
+                continue
             counts[aid] = counts.get(aid, 0) + 1
 
-            inv_total = float(getattr(inv, 'total', 0.0) or 0.0)
             if self._is_purchase(inv):
                 purchase_amount[aid] = purchase_amount.get(aid, 0.0) + inv_total
                 actor_purchase_invs.setdefault(aid, []).append(inv)
@@ -269,8 +287,11 @@ class PointsMetric(RaceMetric):
         aux: object = None,
     ) -> tuple[float, int]:
         from models import Invoice
+        from points.engine import compute_invoices_points, returned_share
 
-        invoices = aux if aux is not None else Invoice.query.filter(*base_filters).all()
+        loaded = aux if aux is not None else Invoice.query.filter(*base_filters).all()
+        invoices = [inv for inv in loaded if not self._is_return(inv)]
+        returns = [inv for inv in loaded if self._is_return(inv) and getattr(inv, 'original_invoice', None)]
 
         if self._points_source == 'profit_cash':
             total = sum(
@@ -309,5 +330,29 @@ class PointsMetric(RaceMetric):
             )
             team_weight_g = round(total, 3)
             team_points   = int(round(total * points_per_gram))
+
+        # Each return takes back its sale's share: its measure and its points.
+        for ret in returns:
+            original = ret.original_invoice
+            if not getattr(original, 'is_posted', False):
+                continue
+            share = returned_share(ret, original)
+            if self._points_source == 'profit_cash':
+                team_weight_g -= share * max(0.0, float(original.profit_cash or 0.0))
+            elif self._points_source == 'sales_amount':
+                team_weight_g -= share * max(0.0, float(original.total or 0.0))
+            elif self._points_source == 'invoice_count':
+                team_weight_g -= share
+            elif self._points_source == 'sold_weight':
+                team_weight_g -= share * sum(max(0.0, float(i.weight or 0.0)) for i in (original.items or []))
+            else:
+                team_weight_g -= share * max(0.0, float(original.profit_gold or 0.0))
+        if returns:
+            team_points -= int(round(-compute_invoices_points(
+                returns, points_source=self._points_source,
+                cash_amount_per_point=self._cash_amount_per_point,
+                points_per_gram=points_per_gram, point_rules=self._rules,
+                points_per_invoice=self._points_per_invoice)))
+            team_weight_g = round(team_weight_g, 3)
 
         return team_weight_g, team_points
