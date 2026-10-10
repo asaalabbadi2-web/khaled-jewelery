@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -52,16 +53,32 @@ final _statementJson = <String, dynamic>{
   ],
 };
 
+/// Sixty sales of 100.00 a day apart: a statement long enough to scroll.
+final _longStatementJson = <String, dynamic>{
+  ..._statementJson,
+  'closing_balance_cash': 6000.0,
+  'lines': [
+    for (var i = 0; i < 60; i++)
+      _line(100 + i, DateTime(2026, 8, 1).add(Duration(days: i)).toIso8601String().substring(0, 10),
+          'بيع رقم $i', debit: 100, running: 100.0 * (i + 1)),
+  ],
+};
+
 class _FakeApi extends ApiService {
-  _FakeApi({this.fail = false});
+  _FakeApi({this.fail = false, this.long = false, this.hold});
 
   /// The server cannot be reached.
   final bool fail;
+  final bool long;
+
+  /// Completed when the statement may arrive -- a slow server.
+  final Completer<void>? hold;
 
   @override
   Future<Map<String, dynamic>> getAccountStatement(int accountId, {bool includeCancelled = false}) async {
+    if (hold != null) await hold!.future;
     if (fail) throw Exception('تعذّر الاتصال بالخادم');
-    return _statementJson;
+    return long ? _longStatementJson : _statementJson;
   }
 
   @override
@@ -94,7 +111,7 @@ void main() {
   });
 
   Future<void> open(WidgetTester tester, {_FakeApi? api, String entityType = 'account',
-      Map<String, Object> prefs = const {}}) async {
+      Map<String, Object> prefs = const {}, bool settle = true}) async {
     final cairo = FontLoader('Cairo');
     for (final w in ['Regular', 'SemiBold', 'Bold']) {
       cairo.addFont(rootBundle.load('assets/fonts/Cairo-$w.ttf'));
@@ -117,7 +134,14 @@ void main() {
         ),
       ),
     ));
-    await tester.pumpAndSettle();
+    if (settle) {
+      await tester.pumpAndSettle();
+    } else {
+      // A skeleton animates: frames are moved, not awaited.
+      for (var i = 0; i < 5; i++) {
+        await tester.pump(const Duration(milliseconds: 50));
+      }
+    }
   }
 
   double top(WidgetTester tester, Finder f) => tester.getTopLeft(f.first).dy;
@@ -133,7 +157,7 @@ void main() {
     expect(find.text('2500.00 مدين'), findsWidgets, reason: 'the balance after the payment');
     expect(find.text('500.00 دائن'), findsNothing,
         reason: 'recomputed from the filtered lines, the payment read as a balance of -500.00');
-    expect(find.text('الفلاتر النشطة: 1'), findsOneWidget,
+    expect(find.text('فلاتر (1)'), findsOneWidget,
         reason: 'the search; the cash view chosen for a cash account is not a filter');
   });
 
@@ -189,5 +213,49 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('نطاق التاريخ'), findsNothing);
     expect(find.textContaining('رصيد آخر الفترة'), findsWidgets);
+  });
+
+  testWidgets('one scroll: dragging the lines first takes the summary away', (tester) async {
+    await open(tester, api: _FakeApi(long: true));
+    final summary = find.textContaining('رصيد افتتاحي');
+    final before = top(tester, summary);
+
+    await tester.drag(find.text('بيع رقم 50'), const Offset(0, -500));
+    await tester.pumpAndSettle();
+
+    expect(summary.hitTestable(), findsNothing,
+        reason: 'the lines used to scroll inside a box, the summary staying put above them (was at $before)');
+  });
+
+  testWidgets('the lines take the page, not a box 55 % of it', (tester) async {
+    await open(tester, api: _FakeApi(long: true));
+    final screen = tester.view.physicalSize.height / tester.view.devicePixelRatio;
+    final table = tester.getRect(find.byKey(const Key('statement-table')));
+    expect(table.bottom, greaterThan(screen - 40), reason: 'to the bottom of the screen');
+  });
+
+  testWidgets('the less-used filters wait behind «فلاتر»; one at work stays in sight', (tester) async {
+    await open(tester);
+    expect(find.text('حركات فقط'), findsNothing);
+
+    await tester.tap(find.byKey(const Key('statement-filters-toggle')));
+    await tester.pumpAndSettle();
+    expect(find.text('حركات فقط'), findsOneWidget);
+
+    await tester.tap(find.text('حركات فقط'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('statement-filters-toggle')));
+    await tester.pumpAndSettle();
+    expect(find.text('حركات فقط'), findsOneWidget, reason: 'a filter hiding lines is never out of sight');
+  });
+
+  testWidgets('while it loads, the page shows its shape -- not a lone spinner', (tester) async {
+    final hold = Completer<void>();
+    await open(tester, api: _FakeApi(hold: hold), settle: false);
+    expect(find.byKey(const Key('statement-skeleton')), findsOneWidget);
+    hold.complete();
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('statement-skeleton')), findsNothing);
+    expect(find.textContaining('تسديد عميل'), findsWidgets);
   });
 }
