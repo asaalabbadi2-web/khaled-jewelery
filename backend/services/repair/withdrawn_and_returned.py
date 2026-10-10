@@ -17,7 +17,13 @@ Measured on the 10 Oct copy (pre-0fee5c78-20261010-011230):
   inventory ledger is reversed and posted again under it (append-only, a new
   cycle, as unposting and re-posting do); the category gets its weight back.
 
-No journal entry is written or changed: neither touches the ledger.
+- return_costs: every sale return carried its own price as its cost (the
+  return screen sends it so): 3300 1,200.00 against its sale's 925.23, 1035
+  10,913.04 against 9,765.37. Each takes its sale's cost in the share it
+  returns (services/return_lines.sale_return_cost, as a return now does when
+  it is saved). A header figure only: no entry reads it.
+
+No journal entry is written or changed: none of the three touches the ledger.
 Every step is idempotent, writes one audit row, and in a dry run (the
 default) writes nothing and says what it would do. A subject no longer as
 measured -- an order with gold closed against it -- is refused, not guessed at.
@@ -110,9 +116,31 @@ def categorise_returns(*, by: str, now, dry_run: bool = True) -> dict:
     return {'returns': plan}
 
 
+def correct_return_costs(*, by: str, now, dry_run: bool = True) -> dict:
+    """Give each sale return its sale's cost, in the share it returns."""
+    from services.return_lines import sale_return_cost
+    returns = (Invoice.query.filter(Invoice.invoice_type == SALE_RETURN, Invoice.is_posted.is_(True),
+                                    Invoice.original_invoice_id.isnot(None))
+               .order_by(Invoice.id).all())
+    plan = []
+    for ret in returns:
+        right = sale_return_cost(ret)
+        if right is None or abs(float(ret.total_cost or 0.0) - right) < 0.005:
+            continue
+        plan.append({'return_id': ret.id, 'number': ret.invoice_type_id, 'original_id': ret.original_invoice_id,
+                     'saved_cost': round(float(ret.total_cost or 0.0), 2), 'cost': right})
+        if not dry_run:
+            ret.total_cost = right
+            _audit(by, 'correct_return_cost', ret.id, {**plan[-1], 'at': now})
+    if not dry_run:
+        db.session.flush()
+    return {'returns': plan}
+
+
 STEPS = (
     ('closing_orders', withdraw_open_closings),
     ('return_categories', categorise_returns),
+    ('return_costs', correct_return_costs),
 )
 
 

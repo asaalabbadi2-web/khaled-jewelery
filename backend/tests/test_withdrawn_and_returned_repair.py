@@ -97,3 +97,22 @@ def test_an_order_with_gold_closed_against_it_is_refused(auth_headers, world):
     db.session.flush()
     with pytest.raises(NotAsMeasured):
         run_package(by='t', now=NOW, dry_run=True, only=['closing_orders'])
+
+
+def test_it_gives_each_sale_return_its_sales_cost(auth_headers, world):
+    from models import Invoice
+    sale = _categorised_sale(auth_headers, world, _category())
+    db.session.get(Invoice, sale['id']).total_cost = 925.23
+    db.session.flush()
+    ret = _post(auth_headers, _return_of(world, sale, total=1000.0)).get_json()
+    db.session.get(Invoice, ret['id']).total_cost = 1000.0    # as every return was saved
+    db.session.flush()
+
+    plan = run_package(by='t', now=NOW, dry_run=False, only=['return_costs'])
+
+    assert {(r['return_id'], r['saved_cost'], r['cost']) for r in plan['return_costs']['returns']} >= {
+        (ret['id'], 1000.0, 925.23)}
+    db.session.expire_all()
+    assert db.session.get(Invoice, ret['id']).total_cost == pytest.approx(925.23)
+    again = run_package(by='t', now=NOW, dry_run=True, only=['return_costs'])
+    assert ret['id'] not in {r['return_id'] for r in again['return_costs']['returns']}

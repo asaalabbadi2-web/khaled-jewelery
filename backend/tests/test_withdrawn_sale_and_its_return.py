@@ -287,3 +287,22 @@ def test_a_return_counts_in_its_own_period_against_the_seller(auth_headers, worl
     assert ret['id'] not in {r.id for r in sale_returns_against(lambda o: o.employee_id == returner.id, *window)}
     assert not sale_returns_against(lambda o: o.employee_id == world['holder'].id,
                                     now + timedelta(days=2), now + timedelta(days=3))
+
+
+# ── a return: its cost ──────────────────────────────────────────────────
+
+@pytest.mark.parametrize('weight,total,share', [(2.0, 1000.0, 1.0), (1.0, 500.0, 0.5)])
+def test_a_sale_returns_cost_is_its_sales_cost_in_the_share_returned(auth_headers, world, weight, total, share):
+    """The screen sends the line's price as its cost (3300: 1,200.00, its sale's
+    cost 925.23); the server takes the sale's cost instead."""
+    sale = _paid_sale(auth_headers, world)
+    db.session.get(Invoice, sale['id']).total_cost = 800.0
+    db.session.flush()
+    payload = _return_of(world, sale, total=total, weight=weight)
+    payload['total_cost'] = total                             # as the screen sends it
+
+    ret = _post(auth_headers, payload)
+
+    assert ret.status_code == 201, ret.get_json()
+    db.session.expire_all()
+    assert db.session.get(Invoice, ret.get_json()['id']).total_cost == pytest.approx(800.0 * share)

@@ -48,3 +48,16 @@ def inherit_original_categories(items: list, original_invoice_id: int) -> None:
             unused.remove(match)
         if match.category_id:
             line['category_id'] = int(match.category_id)
+
+
+def sale_return_cost(ret) -> float | None:
+    """What a sale return's gold cost: its original sale's cost, in the share it
+    returns -- not the price the return screen sent as its cost (every sale
+    return carried its own price as its cost: 3300 1,200.00 against 925.23;
+    the owner, 10 Oct 2026). None when the original carries no cost."""
+    from models import Invoice, db
+    from points.engine import returned_share
+    original = db.session.get(Invoice, int(ret.original_invoice_id)) if ret.original_invoice_id else None
+    if original is None or not float(original.total_cost or 0.0):
+        return None
+    return round(float(original.total_cost) * returned_share(ret, original), 2)

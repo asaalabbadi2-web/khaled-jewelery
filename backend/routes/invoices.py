@@ -7247,6 +7247,14 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
             new_invoice.profit_gold = round(_purchase_profit_gold, 3)
 
         elif invoice_type == 'مرتجع بيع':
+            # The cost of the gold coming back is its sale's, in the share returned --
+            # never the price the screen sent as cost (services/return_lines.py).
+            if new_invoice.original_invoice_id:
+                from services.return_lines import sale_return_cost
+                db.session.flush()
+                _ret_cost = sale_return_cost(new_invoice)
+                if _ret_cost is not None:
+                    new_invoice.total_cost = _ret_cost
             # 3. مرتجع بيع — عكس كامل لفاتورة البيع الأصلية
             # ══════════════════════════════════════════════════════════
             # القيود النقدية:

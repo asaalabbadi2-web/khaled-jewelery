@@ -3,7 +3,8 @@
 Steps (services/repair/withdrawn_and_returned.py): the open weight-closing
 orders of rejected sales 2821, 3123 and 3303 cancelled (5,706 g); the five
 sale returns' lines given their original lines' categories, with the
-inventory ledger reposted and the category weights written. No journal entry.
+inventory ledger reposted and the category weights written; each sale return
+given its sale's cost in the share it returns. No journal entry.
 
 Dry run by default -- prints what it would do and writes nothing:
     python tools/repair/withdrawn_and_returned.py
