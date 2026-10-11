@@ -98,7 +98,8 @@ from accounting.voucher_engine import (
     post_entry_of_approved_voucher,
     _append_safe_transactions_for_voucher,
 )
-from accounting.mappings import DEFAULT_MAPPING_OPERATION_TYPE, get_account_id_by_number, get_account_id_for_mapping
+from accounting.mappings import (DEFAULT_MAPPING_OPERATION_TYPE, get_account_id_by_number, get_account_id_for_mapping,
+                                 require_vat_account)
 from accounting.weight_closing import _load_weight_closing_settings
 from accounting.safe_boxes import _ensure_safe_box_transactions_for_invoice_je
 from accounting.wages import (
@@ -6954,7 +6955,7 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
                             description="مبيعات ذهب",
                             apply_golden_rule=False,
                         )
-                    if _total_tax_for_je > 0 and vat_payable_acc_id:
+                    if _total_tax_for_je > 0:
                         create_dual_journal_entry(
                             journal_entry_id=journal_entry.id,
                             account_id=vat_payable_acc_id,
@@ -7214,10 +7215,10 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
 
             # قيد ضريبة القيمة المضافة (إن وجدت)
             _total_vat = data.get('total_tax', 0)
-            if _total_vat and float(_total_vat) > 0 and vat_receivable_acc_id:
+            if _total_vat and float(_total_vat) > 0:
                 create_dual_journal_entry(
                     journal_entry_id=journal_entry.id,
-                    account_id=vat_receivable_acc_id,
+                    account_id=vat_receivable_acc_id or require_vat_account('شراء من عميل', 'vat_receivable'),
                     cash_debit=float(_total_vat),
                     description="ضريبة القيمة المضافة",
                     apply_golden_rule=False,
@@ -7369,10 +7370,10 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
                         apply_golden_rule=False,
                         description="مردودات المبيعات",
                     )
-                if _total_tax_ret > 0 and vat_payable_acc_id:
+                if _total_tax_ret > 0:
                     create_dual_journal_entry(
                         journal_entry_id=journal_entry.id,
-                        account_id=vat_payable_acc_id,
+                        account_id=vat_payable_acc_id or require_vat_account('بيع', 'vat_payable'),
                         cash_debit=_total_tax_ret,
                         apply_golden_rule=False,
                         description="عكس ضريبة القيمة المضافة - مرتجع",
@@ -7681,10 +7682,10 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
                 )
 
             # Line 2b: دائن ضريبة القيمة المضافة (عكس المدين في الشراء الأصلي)
-            if _total_tax_purchase_ret > 0 and vat_receivable_acc_id_ret:
+            if _total_tax_purchase_ret > 0:
                 create_dual_journal_entry(
                     journal_entry_id=journal_entry.id,
-                    account_id=vat_receivable_acc_id_ret,
+                    account_id=vat_receivable_acc_id_ret or require_vat_account('شراء من عميل', 'vat_receivable'),
                     cash_credit=_total_tax_purchase_ret,
                     apply_golden_rule=False,
                     description="عكس ضريبة القيمة المضافة - مرتجع شراء"
@@ -7765,18 +7766,9 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
                         return None
 
                 # حسابات أساسية
+                # The mapping or nothing (ADR-043 rule 4): the check below refuses a VAT
+                # with no account -- 1500, the old fallback, is «مدى».
                 vat_receivable_acc_id = _mapping('vat_receivable')
-
-                # Root-fix: VAT receivable must exist if any VAT is present.
-                # Correct account is 1400 (ضريبة مدفوعة على المشتريات).
-                if not vat_receivable_acc_id:
-                    try:
-                        vat_acc = Account.query.filter_by(account_number='1400').first()
-                        if not vat_acc:
-                            vat_acc = Account.query.filter_by(account_number='1500').first()
-                        vat_receivable_acc_id = vat_acc.id if vat_acc else None
-                    except Exception:
-                        vat_receivable_acc_id = vat_receivable_acc_id
                 # بناء قاموس حسابات المخزون: دعم التوحيد (حساب واحد لكل العيارات)
                 inventory_accounts = {}
                 unified_inventory_acc_id = _resolve_inventory_account_id_for_invoice(invoice_type, gold_type)
@@ -8158,10 +8150,10 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
                 if (wage_tax_total > 0 or gold_tax_total > 0) and not vat_receivable_acc_id:
                     return jsonify({
                         'error': 'vat_receivable_account_missing',
-                        'message': 'حساب ضريبة القيمة المضافة (مدفوعة) غير موجود. الرجاء إنشاء الحساب رقم 1500 أو ضبط mapping (شراء -> vat_receivable).',
+                        'message': 'حساب ضريبة المدخلات غير مربوط: يُضبط الربط المحاسبي (شراء / vat_receivable).',
                     }), 400
 
-                if wage_tax_total > 0 and vat_receivable_acc_id:
+                if wage_tax_total > 0:
                     create_dual_journal_entry(
                         journal_entry_id=journal_entry.id,
                         account_id=vat_receivable_acc_id,
@@ -8173,7 +8165,7 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
                     cash_debit_booked = round(cash_debit_booked + wage_tax_total, 2)
                 
                 # إذا كانت هناك ضريبة على الذهب، تُضاف للمخزون (مدرجة ضمن valuation_cash_total)
-                if gold_tax_total > 0 and vat_receivable_acc_id:
+                if gold_tax_total > 0:
                     create_dual_journal_entry(
                         journal_entry_id=journal_entry.id,
                         account_id=vat_receivable_acc_id,
@@ -8510,11 +8502,7 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
                 if _wages_capitalized
                 else manufacturing_wage_expense_account_id()
             )
-            _ret_vat_acc_id = get_account_id_for_mapping('شراء', 'vat_receivable')
-            if not _ret_vat_acc_id:
-                _vat_acc = (Account.query.filter_by(account_number='1400').first()
-                            or Account.query.filter_by(account_number='1500').first())
-                _ret_vat_acc_id = _vat_acc.id if _vat_acc else None
+            _ret_vat_acc_id = get_account_id_for_mapping('شراء', 'vat_receivable')   # the mapping or a refusal below
 
             if wage_cash > 0 and not _ret_wage_acc_id:
                 db.session.rollback()

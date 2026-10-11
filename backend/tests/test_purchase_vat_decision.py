@@ -36,6 +36,12 @@ def rollback_after_each(app, db_fence):
     yield
 
 
+
+@pytest.fixture(autouse=True)
+def _vat(vat_mapped):
+    """VAT posts to its mapped accounts (ADR-043 rule 4)."""
+    yield
+
 def _uid():
     return uuid.uuid4().hex[:6]
 

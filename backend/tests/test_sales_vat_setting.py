@@ -37,9 +37,17 @@ def rollback_after_each(app, db_fence):
     yield
 
 
+
+@pytest.fixture(autouse=True)
+def _vat(vat_mapped):
+    """VAT posts to its mapped accounts (ADR-043 rule 4)."""
+    yield
+
 @pytest.fixture(autouse=True)
 def vat_payable(rollback_after_each):
-    """As production: VAT on sales is owed on 2210."""
+    """2210 exists, as on production, and must take nothing: a sale's VAT goes to
+    the mapped account (vat_mapped: 2300), never to the old fallback number
+    (ADR-043 rule 4)."""
     from accounting.mappings import _ACCOUNT_NUMBER_CACHE
     from models import Account
     _ACCOUNT_NUMBER_CACHE.pop('2210', None)
@@ -92,6 +100,12 @@ def test_with_sales_vat_on_a_taxed_sale_is_taken_as_before(auth_headers, world):
     _sales_vat(True)
     resp = _post(auth_headers, _sale(world, tax=150.0))
     assert resp.status_code == 201, resp.get_json()
+    from models import Account, JournalEntry, JournalEntryLine
+    lines = (JournalEntryLine.query.join(JournalEntry, JournalEntry.id == JournalEntryLine.journal_entry_id)
+             .filter(JournalEntry.reference_type == 'invoice', JournalEntry.reference_id == resp.get_json()['id']).all())
+    on = lambda number: sum(float(l.cash_credit or 0) for l in lines
+                            if l.account_id == Account.query.filter_by(account_number=number).one().id)
+    assert on('2300') > 0 and on('2210') == 0, 'the VAT on its mapped account, none on the old fallback'
 
 
 def test_the_setting_is_read_and_saved(auth_headers, world):

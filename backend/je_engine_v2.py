@@ -296,6 +296,12 @@ class PartyAccounts:
 # 1. شراء نقدي (من عميل أو سوق)
 # ─────────────────────────────────────────────
 
+def _require_vat(account_id, role):
+    """A VAT amount is never dropped for want of its account (ADR-043 rule 4)."""
+    if not account_id:
+        raise ValueError(f'ضريبة بلا حساب مربوط ({role}): لا يُرحَّل القيد')
+
+
 def build_purchase_je(
     *,
     accounts: AccountMap,
@@ -330,7 +336,8 @@ def build_purchase_je(
         je.add(_cash_debit(accounts.purchases_account_id, gold_cash, f"{description} - مشتريات ذهب"))
     if wage_cash > 0:
         je.add(_cash_debit(accounts.manufacturing_wage_account_id, wage_cash, f"{description} - أجور مصنعية"))
-    if (vat_gold + vat_wage) > 0 and accounts.vat_receivable_account_id:
+    if (vat_gold + vat_wage) > 0:
+        _require_vat(accounts.vat_receivable_account_id, 'vat_receivable')
         je.add(_cash_debit(accounts.vat_receivable_account_id, vat_gold + vat_wage, f"{description} - ض.ق.م."))
 
     # ── مدين: مخزون وزني (جرام يدخل) ──
@@ -514,7 +521,8 @@ def build_sale_je(
     je.add(_cash_credit(accounts.sales_account_id, sale_cash, f"{description} - إيراد مبيعات"))
 
     # ── دائن: ض.ق.م. ──
-    if vat > 0 and accounts.vat_payable_account_id:
+    if vat > 0:
+        _require_vat(accounts.vat_payable_account_id, 'vat_payable')
         je.add(_cash_credit(accounts.vat_payable_account_id, vat, f"{description} - ض.ق.م."))
 
     # ── دائن: مخزون وزني (جرام يخرج) ──
@@ -565,7 +573,8 @@ def build_sale_return_je(
     # ── مدين: مردودات مبيعات ──
     je.add(_cash_debit(accounts.sales_returns_account_id, return_cash,
                        f"{description} - مردودات مبيعات"))
-    if vat > 0 and accounts.vat_payable_account_id:
+    if vat > 0:
+        _require_vat(accounts.vat_payable_account_id, 'vat_payable')
         je.add(_cash_debit(accounts.vat_payable_account_id, vat,
                            f"{description} - عكس ض.ق.م."))
 
@@ -643,7 +652,8 @@ def build_purchase_return_je(
     # ── دائن: مردودات مشتريات ──
     je.add(_cash_credit(accounts.purchase_returns_account_id, return_cash,
                         f"{description} - مردودات مشتريات"))
-    if vat > 0 and accounts.vat_receivable_account_id:
+    if vat > 0:
+        _require_vat(accounts.vat_receivable_account_id, 'vat_receivable')
         je.add(_cash_credit(accounts.vat_receivable_account_id, vat,
                             f"{description} - عكس ض.ق.م."))
 

@@ -22,8 +22,9 @@ from models import Account, JournalEntry, JournalEntryLine, db
 # The entries that moved a month's sales VAT to revenue (stage-4 item 22).
 VAT_TO_REVENUE = 'sales_vat_to_revenue'
 
-# The number accounting/mappings.py falls back to for «vat_payable» when nothing is
-# mapped -- where April 2026's three sale returns wrote their VAT. Not 230's whole
+# The number accounting/mappings.py fell back to for «vat_payable» when nothing was
+# mapped -- where April 2026's three sale returns wrote their VAT. No posting falls
+# back to it any more (ADR-043 rule 4); the history on it is still read. Not 230's whole
 # subtree: commissions payable (2310) and the end-of-service provision (2320) sit
 # under it too.
 FALLBACK_SALES_VAT = ('2210',)

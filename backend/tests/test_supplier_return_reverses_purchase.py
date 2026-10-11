@@ -23,7 +23,7 @@ from sqlalchemy import func
 from app import app as flask_app
 from models import Account, InvoiceItem, JournalEntry, JournalEntryLine, db
 from tests.test_wage_treatment_follows_the_setting import (  # noqa: F401 (fixtures)
-    app, books, rollback_after_each, _create, _purchase, _settings,
+    app, books, rollback_after_each, _vat, _create, _purchase, _settings,
 )
 
 

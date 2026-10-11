@@ -55,3 +55,25 @@ def db_fence(app):
         db.session = saved
         outer.rollback()
         connection.close()
+
+
+# ── VAT mapped as production maps it (ADR-043 rule 4) ─────────────────────────
+@pytest.fixture
+def vat_mapped(db_fence):
+    """2300 for output VAT, 1400 for input VAT, on the default mapping -- as on
+    production. No number stands in for an unmapped VAT role any more: a test
+    that posts VAT maps it, as the books it imitates do."""
+    from accounting.mappings import DEFAULT_MAPPING_OPERATION_TYPE
+    from models import Account, AccountingMapping, db
+    for role, number, name, kind in (('vat_payable', '2300', 'ضريبة المخرجات', 'Liability'),
+                                     ('vat_receivable', '1400', 'ضريبة المدخلات', 'Asset')):
+        account = Account.query.filter_by(account_number=number).first()
+        if account is None:
+            account = Account(account_number=number, name=name, type=kind)
+            db.session.add(account)
+            db.session.flush()
+        if not AccountingMapping.query.filter_by(operation_type=DEFAULT_MAPPING_OPERATION_TYPE, account_type=role,
+                                                 is_active=True).first():
+            db.session.add(AccountingMapping(operation_type=DEFAULT_MAPPING_OPERATION_TYPE, account_type=role,
+                                             account_id=account.id, is_active=True))
+    db.session.flush()

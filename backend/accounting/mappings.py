@@ -24,6 +24,26 @@ def get_account_id_by_number(account_number) -> int | None:
     return account_id
 
 
+VAT_ROLES = ('vat_payable', 'vat_receivable', 'commission_vat')
+
+
+class VatAccountNotMapped(ValueError):
+    """A VAT amount with no account mapped for its role (ADR-043 rule 4)."""
+
+    def __init__(self, operation_type, role):
+        self.operation_type, self.role = operation_type, role
+        super().__init__(f'حساب الضريبة غير مربوط ({operation_type} / {role}): '
+                         f'يُضبط في الربط المحاسبي، ولا يُرحَّل قيد بضريبة دونه')
+
+
+def require_vat_account(operation_type, role) -> int:
+    """The account mapped for a VAT role -- or the posting is refused (ADR-043 rule 4)."""
+    account_id = get_account_id_for_mapping(operation_type, role)
+    if not account_id:
+        raise VatAccountNotMapped(operation_type, role)
+    return account_id
+
+
 def get_account_id_for_mapping(operation_type, account_type) -> int | None:
     """
     الحصول على معرف الحساب المحاسبي لعملية معينة
@@ -123,10 +143,9 @@ def get_account_id_for_mapping(operation_type, account_type) -> int | None:
         'cost': ['521', '50'],
         'cost_of_sales': ['521', '50'],
         'purchase_returns': ['513', '512', '511', '50'],
-        'vat_payable': ['2210'],
-        'vat_receivable': ['1400', '1500'],
+        # No number stands in for a VAT role (ADR-043 rule 4): 2210 took three
+        # April 2026 returns' VAT, and 1500 is «مدى». See require_vat_account.
         'commission': ['5150'],
-        'commission_vat': ['1501'],
         'operating_expenses': ['51'],
         'capital': ['31'],
         'retained_earnings': ['32'],
