@@ -614,9 +614,21 @@ def get_accounts():
         _safe_boxes_by_account = {}
         _parent_map = {}
 
+    # A parent's balance is its own and all under it -- the server's (CHART-UI-1).
+    subtree = {}
+    if not skip_balances:
+        from services.account_tree import subtree_balances
+        subtree = subtree_balances({int(a.id): a.parent_id for a in accounts},
+                                   {int(k): v for k, v in live_by_id.items()})
+
     result = []
     for acc in accounts:
         account_dict = acc.to_dict()
+        if int(acc.id) in subtree:
+            account_dict['subtree_balances'] = subtree[int(acc.id)]
+            own = live_by_id.get(int(acc.id)) or {}
+            account_dict['has_own_balance'] = any(abs(float(own.get(k) or 0.0)) > 0.0005
+                                                  for k in ('cash', '18k', '21k', '22k', '24k'))
 
         if not skip_balances:
             sb = _safe_boxes_by_account.get(int(acc.id))

@@ -233,9 +233,21 @@ class Account(db.Model):
         return num.startswith(self._PARALLEL_ALLOWED_PREFIXES)
 
     # علامات نصية تُستخدم في هذا النظام لوضع حساب كـ"متروك" بعد دمج/استبدال
-    # (لا يوجد حقل is_active على Account، فالاتفاقية الوحيدة المتاحة هي
-    # إضافة هذه العلامة لاسم الحساب). يستخدمها أيضاً audit_account_memo_invariants.py.
+    # (كُتبت قبل أن يصير للحساب حقل is_active -- ADR-043 المرحلة 1 -- فكانت
+    # العلامة في الاسم الاتفاقية الوحيدة). يستخدمها أيضاً audit_account_memo_invariants.py؛
+    # والحساب الموقوف اليوم يُوقف بـ is_active (CHART-001 يجمع الاثنين).
     _DEPRECATED_ACCOUNT_MARKERS = ('غير مستخدم', 'مكرَّر', 'مكرر', 'متروك')
+
+    _ACCOUNT_TYPES = {t.lower(): t for t in ('Asset', 'Liability', 'Equity', 'Revenue', 'Expense')}
+
+    @validates('type')
+    def _validate_type(self, key, value):
+        """One of five, however a writer spells it (CHART-UI-1): the employee
+        custody and advance helpers wrote 'asset', and nine accounts matched no
+        type filter. A value outside the five is left as written."""
+        if isinstance(value, str):
+            return self._ACCOUNT_TYPES.get(value.strip().lower(), value)
+        return value
 
     @validates('memo_account_id')
     def _validate_memo_account_id(self, key, value):
