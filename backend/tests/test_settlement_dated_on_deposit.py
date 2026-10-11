@@ -72,6 +72,16 @@ def _sale(headers, card, amount, sold_at):
     return ip
 
 
+@pytest.fixture(autouse=True)
+def _no_settlement_at_sale(monkeypatch):
+    """A sale runs a settlement pass by the machine's clock (routes/invoices). These
+    tests run the scheduler on days they choose; the clock's pass is not theirs:
+    on Monday 12 Oct 2026 -- the deposit day of the week they build -- it settled
+    the week's first payment during the second sale, and the test went red on a
+    Monday having been green on the Sunday."""
+    monkeypatch.setattr('routes.invoices._try_process_due_auto_clearing_settlements', lambda **kw: None)
+
+
 def _run(day):
     return ClearingSettlementScheduler(flask_app).process_due_settlements(today=day)
 
