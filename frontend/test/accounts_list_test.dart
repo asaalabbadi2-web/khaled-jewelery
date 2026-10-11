@@ -45,8 +45,18 @@ final _accounts = [
 ];
 
 class _FakeApi extends ApiService {
+  _FakeApi([this.accounts]);
+  final List<Map<String, dynamic>>? accounts;
+  final activeCalls = <(int, bool)>[];
+
   @override
-  Future<List<dynamic>> getAccounts({bool skipBalances = false}) async => _accounts;
+  Future<List<dynamic>> getAccounts({bool skipBalances = false}) async => accounts ?? _accounts;
+
+  @override
+  Future<Map<String, dynamic>> setAccountActive(int id, bool active) async {
+    activeCalls.add((id, active));
+    return {'id': id, 'is_active': active};
+  }
 }
 
 void main() {
@@ -86,7 +96,8 @@ void main() {
     });
   });
 
-  Future<void> open(WidgetTester tester, {double width = 1400, Map<String, Object> prefs = const {}}) async {
+  Future<void> open(WidgetTester tester,
+      {double width = 1400, Map<String, Object> prefs = const {}, _FakeApi? api}) async {
     final cairo = FontLoader('Cairo');
     for (final w in ['Regular', 'SemiBold', 'Bold']) {
       cairo.addFont(rootBundle.load('assets/fonts/Cairo-$w.ttf'));
@@ -102,7 +113,7 @@ void main() {
       value: settings,
       child: MaterialApp(
         theme: LightTheme.theme,
-        home: Directionality(textDirection: TextDirection.rtl, child: AccountsScreen(apiService: _FakeApi())),
+        home: Directionality(textDirection: TextDirection.rtl, child: AccountsScreen(apiService: api ?? _FakeApi())),
       ),
     ));
     await tester.pumpAndSettle();
@@ -161,6 +172,29 @@ void main() {
     await open(tester, width: 500, prefs: {'accounts_view_mode': 'compact'});
     expect(find.text('كشف الحساب'), findsNothing);
     expect(find.text('الحساب'), findsOneWidget);
+  });
+
+  testWidgets('a deactivated account says so; deactivating asks, then calls the server (ADR-043)', (tester) async {
+    final api = _FakeApi([
+      ..._accounts,
+      {..._account(113, '113', 'ضريبة مستحقة قديمة', parent: 11), 'is_active': false},
+    ]);
+    await open(tester, api: api);
+    expect(find.textContaining('موقوف'), findsOneWidget, reason: 'only the deactivated account is marked');
+
+    await tester.tap(find.byKey(const Key('account-menu-110')));
+    await tester.pumpAndSettle();
+    expect(find.text('إيقاف الحساب'), findsOneWidget);
+    await tester.tap(find.text('إيقاف الحساب'));
+    await tester.pumpAndSettle();
+    expect(api.activeCalls, isEmpty, reason: 'nothing before the confirmation');
+    await tester.tap(find.byKey(const Key('account-active-confirm')));
+    await tester.pumpAndSettle();
+    expect(api.activeCalls, [(110, false)]);
+
+    await tester.tap(find.byKey(const Key('account-menu-113')));
+    await tester.pumpAndSettle();
+    expect(find.text('تفعيل الحساب'), findsOneWidget, reason: 'a deactivated account offers activation');
   });
 
   testWidgets('«عدد الأبناء» orders by how many', (tester) async {

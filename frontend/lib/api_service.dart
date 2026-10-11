@@ -2250,6 +2250,19 @@ class ApiService {
     }
   }
 
+  /// Deactivate or activate an account (ADR-043): a deactivated account keeps
+  /// its entries and takes no new one. A refusal (409) carries the server's reason.
+  Future<Map<String, dynamic>> setAccountActive(int id, bool active) async {
+    final response = await _authedPost(
+      Uri.parse('$_baseUrl/accounts/$id/${active ? 'activate' : 'deactivate'}'),
+      headers: {'Content-Type': 'application/json; charset=UTF-8'},
+    );
+    if (response.statusCode != 200) {
+      throw Exception(_errorMessageFromResponse(response));
+    }
+    return json.decode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
+  }
+
   Future<Map<String, dynamic>> deleteAccount(int id, {bool? deleteParallel}) async {
     Uri uri = Uri.parse('$_baseUrl/accounts/$id');
     if (deleteParallel != null) {

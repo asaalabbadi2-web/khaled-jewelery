@@ -385,6 +385,67 @@ class _AccountsScreenState extends State<AccountsScreen> {
     return count;
   }
 
+  /// A deactivated account keeps its entries and takes no new one (ADR-043).
+  bool _isInactive(Map<String, dynamic> account) => account['is_active'] == false;
+
+  List<PopupMenuEntry<String>> _accountMenuItems(Map<String, dynamic> account) => [
+        const PopupMenuItem(value: 'statement', child: Text('كشف الحساب')),
+        const PopupMenuItem(value: 'ledger', child: Text('دفتر الأستاذ')),
+        const PopupMenuItem(value: 'copy', child: Text('نسخ رقم الحساب')),
+        const PopupMenuDivider(),
+        PopupMenuItem(
+          key: Key('account-active-${account['id']}'),
+          value: 'active',
+          child: Text(_isInactive(account) ? 'تفعيل الحساب' : 'إيقاف الحساب'),
+        ),
+      ];
+
+  void _onAccountMenu(String value, Map<String, dynamic> account) {
+    if (value == 'statement') {
+      _openStatement(account);
+    } else if (value == 'ledger') {
+      _openLedger(account);
+    } else if (value == 'copy') {
+      _copyAccountNumber(account);
+    } else if (value == 'active') {
+      _toggleActive(account);
+    }
+  }
+
+  Future<void> _toggleActive(Map<String, dynamic> account) async {
+    final id = _asInt(account['id']);
+    if (id == null) return;
+    final activate = _isInactive(account);
+    final label = '${_accountNumber(account)} «${account['name'] ?? ''}»';
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(activate ? 'تفعيل الحساب' : 'إيقاف الحساب'),
+        content: Text(activate
+            ? 'يعود $label يقبل القيود.'
+            : 'يبقى $label بحركاته في الكشوف والتقارير، ولا يقبل أي قيد جديد. '
+                'لا يُوقف حساب له رصيد أو قيد غير مرحّل أو ربط محاسبي.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('إلغاء')),
+          FilledButton(
+            key: const Key('account-active-confirm'),
+            onPressed: () => Navigator.pop(context, true),
+            child: Text(activate ? 'تفعيل' : 'إيقاف'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await _api.setAccountActive(id, activate);
+      messenger.showSnackBar(SnackBar(content: Text(activate ? 'فُعّل $label' : 'أُوقف $label')));
+      await _fetchAccounts();
+    } catch (e) {
+      messenger.showSnackBar(SnackBar(content: Text(e.toString().replaceFirst('Exception: ', ''))));
+    }
+  }
+
   Future<void> _copyAccountNumber(Map<String, dynamic> account) async {
     final accountNumber = _accountNumber(account);
     if (accountNumber.isEmpty) return;
@@ -810,29 +871,8 @@ class _AccountsScreenState extends State<AccountsScreen> {
                   ),
                   PopupMenuButton<String>(
                     tooltip: 'الإجراءات',
-                    onSelected: (value) {
-                      if (value == 'statement') {
-                        _openStatement(account);
-                      } else if (value == 'ledger') {
-                        _openLedger(account);
-                      } else if (value == 'copy') {
-                        _copyAccountNumber(account);
-                      }
-                    },
-                    itemBuilder: (context) => const [
-                      PopupMenuItem(
-                        value: 'statement',
-                        child: Text('كشف الحساب'),
-                      ),
-                      PopupMenuItem(
-                        value: 'ledger',
-                        child: Text('دفتر الأستاذ'),
-                      ),
-                      PopupMenuItem(
-                        value: 'copy',
-                        child: Text('نسخ رقم الحساب'),
-                      ),
-                    ],
+                    onSelected: (value) => _onAccountMenu(value, account),
+                    itemBuilder: (context) => _accountMenuItems(account),
                   ),
                 ],
               ),
@@ -841,6 +881,11 @@ class _AccountsScreenState extends State<AccountsScreen> {
                 spacing: 8,
                 runSpacing: 8,
                 children: [
+                  if (_isInactive(account))
+                    Chip(
+                      avatar: const Icon(Icons.block, size: 16),
+                      label: const Text('موقوف'),
+                    ),
                   if (_tracksWeight(account))
                     Chip(
                       avatar: const Icon(Icons.scale_outlined, size: 16),
@@ -986,7 +1031,8 @@ class _AccountsScreenState extends State<AccountsScreen> {
                     ),
                     const SizedBox(height: 2),
                     Text(
-                      '${_accountNumber(account)} • ${_accountTypeLabel(account)}',
+                      '${_accountNumber(account)} • ${_accountTypeLabel(account)}'
+                      '${_isInactive(account) ? ' • موقوف' : ''}',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: theme.textTheme.bodySmall?.copyWith(color: colorScheme.onSurfaceVariant),
@@ -1023,20 +1069,9 @@ class _AccountsScreenState extends State<AccountsScreen> {
                     : null,
               ),
               PopupMenuButton<String>(
-                onSelected: (value) {
-                  if (value == 'statement') {
-                    _openStatement(account);
-                  } else if (value == 'ledger') {
-                    _openLedger(account);
-                  } else if (value == 'copy') {
-                    _copyAccountNumber(account);
-                  }
-                },
-                itemBuilder: (context) => const [
-                  PopupMenuItem(value: 'statement', child: Text('كشف الحساب')),
-                  PopupMenuItem(value: 'ledger', child: Text('دفتر الأستاذ')),
-                  PopupMenuItem(value: 'copy', child: Text('نسخ رقم الحساب')),
-                ],
+                key: Key('account-menu-${account['id']}'),
+                onSelected: (value) => _onAccountMenu(value, account),
+                itemBuilder: (context) => _accountMenuItems(account),
               ),
             ],
           ),

@@ -10,7 +10,7 @@ import logging
 from typing import NamedTuple, Optional
 from flask_sqlalchemy import SQLAlchemy
 from werkzeug.security import check_password_hash, generate_password_hash
-from sqlalchemy import event, text
+from sqlalchemy import event, inspect as sa_inspect, select as sa_select, text
 from sqlalchemy.orm import validates
 
 db = SQLAlchemy()
@@ -120,6 +120,10 @@ class Account(db.Model):
     # 🔥 ربط مع حساب المذكرة الموازي (للنظام المزدوج الكامل)
     memo_account_id = db.Column(db.Integer, db.ForeignKey('account.id'), nullable=True)
 
+    # ADR-043: a deactivated account keeps its entries and takes no new one
+    # (services/account_status.py; the guard below and account_status_trigger.py).
+    is_active = db.Column(db.Boolean, nullable=False, default=True, server_default=db.true())
+
     # 🆕 علم تضمين الحساب في تقرير ربح الجرام الوزني
     # True → يدخل في حساب الربح الوزني (إيراد أو مصروف حسب رقم الحساب)
     include_in_gram_profit = db.Column(db.Boolean, default=False, nullable=False)
@@ -148,6 +152,7 @@ class Account(db.Model):
             'memo_account_id': self.memo_account_id,
             'include_in_gram_profit': bool(getattr(self, 'include_in_gram_profit', False)),
             'exclude_from_gram_profit': bool(getattr(self, 'exclude_from_gram_profit', False)),
+            'is_active': bool(self.is_active) if self.is_active is not None else True,
         }
         
         # The balance is the ledger's (BALANCE-001 B3): the cached columns are
@@ -2604,6 +2609,30 @@ def _guard_journal_entry_line_clearing_account_before_insert(mapper, connection,
 @event.listens_for(JournalEntryLine, 'before_update')
 def _guard_journal_entry_line_clearing_account_before_update(mapper, connection, target):
     _validate_journal_entry_line_clearing_account_or_raise(target)
+
+
+class AccountDeactivated(ValueError):
+    """A new journal line on a deactivated account (ADR-043)."""
+
+
+def _refuse_a_deactivated_account(connection, target):
+    row = connection.execute(
+        sa_select(Account.__table__.c.is_active, Account.__table__.c.account_number, Account.__table__.c.name)
+        .where(Account.__table__.c.id == target.account_id)).first()
+    if row is not None and row.is_active is False:
+        raise AccountDeactivated(f'الحساب {row.account_number} «{row.name}» موقوف: لا يقبل قيدًا جديدًا')
+
+
+@event.listens_for(JournalEntryLine, 'before_insert')
+def _guard_journal_entry_line_active_account_before_insert(mapper, connection, target):
+    _refuse_a_deactivated_account(connection, target)
+
+
+@event.listens_for(JournalEntryLine, 'before_update')
+def _guard_journal_entry_line_active_account_before_update(mapper, connection, target):
+    # Only a line moved onto the account: a line already on it may change (soft-delete, say).
+    if sa_inspect(target).attrs.account_id.history.has_changes():
+        _refuse_a_deactivated_account(connection, target)
 
 
 class DimensionDefinition(db.Model):
@@ -6293,3 +6322,8 @@ from sqlalchemy import DDL as _DDL  # noqa: E402
 db.event.listen(JournalEntry.__table__, 'after_create',
                 # DDL formats its text with %: PL/pgSQL's RAISE placeholders are escaped.
                 _DDL(_POSTED_ENTRY_TRIGGER_SQL.replace('%', '%%')).execute_if(dialect='postgresql'))
+
+# ADR-043: a deactivated account takes no new line -- the database's last line.
+from account_status_trigger import INSTALL_SQL as _ACCOUNT_ACTIVE_TRIGGER_SQL  # noqa: E402
+db.event.listen(JournalEntryLine.__table__, 'after_create',
+                _DDL(_ACCOUNT_ACTIVE_TRIGGER_SQL.replace('%', '%%')).execute_if(dialect='postgresql'))

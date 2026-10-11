@@ -1351,6 +1351,34 @@ def _account_has_deletion_dependencies(account_id: int) -> bool:
     return False
 
 
+def _set_account_active(id, active):
+    """Deactivate or activate an account (ADR-043): services/account_status.py decides."""
+    from flask import g
+    from services.account_status import NotDeactivatable, activate_account, deactivate_account
+    actor = getattr(g, 'current_user', None)
+    by = getattr(actor, 'username', None) or 'system'
+    try:
+        account = (activate_account if active else deactivate_account)(id, by=by, now=datetime.now())
+        db.session.commit()
+    except NotDeactivatable as refused:
+        db.session.rollback()
+        status = 404 if refused.code == 'ACCOUNT_NOT_FOUND' else 409
+        return jsonify({'error': refused.code, 'message': refused.message}), status
+    return jsonify(account.to_dict())
+
+
+@accounts_bp.route('/accounts/<int:id>/deactivate', methods=['POST'])
+@require_permission('accounts.edit')
+def deactivate_account_route(id):
+    return _set_account_active(id, False)
+
+
+@accounts_bp.route('/accounts/<int:id>/activate', methods=['POST'])
+@require_permission('accounts.edit')
+def activate_account_route(id):
+    return _set_account_active(id, True)
+
+
 @accounts_bp.route('/accounts/<int:id>', methods=['DELETE'])
 @require_permission('accounts.delete')
 def delete_account(id):
