@@ -12,16 +12,21 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/account_tree.dart';
 import '../theme/app_semantic_colors.dart';
 import '../utils/arabic_search.dart';
+import '../widgets/account_management.dart';
 
 enum _AccountsViewMode { cards, compact, tree }
 
 class AccountsScreen extends StatefulWidget {
   final bool initialOnlyDetailAccounts;
 
+  /// «شجرة الحسابات» opens the one accounts screen on its tree (CHART-UI-1).
+  final bool openOnTree;
+
   /// The server; tests pass a fake.
   final ApiService? apiService;
 
-  const AccountsScreen({super.key, this.initialOnlyDetailAccounts = false, this.apiService});
+  const AccountsScreen(
+      {super.key, this.initialOnlyDetailAccounts = false, this.openOnTree = false, this.apiService});
 
   @override
   State<AccountsScreen> createState() => _AccountsScreenState();
@@ -71,6 +76,10 @@ class _AccountsScreenState extends State<AccountsScreen> {
   }
 
   Future<void> _restoreViewMode() async {
+    if (widget.openOnTree) {
+      setState(() => _viewMode = _AccountsViewMode.tree);
+      return;
+    }
     try {
       final prefs = await SharedPreferences.getInstance();
       final saved = prefs.getString(_viewModeKey);
@@ -248,8 +257,15 @@ class _AccountsScreenState extends State<AccountsScreen> {
   bool _tracksWeight(Map<String, dynamic> account) =>
       account['tracks_weight'] == true;
 
+  /// A parent's balance is the server's, its own entries and all under it
+  /// (CHART-UI-1): the screen sums nothing.
+  Map<String, dynamic>? _subtreeOf(Map<String, dynamic> account) {
+    final subtree = account['subtree_balances'];
+    return subtree is Map ? subtree.map((k, v) => MapEntry(k.toString(), v)) : null;
+  }
+
   double _cashBalanceOf(Map<String, dynamic> account) {
-    return _asDouble(_balancesOf(account)?['cash']);
+    return _asDouble((_subtreeOf(account) ?? _balancesOf(account))?['cash']);
   }
 
   double _goldBalanceOf(Map<String, dynamic> account) {
@@ -257,6 +273,8 @@ class _AccountsScreenState extends State<AccountsScreen> {
     if (mergedWeight is double) {
       return mergedWeight;
     }
+    final subtree = _subtreeOf(account);
+    if (subtree != null) return _asDouble(subtree['weight_total']);
     final weight = _balancesOf(account)?['weight'];
     if (weight is Map) {
       return _asDouble(weight['total']);
@@ -271,8 +289,14 @@ class _AccountsScreenState extends State<AccountsScreen> {
 
   String _accountTypeLabel(Map<String, dynamic> account) {
     final type = (account['type'] ?? '').toString().trim();
-    return type.isEmpty ? 'غير مصنف' : type;
+    return type.isEmpty ? 'غير مصنف' : accountTypeLabel(type);
   }
+
+  /// One of the five, or null for all (CHART-UI-1).
+  String? _typeFilter;
+
+  bool _ofType(Map<String, dynamic> account) =>
+      _typeFilter == null || (account['type'] ?? '').toString().toLowerCase() == _typeFilter!.toLowerCase();
 
   String _parentLabel(Map<String, dynamic> account) {
     final parent = account['parent_account'];
@@ -332,7 +356,7 @@ class _AccountsScreenState extends State<AccountsScreen> {
           if (_onlyWeightAccounts && !_effectivelyTracksWeight(account)) {
             return false;
           }
-          return true;
+          return _ofType(account);
         })
         .toList(growable: false);
 
@@ -381,6 +405,7 @@ class _AccountsScreenState extends State<AccountsScreen> {
     if (_onlyDetailAccounts) count++;
     if (_onlyWithBalance) count++;
     if (_onlyWeightAccounts) count++;
+    if (_typeFilter != null) count++;
     // The order is how they are listed, not which: not a filter.
     return count;
   }
@@ -393,6 +418,9 @@ class _AccountsScreenState extends State<AccountsScreen> {
         const PopupMenuItem(value: 'ledger', child: Text('دفتر الأستاذ')),
         const PopupMenuItem(value: 'copy', child: Text('نسخ رقم الحساب')),
         const PopupMenuDivider(),
+        const PopupMenuItem(value: 'add_child', child: Text('إضافة حساب فرعي')),
+        const PopupMenuItem(value: 'edit', child: Text('تعديل')),
+        const PopupMenuItem(value: 'delete', child: Text('حذف')),
         PopupMenuItem(
           key: Key('account-active-${account['id']}'),
           value: 'active',
@@ -409,7 +437,18 @@ class _AccountsScreenState extends State<AccountsScreen> {
       _copyAccountNumber(account);
     } else if (value == 'active') {
       _toggleActive(account);
+    } else if (value == 'add_child') {
+      _manage(showAccountForm(context, api: _api, accounts: _allAccounts, parent: account));
+    } else if (value == 'edit') {
+      _manage(showAccountForm(context, api: _api, accounts: _allAccounts, editing: account));
+    } else if (value == 'delete') {
+      _manage(deleteAccountFlow(context, api: _api, account: account));
     }
+  }
+
+  /// A change the server took: the chart is read again.
+  Future<void> _manage(Future<bool> change) async {
+    if (await change && mounted) await _fetchAccounts();
   }
 
   Future<void> _toggleActive(Map<String, dynamic> account) async {
@@ -651,6 +690,23 @@ class _AccountsScreenState extends State<AccountsScreen> {
                         _filterAccounts();
                       },
                     ),
+                    PopupMenuButton<String?>(
+                      key: const Key('accounts-type-filter'),
+                      tooltip: 'نوع الحساب',
+                      onSelected: (value) {
+                        setState(() => _typeFilter = value);
+                        _filterAccounts();
+                      },
+                      itemBuilder: (_) => [
+                        const PopupMenuItem(value: null, child: Text('كل الأنواع')),
+                        for (final e in accountTypeLabels.entries)
+                          PopupMenuItem(value: e.key, child: Text(e.value)),
+                      ],
+                      child: Chip(
+                        avatar: const Icon(Icons.category_outlined, size: 16),
+                        label: Text(_typeFilter == null ? 'كل الأنواع' : accountTypeLabel(_typeFilter)),
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -662,6 +718,7 @@ class _AccountsScreenState extends State<AccountsScreen> {
                       _onlyDetailAccounts = false;
                       _onlyWithBalance = false;
                       _onlyWeightAccounts = false;
+                      _typeFilter = null;
                     });
                     _filterAccounts();
                   },
@@ -1143,7 +1200,7 @@ class _AccountsScreenState extends State<AccountsScreen> {
           if (!_onlyWeightAccounts && id != null && _absorbedMemoIds.contains(id)) return false;
           if (_onlyWithBalance && !_hasAnyBalance(account)) return false;
           if (_onlyWeightAccounts && !_effectivelyTracksWeight(account)) return false;
-          return true;
+          return _ofType(account);
         },
       );
 
@@ -1248,8 +1305,27 @@ class _AccountsScreenState extends State<AccountsScreen> {
       final mode = _effectiveViewMode(constraints.maxWidth);
       return Scaffold(
         appBar: AppBar(
-          title: const Text('كشوفات الحسابات'),
+          title: Text(widget.openOnTree ? 'شجرة الحسابات' : 'الحسابات'),
           actions: [
+            PopupMenuButton<String>(
+              key: const Key('accounts-chart-actions'),
+              tooltip: 'إدارة الحسابات',
+              icon: const Icon(Icons.more_vert),
+              onSelected: (value) {
+                if (value == 'add_root') {
+                  _manage(showAccountForm(context, api: _api, accounts: _allAccounts));
+                } else if (value == 'export') {
+                  exportAccountsFlow(context, api: _api);
+                } else if (value == 'import') {
+                  _manage(importAccountsFlow(context, api: _api));
+                }
+              },
+              itemBuilder: (_) => const [
+                PopupMenuItem(value: 'add_root', child: Text('إضافة حساب رئيسي')),
+                PopupMenuItem(value: 'export', child: Text('تصدير الشجرة')),
+                PopupMenuItem(value: 'import', child: Text('استيراد شجرة')),
+              ],
+            ),
             PopupMenuButton<_AccountsViewMode>(
               key: const Key('accounts-view-mode'),
               tooltip: 'طريقة العرض',

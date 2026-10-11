@@ -33,7 +33,6 @@ import 'journal_entry_form.dart';
 import 'recurring_templates_screen.dart';
 import 'general_ledger_screen_v2.dart';
 import 'trial_balance_screen_v2.dart';
-import 'chart_of_accounts_screen.dart';
 import 'settings_screen_enhanced.dart';
 import 'branches_management_screen.dart';
 import 'gold_price_manual_screen_enhanced.dart';
@@ -1266,7 +1265,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
       onSelected: () async {
         await Navigator.push(
           context,
-          MaterialPageRoute(builder: (_) => ChartOfAccountsScreen()),
+          MaterialPageRoute(builder: (_) => const AccountsScreen(openOnTree: true)),
         );
       },
     );

@@ -57,6 +57,33 @@ class _FakeApi extends ApiService {
     activeCalls.add((id, active));
     return {'id': id, 'is_active': active};
   }
+
+  final added = <Map<String, dynamic>>[];
+  final deleted = <(int, bool?)>[];
+  int loads = 0;
+
+  @override
+  Future<Map<String, dynamic>> getNextAccountNumber(String parentNumber) async =>
+      {'suggested_number': '${parentNumber}3', 'parent_has_parallel': false};
+
+  @override
+  Future<Map<String, dynamic>> validateAccountNumber(
+          {required String accountNumber, String? parentAccountNumber, int? excludeAccountId}) async =>
+      {'is_valid': true};
+
+  @override
+  Future<Map<String, dynamic>> addAccount(Map<String, dynamic> accountData) async {
+    added.add(accountData);
+    return {'id': 999};
+  }
+
+  @override
+  Future<Map<String, dynamic>> deleteAccount(int id, {bool? deleteParallel}) async {
+    deleted.add((id, deleteParallel));
+    return deleteParallel == null
+        ? {'result': 'confirm_required', 'parallel_account': {'id': 7120, 'account_number': '7120', 'name': 'أثاث وزني'}}
+        : {'result': 'success'};
+  }
 }
 
 void main() {
@@ -97,7 +124,7 @@ void main() {
   });
 
   Future<void> open(WidgetTester tester,
-      {double width = 1400, Map<String, Object> prefs = const {}, _FakeApi? api}) async {
+      {double width = 1400, Map<String, Object> prefs = const {}, _FakeApi? api, bool onTree = false}) async {
     final cairo = FontLoader('Cairo');
     for (final w in ['Regular', 'SemiBold', 'Bold']) {
       cairo.addFont(rootBundle.load('assets/fonts/Cairo-$w.ttf'));
@@ -113,7 +140,8 @@ void main() {
       value: settings,
       child: MaterialApp(
         theme: LightTheme.theme,
-        home: Directionality(textDirection: TextDirection.rtl, child: AccountsScreen(apiService: api ?? _FakeApi())),
+        home: Directionality(
+            textDirection: TextDirection.rtl, child: AccountsScreen(apiService: api ?? _FakeApi(), openOnTree: onTree)),
       ),
     ));
     await tester.pumpAndSettle();
@@ -195,6 +223,66 @@ void main() {
     await tester.tap(find.byKey(const Key('account-menu-113')));
     await tester.pumpAndSettle();
     expect(find.text('تفعيل الحساب'), findsOneWidget, reason: 'a deactivated account offers activation');
+  });
+
+  // ── CHART-UI-1: one accounts screen ──────────────────────────────────────
+
+  testWidgets('a parent shows the server\'s balance -- its own and all under it', (tester) async {
+    final api = _FakeApi([
+      for (final a in _accounts)
+        a['id'] == 11 ? {...a, 'subtree_balances': {'cash': 98765.0, 'weight_total': 12.5}} : a,
+    ]);
+    await open(tester, api: api);
+    expect(find.textContaining('98,765.00'), findsOneWidget, reason: 'the subtree, not the parent\'s own 0');
+  });
+
+  testWidgets('the type in Arabic, and a filter by it', (tester) async {
+    final api = _FakeApi([..._accounts, {..._account(130, '130', 'مصروف إيجار', parent: 1), 'type': 'expense'}]);
+    await open(tester, api: api);
+    expect(find.textContaining('أصول'), findsWidgets, reason: 'Asset reads أصول');
+    await tester.tap(find.byKey(const Key('accounts-type-filter')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('مصروفات').last);
+    await tester.pumpAndSettle();
+    expect(find.text('مصروف إيجار'), findsOneWidget, reason: 'any spelling of the type');
+    expect(find.text('صندوق النقدية'), findsNothing);
+  });
+
+  testWidgets('a child account is added from its parent\'s menu, its number the server\'s', (tester) async {
+    final api = _FakeApi();
+    await open(tester, api: api);
+    await tester.tap(find.byKey(const Key('account-menu-11')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('إضافة حساب فرعي'));
+    await tester.pumpAndSettle();
+    expect(find.text('113'), findsOneWidget, reason: 'the suggested number');
+    await tester.enterText(find.byKey(const Key('account-form-name')), 'حساب جديد');
+    await tester.tap(find.byKey(const Key('account-form-save')));
+    await tester.pumpAndSettle();
+    expect(api.added.single['parent_id'], 11);
+    expect(api.added.single['account_number'], '113');
+    expect(api.added.single['type'], 'Asset');
+  });
+
+  testWidgets('a delete asks, then asks about the parallel account', (tester) async {
+    final api = _FakeApi();
+    await open(tester, api: api);
+    await tester.tap(find.byKey(const Key('account-menu-120')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('حذف').last);
+    await tester.pumpAndSettle();
+    expect(api.deleted, isEmpty, reason: 'nothing before the confirmation');
+    await tester.tap(find.byKey(const Key('account-delete-confirm')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('account-delete-only-this')));
+    await tester.pumpAndSettle();
+    expect(api.deleted.map((d) => d.$2).toList(), [null, false]);
+  });
+
+  testWidgets('«شجرة الحسابات» opens the one screen on its tree', (tester) async {
+    await open(tester, onTree: true);
+    expect(find.text('شجرة الحسابات'), findsWidgets);
+    expect(find.byKey(const Key('account-fold-11')), findsOneWidget, reason: 'the tree\'s fold control');
   });
 
   testWidgets('«عدد الأبناء» orders by how many', (tester) async {

@@ -15,7 +15,7 @@ import '../utils/currency_utils.dart' as cu;
 import 'accounting_mapping_screen_enhanced.dart';
 import 'payment_methods_screen_enhanced.dart';
 import 'safe_boxes_screen.dart';
-import 'chart_of_accounts_screen.dart';
+import 'accounts_screen.dart';
 import 'gold_price_manual_screen_enhanced.dart';
 import 'backup_restore_screen.dart';
 import 'system_reset_screen.dart';
@@ -1587,7 +1587,7 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
                 Navigator.push(
                   context,
                   MaterialPageRoute(
-                    builder: (_) => const ChartOfAccountsScreen(),
+                    builder: (_) => const AccountsScreen(openOnTree: true),
                   ),
                 );
               },
