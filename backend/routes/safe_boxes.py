@@ -151,8 +151,22 @@ def list_safe_box_balances():
         sb_dict['pending'] = pending.get(sb.id) or {'cash': 0.0, 'weight': {}, 'documents': 0}
         results.append(sb_dict)
 
+    # The totals per type are the server's (SAFES-UI-1): the screen summed the
+    # rows itself and turned grams into the main karat with a fixed 21.
+    totals = {}
+    for row in results:
+        t = totals.setdefault(row['safe_type'], {'count': 0, 'cash': 0.0, 'weight_main_karat': 0.0})
+        t['count'] += 1
+        t['cash'] += float(row['balance']['cash'] or 0.0)
+        t['weight_main_karat'] += float((row['balance'].get('weight') or {}).get('total') or 0.0)
+    for t in totals.values():
+        t['cash'] = round(t['cash'], 2)
+        t['weight_main_karat'] = round(t['weight_main_karat'], 3)
+
     return jsonify({
         'rows': results,
+        'totals': totals,
+        'main_karat': main_karat,
         'filters': {
             'safe_type': safe_type or None,
             'is_active': (is_active_param if is_active_param in ('true', 'false') else None),
@@ -345,52 +359,6 @@ def safe_boxes_reconciliation():
         'summary': summary,
         'keyed': keyed,
     })
-
-@safe_boxes_bp.route('/safe-boxes/stones-balance', methods=['GET'])
-@require_any_permission('safe_boxes.transfer', 'reports.financial')   # balances are not the seller's (ADR-036)
-def get_safe_boxes_stones_balance():
-    """رصيد الفصوص لكل خزينة ذهب — مستقل عن العيار.
-
-    stones_balance = SUM(stones_weight, direction='in')
-                   - SUM(stones_weight, direction='out')
-
-    Query params:
-      - safe_box_id: int (اختياري — لخزينة محددة)
-    """
-    safe_box_id_param = request.args.get('safe_box_id')
-
-    q_safes = SafeBox.query.filter_by(safe_type='gold', is_active=True)
-    if safe_box_id_param:
-        try:
-            q_safes = q_safes.filter_by(id=int(safe_box_id_param))
-        except (TypeError, ValueError):
-            pass
-    safes = q_safes.order_by(SafeBox.id).all()
-
-    results = []
-    for sb in safes:
-        col = SafeBoxTransaction.stones_weight
-        stones_in = float(
-            db.session.query(func.coalesce(func.sum(col), 0.0))
-            .filter(SafeBoxTransaction.safe_box_id == sb.id,
-                    SafeBoxTransaction.direction == 'in')
-            .scalar() or 0.0
-        )
-        stones_out = float(
-            db.session.query(func.coalesce(func.sum(col), 0.0))
-            .filter(SafeBoxTransaction.safe_box_id == sb.id,
-                    SafeBoxTransaction.direction == 'out')
-            .scalar() or 0.0
-        )
-        results.append({
-            'safe_box_id':        sb.id,
-            'safe_box_name':      sb.name,
-            'stones_in':          round(stones_in, 3),
-            'stones_out':         round(stones_out, 3),
-            'stones_balance':     round(stones_in - stones_out, 3),
-        })
-
-    return jsonify({'safes': results})
 
 @safe_boxes_bp.route('/safe-boxes/purge-duplicate-gold-movement-sbts', methods=['POST'])
 @require_permission('system.settings')
@@ -786,7 +754,8 @@ def create_safe_box():
             is_active=data.get('is_active', True),
             is_default=data.get('is_default', False),
             notes=data.get('notes'),
-            created_by=data.get('created_by'),
+            # who is signed in, not what the device sends (it sent 'admin' for all)
+            created_by=getattr(getattr(g, 'current_user', None), 'username', None) or 'system',
         )
         
         # إذا كانت افتراضية، إلغاء تفعيل الافتراضية من الخزائن الأخرى من نفس النوع

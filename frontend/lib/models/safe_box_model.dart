@@ -235,6 +235,10 @@ class SafeBoxModel {
   // احتياط حين يغيب balance.weight كلياً (حساب لا يتتبّع الوزن، أو استجابة
   // قديمة من /api/safe-boxes العادي بلا ledger). هذا يمنع أي انحراف مستقبلي
   // في SafeBoxTransaction من الظهور كرصيد خاطئ على البطاقة أو أداة التحويل.
+  /// The gold in the main karat -- the server's (SAFES-UI-1): the screen
+  /// converted with a fixed 21 while the main karat is a setting.
+  double get goldMainKarat => balance?.weight?.total ?? totalWeightMainKarat ?? 0.0;
+
   double get goldBalance24k => balance?.weight?.karat24 ?? weightBalance?['24k'] ?? 0.0;
   double get goldBalance22k => balance?.weight?.karat22 ?? weightBalance?['22k'] ?? 0.0;
   double get goldBalance21k => balance?.weight?.karat21 ?? weightBalance?['21k'] ?? 0.0;
@@ -388,4 +392,41 @@ class WeightBalance {
       'total': total,
     };
   }
+}
+
+/// One type's total over the safes listed -- the server's (SAFES-UI-1).
+class SafeTypeTotal {
+  final int count;
+  final double cash;
+  final double weightMainKarat;
+
+  const SafeTypeTotal({required this.count, required this.cash, required this.weightMainKarat});
+
+  factory SafeTypeTotal.fromJson(Map<String, dynamic> json) => SafeTypeTotal(
+        count: (json['count'] as num?)?.toInt() ?? 0,
+        cash: (json['cash'] as num?)?.toDouble() ?? 0.0,
+        weightMainKarat: (json['weight_main_karat'] as num?)?.toDouble() ?? 0.0,
+      );
+}
+
+/// GET /safe-boxes/balances: the safes, their totals per type and the main
+/// karat the gold is counted in.
+class SafeBoxesOverview {
+  final List<SafeBoxModel> rows;
+  final Map<String, SafeTypeTotal> totals;
+  final double mainKarat;
+
+  const SafeBoxesOverview({required this.rows, required this.totals, required this.mainKarat});
+
+  factory SafeBoxesOverview.fromJson(Map<String, dynamic> json) => SafeBoxesOverview(
+        rows: [
+          for (final r in (json['rows'] as List? ?? const []).whereType<Map<String, dynamic>>())
+            SafeBoxModel.fromJson(r),
+        ],
+        totals: {
+          for (final e in ((json['totals'] as Map?) ?? const {}).entries)
+            if (e.value is Map) '${e.key}': SafeTypeTotal.fromJson(Map<String, dynamic>.from(e.value as Map)),
+        },
+        mainKarat: (json['main_karat'] as num?)?.toDouble() ?? 21,
+      );
 }

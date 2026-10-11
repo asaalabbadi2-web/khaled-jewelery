@@ -1975,8 +1975,6 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                     MaterialPageRoute(
                       builder: (_) => SafeBoxesScreen(
                         api: widget.api,
-                        isArabic: widget.isArabic,
-                        balancesView: true,
                       ),
                     ),
                   );

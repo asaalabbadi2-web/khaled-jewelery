@@ -1661,7 +1661,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
           await Navigator.push(
             context,
             MaterialPageRoute(
-              builder: (_) => SafeBoxesScreen(balancesView: true),
+              builder: (_) => SafeBoxesScreen(),
             ),
           );
           await _loadAllData();

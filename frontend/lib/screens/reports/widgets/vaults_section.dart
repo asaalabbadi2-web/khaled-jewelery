@@ -200,8 +200,6 @@ class _VaultsSectionState extends State<VaultsSection> {
                   MaterialPageRoute(
                     builder: (_) => SafeBoxesScreen(
                       api: widget.api,
-                      isArabic: isAr,
-                      balancesView: true,
                     ),
                   ),
                 ),

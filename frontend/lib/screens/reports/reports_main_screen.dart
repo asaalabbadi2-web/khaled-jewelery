@@ -440,8 +440,6 @@ class _ReportsMainScreenState extends State<ReportsMainScreen> {
       case 'safe_boxes_screen':
         destination = SafeBoxesScreen(
           api: widget.api,
-          isArabic: widget.isArabic,
-          balancesView: true,
           initialFilterType: 'gold',
           lockFilterType: true,
           titleOverride: widget.isArabic

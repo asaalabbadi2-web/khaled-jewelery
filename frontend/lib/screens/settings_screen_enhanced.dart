@@ -1231,7 +1231,7 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
                   context,
                   MaterialPageRoute(
                     builder: (_) =>
-                        SafeBoxesScreen(api: _apiService, balancesView: true),
+                        SafeBoxesScreen(api: _apiService),
                   ),
                 );
               },
@@ -1393,7 +1393,6 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
                         MaterialPageRoute(
                           builder: (_) => SafeBoxesScreen(
                             api: _apiService,
-                            balancesView: true,
                           ),
                         ),
                       );

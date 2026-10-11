@@ -354,8 +354,6 @@ class _SafeBoxHeroDetailsScreenState extends State<SafeBoxHeroDetailsScreen> {
                 MaterialPageRoute(
                   builder: (_) => SafeBoxesScreen(
                     api: widget.api,
-                    isArabic: widget.isArabic,
-                    balancesView: true,
                   ),
                 ),
               );

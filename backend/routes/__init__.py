@@ -1187,7 +1187,7 @@ def _generate_employee_code():
 
 # Safe-boxes domain → routes/safe_boxes.py (cluster A)
 # (GET /safe-boxes/<id>/transactions, GET /safe-boxes/<id>/balance,
-#  GET /safe-boxes/balances, GET /safe-boxes/stones-balance (×2),
+#  GET /safe-boxes/balances, GET /safe-boxes/stones-balance,
 #  GET /safe-boxes/reconciliation,
 #  POST /safe-boxes/purge-duplicate-gold-movement-sbts,
 #  POST /safe-boxes/repair-transactions)

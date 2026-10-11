@@ -5480,6 +5480,18 @@ class ApiService {
     return <SafeBoxModel>[];
   }
 
+  /// The safes with their totals per type -- «إدارة الخزائن» (SAFES-UI-1).
+  /// Endpoint: GET /safe-boxes/balances
+  Future<SafeBoxesOverview> getSafeBoxesOverview() async {
+    final response = await _authedGet(Uri.parse('$_baseUrl/safe-boxes/balances'));
+    if (response.statusCode != 200) {
+      throw Exception('تعذّر تحميل الخزائن (${response.statusCode})');
+    }
+    return SafeBoxesOverview.fromJson(
+      json.decode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>,
+    );
+  }
+
   /// رصيد الفصوص لكل خزينة ذهب (معلوماتي فقط — لا يؤثر على الأرصدة الذهبية).
   /// Endpoint: GET /safe-boxes/stones-balance
   Future<Map<int, Map<String, double>>> getStonesBalance({int? safeBoxId}) async {

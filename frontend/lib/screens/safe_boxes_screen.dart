@@ -1,22 +1,77 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
+import 'package:provider/provider.dart';
+
 import '../api_service.dart';
 import '../app_events.dart';
 import '../models/safe_box_model.dart';
+import '../providers/settings_provider.dart';
+import '../theme/app_semantic_colors.dart';
+import '../utils/arabic_search.dart';
+import '../utils/bidi.dart';
+import '../widgets/account_management.dart';
 import 'account_statement_screen.dart';
 import 'add_voucher_screen.dart';
 import 'clearing_settlement_screen.dart';
 import 'safe_transfer_screen.dart';
 
-enum _SafeCardMenuAction { statement, edit, settlement, delete }
+/// «إدارة الخزائن» (SAFES-UI-1, the analysis of 12 Oct 2026).
+///
+/// The server answers: each safe's balance and the totals per type -- the
+/// amount for money, the grams in the main karat for gold. The screen shows
+/// them: a tile per type (which is also its filter), the safes grouped under
+/// their type, a card whose details open where it is tapped. Colours come
+/// from the theme.
+
+/// The types in the order they are shown, and their names -- one name each,
+/// everywhere (the tab said «شبكات» for `check`, the form «شيكات»; the card
+/// networks sat under «مستحقات تحصيل»).
+const safeTypeLabels = {
+  'cash': 'النقدية',
+  'bank': 'البنوك',
+  'clearing': 'الشبكات',
+  'gold': 'الذهب',
+  'check': 'الشيكات',
+};
+
+/// One safe's type in the singular, for its badge and the form.
+const _safeTypeSingular = {
+  'cash': 'نقدية',
+  'bank': 'بنك',
+  'clearing': 'شبكة',
+  'gold': 'ذهب',
+  'check': 'شيكات',
+};
+
+IconData _typeIcon(String type) => switch (type) {
+  'cash' => Icons.payments_outlined,
+  'bank' => Icons.account_balance_outlined,
+  'clearing' => Icons.credit_card_outlined,
+  'gold' => Icons.diamond_outlined,
+  'check' => Icons.receipt_long_outlined,
+  _ => Icons.account_balance_wallet_outlined,
+};
+
+SemanticTone _typeTone(AppSemanticColors tones, String type) => switch (type) {
+  'cash' => tones.cash,
+  'bank' => tones.sectionBlue,
+  'clearing' => tones.sectionTeal,
+  'gold' => tones.gold,
+  'check' => tones.sectionPurple,
+  _ => tones.sectionSlate,
+};
+
+String _message(Object e) => e.toString().replaceFirst('Exception: ', '');
+
+final _money = NumberFormat('#,##0.00', 'en');
+final _grams = NumberFormat('#,##0.000', 'en');
 
 class SafeBoxesScreen extends StatefulWidget {
   final ApiService api;
-  final bool isArabic;
 
-  // Optional: show ledger-based balances and lock to a specific safe type.
-  final bool balancesView;
+  /// Opens on one type; [lockFilterType] keeps it there (a report's view).
   final String? initialFilterType;
   final bool lockFilterType;
   final String? titleOverride;
@@ -24,8 +79,6 @@ class SafeBoxesScreen extends StatefulWidget {
   SafeBoxesScreen({
     super.key,
     ApiService? api,
-    this.isArabic = true,
-    this.balancesView = true,
     this.initialFilterType,
     this.lockFilterType = false,
     this.titleOverride,
@@ -36,2178 +89,1056 @@ class SafeBoxesScreen extends StatefulWidget {
 }
 
 class _SafeBoxesScreenState extends State<SafeBoxesScreen> {
-  static const Color _primaryColor = Color(0xFFC69214);
-  static const Color _successColor = Color(0xFF2E7D32);
-  static const Color _dangerColor = Color(0xFFD32F2F);
-  static const Color _backgroundColor = Color(0xFFF8F9FB);
-  static const Color _textColor = Color(0xFF1C1C1C);
+  SafeBoxesOverview? _overview;
+  Map<int, Map<String, double>> _stones = {};
+  String? _error;
+  bool _loading = true;
+  late String _type = (widget.initialFilterType ?? '').trim().isEmpty
+      ? 'all'
+      : widget.initialFilterType!.trim();
+  String _query = '';
+  final _search = TextEditingController();
+  final _open = <int>{};
 
-  List<SafeBoxModel> _safeBoxes = [];
-  String _filterType = 'all'; // all, cash, bank, clearing, gold, check
-  String _searchQuery = '';
-  final TextEditingController _searchController = TextEditingController();
-  bool _activeOnly = false;
-  bool _defaultOnly = false;
-  bool _isLoading = false;
-  final Set<int> _expandedCardKeys = <int>{};
-  int? _pressedCardId;
-  Map<int, Map<String, double>> _stonesMap = {};
-
-  String _effectiveFilterType() {
-    if (widget.lockFilterType) {
-      final locked = (widget.initialFilterType ?? '').trim();
-      if (locked.isNotEmpty) return locked;
-    }
-    return _filterType;
-  }
+  ColorScheme get _scheme => Theme.of(context).colorScheme;
+  AppSemanticColors get _tones => AppSemanticColors.of(context);
 
   @override
   void initState() {
     super.initState();
-    if (widget.initialFilterType != null &&
-        widget.initialFilterType!.isNotEmpty) {
-      _filterType = widget.initialFilterType!;
-    }
-    _loadSafeBoxes();
+    _load();
     AppEvents.vaultRefreshSignal.addListener(_onVaultRefresh);
   }
 
   void _onVaultRefresh() {
-    if (mounted) _loadSafeBoxes();
+    if (mounted) _load();
   }
 
   @override
   void dispose() {
     AppEvents.vaultRefreshSignal.removeListener(_onVaultRefresh);
-    _searchController.dispose();
+    _search.dispose();
     super.dispose();
   }
 
-  Future<void> _loadSafeBoxes() async {
-    setState(() => _isLoading = true);
+  Future<void> _load() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
     try {
-      final effectiveType = widget.lockFilterType
-          ? (widget.initialFilterType ?? _filterType)
-          : _filterType;
-
-      final boxesFuture = widget.balancesView
-          ? widget.api.getSafeBoxBalances(
-              type: effectiveType == 'all' ? null : effectiveType,
-              isActive: null,
-            )
-          : widget.api.getSafeBoxes(
-              safeType: effectiveType == 'all' ? null : effectiveType,
-              includeAccount: true,
-              includeBalance: true,
-            );
-
-      final stonesFuture = widget.api.getStonesBalance();
-      final results = await Future.wait([boxesFuture, stonesFuture]);
-      final boxes = results[0] as List<SafeBoxModel>;
-      final stones = results[1] as Map<int, Map<String, double>>;
-
+      final overview = await widget.api.getSafeBoxesOverview();
+      Map<int, Map<String, double>> stones = {};
+      try {
+        stones = await widget.api.getStonesBalance();
+      } catch (_) {
+        // The stones are informational; the safes show without them.
+      }
+      if (!mounted) return;
       setState(() {
-        _safeBoxes = boxes;
-        _stonesMap = stones;
-        _isLoading = false;
+        _overview = overview;
+        _stones = stones;
+        _loading = false;
       });
     } catch (e) {
-      setState(() => _isLoading = false);
-      _showSnack(e.toString(), isError: true);
+      if (!mounted) return;
+      setState(() {
+        _error = _message(e);
+        _loading = false;
+      });
     }
   }
 
-  void _showSnack(String message, {bool isError = false}) {
+  // ── formatting: numbers left-to-right and whole inside Arabic ──
+
+  String get _symbol => context.read<SettingsProvider>().currencySymbolText;
+  String _amount(double v) => ltrIsolate('${_money.format(v)} $_symbol');
+  String _weight(double v) => ltrIsolate('${_grams.format(v)} جم');
+
+  void _say(String text, {bool error = false}) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(message),
-        backgroundColor: isError ? Colors.red : Colors.green,
-      ),
-    );
-  }
-
-  Future<void> _showAddEditDialog({SafeBoxModel? safeBox}) async {
-    final isEdit = safeBox != null;
-    final isAr = widget.isArabic;
-
-    final effectiveType = _effectiveFilterType();
-    final lockTypeForAdd = !isEdit && effectiveType != 'all';
-
-    // الحقول
-    final nameController = TextEditingController(text: safeBox?.name ?? '');
-    final nameEnController = TextEditingController(text: safeBox?.nameEn ?? '');
-    String selectedType =
-        safeBox?.safeType ?? (lockTypeForAdd ? effectiveType : 'cash');
-    int? selectedAccountId = safeBox?.accountId;
-    int? selectedKarat = safeBox?.karat;
-    final bankNameController = TextEditingController(
-      text: safeBox?.bankName ?? '',
-    );
-    final ibanController = TextEditingController(text: safeBox?.iban ?? '');
-    final swiftController = TextEditingController(
-      text: safeBox?.swiftCode ?? '',
-    );
-    final branchController = TextEditingController(text: safeBox?.branch ?? '');
-    final notesController = TextEditingController(text: safeBox?.notes ?? '');
-    bool isActive = safeBox?.isActive ?? true;
-    bool isDefault = safeBox?.isDefault ?? false;
-
-    // جلب الحسابات
-    List<Map<String, dynamic>> accounts = [];
-    try {
-      final accountsResponse = await widget.api.getAccounts();
-      accounts = accountsResponse.cast<Map<String, dynamic>>();
-    } catch (e) {
-      _showSnack('فشل تحميل الحسابات', isError: true);
-      return;
-    }
-
-    int accountNumberAsInt(Map<String, dynamic> acc) {
-      final raw = (acc['account_number'] ?? '').toString().trim();
-      return int.tryParse(raw) ?? 0;
-    }
-
-    // Keep a stable ordering for browsing/suggestions.
-    final accountsSorted = List<Map<String, dynamic>>.from(accounts)
-      ..sort((a, b) => accountNumberAsInt(a).compareTo(accountNumberAsInt(b)));
-
-    bool tracksWeight(Map<String, dynamic> acc) => acc['tracks_weight'] == true;
-
-    // Keep tracksWeight helper for validation and picker.
-
-    String accountLabelFor(Map<String, dynamic> acc) {
-      final name = (acc['name'] ?? '').toString();
-      final number = (acc['account_number'] ?? '').toString();
-      return '$name ($number)';
-    }
-
-    String initialAccountLabel = '';
-    if (selectedAccountId != null) {
-      final match = accountsSorted
-          .where((a) => a['id'] == selectedAccountId)
-          .cast<Map<String, dynamic>>()
-          .toList();
-      if (match.isNotEmpty) {
-        initialAccountLabel = accountLabelFor(match.first);
-      }
-    }
-    final linkedAccountController = TextEditingController(
-      text: initialAccountLabel,
-    );
-
-    Future<void> openAccountPicker() async {
-      final picked = await showDialog<Map<String, dynamic>>(
-        context: context,
-        builder: (_) => _AccountPickerDialog(
-          isArabic: isAr,
-          accounts: accountsSorted,
-          initialAccountId: selectedAccountId,
-          requireTracksWeight: selectedType == 'gold',
-          allowShowAllWhenTracksRequired: true,
-          initialQuery: linkedAccountController.text,
-        ),
-      );
-
-      if (picked != null) {
-        setState(() {
-          selectedAccountId = picked['id'] as int?;
-          linkedAccountController.text = accountLabelFor(picked);
-        });
-      }
-    }
-
-    await showDialog(
-      context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDialogState) => AlertDialog(
-          title: Text(
-            isEdit
-                ? (isAr ? 'تعديل خزينة' : 'Edit Safe Box')
-                : (isAr ? 'إضافة خزينة جديدة' : 'Add New Safe Box'),
-          ),
-          content: SingleChildScrollView(
-            child: SizedBox(
-              width: MediaQuery.of(context).size.width * 0.8,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  // الاسم
-                  TextField(
-                    controller: nameController,
-                    decoration: InputDecoration(
-                      labelText: isAr ? 'الاسم *' : 'Name *',
-                      border: const OutlineInputBorder(),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-
-                  // الاسم بالإنجليزية
-                  TextField(
-                    controller: nameEnController,
-                    decoration: InputDecoration(
-                      labelText: isAr ? 'الاسم بالإنجليزية' : 'Name (English)',
-                      border: const OutlineInputBorder(),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-
-                  // النوع
-                  DropdownButtonFormField<String>(
-                    value: selectedType,
-                    decoration: InputDecoration(
-                      labelText: isAr ? 'النوع *' : 'Type *',
-                      border: const OutlineInputBorder(),
-                    ),
-                    items: [
-                      DropdownMenuItem(
-                        value: 'cash',
-                        child: Text(isAr ? 'نقدي' : 'Cash'),
-                      ),
-                      DropdownMenuItem(
-                        value: 'bank',
-                        child: Text(isAr ? 'بنكي' : 'Bank'),
-                      ),
-                      DropdownMenuItem(
-                        value: 'clearing',
-                        child: Text(isAr ? 'مستحقات تحصيل' : 'Clearing'),
-                      ),
-                      DropdownMenuItem(
-                        value: 'gold',
-                        child: Text(isAr ? 'ذهبي' : 'Gold'),
-                      ),
-                      DropdownMenuItem(
-                        value: 'check',
-                        child: Text(isAr ? 'شيكات' : 'Check'),
-                      ),
-                    ],
-                    onChanged: lockTypeForAdd
-                        ? null
-                        : (value) {
-                            if (value == null) return;
-                            setDialogState(() {
-                              selectedType = value;
-                              // If not gold, clear karat selection.
-                              if (selectedType != 'gold') {
-                                selectedKarat = null;
-                              }
-                            });
-                          },
-                  ),
-                  const SizedBox(height: 12),
-
-                  // الحساب المرتبط
-                  Row(
-                    children: [
-                      Expanded(
-                        child: TextField(
-                          controller: linkedAccountController,
-                          readOnly: true,
-                          onTap: openAccountPicker,
-                          decoration: InputDecoration(
-                            labelText: isAr
-                                ? 'الحساب المرتبط *'
-                                : 'Linked Account *',
-                            hintText: isAr
-                                ? 'اضغط للاختيار (بحث/فلترة)'
-                                : 'Tap to select (search/filter)',
-                            helperText: selectedType == 'gold'
-                                ? (isAr
-                                      ? 'يجب اختيار حساب يتتبع الوزن (tracks_weight=true)'
-                                      : 'Must choose tracks_weight=true')
-                                : null,
-                            border: const OutlineInputBorder(),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      IconButton.filledTonal(
-                        onPressed: openAccountPicker,
-                        icon: const Icon(Icons.search),
-                        tooltip: isAr ? 'اختيار حساب' : 'Pick account',
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-
-                  // العيار (للذهب فقط)
-                  if (selectedType == 'gold')
-                    DropdownButtonFormField<int?>(
-                      value: selectedKarat,
-                      decoration: InputDecoration(
-                        labelText: isAr
-                            ? 'العيار (اختياري)'
-                            : 'Karat (optional)',
-                        border: const OutlineInputBorder(),
-                      ),
-                      items: const [
-                        DropdownMenuItem<int?>(
-                          value: null,
-                          child: Text('— خزينة متعددة العيارات —'),
-                        ),
-                        DropdownMenuItem(value: 18, child: Text('18')),
-                        DropdownMenuItem(value: 21, child: Text('21')),
-                        DropdownMenuItem(value: 22, child: Text('22')),
-                        DropdownMenuItem(value: 24, child: Text('24')),
-                      ],
-                      onChanged: (value) {
-                        setDialogState(() {
-                          selectedKarat = value;
-                        });
-                      },
-                    ),
-                  if (selectedType == 'gold') const SizedBox(height: 12),
-                  if (selectedType == 'gold')
-                    Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: Colors.blue.withValues(alpha: 0.1),
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(
-                          color: Colors.blue.withValues(alpha: 0.3),
-                        ),
-                      ),
-                      child: Text(
-                        isAr
-                            ? '💡 نوعان:\n'
-                                  '• مع عيار: خزينة لعيار محدد فقط\n'
-                                  '• بدون عيار: تقبل جميع العيارات (أفضل للموظفين)'
-                            : '💡 Two types:\n'
-                                  '• With karat: specific karat only\n'
-                                  '• Without karat: accepts all karats (better for employees)',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Colors.blue.shade800,
-                          height: 1.4,
-                        ),
-                      ),
-                    ),
-                  if (selectedType == 'gold') const SizedBox(height: 12),
-
-                  // معلومات البنك (للبنوك فقط)
-                  if (selectedType == 'bank') ...[
-                    TextField(
-                      controller: bankNameController,
-                      decoration: InputDecoration(
-                        labelText: isAr ? 'اسم البنك' : 'Bank Name',
-                        border: const OutlineInputBorder(),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: ibanController,
-                      decoration: const InputDecoration(
-                        labelText: 'IBAN',
-                        border: OutlineInputBorder(),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: swiftController,
-                      decoration: const InputDecoration(
-                        labelText: 'SWIFT Code',
-                        border: OutlineInputBorder(),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    TextField(
-                      controller: branchController,
-                      decoration: InputDecoration(
-                        labelText: isAr ? 'فرع البنك' : 'Bank Branch',
-                        border: const OutlineInputBorder(),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                  ],
-
-                  // ملاحظات
-                  TextField(
-                    controller: notesController,
-                    maxLines: 2,
-                    decoration: InputDecoration(
-                      labelText: isAr ? 'ملاحظات' : 'Notes',
-                      border: const OutlineInputBorder(),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-
-                  // نشط
-                  SwitchListTile(
-                    title: Text(isAr ? 'نشط' : 'Active'),
-                    value: isActive,
-                    onChanged: (value) {
-                      setDialogState(() {
-                        isActive = value;
-                      });
-                    },
-                  ),
-
-                  // افتراضي
-                  SwitchListTile(
-                    title: Text(isAr ? 'افتراضي' : 'Default'),
-                    subtitle: Text(
-                      isAr
-                          ? 'الخزينة الافتراضية للنوع المحدد'
-                          : 'Default safe box for this type',
-                      style: const TextStyle(fontSize: 12),
-                    ),
-                    value: isDefault,
-                    onChanged: (value) {
-                      setDialogState(() {
-                        isDefault = value;
-                      });
-                    },
-                  ),
-                ],
-              ),
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: Text(isAr ? 'إلغاء' : 'Cancel'),
-            ),
-            ElevatedButton(
-              onPressed: () async {
-                // التحقق من الحقول
-                if (nameController.text.isEmpty) {
-                  _showSnack(
-                    isAr ? 'الاسم مطلوب' : 'Name is required',
-                    isError: true,
-                  );
-                  return;
-                }
-                if (selectedAccountId == null) {
-                  _showSnack(
-                    isAr
-                        ? 'الحساب المرتبط مطلوب'
-                        : 'Linked account is required',
-                    isError: true,
-                  );
-                  return;
-                }
-
-                if (selectedType == 'gold') {
-                  final selectedAcc = accountsSorted
-                      .where((a) => a['id'] == selectedAccountId)
-                      .cast<Map<String, dynamic>>()
-                      .toList();
-                  final tracks =
-                      selectedAcc.isNotEmpty && tracksWeight(selectedAcc.first);
-                  if (!tracks) {
-                    _showSnack(
-                      isAr
-                          ? 'لخزنة الذهب يجب اختيار حساب يتتبع الوزن (tracks_weight=true)'
-                          : 'Gold safe boxes require a weight-tracking account (tracks_weight=true)',
-                      isError: true,
-                    );
-                    return;
-                  }
-                }
-
-                final newSafeBox = SafeBoxModel(
-                  id: safeBox?.id,
-                  name: nameController.text,
-                  nameEn: nameEnController.text.isNotEmpty
-                      ? nameEnController.text
-                      : null,
-                  safeType: selectedType,
-                  accountId: selectedAccountId!,
-                  karat: selectedKarat,
-                  bankName: bankNameController.text.isNotEmpty
-                      ? bankNameController.text
-                      : null,
-                  iban: ibanController.text.isNotEmpty
-                      ? ibanController.text
-                      : null,
-                  swiftCode: swiftController.text.isNotEmpty
-                      ? swiftController.text
-                      : null,
-                  branch: branchController.text.isNotEmpty
-                      ? branchController.text
-                      : null,
-                  isActive: isActive,
-                  isDefault: isDefault,
-                  notes: notesController.text.isNotEmpty
-                      ? notesController.text
-                      : null,
-                  createdBy: 'admin',
-                );
-
-                try {
-                  if (isEdit) {
-                    await widget.api.updateSafeBox(safeBox.id!, newSafeBox);
-                    _showSnack(
-                      isAr ? 'تم التحديث بنجاح' : 'Updated successfully',
-                    );
-                  } else {
-                    await widget.api.createSafeBox(newSafeBox);
-                    _showSnack(
-                      isAr ? 'تم الإنشاء بنجاح' : 'Created successfully',
-                    );
-                  }
-                  Navigator.pop(ctx);
-                  _loadSafeBoxes();
-                } catch (e) {
-                  _showSnack(e.toString(), isError: true);
-                }
-              },
-              child: Text(
-                isEdit ? (isAr ? 'تحديث' : 'Update') : (isAr ? 'إضافة' : 'Add'),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Future<void> _deleteSafeBox(SafeBoxModel safeBox) async {
-    final isAr = widget.isArabic;
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text(isAr ? 'تأكيد الحذف' : 'Confirm Delete'),
         content: Text(
-          isAr ? 'هل تريد حذف "${safeBox.name}"؟' : 'Delete "${safeBox.name}"?',
+          text,
+          style: error ? TextStyle(color: _scheme.onError) : null,
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: Text(isAr ? 'إلغاء' : 'Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-            child: Text(isAr ? 'حذف' : 'Delete'),
-          ),
-        ],
+        backgroundColor: error ? _scheme.error : null,
       ),
     );
-
-    if (confirmed == true) {
-      try {
-        await widget.api.deleteSafeBox(safeBox.id!);
-        _showSnack(isAr ? 'تم الحذف بنجاح' : 'Deleted successfully');
-        _loadSafeBoxes();
-      } catch (e) {
-        final raw = e.toString();
-
-        Map<String, dynamic>? payload;
-        try {
-          final start = raw.indexOf('{');
-          final end = raw.lastIndexOf('}');
-          if (start != -1 && end != -1 && end > start) {
-            final jsonStr = raw.substring(start, end + 1);
-            final decoded = json.decode(jsonStr);
-            if (decoded is Map<String, dynamic>) {
-              payload = decoded;
-            }
-          }
-        } catch (_) {
-          payload = null;
-        }
-
-        final errCode = (payload?['error'] as String?) ?? '';
-        if (errCode == 'cannot_delete_safe_box_in_use') {
-          final details = payload?['details'] as Map<String, dynamic>?;
-          final employees = details?['employees_linked'] ?? 0;
-          final transactions = details?['transactions_linked'] ?? 0;
-          final invoices = details?['invoices_linked'] ?? 0;
-          final paymentMethods = details?['payment_methods_linked'] ?? 0;
-
-          _showSnack(
-            isAr
-                ? 'لا يمكن حذف الخزنة لأنها مستخدمة (موظفين: $employees، عمليات: $transactions، فواتير: $invoices، وسائل دفع: $paymentMethods)'
-                : 'Cannot delete safe box because it is in use (employees: $employees, transactions: $transactions, invoices: $invoices, payment methods: $paymentMethods).',
-            isError: true,
-          );
-          return;
-        }
-
-        final serverMsg = payload?['message'] as String?;
-        _showSnack(
-          serverMsg?.trim().isNotEmpty == true ? serverMsg! : raw,
-          isError: true,
-        );
-      }
-    }
   }
 
-  bool _isGoldSafe(SafeBoxModel safeBox) {
-    return safeBox.safeType.trim().toLowerCase() == 'gold';
-  }
+  // ── what is shown ──
 
-  int _safeCardKey(SafeBoxModel safeBox) {
-    return safeBox.id ?? -safeBox.accountId;
-  }
-
-  bool _isCardExpanded(SafeBoxModel safeBox) {
-    return _expandedCardKeys.contains(_safeCardKey(safeBox));
-  }
-
-  void _toggleCardExpanded(SafeBoxModel safeBox) {
-    final key = _safeCardKey(safeBox);
-    setState(() {
-      if (_expandedCardKeys.contains(key)) {
-        _expandedCardKeys.remove(key);
-      } else {
-        _expandedCardKeys.add(key);
-      }
-    });
-  }
-
-  // كانت هذه الدالة تُفضِّل totalWeightMainKarat الخام (محسوب من
-  // SafeBoxTransaction في الباكند) كل مرة كان غير صفر، متجاوزةً تماماً
-  // goldBalance*k (التي تُفضِّل القيد المحاسبي أصلاً بعد إصلاح الموديل) --
-  // وهذا بالضبط ما جعل كل الانحرافات التي تتبَّعناها اليوم تظهر هنا. الآن
-  // مصدر واحد فقط دائماً: goldBalance*k، بلا أي تفرّع بين "وضع كشوفات" أو
-  // "حمولة ledger".
-  double _effectiveGoldMainKaratBalance(SafeBoxModel safeBox) {
-    return safeBox.goldBalance18k * 18 / 21 +
-        safeBox.goldBalance21k +
-        safeBox.goldBalance22k * 22 / 21 +
-        safeBox.goldBalance24k * 24 / 21;
-  }
-
-  List<MapEntry<String, double>> _goldBreakdown(SafeBoxModel safeBox) {
-    return [
-      MapEntry('24k', safeBox.goldBalance24k),
-      MapEntry('22k', safeBox.goldBalance22k),
-      MapEntry('21k', safeBox.goldBalance21k),
-      MapEntry('18k', safeBox.goldBalance18k),
+  /// The types the server reported, in the screen's order; one alone when locked.
+  List<String> get _types {
+    final present = _overview?.totals.keys.toSet() ?? <String>{};
+    final ordered = [
+      ...safeTypeLabels.keys.where(present.contains),
+      ...present.where((t) => !safeTypeLabels.containsKey(t)),
     ];
+    if (widget.lockFilterType && _type != 'all')
+      return ordered.where((t) => t == _type).toList();
+    return ordered;
   }
 
-  String _formatCurrency(double value) {
-    final unit = widget.isArabic ? 'ر.س' : 'SAR';
-    return '${value.toStringAsFixed(2)} $unit';
+  List<SafeBoxModel> _rowsOf(String type) {
+    final q = normalizeForSearch(_query);
+    final rows =
+        (_overview?.rows ?? const <SafeBoxModel>[]).where((sb) {
+          if (sb.safeType != type) return false;
+          if (q.isEmpty) return true;
+          return normalizeForSearch(
+            [
+              sb.name,
+              sb.nameEn ?? '',
+              sb.bankName ?? '',
+              sb.account?.name ?? '',
+              sb.account?.accountNumber ?? '',
+            ].join(' '),
+          ).contains(q);
+        }).toList()..sort((a, b) {
+          if (a.isActive != b.isActive) return a.isActive ? -1 : 1;
+          if (a.isDefault != b.isDefault) return a.isDefault ? -1 : 1;
+          return a.name.compareTo(b.name);
+        });
+    return rows;
   }
 
-  String _formatWeight(double value) {
-    final unit = widget.isArabic ? 'جم' : 'g';
-    return '${value.toStringAsFixed(3)} $unit';
+  bool _isGold(SafeBoxModel sb) => sb.safeType == 'gold';
+
+  String _totalText(String type, SafeTypeTotal t) =>
+      type == 'gold' ? _weight(t.weightMainKarat) : _amount(t.cash);
+
+  // ── actions ──
+
+  Future<void> _push(Widget screen) async {
+    final changed = await Navigator.of(
+      context,
+    ).push<bool>(MaterialPageRoute(builder: (_) => screen));
+    if (changed == true && mounted) _load();
   }
 
-  String _pendingText(SafeBoxModel safeBox, bool isGold, double primaryBalance) {
-    final ar = widget.isArabic;
-    final docs = safeBox.pendingDocuments;
-    if (isGold && safeBox.pendingWeight.isNotEmpty) {
-      // Per karat: what waits, and posted + pending = what should be in hand.
-      final posted = {for (final e in _goldBreakdown(safeBox)) e.key: e.value};
-      final parts = safeBox.pendingWeight.entries.map((e) {
-        final inHand = (posted[e.key] ?? 0.0) + e.value;
-        final sign = e.value >= 0 ? '+' : '';
-        return ar
-            ? '${e.key}: $sign${e.value.toStringAsFixed(3)} ← في اليد ${inHand.toStringAsFixed(3)}'
-            : '${e.key}: $sign${e.value.toStringAsFixed(3)} → in hand ${inHand.toStringAsFixed(3)}';
-      }).join(' • ');
-      return ar ? 'معلّق بانتظار الاعتماد ($docs): $parts' : 'Pending approval ($docs): $parts';
-    }
-    final pending = safeBox.pendingCash;
-    final sign = pending >= 0 ? '+' : '';
-    final inHand = _formatCurrency(primaryBalance + pending);
-    return ar
-        ? 'معلّق بانتظار الاعتماد ($docs): $sign${_formatCurrency(pending)} • المتوقع في اليد: $inHand'
-        : 'Pending approval ($docs): $sign${_formatCurrency(pending)} • Expected in hand: $inHand';
-  }
+  void _add(SafeBoxModel sb) => _isGold(sb)
+      ? _transfer(sb, toId: sb.id, note: 'إضافة رصيد إلى ${sb.name}')
+      : _voucher(sb, 'receipt', 'إضافة رصيد إلى ${sb.name}');
 
-  Color _balanceColor(double value) {
-    if (value < 0) return _dangerColor;
-    if (value > 0) return _successColor;
-    return Colors.blueGrey.shade700;
-  }
+  void _withdraw(SafeBoxModel sb) => _isGold(sb)
+      ? _transfer(sb, fromId: sb.id, note: 'سحب من ${sb.name}')
+      : _voucher(sb, 'payment', 'سحب من ${sb.name}');
 
-  String _safeTypeLabel(SafeBoxModel safeBox) {
-    switch (safeBox.safeType.trim().toLowerCase()) {
-      case 'cash':
-        return widget.isArabic ? 'نقدي' : 'Cash';
-      case 'bank':
-        return widget.isArabic ? 'بنكي' : 'Bank';
-      case 'gold':
-        return widget.isArabic ? 'ذهب' : 'Gold';
-      case 'check':
-        return widget.isArabic ? 'شبكات' : 'Networks';
-      case 'clearing':
-        return widget.isArabic ? 'تحصيل' : 'Clearing';
-      default:
-        return widget.isArabic ? safeBox.typeNameAr : safeBox.typeNameEn;
-    }
-  }
+  void _voucher(SafeBoxModel sb, String type, String description) => _push(
+    AddVoucherScreen(
+      voucherType: type,
+      initialPartyType: 'other',
+      initialOtherAccountId: sb.accountId,
+      initialDescription: description,
+    ),
+  );
 
-  Color _safeTypeBadgeBackground(SafeBoxModel safeBox) {
-    switch (safeBox.safeType.trim().toLowerCase()) {
-      case 'cash':
-        return const Color(0xFFE8F5E9);
-      case 'bank':
-        return const Color(0xFFEAF2FF);
-      case 'gold':
-        return const Color(0xFFFFF3D8);
-      case 'check':
-        return const Color(0xFFF3E8FF);
-      case 'clearing':
-        return const Color(0xFFE7F6F4);
-      default:
-        return const Color(0xFFF1F3F5);
-    }
-  }
+  void _transfer(
+    SafeBoxModel sb, {
+    int? fromId,
+    int? toId,
+    required String note,
+  }) => _push(
+    SafeTransferScreen(
+      api: widget.api,
+      initialMode: _isGold(sb) ? 'gold' : 'cash',
+      initialFromSafeId: fromId,
+      initialToSafeId: toId,
+      initialNotes: note,
+      popOnSuccess: true,
+    ),
+  );
 
-  Color _safeTypeBadgeForeground(SafeBoxModel safeBox) {
-    switch (safeBox.safeType.trim().toLowerCase()) {
-      case 'cash':
-        return _successColor;
-      case 'bank':
-        return const Color(0xFF1565C0);
-      case 'gold':
-        return _primaryColor;
-      case 'check':
-        return const Color(0xFF7B1FA2);
-      case 'clearing':
-        return const Color(0xFF0F766E);
-      default:
-        return const Color(0xFF616161);
-    }
-  }
-
-  IconData _safeTypeIcon(SafeBoxModel safeBox) {
-    switch (safeBox.safeType.trim().toLowerCase()) {
-      case 'cash':
-        return Icons.payments_outlined;
-      case 'bank':
-        return Icons.account_balance_outlined;
-      case 'gold':
-        return Icons.diamond_outlined;
-      case 'check':
-        return Icons.receipt_long_outlined;
-      case 'clearing':
-        return Icons.sync_alt_rounded;
-      default:
-        return Icons.account_balance_wallet_outlined;
-    }
-  }
-
-  double _cashSummary(List<SafeBoxModel> safeBoxes) {
-    return safeBoxes
-        .where((safeBox) => !_isGoldSafe(safeBox))
-        .fold<double>(0.0, (sum, safeBox) => sum + safeBox.cashBalance);
-  }
-
-  double _goldSummary(List<SafeBoxModel> safeBoxes) {
-    return safeBoxes
-        .where(_isGoldSafe)
-        .fold<double>(
-          0.0,
-          (sum, safeBox) => sum + _effectiveGoldMainKaratBalance(safeBox),
-        );
-  }
-
-  Future<void> _openStatement(SafeBoxModel safeBox) async {
-    final account = safeBox.account;
+  Future<void> _statement(SafeBoxModel sb) async {
+    final account = sb.account;
     if (account == null) {
-      _showSnack(
-        widget.isArabic
-            ? 'لا يوجد حساب مرتبط لعرض كشف الحساب'
-            : 'No linked account for statement',
-        isError: true,
-      );
+      _say('لا يوجد حساب مرتبط لعرض كشفه', error: true);
       return;
     }
-
     await Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => AccountStatementScreen(
           accountId: account.id,
-          accountName: safeBox.name,
+          accountName: sb.name,
           entityType: 'account',
         ),
       ),
     );
   }
 
-  Future<void> _openVoucherQuickAction(
-    SafeBoxModel safeBox, {
-    required String voucherType,
-  }) async {
-    final changed = await Navigator.of(context).push<bool>(
-      MaterialPageRoute(
-        builder: (_) => AddVoucherScreen(
-          voucherType: voucherType,
-          initialPartyType: 'other',
-          initialOtherAccountId: safeBox.accountId,
-          initialDescription: voucherType == 'receipt'
-              ? (widget.isArabic
-                    ? 'إضافة رصيد إلى ${safeBox.name}'
-                    : 'Top up ${safeBox.name}')
-              : (widget.isArabic
-                    ? 'سحب من ${safeBox.name}'
-                    : 'Withdraw from ${safeBox.name}'),
-        ),
-      ),
-    );
-
-    if (changed == true && mounted) {
-      _loadSafeBoxes();
-    }
-  }
-
-  Future<void> _openTransferQuickAction(
-    SafeBoxModel safeBox, {
-    int? initialFromSafeId,
-    int? initialToSafeId,
-    String? note,
-  }) async {
-    final changed = await Navigator.of(context).push<bool>(
-      MaterialPageRoute(
-        builder: (_) => SafeTransferScreen(
-          api: widget.api,
-          isArabic: widget.isArabic,
-          initialMode: _isGoldSafe(safeBox) ? 'gold' : 'cash',
-          initialFromSafeId: initialFromSafeId,
-          initialToSafeId: initialToSafeId,
-          initialNotes: note,
-          popOnSuccess: true,
-        ),
-      ),
-    );
-
-    if (changed == true && mounted) {
-      _loadSafeBoxes();
-    }
-  }
-
-  Future<void> _handleMenuAction(
-    _SafeCardMenuAction action,
-    SafeBoxModel safeBox,
-  ) async {
-    switch (action) {
-      case _SafeCardMenuAction.statement:
-        await _openStatement(safeBox);
-        break;
-      case _SafeCardMenuAction.edit:
-        await _showAddEditDialog(safeBox: safeBox);
-        break;
-      case _SafeCardMenuAction.settlement:
-        if (safeBox.id == null) return;
-        final changed = await Navigator.of(context).push<bool>(
-          MaterialPageRoute(
-            builder: (_) =>
-                ClearingSettlementScreen(initialClearingSafeBoxId: safeBox.id),
-          ),
-        );
-        if (changed == true && mounted) {
-          _loadSafeBoxes();
-        }
-        break;
-      case _SafeCardMenuAction.delete:
-        await _deleteSafeBox(safeBox);
-        break;
-    }
-  }
-
-  Future<void> _showCardActionsSheet(SafeBoxModel safeBox) async {
-    final action = await showModalBottomSheet<_SafeCardMenuAction>(
+  Future<void> _edit([SafeBoxModel? sb]) async {
+    final saved = await showDialog<bool>(
       context: context,
-      builder: (context) {
-        return SafeArea(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              ListTile(
-                leading: const Icon(Icons.receipt_long_outlined),
-                title: Text(widget.isArabic ? 'كشف حساب' : 'Statement'),
-                onTap: () =>
-                    Navigator.of(context).pop(_SafeCardMenuAction.statement),
-              ),
-              ListTile(
-                leading: const Icon(Icons.edit_outlined),
-                title: Text(widget.isArabic ? 'تعديل' : 'Edit'),
-                onTap: () =>
-                    Navigator.of(context).pop(_SafeCardMenuAction.edit),
-              ),
-              if (safeBox.safeType.toLowerCase() == 'clearing')
-                ListTile(
-                  leading: const Icon(Icons.sync_alt_rounded),
-                  title: Text(widget.isArabic ? 'تسوية التحصيل' : 'Settlement'),
-                  onTap: () =>
-                      Navigator.of(context).pop(_SafeCardMenuAction.settlement),
-                ),
-              ListTile(
-                leading: const Icon(Icons.delete_outline, color: Colors.red),
-                title: Text(widget.isArabic ? 'حذف' : 'Delete'),
-                onTap: () =>
-                    Navigator.of(context).pop(_SafeCardMenuAction.delete),
-              ),
-            ],
-          ),
-        );
-      },
+      builder: (_) => _SafeBoxForm(
+        api: widget.api,
+        editing: sb,
+        type: sb?.safeType ?? (_type == 'all' ? 'cash' : _type),
+        lockType: sb == null && widget.lockFilterType && _type != 'all',
+      ),
     );
-
-    if (action != null && mounted) {
-      await _handleMenuAction(action, safeBox);
+    if (saved == true && mounted) {
+      _say(sb == null ? 'أُضيفت الخزينة' : 'حُفظت الخزينة');
+      _load();
     }
   }
 
-  Widget _buildSummaryCard({
-    required IconData icon,
-    required String title,
-    required String value,
-    required Color accentColor,
-  }) {
-    return Container(
-      height: 80,
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.05),
-            blurRadius: 14,
-            offset: const Offset(0, 4),
+  Future<void> _delete(SafeBoxModel sb) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('حذف الخزينة'),
+        content: Text('هل تريد حذف «${sb.name}»؟'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('إلغاء'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: _scheme.error,
+              foregroundColor: _scheme.onError,
+            ),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('حذف'),
           ),
         ],
       ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          Container(
-            width: 34,
-            height: 34,
-            decoration: BoxDecoration(
-              color: accentColor.withValues(alpha: 0.10),
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: Icon(icon, color: accentColor, size: 17),
+    );
+    if (confirmed != true) return;
+    try {
+      await widget.api.deleteSafeBox(sb.id!);
+      _say('حُذفت الخزينة');
+      _load();
+    } catch (e) {
+      _say(_deleteRefusal(e.toString()), error: true);
+    }
+  }
+
+  /// The server refuses a safe in use and says what uses it.
+  String _deleteRefusal(String raw) {
+    Map<String, dynamic>? payload;
+    final start = raw.indexOf('{');
+    final end = raw.lastIndexOf('}');
+    if (start != -1 && end > start) {
+      try {
+        final decoded = json.decode(raw.substring(start, end + 1));
+        if (decoded is Map<String, dynamic>) payload = decoded;
+      } catch (_) {}
+    }
+    if (payload?['error'] == 'cannot_delete_safe_box_in_use') {
+      final d = (payload?['details'] as Map?) ?? const {};
+      return 'لا تُحذف الخزينة لأنها مستعملة — موظفون: ${d['employees_linked'] ?? 0}، '
+          'عمليات: ${d['transactions_linked'] ?? 0}، فواتير: ${d['invoices_linked'] ?? 0}، '
+          'وسائل دفع: ${d['payment_methods_linked'] ?? 0}. أوقفها بدل حذفها.';
+    }
+    final message = (payload?['message'] ?? payload?['error'])?.toString();
+    return message?.trim().isNotEmpty == true ? message! : _message(raw);
+  }
+
+  // ── building ──
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(widget.titleOverride ?? 'إدارة الخزائن'),
+        actions: [
+          IconButton(
+            tooltip: 'تحديث',
+            icon: const Icon(Icons.refresh),
+            onPressed: _load,
           ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: 14,
-                    height: 1.1,
-                    fontWeight: FontWeight.w500,
-                    color: Colors.grey.shade600,
+          const SizedBox(width: 8),
+        ],
+      ),
+      floatingActionButton: FloatingActionButton.extended(
+        heroTag: 'add_safe',
+        onPressed: () => _edit(),
+        icon: const Icon(Icons.add),
+        label: const Text('خزينة جديدة'),
+      ),
+      body: _body(),
+    );
+  }
+
+  Widget _body() {
+    if (_loading && _overview == null)
+      return const Center(child: CircularProgressIndicator());
+    if (_error != null && _overview == null) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.cloud_off_outlined, size: 40, color: _scheme.error),
+              const SizedBox(height: 12),
+              Text('تعذّر تحميل الخزائن: $_error', textAlign: TextAlign.center),
+              const SizedBox(height: 12),
+              FilledButton.icon(
+                onPressed: _load,
+                icon: const Icon(Icons.refresh),
+                label: const Text('إعادة المحاولة'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    final shown = _type == 'all'
+        ? _types
+        : _types.where((t) => t == _type).toList();
+    final sections = [
+      for (final t in shown)
+        if (_rowsOf(t).isNotEmpty) t,
+    ];
+
+    return RefreshIndicator(
+      onRefresh: _load,
+      child: LayoutBuilder(
+        builder: (context, c) {
+          final columns = c.maxWidth >= 1100 ? 3 : (c.maxWidth >= 700 ? 2 : 1);
+          return ListView(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
+            children: [
+              if (_loading) const LinearProgressIndicator(),
+              _summary(c.maxWidth),
+              const SizedBox(height: 12),
+              _searchField(),
+              const SizedBox(height: 8),
+              if (sections.isEmpty)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 48),
+                  child: Column(
+                    children: [
+                      Icon(
+                        Icons.search_off,
+                        size: 40,
+                        color: _scheme.onSurfaceVariant,
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        _query.isEmpty
+                            ? 'لا توجد خزائن بعد'
+                            : 'لا توجد خزائن مطابقة',
+                        style: TextStyle(color: _scheme.onSurfaceVariant),
+                      ),
+                    ],
                   ),
                 ),
-                const SizedBox(height: 4),
-                FittedBox(
-                  fit: BoxFit.scaleDown,
-                  alignment: AlignmentDirectional.centerStart,
-                  child: Text(
-                    value,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontSize: 20,
-                      height: 1,
-                      fontWeight: FontWeight.w800,
-                      color: _textColor,
+              for (final t in sections) ..._section(t, columns, c.maxWidth),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  /// A tile per type: its count and total -- the server's. A tap shows that type alone.
+  Widget _summary(double width) {
+    // Two a row on a phone; a fixed width where there is room.
+    final tileWidth = width < 600 ? (width - 32 - 8) / 2 : 200.0;
+    final totals = _overview?.totals ?? const <String, SafeTypeTotal>{};
+    final count = totals.values.fold<int>(0, (n, t) => n + t.count);
+    final canFilter = !widget.lockFilterType;
+    Widget tile(
+      String key,
+      String label,
+      IconData icon,
+      SemanticTone tone,
+      String value,
+      String sub,
+    ) {
+      final selected = _type == key;
+      return SizedBox(
+        width: tileWidth,
+        child: Card(
+          key: Key('safes-tile-$key'),
+          margin: EdgeInsets.zero,
+          elevation: 0,
+          color: selected ? tone.container : _scheme.surfaceContainerLow,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+            side: BorderSide(
+              color: selected ? tone.fg : _scheme.outlineVariant,
+            ),
+          ),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(12),
+            onTap: canFilter
+                ? () => setState(
+                    () => _type = selected && key != 'all' ? 'all' : key,
+                  )
+                : null,
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Icon(icon, size: 18, color: tone.fg),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          label,
+                          style: TextStyle(
+                            fontWeight: FontWeight.w700,
+                            color: selected ? tone.onContainer : null,
+                          ),
+                        ),
+                      ),
+                      Text(
+                        sub,
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: _scheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: AlignmentDirectional.centerStart,
+                    child: Text(
+                      value,
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w800,
+                        fontFeatures: [FontFeature.tabularFigures()],
+                      ),
                     ),
                   ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    final mainKarat = (_overview?.mainKarat ?? 21).round();
+    return Wrap(
+      key: const Key('safes-summary'),
+      spacing: 8,
+      runSpacing: 8,
+      children: [
+        if (canFilter)
+          tile(
+            'all',
+            'الكل',
+            Icons.apps_rounded,
+            _tones.sectionSlate,
+            '$count',
+            'خزينة',
+          ),
+        for (final t in _types)
+          tile(
+            t,
+            safeTypeLabels[t] ?? t,
+            _typeIcon(t),
+            _typeTone(_tones, t),
+            _totalText(t, totals[t]!),
+            t == 'gold'
+                ? 'عيار $mainKarat · ${totals[t]!.count}'
+                : '${totals[t]!.count}',
+          ),
+      ],
+    );
+  }
+
+  Widget _searchField() => TextField(
+    controller: _search,
+    onChanged: (v) => setState(() => _query = v),
+    decoration: InputDecoration(
+      hintText: 'ابحث باسم الخزينة أو الحساب أو رقمه',
+      prefixIcon: const Icon(Icons.search),
+      isDense: true,
+      suffixIcon: _query.isEmpty
+          ? null
+          : IconButton(
+              tooltip: 'مسح',
+              icon: const Icon(Icons.close),
+              onPressed: () {
+                _search.clear();
+                setState(() => _query = '');
+              },
+            ),
+    ),
+  );
+
+  List<Widget> _section(String type, int columns, double width) {
+    final rows = _rowsOf(type);
+    final total = _overview!.totals[type];
+    final tone = _typeTone(_tones, type);
+    final cardWidth = (width - 32 - 12.0 * (columns - 1)) / columns;
+    return [
+      Padding(
+        key: Key('safes-section-$type'),
+        padding: const EdgeInsets.only(top: 16, bottom: 8),
+        child: Row(
+          children: [
+            Icon(_typeIcon(type), size: 18, color: tone.fg),
+            const SizedBox(width: 6),
+            Text(
+              safeTypeLabels[type] ?? type,
+              style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15),
+            ),
+            const SizedBox(width: 6),
+            Text(
+              '(${rows.length})',
+              style: TextStyle(color: _scheme.onSurfaceVariant),
+            ),
+            const Spacer(),
+            if (total != null && _query.isEmpty)
+              Text(
+                _totalText(type, total),
+                style: const TextStyle(fontWeight: FontWeight.w700),
+              ),
+          ],
+        ),
+      ),
+      Wrap(
+        spacing: 12,
+        runSpacing: 12,
+        children: [
+          for (final sb in rows) SizedBox(width: cardWidth, child: _card(sb)),
+        ],
+      ),
+    ];
+  }
+
+  Widget _pill(String text, SemanticTone tone) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+    decoration: BoxDecoration(
+      color: tone.container,
+      borderRadius: BorderRadius.circular(999),
+    ),
+    child: Text(
+      text,
+      style: TextStyle(
+        fontSize: 11,
+        fontWeight: FontWeight.w700,
+        color: tone.onContainer,
+      ),
+    ),
+  );
+
+  Color _balanceColor(double v) => v < 0
+      ? _scheme.error
+      : (v.abs() < 0.0005 ? _scheme.onSurfaceVariant : _scheme.onSurface);
+
+  SemanticTone _karatTone(String karat) => switch (karat) {
+    '24k' => _tones.karat24,
+    '22k' => _tones.karat22,
+    '18k' => _tones.karat18,
+    _ => _tones.karat21,
+  };
+
+  Widget _card(SafeBoxModel sb) {
+    final gold = _isGold(sb);
+    final balance = gold ? sb.goldMainKarat : sb.cashBalance;
+    final tone = _typeTone(_tones, sb.safeType);
+    final opened = _open.contains(sb.id);
+    final karats = [
+      MapEntry('24k', sb.goldBalance24k),
+      MapEntry('22k', sb.goldBalance22k),
+      MapEntry('21k', sb.goldBalance21k),
+      MapEntry('18k', sb.goldBalance18k),
+    ].where((e) => e.value.abs() > 0.0005).toList();
+    final stones = _stones[sb.id]?['total'] ?? 0.0;
+
+    return Opacity(
+      opacity: sb.isActive ? 1 : 0.6,
+      child: Card(
+        key: Key('safe-card-${sb.id}'),
+        margin: EdgeInsets.zero,
+        elevation: 0,
+        color: _scheme.surfaceContainerLow,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+          side: BorderSide(color: _scheme.outlineVariant),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: sb.id == null
+              ? null
+              : () => setState(
+                  () => opened ? _open.remove(sb.id) : _open.add(sb.id!),
+                ),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(14, 10, 6, 10),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Icon(_typeIcon(sb.safeType), size: 20, color: tone.fg),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Row(
+                        children: [
+                          Flexible(
+                            child: Text(
+                              sb.name.trim(),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontWeight: FontWeight.w700,
+                                fontSize: 15,
+                                color: _scheme.onSurface,
+                              ),
+                            ),
+                          ),
+                          if (sb.isDefault) ...[
+                            const SizedBox(width: 6),
+                            _pill('افتراضية', _tones.gold),
+                          ],
+                          if (!sb.isActive) ...[
+                            const SizedBox(width: 6),
+                            _pill('موقوفة', _tones.blocked),
+                          ],
+                        ],
+                      ),
+                    ),
+                    _menu(sb),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  gold ? _weight(balance) : _amount(balance),
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w800,
+                    color: _balanceColor(balance),
+                    fontFeatures: const [FontFeature.tabularFigures()],
+                  ),
+                ),
+                if (gold && karats.isNotEmpty) ...[
+                  const SizedBox(height: 6),
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 4,
+                    children: [
+                      for (final k in karats)
+                        _pill(
+                          'عيار ${ltrIsolate(k.key.replaceAll('k', ''))}: ${ltrIsolate(_grams.format(k.value))}',
+                          k.value < 0 ? _tones.blocked : _karatTone(k.key),
+                        ),
+                    ],
+                  ),
+                ],
+                if (gold && stones > 0.0005) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    'فصوص: ${_weight(stones)}',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: _scheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+                if (sb.pendingDocuments > 0) ...[
+                  const SizedBox(height: 6),
+                  Text(
+                    _pendingText(sb, balance),
+                    style: TextStyle(fontSize: 12, color: _tones.warning.fg),
+                  ),
+                ],
+                if (opened) ...[
+                  const SizedBox(height: 6),
+                  Divider(height: 1, color: _scheme.outlineVariant),
+                  const SizedBox(height: 6),
+                  if (sb.account != null)
+                    Text(
+                      'الحساب: ${ltrIsolate(sb.account!.accountNumber)} — ${sb.account!.name}',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: _scheme.onSurfaceVariant,
+                      ),
+                    ),
+                  if ((sb.bankName ?? '').trim().isNotEmpty)
+                    Text(
+                      'البنك: ${sb.bankName}',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: _scheme.onSurfaceVariant,
+                      ),
+                    ),
+                  if ((sb.iban ?? '').trim().isNotEmpty)
+                    Text(
+                      'الآيبان: ${ltrIsolate(sb.iban!)}',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: _scheme.onSurfaceVariant,
+                      ),
+                    ),
+                  if ((sb.notes ?? '').trim().isNotEmpty)
+                    Text(
+                      sb.notes!.trim(),
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: _scheme.onSurfaceVariant,
+                      ),
+                    ),
+                ],
+                const SizedBox(height: 4),
+                Wrap(
+                  spacing: 4,
+                  children: [
+                    TextButton.icon(
+                      onPressed: () => _add(sb),
+                      icon: const Icon(Icons.add, size: 18),
+                      label: const Text('إضافة'),
+                    ),
+                    TextButton.icon(
+                      onPressed: () => _withdraw(sb),
+                      icon: const Icon(Icons.remove, size: 18),
+                      label: const Text('سحب'),
+                    ),
+                    TextButton.icon(
+                      onPressed: () => _transfer(
+                        sb,
+                        fromId: sb.id,
+                        note: 'تحويل من ${sb.name}',
+                      ),
+                      icon: const Icon(Icons.swap_horiz, size: 18),
+                      label: const Text('تحويل'),
+                    ),
+                  ],
                 ),
               ],
             ),
           ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildTypeTab({
-    required String value,
-    required String label,
-    required IconData icon,
-    required bool selected,
-    required VoidCallback onTap,
-  }) {
-    final color = selected ? const Color(0xFFC69214) : Colors.grey.shade700;
-    return InkWell(
-      borderRadius: BorderRadius.circular(14),
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 180),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        decoration: BoxDecoration(
-          color: selected ? const Color(0xFFC69214) : const Color(0xFFF1F1F1),
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(
-            color: selected
-                ? const Color(0xFFC69214)
-                : Colors.grey.withValues(alpha: 0.25),
-          ),
-          boxShadow: selected
-              ? [
-                  BoxShadow(
-                    color: const Color(0xFFC69214).withValues(alpha: 0.18),
-                    blurRadius: 12,
-                    offset: const Offset(0, 6),
-                  ),
-                ]
-              : null,
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, size: 15, color: selected ? Colors.white : color),
-            const SizedBox(width: 6),
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 12,
-                color: selected ? Colors.white : color,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ],
         ),
       ),
     );
   }
 
-  Widget _buildFlagChip({
-    required String label,
-    required bool selected,
-    required ValueChanged<bool> onSelected,
-  }) {
-    return FilterChip(
-      label: Text(label),
-      selected: selected,
-      onSelected: onSelected,
-      showCheckmark: false,
-      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-      padding: const EdgeInsets.symmetric(horizontal: 6),
-      selectedColor: const Color(0xFFC69214).withValues(alpha: 0.16),
-      side: BorderSide(
-        color: selected
-            ? const Color(0xFFC69214)
-            : Colors.grey.withValues(alpha: 0.25),
-      ),
-      labelStyle: TextStyle(
-        fontSize: 11.5,
-        fontWeight: FontWeight.w700,
-        color: selected ? const Color(0xFFC69214) : Colors.grey.shade800,
-      ),
-      visualDensity: VisualDensity.compact,
-    );
+  /// Posted + pending = what should be in hand (services/safe_pending.py).
+  String _pendingText(SafeBoxModel sb, double posted) {
+    final docs = sb.pendingDocuments;
+    if (_isGold(sb) && sb.pendingWeight.isNotEmpty) {
+      final postedByKarat = {
+        '24k': sb.goldBalance24k,
+        '22k': sb.goldBalance22k,
+        '21k': sb.goldBalance21k,
+        '18k': sb.goldBalance18k,
+      };
+      final parts = sb.pendingWeight.entries
+          .map((e) {
+            final sign = e.value >= 0 ? '+' : '';
+            final inHand = (postedByKarat[e.key] ?? 0.0) + e.value;
+            return '${e.key}: ${ltrIsolate('$sign${_grams.format(e.value)}')} ← في اليد ${ltrIsolate(_grams.format(inHand))}';
+          })
+          .join(' • ');
+      return 'معلّق بانتظار الاعتماد ($docs): $parts';
+    }
+    final sign = sb.pendingCash >= 0 ? '+' : '';
+    return 'معلّق بانتظار الاعتماد ($docs): ${ltrIsolate(sign)}${_amount(sb.pendingCash)}'
+        ' • المتوقع في اليد: ${_amount(posted + sb.pendingCash)}';
   }
 
-  Widget _buildGoldDetails(SafeBoxModel safeBox) {
-    final breakdown = _goldBreakdown(safeBox);
-    final nonZero = breakdown
-        .where((entry) => entry.value.abs() > 0.0005)
-        .toList();
-
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(10),
-      decoration: BoxDecoration(
-        color: const Color(0xFFF9FAFB),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.black.withValues(alpha: 0.06)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            widget.isArabic ? 'تفاصيل الذهب' : 'Gold details',
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w700,
-              color: Colors.grey.shade700,
-            ),
-          ),
-          const SizedBox(height: 6),
-          if (nonZero.isEmpty)
-            Text(
-              widget.isArabic ? 'لا توجد أوزان حالياً' : 'No weight balance',
-              style: TextStyle(
-                fontSize: 13,
-                color: Colors.grey.shade700,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-          ...nonZero.map(
-            (entry) => Padding(
-              padding: const EdgeInsets.only(bottom: 4),
-              child: Text(
-                '${entry.key}: ${entry.value.toStringAsFixed(3)} ${widget.isArabic ? 'جم' : 'g'}',
-                style: TextStyle(
-                  fontSize: 13,
-                  color: Colors.grey.shade800,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildCompactMetaPill({
-    required String label,
-    required Color color,
-    Color? textColor,
-  }) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: color.withValues(alpha: 0.18)),
-      ),
-      child: Text(
-        label,
-        style: TextStyle(
-          fontSize: 10,
-          fontWeight: FontWeight.w700,
-          color: textColor ?? color,
+  Widget _menu(SafeBoxModel sb) => PopupMenuButton<String>(
+    tooltip: 'إجراءات الخزينة',
+    icon: const Icon(Icons.more_vert),
+    onSelected: (action) {
+      switch (action) {
+        case 'statement':
+          _statement(sb);
+        case 'edit':
+          _edit(sb);
+        case 'settlement':
+          if (sb.id != null)
+            _push(ClearingSettlementScreen(initialClearingSafeBoxId: sb.id));
+        case 'delete':
+          _delete(sb);
+      }
+    },
+    itemBuilder: (_) => [
+      const PopupMenuItem(
+        value: 'statement',
+        child: ListTile(
+          leading: Icon(Icons.receipt_long_outlined),
+          title: Text('كشف حساب'),
         ),
       ),
-    );
-  }
-
-  Widget _buildCompactIconAction({
-    required IconData icon,
-    required VoidCallback onPressed,
-    required Color color,
-    Color? backgroundColor,
-    bool outlined = false,
-  }) {
-    return SizedBox(
-      width: 36,
-      height: 36,
-      child: IconButton(
-        tooltip: null,
-        padding: EdgeInsets.zero,
-        constraints: const BoxConstraints.tightFor(width: 36, height: 36),
-        style: IconButton.styleFrom(
-          backgroundColor: outlined ? Colors.white : (backgroundColor ?? color),
-          side: outlined
-              ? BorderSide(color: color.withValues(alpha: 0.55))
-              : null,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(10),
-          ),
-        ),
-        onPressed: onPressed,
-        icon: Icon(icon, size: 18, color: outlined ? color : Colors.white),
-      ),
-    );
-  }
-
-  Widget _buildSafeCard(SafeBoxModel safeBox) {
-    final isGold = _isGoldSafe(safeBox);
-    final isExpanded = _isCardExpanded(safeBox);
-    final primaryBalance = isGold
-        ? _effectiveGoldMainKaratBalance(safeBox)
-        : safeBox.cashBalance;
-    final primaryBalanceText = isGold
-        ? _formatWeight(primaryBalance)
-        : _formatCurrency(primaryBalance);
-    final accountLine = safeBox.account == null
-        ? null
-        : '${safeBox.account!.accountNumber} • ${safeBox.account!.name}';
-    final secondaryLine = safeBox.bankName?.trim().isNotEmpty == true
-        ? safeBox.bankName!
-        : (safeBox.notes?.trim().isNotEmpty == true
-              ? safeBox.notes!.trim()
-              : null);
-    final badgeBackground = _safeTypeBadgeBackground(safeBox);
-    final badgeForeground = _safeTypeBadgeForeground(safeBox);
-
-    final isPressed = _pressedCardId == safeBox.id;
-
-    return Listener(
-      onPointerDown: (_) => setState(() => _pressedCardId = safeBox.id),
-      onPointerUp: (_) => setState(() => _pressedCardId = null),
-      onPointerCancel: (_) => setState(() => _pressedCardId = null),
-      child: AnimatedScale(
-        scale: isPressed ? 0.98 : 1.0,
-        duration: const Duration(milliseconds: 100),
-        curve: Curves.easeOut,
-        child: Container(
-          clipBehavior: Clip.antiAlias,
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(14),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.05),
-                blurRadius: 12,
-                offset: const Offset(0, 4),
-              ),
-            ],
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // -- Color strip --
-              Container(
-                height: 4,
-                decoration: BoxDecoration(color: badgeForeground),
-              ),
-              Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // -- Row 1: Icon + Name + Badge + ⋮ --
-                    Row(
-                      children: [
-                        Icon(
-                          _safeTypeIcon(safeBox),
-                          size: 20,
-                          color: badgeForeground,
-                        ),
-                        const SizedBox(width: 8),
-                        Flexible(
-                          child: Text(
-                            safeBox.name,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w500,
-                              color: _textColor,
-                              height: 1.1,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 4,
-                          ),
-                          decoration: BoxDecoration(
-                            color: badgeBackground,
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: Text(
-                            _safeTypeLabel(safeBox),
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w700,
-                              color: badgeForeground,
-                            ),
-                          ),
-                        ),
-                        if (safeBox.isDefault) ...[
-                          const SizedBox(width: 6),
-                          _buildCompactMetaPill(
-                            label: widget.isArabic ? 'افتراضي' : 'Default',
-                            color: Colors.amber,
-                            textColor: Colors.amber.shade900,
-                          ),
-                        ],
-                        const Spacer(),
-                        SizedBox(
-                          width: 32,
-                          height: 32,
-                          child: IconButton(
-                            padding: EdgeInsets.zero,
-                            constraints: const BoxConstraints.tightFor(
-                              width: 32,
-                              height: 32,
-                            ),
-                            splashRadius: 18,
-                            onPressed: () => _showCardActionsSheet(safeBox),
-                            icon: Icon(
-                              Icons.more_vert,
-                              size: 20,
-                              color: Colors.grey.shade600,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 6),
-                    // -- Row 2: Balance --
-                    Text(
-                      primaryBalanceText,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize: 22,
-                        fontWeight: FontWeight.w800,
-                        color: _balanceColor(primaryBalance),
-                        height: 1.1,
-                      ),
-                    ),
-                    // What waits for approval -- read only; posted + pending = in hand.
-                    if (safeBox.pendingDocuments > 0) ...[
-                      const SizedBox(height: 4),
-                      Text(
-                        _pendingText(safeBox, isGold, primaryBalance),
-                        maxLines: 4,
-                        style: TextStyle(fontSize: 12, color: Colors.orange.shade800),
-                      ),
-                    ],
-                    const SizedBox(height: 8),
-                    // -- Karat chips (gold only) --
-                    if (isGold) ...[
-                      Builder(
-                        builder: (_) {
-                          final chips = _goldBreakdown(
-                            safeBox,
-                          ).where((e) => e.value.abs() > 0.0001).toList();
-                          if (chips.isEmpty) return const SizedBox.shrink();
-                          return Wrap(
-                            spacing: 6,
-                            runSpacing: 4,
-                            children: chips.map((e) {
-                              final isNeg = e.value < 0;
-                              return Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 10,
-                                  vertical: 4,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: isNeg
-                                      ? _dangerColor.withValues(alpha: 0.08)
-                                      : _primaryColor.withValues(alpha: 0.13),
-                                  borderRadius: BorderRadius.circular(8),
-                                  border: Border.all(
-                                    color: isNeg
-                                        ? _dangerColor.withValues(alpha: 0.35)
-                                        : _primaryColor.withValues(alpha: 0.40),
-                                    width: 1.2,
-                                  ),
-                                ),
-                                child: Text(
-                                  '${e.key}: ${e.value.toStringAsFixed(3)} جم',
-                                  style: TextStyle(
-                                    fontSize: 13,
-                                    fontWeight: FontWeight.w700,
-                                    color: isNeg ? _dangerColor : _primaryColor,
-                                  ),
-                                ),
-                              );
-                            }).toList(),
-                          );
-                        },
-                      ),
-                      const SizedBox(height: 8),
-                    ],
-                    // -- Stones display (gold only) --
-                    if (isGold) ...[
-                      Builder(
-                        builder: (_) {
-                          final info = _stonesMap[safeBox.id];
-                          final total = info?['total'] ?? 0.0;
-                          if (total <= 0.0001) return const SizedBox.shrink();
-                          final karatEntries = ['18','21','22','24']
-                              .where((k) => (info?[k] ?? 0.0) > 0.0001)
-                              .toList();
-                          return Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              // الإجمالي
-                              Row(children: [
-                                const Icon(Icons.diamond_outlined,
-                                    size: 12, color: Color(0xFFB56A2F)),
-                                const SizedBox(width: 4),
-                                Text(
-                                  '${total.toStringAsFixed(3)} جم',
-                                  style: const TextStyle(
-                                    fontSize: 12, fontWeight: FontWeight.w700,
-                                    color: Color(0xFFB56A2F),
-                                  ),
-                                ),
-                              ]),
-                              // تفصيل العيارات (صغير ومدمج)
-                              if (karatEntries.isNotEmpty) ...[
-                                const SizedBox(height: 3),
-                                Wrap(
-                                  spacing: 4, runSpacing: 3,
-                                  children: karatEntries.map((k) {
-                                    final v = info![k]!;
-                                    return Container(
-                                      padding: const EdgeInsets.symmetric(
-                                          horizontal: 6, vertical: 2),
-                                      decoration: BoxDecoration(
-                                        color: const Color(0xFFB56A2F)
-                                            .withValues(alpha: 0.08),
-                                        borderRadius: BorderRadius.circular(4),
-                                        border: Border.all(
-                                          color: const Color(0xFFB56A2F)
-                                              .withValues(alpha: 0.25),
-                                        ),
-                                      ),
-                                      child: Text(
-                                        '$k: ${v.toStringAsFixed(2)}',
-                                        style: const TextStyle(
-                                          fontSize: 10, fontWeight: FontWeight.w600,
-                                          color: Color(0xFFB56A2F),
-                                        ),
-                                      ),
-                                    );
-                                  }).toList(),
-                                ),
-                              ],
-                            ],
-                          );
-                        },
-                      ),
-                      const SizedBox(height: 6),
-                    ],
-                    // -- Row 3: Action buttons --
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        _buildCompactIconAction(
-                          icon: Icons.add,
-                          color: _successColor,
-                          backgroundColor: _successColor,
-                          onPressed: () {
-                            if (isGold) {
-                              _openTransferQuickAction(
-                                safeBox,
-                                initialToSafeId: safeBox.id,
-                                note: widget.isArabic
-                                    ? 'إضافة رصيد إلى ${safeBox.name}'
-                                    : 'Top up ${safeBox.name}',
-                              );
-                              return;
-                            }
-                            _openVoucherQuickAction(
-                              safeBox,
-                              voucherType: 'receipt',
-                            );
-                          },
-                        ),
-                        const SizedBox(width: 6),
-                        _buildCompactIconAction(
-                          icon: Icons.remove,
-                          color: _dangerColor,
-                          outlined: true,
-                          onPressed: () {
-                            if (isGold) {
-                              _openTransferQuickAction(
-                                safeBox,
-                                initialFromSafeId: safeBox.id,
-                                note: widget.isArabic
-                                    ? 'سحب من ${safeBox.name}'
-                                    : 'Withdraw from ${safeBox.name}',
-                              );
-                              return;
-                            }
-                            _openVoucherQuickAction(
-                              safeBox,
-                              voucherType: 'payment',
-                            );
-                          },
-                        ),
-                        const SizedBox(width: 6),
-                        _buildCompactIconAction(
-                          icon: Icons.swap_horiz,
-                          color: _primaryColor,
-                          outlined: true,
-                          onPressed: () {
-                            _openTransferQuickAction(
-                              safeBox,
-                              initialFromSafeId: safeBox.id,
-                              note: widget.isArabic
-                                  ? 'تحويل من ${safeBox.name}'
-                                  : 'Transfer from ${safeBox.name}',
-                            );
-                          },
-                        ),
-                      ],
-                    ),
-                    // -- Expand tap area --
-                    GestureDetector(
-                      behavior: HitTestBehavior.opaque,
-                      onTap: () => _toggleCardExpanded(safeBox),
-                      child: AnimatedCrossFade(
-                        duration: const Duration(milliseconds: 200),
-                        crossFadeState: isExpanded
-                            ? CrossFadeState.showSecond
-                            : CrossFadeState.showFirst,
-                        firstChild: const SizedBox(height: 4),
-                        secondChild: Padding(
-                          padding: const EdgeInsets.only(top: 8),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Divider(
-                                height: 1,
-                                color: Colors.black.withValues(alpha: 0.08),
-                              ),
-                              const SizedBox(height: 8),
-                              if (accountLine != null) ...[
-                                Text(
-                                  accountLine,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    color: Colors.grey.shade700,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                                const SizedBox(height: 4),
-                              ],
-                              if (secondaryLine != null) ...[
-                                Text(
-                                  secondaryLine,
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    color: Colors.grey.shade600,
-                                  ),
-                                ),
-                                const SizedBox(height: 4),
-                              ],
-                              if (isGold) _buildGoldDetails(safeBox),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
+      const PopupMenuItem(
+        value: 'edit',
+        child: ListTile(
+          leading: Icon(Icons.edit_outlined),
+          title: Text('تعديل'),
         ),
       ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final isAr = widget.isArabic;
-    final screenWidth = MediaQuery.sizeOf(context).width;
-    final useWideSummaryLayout = screenWidth >= 900;
-
-    final filteredSafeBoxes =
-        _safeBoxes.where((sb) {
-          if (_activeOnly && !sb.isActive) return false;
-          if (_defaultOnly && !sb.isDefault) return false;
-
-          final q = _searchQuery.trim().toLowerCase();
-          if (q.isEmpty) return true;
-
-          final name = (sb.name).toLowerCase();
-          final nameEn = (sb.nameEn ?? '').toLowerCase();
-          final bankName = (sb.bankName ?? '').toLowerCase();
-          final accountName = (sb.account?.name ?? '').toLowerCase();
-          final accountNo = (sb.account?.accountNumber ?? '').toLowerCase();
-
-          return name.contains(q) ||
-              nameEn.contains(q) ||
-              bankName.contains(q) ||
-              accountName.contains(q) ||
-              accountNo.contains(q);
-        }).toList()..sort((a, b) {
-          // Defaults first, then by name
-          if (a.isDefault != b.isDefault) return a.isDefault ? -1 : 1;
-          return a.name.compareTo(b.name);
-        });
-
-    final visibleCashTotal = _cashSummary(filteredSafeBoxes);
-    final visibleGoldTotal = _goldSummary(filteredSafeBoxes);
-    final activeCount = filteredSafeBoxes
-        .where((safeBox) => safeBox.isActive)
-        .length;
-    final typeTabs = <Map<String, dynamic>>[
-      {
-        'value': 'all',
-        'label': isAr ? 'الكل' : 'All',
-        'icon': Icons.apps_rounded,
-      },
-      {
-        'value': 'cash',
-        'label': isAr ? 'نقدي' : 'Cash',
-        'icon': Icons.payments_outlined,
-      },
-      {
-        'value': 'bank',
-        'label': isAr ? 'بنكي' : 'Bank',
-        'icon': Icons.account_balance_outlined,
-      },
-      {
-        'value': 'clearing',
-        'label': isAr ? 'مستحقات تحصيل' : 'Clearing',
-        'icon': Icons.sync_alt_rounded,
-      },
-      {
-        'value': 'gold',
-        'label': isAr ? 'ذهبي' : 'Gold',
-        'icon': Icons.diamond_outlined,
-      },
-      {
-        'value': 'check',
-        'label': isAr ? 'شبكات' : 'Networks',
-        'icon': Icons.receipt_long_outlined,
-      },
-    ];
-
-    return Scaffold(
-      backgroundColor: _backgroundColor,
-      appBar: AppBar(
-        toolbarHeight: 64,
-        backgroundColor: _primaryColor,
-        surfaceTintColor: Colors.transparent,
-        elevation: 0,
-        titleSpacing: 24,
-        title: Text(
-          widget.titleOverride ??
-              (isAr ? 'إدارة الخزائن' : 'Safe Boxes Management'),
-          style: const TextStyle(
-            fontSize: 20,
-            fontWeight: FontWeight.w700,
-            color: Colors.white,
+      if (sb.safeType == 'clearing')
+        const PopupMenuItem(
+          value: 'settlement',
+          child: ListTile(
+            leading: Icon(Icons.sync_alt),
+            title: Text('تسوية التحصيل'),
           ),
         ),
-        actions: [
-          Padding(
-            padding: const EdgeInsetsDirectional.only(end: 4),
-            child: IconButton(
-              icon: const Icon(Icons.add, color: Colors.white),
-              onPressed: () => _showAddEditDialog(),
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsetsDirectional.only(end: 16),
-            child: IconButton(
-              icon: const Icon(Icons.refresh, color: Colors.white),
-              onPressed: _loadSafeBoxes,
-            ),
-          ),
-        ],
+      PopupMenuItem(
+        value: 'delete',
+        child: ListTile(
+          leading: Icon(Icons.delete_outline, color: _scheme.error),
+          title: Text('حذف', style: TextStyle(color: _scheme.error)),
+        ),
       ),
-      body: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
-            child: useWideSummaryLayout
-                ? Row(
-                    children: [
-                      Expanded(
-                        child: _buildSummaryCard(
-                          icon: Icons.payments_outlined,
-                          title: isAr ? 'إجمالي النقد' : 'Total cash',
-                          value: _formatCurrency(visibleCashTotal),
-                          accentColor: _successColor,
-                        ),
-                      ),
-                      const SizedBox(width: 16),
-                      Expanded(
-                        child: _buildSummaryCard(
-                          icon: Icons.diamond_outlined,
-                          title: isAr ? 'إجمالي الذهب' : 'Total gold',
-                          value: _formatWeight(visibleGoldTotal),
-                          accentColor: _primaryColor,
-                        ),
-                      ),
-                      const SizedBox(width: 16),
-                      Expanded(
-                        child: _buildSummaryCard(
-                          icon: Icons.account_balance_wallet_outlined,
-                          title: isAr ? 'عدد الخزائن' : 'Vault count',
-                          value: filteredSafeBoxes.length.toString(),
-                          accentColor: const Color(0xFF1565C0),
-                        ),
-                      ),
-                    ],
-                  )
-                : Column(
-                    children: [
-                      _buildSummaryCard(
-                        icon: Icons.payments_outlined,
-                        title: isAr ? 'إجمالي النقد' : 'Total cash',
-                        value: _formatCurrency(visibleCashTotal),
-                        accentColor: _successColor,
-                      ),
-                      const SizedBox(height: 16),
-                      _buildSummaryCard(
-                        icon: Icons.diamond_outlined,
-                        title: isAr ? 'إجمالي الذهب' : 'Total gold',
-                        value: _formatWeight(visibleGoldTotal),
-                        accentColor: _primaryColor,
-                      ),
-                      const SizedBox(height: 16),
-                      _buildSummaryCard(
-                        icon: Icons.account_balance_wallet_outlined,
-                        title: isAr ? 'عدد الخزائن' : 'Vault count',
-                        value: filteredSafeBoxes.length.toString(),
-                        accentColor: const Color(0xFF1565C0),
-                      ),
-                    ],
-                  ),
-          ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
-            child: Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(12),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.04),
-                    blurRadius: 14,
-                    offset: const Offset(0, 4),
-                  ),
-                ],
-              ),
-              child: Column(
-                children: [
-                  SizedBox(
-                    height: 44,
-                    child: TextField(
-                      controller: _searchController,
-                      onChanged: (value) =>
-                          setState(() => _searchQuery = value),
-                      textAlign: isAr ? TextAlign.right : TextAlign.left,
-                      decoration: InputDecoration(
-                        hintText: isAr
-                            ? 'ابحث باسم الخزنة أو الحساب...'
-                            : 'Search by safe name or account...',
-                        prefixIcon: const Icon(Icons.search_rounded, size: 20),
-                        suffixIcon: _searchQuery.trim().isEmpty
-                            ? null
-                            : IconButton(
-                                onPressed: () {
-                                  _searchController.clear();
-                                  setState(() => _searchQuery = '');
-                                },
-                                icon: const Icon(Icons.close_rounded, size: 18),
-                                tooltip: isAr ? 'مسح' : 'Clear',
-                              ),
-                        filled: true,
-                        fillColor: const Color(0xFFF5F5F5),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(10),
-                          borderSide: BorderSide.none,
-                        ),
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 14,
-                          vertical: 10,
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  if (!widget.lockFilterType)
-                    Align(
-                      alignment: AlignmentDirectional.centerStart,
-                      child: Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: typeTabs.map((tab) {
-                          final selected = _filterType == tab['value'];
-                          return _buildTypeTab(
-                            value: tab['value'] as String,
-                            label: tab['label'] as String,
-                            icon: tab['icon'] as IconData,
-                            selected: selected,
-                            onTap: () {
-                              if (_filterType == tab['value']) return;
-                              setState(() {
-                                _filterType = tab['value'] as String;
-                              });
-                              _loadSafeBoxes();
-                            },
-                          );
-                        }).toList(),
-                      ),
-                    ),
-                  const SizedBox(height: 10),
-                  Align(
-                    alignment: AlignmentDirectional.centerStart,
-                    child: Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: [
-                        _buildFlagChip(
-                          label: isAr ? 'نشط فقط' : 'Active only',
-                          selected: _activeOnly,
-                          onSelected: (selected) {
-                            setState(() => _activeOnly = selected);
-                          },
-                        ),
-                        _buildFlagChip(
-                          label: isAr ? 'افتراضي فقط' : 'Default only',
-                          selected: _defaultOnly,
-                          onSelected: (selected) {
-                            setState(() => _defaultOnly = selected);
-                          },
-                        ),
-                        _buildFlagChip(
-                          label: isAr
-                              ? 'نشط: $activeCount'
-                              : 'Active: $activeCount',
-                          selected: false,
-                          onSelected: (_) {},
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          Expanded(
-            child: _isLoading
-                ? const Center(child: CircularProgressIndicator())
-                : filteredSafeBoxes.isEmpty
-                ? Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(
-                          Icons.account_balance_wallet,
-                          size: 64,
-                          color: Colors.grey[400],
-                        ),
-                        const SizedBox(height: 16),
-                        Text(
-                          isAr ? 'لا توجد خزائن مطابقة' : 'No safe boxes match',
-                          style: TextStyle(
-                            fontSize: 18,
-                            color: Colors.grey[600],
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        ElevatedButton.icon(
-                          icon: const Icon(Icons.add),
-                          label: Text(isAr ? 'إضافة خزينة' : 'Add Safe Box'),
-                          onPressed: () => _showAddEditDialog(),
-                        ),
-                      ],
-                    ),
-                  )
-                : LayoutBuilder(
-                    builder: (context, constraints) {
-                      final crossAxisCount = constraints.maxWidth >= 900
-                          ? 3
-                          : constraints.maxWidth >= 600
-                          ? 2
-                          : 1;
-                      final totalSpacing = 12.0 * (crossAxisCount - 1) + 32;
-                      final cardWidth =
-                          (constraints.maxWidth - totalSpacing) /
-                          crossAxisCount;
-                      return SingleChildScrollView(
-                        padding: const EdgeInsets.fromLTRB(16, 12, 16, 96),
-                        child: Wrap(
-                          spacing: 12,
-                          runSpacing: 12,
-                          children: filteredSafeBoxes.map((safeBox) {
-                            return SizedBox(
-                              width: cardWidth,
-                              child: _buildSafeCard(safeBox),
-                            );
-                          }).toList(),
-                        ),
-                      );
-                    },
-                  ),
-          ),
-        ],
-      ),
-      floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
-      floatingActionButton: FloatingActionButton(
-        heroTag: 'add_safe',
-        backgroundColor: _primaryColor,
-        tooltip: isAr ? 'خزينة جديدة' : 'New Safe Box',
-        onPressed: () => _showAddEditDialog(),
-        child: const Icon(Icons.add, color: Colors.white),
-      ),
-    );
-  }
+    ],
+  );
 }
 
-class _AccountPickerDialog extends StatefulWidget {
-  final bool isArabic;
-  final List<Map<String, dynamic>> accounts;
-  final int? initialAccountId;
-  final bool requireTracksWeight;
-  final bool allowShowAllWhenTracksRequired;
-  final String? initialQuery;
-
-  const _AccountPickerDialog({
-    required this.isArabic,
-    required this.accounts,
-    required this.initialAccountId,
-    required this.requireTracksWeight,
-    required this.allowShowAllWhenTracksRequired,
-    this.initialQuery,
+/// Add or edit a safe. Its account is searched as people write it, from the
+/// active accounts -- a gold safe's from those that track weight (the server
+/// refuses another). No karat: the server keeps gold safes multi-karat.
+class _SafeBoxForm extends StatefulWidget {
+  const _SafeBoxForm({
+    required this.api,
+    required this.type,
+    required this.lockType,
+    this.editing,
   });
 
+  final ApiService api;
+  final SafeBoxModel? editing;
+  final String type;
+  final bool lockType;
+
   @override
-  State<_AccountPickerDialog> createState() => _AccountPickerDialogState();
+  State<_SafeBoxForm> createState() => _SafeBoxFormState();
 }
 
-class _AccountPickerDialogState extends State<_AccountPickerDialog> {
-  late final TextEditingController _searchController;
-  bool _showAll = false;
+class _SafeBoxFormState extends State<_SafeBoxForm> {
+  final _form = GlobalKey<FormState>();
+  late final _name = TextEditingController(text: widget.editing?.name ?? '');
+  late final _nameEn = TextEditingController(
+    text: widget.editing?.nameEn ?? '',
+  );
+  late final _bank = TextEditingController(
+    text: widget.editing?.bankName ?? '',
+  );
+  late final _iban = TextEditingController(text: widget.editing?.iban ?? '');
+  late final _swift = TextEditingController(
+    text: widget.editing?.swiftCode ?? '',
+  );
+  late final _branch = TextEditingController(
+    text: widget.editing?.branch ?? '',
+  );
+  late final _notes = TextEditingController(text: widget.editing?.notes ?? '');
+  late String _type = safeTypeLabels.containsKey(widget.type)
+      ? widget.type
+      : 'cash';
+  late bool _active = widget.editing?.isActive ?? true;
+  late bool _default = widget.editing?.isDefault ?? false;
+  List<Map<String, dynamic>>? _accounts;
+  Map<String, dynamic>? _account;
+  String? _error;
+  bool _saving = false;
 
   @override
   void initState() {
     super.initState();
-    _searchController = TextEditingController(text: widget.initialQuery ?? '');
-    _showAll = !widget.requireTracksWeight;
-    _searchController.addListener(() {
-      if (!mounted) return;
-      setState(() {});
-    });
+    widget.api
+        .getAccounts()
+        .then((list) {
+          if (!mounted) return;
+          final accounts = list.whereType<Map<String, dynamic>>().toList();
+          setState(() {
+            _accounts = accounts;
+            final id = widget.editing?.accountId;
+            if (id != null)
+              _account = accounts.where((a) => a['id'] == id).firstOrNull;
+          });
+        })
+        .catchError((Object e) {
+          if (mounted)
+            setState(() => _error = 'تعذّر تحميل الحسابات: ${_message(e)}');
+        });
   }
 
   @override
   void dispose() {
-    _searchController.dispose();
+    for (final c in [_name, _nameEn, _bank, _iban, _swift, _branch, _notes]) {
+      c.dispose();
+    }
     super.dispose();
   }
 
-  bool _tracksWeight(Map<String, dynamic> acc) => acc['tracks_weight'] == true;
+  List<Map<String, dynamic>> get _candidates => (_accounts ?? const [])
+      .where((a) => a['is_active'] != false)
+      .where((a) => _type != 'gold' || a['tracks_weight'] == true)
+      .toList();
 
-  String _labelFor(Map<String, dynamic> acc) {
-    final name = (acc['name'] ?? '').toString();
-    final number = (acc['account_number'] ?? '').toString();
-    return '$name ($number)';
-  }
+  String? _text(TextEditingController c) =>
+      c.text.trim().isEmpty ? null : c.text.trim();
 
-  bool _matchesQuery(Map<String, dynamic> acc, String q) {
-    final label = _labelFor(acc).toLowerCase();
-    if (label.contains(q)) return true;
-
-    // If user types digits, prioritize account number matching.
-    final digitsOnly = q.replaceAll(RegExp(r'[^0-9]'), '');
-    if (digitsOnly.isNotEmpty) {
-      final number = (acc['account_number'] ?? '').toString();
-      return number.contains(digitsOnly) || number.startsWith(digitsOnly);
+  Future<void> _save() async {
+    if (!_form.currentState!.validate()) return;
+    if (_account == null) {
+      setState(() => _error = 'اختر الحساب المرتبط');
+      return;
     }
-
-    return false;
-  }
-
-  List<Map<String, dynamic>> _filtered() {
-    final q = _searchController.text.trim().toLowerCase();
-
-    final base = (widget.requireTracksWeight && !_showAll)
-        ? widget.accounts.where(_tracksWeight)
-        : widget.accounts;
-
-    if (q.isEmpty) {
-      // Initial browsing list.
-      return base.take(200).toList(growable: false);
+    setState(() {
+      _saving = true;
+      _error = null;
+    });
+    final bank = _type == 'bank';
+    final model = SafeBoxModel(
+      id: widget.editing?.id,
+      name: _name.text.trim(),
+      nameEn: _text(_nameEn),
+      safeType: _type,
+      accountId: _account!['id'] as int,
+      bankName: bank ? _text(_bank) : null,
+      iban: bank ? _text(_iban) : null,
+      swiftCode: bank ? _text(_swift) : null,
+      branch: bank ? _text(_branch) : null,
+      isActive: _active,
+      isDefault: _default,
+      notes: _text(_notes),
+    );
+    try {
+      if (widget.editing == null) {
+        await widget.api.createSafeBox(model);
+      } else {
+        await widget.api.updateSafeBox(widget.editing!.id!, model);
+      }
+      if (mounted) Navigator.pop(context, true);
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _saving = false;
+          _error = _message(e);
+        });
+      }
     }
-
-    final matches = base.where((a) => _matchesQuery(a, q)).toList();
-    // Keep list bounded for performance on web.
-    if (matches.length > 500) {
-      return matches.take(500).toList(growable: false);
-    }
-    return matches;
   }
-
-  String _t(String ar, String en) => widget.isArabic ? ar : en;
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final rows = _filtered();
-
-    return Dialog(
-      insetPadding: const EdgeInsets.all(16),
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 720, maxHeight: 720),
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: widget.isArabic
-                ? CrossAxisAlignment.end
-                : CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      _t('اختيار الحساب المرتبط', 'Select Linked Account'),
-                      style: theme.textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w800,
-                      ),
-                      textAlign: widget.isArabic
-                          ? TextAlign.right
-                          : TextAlign.left,
-                    ),
-                  ),
-                  IconButton(
-                    onPressed: () => Navigator.pop(context),
-                    icon: const Icon(Icons.close),
-                    tooltip: _t('إغلاق', 'Close'),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: _searchController,
-                decoration: InputDecoration(
-                  prefixIcon: const Icon(Icons.search),
-                  hintText: _t(
-                    'ابحث بالاسم أو رقم الحساب...',
-                    'Search by name or account number...',
-                  ),
-                  border: const OutlineInputBorder(),
+    final scheme = Theme.of(context).colorScheme;
+    final editing = widget.editing != null;
+    return AlertDialog(
+      title: Text(editing ? 'تعديل الخزينة' : 'خزينة جديدة'),
+      content: SizedBox(
+        width: 440,
+        child: Form(
+          key: _form,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextFormField(
+                  key: const Key('safe-form-name'),
+                  controller: _name,
+                  decoration: const InputDecoration(labelText: 'الاسم'),
+                  validator: (v) =>
+                      (v ?? '').trim().isEmpty ? 'الاسم مطلوب' : null,
                 ),
-              ),
-              const SizedBox(height: 10),
-              if (widget.requireTracksWeight)
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        _t(
-                          'ملاحظة: خزنة الذهب يجب ربطها بحساب tracks_weight=true',
-                          'Note: Gold safe boxes must link to tracks_weight=true',
-                        ),
-                        style: TextStyle(color: Colors.grey.shade700),
-                        textAlign: widget.isArabic
-                            ? TextAlign.right
-                            : TextAlign.left,
-                      ),
-                    ),
-                    if (widget.allowShowAllWhenTracksRequired)
-                      Switch.adaptive(
-                        value: _showAll,
-                        onChanged: (v) => setState(() => _showAll = v),
-                      ),
-                    if (widget.allowShowAllWhenTracksRequired)
-                      Text(
-                        _t('عرض الكل', 'Show all'),
-                        style: TextStyle(color: Colors.grey.shade800),
-                      ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: _nameEn,
+                  decoration: const InputDecoration(
+                    labelText: 'الاسم بالإنجليزية',
+                  ),
+                ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  value: _type,
+                  decoration: const InputDecoration(labelText: 'النوع'),
+                  items: [
+                    for (final e in _safeTypeSingular.entries)
+                      DropdownMenuItem(value: e.key, child: Text(e.value)),
                   ],
+                  onChanged: widget.lockType
+                      ? null
+                      : (v) => setState(() {
+                          _type = v ?? _type;
+                          if (_type == 'gold' &&
+                              _account?['tracks_weight'] != true)
+                            _account = null;
+                        }),
                 ),
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      _t('النتائج: ${rows.length}', 'Results: ${rows.length}'),
-                      style: TextStyle(color: Colors.grey.shade700),
-                      textAlign: widget.isArabic
-                          ? TextAlign.right
-                          : TextAlign.left,
-                    ),
+                const SizedBox(height: 12),
+                if (_accounts == null && _error == null)
+                  const LinearProgressIndicator()
+                else
+                  AccountSearchField(
+                    key: ValueKey('account-$_type'),
+                    fieldKey: const Key('safe-form-account'),
+                    accounts: _candidates,
+                    selected: _account,
+                    label: 'الحساب المرتبط',
+                    hint: _type == 'gold'
+                        ? 'حساب يتتبّع الوزن — ابحث برقمه أو اسمه'
+                        : 'ابحث برقمه أو اسمه',
+                    onChanged: (a) => setState(() => _account = a),
                   ),
-                  TextButton.icon(
-                    onPressed: () => _searchController.clear(),
-                    icon: const Icon(Icons.clear),
-                    label: Text(_t('مسح', 'Clear')),
+                if (_type == 'bank') ...[
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    controller: _bank,
+                    decoration: const InputDecoration(labelText: 'اسم البنك'),
                   ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              Expanded(
-                child: rows.isEmpty
-                    ? Center(
-                        child: Text(
-                          _t('لا توجد نتائج', 'No results'),
-                          style: TextStyle(color: Colors.grey.shade600),
-                        ),
-                      )
-                    : ListView.separated(
-                        itemCount: rows.length,
-                        separatorBuilder: (_, _) => const Divider(height: 1),
-                        itemBuilder: (_, index) {
-                          final acc = rows[index];
-                          final id = acc['id'] is int
-                              ? acc['id'] as int
-                              : int.tryParse('${acc['id']}');
-                          final isSelected =
-                              widget.initialAccountId != null &&
-                              id == widget.initialAccountId;
-                          final subtitle = widget.requireTracksWeight
-                              ? (_tracksWeight(acc)
-                                    ? _t('يتتبع الوزن', 'Tracks weight')
-                                    : _t(
-                                        'لا يتتبع الوزن',
-                                        'Does not track weight',
-                                      ))
-                              : null;
-
-                          return ListTile(
-                            dense: true,
-                            selected: isSelected,
-                            title: Text(
-                              _labelFor(acc),
-                              textAlign: widget.isArabic
-                                  ? TextAlign.right
-                                  : TextAlign.left,
-                            ),
-                            subtitle: subtitle == null
-                                ? null
-                                : Text(
-                                    subtitle,
-                                    textAlign: widget.isArabic
-                                        ? TextAlign.right
-                                        : TextAlign.left,
-                                    style: TextStyle(
-                                      color: _tracksWeight(acc)
-                                          ? Colors.green.shade700
-                                          : Colors.red.shade700,
-                                    ),
-                                  ),
-                            trailing:
-                                widget.requireTracksWeight &&
-                                    !_tracksWeight(acc)
-                                ? Icon(
-                                    Icons.warning_amber,
-                                    color: Colors.red.shade600,
-                                  )
-                                : null,
-                            onTap: () {
-                              // When gold safe box requires tracks_weight, allow browsing all
-                              // but prevent selecting an invalid account.
-                              if (widget.requireTracksWeight &&
-                                  !_tracksWeight(acc)) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(
-                                    content: Text(
-                                      _t(
-                                        'لا يمكن اختيار هذا الحساب لخزنة الذهب لأنه لا يتتبع الوزن.',
-                                        'Cannot select for gold safe box (tracks_weight=false).',
-                                      ),
-                                    ),
-                                    backgroundColor: Colors.red.shade700,
-                                  ),
-                                );
-                                return;
-                              }
-                              Navigator.pop<Map<String, dynamic>>(context, acc);
-                            },
-                          );
-                        },
-                      ),
-              ),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton(
-                      onPressed: () => Navigator.pop(context),
-                      child: Text(_t('إلغاء', 'Cancel')),
-                    ),
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    controller: _iban,
+                    decoration: const InputDecoration(labelText: 'الآيبان'),
+                  ),
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    controller: _swift,
+                    decoration: const InputDecoration(labelText: 'رمز السويفت'),
+                  ),
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    controller: _branch,
+                    decoration: const InputDecoration(labelText: 'الفرع'),
                   ),
                 ],
-              ),
-            ],
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: _notes,
+                  maxLines: 2,
+                  decoration: const InputDecoration(labelText: 'ملاحظات'),
+                ),
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('نشطة'),
+                  value: _active,
+                  onChanged: (v) => setState(() => _active = v),
+                ),
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('الافتراضية لنوعها'),
+                  value: _default,
+                  onChanged: (v) => setState(() => _default = v),
+                ),
+                if (_error != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: Text(_error!, style: TextStyle(color: scheme.error)),
+                  ),
+              ],
+            ),
           ),
         ),
       ),
+      actions: [
+        TextButton(
+          onPressed: _saving ? null : () => Navigator.pop(context, false),
+          child: const Text('إلغاء'),
+        ),
+        FilledButton(
+          onPressed: _saving ? null : _save,
+          child: Text(editing ? 'حفظ' : 'إضافة'),
+        ),
+      ],
     );
   }
 }

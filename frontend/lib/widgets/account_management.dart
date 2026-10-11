@@ -36,10 +36,82 @@ String _message(Object e) => e.toString().replaceFirst('Exception: ', '');
 
 void _say(BuildContext context, String text, {bool error = false}) {
   final scheme = Theme.of(context).colorScheme;
-  ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-    content: Text(text, style: error ? TextStyle(color: scheme.onError) : null),
-    backgroundColor: error ? scheme.error : null,
-  ));
+  ScaffoldMessenger.of(context).showSnackBar(
+    SnackBar(
+      content: Text(
+        text,
+        style: error ? TextStyle(color: scheme.onError) : null,
+      ),
+      backgroundColor: error ? scheme.error : null,
+    ),
+  );
+}
+
+/// An account found by number or name as people write them (أ/ا، ١٢٣) --
+/// the one search for picking an account: a parent here, a safe's account in
+/// «إدارة الخزائن» (SAFES-UI-1).
+class AccountSearchField extends StatelessWidget {
+  const AccountSearchField({
+    super.key,
+    required this.accounts,
+    required this.selected,
+    required this.onChanged,
+    required this.label,
+    this.hint,
+    this.clearTooltip,
+    this.fieldKey,
+    this.validator,
+  });
+
+  final List<Map<String, dynamic>> accounts;
+  final Map<String, dynamic>? selected;
+  final ValueChanged<Map<String, dynamic>?> onChanged;
+  final String label;
+  final String? hint;
+  final String? clearTooltip;
+  final Key? fieldKey;
+  final FormFieldValidator<String>? validator;
+
+  static String labelOf(Map<String, dynamic> a) =>
+      '${a['account_number']} — ${a['name']}';
+
+  @override
+  Widget build(BuildContext context) {
+    return Autocomplete<Map<String, dynamic>>(
+      initialValue: TextEditingValue(
+        text: selected == null ? '' : labelOf(selected!),
+      ),
+      displayStringForOption: labelOf,
+      optionsBuilder: (value) {
+        final q = normalizeForSearch(value.text);
+        if (q.isEmpty) return const Iterable.empty();
+        return accounts
+            .where((a) => normalizeForSearch(labelOf(a)).contains(q))
+            .take(20);
+      },
+      onSelected: onChanged,
+      fieldViewBuilder: (context, controller, focus, submit) => TextFormField(
+        key: fieldKey,
+        controller: controller,
+        focusNode: focus,
+        validator: validator,
+        decoration: InputDecoration(
+          labelText: label,
+          hintText: hint,
+          suffixIcon: selected == null
+              ? null
+              : IconButton(
+                  tooltip: clearTooltip,
+                  icon: const Icon(Icons.clear),
+                  onPressed: () {
+                    controller.clear();
+                    onChanged(null);
+                  },
+                ),
+        ),
+      ),
+    );
+  }
 }
 
 /// Add a root account, a child of [parent], or edit [editing]. True when saved.
@@ -52,7 +124,12 @@ Future<bool> showAccountForm(
 }) async {
   final saved = await showDialog<bool>(
     context: context,
-    builder: (_) => _AccountForm(api: api, accounts: accounts, editing: editing, parent: parent),
+    builder: (_) => _AccountForm(
+      api: api,
+      accounts: accounts,
+      editing: editing,
+      parent: parent,
+    ),
   );
   return saved == true;
 }
@@ -63,7 +140,12 @@ class _AccountForm extends StatefulWidget {
   final Map<String, dynamic>? editing;
   final Map<String, dynamic>? parent;
 
-  const _AccountForm({required this.api, required this.accounts, this.editing, this.parent});
+  const _AccountForm({
+    required this.api,
+    required this.accounts,
+    this.editing,
+    this.parent,
+  });
 
   @override
   State<_AccountForm> createState() => _AccountFormState();
@@ -72,12 +154,14 @@ class _AccountForm extends StatefulWidget {
 class _AccountFormState extends State<_AccountForm> {
   final _form = GlobalKey<FormState>();
   final _number = TextEditingController();
-  late final TextEditingController _name =
-      TextEditingController(text: (widget.editing?['name'] ?? '').toString());
+  late final TextEditingController _name = TextEditingController(
+    text: (widget.editing?['name'] ?? '').toString(),
+  );
   late Map<String, dynamic>? _parent = widget.editing != null
       ? _byId(widget.editing!['parent_id'])
       : widget.parent;
-  late String _type = (widget.editing?['type'] ?? widget.parent?['type'] ?? 'Asset').toString();
+  late String _type =
+      (widget.editing?['type'] ?? widget.parent?['type'] ?? 'Asset').toString();
   late bool _gramProfit = widget.editing?['include_in_gram_profit'] == true;
   bool _parallel = false;
   String? _parallelNumber;
@@ -86,14 +170,17 @@ class _AccountFormState extends State<_AccountForm> {
 
   bool get _editing => widget.editing != null;
 
-  Map<String, dynamic>? _byId(dynamic id) =>
-      id == null ? null : widget.accounts.where((a) => a['id'] == id).firstOrNull;
+  Map<String, dynamic>? _byId(dynamic id) => id == null
+      ? null
+      : widget.accounts.where((a) => a['id'] == id).firstOrNull;
 
   @override
   void initState() {
     super.initState();
     if (_editing) {
-      _number.text = normalizeNumber(widget.editing!['account_number']?.toString());
+      _number.text = normalizeNumber(
+        widget.editing!['account_number']?.toString(),
+      );
     } else {
       _suggest();
     }
@@ -112,7 +199,8 @@ class _AccountFormState extends State<_AccountForm> {
     if (parent == null) {
       final roots = widget.accounts.where((a) => a['parent_id'] == null);
       final top = roots.fold<int>(0, (m, a) {
-        final n = int.tryParse(normalizeNumber(a['account_number']?.toString())) ?? 0;
+        final n =
+            int.tryParse(normalizeNumber(a['account_number']?.toString())) ?? 0;
         return n > m ? n : m;
       });
       setState(() {
@@ -123,7 +211,9 @@ class _AccountFormState extends State<_AccountForm> {
     }
     setState(() => _suggesting = true);
     try {
-      final s = await widget.api.getNextAccountNumber(normalizeNumber(parent['account_number']?.toString()));
+      final s = await widget.api.getNextAccountNumber(
+        normalizeNumber(parent['account_number']?.toString()),
+      );
       if (!mounted) return;
       setState(() {
         _number.text = normalizeNumber(s['suggested_number']?.toString() ?? '');
@@ -132,7 +222,8 @@ class _AccountFormState extends State<_AccountForm> {
         _type = (parent['type'] ?? _type).toString();
       });
     } catch (e) {
-      if (mounted) _say(context, 'تعذّر اقتراح رقم الحساب: ${_message(e)}', error: true);
+      if (mounted)
+        _say(context, 'تعذّر اقتراح رقم الحساب: ${_message(e)}', error: true);
     } finally {
       if (mounted) setState(() => _suggesting = false);
     }
@@ -147,11 +238,18 @@ class _AccountFormState extends State<_AccountForm> {
       if (parent != null) {
         final v = await widget.api.validateAccountNumber(
           accountNumber: number,
-          parentAccountNumber: normalizeNumber(parent['account_number']?.toString()),
+          parentAccountNumber: normalizeNumber(
+            parent['account_number']?.toString(),
+          ),
           excludeAccountId: _editing ? widget.editing!['id'] as int : null,
         );
         if (v['is_valid'] != true) {
-          if (mounted) _say(context, v['message']?.toString() ?? 'رقم الحساب غير صالح', error: true);
+          if (mounted)
+            _say(
+              context,
+              v['message']?.toString() ?? 'رقم الحساب غير صالح',
+              error: true,
+            );
           return;
         }
       }
@@ -177,40 +275,19 @@ class _AccountFormState extends State<_AccountForm> {
 
   /// The parent, found by number or name as people write them (أ/ا، ١٢٣).
   Widget _parentField() {
-    final candidates = widget.accounts.where((a) => !_editing || a['id'] != widget.editing!['id']).toList();
-    String label(Map<String, dynamic> a) => '${a['account_number']} — ${a['name']}';
-    return Autocomplete<Map<String, dynamic>>(
-      initialValue: TextEditingValue(text: _parent == null ? '' : label(_parent!)),
-      displayStringForOption: label,
-      optionsBuilder: (value) {
-        final q = normalizeForSearch(value.text);
-        if (q.isEmpty) return const Iterable.empty();
-        return candidates.where((a) => normalizeForSearch(label(a)).contains(q)).take(20);
-      },
-      onSelected: (a) {
+    return AccountSearchField(
+      fieldKey: const Key('account-form-parent'),
+      accounts: widget.accounts
+          .where((a) => !_editing || a['id'] != widget.editing!['id'])
+          .toList(),
+      selected: _parent,
+      label: 'الحساب الأصلي',
+      hint: 'ابحث برقم أو اسم — فارغ لحساب رئيسي',
+      clearTooltip: 'حساب رئيسي',
+      onChanged: (a) {
         setState(() => _parent = a);
         if (!_editing) _suggest();
       },
-      fieldViewBuilder: (context, controller, focus, submit) => TextFormField(
-        key: const Key('account-form-parent'),
-        controller: controller,
-        focusNode: focus,
-        decoration: InputDecoration(
-          labelText: 'الحساب الأصلي',
-          hintText: 'ابحث برقم أو اسم — فارغ لحساب رئيسي',
-          suffixIcon: _parent == null
-              ? null
-              : IconButton(
-                  tooltip: 'حساب رئيسي',
-                  icon: const Icon(Icons.clear),
-                  onPressed: () {
-                    controller.clear();
-                    setState(() => _parent = null);
-                    if (!_editing) _suggest();
-                  },
-                ),
-        ),
-      ),
     );
   }
 
@@ -218,7 +295,11 @@ class _AccountFormState extends State<_AccountForm> {
   Widget build(BuildContext context) {
     final isMemo = _number.text.startsWith('7');
     return AlertDialog(
-      title: Text(_editing ? 'تعديل الحساب' : (_parent != null ? 'إضافة حساب فرعي' : 'إضافة حساب رئيسي')),
+      title: Text(
+        _editing
+            ? 'تعديل الحساب'
+            : (_parent != null ? 'إضافة حساب فرعي' : 'إضافة حساب رئيسي'),
+      ),
       content: SizedBox(
         width: 420,
         child: Form(
@@ -237,25 +318,36 @@ class _AccountFormState extends State<_AccountForm> {
                     suffixIcon: _suggesting
                         ? const Padding(
                             padding: EdgeInsets.all(12),
-                            child: SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)),
+                            child: SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            ),
                           )
                         : null,
                   ),
                   keyboardType: TextInputType.number,
-                  inputFormatters: [NormalizeNumberFormatter(), FilteringTextInputFormatter.digitsOnly],
+                  inputFormatters: [
+                    NormalizeNumberFormatter(),
+                    FilteringTextInputFormatter.digitsOnly,
+                  ],
                   onChanged: (_) => setState(() {}),
-                  validator: (v) => v == null || v.isEmpty ? 'الرجاء إدخال رقم' : null,
+                  validator: (v) =>
+                      v == null || v.isEmpty ? 'الرجاء إدخال رقم' : null,
                 ),
                 TextFormField(
                   key: const Key('account-form-name'),
                   controller: _name,
                   decoration: const InputDecoration(labelText: 'اسم الحساب'),
-                  validator: (v) => v == null || v.trim().isEmpty ? 'الرجاء إدخال اسم' : null,
+                  validator: (v) =>
+                      v == null || v.trim().isEmpty ? 'الرجاء إدخال اسم' : null,
                 ),
                 const SizedBox(height: 8),
                 if (_parent == null)
                   DropdownButtonFormField<String>(
-                    initialValue: accountTypeLabels.containsKey(_type) ? _type : 'Asset',
+                    initialValue: accountTypeLabels.containsKey(_type)
+                        ? _type
+                        : 'Asset',
                     decoration: const InputDecoration(labelText: 'نوع الحساب'),
                     items: [
                       for (final e in accountTypeLabels.entries)
@@ -275,7 +367,9 @@ class _AccountFormState extends State<_AccountForm> {
                   contentPadding: EdgeInsets.zero,
                   value: _gramProfit,
                   title: const Text('يدخل في تقرير ربح الجرام'),
-                  subtitle: const Text('يُحسب ضمن الربح الوزني إيرادًا أو مصروفًا'),
+                  subtitle: const Text(
+                    'يُحسب ضمن الربح الوزني إيرادًا أو مصروفًا',
+                  ),
                   onChanged: (v) => setState(() => _gramProfit = v),
                 ),
                 if (!_editing && !isMemo) ...[
@@ -284,9 +378,11 @@ class _AccountFormState extends State<_AccountForm> {
                     contentPadding: EdgeInsets.zero,
                     value: _parallel,
                     title: const Text('إنشاء حساب موازٍ وزني'),
-                    subtitle: Text(_parallelNumber != null
-                        ? 'الحساب الموازي المقترح: $_parallelNumber'
-                        : 'يُنشئ حسابًا بالرقم نفسه مسبوقًا بـ 7'),
+                    subtitle: Text(
+                      _parallelNumber != null
+                          ? 'الحساب الموازي المقترح: $_parallelNumber'
+                          : 'يُنشئ حسابًا بالرقم نفسه مسبوقًا بـ 7',
+                    ),
                     onChanged: (v) => setState(() => _parallel = v),
                   ),
                 ],
@@ -296,7 +392,10 @@ class _AccountFormState extends State<_AccountForm> {
         ),
       ),
       actions: [
-        TextButton(onPressed: () => Navigator.of(context).pop(false), child: const Text('إلغاء')),
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(false),
+          child: const Text('إلغاء'),
+        ),
         FilledButton(
           key: const Key('account-form-save'),
           onPressed: _saving || _suggesting ? null : _save,
@@ -309,17 +408,25 @@ class _AccountFormState extends State<_AccountForm> {
 
 /// Delete [account] -- the server refuses what would break something, and
 /// asks about a parallel weight account. True when deleted.
-Future<bool> deleteAccountFlow(BuildContext context,
-    {required ApiService api, required Map<String, dynamic> account}) async {
+Future<bool> deleteAccountFlow(
+  BuildContext context, {
+  required ApiService api,
+  required Map<String, dynamic> account,
+}) async {
   final label = '${account['account_number']} «${account['name']}»';
   final sure = await showDialog<bool>(
     context: context,
     builder: (context) => AlertDialog(
       title: const Text('حذف الحساب'),
-      content: Text('يُحذف $label نهائيًا. لا يُحذف حساب له حركات أو حسابات فرعية أو ربط — '
-          'والإيقاف يُبقيه بتاريخه.'),
+      content: Text(
+        'يُحذف $label نهائيًا. لا يُحذف حساب له حركات أو حسابات فرعية أو ربط — '
+        'والإيقاف يُبقيه بتاريخه.',
+      ),
       actions: [
-        TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('إلغاء')),
+        TextButton(
+          onPressed: () => Navigator.pop(context, false),
+          child: const Text('إلغاء'),
+        ),
         FilledButton(
           key: const Key('account-delete-confirm'),
           style: FilledButton.styleFrom(
@@ -336,20 +443,35 @@ Future<bool> deleteAccountFlow(BuildContext context,
   return _delete(context, api, account, null);
 }
 
-Future<bool> _delete(BuildContext context, ApiService api, Map<String, dynamic> account, bool? withParallel) async {
+Future<bool> _delete(
+  BuildContext context,
+  ApiService api,
+  Map<String, dynamic> account,
+  bool? withParallel,
+) async {
   try {
-    final result = await api.deleteAccount(account['id'] as int, deleteParallel: withParallel);
+    final result = await api.deleteAccount(
+      account['id'] as int,
+      deleteParallel: withParallel,
+    );
     if (result['result'] != 'confirm_required') return true;
     if (!context.mounted) return false;
-    final parallel = Map<String, dynamic>.from(result['parallel_account'] as Map);
+    final parallel = Map<String, dynamic>.from(
+      result['parallel_account'] as Map,
+    );
     final choice = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('الحساب الموازي'),
-        content: Text('الحساب مرتبط بحساب موازٍ بلا حركات:\n'
-            '${parallel['account_number']} — ${parallel['name']}\n\nهل يُحذف معه؟'),
+        content: Text(
+          'الحساب مرتبط بحساب موازٍ بلا حركات:\n'
+          '${parallel['account_number']} — ${parallel['name']}\n\nهل يُحذف معه؟',
+        ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('إلغاء')),
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('إلغاء'),
+          ),
           TextButton(
             key: const Key('account-delete-only-this'),
             onPressed: () => Navigator.pop(context, false),
@@ -372,7 +494,10 @@ Future<bool> _delete(BuildContext context, ApiService api, Map<String, dynamic> 
 }
 
 /// The chart as JSON: copy it, or download it on the web.
-Future<void> exportAccountsFlow(BuildContext context, {required ApiService api}) async {
+Future<void> exportAccountsFlow(
+  BuildContext context, {
+  required ApiService api,
+}) async {
   try {
     final json = await api.exportAccounts();
     if (!context.mounted) return;
@@ -383,7 +508,9 @@ Future<void> exportAccountsFlow(BuildContext context, {required ApiService api})
         content: SizedBox(
           width: double.maxFinite,
           height: 360,
-          child: SingleChildScrollView(child: SelectableText(json, textDirection: TextDirection.ltr)),
+          child: SingleChildScrollView(
+            child: SelectableText(json, textDirection: TextDirection.ltr),
+          ),
         ),
         actions: [
           TextButton(
@@ -405,17 +532,24 @@ Future<void> exportAccountsFlow(BuildContext context, {required ApiService api})
               },
               child: const Text('تنزيل'),
             ),
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('إغلاق')),
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('إغلاق'),
+          ),
         ],
       ),
     );
   } catch (e) {
-    if (context.mounted) _say(context, 'تعذّر التصدير: ${_message(e)}', error: true);
+    if (context.mounted)
+      _say(context, 'تعذّر التصدير: ${_message(e)}', error: true);
   }
 }
 
 /// Import a chart exported as JSON. True when imported.
-Future<bool> importAccountsFlow(BuildContext context, {required ApiService api}) async {
+Future<bool> importAccountsFlow(
+  BuildContext context, {
+  required ApiService api,
+}) async {
   final input = TextEditingController();
   final done = await showDialog<bool>(
     context: context,
@@ -429,7 +563,10 @@ Future<bool> importAccountsFlow(BuildContext context, {required ApiService api})
           maxLines: null,
           expands: true,
           textDirection: TextDirection.ltr,
-          decoration: const InputDecoration(hintText: '{"accounts": [...]}', border: OutlineInputBorder()),
+          decoration: const InputDecoration(
+            hintText: '{"accounts": [...]}',
+            border: OutlineInputBorder(),
+          ),
         ),
       ),
       actions: [
@@ -440,12 +577,16 @@ Future<bool> importAccountsFlow(BuildContext context, {required ApiService api})
                 final content = await web_io.pickJsonFile();
                 if (content != null) input.text = content;
               } catch (e) {
-                if (context.mounted) _say(context, 'فشل تحميل الملف: ${_message(e)}', error: true);
+                if (context.mounted)
+                  _say(context, 'فشل تحميل الملف: ${_message(e)}', error: true);
               }
             },
             child: const Text('اختر ملفًا'),
           ),
-        TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('إلغاء')),
+        TextButton(
+          onPressed: () => Navigator.pop(context, false),
+          child: const Text('إلغاء'),
+        ),
         FilledButton(
           onPressed: () async {
             final payload = input.text.trim();
@@ -457,9 +598,13 @@ Future<bool> importAccountsFlow(BuildContext context, {required ApiService api})
               final res = await api.importAccountsFromJsonString(payload);
               if (!context.mounted) return;
               Navigator.pop(context, true);
-              _say(context, 'استُورد: ${res['created'] ?? 0} جديد، ${res['updated'] ?? 0} محدَّث');
+              _say(
+                context,
+                'استُورد: ${res['created'] ?? 0} جديد، ${res['updated'] ?? 0} محدَّث',
+              );
             } catch (e) {
-              if (context.mounted) _say(context, 'فشل الاستيراد: ${_message(e)}', error: true);
+              if (context.mounted)
+                _say(context, 'فشل الاستيراد: ${_message(e)}', error: true);
             }
           },
           child: const Text('استيراد'),
