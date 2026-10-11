@@ -56,6 +56,17 @@ def _posted(invoice_ids, kind) -> float:
     return abs(float(v or 0))
 
 
+def _recovered(invoice) -> bool:
+    from services.vat_policy import policy_on
+    return policy_on(invoice.date.date()).input_vat_recoverable
+
+
+def _recorded(invoice) -> float:
+    """The VAT an invoice records -- its wages' and gold's, else its total."""
+    split = float(invoice.wage_tax_total or 0) + float(invoice.gold_tax_total or 0)
+    return split if split > 0 else float(invoice.total_tax or 0)
+
+
 def _exempt_karats() -> set[int]:
     row = Settings.query.first()
     try:
@@ -139,11 +150,18 @@ def vat_to_reverse(ret: Invoice, original: Invoice | None, kind: str, *, sent: f
         if float(sent or 0) > 0.005:
             raise ReturnVatWithoutOriginal()
         return 0.0
-    owed = _posted([original.id], kind)
-    if owed <= 0.005:
-        return 0.0
     earlier = [i for (i,) in db.session.query(Invoice.id).filter(
         Invoice.original_invoice_id == original.id, Invoice.id != ret.id,
         Invoice.invoice_type.in_(RETURN_TYPES)).all()]
-    left = owed - _posted(earlier, kind)
+    if kind == INPUT and not _recovered(original):
+        # Not recovered (rule 1): the VAT went into the cost, not onto 1400 -- read
+        # it from the invoice, and earlier returns' from theirs.
+        owed = _recorded(original)
+        reversed_ = sum(_recorded(db.session.get(Invoice, i)) for i in earlier)
+    else:
+        owed = _posted([original.id], kind)
+        reversed_ = _posted(earlier, kind)
+    if owed <= 0.005:
+        return 0.0
+    left = owed - reversed_
     return round(max(0.0, min(owed * _share(ret, original, kind, matched_ids), left)), 2)

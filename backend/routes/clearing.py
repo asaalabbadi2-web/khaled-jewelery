@@ -362,6 +362,12 @@ def _create_clearing_settlement_voucher(
             raise ValueError('not_found:fee_account')
 
     commission_vat_account = None
+    from services.vat_policy import non_recoverable_account_id, policy_on
+    _settled_on = settlement_dt or datetime.now()
+    _vat_day = _settled_on.date() if isinstance(_settled_on, datetime) else _settled_on
+    if fee_vat > 0 and not policy_on(_vat_day).input_vat_recoverable:
+        # Not recovered (ADR-043 rule 1): a commission enters no stock.
+        commission_vat_account_id = non_recoverable_account_id()
     if fee_vat > 0:
         # Prefer a dedicated account for VAT on commissions; if not configured,
         # fall back to the generic VAT receivable (input VAT) account.

@@ -100,6 +100,17 @@ from accounting.voucher_engine import (
 )
 from accounting.mappings import (DEFAULT_MAPPING_OPERATION_TYPE, get_account_id_by_number, get_account_id_for_mapping,
                                  require_vat_account)
+from services.vat_policy import input_vat_account as _input_vat_account
+
+
+def _commission_vat_account(invoice, recovered_account_id):
+    """A card commission's VAT (ADR-043 rule 1): its input VAT account while
+    inputs are recovered; else «ضريبة القيمة المضافة غير القابلة للاسترداد» --
+    a commission enters no stock."""
+    from services.vat_policy import non_recoverable_account_id, policy_on
+    if policy_on(invoice.date.date()).input_vat_recoverable:
+        return recovered_account_id
+    return non_recoverable_account_id()
 from accounting.weight_closing import _load_weight_closing_settings
 from accounting.safe_boxes import _ensure_safe_box_transactions_for_invoice_je
 from accounting.wages import (
@@ -6864,7 +6875,7 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
                             apply_golden_rule=False,
                         )
                         _total_commission_je += pm_commission
-                    _vat_debit_pm = commission_vat_acc_id or commission_acc_id
+                    _vat_debit_pm = _commission_vat_account(new_invoice, commission_vat_acc_id or commission_acc_id)
                     if pm_commission_vat > 0 and _vat_debit_pm:
                         create_dual_journal_entry(
                             journal_entry_id=journal_entry.id,
@@ -6898,7 +6909,7 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
                         apply_golden_rule=False,
                     )
                     _total_commission_je += commission_amount
-                _vat_debit_single = commission_vat_acc_id or commission_acc_id
+                _vat_debit_single = _commission_vat_account(new_invoice, commission_vat_acc_id or commission_acc_id)
                 if commission_vat_total > 0 and _vat_debit_single:
                     create_dual_journal_entry(
                         journal_entry_id=journal_entry.id,
@@ -7222,7 +7233,8 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
             if _total_vat and float(_total_vat) > 0:
                 create_dual_journal_entry(
                     journal_entry_id=journal_entry.id,
-                    account_id=vat_receivable_acc_id or require_vat_account('شراء من عميل', 'vat_receivable'),
+                    account_id=_input_vat_account(new_invoice.date.date(), operation_type='شراء من عميل',
+                                                  cost_account_id=purchases_acc_id),
                     cash_debit=float(_total_vat),
                     description="ضريبة القيمة المضافة",
                     apply_golden_rule=False,
@@ -7409,7 +7421,8 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
                             apply_golden_rule=False,
                             description=f"عكس عمولة {pm_obj.name if pm_obj else ''} - مرتجع",
                         )
-                    _vat_credit_pm = _commission_vat_acc_id or _commission_acc_id
+                    _vat_credit_pm = _commission_vat_account(_orig_for_tax or new_invoice,
+                                                             _commission_vat_acc_id or _commission_acc_id)
                     if pm_commission_vat > 0 and _vat_credit_pm:
                         create_dual_journal_entry(
                             journal_entry_id=journal_entry.id,
@@ -7677,7 +7690,8 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
             if _total_tax_purchase_ret > 0:
                 create_dual_journal_entry(
                     journal_entry_id=journal_entry.id,
-                    account_id=vat_receivable_acc_id_ret or require_vat_account('شراء من عميل', 'vat_receivable'),
+                    account_id=_input_vat_account((_orig_for_ptax or new_invoice).date.date(),
+                                                  operation_type='شراء من عميل', cost_account_id=_pr_credit_acc),
                     cash_credit=_total_tax_purchase_ret,
                     apply_golden_rule=False,
                     description="عكس ضريبة القيمة المضافة - مرتجع شراء"
@@ -8139,16 +8153,23 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
                 # --- 3) ضريبة القيمة المضافة ---
                 # ملاحظة: ضريبة الذهب تُضاف لقيمة المخزون، وضريبة الأجور تُسجل منفصلة
                 # لذا نسجل فقط ضريبة الأجور كقيد مستقل
-                if (wage_tax_total > 0 or gold_tax_total > 0) and not vat_receivable_acc_id:
-                    return jsonify({
-                        'error': 'vat_receivable_account_missing',
-                        'message': 'حساب ضريبة المدخلات غير مربوط: يُضبط الربط المحاسبي (شراء / vat_receivable).',
-                    }), 400
+                # Input VAT (ADR-043 rule 1): on 1400 while recovered; else the wages'
+                # with the wages, the gold's on «غير القابلة للاسترداد». Unmapped and
+                # recovered: refused (rule 4).
+                _purchase_day = new_invoice.date.date()
+                if wage_tax_total > 0:
+                    _wage_vat_acc = _input_vat_account(
+                        _purchase_day, operation_type='شراء',
+                        cost_account_id=(manufacturing_wage_inventory_account_id()
+                                         if wages_are_capitalized(wage_mode_of(new_invoice))
+                                         else manufacturing_wage_expense_account_id()))
+                if gold_tax_total > 0:
+                    _gold_vat_acc = _input_vat_account(_purchase_day, operation_type='شراء')
 
                 if wage_tax_total > 0:
                     create_dual_journal_entry(
                         journal_entry_id=journal_entry.id,
-                        account_id=vat_receivable_acc_id,
+                        account_id=_wage_vat_acc,
                         cash_debit=round(wage_tax_total, 2),
                         apply_golden_rule=False,
                         exclude_from_ledger=True,
@@ -8160,7 +8181,7 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
                 if gold_tax_total > 0:
                     create_dual_journal_entry(
                         journal_entry_id=journal_entry.id,
-                        account_id=vat_receivable_acc_id,
+                        account_id=_gold_vat_acc,
                         cash_debit=round(gold_tax_total, 2),
                         apply_golden_rule=False,
                         exclude_from_ledger=True,
@@ -8497,19 +8518,29 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
                 if _wages_capitalized
                 else manufacturing_wage_expense_account_id()
             )
-            _ret_vat_acc_id = get_account_id_for_mapping('شراء', 'vat_receivable')   # the mapping or a refusal below
+            new_invoice.total_tax = _ret_vat
+            # Where the purchase put its VAT (ADR-043 rule 1): 1400 while recovered;
+            # else the wages' share with the wages, the gold's on «غير القابلة للاسترداد».
+            _vat_day = (original_invoice or new_invoice).date.date()
+            _ret_vat_lines = []
+            if _ret_vat > 0:
+                from services.vat_policy import policy_on as _policy_on
+                if _policy_on(_vat_day).input_vat_recoverable:
+                    _ret_vat_lines = [(_input_vat_account(_vat_day, operation_type='شراء'), _ret_vat)]
+                else:
+                    _ow = float(getattr(original_invoice, 'wage_tax_total', 0) or 0)
+                    _og = float(getattr(original_invoice, 'gold_tax_total', 0) or 0)
+                    _wage_part = round(_ret_vat * _ow / (_ow + _og), 2) if (_ow + _og) > 0 else _ret_vat
+                    _ret_vat_lines = [(_ret_wage_acc_id, _wage_part)]
+                    if _ret_vat - _wage_part > 0.005:
+                        _ret_vat_lines.append((_input_vat_account(_vat_day, operation_type='شراء'),
+                                               round(_ret_vat - _wage_part, 2)))
 
             if wage_cash > 0 and not _ret_wage_acc_id:
                 db.session.rollback()
                 return jsonify({
                     'error': 'account_mapping_missing',
                     'message': 'حساب أجور المصنعية غير موجود لعكسها في مرتجع الشراء.',
-                }), 400
-            if _ret_vat > 0 and not _ret_vat_acc_id:
-                db.session.rollback()
-                return jsonify({
-                    'error': 'vat_receivable_account_missing',
-                    'message': 'حساب ضريبة القيمة المضافة (مدفوعة) غير موجود لعكسها في مرتجع الشراء.',
                 }), 400
 
             # Line 1: مدين حساب المورد المالي (أجور مصنعية + ضريبتها + ضريبة الذهب)
@@ -8550,11 +8581,11 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
                 )
 
             # Line 3b: دائن ضريبة المشتريات (ضريبة الأجور والذهب كما رحّلها الشراء)
-            if _ret_vat > 0:
+            for _vat_acc, _vat_amount in _ret_vat_lines:
                 create_dual_journal_entry(
                     journal_entry_id=journal_entry.id,
-                    account_id=_ret_vat_acc_id,
-                    cash_credit=_ret_vat,
+                    account_id=_vat_acc,
+                    cash_credit=_vat_amount,
                     apply_golden_rule=False,
                     exclude_from_ledger=True,
                     description="عكس ضريبة المشتريات - مرتجع شراء (مورد)"

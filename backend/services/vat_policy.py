@@ -57,3 +57,48 @@ def add_period(*, effective_from: date, input_vat_recoverable: bool, sales_vat_c
         settings.sales_vat_enabled = sales_vat_charged       # the old switch follows today's period
     db.session.flush()
     return period
+
+
+# ── where input VAT goes (rule 1) ─────────────────────────────────────────────
+NON_RECOVERABLE_ROLE = 'vat_non_recoverable'
+NON_RECOVERABLE_NAME = 'ضريبة القيمة المضافة غير القابلة للاسترداد'
+NON_RECOVERABLE_PARENT = '540'          # المصاريف الإدارية والعمومية
+
+
+def non_recoverable_account_id() -> int:
+    """«ضريبة القيمة المضافة غير القابلة للاسترداد»: mapped, or made once under 540
+    (paired with its weight twin as the chart pairs cash accounts) and mapped."""
+    from accounting.mappings import DEFAULT_MAPPING_OPERATION_TYPE, get_account_id_for_mapping
+    from employee_account_helpers import ensure_memo_for_account
+    from models import Account, AccountingMapping
+    mapped = get_account_id_for_mapping(DEFAULT_MAPPING_OPERATION_TYPE, NON_RECOVERABLE_ROLE)
+    if mapped:
+        return mapped
+    account = Account.query.filter_by(name=NON_RECOVERABLE_NAME).first()
+    if account is None:
+        parent = Account.query.filter_by(account_number=NON_RECOVERABLE_PARENT).first()
+        if parent is None:
+            raise PeriodRefused('NO_EXPENSE_PARENT', f'الحساب {NON_RECOVERABLE_PARENT} غير موجود لضريبة غير مستردة')
+        number = next(n for n in (f'{NON_RECOVERABLE_PARENT[:3]}{i}' for i in range(95, 100))
+                      if not Account.query.filter_by(account_number=n).first())
+        account = Account(account_number=number, name=NON_RECOVERABLE_NAME, type='Expense',
+                          transaction_type='cash', parent_id=parent.id)
+        db.session.add(account)
+        db.session.flush()
+        ensure_memo_for_account(account)
+    db.session.add(AccountingMapping(operation_type=DEFAULT_MAPPING_OPERATION_TYPE, account_type=NON_RECOVERABLE_ROLE,
+                                     account_id=account.id, is_active=True))
+    db.session.flush()
+    return account.id
+
+
+def input_vat_account(day: date, *, operation_type: str, role: str = 'vat_receivable',
+                      cost_account_id: int | None = None) -> int:
+    """The account a VAT paid on *day* is debited to (rule 1): the input VAT
+    account while inputs are recovered; else the cost it was paid on -- what
+    enters the stock carries its VAT (IAS 2) -- or, on what does not,
+    «ضريبة القيمة المضافة غير القابلة للاسترداد»."""
+    from accounting.mappings import require_vat_account
+    if policy_on(day).input_vat_recoverable:
+        return require_vat_account(operation_type, role)
+    return cost_account_id or non_recoverable_account_id()
