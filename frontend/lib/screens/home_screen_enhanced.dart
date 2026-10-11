@@ -1549,7 +1549,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
       );
       addDestination(
         icon: Icons.account_tree,
-        title: isAr ? 'شجرة الحسابات' : 'Chart of Accounts',
+        title: isAr ? 'دليل الحسابات' : 'Chart of Accounts',
         onSelected: () async {
           await Navigator.push(
             context,
@@ -4505,7 +4505,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
       case 'payment_voucher':
         return isAr ? 'صرف نقدي' : 'Cash payment';
       case 'accounts':
-        return isAr ? 'شجرة الحسابات' : 'Chart of accounts';
+        return isAr ? 'دليل الحسابات' : 'Chart of accounts';
       case 'general_ledger':
         return isAr ? 'دفتر الأستاذ' : 'Ledger book';
       case 'trial_balance':

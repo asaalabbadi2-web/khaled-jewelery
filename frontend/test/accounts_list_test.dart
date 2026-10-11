@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -43,6 +44,16 @@ final _accounts = [
   _account(12, '12', 'الأصول الثابتة', parent: 1, kids: [120]),
   _account(120, '120', 'أثاث', parent: 12, cash: 900),
 ];
+
+/// The chart as production has it (12 Oct 2026): the financial roots 1–5 and
+/// their weight twins 71–75, a financial leaf pointing at its weight twin.
+/// Built fresh per test -- the screen annotates the maps it is given.
+List<Map<String, dynamic>> _withWeightChart() => [
+      for (final a in _accounts) {...a, if (a['id'] == 110) 'memo_account_id': 7110},
+      _account(7, '71', 'الأصول وزني', weight: true, kids: [711]),
+      _account(711, '711', 'الأصول المتداولة وزني', parent: 7, weight: true, kids: [7110]),
+      _account(7110, '7110', 'صندوق النقدية وزني', parent: 711, weight: true, gold: 3.25),
+    ];
 
 class _FakeApi extends ApiService {
   _FakeApi([this.accounts]);
@@ -176,7 +187,7 @@ void main() {
     await open(tester);
     await tester.tap(find.byKey(const Key('accounts-view-mode')));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('شجرة الحسابات'));
+    await tester.tap(find.text('عرض شجري'));
     await tester.pumpAndSettle();
 
     expect(find.text('الأصول المتداولة'), findsOneWidget);
@@ -279,9 +290,9 @@ void main() {
     expect(api.deleted.map((d) => d.$2).toList(), [null, false]);
   });
 
-  testWidgets('«شجرة الحسابات» opens the one screen on its tree', (tester) async {
+  testWidgets('«دليل الحسابات» from the home opens the one screen on its tree', (tester) async {
     await open(tester, onTree: true);
-    expect(find.text('شجرة الحسابات'), findsWidgets);
+    expect(find.text('دليل الحسابات'), findsWidgets);
     expect(find.byKey(const Key('account-fold-11')), findsOneWidget, reason: 'the tree\'s fold control');
   });
 
@@ -298,5 +309,111 @@ void main() {
     double y(String name) => tester.getTopLeft(find.text(name)).dy;
     expect(y('الأصول المتداولة'), lessThan(y('الأصول')));
     expect(y('الأصول'), lessThan(y('الأصول الثابتة')));
+  });
+
+  // ── CHART-UI-2: what «شجرة الحسابات» had and the merge left behind ──
+  // The owner (12 Oct 2026): «في شجرة الحسابات كان هناك ميزات كان يجب ترحيلها
+  // للشاشة الجديدة من ضمنها فاصل واضح بين الحسابات المالية والوزنية».
+
+  Finder row(int id) => find.byKey(Key('account-row-$id'));
+
+  testWidgets('the tree in two sections: the financial in riyals, the weight in grams, each whole', (tester) async {
+    await open(tester, onTree: true, api: _FakeApi(_withWeightChart()));
+    expect(find.text('الحسابات المالية (بالريال)'), findsOneWidget);
+    expect(find.text('الحسابات الوزنية (بالجرام)'), findsOneWidget);
+    expect(tester.getTopLeft(find.byKey(const Key('accounts-section-weight'))).dy,
+        greaterThan(tester.getTopLeft(find.text('الأصول الثابتة')).dy), reason: 'after the whole financial chart');
+
+    await tester.tap(find.byKey(const Key('accounts-expand-all')));
+    await tester.pumpAndSettle();
+    expect(row(7110), findsOneWidget, reason: 'a weight twin is in its own chart, not folded into its financial one');
+    expect(find.descendant(of: row(7110), matching: find.textContaining('3.25 جم')), findsOneWidget);
+    expect(find.descendant(of: row(7110), matching: find.textContaining('ر.س')), findsNothing,
+        reason: 'a weight account in grams only');
+    expect(find.descendant(of: row(110), matching: find.textContaining('جم')), findsNothing,
+        reason: 'a financial account in riyals only');
+    expect(find.descendant(of: row(110), matching: find.byTooltip('كشف الحساب الوزني المرتبط')), findsOneWidget);
+  });
+
+  testWidgets('a section folds; «توسيع الكل» and «طي الكل»', (tester) async {
+    await open(tester, onTree: true, api: _FakeApi(_withWeightChart()));
+    expect(find.text('الأصول وزني'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('accounts-section-weight')));
+    await tester.pumpAndSettle();
+    expect(find.text('الأصول وزني'), findsNothing);
+    await tester.tap(find.byKey(const Key('accounts-section-weight')));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('accounts-expand-all')));
+    await tester.pumpAndSettle();
+    expect(find.text('صندوق النقدية'), findsOneWidget);
+    expect(find.text('صندوق النقدية وزني'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('accounts-collapse-all')));
+    await tester.pumpAndSettle();
+    expect(find.text('الأصول المتداولة'), findsNothing, reason: 'the roots alone');
+    expect(find.text('الأصول'), findsOneWidget);
+  });
+
+  testWidgets('the list has the two sections too, and says how many of all it shows', (tester) async {
+    await open(tester, api: _FakeApi(_withWeightChart()));
+    expect(find.byKey(const Key('accounts-section-financial')), findsOneWidget);
+    expect(find.byKey(const Key('accounts-section-weight')), findsOneWidget);
+    expect(row(7110), findsOneWidget);
+    expect(find.text('المعروض: 10 من 10'), findsOneWidget);
+    await tester.enterText(find.byType(TextField).first, 'وزني');
+    await tester.pumpAndSettle();
+    expect(find.text('المعروض: 3 من 10'), findsOneWidget);
+  });
+
+  testWidgets('the search marks what it found in the name', (tester) async {
+    await open(tester, api: _FakeApi(_withWeightChart()));
+    await tester.enterText(find.byType(TextField).first, 'النقديه');
+    await tester.pumpAndSettle();
+    bool marks(Widget w) {
+      if (w is! RichText) return false;
+      var found = false;
+      w.text.visitChildren((span) {
+        if (span is TextSpan && span.text == 'النقدية' && span.style?.backgroundColor != null) found = true;
+        return true;
+      });
+      return found;
+    }
+
+    expect(find.byWidgetPredicate(marks), findsWidgets, reason: '«النقدية» marked for «النقديه»');
+  });
+
+  testWidgets('a parent tapped shows its path; «إظهار في الشجرة» finds a searched account there', (tester) async {
+    await open(tester, onTree: true, api: _FakeApi(_withWeightChart()));
+    await tester.tap(find.text('الأصول المتداولة'));
+    await tester.pumpAndSettle();
+    final path = find.byKey(const Key('accounts-path'));
+    expect(find.descendant(of: path, matching: find.text('الأصول')), findsOneWidget);
+    expect(find.descendant(of: path, matching: find.text('الأصول المتداولة')), findsOneWidget);
+    expect(find.text('صندوق النقدية'), findsOneWidget, reason: 'a parent tapped opens');
+
+    await tester.enterText(find.byType(TextField).first, 'خزينة');
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('account-menu-112')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('إظهار في الشجرة'));
+    await tester.pumpAndSettle();
+    expect(find.descendant(of: path, matching: find.text('خزينة الذهب')), findsOneWidget);
+    expect(row(112), findsOneWidget);
+    expect(row(12), findsOneWidget, reason: 'the whole tree again, not the search');
+  });
+
+  testWidgets('a pointer over a row shows its actions; its menu stays where it was', (tester) async {
+    await open(tester, onTree: true, api: _FakeApi(_withWeightChart()));
+    final add = find.descendant(of: row(11), matching: find.byTooltip('إضافة حساب فرعي'));
+    expect(add.hitTestable(), findsNothing);
+    final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+    await mouse.addPointer(location: Offset.zero);
+    addTearDown(mouse.removePointer);
+    await mouse.moveTo(tester.getCenter(row(11)));
+    await tester.pumpAndSettle();
+    expect(add.hitTestable(), findsOneWidget);
+    await tester.tap(find.byKey(const Key('account-menu-11')));
+    await tester.pumpAndSettle();
+    expect(find.text('دفتر الأستاذ'), findsOneWidget, reason: 'the menu works under the pointer');
   });
 }

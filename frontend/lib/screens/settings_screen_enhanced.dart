@@ -1591,7 +1591,7 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
                 );
               },
               icon: const Icon(Icons.account_tree),
-              label: const Text('فتح شجرة الحسابات (جميع الحسابات)'),
+              label: const Text('فتح دليل الحسابات'),
             ),
           ],
         ),

@@ -524,7 +524,7 @@ class DefaultQuickActions {
     QuickActionItem(
       id: 'chart_of_accounts',
       icon: Icons.account_tree,
-      label: 'شجرة الحسابات',
+      label: 'دليل الحسابات',
       route: 'chart_of_accounts',
       colorHex: '#00897B',
       isActive: false,
