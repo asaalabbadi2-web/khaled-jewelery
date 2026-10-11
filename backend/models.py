@@ -3034,6 +3034,29 @@ class VatPolicyPeriod(db.Model):
                 'note': self.note, 'created_by': self.created_by}
 
 
+class VatReturn(db.Model):
+    """A filed VAT return (ADR-043 rule 5): a period's output and input VAT closed
+    into what is owed to the authority, by one posted entry (services/vat_return.py)."""
+    __tablename__ = 'vat_return'
+
+    id = db.Column(db.Integer, primary_key=True)
+    period_start = db.Column(db.Date, nullable=False, index=True)
+    period_end = db.Column(db.Date, nullable=False, index=True)
+    output_vat = db.Column(db.Float, nullable=False, default=0.0)
+    input_vat = db.Column(db.Float, nullable=False, default=0.0)
+    net = db.Column(db.Float, nullable=False, default=0.0)          # + owed to the authority, - due back
+    journal_entry_id = db.Column(db.Integer, db.ForeignKey('journal_entry.id'), nullable=True)
+    filed_by = db.Column(db.String(100), nullable=True)
+    filed_at = db.Column(db.DateTime, nullable=True)
+
+    def to_dict(self):
+        entry = db.session.get(JournalEntry, self.journal_entry_id) if self.journal_entry_id else None
+        return {'id': self.id, 'start': self.period_start.isoformat(), 'end': self.period_end.isoformat(),
+                'output_vat': self.output_vat, 'input_vat': self.input_vat, 'net': self.net,
+                'entry_number': entry.entry_number if entry else None, 'filed_by': self.filed_by,
+                'filed_at': self.filed_at.isoformat() if self.filed_at else None}
+
+
 def _sales_vat_today(settings) -> bool:
     from datetime import date as _date
     period = (VatPolicyPeriod.query.filter(VatPolicyPeriod.effective_from <= _date.today())

@@ -67,6 +67,7 @@ try:
 	from routes.office_reservations import office_reservations_bp
 	from routes.admin import admin_bp
 	from routes.system import system_bp
+	from routes.vat_returns import vat_returns_bp
 except ImportError as exc:
 	import traceback as _tb
 	print(
@@ -450,6 +451,7 @@ app.register_blueprint(gold_advances_bp, url_prefix='/api')  # Gold Advance & Al
 app.register_blueprint(office_reservations_bp, url_prefix='/api')  # Office reservations domain
 app.register_blueprint(admin_bp, url_prefix='/api')     # Admin & temp-pdf domain
 app.register_blueprint(system_bp, url_prefix='/api')    # System domain (debug, settings, reset, backup)
+app.register_blueprint(vat_returns_bp, url_prefix='/api')  # VAT returns (ADR-043 rule 5)
 app.register_blueprint(internal_bp)             # ERP Sync internal API (/api/internal/*)
 app.register_blueprint(api, url_prefix='/api')  # ✅ API الرئيسي (أخيراً)
 # recurring_journal_routes تستخدم نفس api blueprint، لذا لا حاجة لتسجيلها
