@@ -57,6 +57,7 @@ WEIGHT_COST_OF_SALES_ROOTS = ('751',)    # purchases and their returns, by weigh
 SALES_RETURNS_ROOTS = ('7420',)
 PARTY_ROOTS = ('71', '72')               # weight assets and liabilities: parties' accounts
 EQUITY_ROOTS = ('73',)
+WAGE_COST_ROOTS = ('510',)                # the making charge: a cost the gold's average does not replace
 CORRECTION_TYPES = ('journal_entry_reversal', 'balance_correction', 'voucher_reversal')
 OFFICE_TRANSFER = 'office_reservation_weight_transfer'
 EPS = 0.0005
@@ -354,6 +355,40 @@ def ledger_weights() -> dict:
         result[name] = float(db.session.query(expr).join(JournalEntry, JournalEntry.id == JournalEntryLine.journal_entry_id)
                              .filter(*counted_line_filters(), JournalEntryLine.account_id.in_(ids or {-1})).scalar() or 0.0)
     return result
+
+
+def gross_by_month(result: Replay) -> dict[str, dict]:
+    """Each month's gross profit both ways, beside each other: today's (the
+    income statement -- revenue less the cost-of-sales group, purchases charged
+    as they are bought) and by cost (revenue less the gold's cost at the
+    average and the making charge, which the average does not replace)."""
+    from accounting.balances import counted_line_filters
+    from services.income_accounts import income_account_groups
+
+    def monthly(ids):
+        month = func.to_char(JournalEntry.date, 'YYYY-MM')
+        rows = (db.session.query(month, func.sum(JournalEntryLine.cash_debit - JournalEntryLine.cash_credit))
+                .join(JournalEntry, JournalEntry.id == JournalEntryLine.journal_entry_id)
+                .filter(*counted_line_filters(), JournalEntryLine.account_id.in_(ids or {-1}))
+                .group_by(month).all())
+        return {k: float(v or 0) for k, v in rows}
+
+    groups = income_account_groups()
+    revenue = {k: -v for k, v in monthly(groups['revenue']).items()}
+    cost_today, wages = monthly(groups['cost_of_sales']), monthly(_subtree_ids(WAGE_COST_ROOTS))
+    out = {}
+    for k in sorted(set(result.months) | set(revenue) | set(cost_today)):
+        m = result.months.get(k, Month())
+        gold_cost = m.cost_of_worked_sold + m.cost_of_scrap_sold + m.exchange_difference
+        out[k] = {
+            'revenue': revenue.get(k, 0.0),
+            'cost_today': cost_today.get(k, 0.0),
+            'gross_today': revenue.get(k, 0.0) - cost_today.get(k, 0.0),
+            'gold_cost': gold_cost,
+            'wages': wages.get(k, 0.0),
+            'gross_by_cost': revenue.get(k, 0.0) - gold_cost - wages.get(k, 0.0),
+        }
+    return out
 
 
 def market_average_price(start: date, days: int = 30) -> tuple[float, date, date]:

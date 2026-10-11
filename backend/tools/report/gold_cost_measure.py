@@ -2,8 +2,8 @@
 
 Reads the posted books and writes nothing. For each month: the gold bought and
 what it cost, the worked and scrap gold sold and what it cost, the exchange
-differences, and the revenue and gross profit beside the income statement's
-of today (purchases-based); then each pool's closing weight, value and average,
+differences, the making charge, and the revenue and gross profit beside the
+income statement's of today (purchases-based); then each pool's closing weight, value and average,
 against the books' weight.
 
     python tools/report/gold_cost_measure.py                       # the market average
@@ -26,15 +26,10 @@ def main(argv=None):
                     help='riyals per main-karat gram, entered by hand (default: the market average)')
     args = ap.parse_args(argv)
 
-    from sqlalchemy import func
     from app import app
-    from accounting.balances import counted_line_filters
-    from models import JournalEntry, JournalEntryLine, db
-    from services.gold_cost import books_start, ledger_weights, market_average_price, replay
-    from services.income_accounts import income_account_groups
+    from services.gold_cost import books_start, gross_by_month, ledger_weights, market_average_price, replay
 
     with app.app_context():
-        groups = income_account_groups()
         if args.opening_price is None:
             price, first, last = market_average_price(books_start())
             source = f'the market average, {first} to {last}'
@@ -42,25 +37,20 @@ def main(argv=None):
             price, source = args.opening_price, 'entered by hand'
         result = replay(opening_price=price)
 
-        def monthly(ids):
-            month = func.to_char(JournalEntry.date, 'YYYY-MM')
-            rows = (db.session.query(month, func.sum(JournalEntryLine.cash_credit - JournalEntryLine.cash_debit))
-                    .join(JournalEntry, JournalEntry.id == JournalEntryLine.journal_entry_id)
-                    .filter(*counted_line_filters(), JournalEntryLine.account_id.in_(ids or {-1}))
-                    .group_by(month).all())
-            return {k: float(v or 0) for k, v in rows}
-
-        revenue, cost_today = monthly(groups['revenue']), {k: -v for k, v in monthly(groups['cost_of_sales']).items()}
+        gross = gross_by_month(result)
         print(f'opening price: {price:,.2f} per main-karat gram ({source})')
         print('month   | bought g  | bought cost  | worked sold g | its cost     | scrap sold g | its cost  '
-              '| exch. diff | revenue      | gross: today | gross: by cost')
+              '| exch. diff | wages    | revenue      | gross: today | gross: by cost')
         for k in sorted(result.months):
-            m = result.months[k]
-            cost = m.cost_of_worked_sold + m.cost_of_scrap_sold + m.exchange_difference
+            m, g = result.months[k], gross[k]
             print(f'{k} | {m.purchases_g:9.1f} | {m.purchases_value:12,.0f} | {m.sold_worked_g:13.1f} | '
                   f'{m.cost_of_worked_sold:12,.0f} | {m.sold_scrap_g:12.1f} | {m.cost_of_scrap_sold:9,.0f} | '
-                  f'{m.exchange_difference:10,.0f} | {revenue.get(k, 0):12,.0f} | '
-                  f'{revenue.get(k, 0) - cost_today.get(k, 0):12,.0f} | {revenue.get(k, 0) - cost:14,.0f}')
+                  f'{m.exchange_difference:10,.0f} | {g["wages"]:8,.0f} | {g["revenue"]:12,.0f} | '
+                  f'{g["gross_today"]:12,.0f} | {g["gross_by_cost"]:14,.0f}')
+        year = lambda f: sum(g[f] for g in gross.values())
+        print(f'all     | {"":9} | {"":12} | {"":13} | {"":12} | {"":12} | {"":9} | {"":10} | '
+              f'{year("wages"):8,.0f} | {year("revenue"):12,.0f} | {year("gross_today"):12,.0f} | '
+              f'{year("gross_by_cost"):14,.0f}')
         books = ledger_weights()
         for name, pool in result.pools.items():
             print(f'{name}: {pool.weight:,.3f} g · {pool.value:,.2f} · average {pool.avg:,.2f} '

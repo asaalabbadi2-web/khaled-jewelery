@@ -191,3 +191,31 @@ def test_by_the_nature_of_its_account_gold_is_an_expense_or_a_receivable(books):
     assert (m.expense_g, m.expense_value) == (pytest.approx(-5), pytest.approx(-2000))
     assert m.cost_of_worked_sold == 0 and m.cost_of_scrap_sold == 0
     assert r.others == []
+
+
+def test_the_gross_by_cost_still_pays_the_making_charge(books):
+    """The measure set revenue less the gold's cost beside the income statement's
+    gross -- which also takes the making charge (510). On the 10 Oct copy that
+    left 612,273 of wages out of one column and in the other (11 Oct 2026). The
+    moving average replaces the gold's cost only; the wages stay a cost."""
+    from services.gold_cost import gross_by_month
+    b = books
+    revenue = _child(_account('4'), 'إيراد اختبار')
+    cost_of_sales = _account('51')
+    _account('512').parent_id = cost_of_sales.id                # the purchases and the wages, under 51 as the chart has them
+    wages = _child(_account('510', cost_of_sales), 'أجور اختبار')
+    db.session.flush()
+    _entry(1, [(b['scrap_safe'], {'debit_21k': 100}), (b['twin'], {'credit_21k': 100}),
+               (b['purchases'], {'cash_debit': 40000}), (b['cash'], {'cash_credit': 40000})])
+    _entry(2, [(b['display'], {'debit_21k': 100}), (b['supplier'], {'credit_21k': 100})])
+    _entry(3, [(b['display'], {'credit_21k': 60}), (b['customer'], {'debit_21k': 60}),
+               (b['cash'], {'cash_debit': 30000}), (revenue, {'cash_credit': 30000}),
+               (wages, {'cash_debit': 1500}), (b['cash'], {'cash_credit': 1500})])
+
+    r = replay(opening_price=0.0, since=date(2032, 1, 1))
+    m = gross_by_month(r)['2032-01']
+
+    assert m['gold_cost'] == pytest.approx(24000)
+    assert m['wages'] == pytest.approx(1500)
+    assert m['gross_by_cost'] == pytest.approx(30000 - 24000 - 1500)
+    assert m['gross_today'] == pytest.approx(30000 - 40000 - 1500), 'the purchase charged as it was bought'

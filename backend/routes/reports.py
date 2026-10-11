@@ -5348,11 +5348,9 @@ def get_income_statement():
 
         gross_profit = total_revenue - total_cogs
         net_income = gross_profit - operating_expenses_total
-        cost_basis_note = (
-            'تكلفة المبيعات على أساس المشتريات: يُحمَّل الذهب عند شرائه لا عند بيعه، '
-            'فالفترة التي تشتري أكثر مما تبيع تظهر أقل ربحًا من حقيقتها -- إلى أن تُعتمد '
-            'التكلفة المستمرة بالوزن (قرار المالك 11 أكتوبر 2026)'
-        )
+        # Which months carry the gold's cost at its moving average (ADR-042 phase 2).
+        from services.gold_cost_books import cost_basis
+        basis, cost_basis_note = cost_basis(start_date, end_date)
 
         # حساب النسب المئوية
         net_margin_pct = (net_income / total_revenue * 100) if total_revenue != 0 else 0.0
@@ -5365,7 +5363,7 @@ def get_income_statement():
                 # المؤشرات المالية (نقدي)
                 'net_revenue': round(total_revenue, 2),
                 'cost_of_sales': round(total_cogs, 2),
-                'cost_basis': 'purchases',
+                'cost_basis': basis,
                 'cost_basis_note': cost_basis_note,
                 'gross_profit': round(gross_profit, 2),
                 'operating_expenses': round(operating_expenses_total, 2),
