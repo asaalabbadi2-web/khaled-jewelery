@@ -2949,7 +2949,8 @@ class Settings(db.Model):
             'sales_race_settings': sales_race_settings,
             'tax_rate': self.tax_rate,
             'tax_enabled': self.tax_enabled,
-            'sales_vat_enabled': bool(self.sales_vat_enabled),
+            # The period in force today (ADR-043): the switch is a dated policy.
+            'sales_vat_enabled': _sales_vat_today(self),
             'vat_exempt_karats': exempt_karats,
             'payment_methods': payment_methods,
             'invoice_prefix': self.invoice_prefix,
@@ -3010,6 +3011,34 @@ class Settings(db.Model):
             'backup_retention_count': int(getattr(self, 'backup_retention_count', 7) or 7),
             'password_policy': policy,
         }
+
+
+class VatPolicyPeriod(db.Model):
+    """VAT as a dated policy (ADR-043): from effective_from until the next period,
+    whether input VAT is recovered and whether sales are charged VAT. An invoice
+    reads the period in force on its date (services/vat_policy.py)."""
+    __tablename__ = 'vat_policy_period'
+
+    id = db.Column(db.Integer, primary_key=True)
+    effective_from = db.Column(db.Date, nullable=False, unique=True, index=True)
+    input_vat_recoverable = db.Column(db.Boolean, nullable=False, default=True)
+    sales_vat_charged = db.Column(db.Boolean, nullable=False, default=True)
+    note = db.Column(db.String(300), nullable=True)
+    created_by = db.Column(db.String(100), nullable=True)
+    created_at = db.Column(db.DateTime, default=db.func.now())
+
+    def to_dict(self):
+        return {'effective_from': self.effective_from.isoformat(),
+                'input_vat_recoverable': bool(self.input_vat_recoverable),
+                'sales_vat_charged': bool(self.sales_vat_charged),
+                'note': self.note, 'created_by': self.created_by}
+
+
+def _sales_vat_today(settings) -> bool:
+    from datetime import date as _date
+    period = (VatPolicyPeriod.query.filter(VatPolicyPeriod.effective_from <= _date.today())
+              .order_by(VatPolicyPeriod.effective_from.desc()).first())
+    return bool(period.sales_vat_charged) if period is not None else bool(settings.sales_vat_enabled)
 
 
 class Voucher(db.Model):

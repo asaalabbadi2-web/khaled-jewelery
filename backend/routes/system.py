@@ -624,15 +624,44 @@ def list_weight_closing_profiles():
     ensure_weight_closing_support_accounts()
     return jsonify({'profiles': list_weight_profiles()})
 
+def _settings_actor() -> str:
+    from flask import g
+    actor = getattr(g, 'current_user', None)
+    return getattr(actor, 'username', None) or 'system'
+
+
 @system_bp.route('/settings', methods=['GET'])
 def get_settings():
     settings = _get_settings_singleton(create_if_missing=True)
-    response = jsonify(settings.to_dict())
+    from services.vat_policy import periods as _vat_periods
+    response = jsonify({**settings.to_dict(), 'vat_periods': _vat_periods()})
     response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
     response.headers['Pragma'] = 'no-cache'
     response.headers['Expires'] = '0'
     response.headers.update(_settings_diag_headers(settings))
     return response
+
+@system_bp.route('/settings/vat-periods', methods=['POST'])
+@require_permission('system.settings')
+def add_vat_period():
+    """A VAT period from a day on (ADR-043): input VAT recovered, sales VAT charged."""
+    from datetime import date as _date
+    from services.vat_policy import PeriodRefused, add_period
+    data = request.get_json(silent=True) or {}
+    try:
+        effective_from = _date.fromisoformat(str(data.get('effective_from') or ''))
+    except ValueError:
+        return jsonify({'error': 'INVALID_DATE', 'message': 'تاريخ النفاذ غير صالح'}), 400
+    try:
+        period = add_period(effective_from=effective_from, input_vat_recoverable=data.get('input_vat_recoverable'),
+                            sales_vat_charged=data.get('sales_vat_charged'), by=_settings_actor(),
+                            today=_date.today(), note=data.get('note'))
+        db.session.commit()
+    except PeriodRefused as refused:
+        db.session.rollback()
+        return jsonify({'error': refused.code, 'message': refused.message}), 400
+    return jsonify(period.to_dict()), 201
+
 
 @system_bp.route('/settings/wage-treatment', methods=['GET'])
 @require_permission('system.settings')
@@ -783,7 +812,13 @@ def update_settings():
         if not isinstance(data['sales_vat_enabled'], bool):
             return jsonify({'error': 'invalid_sales_vat_enabled',
                             'message': 'ضريبة المبيعات إما مفعّلة (true) أو لا (false)'}), 400
-        settings.sales_vat_enabled = data['sales_vat_enabled']
+        # The switch is a dated policy (ADR-043): turning it is a period from today on.
+        from datetime import date as _date
+        from services.vat_policy import add_period, policy_on
+        _today = _date.today()
+        if policy_on(_today).sales_vat_charged != data['sales_vat_enabled']:
+            add_period(effective_from=_today, input_vat_recoverable=policy_on(_today).input_vat_recoverable,
+                       sales_vat_charged=data['sales_vat_enabled'], by=_settings_actor(), today=_today)
 
     # 🆕 إعفاء العيارات من ضريبة الذهب
     if 'vat_exempt_karats' in data:

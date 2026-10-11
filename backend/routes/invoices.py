@@ -3589,7 +3589,11 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
     vat_exempt_karats = {24}
     try:
         vat_enabled = bool(getattr(settings_row, 'tax_enabled', True)) if settings_row else True
-        sales_vat_enabled = bool(getattr(settings_row, 'sales_vat_enabled', True)) if settings_row else True
+        # The period in force on the invoice's date (ADR-043), not today's switch:
+        # a sale of March, taxed then, re-saved today is taxed as then.
+        from services.vat_policy import policy_on
+        _vat_day = (datetime.fromisoformat(data['date']) if data.get('date') else datetime.now()).date()
+        sales_vat_enabled = policy_on(_vat_day).sales_vat_charged
         vat_rate = _normalize_tax_rate(getattr(settings_row, 'tax_rate', 0.15) if settings_row else 0.15, fallback=0.15)
         vat_exempt_karats = _parse_vat_exempt_karats(settings_row)
     except Exception:
