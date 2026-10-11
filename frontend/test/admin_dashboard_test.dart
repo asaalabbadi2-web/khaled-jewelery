@@ -170,4 +170,34 @@ void main() {
     expect(find.text('إيجار المعرض'), findsOneWidget);
     expect(find.text('القيود'), findsOneWidget, reason: 'entries, not invoices');
   });
+
+  testWidgets('each account in the summary reads as one row: its name and amount in one band', (tester) async {
+    // The owner (12 Oct 2026): «في ملخص العمليات يصعب تحديد المبلغ لكل حساب
+    // لعدم وجود تمييز بين كل صف وآخر» -- the name sat at one edge, the amount
+    // at the other, nothing between them.
+    await open(tester);
+    await tester.tap(find.text('هذه السنة'));
+    await tester.pump(const Duration(seconds: 1));
+    await tester.tap(find.text('المصروفات').first);
+    await tester.pump(const Duration(seconds: 1));
+
+    Color? bandOf(int i) {
+      final band = find.byKey(ValueKey('summary-row-$i'));
+      expect(band, findsOneWidget, reason: 'row $i has its band');
+      final box = tester.widget<Container>(band).decoration as BoxDecoration?;
+      return box?.color;
+    }
+
+    for (final (i, name) in [(0, 'رواتب الموظفين'), (1, 'إيجار المعرض')]) {
+      final band = find.byKey(ValueKey('summary-row-$i'));
+      bandOf(i);
+      expect(find.descendant(of: band, matching: find.text(name)), findsOneWidget);
+      final amount = find.descendant(
+        of: band,
+        matching: find.byWidgetPredicate((w) => w is RichText && RegExp(r'\d').hasMatch(w.text.toPlainText())),
+      );
+      expect(amount, findsWidgets, reason: '$name and its amount share the band');
+    }
+    expect(bandOf(0), isNot(bandOf(1)), reason: 'neighbouring rows are told apart');
+  });
 }

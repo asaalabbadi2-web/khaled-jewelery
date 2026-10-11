@@ -103,6 +103,7 @@ class _DashboardSummaryTabsCardState extends State<DashboardSummaryTabsCard> {
         return _asDouble((prev['expenses'] as Map?)?['total_value']);
     }
   }
+
   Color _tabColor(_SummaryTab tab, ThemeData theme) {
     switch (tab) {
       case _SummaryTab.sales:
@@ -131,8 +132,7 @@ class _DashboardSummaryTabsCardState extends State<DashboardSummaryTabsCard> {
           data: d,
         );
       case _SummaryTab.purchases:
-        final d =
-            (_periodData['purchases'] as Map<String, dynamic>?) ?? {};
+        final d = (_periodData['purchases'] as Map<String, dynamic>?) ?? {};
         return (
           label: isAr ? 'المشتريات' : 'Purchases',
           count: (d['docs'] as int?) ?? 0,
@@ -143,9 +143,8 @@ class _DashboardSummaryTabsCardState extends State<DashboardSummaryTabsCard> {
           data: d,
         );
       case _SummaryTab.scrap:
-        final d = (_periodData['scrap_purchases']
-                as Map<String, dynamic>?) ??
-            {};
+        final d =
+            (_periodData['scrap_purchases'] as Map<String, dynamic>?) ?? {};
         return (
           label: isAr ? 'الكسر' : 'Scrap',
           count: (d['docs'] as int?) ?? 0,
@@ -156,8 +155,7 @@ class _DashboardSummaryTabsCardState extends State<DashboardSummaryTabsCard> {
           data: d,
         );
       case _SummaryTab.expenses:
-        final d =
-            (_periodData['expenses'] as Map<String, dynamic>?) ?? {};
+        final d = (_periodData['expenses'] as Map<String, dynamic>?) ?? {};
         return (
           label: isAr ? 'المصروفات' : 'Expenses',
           count: (d['docs'] as int?) ?? 0,
@@ -179,9 +177,7 @@ class _DashboardSummaryTabsCardState extends State<DashboardSummaryTabsCard> {
       decoration: BoxDecoration(
         color: theme.cardColor,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-          color: theme.dividerColor.withValues(alpha: 0.25),
-        ),
+        border: Border.all(color: theme.dividerColor.withValues(alpha: 0.25)),
         boxShadow: [
           BoxShadow(
             color: _scheme.primary.withValues(alpha: 0.06),
@@ -197,19 +193,12 @@ class _DashboardSummaryTabsCardState extends State<DashboardSummaryTabsCard> {
             padding: EdgeInsets.fromLTRB(16, 14, 16, 8),
             child: Row(
               children: [
-                Icon(
-                  Icons.bar_chart_rounded,
-                  size: 20,
-                  color: _scheme.primary,
-                ),
+                Icon(Icons.bar_chart_rounded, size: 20, color: _scheme.primary),
                 SizedBox(width: 8),
                 Expanded(
                   child: Text(
                     isAr ? 'ملخص العمليات' : 'Operations Summary',
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.bold,
-                    ),
+                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
                   ),
                 ),
               ],
@@ -253,9 +242,7 @@ class _DashboardSummaryTabsCardState extends State<DashboardSummaryTabsCard> {
             ? theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.30)
             : theme.colorScheme.surfaceContainerLowest,
         border: Border(
-          bottom: BorderSide(
-            color: theme.dividerColor.withValues(alpha: 0.30),
-          ),
+          bottom: BorderSide(color: theme.dividerColor.withValues(alpha: 0.30)),
         ),
       ),
       child: Row(
@@ -267,10 +254,7 @@ class _DashboardSummaryTabsCardState extends State<DashboardSummaryTabsCard> {
               onTap: () => setState(() => _activeTab = tab),
               child: AnimatedContainer(
                 duration: const Duration(milliseconds: 180),
-                padding: EdgeInsets.symmetric(
-                  vertical: 11,
-                  horizontal: 6,
-                ),
+                padding: EdgeInsets.symmetric(vertical: 11, horizontal: 6),
                 decoration: BoxDecoration(
                   color: isActive ? theme.cardColor : Colors.transparent,
                   border: Border(
@@ -293,7 +277,7 @@ class _DashboardSummaryTabsCardState extends State<DashboardSummaryTabsCard> {
                           color: isActive
                               ? info.color.withValues(alpha: 0.15)
                               : theme.colorScheme.surfaceContainerHighest
-                                  .withValues(alpha: 0.6),
+                                    .withValues(alpha: 0.6),
                           borderRadius: BorderRadius.circular(3),
                         ),
                         child: Text(
@@ -380,7 +364,9 @@ class _DashboardSummaryTabsCardState extends State<DashboardSummaryTabsCard> {
     final docsColor = theme.colorScheme.secondary;
 
     final prevValue = _prevTabValue(tab);
-    final changePct = prevValue != null ? _changePct(info.value, prevValue) : null;
+    final changePct = prevValue != null
+        ? _changePct(info.value, prevValue)
+        : null;
 
     Widget metric({
       required String label,
@@ -479,7 +465,9 @@ class _DashboardSummaryTabsCardState extends State<DashboardSummaryTabsCard> {
         Expanded(
           child: metric(
             // The expenses count entries, not invoices (12 Oct 2026).
-            label: tab == _SummaryTab.expenses ? (isAr ? 'القيود' : 'Entries') : (isAr ? 'الفواتير' : 'Docs'),
+            label: tab == _SummaryTab.expenses
+                ? (isAr ? 'القيود' : 'Entries')
+                : (isAr ? 'الفواتير' : 'Docs'),
             value: '${info.count}',
             sub: null,
             color: docsColor,
@@ -538,72 +526,49 @@ class _DashboardSummaryTabsCardState extends State<DashboardSummaryTabsCard> {
     );
   }
 
-  Widget _buildKaratList(
-    List items,
-    Color accent,
-    ThemeData theme,
-    bool isAr,
-  ) {
+  Widget _buildKaratList(List items, Color accent, ThemeData theme, bool isAr) {
+    var index = 0;
     return Column(
       children: items.map((k) {
         final karat = k['karat'] as String? ?? '?';
         final weight = _asDouble(k['weight']);
         final value = _asDouble(k['value']);
         final karatColor = _karatColor(karat);
-        return Padding(
-          padding: EdgeInsets.symmetric(vertical: 5),
-          child: Row(
-            children: [
-              Container(
-                padding: EdgeInsets.symmetric(
-                  horizontal: 7,
-                  vertical: 2,
-                ),
-                decoration: BoxDecoration(
-                  color: karatColor.withValues(alpha: 0.15),
-                  borderRadius: BorderRadius.circular(4),
-                ),
-                child: Text(
-                  karat,
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.bold,
-                    color: karatColor,
-                  ),
-                ),
+        return _summaryRow(
+          index++,
+          leading: Container(
+            padding: EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+            decoration: BoxDecoration(
+              color: karatColor.withValues(alpha: 0.15),
+              borderRadius: BorderRadius.circular(4),
+            ),
+            child: Text(
+              karat,
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.bold,
+                color: karatColor,
               ),
-              SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  _formatWeight(weight),
-                  style: TextStyle(
-                    fontSize: 11,
-                    color: theme.textTheme.bodySmall?.color,
-                  ),
-                ),
-              ),
-              _currencyAwareText(
-                _formatCurrency(value),
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
-                  color: accent,
-                ),
-              ),
-            ],
+            ),
           ),
+          label: Text(
+            _formatWeight(weight),
+            style: TextStyle(
+              fontSize: 11,
+              color: theme.textTheme.bodySmall?.color,
+            ),
+          ),
+          amount: _formatCurrency(value),
+          accent: accent,
         );
       }).toList(),
     );
   }
 
-  Widget _buildUsersList(
-    List items,
-    Color accent,
-    ThemeData theme,
-    bool isAr,
-  ) {
-    final maxValue = items.take(5).fold<double>(
+  Widget _buildUsersList(List items, Color accent, ThemeData theme, bool isAr) {
+    final maxValue = items
+        .take(5)
+        .fold<double>(
           0,
           (m, u) => _asDouble(u is Map ? u['value'] : 0) > m
               ? _asDouble(u['value'])
@@ -651,13 +616,7 @@ class _DashboardSummaryTabsCardState extends State<DashboardSummaryTabsCard> {
                     Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Text(
-                          '👑',
-                          style: TextStyle(
-                            fontSize: 9,
-                            height: 1.1,
-                          ),
-                        ),
+                        Text('👑', style: TextStyle(fontSize: 9, height: 1.1)),
                         Container(
                           width: 22,
                           height: 22,
@@ -760,40 +719,65 @@ class _DashboardSummaryTabsCardState extends State<DashboardSummaryTabsCard> {
   }
 
   Widget _buildAccountsList(List items, Color accent, ThemeData theme) {
+    var index = 0;
     return Column(
       // Every account: the expenses' list is short, and a cut list hides where they went.
       children: items.map((e) {
         final acc = (e['account'] ?? '—').toString();
-        final value = _asDouble(e['value']);
-        return Padding(
-          padding: EdgeInsets.symmetric(vertical: 5),
-          child: Row(
-            children: [
-              Icon(
-                Icons.receipt_outlined,
-                size: 13,
-                color: accent.withValues(alpha: 0.6),
-              ),
-              SizedBox(width: 6),
-              Expanded(
-                child: Text(
-                  acc,
-                  style: TextStyle(fontSize: 11.5),
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-              _currencyAwareText(
-                _formatCurrency(value),
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
-                  color: accent,
-                ),
-              ),
-            ],
+        return _summaryRow(
+          index++,
+          leading: Icon(
+            Icons.receipt_outlined,
+            size: 13,
+            color: accent.withValues(alpha: 0.6),
           ),
+          label: Text(
+            acc,
+            style: TextStyle(fontSize: 11.5),
+            overflow: TextOverflow.ellipsis,
+          ),
+          amount: _formatCurrency(_asDouble(e['value'])),
+          accent: accent,
         );
       }).toList(),
+    );
+  }
+
+  /// One row of a summary list: its label and its amount in one band, the
+  /// bands alternating -- on a wide card the eye loses which amount is whose
+  /// (the owner, 12 Oct 2026).
+  Widget _summaryRow(
+    int index, {
+    required Widget leading,
+    required Widget label,
+    required String amount,
+    required Color accent,
+  }) {
+    return Container(
+      key: ValueKey('summary-row-$index'),
+      margin: EdgeInsets.only(bottom: 2),
+      padding: EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+      decoration: BoxDecoration(
+        color: index.isEven
+            ? _scheme.surfaceContainerHighest.withValues(alpha: 0.6)
+            : _scheme.surface,
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Row(
+        children: [
+          leading,
+          SizedBox(width: 8),
+          Expanded(child: label),
+          _currencyAwareText(
+            amount,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+              color: accent,
+            ),
+          ),
+        ],
+      ),
     );
   }
 
