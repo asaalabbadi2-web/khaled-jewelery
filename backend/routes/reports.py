@@ -7719,7 +7719,18 @@ def get_admin_dashboard():
                 from services.income_accounts import operating_expense_account_ids
                 ids = operating_expense_account_ids()
                 if not ids:
-                    return {'total_value': 0.0, 'by_account': []}
+                    return {'total_value': 0.0, 'by_account': [], 'docs': 0}
+                # The entries that make them -- the tab's count, as the other tabs'
+                # invoices (12 Oct 2026: the tab read empty, no count was sent).
+                docs = (
+                    db.session.query(db.func.count(db.func.distinct(JE2.id)))
+                    .join(JELine, JELine.journal_entry_id == JE2.id)
+                    .filter(JELine.account_id.in_(ids))
+                    .filter(*counted_line_filters())
+                    .filter(JE2.date >= start)
+                    .filter(JE2.date < end)
+                    .scalar()
+                ) or 0
                 rows = (
                     db.session.query(AccModel.id, AccModel.name, AccModel.account_number,
                                      db.func.coalesce(db.func.sum(JELine.cash_debit), 0.0)
@@ -7740,9 +7751,10 @@ def get_admin_dashboard():
                 return {
                     'total_value': round(sum(a['value'] for a in by_account), 2),
                     'by_account': sorted(by_account, key=lambda x: -x['value']),
+                    'docs': int(docs),
                 }
             except Exception:
-                return {'total_value': 0.0, 'by_account': []}
+                return {'total_value': 0.0, 'by_account': [], 'docs': 0}
 
         def _build_scrap_summary(start, end):
             """مشتريات الكسر والتسكير فقط (gold_type='scrap')."""

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart' hide TextDirection;
 
+import '../../../theme/app_semantic_colors.dart';
 import '../../../theme/app_theme.dart';
 import '../../../utils/currency_utils.dart' as cu;
 
@@ -24,7 +25,6 @@ class DashboardSummaryTabsCard extends StatefulWidget {
   final String currencySymbol;
   final bool currencyIsNewSar;
   final NumberFormat weightFormat;
-  final double Function(double) scale;
 
   const DashboardSummaryTabsCard({
     super.key,
@@ -34,7 +34,6 @@ class DashboardSummaryTabsCard extends StatefulWidget {
     this.currencySymbol = 'ر.س',
     this.currencyIsNewSar = false,
     required this.weightFormat,
-    required this.scale,
   });
 
   @override
@@ -43,12 +42,25 @@ class DashboardSummaryTabsCard extends StatefulWidget {
 }
 
 class _DashboardSummaryTabsCardState extends State<DashboardSummaryTabsCard> {
+  // The theme's colours only (DASH-2).
+  ColorScheme get _scheme => Theme.of(context).colorScheme;
+  AppSemanticColors get _tones => AppSemanticColors.of(context);
+
+  Color _karatColor(dynamic karat) {
+    final k = int.tryParse('$karat'.replaceAll(RegExp(r'[^0-9]'), '')) ?? 21;
+    return switch (k) {
+      24 => _tones.karat24.fg,
+      22 => _tones.karat22.fg,
+      18 => _tones.karat18.fg,
+      _ => _tones.karat21.fg,
+    };
+  }
+
   _SummaryTab _activeTab = _SummaryTab.sales;
 
   Map<String, dynamic> get _periodData => widget.periodData;
 
   double _asDouble(dynamic v) => v is num ? v.toDouble() : 0.0;
-  double _s(double v) => widget.scale(v);
 
   String _formatCurrency(num v) {
     final formatted = widget.currencyFormat.format(v);
@@ -94,13 +106,13 @@ class _DashboardSummaryTabsCardState extends State<DashboardSummaryTabsCard> {
   Color _tabColor(_SummaryTab tab, ThemeData theme) {
     switch (tab) {
       case _SummaryTab.sales:
-        return AppColors.success;
+        return _tones.ready.fg;
       case _SummaryTab.purchases:
-        return AppColors.info;
+        return _tones.info.fg;
       case _SummaryTab.scrap:
         return theme.colorScheme.secondary;
       case _SummaryTab.expenses:
-        return AppColors.warning;
+        return _tones.warning.fg;
     }
   }
 
@@ -166,13 +178,13 @@ class _DashboardSummaryTabsCardState extends State<DashboardSummaryTabsCard> {
     return Container(
       decoration: BoxDecoration(
         color: theme.cardColor,
-        borderRadius: BorderRadius.circular(_s(16)),
+        borderRadius: BorderRadius.circular(16),
         border: Border.all(
           color: theme.dividerColor.withValues(alpha: 0.25),
         ),
         boxShadow: [
           BoxShadow(
-            color: AppColors.primaryGold.withValues(alpha: 0.06),
+            color: _scheme.primary.withValues(alpha: 0.06),
             blurRadius: 8,
             offset: const Offset(0, 3),
           ),
@@ -182,20 +194,20 @@ class _DashboardSummaryTabsCardState extends State<DashboardSummaryTabsCard> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Padding(
-            padding: EdgeInsets.fromLTRB(_s(16), _s(14), _s(16), _s(8)),
+            padding: EdgeInsets.fromLTRB(16, 14, 16, 8),
             child: Row(
               children: [
                 Icon(
                   Icons.bar_chart_rounded,
-                  size: _s(20),
-                  color: AppColors.primaryGold,
+                  size: 20,
+                  color: _scheme.primary,
                 ),
-                SizedBox(width: _s(8)),
+                SizedBox(width: 8),
                 Expanded(
                   child: Text(
                     isAr ? 'ملخص العمليات' : 'Operations Summary',
                     style: TextStyle(
-                      fontSize: _s(14),
+                      fontSize: 14,
                       fontWeight: FontWeight.bold,
                     ),
                   ),
@@ -223,7 +235,7 @@ class _DashboardSummaryTabsCardState extends State<DashboardSummaryTabsCard> {
               },
               child: Padding(
                 key: ValueKey(_activeTab),
-                padding: EdgeInsets.all(_s(16)),
+                padding: EdgeInsets.all(16),
                 child: _buildTabContent(_activeTab, theme),
               ),
             ),
@@ -256,8 +268,8 @@ class _DashboardSummaryTabsCardState extends State<DashboardSummaryTabsCard> {
               child: AnimatedContainer(
                 duration: const Duration(milliseconds: 180),
                 padding: EdgeInsets.symmetric(
-                  vertical: _s(11),
-                  horizontal: _s(6),
+                  vertical: 11,
+                  horizontal: 6,
                 ),
                 decoration: BoxDecoration(
                   color: isActive ? theme.cardColor : Colors.transparent,
@@ -274,20 +286,20 @@ class _DashboardSummaryTabsCardState extends State<DashboardSummaryTabsCard> {
                     if (info.count > 0) ...[
                       Container(
                         padding: EdgeInsets.symmetric(
-                          horizontal: _s(5),
-                          vertical: _s(1),
+                          horizontal: 5,
+                          vertical: 1,
                         ),
                         decoration: BoxDecoration(
                           color: isActive
                               ? info.color.withValues(alpha: 0.15)
                               : theme.colorScheme.surfaceContainerHighest
                                   .withValues(alpha: 0.6),
-                          borderRadius: BorderRadius.circular(_s(3)),
+                          borderRadius: BorderRadius.circular(3),
                         ),
                         child: Text(
                           '${info.count}',
                           style: TextStyle(
-                            fontSize: _s(10),
+                            fontSize: 10,
                             fontWeight: FontWeight.w700,
                             color: isActive
                                 ? info.color
@@ -295,13 +307,13 @@ class _DashboardSummaryTabsCardState extends State<DashboardSummaryTabsCard> {
                           ),
                         ),
                       ),
-                      SizedBox(width: _s(5)),
+                      SizedBox(width: 5),
                     ],
                     Flexible(
                       child: Text(
                         info.label,
                         style: TextStyle(
-                          fontSize: _s(12),
+                          fontSize: 12,
                           fontWeight: FontWeight.w600,
                           color: isActive
                               ? info.color
@@ -336,11 +348,11 @@ class _DashboardSummaryTabsCardState extends State<DashboardSummaryTabsCard> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _buildTopMetrics(info, tab, theme, isAr),
-        SizedBox(height: _s(14)),
+        SizedBox(height: 14),
         if (tab != _SummaryTab.expenses && byKarat.isNotEmpty) ...[
           _buildSectionHeader(isAr ? 'توزيع العيارات' : 'By Karat', theme),
           _buildKaratList(byKarat, info.color, theme, isAr),
-          SizedBox(height: _s(14)),
+          SizedBox(height: 14),
         ],
         if ((tab == _SummaryTab.sales || tab == _SummaryTab.purchases) &&
             byUser.isNotEmpty) ...[
@@ -379,10 +391,10 @@ class _DashboardSummaryTabsCardState extends State<DashboardSummaryTabsCard> {
       double? changePct,
     }) {
       return Container(
-        padding: EdgeInsets.all(_s(11)),
+        padding: EdgeInsets.all(11),
         decoration: BoxDecoration(
           color: color.withValues(alpha: 0.07),
-          borderRadius: BorderRadius.circular(_s(10)),
+          borderRadius: BorderRadius.circular(10),
           border: Border.all(color: color.withValues(alpha: 0.18)),
         ),
         child: Column(
@@ -390,39 +402,39 @@ class _DashboardSummaryTabsCardState extends State<DashboardSummaryTabsCard> {
           children: [
             Row(
               children: [
-                Icon(icon, size: _s(13), color: color),
-                SizedBox(width: _s(5)),
+                Icon(icon, size: 13, color: color),
+                SizedBox(width: 5),
                 Flexible(
                   child: Text(
                     label,
                     style: TextStyle(
-                      fontSize: _s(10.5),
+                      fontSize: 10.5,
                       color: theme.textTheme.bodySmall?.color,
                     ),
                     overflow: TextOverflow.ellipsis,
                   ),
                 ),
                 if (changePct != null) ...[
-                  SizedBox(width: _s(4)),
+                  SizedBox(width: 4),
                   _buildChangePill(changePct),
                 ],
               ],
             ),
-            SizedBox(height: _s(5)),
+            SizedBox(height: 5),
             _currencyAwareText(
               value,
               style: TextStyle(
-                fontSize: _s(13),
+                fontSize: 13,
                 fontWeight: FontWeight.bold,
                 color: color,
               ),
             ),
             if (sub != null && sub.isNotEmpty) ...[
-              SizedBox(height: _s(1)),
+              SizedBox(height: 1),
               _currencyAwareText(
                 sub,
                 style: TextStyle(
-                  fontSize: _s(9.5),
+                  fontSize: 9.5,
                   color: theme.textTheme.bodySmall?.color,
                 ),
                 overflow: TextOverflow.ellipsis,
@@ -450,7 +462,7 @@ class _DashboardSummaryTabsCardState extends State<DashboardSummaryTabsCard> {
           ),
         ),
         if (hasWeight) ...[
-          SizedBox(width: _s(8)),
+          SizedBox(width: 8),
           Expanded(
             child: metric(
               label: isAr ? 'الوزن' : 'Weight',
@@ -458,15 +470,16 @@ class _DashboardSummaryTabsCardState extends State<DashboardSummaryTabsCard> {
               sub: info.count > 0
                   ? '${isAr ? "متوسط" : "Avg"} ${_formatWeight(info.weight / info.count)}'
                   : null,
-              color: AppColors.primaryGold,
+              color: _scheme.primary,
               icon: Icons.scale_outlined,
             ),
           ),
         ],
-        SizedBox(width: _s(8)),
+        SizedBox(width: 8),
         Expanded(
           child: metric(
-            label: isAr ? 'الفواتير' : 'Docs',
+            // The expenses count entries, not invoices (12 Oct 2026).
+            label: tab == _SummaryTab.expenses ? (isAr ? 'القيود' : 'Entries') : (isAr ? 'الفواتير' : 'Docs'),
             value: '${info.count}',
             sub: null,
             color: docsColor,
@@ -479,17 +492,17 @@ class _DashboardSummaryTabsCardState extends State<DashboardSummaryTabsCard> {
 
   Widget _buildChangePill(double pct) {
     final isUp = pct >= 0;
-    final color = isUp ? AppColors.success : AppColors.error;
+    final color = isUp ? _tones.ready.fg : _scheme.error;
     return Container(
-      padding: EdgeInsets.symmetric(horizontal: _s(4), vertical: _s(1)),
+      padding: EdgeInsets.symmetric(horizontal: 4, vertical: 1),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.13),
-        borderRadius: BorderRadius.circular(_s(3)),
+        borderRadius: BorderRadius.circular(3),
       ),
       child: Text(
         '${isUp ? '▲' : '▼'} ${pct.abs().toStringAsFixed(1)}%',
         style: TextStyle(
-          fontSize: _s(8.5),
+          fontSize: 8.5,
           fontWeight: FontWeight.w700,
           color: color,
           fontFamily: 'Cairo',
@@ -500,22 +513,22 @@ class _DashboardSummaryTabsCardState extends State<DashboardSummaryTabsCard> {
 
   Widget _buildSectionHeader(String title, ThemeData theme) {
     return Padding(
-      padding: EdgeInsets.only(bottom: _s(8)),
+      padding: EdgeInsets.only(bottom: 8),
       child: Row(
         children: [
           Container(
-            width: _s(3),
-            height: _s(11),
+            width: 3,
+            height: 11,
             decoration: BoxDecoration(
-              color: AppColors.primaryGold,
-              borderRadius: BorderRadius.circular(_s(2)),
+              color: _scheme.primary,
+              borderRadius: BorderRadius.circular(2),
             ),
           ),
-          SizedBox(width: _s(8)),
+          SizedBox(width: 8),
           Text(
             title,
             style: TextStyle(
-              fontSize: _s(11.5),
+              fontSize: 11.5,
               fontWeight: FontWeight.w600,
               color: theme.textTheme.bodySmall?.color,
             ),
@@ -536,35 +549,35 @@ class _DashboardSummaryTabsCardState extends State<DashboardSummaryTabsCard> {
         final karat = k['karat'] as String? ?? '?';
         final weight = _asDouble(k['weight']);
         final value = _asDouble(k['value']);
-        final karatColor = AppColors.karatColorFor(karat);
+        final karatColor = _karatColor(karat);
         return Padding(
-          padding: EdgeInsets.symmetric(vertical: _s(5)),
+          padding: EdgeInsets.symmetric(vertical: 5),
           child: Row(
             children: [
               Container(
                 padding: EdgeInsets.symmetric(
-                  horizontal: _s(7),
-                  vertical: _s(2),
+                  horizontal: 7,
+                  vertical: 2,
                 ),
                 decoration: BoxDecoration(
                   color: karatColor.withValues(alpha: 0.15),
-                  borderRadius: BorderRadius.circular(_s(4)),
+                  borderRadius: BorderRadius.circular(4),
                 ),
                 child: Text(
                   karat,
                   style: TextStyle(
-                    fontSize: _s(11),
+                    fontSize: 11,
                     fontWeight: FontWeight.bold,
                     color: karatColor,
                   ),
                 ),
               ),
-              SizedBox(width: _s(8)),
+              SizedBox(width: 8),
               Expanded(
                 child: Text(
                   _formatWeight(weight),
                   style: TextStyle(
-                    fontSize: _s(11),
+                    fontSize: 11,
                     color: theme.textTheme.bodySmall?.color,
                   ),
                 ),
@@ -572,7 +585,7 @@ class _DashboardSummaryTabsCardState extends State<DashboardSummaryTabsCard> {
               _currencyAwareText(
                 _formatCurrency(value),
                 style: TextStyle(
-                  fontSize: _s(12),
+                  fontSize: 12,
                   fontWeight: FontWeight.w700,
                   color: accent,
                 ),
@@ -610,24 +623,24 @@ class _DashboardSummaryTabsCardState extends State<DashboardSummaryTabsCard> {
         final Color medalColor;
         switch (rank) {
           case 1:
-            medalColor = AppColors.primaryGold;
+            medalColor = _scheme.primary;
             break;
           case 2:
-            medalColor = const Color(0xFF9E9E9E); // silver
+            medalColor = _tones.silver.fg; // silver
             break;
           case 3:
-            medalColor = const Color(0xFFCD7F32); // bronze
+            medalColor = _tones.bronze.fg; // bronze
             break;
           default:
             medalColor = theme.hintColor;
         }
 
         return Container(
-          margin: EdgeInsets.only(bottom: _s(6)),
-          padding: EdgeInsets.all(_s(8)),
+          margin: EdgeInsets.only(bottom: 6),
+          padding: EdgeInsets.all(8),
           decoration: BoxDecoration(
             color: accent.withValues(alpha: 0.04),
-            borderRadius: BorderRadius.circular(_s(8)),
+            borderRadius: BorderRadius.circular(8),
             border: Border.all(color: accent.withValues(alpha: 0.14)),
           ),
           child: Column(
@@ -641,13 +654,13 @@ class _DashboardSummaryTabsCardState extends State<DashboardSummaryTabsCard> {
                         Text(
                           '👑',
                           style: TextStyle(
-                            fontSize: _s(9),
+                            fontSize: 9,
                             height: 1.1,
                           ),
                         ),
                         Container(
-                          width: _s(22),
-                          height: _s(22),
+                          width: 22,
+                          height: 22,
                           decoration: BoxDecoration(
                             color: medalColor.withValues(alpha: 0.09),
                             shape: BoxShape.circle,
@@ -660,7 +673,7 @@ class _DashboardSummaryTabsCardState extends State<DashboardSummaryTabsCard> {
                             child: Text(
                               '1',
                               style: TextStyle(
-                                fontSize: _s(10),
+                                fontSize: 10,
                                 fontWeight: FontWeight.bold,
                                 color: medalColor,
                               ),
@@ -671,8 +684,8 @@ class _DashboardSummaryTabsCardState extends State<DashboardSummaryTabsCard> {
                     )
                   else
                     Container(
-                      width: _s(22),
-                      height: _s(22),
+                      width: 22,
+                      height: 22,
                       decoration: BoxDecoration(
                         color: medalColor.withValues(alpha: 0.09),
                         shape: BoxShape.circle,
@@ -685,19 +698,19 @@ class _DashboardSummaryTabsCardState extends State<DashboardSummaryTabsCard> {
                         child: Text(
                           '$rank',
                           style: TextStyle(
-                            fontSize: _s(10),
+                            fontSize: 10,
                             fontWeight: FontWeight.bold,
                             color: medalColor,
                           ),
                         ),
                       ),
                     ),
-                  SizedBox(width: _s(8)),
+                  SizedBox(width: 8),
                   Expanded(
                     child: Text(
                       user,
                       style: TextStyle(
-                        fontSize: _s(11.5),
+                        fontSize: 11.5,
                         fontWeight: FontWeight.w600,
                       ),
                       overflow: TextOverflow.ellipsis,
@@ -709,7 +722,7 @@ class _DashboardSummaryTabsCardState extends State<DashboardSummaryTabsCard> {
                       _currencyAwareText(
                         _formatCurrency(value),
                         style: TextStyle(
-                          fontSize: _s(12),
+                          fontSize: 12,
                           fontWeight: FontWeight.w700,
                           color: accent,
                         ),
@@ -719,7 +732,7 @@ class _DashboardSummaryTabsCardState extends State<DashboardSummaryTabsCard> {
                             ? '${_formatWeight(weight)} · $docs ${isAr ? "فا" : "inv"}'
                             : '$docs ${isAr ? "فاتورة" : "inv"}',
                         style: TextStyle(
-                          fontSize: _s(9.5),
+                          fontSize: 9.5,
                           color: theme.textTheme.bodySmall?.color,
                         ),
                       ),
@@ -727,15 +740,15 @@ class _DashboardSummaryTabsCardState extends State<DashboardSummaryTabsCard> {
                   ),
                 ],
               ),
-              SizedBox(height: _s(6)),
+              SizedBox(height: 6),
               ClipRRect(
-                borderRadius: BorderRadius.circular(_s(2)),
+                borderRadius: BorderRadius.circular(2),
                 child: LinearProgressIndicator(
                   value: pct,
-                  minHeight: _s(3),
+                  minHeight: 3,
                   backgroundColor: accent.withValues(alpha: 0.10),
                   valueColor: AlwaysStoppedAnimation<Color>(
-                    rank == 1 ? AppColors.primaryGold : accent,
+                    rank == 1 ? _scheme.primary : accent,
                   ),
                 ),
               ),
@@ -748,30 +761,31 @@ class _DashboardSummaryTabsCardState extends State<DashboardSummaryTabsCard> {
 
   Widget _buildAccountsList(List items, Color accent, ThemeData theme) {
     return Column(
-      children: items.take(8).map((e) {
+      // Every account: the expenses' list is short, and a cut list hides where they went.
+      children: items.map((e) {
         final acc = (e['account'] ?? '—').toString();
         final value = _asDouble(e['value']);
         return Padding(
-          padding: EdgeInsets.symmetric(vertical: _s(5)),
+          padding: EdgeInsets.symmetric(vertical: 5),
           child: Row(
             children: [
               Icon(
                 Icons.receipt_outlined,
-                size: _s(13),
+                size: 13,
                 color: accent.withValues(alpha: 0.6),
               ),
-              SizedBox(width: _s(6)),
+              SizedBox(width: 6),
               Expanded(
                 child: Text(
                   acc,
-                  style: TextStyle(fontSize: _s(11.5)),
+                  style: TextStyle(fontSize: 11.5),
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
               _currencyAwareText(
                 _formatCurrency(value),
                 style: TextStyle(
-                  fontSize: _s(12),
+                  fontSize: 12,
                   fontWeight: FontWeight.w700,
                   color: accent,
                 ),
@@ -786,35 +800,35 @@ class _DashboardSummaryTabsCardState extends State<DashboardSummaryTabsCard> {
   Widget _buildEmptyTab(_SummaryTabInfo info, ThemeData theme) {
     final isAr = widget.isArabic;
     return Padding(
-      padding: EdgeInsets.symmetric(vertical: _s(28)),
+      padding: EdgeInsets.symmetric(vertical: 28),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           Container(
-            width: _s(48),
-            height: _s(48),
+            width: 48,
+            height: 48,
             decoration: BoxDecoration(
               color: info.color.withValues(alpha: 0.08),
               shape: BoxShape.circle,
             ),
-            child: Icon(info.icon, color: info.color, size: _s(22)),
+            child: Icon(info.icon, color: info.color, size: 22),
           ),
-          SizedBox(height: _s(10)),
+          SizedBox(height: 10),
           Text(
             isAr ? 'لا توجد ${info.label}' : 'No ${info.label}',
             style: TextStyle(
-              fontSize: _s(12),
+              fontSize: 12,
               color: theme.textTheme.bodySmall?.color,
               fontWeight: FontWeight.w500,
             ),
           ),
-          SizedBox(height: _s(2)),
+          SizedBox(height: 2),
           Text(
             isAr
                 ? 'لا توجد عمليات في هذه الفترة'
                 : 'No transactions in this period',
             style: TextStyle(
-              fontSize: _s(10.5),
+              fontSize: 10.5,
               color: theme.textTheme.bodySmall?.color,
             ),
           ),

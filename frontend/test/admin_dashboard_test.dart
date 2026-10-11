@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:frontend/api_service.dart';
@@ -22,7 +23,16 @@ import 'package:shared_preferences/shared_preferences.dart';
 Map<String, dynamic> _period({double sales = 0, double purchases = 0, double expenses = 0}) => {
       'sales': {'total_value': sales, 'docs': sales > 0 ? 3 : 0, 'by_user': [], 'by_karat': []},
       'purchases': {'total_value': purchases, 'docs': 0, 'by_user': [], 'by_karat': []},
-      'expenses': {'total_value': expenses, 'by_account': []},
+      'expenses': {
+        'total_value': expenses,
+        'docs': expenses == 0 ? 0 : 41,
+        'by_account': expenses == 0
+            ? []
+            : [
+                {'account': 'رواتب الموظفين', 'value': expenses * 0.6},
+                {'account': 'إيجار المعرض', 'value': expenses * 0.4},
+              ],
+      },
       'scrap_purchases': {'total_value': 0.0, 'docs': 0, 'by_user': [], 'by_karat': []},
     };
 
@@ -65,14 +75,14 @@ class _Api extends ApiService {
 }
 
 void main() {
-  Future<_Api> open(WidgetTester tester) async {
+  Future<_Api> open(WidgetTester tester, {double width = 1440, ThemeData? theme}) async {
     final cairo = FontLoader('Cairo');
     for (final f in ['Regular', 'SemiBold', 'Bold']) {
       cairo.addFont(rootBundle.load('assets/fonts/Cairo-$f.ttf'));
     }
     await cairo.load();
     SharedPreferences.setMockInitialValues({'app_settings': jsonEncode({'main_karat': 21})});
-    tester.view.physicalSize = const Size(1440, 2600);
+    tester.view.physicalSize = Size(width, 2600);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
     final settings = SettingsProvider();
@@ -81,7 +91,7 @@ void main() {
     await tester.pumpWidget(ChangeNotifierProvider.value(
       value: settings,
       child: MaterialApp(
-        theme: LightTheme.theme,
+        theme: theme ?? LightTheme.theme,
         home: Directionality(textDirection: TextDirection.rtl, child: Scaffold(body: AdminDashboardScreen(api: api))),
       ),
     ));
@@ -111,5 +121,53 @@ void main() {
         reason: 'the operating expenses, as the server says them');
     expect(find.descendant(of: card, matching: find.textContaining('20,')), findsNothing,
         reason: 'not 11.6M - 13.6M - expenses');
+  });
+
+  // ── DASH-2: the theme's colours, sizes that do not grow with the screen ──
+
+  double fontOf(WidgetTester tester, Finder text) =>
+      tester.renderObject<RenderParagraph>(text.first).text.style!.fontSize!;
+
+  testWidgets('the dark theme lays out wide and narrow', (tester) async {
+    // The colours' witness is test/theme_raw_color_ratchet_test.dart: this file
+    // held 118 fixed colours and is held at none.
+    for (final width in [1440.0, 390.0]) {
+      await open(tester, width: width, theme: DarkTheme.theme);
+      expect(tester.takeException(), isNull, reason: 'no overflow at $width');
+      expect(find.byKey(const Key('dashboard-period-movement')), findsOneWidget);
+    }
+  });
+
+  testWidgets('a wider screen shows more, it does not make the text bigger', (tester) async {
+    await open(tester, width: 1440);
+    final wide = fontOf(tester, find.text('صافي المركز المالي'));
+    await open(tester, width: 390);
+    final narrow = fontOf(tester, find.text('صافي المركز المالي'));
+    expect(wide, narrow, reason: 'the size grew by up to 1.2 with the width');
+  });
+
+  testWidgets('each amount of the period says its currency once', (tester) async {
+    // The owner (12 Oct 2026): «هناك تكرار لرمز العملة في حركة اليوم» -- the
+    // row added the symbol to an amount _formatCurrency had already given it.
+    await open(tester);
+    await tester.tap(find.text('هذه السنة'));
+    await tester.pump(const Duration(seconds: 1));
+    final card = find.byKey(const Key('dashboard-period-movement'));
+    final amount = find.descendant(of: card, matching: find.textContaining('776,885.09'));
+    final text = tester.renderObject<RenderParagraph>(amount.first).text.toPlainText();
+    expect('ر.س'.allMatches(text).length, 1, reason: text);
+  });
+
+  testWidgets('the expenses tab shows where they went, and counts entries', (tester) async {
+    // The owner (12 Oct 2026): «المصروفات أيضًا في تبويبها ليس هناك تفاصيل لها»
+    // -- the server sent no count and the tab read empty.
+    await open(tester);
+    await tester.tap(find.text('هذه السنة'));
+    await tester.pump(const Duration(seconds: 1));
+    await tester.tap(find.text('المصروفات').first);
+    await tester.pump(const Duration(seconds: 1));
+    expect(find.text('رواتب الموظفين'), findsOneWidget);
+    expect(find.text('إيجار المعرض'), findsOneWidget);
+    expect(find.text('القيود'), findsOneWidget, reason: 'entries, not invoices');
   });
 }

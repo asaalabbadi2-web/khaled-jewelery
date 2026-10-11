@@ -101,3 +101,17 @@ def test_the_operating_accounts_follow_the_chart_tree(chart):
     assert chart['rent'].id in ids
     assert chart['scrap'].id not in ids, 'under 51 «تكلفة المبيعات»'
     assert Account.query.filter_by(account_number='51').first().id not in ids
+
+
+def test_the_expenses_say_how_many_entries_make_them(auth_headers, chart):
+    """The owner (12 Oct 2026): «المصروفات أيضًا في تبويبها ليس هناك تفاصيل لها».
+    The tab shows its details when its count is not zero -- and the expenses
+    never sent one: the tab read empty while its accounts were there. The count
+    is the entries that make the period's operating expenses, as counted."""
+    before = _month_expenses(auth_headers).get('docs', 0)
+    _entry(chart['rent'], chart['cash'], debit=1000.0)
+    _entry(chart['rent'], chart['cash'], credit=200.0)
+    _entry(chart['scrap'], chart['cash'], debit=50000.0)                   # not an operating expense
+    _entry(chart['rent'], chart['cash'], debit=700.0, posted=False, draft=True)
+    after = _month_expenses(auth_headers)
+    assert after['docs'] - before == 2
