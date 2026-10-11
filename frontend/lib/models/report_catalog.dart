@@ -41,6 +41,20 @@ class ReportCatalog {
             requiresFilters: false,
           ),
           ReportDescriptor(
+            id: 'vat_returns',
+            icon: Icons.assignment_turned_in_outlined,
+            titleAr: 'إقرارات ضريبة القيمة المضافة',
+            titleEn: 'VAT Returns',
+            descriptionAr:
+                'إقرار الفترة: ضريبة المخرجات مقابل المدخلات، والصافي المستحق للهيئة أو لكم — قيد واحد في آخر يوم من الفترة.',
+            descriptionEn:
+                "A period's return: output VAT against input VAT, the net owed or due back -- one entry at the period's end.",
+            route: 'vat_returns',
+            type: ReportType.financial,
+            available: true,
+            requiresFilters: false,
+          ),
+          ReportDescriptor(
             id: 'analytics_dashboard',
             icon: Icons.insights,
             titleAr: 'لوحة التحليل الوزني',

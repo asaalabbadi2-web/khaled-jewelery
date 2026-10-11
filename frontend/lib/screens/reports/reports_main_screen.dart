@@ -1,4 +1,5 @@
 import 'reconciliation_findings_screen.dart';
+import 'vat_returns_screen.dart';
 import 'package:flutter/material.dart';
 import '../../api_service.dart';
 import '../../models/report_catalog.dart';
@@ -330,6 +331,12 @@ class _ReportsMainScreenState extends State<ReportsMainScreen> {
         break;
       case 'reconciliation_findings':
         destination = ReconciliationFindingsScreen(
+          api: widget.api,
+          isArabic: widget.isArabic,
+        );
+        break;
+      case 'vat_returns':
+        destination = VatReturnsScreen(
           api: widget.api,
           isArabic: widget.isArabic,
         );

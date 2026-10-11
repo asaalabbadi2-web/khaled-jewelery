@@ -2664,6 +2664,37 @@ class ApiService {
     throw Exception('Failed to load findings: ${response.statusCode}');
   }
 
+  /// VAT returns (ADR-043 rule 5): the filed ones, a period's preview, filing it.
+  /// A refusal (a period not over, overlapping one filed) carries the server's reason.
+  Future<List<Map<String, dynamic>>> getVatReturns() async {
+    final response = await _authedGet(Uri.parse('$_baseUrl/vat-returns'));
+    if (response.statusCode != 200) {
+      throw Exception(_errorMessageFromResponse(response));
+    }
+    return (json.decode(utf8.decode(response.bodyBytes)) as List)
+        .whereType<Map>()
+        .map((e) => Map<String, dynamic>.from(e))
+        .toList();
+  }
+
+  Future<Map<String, dynamic>> previewVatReturn(String start, String end) =>
+      _vatReturn('$_baseUrl/vat-returns/preview', start, end);
+
+  Future<Map<String, dynamic>> fileVatReturn(String start, String end) =>
+      _vatReturn('$_baseUrl/vat-returns', start, end);
+
+  Future<Map<String, dynamic>> _vatReturn(String url, String start, String end) async {
+    final response = await _authedPost(
+      Uri.parse(url),
+      headers: {'Content-Type': 'application/json; charset=UTF-8'},
+      body: json.encode({'start': start, 'end': end}),
+    );
+    if (response.statusCode != 200 && response.statusCode != 201) {
+      throw Exception(_errorMessageFromResponse(response));
+    }
+    return json.decode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
+  }
+
   Future<Map<String, dynamic>> reviewSystemAlert(int alertId) async {
     final uri = Uri.parse('$_baseUrl/system-alerts/$alertId/review');
     final response = await _authedPut(uri);
