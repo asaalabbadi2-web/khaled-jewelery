@@ -5501,13 +5501,17 @@ def get_gram_profit_report():
             .all()
         )
 
+        # A sale's VAT is not revenue (the owner, 11 Oct 2026): its total less
+        # the VAT its posted entry carries -- none, and the total is all revenue.
+        from services.sales_vat import posted_sales_vat
+        sales_vat = posted_sales_vat([inv.id for inv in sell_invoices + sell_return_invoices])
         total_sales_cash = 0.0
         total_weight_sold = 0.0
         for inv in sell_invoices:
-            total_sales_cash += float(inv.total or 0.0)
+            total_sales_cash += float(inv.total or 0.0) - sales_vat.get(inv.id, 0.0)
             total_weight_sold += _inv_weight_in_main_karat(inv)
         for inv in sell_return_invoices:
-            total_sales_cash -= float(inv.total or 0.0)
+            total_sales_cash -= float(inv.total or 0.0) - sales_vat.get(inv.id, 0.0)
             total_weight_sold -= _inv_weight_in_main_karat(inv)
 
         avg_sell_per_gram = (
