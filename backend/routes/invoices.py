@@ -7315,24 +7315,18 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
 
             # ─── الضريبة ───
             # المصدر الأول: items المُرسلة من الفرونت (tax_amount)
-            _total_tax_ret = sum(
+            # The VAT a return reverses is its original's, as posted (ADR-043 rule 3)
+            # -- not the screen's, nor 15/115 of the original's whole total.
+            from services.return_vat import OUTPUT, matches_from_request, vat_to_reverse
+            _sent_tax_ret = abs(sum(
                 _to_float(item_data.get('tax_amount', item_data.get('tax', 0.0)), 0.0)
                 for item_data in data.get('items', [])
-            )
-            if _total_tax_ret < 0:
-                _total_tax_ret = abs(_total_tax_ret)
-            # Fallback: إذا الفرونت لم يُرسل tax في items، استخدم total_tax المخزّن في الفاتورة
-            # (يُحسب من karat_lines ومخزّن بشكل موثوق في new_invoice.total_tax)
-            if _total_tax_ret == 0.0:
-                _total_tax_ret = float(new_invoice.total_tax or 0.0)
-            # Second fallback: من الفاتورة الأصلية إن وُجدت
-            if _total_tax_ret == 0.0 and data.get('original_invoice_id'):
-                try:
-                    _orig_for_tax = Invoice.query.get(int(data['original_invoice_id']))
-                    if _orig_for_tax:
-                        _total_tax_ret = float(_orig_for_tax.total_tax or 0.0)
-                except Exception:
-                    pass
+            )) or float(new_invoice.total_tax or 0.0)
+            _orig_for_tax = (db.session.get(Invoice, int(data['original_invoice_id']))
+                             if data.get('original_invoice_id') else None)
+            _total_tax_ret = vat_to_reverse(new_invoice, _orig_for_tax, OUTPUT, sent=_sent_tax_ret,
+                                            matched_ids=matches_from_request(new_invoice, data.get('items')))
+            new_invoice.total_tax = _total_tax_ret
 
             # ─── استخدام je_adapter كامل (يشمل VAT + وزن) ───
             import je_adapter as _je_adapter  # noqa: local import
@@ -7636,23 +7630,17 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
             
             # VAT receivable to reverse
             vat_receivable_acc_id_ret = get_account_id_for_mapping('شراء من عميل', 'vat_receivable')
-            _total_tax_purchase_ret = sum(
+            # The VAT a return reverses is its original's, as posted (ADR-043 rule 3).
+            from services.return_vat import INPUT, matches_from_request, vat_to_reverse
+            _sent_tax_pret = abs(sum(
                 _to_float(item_data.get('tax_amount', item_data.get('tax', 0.0)), 0.0)
                 for item_data in data.get('items', [])
-            )
-            if _total_tax_purchase_ret < 0:
-                _total_tax_purchase_ret = abs(_total_tax_purchase_ret)
-            # Fallback: total_tax المخزّن في الفاتورة (يُحسب من karat_lines)
-            if _total_tax_purchase_ret == 0.0:
-                _total_tax_purchase_ret = float(new_invoice.total_tax or 0.0)
-            # Second fallback: من الفاتورة الأصلية
-            if _total_tax_purchase_ret == 0.0 and data.get('original_invoice_id'):
-                try:
-                    _orig_for_ptax = Invoice.query.get(int(data['original_invoice_id']))
-                    if _orig_for_ptax:
-                        _total_tax_purchase_ret = float(_orig_for_ptax.total_tax or 0.0)
-                except Exception:
-                    pass
+            )) or float(new_invoice.total_tax or 0.0)
+            _orig_for_ptax = (db.session.get(Invoice, int(data['original_invoice_id']))
+                              if data.get('original_invoice_id') else None)
+            _total_tax_purchase_ret = vat_to_reverse(new_invoice, _orig_for_ptax, INPUT, sent=_sent_tax_pret,
+                                                     matched_ids=matches_from_request(new_invoice, data.get('items')))
+            new_invoice.total_tax = _total_tax_purchase_ret
 
             _net_purchase_ret = round(total_cash - _total_tax_purchase_ret, 2)
 
@@ -8492,7 +8480,10 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
                 data.get('gold_tax_total') or data.get('gold_tax') or 0,
                 0.0
             )
-            _ret_vat = round(_ret_wage_tax + _ret_gold_tax, 2)
+            # The VAT a return reverses is its original's, as posted (ADR-043 rule 3).
+            from services.return_vat import INPUT as _VAT_INPUT, vat_to_reverse as _vat_to_reverse
+            _ret_vat = _vat_to_reverse(new_invoice, original_invoice, _VAT_INPUT,
+                                       sent=round(_ret_wage_tax + _ret_gold_tax, 2))
 
             # The original's frozen treatment decides where its wages went.
             _treatment_of = original_invoice if original_invoice is not None else new_invoice
