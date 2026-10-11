@@ -65,6 +65,12 @@ def main(argv=None):
         for name, pool in result.pools.items():
             print(f'{name}: {pool.weight:,.3f} g · {pool.value:,.2f} · average {pool.avg:,.2f} '
                   f'(the books: {books[name]:,.3f} g)')
+        total = lambda f: sum(getattr(m, f) for m in result.months.values())
+        print(f'gold charged to expenses: {-total("expense_g"):,.3f} g, {-total("expense_value"):,.2f}')
+        print(f'gold with parties (a receivable, not a cost): {-total("receivables_g"):,.3f} g, '
+              f'{-total("receivables_value"):,.2f}')
+        print(f'purchases returned: {-total("purchase_returns_g"):,.3f} g, {-total("purchase_returns_value"):,.2f} '
+              f'· gold gained: {total("other_income_g"):,.3f} g, {total("other_income_value"):,.2f}')
         print(f'for review -- gold paid out or adjusted, at the average: {len(result.others)} entries, '
               f'{sum(o["grams"] for o in result.others):,.1f} g')
         for o in result.others:

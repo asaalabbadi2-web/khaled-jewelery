@@ -24,7 +24,10 @@ leaves by a sale:
                what was sold
   opening      against equity -- value at the opening price (a policy, given)
   correction   reversals and historical reconciliations -- at the average,
-  other        the rest -- at the average; both said, for review
+  the rest     by the nature of the account the gold went to (the owner):
+               an expense account -- an expense; a party's account -- a
+               receivable; a sales return, a purchase return, gold gained;
+               what fits none is listed for review
 
 Below zero (the owner, 11 Oct 2026): a short pool is valued at its average when
 it went short; gold bought while it is short covers the short first, at its
@@ -49,6 +52,10 @@ SCRAP_ROOTS = ('71310', '7210')
 PURCHASE_CASH_ROOTS = ('512', '1310')    # where a purchase's price is debited
 CUSTOMER_ROOTS = ('7120',)
 SALES_TWIN_ROOTS = ('74',)               # the sales' weight twins (early sales wrote these)
+WEIGHT_EXPENSE_ROOTS = ('752',)          # operating expenses, by weight (52's twin)
+WEIGHT_COST_OF_SALES_ROOTS = ('751',)    # purchases and their returns, by weight (51's twin)
+SALES_RETURNS_ROOTS = ('7420',)
+PARTY_ROOTS = ('71', '72')               # weight assets and liabilities: parties' accounts
 EQUITY_ROOTS = ('73',)
 CORRECTION_TYPES = ('journal_entry_reversal', 'balance_correction', 'voucher_reversal')
 OFFICE_TRANSFER = 'office_reservation_weight_transfer'
@@ -107,6 +114,14 @@ class Month:
     other_value: float = 0.0
     opening_g: float = 0.0
     opening_value: float = 0.0
+    expense_g: float = 0.0          # gold charged to an expense account
+    expense_value: float = 0.0
+    receivables_g: float = 0.0      # gold handed to (-) or received back from (+) a party: a receivable
+    receivables_value: float = 0.0
+    purchase_returns_g: float = 0.0
+    purchase_returns_value: float = 0.0
+    other_income_g: float = 0.0     # gold gained -- casting and assay, a discount earned
+    other_income_value: float = 0.0
 
 
 @dataclass
@@ -146,6 +161,11 @@ def replay(*, opening_price: float, since: date | None = None, until: date | Non
     cash_accounts = _subtree_ids(PURCHASE_CASH_ROOTS)
     customers, equity = _subtree_ids(CUSTOMER_ROOTS), _subtree_ids(EQUITY_ROOTS)
     sales_twin = _subtree_ids(SALES_TWIN_ROOTS)
+    # By the nature of the account the gold went to (the owner, 11 Oct 2026):
+    expense_accounts = _subtree_ids(WEIGHT_EXPENSE_ROOTS)
+    cost_of_sales_weight = _subtree_ids(WEIGHT_COST_OF_SALES_ROOTS)
+    sales_returns = _subtree_ids(SALES_RETURNS_ROOTS)
+    receivable_accounts = _subtree_ids(PARTY_ROOTS) - worked - scrap
     pool_ids = worked | scrap
 
     touched = (db.session.query(JournalEntryLine.journal_entry_id)
@@ -167,11 +187,20 @@ def replay(*, opening_price: float, since: date | None = None, until: date | Non
     reservation_price = {}
     transfers = [e for e in entries if e.reference_type == OFFICE_TRANSFER]
     if transfers:
-        wgt = {e.id: e.reference_id for e in JournalEntry.query.filter(
-            JournalEntry.id.in_([t.reference_id for t in transfers])).all()}
-        res = {r.id: r for r in OfficeReservation.query.filter(OfficeReservation.id.in_(set(wgt.values()))).all()}
+        import re
+        originals = JournalEntry.query.filter(JournalEntry.id.in_([t.reference_id for t in transfers])).all()
+        # An entry that lost its link names its reservation in its description
+        # (JE-2026-03240: «إرسال ذهب للحجز (RES-20260616175502-0017)»).
+        codes = {o.id: m.group(0) for o in originals
+                 if o.reference_id is None and (m := re.search(r'RES-\d+-\d+', o.description or ''))}
+        by_id = {r.id: r for r in OfficeReservation.query.filter(
+            OfficeReservation.id.in_({o.reference_id for o in originals if o.reference_id})).all()}
+        by_code = {r.reservation_code: r for r in OfficeReservation.query.filter(
+            OfficeReservation.reservation_code.in_(set(codes.values()))).all()} if codes else {}
+        original_of = {o.id: o for o in originals}
         for t in transfers:
-            r = res.get(wgt.get(t.reference_id))
+            o = original_of.get(t.reference_id)
+            r = (by_id.get(o.reference_id) if o is not None and o.reference_id else by_code.get(codes.get(t.reference_id)))
             if r is not None:
                 reservation_price[t.id] = float(r.total_amount or 0.0)
 
@@ -270,16 +299,44 @@ def replay(*, opening_price: float, since: date | None = None, until: date | Non
                 target.corrections_g += grams
                 target.corrections_value += value
             else:
+                # The rest, by the nature of the account the gold went to or came
+                # from (the owner, 11 Oct 2026: «اعتمد على طبيعة الحساب المسجل
+                # عليه الوزن»): an expense account -- an expense; a party's
+                # account -- a receivable (an advance, a drawing, zakat charged to
+                # a partner), not a cost; a sales return -- the sale undone; a
+                # purchase account -- a purchase returned; a revenue account --
+                # gold gained. All at the average.
                 if grams > 0:
-                    pool.put(grams, grams * pool.avg)
                     value = grams * pool.avg
+                    pool.put(grams, value)
                 else:
                     value = -pool.take(-grams)
-                m.other_g += grams
-                m.other_value += value
-                out.others.append({'entry': e.entry_number, 'date': day, 'pool': name, 'grams': round(grams, 3),
-                                   'reference': f'{e.reference_type}:{e.reference_id}',
-                                   'description': (e.description or '')[:80]})
+                if accounts & expense_accounts:
+                    m.expense_g += grams
+                    m.expense_value += value
+                elif accounts & sales_returns and grams > 0:
+                    target = out.months.setdefault(corrected_month.get(e.id, e.date.strftime('%Y-%m')), Month())
+                    if name == 'worked':
+                        target.sold_worked_g -= grams
+                        target.cost_of_worked_sold -= value
+                    else:
+                        target.sold_scrap_g -= grams
+                        target.cost_of_scrap_sold -= value
+                elif accounts & cost_of_sales_weight:
+                    m.purchase_returns_g += grams
+                    m.purchase_returns_value += value
+                elif accounts & sales_twin and grams > 0:
+                    m.other_income_g += grams
+                    m.other_income_value += value
+                elif accounts & receivable_accounts:
+                    m.receivables_g += grams
+                    m.receivables_value += value
+                else:
+                    m.other_g += grams
+                    m.other_value += value
+                    out.others.append({'entry': e.entry_number, 'date': day, 'pool': name, 'grams': round(grams, 3),
+                                       'reference': f'{e.reference_type}:{e.reference_id}',
+                                       'description': (e.description or '')[:80]})
     if current_day is not None:
         snapshot(current_day)
     return out

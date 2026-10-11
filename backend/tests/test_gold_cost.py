@@ -168,3 +168,26 @@ def test_the_opening_price_by_default_is_the_markets_average():
     per_gram_24k = 2200.0 / 31.1035 * 3.75
     assert price == pytest.approx(per_gram_24k * 21 / 24, abs=0.001)
     assert first == date(2033, 1, 6) and (last - first).days == 30
+
+
+def test_by_the_nature_of_its_account_gold_is_an_expense_or_a_receivable(books):
+    """The owner (11 Oct 2026): «اعتمد على طبيعة الحساب المسجل عليه الوزن». Gold
+    to an expense account (752's subtree, by weight) is an expense; gold to a
+    party's account (71 / 72 -- an employee, a partner, a dealer) is a
+    receivable, not a cost. Neither is left for review."""
+    b = books
+    party = _child(_account('71'), 'حساب موظف وزني اختبار')     # a party's account, under 71
+    expense = _child(_account('752'), 'مصروف وزني اختبار')
+    _entry(1, [(b['scrap_safe'], {'debit_21k': 100}), (b['twin'], {'credit_21k': 100}),
+               (b['purchases'], {'cash_debit': 40000}), (b['cash'], {'cash_credit': 40000})])
+    _entry(2, [(b['scrap_safe'], {'credit_21k': 30}), (party, {'debit_21k': 30})])        # an advance
+    _entry(3, [(b['scrap_safe'], {'credit_21k': 5}), (expense, {'debit_21k': 5})])        # an expense
+    _entry(4, [(b['scrap_safe'], {'debit_21k': 10}), (party, {'credit_21k': 10})])        # an advance repaid
+
+    r = replay(opening_price=0.0, since=date(2032, 1, 1))
+
+    m = r.months['2032-01']
+    assert (m.receivables_g, m.receivables_value) == (pytest.approx(-20), pytest.approx(-8000))
+    assert (m.expense_g, m.expense_value) == (pytest.approx(-5), pytest.approx(-2000))
+    assert m.cost_of_worked_sold == 0 and m.cost_of_scrap_sold == 0
+    assert r.others == []
