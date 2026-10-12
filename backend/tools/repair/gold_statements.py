@@ -5,8 +5,9 @@ services/repair/gold_statements.py, in this order:
                     credit the reserve scrap safe 71310002; the main scrap safe untouched
   manual_copies  -- the main scrap safe's and Al-Raqi's findings, rows copying a manual
                     entry, accepted with their entries; nothing written
-  align          -- the display safe's (71300) and Al-Junaih's (72100001) statements
-                    brought to their ledgers, document by document; balances do not move
+  align          -- the display safe's (71300), Al-Junaih's (72100001) and the Taskeer
+                    office's (72100021) statements brought to their ledgers, document by
+                    document; balances do not move
 
 Dry run by default -- prints what it would do and writes nothing:
     python tools/repair/gold_statements.py
@@ -25,7 +26,7 @@ import sys
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 
 STEPS = ('duplicate_992', 'manual_copies', 'align')
-ALIGN = ('71300', '72100001')   # the display safe, Al-Junaih
+ALIGN = ('71300', '72100001', '72100021')   # the display safe, Al-Junaih, the Taskeer office
 
 
 def _safe_of(number):

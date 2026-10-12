@@ -7,7 +7,9 @@ Their statements (SafeBoxTransaction) drifted -- the display safe (30): 78
 supplier purchases posted with no row, 17 reservation purchases with a row and
 no entry, sales whose row outweighed their entry, a deleted invoice's row, a
 «تسوية تاريخية» row of 13 Jun on the statement alone; Al-Junaih (41): its own
-13 Jun row. Per document, karat by karat, the difference becomes a statement
+13 Jun row; the Taskeer office (48): reservation 56's 120 g in, never written
+-- the rows of the gold sent were backfilled at dawn on 28 Jun, and 56 came
+that evening (its voucher's 120 g out was written). Per document, karat by karat, the difference becomes a statement
 row dated at the document's first movement -- a row in for the karats the
 statement lacks, a row out for those it has too much of -- as the cash safes'
 statements were aligned (statement_alignment.py). The ledger is not touched.
