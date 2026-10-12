@@ -95,7 +95,7 @@ def _revenue_account():
 
 
 def _expense_account():
-    from routes.invoices import _ensure_karat_diff_expense_account
+    from accounting.karat_diff_commission import _ensure_karat_diff_expense_account
     with flask_app.app_context():
         account_id = _ensure_karat_diff_expense_account()
         db.session.commit()

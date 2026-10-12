@@ -1031,11 +1031,8 @@ def create_voucher():
 
                 _append_safe_transactions_for_voucher(voucher, created_by=approved_by)
 
-                try:
-                    from posting_routes import _create_and_post_karat_diff_entries_for_voucher
-                    _create_and_post_karat_diff_entries_for_voucher(voucher, approved_by)
-                except Exception:
-                    pass
+                from accounting.karat_diff_commission import write_karat_diff_commission
+                write_karat_diff_commission(voucher, reference_type='voucher', label=f'سند #{voucher.voucher_number}', by=approved_by, now=datetime.now())
 
                 try:
                     _update_account_balances_from_journal_lines(journal_entry.lines or [])
@@ -1224,8 +1221,8 @@ def approve_voucher(voucher_id):
             _je.posted_by = approved_by
 
         # أنشئ وارحّل قيود عمولة / رسوم فرق العيار
-        from posting_routes import _create_and_post_karat_diff_entries_for_voucher
-        _create_and_post_karat_diff_entries_for_voucher(voucher, approved_by)
+        from accounting.karat_diff_commission import write_karat_diff_commission
+        write_karat_diff_commission(voucher, reference_type='voucher', label=f'سند #{voucher.voucher_number}', by=approved_by, now=datetime.now())
 
         # Recompute stored Account.balance_* for all accounts in the voucher JE.
         # create_journal_entry_from_voucher marks the JE posted but never

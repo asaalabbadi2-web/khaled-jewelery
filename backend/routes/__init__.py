@@ -1203,8 +1203,8 @@ def _generate_employee_code():
 # _ensure_manufacturing_wage_expense_account → accounting/wages.py
 # _ensure_gold24k_commission_revenue_account → accounting/wages.py
 # Invoices domain → routes/invoices.py
-# (_create_gold24k_settlement_entries, _ensure_karat_diff_expense_account,
-#  _create_karat_diff_settlement_entries)
+# (_create_gold24k_settlement_entries; the karat-difference commission is
+#  accounting/karat_diff_commission.py's, item 9)
 
 # get_inventory_average_cost → accounting/inventory.py
 # Invoices domain → routes/invoices.py
@@ -1726,5 +1726,5 @@ from routes.system import (                                          # noqa: F40
     _pg_tools_available,
     _postgres_conn_parts,
 )
-from routes.invoices import _ensure_karat_diff_expense_account       # noqa: F401
+from accounting.karat_diff_commission import _ensure_karat_diff_expense_account  # noqa: F401
 

@@ -42,6 +42,7 @@ from sqlalchemy.orm import aliased
 from sqlalchemy import and_, exists, func, or_
 
 from models import (
+    Account,
     Invoice,
     JournalEntry,
     JournalEntryLine,
@@ -67,6 +68,7 @@ SAFEBOX_SUBLEDGER_DRIFT = 'SAFEBOX_SUBLEDGER_DRIFT'
 SAFEBOX_GOLD_DRIFT = 'SAFEBOX_GOLD_DRIFT'
 RETRACTED_INVOICE_POSTED = 'RETRACTED_INVOICE_POSTED'
 OPEN_CLOSING_OF_RETRACTED_INVOICE = 'OPEN_CLOSING_OF_RETRACTED_INVOICE'
+COMMISSION_NOT_WRITTEN = 'COMMISSION_NOT_WRITTEN'
 
 KINDS = (
     ORPHAN_POSTED_ENTRY,
@@ -76,6 +78,7 @@ KINDS = (
     SAFEBOX_GOLD_DRIFT,
     RETRACTED_INVOICE_POSTED,
     OPEN_CLOSING_OF_RETRACTED_INVOICE,
+    COMMISSION_NOT_WRITTEN,
 )
 
 # An invoice in one of these states is retracted: its entries must not count
@@ -411,6 +414,53 @@ def check_open_closings_of_retracted_invoices() -> list:
     ]
 
 
+
+def check_commissions_not_written() -> list:
+    """A posted invoice or an approved voucher whose karat-difference commission
+    has no entry (item 9's second net). Invoice 3020 -- posted at creation,
+    whose path wrote no commission -- lost 307.37 for a month unseen. One fact
+    per document, keyed 'invoice:<id>' or 'voucher:<id>'; the metric is what is
+    missing, earned plus paid."""
+    from accounting.karat_diff_commission import CENT, EXPENSE_NUMBER, REVENUE_NUMBER
+    accounts = {n: i for n, i in db.session.query(Account.account_number, Account.id)
+                .filter(Account.account_number.in_([REVENUE_NUMBER, EXPENSE_NUMBER])).all()}
+
+    def missing(reference_type, doc_id, earn, pay):
+        amount = 0.0
+        for value, number in ((earn, REVENUE_NUMBER), (pay, EXPENSE_NUMBER)):
+            if float(value or 0) < CENT:
+                continue
+            written = accounts.get(number) and db.session.query(JournalEntry.id).join(
+                JournalEntryLine, JournalEntryLine.journal_entry_id == JournalEntry.id).filter(
+                JournalEntry.reference_type == reference_type, JournalEntry.reference_id == doc_id,
+                JournalEntry.is_posted.is_(True), JournalEntry.is_deleted.is_(False),
+                JournalEntryLine.is_deleted.is_(False),
+                JournalEntryLine.account_id == accounts[number]).first()
+            if not written:
+                amount += float(value)
+        return round(amount, 2)
+
+    facts = []
+    invoices = (db.session.query(Invoice.id, Invoice.karat_diff_earn_total, Invoice.karat_diff_pay_total)
+                .filter(Invoice.is_posted.is_(True), Invoice.status.notin_(['rejected', 'cancelled']),
+                        or_(Invoice.karat_diff_earn_total > CENT, Invoice.karat_diff_pay_total > CENT)).all())
+    for doc_id, earn, pay in invoices:
+        amount = missing('invoice', doc_id, earn, pay)
+        if amount:
+            facts.append(Fact(COMMISSION_NOT_WRITTEN, f'invoice:{doc_id}', amount, {'invoice_id': doc_id,
+                              'earn': float(earn or 0), 'pay': float(pay or 0)}))
+    vouchers = (db.session.query(Voucher.id, Voucher.voucher_number, Voucher.karat_diff_earn_total,
+                                 Voucher.karat_diff_pay_total)
+                .filter(Voucher.status == 'approved',
+                        or_(Voucher.karat_diff_earn_total > CENT, Voucher.karat_diff_pay_total > CENT)).all())
+    for doc_id, number, earn, pay in vouchers:
+        amount = missing('voucher', doc_id, earn, pay)
+        if amount:
+            facts.append(Fact(COMMISSION_NOT_WRITTEN, f'voucher:{doc_id}', amount, {'voucher_number': number,
+                              'earn': float(earn or 0), 'pay': float(pay or 0)}))
+    return facts
+
+
 CHECKS = {
     ORPHAN_POSTED_ENTRY: check_orphan_posted_entries,
     UNPOSTED_ENTRY_IN_LIMBO: check_unposted_entries_in_limbo,
@@ -420,6 +470,7 @@ CHECKS = {
     SAFEBOX_GOLD_DRIFT: check_safebox_gold_drift,
     RETRACTED_INVOICE_POSTED: check_retracted_invoices_posted,
     OPEN_CLOSING_OF_RETRACTED_INVOICE: check_open_closings_of_retracted_invoices,
+    COMMISSION_NOT_WRITTEN: check_commissions_not_written,
 }
 
 

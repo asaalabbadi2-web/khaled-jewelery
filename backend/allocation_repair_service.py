@@ -64,6 +64,20 @@ class RepairResult:
 # Service
 # ---------------------------------------------------------------------------
 
+# Clearing settlements whose untraced part is accepted -- {voucher number: the gap}
+# (stage-4 item 10, CLEAR-001; the owner, 12 Oct 2026). They moved money from
+# collection to the Riyadh bank, and no payment can be traced to these parts;
+# the books are consistent (each collection account's balance equals what its
+# unsettled payments owe, 11 Oct backup), and a reversal would move the main
+# bank and re-open receivables already collected. Not repaired again -- only
+# while the gap is this one: one that moves is incomplete again.
+ACCEPTED_UNTRACEABLE = {
+    'AV-2026-00098': 2105.0,   # تمارا: 2,105 من 3,000
+    'AV-2026-00124': 895.0,    # تمارا: كلها
+    'AV-2026-00133': 6050.0,   # مدى: 6,050 من 19,710
+}
+
+
 class AllocationRepairService:
     """Repairs SettlementLine gaps in approved clearing_settlement vouchers.
 
@@ -90,13 +104,16 @@ class AllocationRepairService:
     # find_incomplete_vouchers — read only
     # ------------------------------------------------------------------
 
-    def find_incomplete_vouchers(self, *, safe_box: SafeBox) -> list[Voucher]:
+    def find_incomplete_vouchers(self, *, safe_box: SafeBox, accepted=None) -> list[Voucher]:
         """Return approved clearing_settlement vouchers with SettlementLine deficit.
 
         A voucher is "incomplete" when:
             sum(SettlementLine.amount_settled for lines on this voucher)
             < voucher.amount_cash − 0.01  (tolerance for rounding)
+
+        -- unless its gap is one ACCEPTED_UNTRACEABLE holds, as measured.
         """
+        accepted = ACCEPTED_UNTRACEABLE if accepted is None else accepted
         if not safe_box.account_id:
             return []
 
@@ -121,7 +138,7 @@ class AllocationRepairService:
                 .scalar()
             ) or 0.0
             gap = round(float(v.amount_cash or 0) - round(float(total_settled), 2), 2)
-            if gap > 0.01:
+            if gap > 0.01 and abs(gap - accepted.get(v.voucher_number, -1.0)) > 0.01:
                 incomplete.append(v)
 
         return incomplete

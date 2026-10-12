@@ -1,13 +1,13 @@
 """A karat-difference commission posting never wrote (stage-4 item 9, POST-001;
 the owner, 12 Oct 2026: «اعتمد الإصلاح»).
 
-From 13 Jul to 29 Sep 2026 posting caught an ImportError and posted invoices
-without their karat-difference entries (fixed in 2d0b1e37). One invoice was
-hit: 3020, purchase #178 from supplier 7 (بن شيهون ـ نواعم), whose own fields
-say the company earns 307.37 (karat_diff_earn_total). The entry is the one
-routes/invoices.py _create_karat_diff_settlement_entries writes -- dated as
-the invoice, keyed to it, debit the supplier / credit the commission revenue
-4110 -- so a later unposting of the invoice takes it with the rest.
+The year's only purchase with a karat-difference commission was not written:
+3020, purchase #178 from supplier 7 (بن شيهون ـ نواعم), whose own fields
+say the company earns 307.37 (karat_diff_earn_total). It was posted at
+creation, and that path wrote no commission at all. The entry is the one
+writer's (accounting/karat_diff_commission.py) -- dated as the invoice, keyed
+to it, debit the supplier / credit the commission revenue 4110 -- so a later
+unposting of the invoice takes it with the rest.
 
 Only as measured: the invoice posted, its earn total the measured amount, no
 pay total, no such entry yet. dry_run (the default) writes nothing.
@@ -15,7 +15,7 @@ pay total, no such entry yet. dry_run (the default) writes nothing.
 import json
 
 from models import Account, AuditLog, Invoice, JournalEntry, JournalEntryLine, Supplier, db
-from services.repair.entries import write_entry
+from accounting.karat_diff_commission import write_karat_diff_commission
 
 # {invoice id: the commission measured on the 11 Oct backup}
 MEASURED = {3020: 307.37}
@@ -62,12 +62,10 @@ def post_missing_commissions(*, by: str, now, dry_run: bool = True, measured=Non
         out.append(step)
         if dry_run:
             continue
-        description = f'عمولة فرق العيار — فاتورة #{number}'
-        entry = write_entry(
-            date=invoice.date, description=description, reference_type='invoice', reference_id=invoice.id,
-            lines=[{'account_id': supplier.account_id, 'description': description, 'cash_debit': amount},
-                   {'account_id': revenue.id, 'description': description, 'cash_credit': amount}],
-            by=by, now=now, prefix='COR', safe_rows=False)
+        # The one writer (accounting/karat_diff_commission.py) -- the entry posting writes now.
+        written = write_karat_diff_commission(invoice, reference_type='invoice', label=f'فاتورة #{number}',
+                                              by=by, now=now)
+        entry = written[0]
         step['written'] = entry.entry_number
         db.session.add(AuditLog(user_name=by, action='stage4_karat_diff_commission', entity_type='invoice',
                                 entity_id=invoice.id, success=True,

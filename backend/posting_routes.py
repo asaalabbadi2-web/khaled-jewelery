@@ -2081,6 +2081,9 @@ def delete_unposted_journal_entry(entry_id: int):
 # ✅ ترحيل الفواتير
 # ==========================================
 
+from accounting.karat_diff_commission import write_karat_diff_commission  # noqa: E402 -- one writer (item 9)
+
+
 def post_invoice_document(invoice: Invoice, posted_by: str) -> None:
     """Post one unposted invoice completely. The ONE posting (APPROVE-001).
 
@@ -2115,45 +2118,32 @@ def post_invoice_document(invoice: Invoice, posted_by: str) -> None:
             je.posted_at = now
             je.posted_by = posted_by
 
-    try:
-        for je in JournalEntry.query.filter_by(reference_type='invoice', reference_id=invoice.id,
+    # What writes the books completes or the posting is refused (item 9's cause,
+    # 12 Oct 2026): each step below printed its failure and posted the invoice
+    # without its entry -- the karat-difference commission among them.
+    for je in JournalEntry.query.filter_by(reference_type='invoice', reference_id=invoice.id,
+                                           is_posted=False).filter(JournalEntry.is_deleted == False).all():
+        _post_entry(je)
+    for v in Voucher.query.filter_by(reference_type='invoice', reference_id=invoice.id).all():
+        if v.journal_entry_id:
+            _post_entry(JournalEntry.query.get(v.journal_entry_id))
+        for je in JournalEntry.query.filter_by(reference_type='voucher', reference_id=v.id,
                                                is_posted=False).filter(JournalEntry.is_deleted == False).all():
             _post_entry(je)
-        for v in Voucher.query.filter_by(reference_type='invoice', reference_id=invoice.id).all():
-            if v.journal_entry_id:
-                _post_entry(JournalEntry.query.get(v.journal_entry_id))
-            for je in JournalEntry.query.filter_by(reference_type='voucher', reference_id=v.id,
-                                                   is_posted=False).filter(JournalEntry.is_deleted == False).all():
-                _post_entry(je)
-            if v.status == 'pending':
-                v.status = 'approved'
-    except Exception as exc:
-        print(f"[post_invoice_document] posting the entries of invoice {invoice.id} failed: {exc}")
+        if v.status == 'pending':
+            v.status = 'approved'
 
     # After the entries are posted: a supplier purchase's gold rows are read
     # from its posted entry (SAFEBOX-001 S1); the others' from their lines.
     db.session.flush()
     _append_safe_transactions_for_invoice_gold(invoice, created_by=posted_by)
 
-    try:
-        _create_deferred_payment_entries(invoice, posted_by=posted_by)
-    except Exception as exc:
-        print(f"[post_invoice_document] deferred payment entries of invoice {invoice.id} failed: {exc}")
-
-    kd_earn = float(getattr(invoice, 'karat_diff_earn_total', 0) or 0)
-    kd_pay = float(getattr(invoice, 'karat_diff_pay_total', 0) or 0)
+    _create_deferred_payment_entries(invoice, posted_by=posted_by)
     if getattr(invoice, 'gold24k_settlement', False):
-        try:
-            from routes.invoices import _create_gold24k_settlement_entries  # not `routes`: moved in July (POST-001)
-            _create_gold24k_settlement_entries(invoice, posted_by=posted_by)
-        except Exception as exc:
-            print(f"[post_invoice_document] 24k settlement entries of invoice {invoice.id} failed: {exc}")
-    if kd_earn > 0 or kd_pay > 0:
-        try:
-            from routes.invoices import _create_karat_diff_settlement_entries  # not `routes`: moved in July (POST-001)
-            _create_karat_diff_settlement_entries(invoice, posted_by=posted_by)
-        except Exception as exc:
-            print(f"[post_invoice_document] karat-difference entries of invoice {invoice.id} failed: {exc}")
+        from routes.invoices import _create_gold24k_settlement_entries  # not `routes`: moved in July (POST-001)
+        _create_gold24k_settlement_entries(invoice, posted_by=posted_by)
+    write_karat_diff_commission(invoice, reference_type='invoice', label=f'فاتورة #{invoice.invoice_number}',
+                                by=posted_by, now=now)
     for je in JournalEntry.query.filter_by(reference_type='invoice', reference_id=invoice.id,
                                            is_posted=False).filter(JournalEntry.is_deleted == False).all():
         _post_entry(je)   # the settlement entries just created
@@ -3431,87 +3421,6 @@ def get_rejected_vouchers():
         return jsonify({'success': False, 'message': str(e)}), 500
 
 
-def _create_and_post_karat_diff_entries_for_voucher(voucher, posted_by: str):
-    """
-    ينشئ ويُرحّل فوراً قيود عمولة/رسوم فرق العيار للسند عند الاعتماد.
-    earn_total > 0 → Dr. Supplier / Cr. إيرادات 4110
-    pay_total  > 0 → Dr. مصروف 5240 / Cr. Supplier
-    """
-    from routes import (
-        _ensure_gold24k_commission_revenue_account,
-        _ensure_karat_diff_expense_account,
-        _generate_journal_entry_number,
-    )
-    earn_total = float(getattr(voucher, 'karat_diff_earn_total', 0) or 0)
-    pay_total = float(getattr(voucher, 'karat_diff_pay_total', 0) or 0)
-    print(f'[karat_diff] voucher={voucher.voucher_number} earn={earn_total} pay={pay_total} supplier_id={voucher.supplier_id}')
-    if earn_total <= 0 and pay_total <= 0:
-        print(f'[karat_diff] SKIP — لا عمولة')
-        return
-
-    supplier = Supplier.query.get(voucher.supplier_id) if voucher.supplier_id else None
-    if not supplier or not supplier.account_id:
-        print(f'[karat_diff] SKIP — لا مورد أو لا حساب للمورد')
-        return
-    supplier_cash_id = supplier.account_id
-    now_ts = datetime.now()
-
-    if earn_total > 0:
-        revenue_acct_id = _ensure_gold24k_commission_revenue_account()
-        if revenue_acct_id:
-            je = JournalEntry(
-                entry_number=_generate_journal_entry_number(entry_date=voucher.date),
-                date=voucher.date,
-                description=f'عمولة فرق العيار — سند #{voucher.voucher_number}',
-                reference_type='voucher',
-                reference_id=voucher.id,
-                is_posted=True,
-                posted_at=now_ts,
-                posted_by=posted_by,
-                created_by=posted_by,
-            )
-            db.session.add(je)
-            db.session.flush()
-            db.session.add(JournalEntryLine(
-                journal_entry_id=je.id,
-                account_id=supplier_cash_id,
-                cash_debit=earn_total, cash_credit=0,
-            ))
-            db.session.add(JournalEntryLine(
-                journal_entry_id=je.id,
-                account_id=revenue_acct_id,
-                cash_debit=0, cash_credit=earn_total,
-            ))
-            print(f'[karat_diff] ✅ قيد عمولة أُنشئ: {je.entry_number}  مبلغ={earn_total}')
-
-    if pay_total > 0:
-        expense_acct_id = _ensure_karat_diff_expense_account()
-        if expense_acct_id:
-            je = JournalEntry(
-                entry_number=_generate_journal_entry_number(entry_date=voucher.date),
-                date=voucher.date,
-                description=f'رسوم فرق العيار — سند #{voucher.voucher_number}',
-                reference_type='voucher',
-                reference_id=voucher.id,
-                is_posted=True,
-                posted_at=now_ts,
-                posted_by=posted_by,
-                created_by=posted_by,
-            )
-            db.session.add(je)
-            db.session.flush()
-            db.session.add(JournalEntryLine(
-                journal_entry_id=je.id,
-                account_id=expense_acct_id,
-                cash_debit=pay_total, cash_credit=0,
-            ))
-            db.session.add(JournalEntryLine(
-                journal_entry_id=je.id,
-                account_id=supplier_cash_id,
-                cash_debit=0, cash_credit=pay_total,
-            ))
-
-
 @posting_bp.route('/vouchers/approve/<int:voucher_id>', methods=['POST'])
 @require_any_permission('vouchers.approve', 'vouchers.approve_within_limit')
 def approve_voucher(voucher_id):
@@ -3568,7 +3477,7 @@ def approve_voucher(voucher_id):
                 _je.posted_at = _now_ts
                 _je.posted_by = approved_by
             # إنشاء وترحيل قيود فرق العيار
-            _create_and_post_karat_diff_entries_for_voucher(voucher, approved_by)
+            write_karat_diff_commission(voucher, reference_type='voucher', label=f'سند #{voucher.voucher_number}', by=approved_by, now=datetime.now())
             sync_invoice_payment_state_after_voucher_approval(voucher)
             sync_gold_advance_after_voucher_approval(voucher)
             sync_gold_attribution_after_voucher_approval(voucher)
@@ -3602,7 +3511,7 @@ def approve_voucher(voucher_id):
             _linked_je.posted_by = approved_by
 
         # إنشاء وترحيل قيود فرق العيار فور الاعتماد
-        _create_and_post_karat_diff_entries_for_voucher(voucher, approved_by)
+        write_karat_diff_commission(voucher, reference_type='voucher', label=f'سند #{voucher.voucher_number}', by=approved_by, now=datetime.now())
 
         sync_invoice_payment_state_after_voucher_approval(voucher)
         sync_gold_advance_after_voucher_approval(voucher)
@@ -3826,7 +3735,7 @@ def approve_vouchers_batch():
                     _je.posted_by = approved_by
 
                 # إنشاء وترحيل قيود فرق العيار
-                _create_and_post_karat_diff_entries_for_voucher(voucher, approved_by)
+                write_karat_diff_commission(voucher, reference_type='voucher', label=f'سند #{voucher.voucher_number}', by=approved_by, now=datetime.now())
 
                 sync_invoice_payment_state_after_voucher_approval(voucher)
                 sync_gold_advance_after_voucher_approval(voucher)

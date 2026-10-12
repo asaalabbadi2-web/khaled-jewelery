@@ -3126,109 +3126,6 @@ def _create_gold24k_settlement_entries(invoice, posted_by: str = 'system'):
         cash_credit=commission_total,
     ))
 
-def _ensure_karat_diff_expense_account():
-    """Find or create رسوم السداد بعيار أقل. Production number: 5240."""
-    by_number = Account.query.filter_by(account_number='5240').first()
-    if by_number:
-        return by_number.id
-
-    acct_name = 'رسوم السداد بعيار أقل'
-    by_name = Account.query.filter_by(name=acct_name).first()
-    if by_name:
-        return by_name.id
-
-    parent = Account.query.filter_by(account_number='52').first()
-    if not parent:
-        parent = Account.query.filter_by(account_number='5').first()
-
-    chosen_number = None
-    for candidate in ('5240', '5241', '5242', '5250'):
-        if not Account.query.filter_by(account_number=candidate).first():
-            chosen_number = candidate
-            break
-    if not chosen_number:
-        chosen_number = '5240'
-
-    account = Account(
-        account_number=chosen_number,
-        name=acct_name,
-        type='expense',
-        transaction_type='cash',
-        tracks_weight=False,
-        parent_id=parent.id if parent else None,
-    )
-    db.session.add(account)
-    db.session.flush()
-    return account.id
-
-def _create_karat_diff_settlement_entries(invoice, posted_by: str = 'system'):
-    """
-    Create commission/fee JEs for per-line karat-difference settlement.
-
-    earn_total > 0 → company EARNS  → Dr. Supplier / Cr. إيرادات 4110
-    pay_total  > 0 → company PAYS   → Dr. مصروف 5240 / Cr. Supplier
-    """
-    earn_total = float(getattr(invoice, 'karat_diff_earn_total', 0) or 0)
-    pay_total = float(getattr(invoice, 'karat_diff_pay_total', 0) or 0)
-
-    if earn_total <= 0 and pay_total <= 0:
-        return
-
-    supplier = Supplier.query.get(invoice.supplier_id) if invoice.supplier_id else None
-    if not supplier or not supplier.account_id:
-        return
-    supplier_cash_id = supplier.account_id
-
-    if earn_total > 0:
-        revenue_acct_id = _ensure_gold24k_commission_revenue_account()
-        if revenue_acct_id:
-            je = JournalEntry(
-                entry_number=_generate_journal_entry_number(entry_date=invoice.date),
-                date=invoice.date,
-                description=f'عمولة فرق العيار — فاتورة #{invoice.invoice_number}',
-                reference_type='invoice',
-                reference_id=invoice.id,
-                is_posted=False,
-                created_by=posted_by,
-            )
-            db.session.add(je)
-            db.session.flush()
-            db.session.add(JournalEntryLine(
-                journal_entry_id=je.id,
-                account_id=supplier_cash_id,
-                cash_debit=earn_total, cash_credit=0,
-            ))
-            db.session.add(JournalEntryLine(
-                journal_entry_id=je.id,
-                account_id=revenue_acct_id,
-                cash_debit=0, cash_credit=earn_total,
-            ))
-
-    if pay_total > 0:
-        expense_acct_id = _ensure_karat_diff_expense_account()
-        if expense_acct_id:
-            je = JournalEntry(
-                entry_number=_generate_journal_entry_number(entry_date=invoice.date),
-                date=invoice.date,
-                description=f'رسوم فرق العيار — فاتورة #{invoice.invoice_number}',
-                reference_type='invoice',
-                reference_id=invoice.id,
-                is_posted=False,
-                created_by=posted_by,
-            )
-            db.session.add(je)
-            db.session.flush()
-            db.session.add(JournalEntryLine(
-                journal_entry_id=je.id,
-                account_id=expense_acct_id,
-                cash_debit=pay_total, cash_credit=0,
-            ))
-            db.session.add(JournalEntryLine(
-                journal_entry_id=je.id,
-                account_id=supplier_cash_id,
-                cash_debit=0, cash_credit=pay_total,
-            ))
-
 def calculate_profit_in_gold(items_sold):
     """
     حساب الربح بالذهب لأصناف مباعة
@@ -9018,6 +8915,11 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
             new_invoice.posted_at = now
         if not new_invoice.posted_by:
             new_invoice.posted_by = posted_by_username or 'system'
+        # Posted at creation, its karat-difference commission with it -- the one
+        # writer; it never ran here, and 3020 lost its 307.37 (item 9).
+        from accounting.karat_diff_commission import write_karat_diff_commission
+        write_karat_diff_commission(new_invoice, reference_type='invoice', label=f'فاتورة #{new_invoice.invoice_number}',
+                                    by=new_invoice.posted_by, now=now)
 
         # 🧾 Sync payment status — canonical, from SUM(InvoicePayment) + barter
         # (see InvoicePaymentStateService).
