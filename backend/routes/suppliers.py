@@ -630,7 +630,9 @@ def get_supplier_ledger(supplier_id):
 
     lines = (
         base_query
-        .options(joinedload(JournalEntryLine.account), joinedload(JournalEntryLine.journal_entry))
+        # The entry comes with the join (contains_eager above); a second loader
+        # for it is refused by SQLAlchemy.
+        .options(joinedload(JournalEntryLine.account))
         .order_by(JournalEntry.date.desc(), JournalEntryLine.id.desc())
         .offset((page - 1) * per_page)
         .limit(per_page)

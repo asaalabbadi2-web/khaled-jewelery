@@ -171,3 +171,34 @@ def test_customer_and_supplier_statements_carry_it_too(auth_headers, route):
     assert len(lines) == 2
     assert abs(lines[0]['running_cash_balance']) == pytest.approx(100.0)
     assert lines[-1]['running_cash_balance'] == pytest.approx(statement['closing_balance_cash'])
+
+
+def test_the_supplier_ledger_answers(auth_headers):
+    """«كشف الحركة» of a supplier (12 Oct 2026): every supplier's answered 500 on
+    production. The statement speed-up (f94b9477) loaded each line's entry from
+    the join (contains_eager) while the page query still asked to load it
+    again (joinedload) -- SQLAlchemy refuses the two together. Its old test sat
+    outside pytest.ini's testpaths and never ran."""
+    from models import Supplier
+    supplier = Supplier(supplier_code=f'S-{uuid.uuid4().hex[:6]}', name=f'مورد {uuid.uuid4().hex[:6]}')
+    db.session.add(supplier)
+    db.session.flush()
+    payable = Account(account_number=f'21{uuid.uuid4().hex[:5]}', name='دائنون', type='Liability')
+    other = _account()
+    db.session.add(payable)
+    db.session.flush()
+    je = JournalEntry(entry_number=f'JE-L-{uuid.uuid4().hex[:8]}', date=datetime(2026, 10, 1),
+                      description='اختبار', entry_type='عادي', is_posted=True, is_draft=False, created_by='t')
+    db.session.add(je)
+    db.session.flush()
+    db.session.add_all([
+        JournalEntryLine(journal_entry_id=je.id, account_id=payable.id, supplier_id=supplier.id,
+                         cash_credit=100.0, description='اختبار'),
+        JournalEntryLine(journal_entry_id=je.id, account_id=other.id, cash_debit=100.0, description='اختبار'),
+    ])
+    db.session.flush()
+    resp = flask_app.test_client().get(f'/api/suppliers/{supplier.id}/ledger?page=1&per_page=50',
+                                       headers=auth_headers)
+    assert resp.status_code == 200, resp.get_data(as_text=True)[:300]
+    movements = resp.get_json()['movements']
+    assert [m['entry_number'] for m in movements] == [je.entry_number]
