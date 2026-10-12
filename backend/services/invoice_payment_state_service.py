@@ -211,6 +211,11 @@ class InvoicePaymentStateService:
             gold_tolerance=gold_tolerance,
         )
 
+        # A historical invoice is not lowered on missing evidence (PAYSTATE-001).
+        if self._kept_history(invoice, before):
+            invoice.amount_paid, invoice.status = max(before[0], invoice.amount_paid or 0.0), before[1]
+            total_settled = round(float(invoice.amount_paid), 2)
+
         after = (total_settled, invoice.status)
 
         return InvoicePaymentState(
@@ -223,6 +228,42 @@ class InvoicePaymentStateService:
             gold_required_main_karat=gold_required,
             gold_attributed_main_karat=gold_settled,
         )
+
+    _RANK = {'unpaid': 0, 'partially_paid': 1, 'paid': 2}
+
+    @classmethod
+    def _kept_history(cls, invoice: Invoice, before) -> bool:
+        """True when this recompute would lower a historical invoice on missing
+        evidence -- and so must not (stage-4 item 24, PAYSTATE-001; the owner,
+        12 Oct 2026).
+
+        Payment evidence -- the payment row, the gold attribution -- was recorded
+        from 24 Sep 2026 on. An invoice up to the historical line (data, written
+        once by migration 20261012_historical_invoice_line, as the voucher
+        boundary is) had its state written once with no evidence behind it; a
+        recompute judging it by the evidence finds none and lowers it (72 on the
+        12 Oct backup -- 34 supplier purchases «paid» -> «unpaid»). Its own answer
+        stands only where it is not lower, or where the lowering is recorded
+        evidence: a payment row whose voucher was cancelled. No line, no
+        protection (fails closed toward the records, as the boundary does).
+        """
+        from models import GoldAttributionBoundary
+        row = GoldAttributionBoundary.query.order_by(GoldAttributionBoundary.id.asc()).first()
+        line = getattr(row, 'max_historical_invoice_id', None) if row is not None else None
+        if not line or int(invoice.id) > int(line):
+            return False
+        old_amount, old_status = before
+        new_rank, old_rank = cls._RANK.get(invoice.status), cls._RANK.get(old_status)
+        if new_rank is None or old_rank is None:
+            return False
+        lower = new_rank < old_rank or (new_rank == old_rank and
+                                        round(float(invoice.amount_paid or 0.0), 2) < old_amount - CASH_EPSILON)
+        if not lower:
+            return False
+        cancelled = (db.session.query(InvoicePayment.id)
+                     .join(Voucher, Voucher.id == InvoicePayment.source_voucher_id)
+                     .filter(InvoicePayment.invoice_id == invoice.id, Voucher.status == 'cancelled').first())
+        return cancelled is None
 
     @staticmethod
     def _sum_invoice_payments(invoice_id: int) -> float:

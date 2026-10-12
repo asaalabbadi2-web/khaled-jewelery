@@ -2041,6 +2041,10 @@ class GoldAttributionBoundary(db.Model):
 
     id = db.Column(db.Integer, primary_key=True)
     max_historical_voucher_id = db.Column(db.Integer, nullable=False)
+    # The last invoice whose payment state was written before evidence was
+    # recorded: a recompute does not lower it on missing evidence (PAYSTATE-001).
+    # Written once by migration 20261012_historical_invoice_line.
+    max_historical_invoice_id = db.Column(db.Integer, nullable=True)
     captured_at = db.Column(db.DateTime, default=db.func.now())
     note = db.Column(db.String(255), nullable=True)
 
