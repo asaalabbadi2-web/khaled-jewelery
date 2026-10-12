@@ -7,12 +7,15 @@ The owner's rule (3 Oct 2026): the main cash box and the Riyadh bank were
 corrected to match reality, and so were the clearing settlement accounts --
 no correction touches them. What would have moved the main cash moves the
 temporary cash box instead; what would have moved the Riyadh bank moves the
-temporary bank account.
+temporary bank account. And the main scrap safe (12 Oct 2026): what would
+have moved it moves the reserve scrap safe.
 
 - PROTECTED_ACCOUNT_NUMBERS: no line this module writes may name them;
 - SUBSTITUTES: a reversal or re-post that would name one names its twin;
-- a line on a cash safe box's account gets its statement row, so the safe's
-  statement and ledger move together (SAFEBOX_SUBLEDGER_DRIFT stays shut).
+- a line on a safe box's account gets its statement row, so the safe's
+  statement and ledger move together (SAFEBOX_SUBLEDGER_DRIFT and
+  SAFEBOX_GOLD_DRIFT stay shut): its cash, and its gold karat by karat -- a
+  row in for the karats that come in, a row out for those that go.
 
 A reversal mirrors every debit/credit pair of the line -- cash, each karat and
 the main-karat weight -- and negates its signed analytics, so the original and
@@ -32,11 +35,14 @@ PROTECTED_ACCOUNT_NUMBERS = frozenset({
     '340',       # فروقات تاريخية للمقاصة
     '1720',      # حساب وسيط تسوية الذهب
     '71720',     # حساب وسيط تسوية الذهب وزني
+    '71310000',  # صندوق الكسر الرئيسي وزني (the owner, 12 Oct 2026)
 })
 SUBSTITUTES = {
     '1100000': '1100002',   # -> صندوق نقدية مؤقت
     '1110000': '1110001',   # -> حساب بنكي مؤقت
+    '71310000': '71310002',  # -> صندوق الكسر الرئيسي احتياطي
 }
+KARATS = ('18k', '21k', '22k', '24k')
 
 # Every debit/credit pair a line carries: (debit column, credit column).
 PAIRS = (('cash_debit', 'cash_credit'),) + tuple(
@@ -126,15 +132,21 @@ def _write_safe_rows(entry, lines, by):
         safe = safes.get(spec['account_id'])
         if safe is None:
             continue
-        if any(float(spec.get(c) or 0.0) for pair in PAIRS[1:] for c in pair):
-            raise NotImplementedError(f'a gold line on safe {safe.id}: stage 4 writes no gold statement rows here')
+        if float(spec.get('debit_weight') or 0.0) or float(spec.get('credit_weight') or 0.0):
+            if not any(float(spec.get(f'{side}_{k}') or 0.0) for side in ('debit', 'credit') for k in KARATS):
+                raise NotImplementedError(f'a main-karat weight with no karat on safe {safe.id}: no row to write')
+        note = f'{entry.entry_number} — {entry.description}'[:500]
         net = float(spec.get('cash_debit') or 0.0) - float(spec.get('cash_credit') or 0.0)
-        if abs(net) < 0.005:
-            continue
-        db.session.add(SafeBoxTransaction(
-            safe_box_id=safe.id, ref_type=SAFE_ROW_REF_TYPE, ref_id=entry.id,
-            direction='in' if net > 0 else 'out', amount_cash=round(abs(net), 2),
-            notes=f'{entry.entry_number} — {entry.description}'[:500], created_by=by))
+        grams = {k: round(float(spec.get(f'debit_{k}') or 0.0) - float(spec.get(f'credit_{k}') or 0.0), 6)
+                 for k in KARATS}
+        for direction, sign in (('in', 1), ('out', -1)):
+            cash = round(net * sign, 2) if net * sign >= 0.005 else 0.0
+            weights = {f'weight_{k}': round(v * sign, 6) for k, v in grams.items() if v * sign >= 0.0005}
+            if not cash and not weights:
+                continue
+            db.session.add(SafeBoxTransaction(
+                safe_box_id=safe.id, ref_type=SAFE_ROW_REF_TYPE, ref_id=entry.id, direction=direction,
+                amount_cash=cash, created_at=entry.date, notes=note, created_by=by, **weights))
     db.session.flush()
 
 
