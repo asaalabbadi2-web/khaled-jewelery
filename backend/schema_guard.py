@@ -889,19 +889,19 @@ def ensure_goal_achievement_columns(engine: Engine) -> None:
 def ensure_bonus_accounts(engine: Engine) -> None:
     """ينشئ حسابات المكافآت المطلوبة إن لم تكن موجودة.
     
-    - 2310: مكافآت مستحقة للموظفين  (خصوم متداولة ← أرصدة دائنة أخرى 23)
+    - 2310: مكافآت مستحقة للموظفين  (أرصدة دائنة أخرى 24 -- CHART-001)
     - 5450: حساب مصروف المكافآت    (مصاريف إدارية ← 540) — يُنشأ فقط إن غاب
     """
     try:
         from sqlalchemy import text as _text
         with engine.connect() as conn:
-            # حساب 2310 تحت 23 (أرصدة دائنة أخرى)
+            # حساب 2310 تحت 24 (أرصدة دائنة أخرى) -- لا تحت الالتزامات الضريبية 23 (CHART-001)
             exists_2310 = conn.execute(
                 _text("SELECT id FROM account WHERE account_number='2310' LIMIT 1")
             ).fetchone()
             if not exists_2310:
                 parent_23 = conn.execute(
-                    _text("SELECT id FROM account WHERE account_number='23' LIMIT 1")
+                    _text("SELECT id FROM account WHERE account_number='24' LIMIT 1")
                 ).fetchone()
                 if parent_23:
                     conn.execute(_text("""

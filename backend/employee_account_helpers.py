@@ -237,10 +237,14 @@ def ensure_employee_group_accounts(created_by: str = 'system'):
     ensured[EMPLOYEE_PERSONAL_PARENT_NUMBER] = parent_1700
     ensure_memo_for_account(parent_1700)
 
-    # 240 - employee payables root under liabilities
+    # 240 - employee payables root under other credit balances (24)
+    # Employee payables are cash: no weight twin for them or their groups
+    # (CHART-001, the owner 12 Oct 2026) -- 26 were made, none ever used.
     root_liab = Account.query.filter_by(account_number=EMPLOYEE_PAYABLES_ROOT_NUMBER).first()
     if not root_liab:
-        inferred_parent = Account.query.filter_by(account_number='2').first() or _find_existing_parent_by_prefix('2')
+        inferred_parent = (Account.query.filter_by(account_number='24').first()
+                           or Account.query.filter_by(account_number='2').first()
+                           or _find_existing_parent_by_prefix('2'))
         root_liab = _ensure_account(
             account_number=EMPLOYEE_PAYABLES_ROOT_NUMBER,
             name='ذمم الموظفين',
@@ -250,7 +254,6 @@ def ensure_employee_group_accounts(created_by: str = 'system'):
             parent_account=inferred_parent,
         )
     ensured[EMPLOYEE_PAYABLES_ROOT_NUMBER] = root_liab
-    ensure_memo_for_account(root_liab)
 
     # Detail groups under 240 for employee payables
     detail_groups: List[Tuple[str, str]] = [
@@ -271,14 +274,13 @@ def ensure_employee_group_accounts(created_by: str = 'system'):
                 parent_account=root_liab,
             )
         ensured[acc_num] = detail
-        ensure_memo_for_account(detail)
 
-    # 2310 - مكافآت مستحقة للموظفين (under liabilities, sibling to 240)
+    # 2310 - مكافآت مستحقة للموظفين: under other credit balances (24), beside 240
+    # -- not under the tax liabilities (23), where it sat under VAT (CHART-001).
     acc_2310 = Account.query.filter_by(account_number='2310').first()
     if not acc_2310:
         parent_23 = (
-            Account.query.filter_by(account_number='23').first()
-            or _find_existing_parent_by_prefix('23')
+            Account.query.filter_by(account_number='24').first()
             or Account.query.filter_by(account_number='2').first()
             or _find_existing_parent_by_prefix('2')
         )
@@ -291,7 +293,6 @@ def ensure_employee_group_accounts(created_by: str = 'system'):
             parent_account=parent_23,
         )
     ensured['2310'] = acc_2310
-    ensure_memo_for_account(acc_2310)
 
     # Backfill: ensure memo copies for any existing employee personal accounts under 1700.
     try:
@@ -394,8 +395,6 @@ def get_or_create_employee_payables_accounts(employee_name: str, created_by: str
         expected_name = employee_payable_account_name(employee_name, category_ar=category_ar)
         existing = Account.query.filter_by(parent_id=parent.id, name=expected_name).first()
         if existing:
-            # Ensure memo exists for legacy rows.
-            ensure_memo_for_account(existing)
             result.append(existing)
             continue
 
@@ -410,7 +409,6 @@ def get_or_create_employee_payables_accounts(employee_name: str, created_by: str
         )
         db.session.add(account)
         db.session.flush()
-        ensure_memo_for_account(account)
         result.append(account)
 
     return result

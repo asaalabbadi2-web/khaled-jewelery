@@ -141,18 +141,17 @@ def test_new_employee_account_pair_is_valid_and_audit_clean():
 
 
 def test_new_employee_payables_accounts_are_valid_and_audit_clean():
-    """نفس الضمان لحسابات ذمم الموظفين (2400/2410/2420/2310)."""
+    """حسابات ذمم الموظفين (2400/2410/2420/2310) نقدية: لا توأم وزني لها
+    (CHART-001، المالك 12 أكتوبر 2026: «صحح الجميع» -- صُنع 26 توأمًا لم
+    يُستعمل أيٌّ منها)، والتدقيق نظيف بعدها كما قبلها."""
     with app.app_context():
         accounts = get_or_create_employee_payables_accounts('موظف اختبار ذمم')
         db.session.commit()
 
         assert len(accounts) > 0
         for acc in accounts:
-            assert acc.memo_account_id is not None, f"#{acc.id} يجب أن يملك memo_account_id"
-            weight = db.session.get(Account, acc.memo_account_id)
-            assert weight is not None
-            assert weight.memo_account_id == acc.id, f"#{acc.id} الربط يجب أن يكون ثنائي الاتجاه"
-            assert bool(acc.tracks_weight) != bool(weight.tracks_weight)
+            assert acc.memo_account_id is None, f"#{acc.id} نقدي: لا توأم وزني"
+            assert not acc.tracks_weight
 
         assert _no_violations(Account.query.all())
 
