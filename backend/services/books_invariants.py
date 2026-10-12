@@ -69,6 +69,7 @@ SAFEBOX_GOLD_DRIFT = 'SAFEBOX_GOLD_DRIFT'
 RETRACTED_INVOICE_POSTED = 'RETRACTED_INVOICE_POSTED'
 OPEN_CLOSING_OF_RETRACTED_INVOICE = 'OPEN_CLOSING_OF_RETRACTED_INVOICE'
 COMMISSION_NOT_WRITTEN = 'COMMISSION_NOT_WRITTEN'
+ENTRY_WEIGHT_UNBALANCED = 'ENTRY_WEIGHT_UNBALANCED'
 
 KINDS = (
     ORPHAN_POSTED_ENTRY,
@@ -79,6 +80,7 @@ KINDS = (
     RETRACTED_INVOICE_POSTED,
     OPEN_CLOSING_OF_RETRACTED_INVOICE,
     COMMISSION_NOT_WRITTEN,
+    ENTRY_WEIGHT_UNBALANCED,
 )
 
 # An invoice in one of these states is retracted: its entries must not count
@@ -461,6 +463,35 @@ def check_commissions_not_written() -> list:
     return facts
 
 
+
+WEIGHT_COLUMN_TOLERANCE = 0.001
+
+
+def check_entries_weight_unbalanced(threshold: float = WEIGHT_COLUMN_TOLERANCE) -> list:
+    """A posted entry whose weight-equivalent column (debit_weight / credit_weight,
+    the grams at the main karat) does not balance (stage-4 item 11c; the owner,
+    12 Oct 2026: «تركه وتسجيله والتأكد من عدم تكرار نفس المشكلة»).
+
+    The karats balance in every entry; 16 entries of 12 Feb - 14 Apr carry the
+    derived column on one side only (-5,537.326 g) -- the dual statement and the
+    gold acquisition reconciliation read it. Those are accepted; a new one is
+    news the next morning. One fact per entry, keyed 'journal_entry:<id>'; the
+    metric is debit minus credit."""
+    rows = (db.session.query(JournalEntry.id, JournalEntry.entry_number, JournalEntry.date,
+                             func.sum(func.coalesce(JournalEntryLine.debit_weight, 0.0)
+                                      - func.coalesce(JournalEntryLine.credit_weight, 0.0)))
+            .join(JournalEntryLine, JournalEntryLine.journal_entry_id == JournalEntry.id)
+            .filter(JournalEntry.is_posted.is_(True), JournalEntry.is_deleted.is_(False),
+                    JournalEntryLine.is_deleted.is_(False))
+            .group_by(JournalEntry.id, JournalEntry.entry_number, JournalEntry.date)
+            .having(func.abs(func.sum(func.coalesce(JournalEntryLine.debit_weight, 0.0)
+                                      - func.coalesce(JournalEntryLine.credit_weight, 0.0))) > threshold)
+            .all())
+    return [Fact(ENTRY_WEIGHT_UNBALANCED, f'journal_entry:{eid}', round(float(net), 3),
+                 {'entry_number': number, 'date': str(date)[:10], 'grams': round(float(net), 3)})
+            for eid, number, date, net in rows]
+
+
 CHECKS = {
     ORPHAN_POSTED_ENTRY: check_orphan_posted_entries,
     UNPOSTED_ENTRY_IN_LIMBO: check_unposted_entries_in_limbo,
@@ -471,6 +502,7 @@ CHECKS = {
     RETRACTED_INVOICE_POSTED: check_retracted_invoices_posted,
     OPEN_CLOSING_OF_RETRACTED_INVOICE: check_open_closings_of_retracted_invoices,
     COMMISSION_NOT_WRITTEN: check_commissions_not_written,
+    ENTRY_WEIGHT_UNBALANCED: check_entries_weight_unbalanced,
 }
 
 

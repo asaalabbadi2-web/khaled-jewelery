@@ -64,7 +64,10 @@ def _why_not(account: Account) -> NotDeactivatable | None:
         return NotDeactivatable('HAS_ACCOUNTING_MAPPING', 'لا يُوقف حساب مستخدم في ربط محاسبي')
     if SafeBox.query.filter_by(account_id=i).first():
         return NotDeactivatable('IS_SAFEBOX_ACCOUNT', 'لا يُوقف حساب مرتبط بخزينة')
-    if (Customer.query.filter(or_(Customer.account_id == i, Customer.account_category_id == i)).first()
+    # A stopped customer's account may stop with it (the 20 duplicate «عميل نقدي»
+    # records, the owner 12 Oct 2026); a live customer's may not.
+    if (Customer.query.filter(or_(Customer.account_id == i, Customer.account_category_id == i),
+                              Customer.active.isnot(False)).first()
             or Supplier.query.filter(or_(Supplier.account_id == i, Supplier.account_category_id == i)).first()
             or Office.query.filter_by(account_category_id=i).first()
             or Employee.query.filter_by(account_id=i).first()):
