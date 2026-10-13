@@ -4285,6 +4285,13 @@ class AccountingMapping(db.Model):
         return f'<AccountingMapping {self.operation_type} - {self.account_type}>'
 
 
+# The kinds of place stock gold can be (ADR-045): the showroom it is sold from,
+# an employee's custody, scrap, a jeweller's or workshop's (a piece sent for
+# repair stays ours), and in transit between branches. A gold safe of one of
+# these kinds is stock; any other gold safe is not.
+STOCK_LOCATIONS = ('showroom', 'custody', 'scrap', 'workshop', 'transit')
+
+
 class SafeBox(db.Model):
     """
     نموذج الخزائن - لإدارة الخزائن المختلفة (نقدية، بنكية، ذهبية)
@@ -4300,7 +4307,11 @@ class SafeBox(db.Model):
     
     # معلومات إضافية للخزائن الذهبية
     karat = db.Column(db.Integer, nullable=True)  # العيار (18, 21, 22, 24) - للخزائن الذهبية فقط
-    
+    # The kind of stock location this gold safe is (ADR-045): one of
+    # STOCK_LOCATIONS, or NULL -- not stock (an office's or a supplier's safe is
+    # gold owed, kept in the party's balance). Policy: set per safe.
+    stock_location = db.Column(db.String(20), nullable=True)
+
     # معلومات إضافية للخزائن البنكية
     bank_name = db.Column(db.String(100), nullable=True)  # اسم البنك
     iban = db.Column(db.String(34), nullable=True)  # IBAN
@@ -4331,6 +4342,7 @@ class SafeBox(db.Model):
             'safe_type': self.safe_type,
             'account_id': self.account_id,
             'karat': self.karat,
+            'stock_location': self.stock_location,
             'bank_name': self.bank_name,
             'iban': self.iban,
             'swift_code': self.swift_code,

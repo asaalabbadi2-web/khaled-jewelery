@@ -829,3 +829,82 @@ class TestWithdrawnSaleStaysWithdrawn:
         facts = {f.subject_key: f for f in CHECKS[OPEN_CLOSING_OF_RETRACTED_INVOICE]()}
         assert f'invoice:{left_open.id}' in facts and facts[f'invoice:{left_open.id}'].metric == 2.9
         assert f'invoice:{withdrawn.id}' not in facts and f'invoice:{standing.id}' not in facts
+
+
+class TestInventoryLedgerDrift:
+    """Three answers to «how much gold do we hold» (ADR-045, 12 Oct 2026 copy, 21k
+    equivalent): the books ~22,950 g, inventory_ledger +6,164, the category
+    tracker -5,577. The ledger wrote invoices only, inside «if it fails, skip»,
+    while vouchers, reversals and reservations move the books' stock too. Per
+    karat: the ledger against what the posted entries hold on the accounts of
+    the safes that are stock locations (safe_box.stock_location). A safe with no
+    location -- an office's, a supplier's -- is a party, not stock. The metric
+    is ledger minus books, in grams; it reports, and is a law from 2027's
+    opening (ADR-045)."""
+
+    @staticmethod
+    def _stock_safe(location='showroom'):
+        box = _gold_safe()
+        box.stock_location = location
+        db.session.flush()
+        return box
+
+    @staticmethod
+    def _ledger(grams, karat=21.0):
+        from models import InventoryLedger
+        db.session.add(InventoryLedger(source_type='invoice', source_id=int(uuid.uuid4().int % 10**8),
+                                       source_line_id=1, movement_type='supplier_purchase',
+                                       karat=karat, weight_delta=grams, posted_by='t'))
+        db.session.flush()
+
+    @staticmethod
+    def _metric(key='karat:21k'):
+        from services.books_invariants import check_inventory_ledger_drift
+        return {f.subject_key: f.metric for f in check_inventory_ledger_drift()}.get(key) or 0.0
+
+    def test_a_ledger_movement_the_books_do_not_hold_is_reported(self, app):
+        before = self._metric()
+        self._ledger(37.8)
+        assert self._metric() == pytest.approx(before + 37.8)
+
+    def test_the_books_moving_a_stock_safe_without_the_ledger_is_reported(self, app):
+        before = self._metric()
+        box = self._stock_safe('scrap')
+        _entry(reference_type='voucher', reference_id=1,
+               lines=[(box.account_id, 0.0, 0.0, {'credit_21k': 8.0})])
+        assert self._metric() == pytest.approx(before + 8.0)
+
+    def test_the_ledger_and_the_books_agreeing_add_nothing(self, app):
+        before = self._metric()
+        box = self._stock_safe()
+        _entry(reference_type='invoice', reference_id=1,
+               lines=[(box.account_id, 0.0, 0.0, {'debit_21k': 12.5})])
+        self._ledger(12.5)
+        assert self._metric() == pytest.approx(before)
+
+    def test_gold_on_a_safe_that_is_not_stock_is_not_counted(self, app):
+        """An office's gold safe sits on a supplier account: ours, owed -- not stock."""
+        before = self._metric()
+        box = _gold_safe()
+        _entry(reference_type='office_reservation', reference_id=1,
+               lines=[(box.account_id, 0.0, 0.0, {'debit_21k': 500.0})])
+        assert self._metric() == pytest.approx(before)
+
+    def test_karats_are_kept_apart(self, app):
+        before18, before24 = self._metric('karat:18k'), self._metric('karat:24k')
+        self._ledger(5.0, karat=24.0)
+        assert self._metric('karat:24k') == pytest.approx(before24 + 5.0)
+        assert self._metric('karat:18k') == pytest.approx(before18)
+
+    def test_a_stock_location_is_one_of_the_named_kinds(self, app):
+        from models import STOCK_LOCATIONS
+        assert set(STOCK_LOCATIONS) == {'showroom', 'custody', 'scrap', 'workshop', 'transit'}
+        assert _gold_safe().stock_location is None, 'a new safe is no stock location until named'
+
+    def test_it_runs_every_night_and_has_a_meaning_on_the_screen(self, app):
+        from services.books_invariants import CHECKS, INVENTORY_LEDGER_DRIFT, KINDS, check_inventory_ledger_drift
+        from services.finding_kinds import KIND_INFO, subject_label
+        assert CHECKS[INVENTORY_LEDGER_DRIFT] is check_inventory_ledger_drift
+        assert INVENTORY_LEDGER_DRIFT in KINDS
+        assert KIND_INFO[INVENTORY_LEDGER_DRIFT]['title_ar']
+        assert subject_label('karat:21k') == 'عيار 21'

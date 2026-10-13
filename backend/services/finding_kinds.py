@@ -78,6 +78,13 @@ KIND_INFO: dict = {
         'explanation_ar': 'وزن عيارٍ في خزينة ذهب من حركاتها يختلف عمّا رحّلته القيود على حسابها؛ كاتبٌ سجّل الذهب في أحدهما دون الآخر. '
                           'القيود اليدوية (كالرصيد الافتتاحي) لا تُحتسب في أيّ من الجانبين.',
     },
+    'INVENTORY_LEDGER_DRIFT': {
+        'rank': 67,
+        'title_ar': 'دفتر المخزون يخالف الدفاتر في عيار',
+        'explanation_ar': 'وزن العيار في دفتر المخزون يختلف عمّا تحمله القيود المرحّلة على خزائن المخزون '
+                          '(المعرض، والعُهد، والكسر). كان الدفتر يكتب الفواتير وحدها، وتتجاهل كتابته الفشل، '
+                          'والسندات والعكوس تحرّك المخزون أيضًا — فرق 2026 معروف ومقبول (ADR-045)، ويصير قانونًا من افتتاح 2027 بالجرد.',
+    },
     'VOUCHER_ENTRY_UNPOSTED_ON_POSTED_INVOICE': {
         'rank': 70,
         'title_ar': 'قيد سند غير مرحّل لفاتورة مرحّلة',
@@ -101,6 +108,7 @@ _SUBJECTS = {
     'voucher': 'سند رقم',
     'payment_method': 'وسيلة دفع رقم',
     'invoice': 'فاتورة رقم',
+    'karat': 'عيار',
 }
 
 
@@ -110,6 +118,8 @@ def subject_label(subject_key: Optional[str]) -> str:
         return '—'
     kind, _, ident = subject_key.partition(':')
     prefix = _SUBJECTS.get(kind)
+    if kind == 'karat' and ident.endswith('k'):   # 'karat:21k' -- a karat of the whole stock
+        return f'{prefix} {ident[:-1]}'
     ident, _, karat = ident.partition(':')        # 'safe_box:30:21k' -- a karat of a safe
     if prefix and ident and karat.endswith('k'):
         return f'{prefix} {ident} — عيار {karat[:-1]}'
