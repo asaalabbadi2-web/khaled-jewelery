@@ -23,7 +23,7 @@ class _InventoryBalanceScreenState extends State<InventoryBalanceScreen> {
   String? _error;
 
   // Filters
-  int? _filterBranchId;
+  int? _filterSafeBoxId;
   double? _filterKarat;
 
   @override
@@ -37,7 +37,7 @@ class _InventoryBalanceScreenState extends State<InventoryBalanceScreen> {
     try {
       final results = await Future.wait([
         _svc.getBalanceSummary(),
-        _svc.getBalance(branchId: _filterBranchId, karat: _filterKarat),
+        _svc.getBalance(safeBoxId: _filterSafeBoxId, karat: _filterKarat),
         _loadActiveSession(),
       ]);
       setState(() {
@@ -54,10 +54,14 @@ class _InventoryBalanceScreenState extends State<InventoryBalanceScreen> {
 
   Future<void> _loadActiveSession() async {
     try {
-      // Check for open sessions first, then counting
+      // Open, then counting, then awaiting approval -- a closed count was
+      // reachable from no screen (ADR-045 C2).
       List<CountSession> sessions = await _svc.listSessions(status: 'open');
       if (sessions.isEmpty) {
         sessions = await _svc.listSessions(status: 'counting');
+      }
+      if (sessions.isEmpty) {
+        sessions = await _svc.listSessions(status: 'closed');
       }
       if (mounted) {
         setState(() => _activeSession = sessions.isNotEmpty ? sessions.first : null);
@@ -111,11 +115,11 @@ class _InventoryBalanceScreenState extends State<InventoryBalanceScreen> {
                             _load();
                           },
                         )),
-                        SliverToBoxAdapter(child: _BranchFilterBar(
-                          branches: _summary!.byBranch,
-                          selected: _filterBranchId,
+                        SliverToBoxAdapter(child: _LocationFilterBar(
+                          locations: _summary!.byLocation,
+                          selected: _filterSafeBoxId,
                           onSelected: (id) {
-                            setState(() => _filterBranchId = id);
+                            setState(() => _filterSafeBoxId = id);
                             _load();
                           },
                         )),
@@ -181,13 +185,14 @@ class _FreezeBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final counted = session.lines.where((l) => l.isCounted).length;
-    final total = session.lines.length;
+    final counted = session.linesCounted ?? session.lines.where((l) => l.isCounted).length;
+    final total = session.linesTotal ?? session.lines.length;
+    final awaitingApproval = session.status == 'closed';
     final progress = total == 0 ? 0.0 : counted / total;
     final elapsed = _elapsed(session.openedAt);
 
     // Branch name from lines if available, else ID
-    final branchLabel = session.branchId != null ? 'فرع #${session.branchId}' : 'الفرع';
+    final branchLabel = session.safeBoxName ?? 'كل المواقع';
 
     return Container(
       margin: const EdgeInsets.fromLTRB(16, 16, 16, 0),
@@ -217,8 +222,8 @@ class _FreezeBanner extends StatelessWidget {
               children: [
                 const Icon(Icons.timer_outlined, size: 16, color: Colors.black87),
                 const SizedBox(width: 6),
-                const Text(
-                  'جلسة جرد قيد التنفيذ',
+                Text(
+                  awaitingApproval ? 'جرد بانتظار الاعتماد' : 'جلسة جرد قيد التنفيذ',
                   style: TextStyle(
                     fontWeight: FontWeight.bold,
                     fontSize: 13,
@@ -283,7 +288,7 @@ class _FreezeBanner extends StatelessWidget {
                   child: ElevatedButton.icon(
                     onPressed: onResume,
                     icon: const Icon(Icons.play_arrow_rounded),
-                    label: const Text('متابعة الجرد'),
+                    label: Text(awaitingApproval ? 'مراجعة واعتماد' : 'متابعة الجرد'),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.amber.shade600,
                       foregroundColor: Colors.white,
@@ -341,7 +346,7 @@ class _SummaryHeader extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Text(
-            'إجمالي الذهب',
+            'إجمالي الذهب (بالعيار الرئيسي)',
             style: TextStyle(color: Colors.white, fontSize: 13),
           ),
           const SizedBox(height: 4),
@@ -353,6 +358,11 @@ class _SummaryHeader extends StatelessWidget {
               fontWeight: FontWeight.bold,
             ),
           ),
+          if (summary.unclassifiedWeight.abs() > 0.0005)
+            Text(
+              'منه بلا تصنيف: ${formatWeight(summary.unclassifiedWeight)} جم — يُصنَّف بالجرد',
+              style: TextStyle(color: Theme.of(context).colorScheme.onPrimary, fontSize: 12),
+            ),
           const SizedBox(height: 12),
           SingleChildScrollView(
             scrollDirection: Axis.horizontal,
@@ -428,19 +438,19 @@ class _KaratFilterBar extends StatelessWidget {
   }
 }
 
-class _BranchFilterBar extends StatelessWidget {
-  const _BranchFilterBar({
-    required this.branches,
+class _LocationFilterBar extends StatelessWidget {
+  const _LocationFilterBar({
+    required this.locations,
     required this.selected,
     required this.onSelected,
   });
-  final List<BranchTotal> branches;
+  final List<LocationTotal> locations;
   final int? selected;
   final ValueChanged<int?> onSelected;
 
   @override
   Widget build(BuildContext context) {
-    if (branches.length <= 1) return const SizedBox.shrink();
+    if (locations.length <= 1) return const SizedBox.shrink();
     return SizedBox(
       height: 40,
       child: ListView(
@@ -449,15 +459,15 @@ class _BranchFilterBar extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 16),
         children: [
           _FilterChip(
-            label: 'كل الفروع',
+            label: 'كل المواقع',
             selected: selected == null,
             onTap: () => onSelected(null),
           ),
-          ...branches.map((b) => _FilterChip(
-                label: b.branchName,
-                selected: selected == b.branchId,
+          ...locations.map((l) => _FilterChip(
+                label: l.safeBoxName,
+                selected: selected == l.safeBoxId,
                 onTap: () => onSelected(
-                    selected == b.branchId ? null : b.branchId),
+                    selected == l.safeBoxId ? null : l.safeBoxId),
               )),
         ],
       ),

@@ -29,7 +29,7 @@ from datetime import datetime
 from flask import Blueprint, request, jsonify, g
 
 from auth_decorators import require_permission
-from models import db, Branch, Category, InventoryBalance, InventoryCountSession, SafeBox
+from models import db, Branch, Category, InventoryBalance, InventoryCountLine, InventoryCountSession, SafeBox
 
 # ── Adjustment reason codes ───────────────────────────────────────────────────
 # Source of truth for the coded reason list.  Flutter reads this via
@@ -96,94 +96,24 @@ def _err(msg: str, code: int = 400):
 @inventory_bp.route('/balance', methods=['GET'])
 @require_permission('inventory.view')
 def get_balance():
-    """أرصدة الـ buckets مع فلاتر اختيارية.
+    """The stock per (location, category, karat) -- the one reader (ADR-045 C2).
 
-    Query params:
-        branch_id   (int)   فلتر بالفرع
-        category_id (int)   فلتر بالتصنيف
-        karat       (float) فلتر بالعيار
+    Query params: safe_box_id, category_id, karat. The old inventory ledger's
+    buckets by branch are retired (C3).
     """
-    q = InventoryBalance.query
-
-    branch_id = request.args.get('branch_id', type=int)
-    category_id = request.args.get('category_id', type=int)
-    karat = request.args.get('karat', type=float)
-
-    if branch_id is not None:
-        q = q.filter_by(branch_id=branch_id)
-    if category_id is not None:
-        q = q.filter_by(category_id=category_id)
-    if karat is not None:
-        q = q.filter_by(karat=karat)
-
-    rows = q.order_by(
-        InventoryBalance.branch_id,
-        InventoryBalance.category_id,
-        InventoryBalance.karat,
-    ).all()
-
-    return jsonify([_balance_row(r) for r in rows]), 200
+    from services.stock_ledger import balance_rows
+    return jsonify(balance_rows(safe_box_id=request.args.get('safe_box_id', type=int),
+                                category_id=request.args.get('category_id', type=int),
+                                karat=request.args.get('karat', type=float))), 200
 
 
 @inventory_bp.route('/balance/summary', methods=['GET'])
 @require_permission('inventory.view')
 def get_balance_summary():
-    """تجميع للـ dashboard: إجمالي ال��رصدة مجمّعة بالفرع وبالعيار.
-
-    Returns:
-        by_branch: [{branch_id, branch_name, total_weight}]
-        by_karat:  [{karat, total_weight}]
-        grand_total_weight: float
-    """
-    from sqlalchemy import func
-
-    # تجميع بالفرع
-    by_branch_q = (
-        db.session.query(
-            InventoryBalance.branch_id,
-            func.sum(InventoryBalance.balance).label('total'),
-        )
-        .group_by(InventoryBalance.branch_id)
-        .all()
-    )
-    branch_names = {
-        b.id: b.name
-        for b in Branch.query.filter(
-            Branch.id.in_([r.branch_id for r in by_branch_q if r.branch_id])
-        ).all()
-    }
-    by_branch = [
-        {
-            'branch_id': r.branch_id,
-            'branch_name': branch_names.get(r.branch_id, '—'),
-            'total_weight': round(float(r.total or 0), 4),
-        }
-        for r in by_branch_q
-    ]
-
-    # تجميع بالعيار
-    by_karat_q = (
-        db.session.query(
-            InventoryBalance.karat,
-            func.sum(InventoryBalance.balance).label('total'),
-        )
-        .group_by(InventoryBalance.karat)
-        .order_by(InventoryBalance.karat)
-        .all()
-    )
-    by_karat = [
-        {'karat': r.karat, 'total_weight': round(float(r.total or 0), 4)}
-        for r in by_karat_q
-    ]
-
-    grand_total = sum(r['total_weight'] for r in by_karat)
-
-    return jsonify({
-        'by_branch': by_branch,
-        'by_karat': by_karat,
-        'grand_total_weight': round(grand_total, 4),
-        'generated_at': datetime.now().isoformat(),
-    }), 200
+    """Totals by location (main karat), by karat (grams), the grand total and
+    the unclassified share (ADR-045 C2)."""
+    from services.stock_ledger import balance_summary
+    return jsonify(balance_summary(now=datetime.now())), 200
 
 
 # ── Count Sessions ────────────────────────���──────────────────────────���────────
@@ -562,22 +492,21 @@ def backfill_invoices():
 @inventory_bp.route('/reconciliation', methods=['GET'])
 @require_permission('inventory.approve')
 def get_reconciliation():
-    """تقرير المطابقة الرباعي: Ledger / Balance / Physical Count / GL.
-
-    مخصص للمدير والمحاسب للتدقيق الدوري.
-    """
-    from services.inventory_reconciliation_report import InventoryReconciliationReport
-    snap = InventoryReconciliationReport.build()
-    return jsonify(snap.to_dict()), 200
+    """Per (location, karat): the books, how much is classified, the last
+    approved count (ADR-045 C2). The stock IS the books (A1): the old four-way
+    matching (ledger / balance / count / GL) is retired."""
+    from services.stock_ledger import stock_audit
+    return jsonify(stock_audit(now=datetime.now())), 200
 
 
 @inventory_bp.route('/health', methods=['GET'])
 @require_permission('inventory.approve')
 def get_health():
-    """تقرير صحة محرك الجرد: مخالفات، جلسات مفتوحة، تسويات معلقة."""
-    from services.inventory_health_report import InventoryHealthReport
-    report = InventoryHealthReport.build()
-    return jsonify(report.to_dict() if hasattr(report, 'to_dict') else report.__dict__), 200
+    """What can still be wrong with the stock: allocations against their lines,
+    open count sessions, the last approved count, the unclassified share."""
+    from services.stock_ledger import stock_audit
+    audit = stock_audit(now=datetime.now())
+    return jsonify({k: audit[k] for k in ('has_issues', 'metrics', 'generated_at')}), 200
 
 
 # ── Serialisers ──────────────────────��────────────────────────────────────────
@@ -599,8 +528,12 @@ def _session_summary(s) -> dict:
         'id':                 s.id,
         'branch_id':          s.branch_id,
         'safe_box_id':        s.safe_box_id,
+        'safe_box_name':      _safe_box_name(s.safe_box_id),
         'entry_id':           s.entry_id,
         'status':             s.status,
+        'lines_total':        InventoryCountLine.query.filter_by(session_id=s.id).count(),
+        'lines_counted':      InventoryCountLine.query.filter_by(session_id=s.id)
+                              .filter(InventoryCountLine.counted_weight.isnot(None)).count(),
         'session_type':       getattr(s, 'session_type', 'periodic') or 'periodic',
         'blind_count':        getattr(s, 'blind_count', True),
         'snapshot_ledger_id': s.snapshot_ledger_id,

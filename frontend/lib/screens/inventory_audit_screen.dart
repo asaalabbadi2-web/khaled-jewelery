@@ -121,8 +121,9 @@ class _ReconciliationTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // The filter: what still needs classifying (the count classifies it).
     final rows = showMismatchOnly
-        ? report.rows.where((r) => r.hasMismatch || r.hasCountDrift).toList()
+        ? report.rows.where((r) => r.unclassifiedGrams.abs() > 0.0005).toList()
         : report.rows;
 
     return RefreshIndicator(
@@ -134,14 +135,15 @@ class _ReconciliationTab extends StatelessWidget {
           SliverToBoxAdapter(
             child: _FilterRow(
               showMismatchOnly: showMismatchOnly,
-              mismatchCount: report.mismatchCount + report.countDriftBuckets,
+              mismatchCount:
+                  report.rows.where((r) => r.unclassifiedGrams.abs() > 0.0005).length,
               onToggle: onToggleFilter,
               generatedAt: report.generatedAt,
             ),
           ),
           if (rows.isEmpty)
             const SliverFillRemaining(
-              child: Center(child: Text('لا توجد اختلافات مسجّلة')),
+              child: Center(child: Text('لا يوجد رصيد بلا تصنيف')),
             )
           else
             SliverToBoxAdapter(
@@ -183,7 +185,9 @@ class _ReconSummaryCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  isClean ? 'الأرصدة متطابقة' : 'توجد فروقات تحتاج مراجعة',
+                  isClean
+                      ? 'توزيع المخزون على التصنيفات سليم'
+                      : 'توزيع يخالف سطره — راجع نتائج الفحص الليلي',
                   style: TextStyle(
                     fontWeight: FontWeight.bold,
                     fontSize: 15,
@@ -195,21 +199,15 @@ class _ReconSummaryCard extends StatelessWidget {
                   spacing: 12,
                   children: [
                     _StatChip(
-                      label: 'الحاويات',
-                      value: '${report.totalBuckets}',
+                      label: 'موقع × عيار',
+                      value: '${report.rows.length}',
                       color: AppColors.primaryGold,
                     ),
-                    if (report.mismatchCount > 0)
+                    if (report.violations > 0)
                       _StatChip(
-                        label: 'دفتر≠رصيد',
-                        value: '${report.mismatchCount}',
+                        label: 'توزيع يخالف سطره',
+                        value: '${report.violations}',
                         color: AppColors.error,
-                      ),
-                    if (report.countDriftBuckets > 0)
-                      _StatChip(
-                        label: 'انحراف جرد',
-                        value: '${report.countDriftBuckets}',
-                        color: AppColors.warning,
                       ),
                   ],
                 ),
@@ -284,7 +282,7 @@ class _FilterRow extends StatelessWidget {
                   ),
                 ),
                 child: Text(
-                  'الفروقات فقط ($mismatchCount)',
+                  'بلا تصنيف فقط ($mismatchCount)',
                   style: TextStyle(
                     color: showMismatchOnly ? Colors.white : Colors.grey[700],
                     fontSize: 12,
@@ -343,11 +341,11 @@ class _TableHeader extends StatelessWidget {
       ),
       child: const Row(
         children: [
-          Expanded(flex: 3, child: _HeaderCell('الحاوية')),
-          Expanded(flex: 2, child: _HeaderCell('الدفتر')),
-          Expanded(flex: 2, child: _HeaderCell('الرصيد')),
+          Expanded(flex: 3, child: _HeaderCell('الموقع')),
+          Expanded(flex: 2, child: _HeaderCell('الدفاتر')),
+          Expanded(flex: 2, child: _HeaderCell('المصنّف')),
           Expanded(flex: 2, child: _HeaderCell('آخر جرد')),
-          SizedBox(width: 28),
+          SizedBox(width: 64),
         ],
       ),
     );
@@ -378,26 +376,22 @@ class _TableRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final karatColor = AppColors.karatColorFor(row.karat);
-    final hasMismatch = row.hasMismatch;
-    final hasDrift = row.hasCountDrift;
-    final hasAnyIssue = hasMismatch || hasDrift;
+    final unclassified = row.unclassifiedGrams.abs() > 0.0005;
+    final counted = row.lastCountAt;
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
-        color: hasAnyIssue ? AppColors.warning.withOpacity(0.04) : null,
         border: Border(
           bottom: BorderSide(color: Colors.grey.shade200),
-          right: hasMismatch
-              ? const BorderSide(color: AppColors.error, width: 3)
-              : hasDrift
-                  ? const BorderSide(color: AppColors.warning, width: 3)
-                  : BorderSide.none,
+          right: unclassified
+              ? const BorderSide(color: AppColors.warning, width: 3)
+              : BorderSide.none,
         ),
       ),
       child: Row(
         children: [
-          // Bucket: karat badge
+          // Location and karat
           Expanded(
             flex: 3,
             child: Row(
@@ -417,72 +411,55 @@ class _TableRow extends StatelessWidget {
                     ),
                   ),
                 ),
-                if (row.categoryId != null) ...[
-                  const SizedBox(width: 4),
-                  Text(
-                    '#${row.categoryId}',
-                    style: TextStyle(fontSize: 10, color: Colors.grey[500]),
+                const SizedBox(width: 4),
+                Expanded(
+                  child: Text(
+                    row.safeBoxName ?? '#${row.safeBoxId}',
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.bodySmall,
                   ),
-                ],
+                ),
               ],
             ),
           ),
-          // Ledger sum
+          // What the books hold
           Expanded(
             flex: 2,
             child: Text(
-              formatWeight(row.ledgerSum),
+              formatWeight(row.booksGrams),
               style: const TextStyle(fontSize: 12),
             ),
           ),
-          // Balance with status dot
+          // How much of it is classified
           Expanded(
             flex: 2,
             child: Row(
               children: [
                 Text(
-                  formatWeight(row.balance),
+                  formatWeight(row.classifiedGrams),
                   style: TextStyle(
                     fontSize: 12,
-                    color: hasMismatch ? AppColors.error : null,
-                    fontWeight: hasMismatch ? FontWeight.bold : null,
+                    color: unclassified ? AppColors.warning : null,
                   ),
                 ),
                 const SizedBox(width: 4),
-                _StatusDot(ok: !hasMismatch, na: false),
+                _StatusDot(ok: !unclassified, na: false),
               ],
             ),
           ),
-          // Last count weight with status dot
+          // The last approved count
           Expanded(
             flex: 2,
-            child: row.lastCountWeight != null
-                ? Row(
-                    children: [
-                      Text(
-                        formatWeight(row.lastCountWeight!),
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: hasDrift ? AppColors.warning : null,
-                          fontWeight: hasDrift ? FontWeight.bold : null,
-                        ),
-                      ),
-                      const SizedBox(width: 4),
-                      _StatusDot(
-                        ok: row.ledgerVsCountOk == true,
-                        na: row.ledgerVsCountOk == null,
-                      ),
-                    ],
-                  )
-                : Text(
-                    '—',
-                    style: TextStyle(fontSize: 12, color: Colors.grey[400]),
-                  ),
+            child: Text(
+              counted != null
+                  ? '${counted.year}/${counted.month}/${counted.day}'
+                  : '—',
+              style: TextStyle(fontSize: 12, color: counted == null ? Colors.grey[400] : null),
+            ),
           ),
-          // Variance badge (shown only if drift)
           SizedBox(
-            width: 28,
-            child: hasDrift && row.lastCountVariance != null
+            width: 64,
+            child: (row.lastCountVariance ?? 0).abs() > 0.0005
                 ? _VarianceBadge(variance: row.lastCountVariance!)
                 : null,
           ),

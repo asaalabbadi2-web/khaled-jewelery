@@ -42,8 +42,8 @@ class InventoryCountService:
                      session_type: str = 'periodic', safe_box_id=None) -> 'InventoryCountSession':
         """Open a count of one stock safe (safe_box_id) or of every one (None).
 
-        Raises ValueError when a session is already open for that scope, or the
-        safe is not a stock location.
+        Raises ValueError when a session of that scope is open or awaits
+        approval, or the safe is not a stock location.
         """
         from models import InventoryCountSession, SafeBox, db
 
@@ -58,7 +58,9 @@ class InventoryCountService:
         active = InventoryCountSession.query.filter(
             InventoryCountSession.safe_box_id.is_(None) if safe_box_id is None
             else InventoryCountSession.safe_box_id == int(safe_box_id),
-            InventoryCountSession.status.in_(['open', 'counting'])).first()
+            InventoryCountSession.status.in_(['open', 'counting', 'closed'])).first()
+        if active is not None and active.status == 'closed':
+            raise ValueError(f'جلسة جرد بانتظار الاعتماد (#{active.id}) لهذا الموقع — اعتمدها أولاً قبل فتح جلسة جديدة.')
         if active:
             raise ValueError(f'جلسة جرد مفتوحة بالفعل (#{active.id}) لهذا الموقع — أغلقها أولاً قبل فتح جلسة جديدة.')
 

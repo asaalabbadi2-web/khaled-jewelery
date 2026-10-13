@@ -13,12 +13,12 @@ class InventoryService {
   // ── Balance ───────────────────────────────────────────────────────────────
 
   Future<List<InventoryBucket>> getBalance({
-    int? branchId,
+    int? safeBoxId,
     int? categoryId,
     double? karat,
   }) async {
     final params = <String, String>{};
-    if (branchId != null) params['branch_id'] = '$branchId';
+    if (safeBoxId != null) params['safe_box_id'] = '$safeBoxId';
     if (categoryId != null) params['category_id'] = '$categoryId';
     if (karat != null) params['karat'] = '$karat';
 
@@ -55,8 +55,10 @@ class InventoryService {
         .toList();
   }
 
+  /// A count of one location ([safeBoxId], a stock safe) or, null, of every
+  /// stock location (ADR-045).
   Future<CountSession> openSession({
-    required int branchId,
+    int? safeBoxId,
     bool blindCount = true,
     String sessionType = 'periodic',
     String? notes,
@@ -64,7 +66,7 @@ class InventoryService {
     final resp = await _api.authedPost(
       '/inventory/count',
       body: jsonEncode({
-        'branch_id': branchId,
+        if (safeBoxId != null) 'safe_box_id': safeBoxId,
         'blind_count': blindCount,
         'session_type': sessionType,
         if (notes != null && notes.isNotEmpty) 'notes': notes,
@@ -82,11 +84,14 @@ class InventoryService {
         jsonDecode(resp.body) as Map<String, dynamic>);
   }
 
+  /// [categoryId] null is the «بلا تصنيف» line; [safeBoxId] is the line's
+  /// location (required when the session counts every location).
   Future<CountLine> recordEntry({
     required int sessionId,
-    required int categoryId,
+    required int? categoryId,
     required double karat,
     required double countedWeight,
+    int? safeBoxId,
   }) async {
     final resp = await _api.authedPut(
       '/inventory/count/$sessionId/entry',
@@ -94,6 +99,7 @@ class InventoryService {
         'category_id': categoryId,
         'karat': karat,
         'counted_weight': countedWeight,
+        if (safeBoxId != null) 'safe_box_id': safeBoxId,
       }),
     );
     _check(resp, 'تعذّر حفظ القراءة');
@@ -119,8 +125,10 @@ class InventoryService {
     final uncounted = warning != null
         ? int.tryParse(RegExp(r'\d+').stringMatch(warning) ?? '0') ?? 0
         : 0;
+    // The route answers a summary without the lines: the screen reviews the
+    // full session (it showed «لا توجد أصناف مسجّلة» before approval).
     return (
-      session: CountSession.fromJson(j),
+      session: await getSession(sessionId),
       uncountedLines: uncounted,
     );
   }
@@ -132,7 +140,9 @@ class InventoryService {
         jsonDecode(resp.body) as Map<String, dynamic>);
   }
 
-  Future<({CountSession session, InventoryAdjustment? adjustment})>
+  /// Approves the session; its differences are a posted entry in the books
+  /// ([entryNumber] null: nothing differed).
+  Future<({CountSession session, String? entryNumber})>
       approveSession(
     int sessionId, {
     String reasonCode = 'OTHER',
@@ -146,12 +156,11 @@ class InventoryService {
     );
     _check(resp, 'تعذّر اعتماد الجلسة');
     final j = jsonDecode(resp.body) as Map<String, dynamic>;
+    final entry = j['entry'] as Map<String, dynamic>?;
     return (
-      session: CountSession.fromJson(j['session'] as Map<String, dynamic>),
-      adjustment: j['adjustment'] != null
-          ? InventoryAdjustment.fromJson(
-              j['adjustment'] as Map<String, dynamic>)
-          : null,
+      // The full session, its lines included -- the approval's message counts them.
+      session: await getSession(sessionId),
+      entryNumber: entry?['entry_number'] as String?,
     );
   }
 

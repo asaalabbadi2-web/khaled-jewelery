@@ -251,3 +251,17 @@ class TestClassifyingIsNotALossOrAGain:
         _, entry = _count(box, {(None, 21.0): 0.0, (ring.id, 21.0): 10.0}, roles)
         assert _held(box) == {(ring.id, 21): 10.0}
         assert not [l for l in entry.lines if l.account_id in (roles['shortage_w'].id, roles['surplus_w'].id)]
+
+
+def test_a_count_awaiting_approval_holds_its_location(app, roles):
+    """A closed session was reachable from no screen, and another could be opened
+    for the same location -- two counts awaiting one approval (found walking the
+    screens on the 12 Oct copy)."""
+    from services.inventory_count_service import InventoryCountService as S
+    box, ring = _safe(), _category()
+    _stock(box, 20.0, ring)
+    session = S.open_session(branch_id=None, safe_box_id=box.id, opened_by='t', now=NOW)
+    S.populate_lines(session)
+    S.close_session(session, force=True, now=NOW)
+    with pytest.raises(ValueError, match='بانتظار الاعتماد'):
+        S.open_session(branch_id=None, safe_box_id=box.id, opened_by='t', now=NOW)

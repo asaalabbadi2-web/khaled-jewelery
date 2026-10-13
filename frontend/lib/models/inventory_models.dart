@@ -3,72 +3,82 @@
 library;
 
 
+/// The stock per (location, category, karat) -- the books themselves
+/// (ADR-045): a location is a stock safe (the showroom, a custody, scrap).
 class InventoryBucket {
-  final int? branchId;
+  final int safeBoxId;
+  final String? safeBoxName;
+  final String? stockLocation;
   final int? categoryId;
+  final String? categoryName;
   final double karat;
   final double balance;
-  final int? snapshotMaxLedgerId;
-  final DateTime? updatedAt;
 
   const InventoryBucket({
-    required this.branchId,
+    required this.safeBoxId,
+    this.safeBoxName,
+    this.stockLocation,
     required this.categoryId,
+    this.categoryName,
     required this.karat,
     required this.balance,
-    this.snapshotMaxLedgerId,
-    this.updatedAt,
   });
 
   factory InventoryBucket.fromJson(Map<String, dynamic> j) => InventoryBucket(
-        branchId: j['branch_id'] as int?,
+        safeBoxId: j['safe_box_id'] as int,
+        safeBoxName: j['safe_box_name'] as String?,
+        stockLocation: j['stock_location'] as String?,
         categoryId: j['category_id'] as int?,
+        categoryName: j['category_name'] as String?,
         karat: (j['karat'] as num).toDouble(),
         balance: (j['balance'] as num).toDouble(),
-        snapshotMaxLedgerId: j['snapshot_max_ledger_id'] as int?,
-        updatedAt: j['updated_at'] != null
-            ? DateTime.tryParse(j['updated_at'] as String)
-            : null,
       );
 }
 
 class InventoryBalanceSummary {
-  final List<BranchTotal> byBranch;
+  final List<LocationTotal> byLocation;
   final List<KaratTotal> byKarat;
   final double grandTotalWeight;
+  final double unclassifiedWeight;
   final DateTime generatedAt;
 
   const InventoryBalanceSummary({
-    required this.byBranch,
+    required this.byLocation,
     required this.byKarat,
     required this.grandTotalWeight,
+    required this.unclassifiedWeight,
     required this.generatedAt,
   });
 
   factory InventoryBalanceSummary.fromJson(Map<String, dynamic> j) =>
       InventoryBalanceSummary(
-        byBranch: (j['by_branch'] as List)
-            .map((e) => BranchTotal.fromJson(e as Map<String, dynamic>))
+        byLocation: (j['by_location'] as List? ?? [])
+            .map((e) => LocationTotal.fromJson(e as Map<String, dynamic>))
             .toList(),
         byKarat: (j['by_karat'] as List)
             .map((e) => KaratTotal.fromJson(e as Map<String, dynamic>))
             .toList(),
         grandTotalWeight: (j['grand_total_weight'] as num).toDouble(),
+        unclassifiedWeight: (j['unclassified_weight'] as num? ?? 0).toDouble(),
         generatedAt: DateTime.parse(j['generated_at'] as String),
       );
 }
 
-class BranchTotal {
-  final int? branchId;
-  final String branchName;
+/// A location's total, at the main karat.
+class LocationTotal {
+  final int safeBoxId;
+  final String safeBoxName;
+  final String? stockLocation;
   final double totalWeight;
-  const BranchTotal(
-      {required this.branchId,
-      required this.branchName,
+  const LocationTotal(
+      {required this.safeBoxId,
+      required this.safeBoxName,
+      this.stockLocation,
       required this.totalWeight});
-  factory BranchTotal.fromJson(Map<String, dynamic> j) => BranchTotal(
-        branchId: j['branch_id'] as int?,
-        branchName: j['branch_name'] as String? ?? '—',
+  factory LocationTotal.fromJson(Map<String, dynamic> j) => LocationTotal(
+        safeBoxId: j['safe_box_id'] as int,
+        safeBoxName: j['safe_box_name'] as String? ?? '—',
+        stockLocation: j['stock_location'] as String?,
         totalWeight: (j['total_weight'] as num).toDouble(),
       );
 }
@@ -88,6 +98,15 @@ class KaratTotal {
 class CountSession {
   final int id;
   final int? branchId;
+  /// The location counted -- one stock safe; null: every one (ADR-045).
+  final int? safeBoxId;
+  /// The posted entry its approval wrote; null: nothing differed.
+  final int? entryId;
+  /// The location's name -- null: every location.
+  final String? safeBoxName;
+  /// The lines and the counted ones -- in a summary, which carries no lines.
+  final int? linesTotal;
+  final int? linesCounted;
   final String status; // open | counting | closed | approved | cancelled
   final String sessionType; // periodic | opening
   final bool blindCount;
@@ -103,6 +122,11 @@ class CountSession {
   const CountSession({
     required this.id,
     required this.branchId,
+    this.safeBoxId,
+    this.entryId,
+    this.safeBoxName,
+    this.linesTotal,
+    this.linesCounted,
     required this.status,
     this.sessionType = 'periodic',
     required this.blindCount,
@@ -124,6 +148,11 @@ class CountSession {
   factory CountSession.fromJson(Map<String, dynamic> j) => CountSession(
         id: j['id'] as int,
         branchId: j['branch_id'] as int?,
+        safeBoxId: j['safe_box_id'] as int?,
+        entryId: j['entry_id'] as int?,
+        safeBoxName: j['safe_box_name'] as String?,
+        linesTotal: j['lines_total'] as int?,
+        linesCounted: j['lines_counted'] as int?,
         status: j['status'] as String,
         sessionType: j['session_type'] as String? ?? 'periodic',
         blindCount: j['blind_count'] as bool? ?? true,
@@ -150,6 +179,10 @@ class CountLine {
   final int id;
   final int sessionId;
   final int? branchId;
+  /// Where it is counted -- a stock safe (ADR-045).
+  final int? safeBoxId;
+  final String? safeBoxName;
+  /// null: «بلا تصنيف» -- counted like any other line.
   final int? categoryId;
   final String? categoryName;
   final double karat;
@@ -168,6 +201,8 @@ class CountLine {
     required this.id,
     required this.sessionId,
     required this.branchId,
+    this.safeBoxId,
+    this.safeBoxName,
     required this.categoryId,
     this.categoryName,
     required this.karat,
@@ -194,6 +229,8 @@ class CountLine {
         id: id,
         sessionId: sessionId,
         branchId: branchId,
+        safeBoxId: safeBoxId,
+        safeBoxName: safeBoxName,
         categoryId: categoryId,
         categoryName: categoryName,
         karat: karat,
@@ -210,6 +247,8 @@ class CountLine {
         id: j['id'] as int,
         sessionId: j['session_id'] as int,
         branchId: j['branch_id'] as int?,
+        safeBoxId: j['safe_box_id'] as int?,
+        safeBoxName: j['safe_box_name'] as String?,
         categoryId: j['category_id'] as int?,
         categoryName: j['category_name'] as String?,
         karat: (j['karat'] as num).toDouble(),
@@ -333,35 +372,29 @@ class AdjustmentLine {
       );
 }
 
-// ── Reconciliation ────────────────────────────────────────────────────────────
+// ── Audit (ADR-045 C2) ───────────────────────────────────────────────────────
 
+/// «مركز التدقيق»: per (location, karat) the books, how much is classified,
+/// and the last approved count. The stock is the books -- there is no second
+/// ledger to match against.
 class ReconciliationReport {
   final DateTime generatedAt;
-  final bool glAvailable;
   final bool isClean;
-  final int totalBuckets;
-  final int mismatchCount;
-  final int countDriftBuckets;
+  final int violations;
   final List<ReconciliationRow> rows;
 
   const ReconciliationReport({
     required this.generatedAt,
-    required this.glAvailable,
     required this.isClean,
-    required this.totalBuckets,
-    required this.mismatchCount,
-    required this.countDriftBuckets,
+    required this.violations,
     required this.rows,
   });
 
   factory ReconciliationReport.fromJson(Map<String, dynamic> j) =>
       ReconciliationReport(
         generatedAt: DateTime.parse(j['generated_at'] as String),
-        glAvailable: j['gl_available'] as bool? ?? false,
         isClean: j['is_clean'] as bool? ?? true,
-        totalBuckets: j['total_buckets'] as int? ?? 0,
-        mismatchCount: j['mismatches'] as int? ?? 0,
-        countDriftBuckets: j['count_drift_buckets'] as int? ?? 0,
+        violations: j['violations'] as int? ?? 0,
         rows: (j['rows'] as List? ?? [])
             .map((e) => ReconciliationRow.fromJson(e as Map<String, dynamic>))
             .toList(),
@@ -369,51 +402,46 @@ class ReconciliationReport {
 }
 
 class ReconciliationRow {
-  final int? branchId;
-  final int? categoryId;
+  final int safeBoxId;
+  final String? safeBoxName;
+  final String? stockLocation;
   final double karat;
-  final double ledgerSum;
-  final double balance;
-  final double? lastCountWeight;
-  final double? lastCountVariance;
+  final double booksGrams;
+  final double classifiedGrams;
+  final double unclassifiedGrams;
+  final int? lastCountSessionId;
   final DateTime? lastCountAt;
-  final bool ledgerVsBalanceOk;
-  final bool? ledgerVsCountOk;
+  final double? lastCountVariance;
 
   const ReconciliationRow({
-    required this.branchId,
-    required this.categoryId,
+    required this.safeBoxId,
+    this.safeBoxName,
+    this.stockLocation,
     required this.karat,
-    required this.ledgerSum,
-    required this.balance,
-    required this.ledgerVsBalanceOk,
-    this.lastCountWeight,
-    this.lastCountVariance,
+    required this.booksGrams,
+    required this.classifiedGrams,
+    required this.unclassifiedGrams,
+    this.lastCountSessionId,
     this.lastCountAt,
-    this.ledgerVsCountOk,
+    this.lastCountVariance,
   });
-
-  bool get hasMismatch => !ledgerVsBalanceOk;
-  bool get hasCountDrift => ledgerVsCountOk == false;
 
   factory ReconciliationRow.fromJson(Map<String, dynamic> j) =>
       ReconciliationRow(
-        branchId: j['branch_id'] as int?,
-        categoryId: j['category_id'] as int?,
+        safeBoxId: j['safe_box_id'] as int,
+        safeBoxName: j['safe_box_name'] as String?,
+        stockLocation: j['stock_location'] as String?,
         karat: (j['karat'] as num).toDouble(),
-        ledgerSum: (j['ledger_sum'] as num).toDouble(),
-        balance: (j['balance'] as num).toDouble(),
-        ledgerVsBalanceOk: j['ledger_vs_balance_ok'] as bool? ?? true,
-        lastCountWeight: j['last_count_weight'] != null
-            ? (j['last_count_weight'] as num).toDouble()
+        booksGrams: (j['books_grams'] as num).toDouble(),
+        classifiedGrams: (j['classified_grams'] as num).toDouble(),
+        unclassifiedGrams: (j['unclassified_grams'] as num).toDouble(),
+        lastCountSessionId: j['last_count_session_id'] as int?,
+        lastCountAt: j['last_count_at'] != null
+            ? DateTime.tryParse(j['last_count_at'] as String)
             : null,
         lastCountVariance: j['last_count_variance'] != null
             ? (j['last_count_variance'] as num).toDouble()
             : null,
-        lastCountAt: j['last_count_at'] != null
-            ? DateTime.tryParse(j['last_count_at'] as String)
-            : null,
-        ledgerVsCountOk: j['ledger_vs_count_ok'] as bool?,
       );
 }
 

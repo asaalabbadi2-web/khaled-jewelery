@@ -4,17 +4,18 @@ import '../models/inventory_models.dart';
 import '../services/inventory_service.dart';
 import '../theme/app_theme.dart';
 
-/// Reusable card showing live balance for one inventory bucket.
+/// Reusable card showing the stock of one (location, category, karat) --
+/// the books themselves (ADR-045).
 ///
 /// Usage — standalone:
-///   BucketBalanceCard(branchId: 1, categoryId: 3, karat: 21)
+///   BucketBalanceCard(safeBoxId: 30, categoryId: 3, karat: 21)
 ///
 /// Usage — from pre-loaded data:
 ///   BucketBalanceCard.fromBucket(bucket)
 ///
 /// Phase B: drop this card into the invoice screen to show live impact.
 class BucketBalanceCard extends StatefulWidget {
-  final int? branchId;
+  final int? safeBoxId;
   final int? categoryId;
   final double karat;
   final InventoryBucket? initialData; // skip first fetch if already loaded
@@ -22,7 +23,7 @@ class BucketBalanceCard extends StatefulWidget {
 
   const BucketBalanceCard({
     super.key,
-    required this.branchId,
+    required this.safeBoxId,
     required this.categoryId,
     required this.karat,
     this.initialData,
@@ -36,7 +37,7 @@ class BucketBalanceCard extends StatefulWidget {
   }) =>
       BucketBalanceCard(
         key: key,
-        branchId: bucket.branchId,
+        safeBoxId: bucket.safeBoxId,
         categoryId: bucket.categoryId,
         karat: bucket.karat,
         initialData: bucket,
@@ -69,12 +70,14 @@ class _BucketBalanceCardState extends State<BucketBalanceCard> {
     setState(() { _loading = true; _error = null; });
     try {
       final buckets = await _svc.getBalance(
-        branchId: widget.branchId,
+        safeBoxId: widget.safeBoxId,
         categoryId: widget.categoryId,
         karat: widget.karat,
       );
+      // No category asked: the unclassified row, not every category's.
+      final mine = buckets.where((b) => b.categoryId == widget.categoryId);
       setState(() {
-        _bucket = buckets.isNotEmpty ? buckets.first : null;
+        _bucket = mine.isNotEmpty ? mine.first : null;
         _loading = false;
       });
     } on InventoryApiException catch (e) {
@@ -159,11 +162,11 @@ class _BucketBalanceCardState extends State<BucketBalanceCard> {
                   color: AppColors.goldText(context),
                 ),
               ),
-              if (b.updatedAt != null)
-                Text(
-                  'آخر تحديث: ${_relativeTime(b.updatedAt!)}',
-                  style: TextStyle(fontSize: 10, color: Colors.grey[500]),
-                ),
+              Text(
+                [b.categoryName ?? 'بلا تصنيف', if (b.safeBoxName != null) b.safeBoxName!]
+                    .join(' · '),
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
             ],
           ),
         ),
@@ -244,13 +247,6 @@ class _BucketBalanceCardState extends State<BucketBalanceCard> {
     );
   }
 
-  String _relativeTime(DateTime dt) {
-    final diff = DateTime.now().difference(dt);
-    if (diff.inMinutes < 1) return 'الآن';
-    if (diff.inMinutes < 60) return 'قبل ${diff.inMinutes} دقيقة';
-    if (diff.inHours < 24) return 'قبل ${diff.inHours} ساعة';
-    return 'قبل ${diff.inDays} يوم';
-  }
 }
 
 /// Formats a weight value: removes trailing zeros, keeps up to 4 decimal places.

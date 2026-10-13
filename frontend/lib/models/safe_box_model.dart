@@ -7,6 +7,9 @@ class SafeBoxModel {
   final String safeType; // cash, bank, gold, check
   final int accountId;
   final int? karat; // للذهب
+  /// The kind of stock location this gold safe is (ADR-045): showroom,
+  /// custody, scrap, workshop, transit -- null: not stock.
+  final String? stockLocation;
   final String? bankName;
   final String? iban;
   final String? swiftCode;
@@ -40,6 +43,7 @@ class SafeBoxModel {
     required this.safeType,
     required this.accountId,
     this.karat,
+    this.stockLocation,
     this.bankName,
     this.iban,
     this.swiftCode,
@@ -85,6 +89,7 @@ class SafeBoxModel {
       safeType: json['safe_type'],
       accountId: json['account_id'],
       karat: json['karat'],
+      stockLocation: json['stock_location'] as String?,
       bankName: json['bank_name'],
       iban: json['iban'],
       swiftCode: json['swift_code'],

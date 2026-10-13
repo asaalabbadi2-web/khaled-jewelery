@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../api_service.dart';
 import '../models/inventory_models.dart';
+import '../models/safe_box_model.dart';
 import '../services/inventory_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/bucket_balance_card.dart' show formatWeight;
@@ -16,6 +17,15 @@ import '../widgets/bucket_balance_card.dart' show formatWeight;
 ///   • Blind count enforced server-side; UI only hides/shows based on flag.
 ///   • Save on blur/Enter only — never on keystroke.
 ///   • Pull-to-refresh for multi-device awareness without websockets.
+/// A count line's name: its category -- «بلا تصنيف» without one, a line counted
+/// like any other (ADR-045) -- and its location when it has one.
+String countLineLabel(CountLine line) {
+  final category = (line.categoryName != null && line.categoryName!.isNotEmpty)
+      ? line.categoryName!
+      : 'بلا تصنيف';
+  return line.safeBoxName != null ? '$category — ${line.safeBoxName}' : category;
+}
+
 class InventoryCountScreen extends StatefulWidget {
   final int? sessionId;
   const InventoryCountScreen({super.key, this.sessionId});
@@ -114,14 +124,16 @@ class _InventoryCountScreenState extends State<InventoryCountScreen> {
   // ── Save entry ────────────────────────────────────────────────────────────
 
   Future<void> _saveEntry(_LineState ls, double value) async {
-    if (_session == null || ls.line.categoryId == null) return;
+    // «بلا تصنيف» (no category) is counted like any line (ADR-045).
+    if (_session == null) return;
     setState(() => ls.status = CountLineStatus.saving);
     try {
       final updated = await _svc.recordEntry(
         sessionId: _session!.id,
-        categoryId: ls.line.categoryId!,
+        categoryId: ls.line.categoryId,
         karat: ls.line.karat,
         countedWeight: value,
+        safeBoxId: ls.line.safeBoxId ?? _session!.safeBoxId,
       );
       final refreshed = await _svc.getSession(_session!.id);
       setState(() {
@@ -185,13 +197,8 @@ class _InventoryCountScreenState extends State<InventoryCountScreen> {
     _saveEntry(ls, value);
   }
 
-  String _itemLabel(CountLine line) {
-    final name = line.categoryName;
-    final karat = line.karat.toStringAsFixed(0);
-    if (name != null && name.isNotEmpty) return '$name ${karat}K';
-    if (line.categoryId != null) return '#${line.categoryId} ${karat}K';
-    return '${karat}K';
-  }
+  String _itemLabel(CountLine line) =>
+      '${countLineLabel(line)} ${line.karat.toStringAsFixed(0)}K';
 
   // ── Add item (opening sessions) ───────────────────────────────────────────
 
@@ -203,13 +210,16 @@ class _InventoryCountScreenState extends State<InventoryCountScreen> {
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
       builder: (_) => _AddItemSheet(
-        onAdd: (categoryId, categoryName, karat, weight) async {
+        fixedLocationId: _session!.safeBoxId,
+        onAdd: (safeBoxId, safeBoxName, categoryId, categoryName, karat, weight) async {
           Navigator.pop(context);
           // Create a temporary _LineState so the row appears immediately
           final tempLine = CountLine(
             id: -DateTime.now().millisecondsSinceEpoch,
             sessionId: _session!.id,
             branchId: _session!.branchId,
+            safeBoxId: safeBoxId,
+            safeBoxName: safeBoxName,
             categoryId: categoryId,
             categoryName: categoryName,
             karat: karat,
@@ -495,7 +505,7 @@ class _InventoryCountScreenState extends State<InventoryCountScreen> {
       try {
         final result = await _svc.approveSession(_session!.id);
         _applySession(result.session);
-        if (mounted) await _showSuccessDialog(result.session, adjustmentId: null);
+        if (mounted) await _showSuccessDialog(result.session, entryNumber: result.entryNumber);
       } on InventoryApiException catch (e) {
         setState(() => _loading = false);
         if (mounted) {
@@ -541,7 +551,7 @@ class _InventoryCountScreenState extends State<InventoryCountScreen> {
       if (mounted) {
         await _showSuccessDialog(
           result.session,
-          adjustmentId: result.adjustment?.id,
+          entryNumber: result.entryNumber,
         );
       }
     } on InventoryApiException catch (e) {
@@ -554,7 +564,17 @@ class _InventoryCountScreenState extends State<InventoryCountScreen> {
     }
   }
 
-  Future<void> _showSuccessDialog(CountSession approved, {int? adjustmentId}) async {
+  static String _formatDuration(Duration d) {
+    if (d.inMinutes < 1) return 'أقل من دقيقة';
+    if (d.inHours < 1) return '${d.inMinutes} دقيقة';
+    final h = d.inHours;
+    final m = d.inMinutes.remainder(60);
+    return m > 0 ? '$h ساعة و$m دقيقة' : '$h ساعة';
+  }
+
+  /// [entryNumber]: the differences' posted entry in the books (ADR-045) --
+  /// null when nothing differed.
+  Future<void> _showSuccessDialog(CountSession approved, {String? entryNumber}) async {
     final totalLines = _lineStates.length;
     final varCount = _lineStates
         .where((l) => l.line.variance != null && l.line.variance != 0)
@@ -603,23 +623,14 @@ class _InventoryCountScreenState extends State<InventoryCountScreen> {
                 _SuccessStat(label: 'بدأه', value: approved.openedBy!),
               if (approved.approvedBy != null)
                 _SuccessStat(label: 'اعتمده', value: approved.approvedBy!),
+              _SuccessStat(
+                label: 'قيد الفروق',
+                value: entryNumber ?? 'لا فروق — لا قيد',
+              ),
             ],
           ),
           actionsAlignment: MainAxisAlignment.center,
           actions: [
-            if (adjustmentId != null)
-              OutlinedButton.icon(
-                onPressed: () {
-                  Navigator.pop(context);
-                  _showAdjustmentSheet(adjustmentId);
-                },
-                icon: const Icon(Icons.receipt_long_outlined, size: 16),
-                label: const Text('عرض مستند ال��سوية'),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: AppColors.primaryGold,
-                  side: const BorderSide(color: AppColors.primaryGold),
-                ),
-              ),
             ElevatedButton(
               onPressed: () => Navigator.pop(context),
               style: ElevatedButton.styleFrom(
@@ -634,105 +645,6 @@ class _InventoryCountScreenState extends State<InventoryCountScreen> {
       ),
     );
   }
-
-  Future<void> _showAdjustmentSheet(int adjustmentId) async {
-    final InventoryAdjustment adj;
-    try {
-      adj = await _svc.getAdjustment(adjustmentId);
-    } on InventoryApiException catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(e.message), backgroundColor: AppColors.error),
-        );
-      }
-      return;
-    }
-    if (!mounted) return;
-
-    final reasonLabel = AdjustmentReason.fallback
-        .firstWhere(
-          (r) => r.code == adj.reasonCode,
-          orElse: () => AdjustmentReason(
-              code: adj.reasonCode ?? '', label: adj.reasonCode ?? '—'),
-        )
-        .label;
-
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (_) => Directionality(
-        textDirection: TextDirection.rtl,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 20, 20, 36),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(children: [
-                const Icon(Icons.receipt_long_outlined,
-                    color: AppColors.primaryGold),
-                const SizedBox(width: 10),
-                Text('مستند تسوية #${adj.id}',
-                    style: const TextStyle(
-                        fontSize: 17, fontWeight: FontWeight.bold)),
-              ]),
-              const Divider(height: 24),
-              _AdjRow(label: 'الحالة',
-                  value: adj.status == 'posted' ? 'مُرحَّل' : adj.status),
-              _AdjRow(label: 'السبب', value: reasonLabel),
-              if (adj.note != null && adj.note!.isNotEmpty)
-                _AdjRow(label: 'ملاحظة', value: adj.note!),
-              _AdjRow(label: 'أنشأه', value: adj.createdBy ?? '—'),
-              if (adj.postedBy != null)
-                _AdjRow(label: 'رحّله', value: adj.postedBy!),
-              if (adj.lines.isNotEmpty) ...[
-                const SizedBox(height: 16),
-                const Text('البنود',
-                    style: TextStyle(
-                        fontWeight: FontWeight.w600,
-                        fontSize: 13,
-                        color: Colors.grey)),
-                const SizedBox(height: 8),
-                ...adj.lines.map((ln) {
-                  final v = ln.varianceWeight;
-                  final catLabel = ln.categoryId != null
-                      ? '#${ln.categoryId} ${ln.karat.toStringAsFixed(0)}K'
-                      : '${ln.karat.toStringAsFixed(0)}K';
-                  return Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 4),
-                    child: Row(children: [
-                      Expanded(
-                          child: Text(catLabel,
-                              style: const TextStyle(fontSize: 13))),
-                      Text(
-                        '${v >= 0 ? '+' : ''}${formatWeight(v)} جم',
-                        style: TextStyle(
-                          fontWeight: FontWeight.bold,
-                          color: v > 0 ? AppColors.success : AppColors.error,
-                        ),
-                      ),
-                    ]),
-                  );
-                }),
-              ],
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  static String _formatDuration(Duration d) {
-    if (d.inMinutes < 1) return 'أقل من دقيقة';
-    if (d.inHours < 1) return '${d.inMinutes} دقيقة';
-    final h = d.inHours;
-    final m = d.inMinutes.remainder(60);
-    return m > 0 ? '$h ساعة و$m دقيقة' : '$h ساعة';
-  }
-
-  // ── Build ─────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
@@ -1351,8 +1263,7 @@ class _FocusedCardState extends State<_FocusedCard> {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final badgeTextColor =
         isDark ? karatColor : AppColors.karatBadgeTextColorFor(karat);
-    final categoryLabel = line.categoryName ??
-        (line.categoryId != null ? '#${line.categoryId}' : '—');
+    final categoryLabel = countLineLabel(line);
     final saved = ls.status == CountLineStatus.saved || line.isCounted;
     final saving = ls.status == CountLineStatus.saving;
     final failed = ls.status == CountLineStatus.failed;
@@ -1666,11 +1577,7 @@ class _NavList extends StatelessWidget {
           final isCurrent = i == currentIndex;
           final isDone = ls.line.isCounted;
           final karatColor = AppColors.karatColorFor(ls.line.karat);
-          final label = ls.line.categoryName != null
-              ? ls.line.categoryName!
-              : ls.line.categoryId != null
-                  ? '#${ls.line.categoryId}'
-                  : '—';
+          final label = countLineLabel(ls.line);
 
           return InkWell(
             onTap: () => onTap(i),
@@ -1811,8 +1718,7 @@ class _CountLineRowState extends State<_CountLineRow> {
     final line = ls.line;
     final karat = line.karat;
     final karatColor = AppColors.karatColorFor(karat);
-    final categoryLabel = line.categoryName ??
-        (line.categoryId != null ? '#${line.categoryId}' : '—');
+    final categoryLabel = countLineLabel(line);
 
     // ── Counting mode (employee view) ─────────────────────────────────────
     if (_editable || (_isBlind && !_editable)) {
@@ -2405,11 +2311,11 @@ class _ApproveDialogState extends State<_ApproveDialog> {
                 style: TextStyle(
                     fontWeight: FontWeight.bold, fontSize: 14)),
             const SizedBox(height: 12),
+            // One entry in the books (ADR-045): only the net of a location
+            // and karat is a loss or a gain; the rest moves between categories.
             if (hasVariance)
-              _WillDo('إنشاء مستند تسوية بالفروقات'),
-            _WillDo('تحديث أرصدة المخزون'),
-            if (hasVariance)
-              _WillDo('إنشاء قيود محاسبية في الدفتر العام'),
+              _WillDo('قيد فروق جرد في الدفاتر — الصافي إلى «خسارة الوزن» أو «زيادة جرد»'),
+            _WillDo('رصيد كل تصنيف وموقع يصير ما عُدّ'),
             const SizedBox(height: 14),
             _InfoChip(
               icon: Icons.warning_amber_rounded,
@@ -2562,8 +2468,10 @@ class _OpenSessionSheet extends StatefulWidget {
 }
 
 class _OpenSessionSheetState extends State<_OpenSessionSheet> {
-  List<Map<String, dynamic>> _branches = [];
-  Map<String, dynamic>? _selectedBranch;
+  /// The stock locations (gold safes with a stock_location, ADR-045).
+  List<SafeBoxModel> _locations = [];
+  /// The location to count: 0 -- every one.
+  int _selectedLocation = 0;
   bool _blindCount = true;
   bool _isOpening = false;
   bool _loadingBranches = true;
@@ -2579,34 +2487,29 @@ class _OpenSessionSheetState extends State<_OpenSessionSheet> {
   @override
   void initState() {
     super.initState();
-    _loadBranches();
+    _loadLocations();
   }
 
-  Future<void> _loadBranches() async {
+  Future<void> _loadLocations() async {
     try {
-      final branches = await ApiService().getBranches(activeOnly: true);
+      final safes = await ApiService().getSafeBoxes(safeType: 'gold', isActive: true);
       setState(() {
-        _branches = branches;
-        _selectedBranch = branches.isNotEmpty ? branches.first : null;
+        _locations = safes.where((s) => s.stockLocation != null && s.id != null).toList();
         _loadingBranches = false;
       });
     } catch (_) {
       setState(() {
         _loadingBranches = false;
-        _error = 'تعذّر تحميل الفروع';
+        _error = 'تعذّر تحميل مواقع المخزون';
       });
     }
   }
 
   Future<void> _open() async {
-    if (_selectedBranch == null) {
-      setState(() => _error = 'اختر الفرع أولاً');
-      return;
-    }
     setState(() { _submitting = true; _error = null; });
     try {
       final s = await widget.svc.openSession(
-        branchId: _selectedBranch!['id'] as int,
+        safeBoxId: _selectedLocation == 0 ? null : _selectedLocation,
         blindCount: _isOpening ? false : _blindCount,
         sessionType: _isOpening ? 'opening' : 'periodic',
       );
@@ -2670,30 +2573,31 @@ class _OpenSessionSheetState extends State<_OpenSessionSheet> {
                       color: AppColors.primaryGold),
                 ),
               )
-            else if (_branches.isEmpty)
+            else if (_locations.isEmpty)
               _InfoChip(
                 icon: Icons.warning_amber_rounded,
-                label: 'لا توجد فروع — أضف فرعاً من الإعدادات',
+                label: 'لا توجد مواقع مخزون — حدّد نوع الموقع للخزائن من إدارة الخزائن',
                 color: AppColors.warning,
               )
             else
-              DropdownButtonFormField<Map<String, dynamic>>(
-                value: _selectedBranch,
+              DropdownButtonFormField<int>(
+                value: _selectedLocation,
                 isExpanded: true,
                 decoration: InputDecoration(
-                  labelText: 'الفرع',
-                  prefixIcon: const Icon(Icons.store_outlined),
+                  labelText: 'الموقع',
+                  prefixIcon: const Icon(Icons.inventory_2_outlined),
                   border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(10)),
                 ),
-                items: _branches
-                    .map((b) => DropdownMenuItem(
-                          value: b,
-                          child: Text(b['name'] as String? ?? '—'),
-                        ))
-                    .toList(),
+                items: [
+                  const DropdownMenuItem(value: 0, child: Text('كل المواقع')),
+                  ..._locations.map((s) => DropdownMenuItem(
+                        value: s.id!,
+                        child: Text(s.name),
+                      )),
+                ],
                 onChanged: (v) => setState(() {
-                  _selectedBranch = v;
+                  _selectedLocation = v ?? 0;
                   _error = null;
                   _existingSessionId = null;
                 }),
@@ -2711,7 +2615,7 @@ class _OpenSessionSheetState extends State<_OpenSessionSheet> {
               title: const Text('جرد افتتاحي (أول مرة)',
                   style: TextStyle(fontWeight: FontWeight.w600)),
               subtitle: const Text(
-                'لتسجيل أرصدة البداية — لا تُنشئ قيود تسوية',
+                'لتسجيل أرصدة البداية — بقيد فروق في الدفاتر',
                 style: TextStyle(fontSize: 12),
               ),
               activeColor: Colors.teal,
@@ -2763,7 +2667,7 @@ class _OpenSessionSheetState extends State<_OpenSessionSheet> {
                 child: ElevatedButton(
                   onPressed: (_submitting ||
                           _loadingBranches ||
-                          _selectedBranch == null)
+                          _locations.isEmpty)
                       ? null
                       : _open,
                   style: ElevatedButton.styleFrom(
@@ -2801,15 +2705,20 @@ class _OpenSessionSheetState extends State<_OpenSessionSheet> {
 // ── Add Item Sheet (opening sessions) ────────────────────────────────────────
 
 class _AddItemSheet extends StatefulWidget {
-  const _AddItemSheet({required this.onAdd});
-  final void Function(int categoryId, String categoryName, double karat,
-      double weight) onAdd;
+  const _AddItemSheet({required this.onAdd, this.fixedLocationId});
+  /// The session's location -- null: it counts every location, and the line's
+  /// is chosen here (ADR-045).
+  final int? fixedLocationId;
+  final void Function(int? safeBoxId, String? safeBoxName, int categoryId,
+      String categoryName, double karat, double weight) onAdd;
 
   @override
   State<_AddItemSheet> createState() => _AddItemSheetState();
 }
 
 class _AddItemSheetState extends State<_AddItemSheet> {
+  List<SafeBoxModel> _locations = [];
+  SafeBoxModel? _location;
   List<Map<String, dynamic>> _allCategories = [];
   List<Map<String, dynamic>> _filtered = [];
   Map<String, dynamic>? _selectedCategory;
@@ -2830,6 +2739,7 @@ class _AddItemSheetState extends State<_AddItemSheet> {
   void initState() {
     super.initState();
     _loadCategories();
+    if (widget.fixedLocationId == null) _loadLocations();
     _searchCtrl.addListener(_onSearchChanged);
   }
 
@@ -2839,6 +2749,17 @@ class _AddItemSheetState extends State<_AddItemSheet> {
     _weightCtrl.dispose();
     _weightFocus.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadLocations() async {
+    try {
+      final safes = await ApiService().getSafeBoxes(safeType: 'gold', isActive: true);
+      if (!mounted) return;
+      setState(() => _locations =
+          safes.where((s) => s.stockLocation != null && s.id != null).toList());
+    } catch (_) {
+      if (mounted) setState(() => _error = 'تعذّر تحميل مواقع المخزون');
+    }
   }
 
   Future<void> _loadCategories() async {
@@ -2917,6 +2838,10 @@ class _AddItemSheetState extends State<_AddItemSheet> {
       setState(() => _error = 'اختر الصنف أولاً');
       return;
     }
+    if (widget.fixedLocationId == null && _location == null) {
+      setState(() => _error = 'اختر الموقع أولاً');
+      return;
+    }
     final weight = double.tryParse(_weightCtrl.text.trim());
     if (weight == null || weight < 0) {
       setState(() => _error = 'أدخل وزناً صحيحاً (يمكن أن يكون صفراً)');
@@ -2924,6 +2849,8 @@ class _AddItemSheetState extends State<_AddItemSheet> {
     }
     setState(() { _submitting = true; _error = null; });
     widget.onAdd(
+      widget.fixedLocationId ?? _location?.id,
+      _location?.name,
       _selectedCategory!['id'] as int,
       _selectedCategory!['name'] as String? ?? '—',
       _selectedKarat,
@@ -2964,6 +2891,22 @@ class _AddItemSheetState extends State<_AddItemSheet> {
             const Text('إضافة صنف',
                 style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
             const SizedBox(height: 16),
+            if (widget.fixedLocationId == null) ...[
+              DropdownButtonFormField<SafeBoxModel>(
+                value: _location,
+                isExpanded: true,
+                decoration: InputDecoration(
+                  labelText: 'الموقع',
+                  prefixIcon: const Icon(Icons.inventory_2_outlined),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                ),
+                items: _locations
+                    .map((s) => DropdownMenuItem(value: s, child: Text(s.name)))
+                    .toList(),
+                onChanged: (v) => setState(() { _location = v; _error = null; }),
+              ),
+              const SizedBox(height: 12),
+            ],
 
             // ── Category search/select ─────────────────────────────────────
             TextField(
@@ -3145,30 +3088,6 @@ class _AddItemSheetState extends State<_AddItemSheet> {
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-
-class _AdjRow extends StatelessWidget {
-  const _AdjRow({required this.label, required this.value});
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.symmetric(vertical: 5),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text(label,
-                style: TextStyle(fontSize: 13, color: Colors.grey[500])),
-            Flexible(
-              child: Text(value,
-                  textAlign: TextAlign.left,
-                  style: const TextStyle(
-                      fontWeight: FontWeight.w600, fontSize: 13)),
-            ),
-          ],
-        ),
-      );
-}
 
 class _LineState {
   CountLine line;
