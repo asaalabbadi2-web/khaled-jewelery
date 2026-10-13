@@ -25,6 +25,8 @@ import pytest
 from app import app as flask_app
 from models import Account, Category, Invoice, InvoiceItem, JournalEntry, JournalEntryLine, SafeBox, db
 
+NOW = datetime(2026, 10, 13, 12, 0)
+
 
 @pytest.fixture(scope='module')
 def app():
@@ -83,31 +85,31 @@ class TestTheAllocationLaw:
         from services.stock_ledger import allocate
         box, ring, chain = _safe(), _category(), _category()
         line = _line(box, credit_21k=30.0)
-        allocate(line, 21, ring.id, -20.0, by='t')
-        allocate(line, 21, chain.id, -10.0, by='t')
+        allocate(line, 21, ring.id, -20.0, by='t', now=NOW)
+        allocate(line, 21, chain.id, -10.0, by='t', now=NOW)
         assert _balances(box) == {(21, ring.id): -20.0, (21, chain.id): -10.0}
 
     def test_more_than_the_line_holds_is_refused(self, app):
         from services.stock_ledger import StockAllocationError, allocate
         box, ring = _safe(), _category()
         line = _line(box, credit_21k=30.0)
-        allocate(line, 21, ring.id, -25.0, by='t')
+        allocate(line, 21, ring.id, -25.0, by='t', now=NOW)
         with pytest.raises(StockAllocationError):
-            allocate(line, 21, ring.id, -5.01, by='t')
+            allocate(line, 21, ring.id, -5.01, by='t', now=NOW)
 
     def test_the_line_sign_is_kept(self, app):
         from services.stock_ledger import StockAllocationError, allocate
         box, ring = _safe(), _category()
         line = _line(box, credit_21k=30.0)
         with pytest.raises(StockAllocationError):
-            allocate(line, 21, ring.id, 10.0, by='t')
+            allocate(line, 21, ring.id, 10.0, by='t', now=NOW)
 
     def test_a_karat_the_line_does_not_hold_is_refused(self, app):
         from services.stock_ledger import StockAllocationError, allocate
         box, ring = _safe(), _category()
         line = _line(box, debit_21k=30.0)
         with pytest.raises(StockAllocationError):
-            allocate(line, 18, ring.id, 5.0, by='t')
+            allocate(line, 18, ring.id, 5.0, by='t', now=NOW)
 
     def test_a_line_that_is_not_stock_is_refused(self, app):
         """An office's gold safe: gold owed, not stock."""
@@ -115,7 +117,7 @@ class TestTheAllocationLaw:
         box, ring = _safe(location=None), _category()
         line = _line(box, debit_21k=30.0)
         with pytest.raises(StockAllocationError):
-            allocate(line, 21, ring.id, 5.0, by='t')
+            allocate(line, 21, ring.id, 5.0, by='t', now=NOW)
 
 
 class TestTheOneReader:
@@ -124,7 +126,7 @@ class TestTheOneReader:
         from services.stock_ledger import allocate
         box, ring = _safe(), _category()
         line = _line(box, debit_21k=30.0, debit_18k=4.0)
-        allocate(line, 21, ring.id, 20.0, by='t')
+        allocate(line, 21, ring.id, 20.0, by='t', now=NOW)
         assert _balances(box) == {(21, ring.id): 20.0, (21, None): 10.0, (18, None): 4.0}
 
     def test_it_is_the_books_on_stock_safes_only(self, app):
@@ -146,7 +148,7 @@ class TestTheOneReader:
         from services.stock_ledger import allocate
         box, ring = _safe(), _category()
         line = _line(box, debit_21k=30.0)
-        allocate(line, 21, ring.id, 30.0, by='t')
+        allocate(line, 21, ring.id, 30.0, by='t', now=NOW)
         line_id = line.id
         JournalEntryLine.query.filter_by(id=line_id).delete(synchronize_session=False)
         db.session.flush()
@@ -173,14 +175,14 @@ class TestTheInvoiceAllocates:
         from services.stock_ledger import allocate_invoice
         box, ring, chain = _safe(), _category(), _category()
         invoice, _ = self._sale(box, [(ring, 21, 5.3), (chain, 21, 16.2)], posted=True)
-        allocate_invoice(invoice, by='t')
+        allocate_invoice(invoice, by='t', now=NOW)
         assert _balances(box) == {(21, ring.id): -5.3, (21, chain.id): -16.2}
 
     def test_a_line_without_a_category_stays_unclassified(self, app):
         from services.stock_ledger import allocate_invoice
         box, ring = _safe(), _category()
         invoice, _ = self._sale(box, [(ring, 21, 5.0), (None, 21, 3.0)], posted=True)
-        allocate_invoice(invoice, by='t')
+        allocate_invoice(invoice, by='t', now=NOW)
         assert _balances(box) == {(21, ring.id): -5.0, (21, None): -3.0}
 
     def test_allocating_twice_writes_once(self, app):
@@ -188,8 +190,8 @@ class TestTheInvoiceAllocates:
         from services.stock_ledger import allocate_invoice
         box, ring = _safe(), _category()
         invoice, line = self._sale(box, [(ring, 21, 5.0)], posted=True)
-        allocate_invoice(invoice, by='t')
-        allocate_invoice(invoice, by='t')
+        allocate_invoice(invoice, by='t', now=NOW)
+        allocate_invoice(invoice, by='t', now=NOW)
         assert StockLineAllocation.query.filter_by(journal_entry_line_id=line.id).count() == 1
 
     def test_items_heavier_than_the_line_are_refused(self, app):
@@ -199,7 +201,7 @@ class TestTheInvoiceAllocates:
         line.credit_21k = 4.0
         db.session.flush()
         with pytest.raises(StockAllocationError):
-            allocate_invoice(invoice, by='t')
+            allocate_invoice(invoice, by='t', now=NOW)
 
     def test_posting_an_invoice_allocates_it(self, app):
         from posting_routes import post_invoice_document
@@ -237,7 +239,7 @@ class TestTheLawIsWatchedEveryNight:
         from services.stock_ledger import allocate
         box, ring = _safe(), _category()
         line = _line(box, credit_21k=30.0)
-        allocate(line, 21, ring.id, -30.0, by='t')
+        allocate(line, 21, ring.id, -30.0, by='t', now=NOW)
         line.credit_21k = 20.0
         db.session.flush()
         assert f'journal_entry:{line.journal_entry_id}:21k' in self._subjects()
@@ -246,7 +248,7 @@ class TestTheLawIsWatchedEveryNight:
         from services.stock_ledger import allocate
         box, ring = _safe(), _category()
         line = _line(box, debit_21k=30.0)
-        allocate(line, 21, ring.id, 30.0, by='t')
+        allocate(line, 21, ring.id, 30.0, by='t', now=NOW)
         box.stock_location = None
         db.session.flush()
         assert f'journal_entry:{line.journal_entry_id}:21k' in self._subjects()
@@ -255,7 +257,7 @@ class TestTheLawIsWatchedEveryNight:
         from services.stock_ledger import allocate
         box, ring = _safe(), _category()
         line = _line(box, debit_21k=30.0)
-        allocate(line, 21, ring.id, 30.0, by='t')
+        allocate(line, 21, ring.id, 30.0, by='t', now=NOW)
         assert f'journal_entry:{line.journal_entry_id}:21k' not in self._subjects()
 
     def test_it_runs_every_night_and_has_a_meaning_on_the_screen(self, app):

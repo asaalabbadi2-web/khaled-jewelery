@@ -14,8 +14,6 @@ second ledger to drift: the karat totals are the books' by construction.
 """
 from __future__ import annotations
 
-from datetime import datetime
-
 from sqlalchemy import func
 
 from models import (
@@ -42,7 +40,7 @@ def _stock_safe_ids_by_account() -> dict:
             .filter(SafeBox.stock_location.isnot(None)).all()}
 
 
-def allocate(line, karat: int, category_id: int, grams: float, *, item_id=None, by=None):
+def allocate(line, karat: int, category_id: int, grams: float, *, now, item_id=None, by=None):
     """Allocate grams of a stock line's karat to a category -- or refuse."""
     if int(line.account_id) not in _stock_safe_ids_by_account():
         raise StockAllocationError(f'السطر {line.id} ليس على خزينة مخزون')
@@ -59,13 +57,13 @@ def allocate(line, karat: int, category_id: int, grams: float, *, item_id=None, 
             f'التوزيع يتجاوز السطر {line.id} في عيار {karat}: {abs(taken + grams):.3f} من {abs(net):.3f}')
     row = StockLineAllocation(journal_entry_line_id=line.id, karat=int(karat), category_id=int(category_id),
                               item_id=item_id, grams=round(float(grams), 3), created_by=by,
-                              created_at=datetime.now())
+                              created_at=now)
     db.session.add(row)
     db.session.flush()
     return row
 
 
-def allocate_invoice(invoice: Invoice, *, by=None) -> list:
+def allocate_invoice(invoice: Invoice, *, now, by=None) -> list:
     """An invoice's stock lines, allocated by its items' categories.
 
     Idempotent: lines already allocated are left as they are. An invoice with
@@ -115,7 +113,7 @@ def allocate_invoice(invoice: Invoice, *, by=None) -> list:
                 if take <= TOLERANCE:
                     continue
                 written.append(allocate(line, karat, category_id, take if net > 0 else -take,
-                                        item_id=item_id, by=by))
+                                        item_id=item_id, by=by, now=now))
                 left[i] -= take
                 w -= take
     return written
