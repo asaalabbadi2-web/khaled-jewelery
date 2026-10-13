@@ -1,29 +1,36 @@
-"""InventoryCountService — manages physical inventory count sessions.
+"""InventoryCountService -- the count on the one reader (ADR-045 C1).
 
 Lifecycle:
-    open_session()    → status='open',     snapshot_ledger_id captured
-    start_counting()  → status='counting'  (optional state; lines can be added any time)
-    record_count()    → update InventoryCountLine.counted_weight + variance
-    close_session()   → status='closed'    (see policy below)
-    approve_session() → status='approved'  (triggers GL adjustment or opening entries)
+    open_session()    -> status='open'      one location (a stock safe) or every one
+    populate_lines()  -> one line per (location, category, karat) of the stock,
+                         its expected weight frozen at opening
+    record_count()    -> counted weight and variance, status='counting'
+    close_session()   -> status='closed'    (close policy below)
+    approve_session() -> status='approved'  writes the difference entry
 
-Close Policy (enforced here, not in routes):
-    session_type='opening':  ALL lines must be counted — no partial close.
-        Rationale: opening balance is a one-time foundation; a partial opening
-        corrupts the starting point for all future periodic counts.
-    session_type='periodic': partial close allowed with force=True.
-        Rationale: items may be at jeweler, pledged, or otherwise absent.
-        Uncounted lines appear in reconciliation as gaps.
+The expected weights are the stock itself (services/stock_ledger): the posted
+lines on the stock safes and their category allocations. The approval writes
+ONE posted entry (reference_type 'inventory_count'): per location and karat, a
+safe line for what was found over and one for what was found short (a line
+keeps its sign), each allocated to its categories; only their NET reaches the
+shortage role's weight account («خسارة الوزن (الفقد)») or the surplus role's
+(«زيادة جرد») -- the rest moved between categories, neither lost nor gained.
+The books then hold, per (location, category, karat), what was counted. The
+owner, 13 Oct 2026. Grams only for now: the value line comes with the two pools'
+accounts (ADR-042 phase 3); 2026's last count needs none (ADR-044 opens 2027
+at the opening average). Every time is passed in (clock guard).
 
-snapshot_ledger_id:
-    Captured once at open time as MAX(InventoryLedger.id).
-    This is the Ledger cutoff — only entries up to this ID contribute to
-    expected_weight on count lines.  Entries posted after this ID (during
-    the count) are excluded from the expected calculation.
+Close policy:
+    session_type='opening':  every line counted (or zero_uncounted) -- the
+        catalogue's categories are listed at zero where nothing is held.
+    session_type='periodic': partial close with force=True (a piece at the
+        jeweller is still ours, «عند الصائغ»).
 """
 from __future__ import annotations
-from datetime import datetime
+
 from typing import List
+
+STANDARD_KARATS = (18.0, 21.0, 22.0, 24.0)
 
 
 class InventoryCountService:
@@ -31,330 +38,187 @@ class InventoryCountService:
     # ── Open ──────────────────────────────────────────────────────────────────
 
     @classmethod
-    def open_session(
-        cls,
-        branch_id: int | None,
-        opened_by: str,
-        notes: str = '',
-        blind_count: bool = True,
-        session_type: str = 'periodic',
-    ) -> 'InventoryCountSession':
-        """Open a new count session and freeze the Ledger snapshot.
+    def open_session(cls, branch_id, opened_by: str, now, notes: str = '', blind_count: bool = True,
+                     session_type: str = 'periodic', safe_box_id=None) -> 'InventoryCountSession':
+        """Open a count of one stock safe (safe_box_id) or of every one (None).
 
-        session_type='opening': first-time stock entry. Forced blind_count=False
-        (counter enters real weights freely); on approval posts InventoryLedger
-        rows with movement_type='opening' instead of creating an InventoryAdjustment.
-
-        Raises ValueError if another open/counting session exists for this branch.
-        Raises ValueError if session_type='opening' and an approved opening session
-        already exists for this branch (one opening session per branch, ever).
+        Raises ValueError when a session is already open for that scope, or the
+        safe is not a stock location.
         """
-        from models import db, InventoryCountSession, InventoryLedger
-        from sqlalchemy import func
+        from models import InventoryCountSession, SafeBox, db
 
         if session_type not in ('periodic', 'opening'):
             raise ValueError(f'session_type غير صالح: {session_type}')
-
-        # Opening session has no expected values to hide — blind count makes no sense
         if session_type == 'opening':
             blind_count = False
-
-        # Guard: only one active session per branch
+        if safe_box_id is not None:
+            box = db.session.get(SafeBox, int(safe_box_id))
+            if box is None or not box.stock_location:
+                raise ValueError('الخزينة المختارة ليست موقع مخزون')
         active = InventoryCountSession.query.filter(
-            InventoryCountSession.branch_id == branch_id,
-            InventoryCountSession.status.in_(['open', 'counting']),
-        ).first()
+            InventoryCountSession.safe_box_id.is_(None) if safe_box_id is None
+            else InventoryCountSession.safe_box_id == int(safe_box_id),
+            InventoryCountSession.status.in_(['open', 'counting'])).first()
         if active:
-            raise ValueError(
-                f'جلسة جرد مفتوحة بالفعل (#{active.id}) لهذا الفرع — '
-                f'أغلقها أولاً قبل فتح جلسة جد��دة.'
-            )
-
-        # Guard: only one APPROVED opening session per branch
-        if session_type == 'opening':
-            prior = InventoryCountSession.query.filter(
-                InventoryCountSession.branch_id == branch_id,
-                InventoryCountSession.session_type == 'opening',
-                InventoryCountSession.status == 'approved',
-            ).first()
-            if prior:
-                raise ValueError(
-                    f'يوجد رصيد افتتاحي معتمد بالفعل لهذا الفرع (جلسة #{prior.id}). '
-                    f'الجرد الافتتاحي ينفَّذ مرة واحدة فقط ��ند بدء تشغيل النظام. '
-                    f'لتصحيح الأرصدة، استخدم جلس�� جرد دوري.'
-                )
-
-        # Freeze the Ledger cutoff (0 for opening — no prior ledger entries expected)
-        max_id = db.session.query(func.max(InventoryLedger.id)).scalar() or 0
+            raise ValueError(f'جلسة جرد مفتوحة بالفعل (#{active.id}) لهذا الموقع — أغلقها أولاً قبل فتح جلسة جديدة.')
 
         session = InventoryCountSession(
-            branch_id=branch_id,
-            status='open',
-            session_type=session_type,
-            snapshot_ledger_id=max_id,
-            blind_count=blind_count,
-            opened_by=opened_by,
-            opened_at=datetime.now(),  # clock-guard: TIME-001
-            notes=notes or None,
-        )
+            branch_id=branch_id, safe_box_id=safe_box_id, status='open', session_type=session_type,
+            snapshot_ledger_id=None, blind_count=blind_count, opened_by=opened_by, opened_at=now,
+            notes=notes or None)
         db.session.add(session)
         db.session.flush()
         return session
 
-    # ── Populate lines from Balance snapshot ──────────────────────────────────
+    @staticmethod
+    def _scope(session) -> set:
+        from models import SafeBox, db
+        if session.safe_box_id is not None:
+            return {int(session.safe_box_id)}
+        return {sid for (sid,) in db.session.query(SafeBox.id).filter(SafeBox.stock_location.isnot(None)).all()}
+
+    @staticmethod
+    def _line(session, safe_box_id, category_id, karat):
+        from models import InventoryCountLine
+        q = InventoryCountLine.query.filter_by(session_id=session.id, safe_box_id=safe_box_id,
+                                               karat=float(karat))
+        q = q.filter(InventoryCountLine.category_id.is_(None)) if category_id is None \
+            else q.filter(InventoryCountLine.category_id == int(category_id))
+        return q.first()
+
+    # ── Lines from the stock ──────────────────────────────────────────────────
 
     @classmethod
-    def populate_lines(cls, session: 'InventoryCountSession') -> List['InventoryCountLine']:
-        """Create one InventoryCountLine per InventoryBalance bucket for this branch.
-
-        Reads from InventoryBalance (the snapshot at session.snapshot_ledger_id).
-        Lines are only created once — safe to call multiple times (idempotent).
-        """
-        from models import db, InventoryBalance, InventoryCountLine
+    def populate_lines(cls, session) -> List['InventoryCountLine']:
+        """One line per (location, category, karat) the stock holds, its expected
+        weight frozen now. Idempotent."""
+        from models import InventoryCountLine, db
+        from services.stock_ledger import stock_balances
 
         if session.status not in ('open', 'counting'):
             raise ValueError(f'لا يمكن ملء الأسطر — حالة الجلسة: {session.status}')
-
-        query = InventoryBalance.query
-        if session.branch_id is not None:
-            query = query.filter_by(branch_id=session.branch_id)
-
-        created: List[InventoryCountLine] = []
-        for bal in query.all():
-            exists = InventoryCountLine.query.filter_by(
-                session_id=session.id,
-                category_id=bal.category_id,
-                karat=bal.karat,
-            ).first()
-            if exists:
+        scope = cls._scope(session)
+        created = []
+        for row in stock_balances():
+            if row['safe_box_id'] not in scope:
                 continue
-
-            line = InventoryCountLine(
-                session_id=session.id,
-                branch_id=bal.branch_id,
-                category_id=bal.category_id,
-                karat=bal.karat,
-                expected_weight=round(float(bal.balance or 0.0), 4),
-                expected_ledger_id=bal.snapshot_max_ledger_id,
-            )
+            if cls._line(session, row['safe_box_id'], row['category_id'], row['karat']) is not None:
+                continue
+            line = InventoryCountLine(session_id=session.id, branch_id=session.branch_id,
+                                      safe_box_id=row['safe_box_id'], category_id=row['category_id'],
+                                      karat=float(row['karat']), expected_weight=round(float(row['grams']), 4))
             db.session.add(line)
             created.append(line)
-
         if created:
             db.session.flush()
         return created
 
-    # ── Populate opening lines from Category catalog ──────────────────────────
-
     @classmethod
-    def populate_opening_lines(cls, session: 'InventoryCountSession') -> List['InventoryCountLine']:
-        """For opening sessions: create one InventoryCountLine per (category, karat).
+    def populate_opening_lines(cls, session) -> List['InventoryCountLine']:
+        """The stock's lines, and a zero line for every catalogue category (at its
+        karat, or every standard karat) in every location of the scope -- the
+        counter fills what is there. Idempotent."""
+        from models import Category, InventoryCountLine, db
 
-        If the Category row has a karat set, use it (e.g. Category("خاتم 21", karat='21')).
-        Otherwise create lines for all standard karats so the employee fills in each one.
-        Lines with counted_weight=0.0 are valid — they mean "we have none of this type."
-        Safe to call multiple times (idempotent).
-        """
-        from models import db, Category, InventoryCountLine
-
-        STANDARD_KARATS = [18.0, 21.0, 22.0, 24.0]
-
-        if session.status not in ('open', 'counting'):
-            raise ValueError(f'لا يمكن ملء الأسطر — حالة الجلسة: {session.status}')
-
-        created: List[InventoryCountLine] = []
-        for cat in Category.query.order_by(Category.name).all():
-            cat_karat: float | None = None
-            if cat.karat:
+        created = cls.populate_lines(session)
+        for safe_box_id in sorted(cls._scope(session)):
+            for cat in Category.query.order_by(Category.name).all():
                 try:
-                    cat_karat = float(cat.karat)
-                except (ValueError, TypeError):
-                    cat_karat = None
-
-            karats = [cat_karat] if cat_karat else STANDARD_KARATS
-
-            for karat in karats:
-                exists = InventoryCountLine.query.filter_by(
-                    session_id=session.id,
-                    category_id=cat.id,
-                    karat=karat,
-                ).first()
-                if exists:
-                    continue
-
-                line = InventoryCountLine(
-                    session_id=session.id,
-                    branch_id=session.branch_id,
-                    category_id=cat.id,
-                    karat=karat,
-                    expected_weight=0.0,
-                    expected_ledger_id=None,
-                )
-                db.session.add(line)
-                created.append(line)
-
+                    karats = [float(cat.karat)] if cat.karat else list(STANDARD_KARATS)
+                except (TypeError, ValueError):
+                    karats = list(STANDARD_KARATS)
+                for karat in karats:
+                    if cls._line(session, safe_box_id, cat.id, karat) is not None:
+                        continue
+                    line = InventoryCountLine(session_id=session.id, branch_id=session.branch_id,
+                                              safe_box_id=safe_box_id, category_id=cat.id, karat=karat,
+                                              expected_weight=0.0)
+                    db.session.add(line)
+                    created.append(line)
         if created:
             db.session.flush()
         return created
 
-    # ── Record physical count ──────────────────────────────────────────────────
+    # ── Record ────────────────────────────────────────────────────────────────
 
     @classmethod
-    def record_count(
-        cls,
-        session: 'InventoryCountSession',
-        category_id: int | None,
-        karat: float,
-        counted_weight: float,
-        counted_by: str = '',
-    ) -> 'InventoryCountLine':
-        """Record (or update) the physical count for one line.
-
-        Creates the line if it doesn't exist (allows counting items not in Balance).
-        """
-        from models import db, InventoryCountLine
+    def record_count(cls, session, category_id, karat: float, counted_weight: float, counted_by: str = '',
+                     *, now, safe_box_id=None) -> 'InventoryCountLine':
+        """Record (or update) the counted weight of one line; a line the stock did
+        not hold is created at an expected zero."""
+        from models import InventoryCountLine, db
 
         if session.status not in ('open', 'counting'):
             raise ValueError(f'لا يمكن تسجيل عد — حالة الجلسة: {session.status}')
-
-        line = InventoryCountLine.query.filter_by(
-            session_id=session.id,
-            category_id=category_id,
-            karat=karat,
-        ).first()
-
+        if safe_box_id is None:
+            safe_box_id = session.safe_box_id
+        if safe_box_id is None:
+            raise ValueError('حدّد موقع العدّ (الخزينة) — الجلسة تشمل كل المواقع')
+        if int(safe_box_id) not in cls._scope(session):
+            raise ValueError('الخزينة ليست ضمن مواقع هذه الجلسة')
+        line = cls._line(session, int(safe_box_id), category_id, karat)
         if line is None:
-            line = InventoryCountLine(
-                session_id=session.id,
-                branch_id=session.branch_id,
-                category_id=category_id,
-                karat=karat,
-                expected_weight=0.0,
-                expected_ledger_id=None,
-            )
+            line = InventoryCountLine(session_id=session.id, branch_id=session.branch_id,
+                                      safe_box_id=int(safe_box_id), category_id=category_id,
+                                      karat=float(karat), expected_weight=0.0)
             db.session.add(line)
-
         line.counted_weight = round(float(counted_weight), 4)
         line.variance = round(line.counted_weight - float(line.expected_weight or 0.0), 4)
         line.counted_by = counted_by or None
-        line.counted_at = datetime.now()  # clock-guard: TIME-001
-
+        line.counted_at = now
         if session.status == 'open':
             session.status = 'counting'
-
         db.session.flush()
         return line
 
     # ── Close ─────────────────────────────────────────────────────────────────
 
     @classmethod
-    def close_session(
-        cls,
-        session: 'InventoryCountSession',
-        force: bool = False,
-        zero_uncounted: bool = False,
-    ) -> int:
-        """Close the session. Returns count of lines that were zeroed or left uncounted.
-
-        Close policy:
-        - opening + zero_uncounted=True:  auto-set uncounted lines to 0 then close.
-        - opening + zero_uncounted=False: ALL lines must have been counted explicitly.
-        - periodic + force=True:          partial close allowed (uncounted lines stay NULL).
-        - periodic + force=False:         rejects if any uncounted lines exist.
-        """
-        from models import db, InventoryCountLine
+    def close_session(cls, session, force: bool = False, zero_uncounted: bool = False, *, now) -> int:
+        """Close the session; the number of lines left uncounted (or zeroed)."""
+        from models import InventoryCountLine, db
 
         if session.status not in ('open', 'counting'):
             raise ValueError(f'لا يمكن إغلاق جلسة بحالة: {session.status}')
-
-        session_type = getattr(session, 'session_type', 'periodic') or 'periodic'
-
-        uncounted_q = InventoryCountLine.query.filter_by(
-            session_id=session.id,
-        ).filter(
-            InventoryCountLine.counted_weight.is_(None),
-        )
+        session_type = session.session_type or 'periodic'
+        uncounted_q = InventoryCountLine.query.filter_by(session_id=session.id).filter(
+            InventoryCountLine.counted_weight.is_(None))
         uncounted = uncounted_q.count()
-
-        if uncounted > 0:
+        if uncounted:
             if session_type == 'opening' and zero_uncounted:
-                # Employee confirmed "register remaining as zero" — set them explicitly
                 for ln in uncounted_q.all():
                     ln.counted_weight = 0.0
                     ln.variance = round(0.0 - float(ln.expected_weight or 0.0), 4)
-                    ln.counted_at = datetime.now()  # clock-guard: TIME-001
+                    ln.counted_at = now
                 db.session.flush()
                 uncounted = 0
             elif session_type == 'opening':
-                raise ValueError(
-                    f'جلسة الرصيد الافتتاحي تتطلب عدّ جميع الأصناف — '
-                    f'يوجد {uncounted} صنف لم يُعدّ. '
-                    f'أدخل الوزن الفعلي أو اضغط "سجّل الباقي كصفر" إذا لم يتوفر.'
-                )
+                raise ValueError(f'جلسة الرصيد الافتتاحي تتطلب عدّ جميع الأصناف — يوجد {uncounted} صنف لم يُعدّ. '
+                                 f'أدخل الوزن الفعلي أو اضغط "سجّل الباقي كصفر" إذا لم يتوفر.')
             elif not force:
-                raise ValueError(
-                    f'يوجد {uncounted} صنف لم يُعدّ — أكمل العدّ أو استخدم "إغلاق مع تحذير" '
-                    f'إذا كانت بعض القطع خارج المحل.'
-                )
-
+                raise ValueError(f'يوجد {uncounted} صنف لم يُعدّ — أكمل العدّ أو استخدم "إغلاق مع تحذير" '
+                                 f'إذا كانت بعض القطع خارج المحل.')
         session.status = 'closed'
-        session.closed_at = datetime.now()  # clock-guard: TIME-001
+        session.closed_at = now
         return uncounted
 
     # ── Approve ───────────────────────────────────────────────────────────────
 
     @classmethod
-    def approve_session(
-        cls,
-        session: 'InventoryCountSession',
-        approved_by: str,
-        adjustment_reason: str = '',
-        adjustment_note: str = '',
-    ) -> tuple:
-        """Approve the closed session.
+    def approve_session(cls, session, approved_by: str, *, now, adjustment_reason: str = '',
+                        adjustment_note: str = '') -> tuple:
+        """Approve a closed session and write its difference entry.
 
-        session_type='periodic' flow (Phase 4):
-            1. Mark session as approved
-            2. Create InventoryAdjustment from non-zero variances
-            3. Post through InventoryPostingService → Ledger → Balance
-
-        session_type='opening' flow:
-            1. Mark session as approved
-            2. Post each counted line directly as InventoryLedger(opening_balance, opening)
-            3. No InventoryAdjustment created (nothing to adjust against)
-
-        Returns (session, adjustment) — adjustment is None for opening sessions or
-        when all periodic variances are zero.
-        All steps run in the caller's transaction; caller is responsible for commit.
+        Returns (session, entry) -- entry None when nothing differs. Runs in the
+        caller's transaction; a refusal (an unmapped role) refuses the approval.
         """
         if session.status != 'closed':
             raise ValueError(f'يجب إغلاق الجلسة أولاً — الحالة الحالية: {session.status}')
-
+        from services.inventory_accounting_service import InventoryAccountingService
+        entry = InventoryAccountingService.post_count_differences(
+            session, by=approved_by, now=now, reason=adjustment_reason, note=adjustment_note)
         session.status = 'approved'
         session.approved_by = approved_by
-        session.approved_at = datetime.now()  # clock-guard: TIME-001
-
-        session_type = getattr(session, 'session_type', 'periodic') or 'periodic'
-
-        if session_type == 'opening':
-            cls._post_opening_balances(session, approved_by)
-            return session, None
-
-        from services.inventory_adjustment_service import InventoryAdjustmentService
-        adjustment = InventoryAdjustmentService.create_from_session(
-            session,
-            reason=adjustment_reason or 'OTHER',
-            notes=adjustment_note,
-            created_by=approved_by,
-        )
-        if adjustment is not None:
-            adjustment.posted_by = approved_by
-            InventoryAdjustmentService.post_adjustment(adjustment)
-
-        return session, adjustment
-
-    @classmethod
-    def _post_opening_balances(cls, session: 'InventoryCountSession', posted_by: str) -> None:
-        """Delegate to InventoryPostingService — Single Writer for all Ledger writes."""
-        from services.inventory_posting_service import InventoryPostingService
-        InventoryPostingService.post_opening_session(session, posted_by)
+        session.approved_at = now
+        session.entry_id = entry.id if entry is not None else None
+        return session, entry

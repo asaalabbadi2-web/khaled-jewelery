@@ -29,7 +29,7 @@ from datetime import datetime
 from flask import Blueprint, request, jsonify, g
 
 from auth_decorators import require_permission
-from models import db, Branch, Category, InventoryBalance, InventoryCountSession
+from models import db, Branch, Category, InventoryBalance, InventoryCountSession, SafeBox
 
 # ── Adjustment reason codes ───────────────────────────────────────────────────
 # Source of truth for the coded reason list.  Flutter reads this via
@@ -219,15 +219,15 @@ def open_count_session():
     """فتح جلسة جرد جديدة وتعبئة السطور من الأرصدة الحالية.
 
     Body (JSON):
-        branch_id (int, required)
-        notes     (str, optional)
+        safe_box_id (int, optional) -- one stock location; omitted: every one (ADR-045 C1)
+        branch_id   (int, optional)
+        notes       (str, optional)
     """
     from services.inventory_count_service import InventoryCountService
 
     data = request.get_json(silent=True) or {}
     branch_id = data.get('branch_id')
-    if not branch_id:
-        return _err('branch_id مطلوب')
+    safe_box_id = data.get('safe_box_id')
 
     # blind_count=True by default — manager may pass false for spot-checks
     blind_count = data.get('blind_count', True)
@@ -240,9 +240,11 @@ def open_count_session():
         session = InventoryCountService.open_session(
             branch_id=branch_id,
             opened_by=_current_user(),
+            now=datetime.now(),
             notes=data.get('notes', ''),
             blind_count=blind_count,
             session_type=session_type,
+            safe_box_id=int(safe_box_id) if safe_box_id else None,
         )
         db.session.flush()
         if session_type == 'opening':
@@ -275,9 +277,10 @@ def record_count_entry(session_id: int):
     """تسجيل (أو تحديث) العدّ الفعلي لـ bucket واحد.
 
     Body (JSON):
-        category_id    (int,   required)
+        category_id    (int,   required; null -- «بلا تصنيف»)
         karat          (float, required)
         counted_weight (float, required)
+        safe_box_id    (int,   required when the session counts every location)
     """
     from services.inventory_count_service import InventoryCountService
 
@@ -290,7 +293,7 @@ def record_count_entry(session_id: int):
     karat = data.get('karat')
     counted_weight = data.get('counted_weight')
 
-    if category_id is None or karat is None or counted_weight is None:
+    if 'category_id' not in data or karat is None or counted_weight is None:
         return _err('category_id و karat و counted_weight مطلوبة')
 
     try:
@@ -300,6 +303,8 @@ def record_count_entry(session_id: int):
             karat=float(karat),
             counted_weight=float(counted_weight),
             counted_by=_current_user(),
+            now=datetime.now(),
+            safe_box_id=data.get('safe_box_id'),
         )
         is_opening = getattr(s, 'session_type', 'periodic') == 'opening'
         db.session.commit()
@@ -334,7 +339,7 @@ def close_count_session(session_id: int):
 
     try:
         uncounted = InventoryCountService.close_session(
-            s, force=force, zero_uncounted=zero_uncounted
+            s, force=force, zero_uncounted=zero_uncounted, now=datetime.now()
         )
         db.session.commit()
         resp = _session_summary(s)
@@ -384,7 +389,7 @@ def get_adjustment_reasons():
 @inventory_bp.route('/count/<int:session_id>/approve', methods=['POST'])
 @require_permission('inventory.approve')
 def approve_count_session(session_id: int):
-    """اعتماد الجلسة — ينشئ قيود تسوية لأي فروقات.
+    """اعتماد الجلسة — يكتب قيد فروق الجرد في الدفاتر (ADR-045 C1).
 
     Body (JSON):
         reason (str, required for periodic sessions with variance)
@@ -417,16 +422,20 @@ def approve_count_session(session_id: int):
         reason_code = 'OTHER'
 
     try:
-        session, adjustment = InventoryCountService.approve_session(
+        session, entry = InventoryCountService.approve_session(
             session=s,
             approved_by=_current_user(),
+            now=datetime.now(),
             adjustment_reason=reason_code,
             adjustment_note=note,
         )
         db.session.commit()
+        # The differences are an entry in the books now (ADR-045 C1), not an
+        # adjustment of the retired inventory ledger.
         return jsonify({
             'session': _session_summary(session),
-            'adjustment': _adjustment_summary(adjustment) if adjustment else None,
+            'entry': ({'id': entry.id, 'entry_number': entry.entry_number} if entry else None),
+            'adjustment': None,
         }), 200
     except ValueError as e:
         db.session.rollback()
@@ -589,6 +598,8 @@ def _session_summary(s) -> dict:
     return {
         'id':                 s.id,
         'branch_id':          s.branch_id,
+        'safe_box_id':        s.safe_box_id,
+        'entry_id':           s.entry_id,
         'status':             s.status,
         'session_type':       getattr(s, 'session_type', 'periodic') or 'periodic',
         'blind_count':        getattr(s, 'blind_count', True),
@@ -610,6 +621,13 @@ def _session_detail(s) -> dict:
     return summary
 
 
+def _safe_box_name(safe_box_id):
+    if not safe_box_id:
+        return None
+    box = db.session.get(SafeBox, int(safe_box_id))
+    return box.name if box else None
+
+
 def _count_line(ln, reveal_expected: bool = False, is_opening: bool = False) -> dict:
     """Serialise a count line.
 
@@ -623,6 +641,8 @@ def _count_line(ln, reveal_expected: bool = False, is_opening: bool = False) -> 
         'id':               ln.id,
         'session_id':       ln.session_id,
         'branch_id':        ln.branch_id,
+        'safe_box_id':      ln.safe_box_id,
+        'safe_box_name':    _safe_box_name(ln.safe_box_id),
         'category_id':      ln.category_id,
         'category_name':    _category_name(ln.category_id),
         'karat':            ln.karat,

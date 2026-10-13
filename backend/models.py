@@ -5602,6 +5602,10 @@ class InventoryCountSession(db.Model):
 
     id          = db.Column(db.Integer, primary_key=True)
     branch_id   = db.Column(db.Integer, db.ForeignKey('branch.id'), nullable=True, index=True)
+    # The location counted (ADR-045 C1): one stock safe, or NULL -- every stock safe.
+    safe_box_id = db.Column(db.Integer, db.ForeignKey('safe_box.id'), nullable=True, index=True)
+    # The posted entry its approval wrote (the differences), or NULL -- none.
+    entry_id    = db.Column(db.Integer, db.ForeignKey('journal_entry.id'), nullable=True)
 
     # 'open' | 'counting' | 'closed' | 'approved' | 'cancelled'
     status      = db.Column(db.String(20), nullable=False, default='open', index=True)
@@ -5636,6 +5640,8 @@ class InventoryCountSession(db.Model):
         return {
             'id':                  self.id,
             'branch_id':           self.branch_id,
+            'safe_box_id':         self.safe_box_id,
+            'entry_id':            self.entry_id,
             'status':              self.status,
             'session_type':        getattr(self, 'session_type', 'periodic'),
             'snapshot_ledger_id':  self.snapshot_ledger_id,
@@ -5666,8 +5672,9 @@ class InventoryCountLine(db.Model):
         nullable=False, index=True,
     )
 
-    # Bucket
+    # Bucket: location (ADR-045 C1) + category + karat
     branch_id   = db.Column(db.Integer, db.ForeignKey('branch.id'),   nullable=True)
+    safe_box_id = db.Column(db.Integer, db.ForeignKey('safe_box.id'), nullable=True)
     category_id = db.Column(db.Integer, db.ForeignKey('category.id'), nullable=True)
     karat       = db.Column(db.Float, nullable=False)
 
@@ -5686,7 +5693,7 @@ class InventoryCountLine(db.Model):
     __table_args__ = (
         # One line per bucket per session
         db.UniqueConstraint(
-            'session_id', 'category_id', 'karat',
+            'session_id', 'safe_box_id', 'category_id', 'karat',
             name='uq_inventory_count_line_bucket',
         ),
     )
@@ -5696,6 +5703,7 @@ class InventoryCountLine(db.Model):
             'id':                  self.id,
             'session_id':          self.session_id,
             'branch_id':           self.branch_id,
+            'safe_box_id':         self.safe_box_id,
             'category_id':         self.category_id,
             'karat':               self.karat,
             'expected_weight':     self.expected_weight,

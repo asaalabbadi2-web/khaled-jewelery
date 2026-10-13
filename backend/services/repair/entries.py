@@ -125,7 +125,14 @@ def write_entry(*, date, description, reference_type, reference_id, reference_nu
     return entry
 
 
-def _write_safe_rows(entry, lines, by):
+def write_safe_rows(entry, lines, by, ref_type=None):
+    """The statement row of each safe line of *entry* -- a gold safe's karats,
+    a cash safe's cash. The stock count's entry writes its rows here too
+    (ADR-045 C1), with its own ref_type."""
+    return _write_safe_rows(entry, lines, by, ref_type=ref_type)
+
+
+def _write_safe_rows(entry, lines, by, ref_type=None):
     accounts = {l['account_id'] for l in lines}
     safes = {int(s.account_id): s for s in SafeBox.query.filter(SafeBox.account_id.in_(list(accounts))).all()}
     for spec in lines:
@@ -145,7 +152,7 @@ def _write_safe_rows(entry, lines, by):
             if not cash and not weights:
                 continue
             db.session.add(SafeBoxTransaction(
-                safe_box_id=safe.id, ref_type=SAFE_ROW_REF_TYPE, ref_id=entry.id, direction=direction,
+                safe_box_id=safe.id, ref_type=ref_type or SAFE_ROW_REF_TYPE, ref_id=entry.id, direction=direction,
                 amount_cash=cash, created_at=entry.date, notes=note, created_by=by, **weights))
     db.session.flush()
 
