@@ -3109,40 +3109,6 @@ class ApiService {
     return const [];
   }
 
-  /// إنشاء حركة تعديل يدوي لأوزان التصنيفات (رصيد افتتاحي/تصحيح)
-  /// Endpoint: POST /category-weight/adjustments
-  Future<Map<String, dynamic>> createCategoryWeightAdjustments({
-    required String goldType,
-    required List<Map<String, dynamic>> lines,
-    String? createdBy,
-    String? note,
-    DateTime? date,
-  }) async {
-    final payload = <String, dynamic>{'gold_type': goldType, 'lines': lines};
-
-    if (createdBy != null && createdBy.trim().isNotEmpty) {
-      payload['created_by'] = createdBy.trim();
-    }
-    if (note != null && note.trim().isNotEmpty) {
-      payload['note'] = note.trim();
-    }
-    if (date != null) {
-      payload['date'] = date.toIso8601String().split('T').first;
-    }
-
-    final response = await _authedPost(
-      Uri.parse('$_baseUrl/category-weight/adjustments'),
-      headers: {'Content-Type': 'application/json; charset=UTF-8'},
-      body: json.encode(payload),
-    );
-
-    if (response.statusCode == 200 || response.statusCode == 201) {
-      return json.decode(utf8.decode(response.bodyBytes));
-    }
-
-    throw Exception(_errorMessageFromResponse(response));
-  }
-
   Future<Map<String, dynamic>> getSalesVsPurchasesTrend({
     DateTime? startDate,
     DateTime? endDate,

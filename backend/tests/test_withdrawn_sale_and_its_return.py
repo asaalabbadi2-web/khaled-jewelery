@@ -27,7 +27,7 @@ import uuid
 import pytest
 
 from app import app as flask_app
-from models import (CategoryWeightMovement, Category, Employee, Invoice, InvoiceItem,
+from models import (Category, Employee, Invoice, InvoiceItem,
                     WeightClosingExecution, WeightClosingOrder, db)
 from tests.retraction_world import _create, unposting_allowed, world  # noqa: F401 (fixtures)
 from tests.test_return_within_its_original import _paid_sale, _post, _return_of
@@ -189,8 +189,25 @@ def test_a_returned_line_takes_its_category_from_the_original(auth_headers, worl
     assert ret.status_code == 201, ret.get_json()
     ret_id = ret.get_json()['id']
     assert [i.category_id for i in InvoiceItem.query.filter_by(invoice_id=ret_id)] == [cat.id]
-    moved = CategoryWeightMovement.query.filter_by(invoice_id=ret_id).all()
-    assert [(m.category_id, round(m.weight_delta_grams, 3)) for m in moved] == [(cat.id, 2.0)], \
+    # The category gets its weight back: the return's stock line is allocated
+    # to the sale's category (ADR-045 A2a -- the category tracker is written no
+    # more). The test world's gold account is made a stock safe's first.
+    from datetime import datetime as _dt
+    from models import JournalEntry, JournalEntryLine, SafeBox, StockLineAllocation
+    from services.stock_ledger import allocate_invoice
+    gold_line = (JournalEntryLine.query.join(JournalEntry, JournalEntry.id == JournalEntryLine.journal_entry_id)
+                 .filter(JournalEntry.reference_type == 'invoice', JournalEntry.reference_id == ret_id,
+                         JournalEntryLine.debit_21k > 0).first())
+    assert gold_line is not None, 'the return brings its gold back in'
+    box = SafeBox.query.filter_by(account_id=gold_line.account_id).first()
+    if box is None:
+        box = SafeBox(name='مخزون اختبار', safe_type='gold', account_id=gold_line.account_id, is_active=True)
+        db.session.add(box)
+    box.stock_location = 'showroom'
+    db.session.flush()
+    allocate_invoice(Invoice.query.get(ret_id), by='t', now=_dt(2026, 10, 13))
+    moved = StockLineAllocation.query.filter_by(journal_entry_line_id=gold_line.id).all()
+    assert [(m.category_id, round(m.grams, 3)) for m in moved] == [(cat.id, 2.0)], \
         'the category gets its weight back'
 
 

@@ -149,3 +149,132 @@ def stock_balances() -> list:
                 rows.append({'safe_box_id': safes[int(account_id)], 'karat': karat,
                              'category_id': None, 'grams': rest})
     return rows
+
+
+UNCLASSIFIED = 'بلا تصنيف'
+
+
+def _names(model, ids) -> dict:
+    ids = {int(i) for i in ids if i is not None}
+    if not ids:
+        return {}
+    return {int(r.id): r.name for r in model.query.filter(model.id.in_(ids)).all()}
+
+
+def _location_filter(gold_type):
+    """The old report's gold_type: 'scrap' is the scrap safes, 'new' the rest."""
+    if gold_type == 'scrap':
+        return SafeBox.stock_location == 'scrap'
+    if gold_type == 'new':
+        return SafeBox.stock_location != 'scrap'
+    return None
+
+
+def category_balances(*, safe_box_id=None, category_id=None, karat=None, group_by_karat=False,
+                      gold_type=None) -> list:
+    """The stock by (safe, category[, karat]) in the shape the category report
+    reads (it read the retired tracker): grams signed, and at the main karat."""
+    from models import Category
+    from pricing.karat_service import convert_to_main_karat
+
+    rows = stock_balances()
+    if gold_type in ('scrap', 'new'):
+        allowed = {sid for (sid,) in db.session.query(SafeBox.id).filter(_location_filter(gold_type)).all()}
+        rows = [r for r in rows if r['safe_box_id'] in allowed]
+    if safe_box_id:
+        rows = [r for r in rows if r['safe_box_id'] == int(safe_box_id)]
+    if category_id:
+        rows = [r for r in rows if r['category_id'] == int(category_id)]
+    if karat is not None:
+        rows = [r for r in rows if abs(r['karat'] - float(karat)) < 0.001]
+
+    grouped = {}
+    for r in rows:
+        key = (r['safe_box_id'], r['category_id'], r['karat'] if group_by_karat else None)
+        grams, main = grouped.get(key, (0.0, 0.0))
+        grouped[key] = (grams + r['grams'], main + convert_to_main_karat(r['grams'], r['karat']))
+    safes = _names(SafeBox, [k[0] for k in grouped])
+    categories = _names(Category, [k[1] for k in grouped])
+    out = []
+    for (sid, cid, k), (grams, main) in sorted(grouped.items(), key=lambda kv: (kv[0][0], kv[0][1] or 0, kv[0][2] or 0)):
+        row = {'safe_box_id': sid, 'safe_box_name': safes.get(sid),
+               'category_id': cid, 'category_name': categories.get(cid) if cid else UNCLASSIFIED,
+               'weight_main_karat': round(main, 6), 'weight_grams_signed': round(grams, 6)}
+        if group_by_karat:
+            row['karat'] = float(k)
+        out.append(row)
+    return out
+
+
+def stock_movements(*, safe_box_id=None, category_id=None, invoice_id=None, karat=None, gold_type=None,
+                    start=None, end=None, limit=200) -> list:
+    """The posted stock lines, newest first, each split into its allocations and
+    its unallocated rest -- in the shape the category report reads."""
+    from accounting.balances import counted_line_filters
+    from models import Category
+    from pricing.karat_service import convert_to_main_karat
+
+    safes = _stock_safe_ids_by_account()
+    if safe_box_id:
+        safes = {a: s for a, s in safes.items() if s == int(safe_box_id)}
+    if gold_type in ('scrap', 'new'):
+        allowed = {sid for (sid,) in db.session.query(SafeBox.id).filter(_location_filter(gold_type)).all()}
+        safes = {a: s for a, s in safes.items() if s in allowed}
+    if not safes:
+        return []
+    q = (db.session.query(JournalEntryLine, JournalEntry)
+         .join(JournalEntry, JournalEntry.id == JournalEntryLine.journal_entry_id)
+         .filter(JournalEntryLine.account_id.in_(list(safes)), *counted_line_filters()))
+    if invoice_id:
+        q = q.filter(JournalEntry.reference_type == 'invoice', JournalEntry.reference_id == int(invoice_id))
+    if start is not None:
+        q = q.filter(JournalEntry.date >= start)
+    if end is not None:
+        q = q.filter(JournalEntry.date < end)
+    q = q.order_by(JournalEntry.date.desc(), JournalEntryLine.id.desc())
+
+    limit = max(1, min(int(limit or 200), 1000))
+    out, invoices = [], {}
+    for line, entry in q.yield_per(500):
+        allocations = StockLineAllocation.query.filter_by(journal_entry_line_id=line.id).all()
+        inv = None
+        if entry.reference_type == 'invoice' and entry.reference_id:
+            if entry.reference_id not in invoices:
+                invoices[entry.reference_id] = db.session.get(Invoice, entry.reference_id)
+            inv = invoices[entry.reference_id]
+        for k in KARATS:
+            if karat is not None and abs(k - float(karat)) >= 0.001:
+                continue
+            net = line_grams(line, k)
+            if abs(net) <= TOLERANCE:
+                continue
+            parts = [(a.category_id, a.grams) for a in allocations if a.karat == k]
+            rest = round(net - sum(g for _, g in parts), 3)
+            if abs(rest) > TOLERANCE:
+                parts.append((None, rest))
+            for cid, grams in parts:
+                if category_id and cid != int(category_id):
+                    continue
+                out.append({
+                    'id': line.id,
+                    'created_at': entry.date.isoformat() if entry.date else None,
+                    'category_id': cid, 'safe_box_id': safes[int(line.account_id)],
+                    'invoice_id': int(entry.reference_id) if entry.reference_type == 'invoice' and entry.reference_id else None,
+                    'invoice_type': getattr(inv, 'invoice_type', None),
+                    'gold_type': getattr(inv, 'gold_type', None),
+                    'karat': float(k),
+                    'weight_delta_grams': round(float(grams), 6),
+                    'weight_delta_main_karat': round(convert_to_main_karat(float(grams), k), 6),
+                    'created_by': entry.posted_by or entry.created_by,
+                    'line_label': line.description or entry.description,
+                    'note': entry.entry_number,
+                })
+        if len(out) >= limit:
+            break
+    out = out[:limit]
+    safes_names = _names(SafeBox, {r['safe_box_id'] for r in out})
+    categories = _names(Category, {r['category_id'] for r in out})
+    for r in out:
+        r['safe_box_name'] = safes_names.get(r['safe_box_id'])
+        r['category_name'] = categories.get(r['category_id']) if r['category_id'] else UNCLASSIFIED
+    return out

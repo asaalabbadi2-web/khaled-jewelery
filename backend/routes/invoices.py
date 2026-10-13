@@ -8998,17 +8998,6 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
         from services.stock_ledger import allocate_invoice
         allocate_invoice(new_invoice, by=new_invoice.posted_by, now=now)
 
-        # 📦 Category-weight tracking (by location / gold SafeBox)
-        # We do this only for posted invoices to avoid counting approval-required drafts.
-        try:
-            record_category_weight_movements_for_invoice_payload(
-                invoice_id=new_invoice.id,
-                items_payload=(data.get('items') if isinstance(data, dict) else None),
-            )
-        except Exception as exc:
-            # Do not block posting for tracking failures.
-            print(f"⚠️ Category weight tracking skipped: {exc}")
-
         # 📒 Inventory ledger posting (Event Log — append-only)
         try:
             from services.inventory_posting_service import InventoryPostingService

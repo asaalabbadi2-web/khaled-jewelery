@@ -2155,16 +2155,10 @@ def post_invoice_document(invoice: Invoice, posted_by: str) -> None:
 
     db.session.flush()
     # The stock by category: its lines allocated, or no posting (ADR-045 A1) --
-    # never «if it fails, skip», as the two trackers below still are.
+    # never «if it fails, skip», as the old inventory ledger below still is
+    # (it retires with the count, A3). The category tracker is written no more (A2a).
     from services.stock_ledger import allocate_invoice
     allocate_invoice(invoice, by=invoice.posted_by, now=now)
-    try:
-        from category_weight_tracking import record_category_weight_movements_for_invoice_payload
-        items = [{'item_id': ii.item_id, 'weight': float(ii.weight or 0.0)}
-                 for ii in InvoiceItem.query.filter_by(invoice_id=invoice.id).all() if ii.item_id]
-        record_category_weight_movements_for_invoice_payload(invoice_id=invoice.id, items_payload=items or None)
-    except Exception as exc:
-        print(f"[post_invoice_document] category weights of invoice {invoice.id} skipped: {exc}")
     try:
         from services.inventory_posting_service import InventoryPostingService
         InventoryPostingService.post(invoice)
@@ -2202,8 +2196,7 @@ def unpost_invoice_document(invoice: Invoice) -> None:
 
     In order: its entries become drafts; its own safe-box rows go (gold as cash,
     whatever their name -- no scrap rule of its own); the inventory ledger is
-    reversed (append-only, ADR-002: its net goes to zero); its category-weight
-    movements go; the gold evidence it wrote is released, the obligations kept
+    reversed (append-only, ADR-002: its net goes to zero); the gold evidence it wrote is released, the obligations kept
     (ADR-028); its payment state and the cached balances of the accounts its
     entries touched are recomputed.
 
@@ -2232,7 +2225,7 @@ def unpost_invoice_document(invoice: Invoice) -> None:
     ).delete(synchronize_session=False)
 
     InventoryPostingService.reverse(invoice, reason=f'unpost invoice {invoice.id}')
-    CategoryWeightMovement.query.filter_by(invoice_id=invoice.id).delete(synchronize_session=False)
+    # Its category-tracker rows stay: 2026's history, read by nothing (ADR-045 A2a).
     release_invoice_gold_evidence(invoice.id)
 
     invoice.is_posted = False

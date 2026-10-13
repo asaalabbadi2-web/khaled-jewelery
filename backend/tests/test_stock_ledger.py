@@ -284,3 +284,63 @@ def test_the_gold_safe_for_a_karat_does_not_depend_on_row_order(app):
     lowest.updated_at = _dt(2026, 10, 13)          # an UPDATE moves the row to the end
     db.session.flush()
     assert SafeBox.get_gold_safe_by_karat(21).id == expected
+
+
+class TestTheCategoryReportReadsTheStock:
+    """A2a: «جرد الأوزان حسب التصنيف» reads the one reader; the category tracker
+    is written no more. Its two routes keep their shapes, so the report keeps
+    every feature (balances by location and category, movements filtered by
+    location, category, invoice, karat and dates, the distribution chart)."""
+
+    def test_balances_are_the_stock_by_location_and_category(self, app, auth_headers):
+        from services.stock_ledger import allocate
+        box, ring = _safe(), _category()
+        line = _line(box, debit_21k=30.0)
+        allocate(line, 21, ring.id, 20.0, by='t', now=NOW)
+        rows = flask_app.test_client().get(f'/api/category-weight/balances?safe_box_id={box.id}',
+                                           headers=auth_headers).get_json()
+        got = {r['category_id']: (r['weight_grams_signed'], r['category_name']) for r in rows}
+        assert got == {ring.id: (20.0, ring.name), None: (10.0, 'بلا تصنيف')}
+        assert all(r['safe_box_id'] == box.id and r['safe_box_name'] == box.name for r in rows)
+
+    def test_movements_are_the_stock_lines_split_by_category(self, app, auth_headers):
+        from services.stock_ledger import allocate
+        box, ring = _safe(), _category()
+        line = _line(box, credit_21k=30.0, reference_id=777001)
+        allocate(line, 21, ring.id, -20.0, by='t', now=NOW)
+        rows = flask_app.test_client().get(f'/api/category-weight/movements?safe_box_id={box.id}',
+                                           headers=auth_headers).get_json()
+        got = sorted((r['category_id'] or 0, r['weight_delta_grams'], r['karat'], r['invoice_id']) for r in rows)
+        assert got == sorted([(ring.id, -20.0, 21.0, 777001), (0, -10.0, 21.0, 777001)])
+
+    def test_movements_filter_by_category(self, app, auth_headers):
+        from services.stock_ledger import allocate
+        box, ring = _safe(), _category()
+        line = _line(box, debit_21k=30.0)
+        allocate(line, 21, ring.id, 20.0, by='t', now=NOW)
+        rows = flask_app.test_client().get(
+            f'/api/category-weight/movements?safe_box_id={box.id}&category_id={ring.id}',
+            headers=auth_headers).get_json()
+        assert [(r['category_id'], r['weight_delta_grams']) for r in rows] == [(ring.id, 20.0)]
+
+    def test_posting_writes_the_tracker_no_more(self, app):
+        """A coded piece: the old posting wrote the tracker for coded items only."""
+        from models import CategoryWeightMovement, Item
+        from posting_routes import post_invoice_document
+        box, ring = _safe(), _category()
+        invoice, _ = TestTheInvoiceAllocates._sale(box, [(ring, 21, 7.5)])
+        piece = Item(item_code=f'I-T{_uid()[:6]}', name='قطعة', karat='21', weight=7.5, price=0.0,
+                     category_id=ring.id)
+        db.session.add(piece)
+        db.session.flush()
+        InvoiceItem.query.filter_by(invoice_id=invoice.id).update({'item_id': piece.id})
+        db.session.flush()
+        post_invoice_document(invoice, 't')
+        db.session.flush()
+        assert CategoryWeightMovement.query.filter_by(invoice_id=invoice.id).count() == 0
+
+    def test_the_opening_balance_route_is_gone(self, app, auth_headers):
+        """It wrote the tracker (0 rows on the 12 Oct copy); the count writes the
+        opening, as an entry with its allocation (A3)."""
+        resp = flask_app.test_client().post('/api/category-weight/adjustments', headers=auth_headers, json={})
+        assert resp.status_code in (404, 405)

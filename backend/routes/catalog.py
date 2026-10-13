@@ -12,11 +12,6 @@ from utils import normalize_number
 from core.dates import _parse_iso_date
 from auth_decorators import require_permission
 
-from category_weight_tracking import (
-    get_category_weight_balances,
-    record_category_weight_movements_for_invoice_payload,
-)
-
 from pricing.karat_service import convert_to_main_karat
 from code_generator import generate_item_code, validate_item_code
 
@@ -417,30 +412,26 @@ def delete_category(category_id):
 @catalog_bp.route('/category-weight/balances', methods=['GET'])
 @require_permission('items.view')
 def category_weight_balances():
-    """Return category-weight balances grouped by gold SafeBox (location)."""
-    safe_box_id = request.args.get('safe_box_id', type=int)
-    category_id = request.args.get('category_id', type=int)
-    karat = request.args.get('karat', type=float)
-    gold_type = (request.args.get('gold_type') or '').strip() or None
+    """The stock by location and category (ADR-045 A2a): the one reader --
+    the posted lines on stock safes and their allocations. The shape is the
+    retired tracker's, which the report reads."""
+    from services.stock_ledger import category_balances
 
-    group_by_karat_raw = (request.args.get('group_by_karat') or '').strip().lower()
-    group_by_karat = group_by_karat_raw in ('1', 'true', 'yes', 'y', 'on')
-
-    return jsonify(
-        get_category_weight_balances(
-            safe_box_id=safe_box_id,
-            category_id=category_id,
-            karat=karat,
-            group_by_karat=group_by_karat,
-            gold_type=gold_type,
-        )
-    )
+    group_by_karat = (request.args.get('group_by_karat') or '').strip().lower() in ('1', 'true', 'yes', 'y', 'on')
+    return jsonify(category_balances(
+        safe_box_id=request.args.get('safe_box_id', type=int),
+        category_id=request.args.get('category_id', type=int),
+        karat=request.args.get('karat', type=float),
+        group_by_karat=group_by_karat,
+        gold_type=(request.args.get('gold_type') or '').strip() or None,
+    ))
 
 @catalog_bp.route('/category-weight/movements', methods=['GET'])
 @require_permission('items.view')
 def category_weight_movements():
-    """Return recent category-weight movement history (supports filters)."""
-    from models import CategoryWeightMovement
+    """The stock lines, newest first, split by category (ADR-045 A2a). The
+    opening-balance route that wrote the retired tracker is gone (0 rows on
+    the 12 Oct copy): the count writes the opening as an entry (A3)."""
 
     safe_box_id = request.args.get('safe_box_id', type=int)
     category_id = request.args.get('category_id', type=int)
@@ -469,147 +460,11 @@ def category_weight_movements():
         limit = 200
     limit = min(limit, 1000)
 
-    q = CategoryWeightMovement.query
-    if safe_box_id:
-        q = q.filter(CategoryWeightMovement.safe_box_id == safe_box_id)
-    if category_id:
-        q = q.filter(CategoryWeightMovement.category_id == category_id)
-    if invoice_id:
-        q = q.filter(CategoryWeightMovement.invoice_id == invoice_id)
-    if gold_type:
-        q = q.filter(CategoryWeightMovement.gold_type == gold_type)
-    if karat is not None:
-        # Compare with tolerance to avoid float equality issues.
-        q = q.filter(func.abs(CategoryWeightMovement.karat - float(karat)) < 0.001)
-
-    if start_dt:
-        q = q.filter(CategoryWeightMovement.created_at >= start_dt)
-    if end_dt:
-        q = q.filter(CategoryWeightMovement.created_at < end_dt)
-
-    q = q.order_by(CategoryWeightMovement.created_at.desc()).limit(limit)
-    return jsonify([row.to_dict() for row in q.all()])
-
-@catalog_bp.route('/category-weight/adjustments', methods=['POST'])
-@require_permission('items.edit')
-def create_category_weight_adjustments():
-    """Create manual category-weight movements (opening balances / corrections).
-
-    This endpoint exists to register stock that already exists in the shop
-    without historical purchase invoices.
-
-    Body JSON:
-      - created_by: str (optional)
-      - date: ISO datetime (optional) -> stored as created_at for movements
-      - gold_type: str (optional) 'new'|'scrap' (default: 'new')
-      - note: str (optional) applied to all lines unless overridden per-line
-      - lines: [
-          {
-            category_id: int (required)
-            karat: float (required)
-            weight_grams: float (required, can be + or -)
-            safe_box_id: int (optional; auto-resolved by karat if omitted)
-            line_label: str (optional)
-            note: str (optional)
-          }
-        ]
-    """
-
-    from models import CategoryWeightMovement, Category, SafeBox
-
-    data = request.get_json(silent=True) or {}
-    lines = data.get('lines')
-    if not isinstance(lines, list) or not lines:
-        return jsonify({'error': 'lines_required'}), 400
-
-    created_by = (data.get('created_by') or getattr(g, 'user', None) or 'system')
-    gold_type = (data.get('gold_type') or 'new').strip() or 'new'
-    global_note = (data.get('note') or '').strip() or None
-
-    created_at = None
-    if data.get('date'):
-        try:
-            created_at = datetime.fromisoformat(str(data.get('date')))
-        except Exception:
-            return jsonify({'error': 'invalid_date'}), 400
-
-    created = 0
-    created_ids: list[int] = []
-
-    def _as_int(v):
-        try:
-            return int(v)
-        except Exception:
-            return None
-
-    def _as_float(v):
-        try:
-            if v in (None, '', False):
-                return None
-            return float(v)
-        except Exception:
-            return None
-
-    for row in lines:
-        if not isinstance(row, dict):
-            continue
-
-        category_id = _as_int(row.get('category_id'))
-        karat_val = _as_float(row.get('karat'))
-        weight_grams = _as_float(row.get('weight_grams'))
-
-        if not category_id or not karat_val or weight_grams is None:
-            continue
-        if abs(float(weight_grams)) <= 0:
-            continue
-
-        cat = Category.query.get(category_id)
-        if not cat:
-            continue
-
-        safe_box_id = _as_int(row.get('safe_box_id'))
-        if not safe_box_id:
-            try:
-                sb = SafeBox.get_gold_safe_by_karat(int(round(float(karat_val))))
-                safe_box_id = int(sb.id) if sb and sb.id else None
-            except Exception:
-                safe_box_id = None
-        if not safe_box_id:
-            continue
-
-        note = (row.get('note') or global_note or '').strip() or None
-        label = (row.get('line_label') or cat.name or '').strip() or None
-
-        delta = float(weight_grams)
-        delta_main = float(convert_to_main_karat(delta, float(karat_val)))
-
-        mv = CategoryWeightMovement(
-            category_id=category_id,
-            safe_box_id=safe_box_id,
-            invoice_id=None,
-            line_label=label,
-            invoice_type='manual_adjustment',
-            gold_type=gold_type,
-            karat=float(karat_val),
-            weight_delta_grams=round(delta, 6),
-            weight_delta_main_karat=round(delta_main, 6),
-            created_by=str(created_by) if created_by else None,
-            note=note,
-        )
-        if created_at is not None:
-            mv.created_at = created_at
-
-        db.session.add(mv)
-        db.session.flush()
-        created += 1
-        created_ids.append(int(mv.id))
-
-    if created <= 0:
-        db.session.rollback()
-        return jsonify({'error': 'no_valid_lines_created'}), 400
-
-    db.session.commit()
-    return jsonify({'status': 'ok', 'created': created, 'ids': created_ids}), 201
+    from services.stock_ledger import stock_movements
+    return jsonify(stock_movements(
+        safe_box_id=safe_box_id, category_id=category_id, invoice_id=invoice_id, karat=karat,
+        gold_type=gold_type, start=start_dt, end=end_dt, limit=limit,
+    ))
 
 # ── Pricing (gold price + costing) ────────────────────────────
 # MOVED → backend/routes/pricing.py  (pricing_bp)
