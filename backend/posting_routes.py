@@ -2154,6 +2154,10 @@ def post_invoice_document(invoice: Invoice, posted_by: str) -> None:
         print(f"[post_invoice_document] payment state of invoice {invoice.id} failed: {exc}")
 
     db.session.flush()
+    # The stock by category: its lines allocated, or no posting (ADR-045 A1) --
+    # never «if it fails, skip», as the two trackers below still are.
+    from services.stock_ledger import allocate_invoice
+    allocate_invoice(invoice, by=invoice.posted_by)
     try:
         from category_weight_tracking import record_category_weight_movements_for_invoice_payload
         items = [{'item_id': ii.item_id, 'weight': float(ii.weight or 0.0)}

@@ -4393,12 +4393,15 @@ class SafeBox(db.Model):
         - إذا لم توجد خزينة عامة، يبحث عن خزينة محددة بهذا العيار.
         """
         # Prefer a unified multi-karat gold safe when available.
-        general = SafeBox.query.filter_by(safe_type='gold', karat=None, is_active=True).first()
+        # In id order: .first() alone answers in PostgreSQL's physical order, which
+        # an UPDATE changes (A0's migration turned the showroom into our account
+        # with the Arabic Pound company -- tests/test_stock_ledger.py).
+        general = SafeBox.query.filter_by(safe_type='gold', karat=None, is_active=True).order_by(SafeBox.id).first()
         if general:
             return general
 
         # Backward compatible behavior: fall back to karat-specific safe.
-        specific = SafeBox.query.filter_by(safe_type='gold', karat=karat, is_active=True).first()
+        specific = SafeBox.query.filter_by(safe_type='gold', karat=karat, is_active=True).order_by(SafeBox.id).first()
         return specific
 
 
@@ -5444,6 +5447,30 @@ class SystemAlert(db.Model):
             'created_by': self.created_by,
             'created_at': self.created_at.isoformat() if self.created_at else None,
         }
+
+
+class StockLineAllocation(db.Model):
+    """A category's share of a stock line, karat by karat (ADR-045 A1).
+
+    The stock is the posted entry lines on the accounts of stock safes
+    (SafeBox.stock_location) -- no second ledger. An entry groups a karat into
+    one line; this says how much of it was which category, and (phase C) which
+    piece. grams carries the line's sign. Law (services/stock_ledger.allocate,
+    the one writer): a line's allocations for a karat never exceed its grams
+    there; the rest is unclassified. The database deletes a line's allocations
+    with the line -- bulk deletes included.
+    """
+    __tablename__ = 'stock_line_allocation'
+
+    id = db.Column(db.Integer, primary_key=True)
+    journal_entry_line_id = db.Column(
+        db.Integer, db.ForeignKey('journal_entry_line.id', ondelete='CASCADE'), nullable=False, index=True)
+    karat = db.Column(db.Integer, nullable=False)
+    category_id = db.Column(db.Integer, db.ForeignKey('category.id', ondelete='RESTRICT'), nullable=False, index=True)
+    item_id = db.Column(db.Integer, db.ForeignKey('item.id', ondelete='RESTRICT'), nullable=True, index=True)
+    grams = db.Column(db.Float, nullable=False)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.now)
+    created_by = db.Column(db.String(100), nullable=True)
 
 
 class InventoryLedger(db.Model):

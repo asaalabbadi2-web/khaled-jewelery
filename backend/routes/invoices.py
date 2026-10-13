@@ -8993,6 +8993,11 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
 
         print(f"✅ Committing transaction...")
 
+        # The stock by category: its lines allocated, or no invoice (ADR-045 A1).
+        db.session.flush()
+        from services.stock_ledger import allocate_invoice
+        allocate_invoice(new_invoice, by=new_invoice.posted_by)
+
         # 📦 Category-weight tracking (by location / gold SafeBox)
         # We do this only for posted invoices to avoid counting approval-required drafts.
         try:

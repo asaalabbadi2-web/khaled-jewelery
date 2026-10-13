@@ -71,6 +71,7 @@ OPEN_CLOSING_OF_RETRACTED_INVOICE = 'OPEN_CLOSING_OF_RETRACTED_INVOICE'
 COMMISSION_NOT_WRITTEN = 'COMMISSION_NOT_WRITTEN'
 ENTRY_WEIGHT_UNBALANCED = 'ENTRY_WEIGHT_UNBALANCED'
 INVENTORY_LEDGER_DRIFT = 'INVENTORY_LEDGER_DRIFT'
+STOCK_ALLOCATION_INVALID = 'STOCK_ALLOCATION_INVALID'
 
 KINDS = (
     ORPHAN_POSTED_ENTRY,
@@ -83,6 +84,7 @@ KINDS = (
     COMMISSION_NOT_WRITTEN,
     ENTRY_WEIGHT_UNBALANCED,
     INVENTORY_LEDGER_DRIFT,
+    STOCK_ALLOCATION_INVALID,
 )
 
 # An invoice in one of these states is retracted: its entries must not count
@@ -532,6 +534,43 @@ def check_inventory_ledger_drift(threshold: float = GOLD_DRIFT_THRESHOLD) -> lis
     return facts
 
 
+def check_stock_allocations() -> list:
+    """A stock line's allocations that break the law (ADR-045 A1).
+
+    services/stock_ledger.allocate refuses at writing; a line edited after it,
+    or a safe that stops being stock, breaks it silently. Per entry and karat,
+    keyed 'journal_entry:<id>:<k>k': allocations heavier than the line, against
+    its sign, or on a line that is not a stock safe's. The metric is the
+    allocated grams."""
+    from models import StockLineAllocation
+    from services.stock_ledger import TOLERANCE, line_grams
+
+    stock_accounts = {aid for (aid,) in db.session.query(SafeBox.account_id)
+                      .filter(SafeBox.stock_location.isnot(None)).all()}
+    rows = (db.session.query(StockLineAllocation.journal_entry_line_id, StockLineAllocation.karat,
+                             func.sum(StockLineAllocation.grams))
+            .group_by(StockLineAllocation.journal_entry_line_id, StockLineAllocation.karat).all())
+    facts = []
+    for line_id, karat, allocated in rows:
+        line = db.session.get(JournalEntryLine, line_id)
+        if line is None:
+            continue
+        allocated = round(float(allocated or 0.0), 3)
+        net = line_grams(line, int(karat))
+        reason = None
+        if line.account_id not in stock_accounts:
+            reason = 'not_stock'
+        elif allocated * net < 0:
+            reason = 'against_sign'
+        elif abs(allocated) > abs(net) + TOLERANCE:
+            reason = 'heavier_than_line'
+        if reason:
+            facts.append(Fact(STOCK_ALLOCATION_INVALID, f'journal_entry:{line.journal_entry_id}:{int(karat)}k',
+                              allocated, {'line_id': line.id, 'karat': int(karat), 'allocated_grams': allocated,
+                                          'line_grams': round(net, 3), 'reason': reason}))
+    return facts
+
+
 CHECKS = {
     ORPHAN_POSTED_ENTRY: check_orphan_posted_entries,
     UNPOSTED_ENTRY_IN_LIMBO: check_unposted_entries_in_limbo,
@@ -544,6 +583,7 @@ CHECKS = {
     COMMISSION_NOT_WRITTEN: check_commissions_not_written,
     ENTRY_WEIGHT_UNBALANCED: check_entries_weight_unbalanced,
     INVENTORY_LEDGER_DRIFT: check_inventory_ledger_drift,
+    STOCK_ALLOCATION_INVALID: check_stock_allocations,
 }
 
 
