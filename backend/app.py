@@ -24,11 +24,14 @@ try:
 	load_dotenv(os.path.join(_repo_root, '.env'), override=False)
 	load_dotenv(os.path.join(_backend_dir, '.env'), override=False)
 
+	# Before sys.path is set, so core/environment.py cannot be imported yet;
+	# the same names, in the same order (its _NAMES).
 	_env = (
 		(os.getenv('YASAR_ENV') or '').strip().lower()
 		or (os.getenv('APP_ENV') or '').strip().lower()
 		or (os.getenv('ENV') or '').strip().lower()
 		or (os.getenv('FLASK_ENV') or '').strip().lower()
+		or (os.getenv('PYTHON_ENV') or '').strip().lower()
 	)
 	if _env in ('prod', 'production'):
 		load_dotenv(os.path.join(_repo_root, '.env.production'), override=False)
@@ -218,8 +221,9 @@ def _env_str(name: str, default: str = '') -> str:
 
 
 def _is_production() -> bool:
-	env = (_env_str('YASAR_ENV', '').strip().lower() or _env_str('FLASK_ENV', '').strip().lower())
-	return env in ('prod', 'production')
+	# The one answer (core/environment.py).
+	from core.environment import is_production
+	return is_production()
 
 
 def _parse_cors_origins(raw: str):

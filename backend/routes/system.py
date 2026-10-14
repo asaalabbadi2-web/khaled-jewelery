@@ -95,16 +95,12 @@ from routes import (
     _repair_inventory_wage_memo_links,
 )
 
+from core.environment import is_production
+
 system_bp = Blueprint('system', __name__)
 
-def _is_production_env() -> bool:
-    env = (
-        (os.getenv('YASAR_ENV') or '').strip().lower()
-        or (os.getenv('APP_ENV') or '').strip().lower()
-        or (os.getenv('ENV') or '').strip().lower()
-        or (os.getenv('FLASK_ENV') or '').strip().lower()
-    )
-    return env in ('prod', 'production')
+# The one answer to «is this production?» (core/environment.py).
+_is_production_env = is_production
 
 @system_bp.route('/debug/db-info', methods=['GET'])
 @require_permission('system.settings')
@@ -1212,17 +1208,6 @@ def system_reset():
             except Exception:
                 return False
 
-        def _is_production_env() -> bool:
-            # Support multiple common env var names used across deployments.
-            env = (
-                os.getenv('YASAR_ENV')
-                or os.getenv('APP_ENV')
-                or os.getenv('ENV')
-                or os.getenv('FLASK_ENV')
-                or ''
-            )
-            return str(env).strip().lower() in {'prod', 'production'}
-
         # 🔒 Production Lock -- a law, not a switch (RESET-1, the owner 14 Oct
         # 2026): on production no wipe runs, whatever the environment says.
         # ALLOW_DANGEROUS_RESETS opens the backup restore only; trying a reset
@@ -1963,16 +1948,6 @@ def get_reset_info():
     """
     try:
         from models import AppUser, AuditLog, Branch, SafeBoxTransaction, SystemAlert, WeightClosingLog
-        def _is_production_env() -> bool:
-            env = (
-                os.getenv('YASAR_ENV')
-                or os.getenv('APP_ENV')
-                or os.getenv('ENV')
-                or os.getenv('FLASK_ENV')
-                or ''
-            )
-            return str(env).strip().lower() in {'prod', 'production'}
-
         def _dangerous_resets_allowed() -> bool:
             val = os.getenv('ALLOW_DANGEROUS_RESETS')
             return str(val or '').strip().lower() in {'1', 'true', 'yes', 'y', 'on'}
@@ -2336,16 +2311,6 @@ def system_backup_restore():
     - Blocked in production unless ALLOW_DANGEROUS_RESETS=true.
     - Requires confirm=RESTORE in form data.
     """
-
-    def _is_production_env() -> bool:
-        env = (
-            os.getenv('YASAR_ENV')
-            or os.getenv('APP_ENV')
-            or os.getenv('ENV')
-            or os.getenv('FLASK_ENV')
-            or ''
-        )
-        return str(env).strip().lower() in {'prod', 'production'}
 
     def _dangerous_actions_allowed() -> bool:
         val = os.getenv('ALLOW_DANGEROUS_RESETS')

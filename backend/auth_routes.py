@@ -109,14 +109,10 @@ def _hash_token(token: str) -> str:
 
 
 def _is_production_env() -> bool:
-    value = (
-        os.getenv('APP_ENV')
-        or os.getenv('ENV')
-        or os.getenv('FLASK_ENV')
-        or os.getenv('PYTHON_ENV')
-        or ''
-    ).strip().lower()
-    return value in ('prod', 'production')
+    # The one answer (core/environment.py). This copy did not read YASAR_ENV --
+    # the variable production sets -- so on production it said «not production».
+    from core.environment import is_production
+    return is_production()
 
 
 def _normalize_identifier(value: Optional[str]) -> str:

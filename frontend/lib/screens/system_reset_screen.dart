@@ -474,8 +474,9 @@ class _SystemResetScreenState extends State<SystemResetScreen> {
 
   Widget _buildCostingSummaryCard(
     ThemeData theme,
-    Map<String, dynamic> costingData,
-  ) {
+    Map<String, dynamic> costingData, {
+    bool productionLock = false,
+  }) {
     if (costingData.isEmpty) {
       return const SizedBox.shrink();
     }
@@ -522,7 +523,7 @@ class _SystemResetScreenState extends State<SystemResetScreen> {
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        'يُستخدم هذا المتوسط لأي فاتورة شراء أو بيع قادمة. احرص على تصفيره قبل بدء دورة بيانات جديدة.',
+                        'يُستخدم هذا المتوسط لأي فاتورة شراء أو بيع قادمة.',
                         style: theme.textTheme.bodySmall,
                       ),
                     ],
@@ -562,13 +563,22 @@ class _SystemResetScreenState extends State<SystemResetScreen> {
               Text('آخر تحديث: $lastUpdated', style: theme.textTheme.bodySmall),
             ],
             const SizedBox(height: 16),
+            // On production the average is not zeroed or rebuilt (COSTING-LOCK-1):
+            // after the year's transition entry it would cost what is sold wrongly.
+            if (productionLock) ...[
+              Text(
+                'تصفير المتوسط وإعادة بنائه مقفلان على نسخة الإنتاج؛ يُجرَّبان على نسخة مُستعادة.',
+                style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+              ),
+              const SizedBox(height: 8),
+            ],
             if (_isCostingAction) const LinearProgressIndicator(),
             if (_isCostingAction) const SizedBox(height: 12),
             Row(
               children: [
                 Expanded(
                   child: FilledButton.icon(
-                    onPressed: _isCostingAction
+                    onPressed: _isCostingAction || productionLock
                         ? null
                         : () => _handleCostingAction(rebuild: false),
                     icon: const Icon(Icons.restart_alt),
@@ -581,7 +591,7 @@ class _SystemResetScreenState extends State<SystemResetScreen> {
                 const SizedBox(width: 12),
                 Expanded(
                   child: OutlinedButton.icon(
-                    onPressed: _isCostingAction
+                    onPressed: _isCostingAction || productionLock
                         ? null
                         : () => _handleCostingAction(rebuild: true),
                     icon: const Icon(Icons.replay_circle_filled_outlined),
@@ -793,7 +803,7 @@ class _SystemResetScreenState extends State<SystemResetScreen> {
                         ],
                       ),
                     ),
-                  _buildCostingSummaryCard(theme, costingData),
+                  _buildCostingSummaryCard(theme, costingData, productionLock: productionLock),
                   Padding(
                     padding: const EdgeInsets.symmetric(
                       horizontal: 16,

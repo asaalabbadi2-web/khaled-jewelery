@@ -21,6 +21,7 @@ from utils import get_main_karat
 from pricing.constants import SAR_USD_PEG, TROY_OZ_TO_GRAMS
 from pricing import price_clock
 from pricing.buy_price import buy_price_ratio, gram_prices
+from core.environment import is_production
 
 pricing_bp = Blueprint('pricing', __name__)
 
@@ -154,6 +155,20 @@ def update_gold_price():
 def _costing_snapshot_payload() -> dict:
     return {'snapshot': GoldCostingService.snapshot().to_dict(), 'config': GoldCostingService.config_dict()}
 
+def _costing_locked_response():
+    """On production the moving average is not zeroed (COSTING-LOCK-1, the owner
+    14 Oct 2026): after the year's transition entry (ADR-042) a zeroed -- or
+    rebuilt from invoices, which zeroes first -- average costs what is sold
+    wrongly. Tried on a restored copy."""
+    if not is_production():
+        return None
+    return jsonify({
+        'status': 'error',
+        'error': 'production_lock',
+        'message': 'تصفير المتوسط وإعادة بنائه مقفلان على نسخة الإنتاج؛ يُجرَّبان على نسخة مُستعادة.',
+    }), 403
+
+
 def _costing_zero_config() -> dict:
     config = InventoryCostingConfig.query.first()
     if not config:
@@ -266,12 +281,18 @@ def calculate_gold_costing_cogs():
 @pricing_bp.route('/gold-costing/recompute', methods=['POST'])
 @require_permission('costing.recompute')
 def recompute_gold_costing():
+    locked = _costing_locked_response()
+    if locked:
+        return locked
     result = _rebuild_costing_from_invoices(limit=request.args.get('limit', type=int))
     return jsonify({'status': 'success', 'result': result})
 
 @pricing_bp.route('/gold-costing/reset', methods=['POST'])
 @require_permission('system.settings')
 def reset_gold_costing():
+    locked = _costing_locked_response()
+    if locked:
+        return locked
     data = request.get_json(silent=True) or {}
     mode = (data.get('mode') or '').strip().lower()
     try:
@@ -366,5 +387,8 @@ def recompute_scrap_costing():
 @pricing_bp.route('/gold-costing/scrap/reset', methods=['POST'])
 @require_permission('system.settings')
 def reset_scrap_costing():
+    locked = _costing_locked_response()
+    if locked:
+        return locked
     config = ScrapCostingService.reset(auto_commit=True)
     return jsonify({'status': 'success', 'config': config})
