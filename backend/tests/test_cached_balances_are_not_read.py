@@ -35,7 +35,6 @@ ALLOWED = {
     'models.py::get_total_weight': 'dead: only get_account_balances calls it',
     'models.py::get_weight_by_karat': 'dead: nothing calls it',
     'routes/__init__.py::_account_weight_balance_main_karat': 'called by tools/ only (diagnostics, maintenance)',
-    'audit_transaction_type_both.py::_gather_info': 'a one-off audit script, not served',
 }
 
 

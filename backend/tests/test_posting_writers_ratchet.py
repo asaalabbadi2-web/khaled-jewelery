@@ -49,9 +49,6 @@ WRITERS = {
     # repair tools -- for REPAIR-001 (stage 4), not grown meanwhile
     'posting_routes.py::sync_orphan_journal_entries': 2,
     'routes/safe_boxes.py::repair_safe_box_transactions': 1,
-    'devtools/post_unposted_imported_invoices.py::main': 2,
-    'devtools/repair_safebox_transactions.py::run': 1,
-    'tools/maintenance/fix_production_je.py::diagnose': 1,
 }
 
 

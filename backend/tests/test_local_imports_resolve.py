@@ -31,11 +31,6 @@ SKIP_DIRS = {'venv', '.venv', '__pycache__', '.pytest_db', 'node_modules', 'migr
 
 # (file, imported name) -> why it is allowed to stay broken.
 KNOWN_BROKEN = {
-    ('tools/maintenance/fix_voucher_safebox_transactions_and_posting.py', '_is_manual_like_journal_entry'):
-        'retired: a data-mutating repair script, broken since the July migration; '
-        'not revived without review (the UNPOST-001 / REPAIR-001 class of writer)',
-    ('tools/migration/setup_mappings_simple.py', 'Config'):
-        'retired: an old setup script for a config class that no longer exists',
     ('test_settings_singleton.py', 'create_app'):
         'dead: defined inside another test function, so pytest never collects it',
 }

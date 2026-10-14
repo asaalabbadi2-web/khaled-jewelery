@@ -239,12 +239,6 @@
 			"type": "shell",
 			"command": "curl -s http://127.0.0.1:8000/health | python3 -c 'import sys,json; print(json.dumps(json.load(sys.stdin), indent=2))'",
 			"problemMatcher": []
-		},
-		{
-			"label": "Sanity: Category Weight Tracking",
-			"type": "shell",
-			"command": "export DATABASE_URL=\"sqlite:///../app.db\"; cd backend && ( [ -x venv/bin/python ] && PY=venv/bin/python || PY=python3; \"$PY\" devtools/sanity_category_tracking.py )",
-			"problemMatcher": []
 		}
 	]
 }

@@ -240,29 +240,28 @@ def test_value_too_long_for_every_candidate_still_fails(index, tmp_path):
 
 # ── The findings this gate was built to surface ──────────────────────────────
 
-def test_known_zero_headroom_value_is_detected_and_waived_explicitly(report):
-    """The 40/40 case must be found, named, and accepted on the record.
+def test_a_zero_headroom_value_is_waived_only_on_the_record(index, tmp_path, monkeypatch):
+    """A 20/20 value is a violation until named in ACCEPTED_ZERO_HEADROOM -- and
+    only then. (The repository's one real case, a repair script's ref_type, went
+    with the script, 14 Oct 2026; test_no_stale_declarations expired its waiver.)"""
+    import string_capacity_guard as guard
+    value = 'w' * VOUCHER_REFERENCE_TYPE_LENGTH
+    source = f"from models import Voucher\nv = Voucher(reference_type={value!r})\n"
 
-    It is waived rather than fixed because the value is already written to
-    production rows: renaming it is a data migration, not an edit. The waiver
-    keeps it visible, and test_no_stale_declarations makes the waiver expire
-    on its own the moment the value goes away.
-    """
-    key = ('safe_box_transaction', 'ref_type',
-           'historical_gold_reconciliation_per_karat')
-
-    assert key in ACCEPTED_ZERO_HEADROOM, 'the waiver was removed without a decision'
-    assert key in {v.key for v in report.waived}, (
-        'the guard no longer detects the known 40/40 value'
-    )
+    assert [v.key for v in _scan_source(source, index, tmp_path).unwaived] == [('voucher', 'reference_type', value)]
+    monkeypatch.setitem(guard.ACCEPTED_ZERO_HEADROOM, ('voucher', 'reference_type', value), 'test')
+    report = _scan_source(source, index, tmp_path)
+    assert not report.unwaived
+    assert [v.key for v in report.waived] == [('voucher', 'reference_type', value)]
 
 
-def test_the_39_of_40_value_is_reported_as_tight(report):
+def test_one_character_of_headroom_is_reported_as_tight(index, tmp_path):
     """One character of headroom is a finding, even though it is not a failure."""
+    value = 't' * (VOUCHER_REFERENCE_TYPE_LENGTH - 1)
+    report = _scan_source(f"from models import Voucher\nv = Voucher(reference_type={value!r})\n", index, tmp_path)
     tight = {(t.table, t.column, t.value): t for t in report.tight}
-    key = ('safe_box_transaction', 'ref_type',
-           'historical_clearing_adjustment_reversal')
+    key = ('voucher', 'reference_type', value)
 
-    assert key in tight, 'the 39/40 value is no longer surfaced'
+    assert key in tight, 'a 19/20 value is no longer surfaced'
     assert tight[key].headroom == 1
     assert tight[key].headroom <= TIGHT_MARGIN

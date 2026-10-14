@@ -43,8 +43,6 @@ CALLERS = {
     'routes/vouchers.py::approve_voucher': 1,
     'services/supplier_settlement_adjustment_service.py::SupplierSettlementAdjustmentService._build_and_post_voucher': 1,
     # repair tools -- for REPAIR-001 (stage 4)
-    'tools/maintenance/fix_mada_balance_from_temp_bank_account.py::run': 1,
-    'tools/maintenance/fix_misrouted_noncash_payments_to_cash.py::run': 1,
 }
 
 

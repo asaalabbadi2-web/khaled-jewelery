@@ -103,12 +103,7 @@ EXPLICIT_BINDINGS: list[tuple[str, str, str, str]] = [
 # Nothing in this list is broken today. PostgreSQL stores a 40-char value in
 # VARCHAR(40) without complaint. What each entry has lost is the room to be
 # renamed, and that is the risk being accepted.
-ACCEPTED_ZERO_HEADROOM: dict[tuple[str, str, str], str] = {
-    ('safe_box_transaction', 'ref_type', 'historical_gold_reconciliation_per_karat'):
-        'One-off repair script (tools/maintenance/fix_sale_invoice_qty_bug_per_karat.py). '
-        'Already written to production rows, so renaming it is a data migration, '
-        'not an edit. Awaiting a separate decision.',
-}
+ACCEPTED_ZERO_HEADROOM: dict[tuple[str, str, str], str] = {}
 
 
 # ─────────────────────────────────────────────────────────────────────────────
