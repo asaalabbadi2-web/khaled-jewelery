@@ -8,6 +8,12 @@ class Category {
   final double? defaultWage;
   final DateTime? createdAt;
   final int? itemsCount;
+  /// Stopped, never deleted once used -- offered to no one (ADR-045 B).
+  final bool isActive;
+  /// Its karat's scrap category: a customer scrap purchase line is given it.
+  final bool isScrap;
+  /// Derived from the name by the server (the name without its karat).
+  final String? groupName;
 
   Category({
     this.id,
@@ -17,6 +23,9 @@ class Category {
     this.defaultWage,
     this.createdAt,
     this.itemsCount,
+    this.isActive = true,
+    this.isScrap = false,
+    this.groupName,
   });
 
   /// إنشاء Category من JSON
@@ -31,6 +40,9 @@ class Category {
           ? DateTime.parse(json['created_at'])
           : null,
       itemsCount: json['items_count'] ?? 0,
+      isActive: json['is_active'] as bool? ?? true,
+      isScrap: json['is_scrap'] as bool? ?? false,
+      groupName: json['group_name'] as String?,
     );
   }
 

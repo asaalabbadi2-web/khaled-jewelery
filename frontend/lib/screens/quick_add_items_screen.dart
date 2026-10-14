@@ -34,6 +34,11 @@ class _QuickAddItemsScreenState extends State<QuickAddItemsScreen> {
   final TextEditingController _bulkWeightsController = TextEditingController();
   String _selectedKarat = '21';
   int? _selectedCategoryId;
+
+  /// The categories of the chosen karat only -- the server refuses another.
+  List<Category> get _categoriesOfKarat => categories
+      .where((c) => (c.karat ?? '').toString().trim() == _selectedKarat)
+      .toList();
   bool _hasStones = false;
 
   // قائمة الأوزان
@@ -410,7 +415,15 @@ class _QuickAddItemsScreenState extends State<QuickAddItemsScreen> {
                     items: ['18', '21', '22', '24'].map((k) {
                       return DropdownMenuItem(value: k, child: Text('عيار $k'));
                     }).toList(),
-                    onChanged: (v) => setState(() => _selectedKarat = v!),
+                    // A category of another karat is no longer offered -- its
+                    // karat is the pieces' (ADR-045 B: one karat never mistaken
+                    // for another in manual entry).
+                    onChanged: (v) => setState(() {
+                      _selectedKarat = v!;
+                      if (!_categoriesOfKarat.any((c) => c.id == _selectedCategoryId)) {
+                        _selectedCategoryId = null;
+                      }
+                    }),
                   ),
                   const SizedBox(height: 12),
 
@@ -425,7 +438,7 @@ class _QuickAddItemsScreenState extends State<QuickAddItemsScreen> {
                         labelText: 'التصنيف (اختياري)',
                         prefixIcon: Icon(Icons.category),
                       ),
-                      items: categories.map((cat) {
+                      items: _categoriesOfKarat.map((cat) {
                         return DropdownMenuItem(
                           value: cat.id,
                           child: Text(cat.name),

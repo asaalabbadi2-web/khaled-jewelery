@@ -37,7 +37,7 @@ class FakePurchaseApi extends ApiService {
   ];
 
   @override
-  Future<List<dynamic>> getCategories() async => [];
+  Future<List<dynamic>> getCategories({bool includeInactive = false}) async => [];
 
   @override
   Future<Map<String, dynamic>> getGoldPrice() async => {

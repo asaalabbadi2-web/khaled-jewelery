@@ -2157,7 +2157,9 @@ def post_invoice_document(invoice: Invoice, posted_by: str) -> None:
     # The stock by category: its lines allocated, or no posting (ADR-045 A1) --
     # never «if it fails, skip». The category tracker (A2a) and the old
     # inventory ledger (C3) are written no more.
+    from services.categories import assign_scrap_categories
     from services.stock_ledger import allocate_invoice
+    assign_scrap_categories(invoice)      # a customer's scrap: its karat's «كسر» (ADR-045 B)
     allocate_invoice(invoice, by=invoice.posted_by, now=now)
 
     try:

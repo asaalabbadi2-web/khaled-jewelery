@@ -80,7 +80,7 @@ class FakeSalesApi extends ApiService {
   }) async => safes;
 
   @override
-  Future<List<dynamic>> getCategories() async => categories;
+  Future<List<dynamic>> getCategories({bool includeInactive = false}) async => categories;
 
   @override
   Future<Map<String, dynamic>> getSettings() async => settings;

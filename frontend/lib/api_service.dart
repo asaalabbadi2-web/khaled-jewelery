@@ -1150,34 +1150,6 @@ class ApiService {
     }
   }
 
-  /// ♻️ إعادة مزامنة حالة توافر الأصناف
-  Future<Map<String, dynamic>> rebuildItemStockStatus() async {
-    final response = await _authedPost(
-      Uri.parse('$_baseUrl/items/rebuild-stock'),
-    );
-    if (response.statusCode == 200) {
-      return json.decode(utf8.decode(response.bodyBytes));
-    } else {
-      throw Exception(_errorMessageFromResponse(response));
-    }
-  }
-
-  /// 🔄 استنساخ صنف موجود
-  Future<Map<String, dynamic>> cloneItem(
-    int id,
-    Map<String, dynamic> data,
-  ) async {
-    final response = await _authedPost(
-      Uri.parse('$_baseUrl/items/$id/clone'),
-      body: json.encode(data),
-    );
-    if (response.statusCode == 201) {
-      return json.decode(utf8.decode(response.bodyBytes));
-    } else {
-      throw Exception(_errorMessageFromResponse(response));
-    }
-  }
-
   Future<Map<String, dynamic>> updateItem(
     int id,
     Map<String, dynamic> itemData,
@@ -1206,8 +1178,11 @@ class ApiService {
   // ============================================
 
   /// جلب جميع التصنيفات
-  Future<List<dynamic>> getCategories() async {
-    final response = await _authedGet(Uri.parse('$_baseUrl/categories'));
+  /// The categories offered; [includeInactive] adds the stopped ones (the
+  /// management dialog) -- a stopped category is offered to no one (ADR-045 B).
+  Future<List<dynamic>> getCategories({bool includeInactive = false}) async {
+    final response = await _authedGet(Uri.parse(
+        '$_baseUrl/categories${includeInactive ? '?include_inactive=1' : ''}'));
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {

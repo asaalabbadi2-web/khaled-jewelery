@@ -1233,6 +1233,33 @@ class _CategoriesManagementDialogState
   void initState() {
     super.initState();
     _categories = List.from(widget.categories);
+    _reloadAll();
+  }
+
+  /// The dialog manages the stopped categories too (ADR-045 B).
+  Future<void> _reloadAll() async {
+    try {
+      final data = await widget.api.getCategories(includeInactive: true);
+      if (!mounted) return;
+      setState(() => _categories =
+          data.map((e) => Category.fromJson(e as Map<String, dynamic>)).toList());
+    } catch (_) {
+      // the active list from the screen stays
+    }
+  }
+
+  /// Stop a category (offered to no one, its invoices untouched) or restart it.
+  Future<void> _toggleActive(Category category) async {
+    try {
+      await widget.api.updateCategory(category.id!, {'is_active': !category.isActive});
+      await _reloadAll();
+      widget.onCategoriesChanged();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('$e'), backgroundColor: Theme.of(context).colorScheme.error),
+      );
+    }
   }
 
   Future<void> _addCategory() async {
@@ -1260,7 +1287,7 @@ class _CategoriesManagementDialogState
             TextField(
               controller: karatController,
               decoration: const InputDecoration(
-                labelText: 'العيار الافتراضي (اختياري)',
+                labelText: 'العيار (مطلوب: 18 أو 21 أو 22 أو 24)',
                 border: OutlineInputBorder(),
                 hintText: '18 أو 21 أو 22 أو 24',
               ),
@@ -1367,7 +1394,7 @@ class _CategoriesManagementDialogState
             TextField(
               controller: karatController,
               decoration: const InputDecoration(
-                labelText: 'العيار الافتراضي (اختياري)',
+                labelText: 'العيار (مطلوب: 18 أو 21 أو 22 أو 24)',
                 border: OutlineInputBorder(),
                 hintText: '18 أو 21 أو 22 أو 24',
               ),
@@ -1588,10 +1615,18 @@ class _CategoriesManagementDialogState
                           ),
                           title: Text(
                             category.name,
-                            style: const TextStyle(fontWeight: FontWeight.bold),
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              color: category.isActive ? null : colorScheme.outline,
+                            ),
                           ),
                           subtitle: Text(
-                            category.description ?? '',
+                            [
+                              if (!category.isActive) 'موقوف',
+                              if (category.isScrap) 'كسر',
+                              if ((category.groupName ?? '').isNotEmpty) 'المجموعة: ${category.groupName}',
+                              if ((category.description ?? '').isNotEmpty) category.description!,
+                            ].join(' · '),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                           ),
@@ -1623,6 +1658,16 @@ class _CategoriesManagementDialogState
                               IconButton(
                                 icon: const Icon(Icons.edit, size: 20),
                                 onPressed: () => _editCategory(category),
+                              ),
+                              IconButton(
+                                icon: Icon(
+                                  category.isActive
+                                      ? Icons.pause_circle_outline
+                                      : Icons.play_circle_outline,
+                                  size: 20,
+                                ),
+                                tooltip: category.isActive ? 'إيقاف' : 'إعادة تفعيل',
+                                onPressed: () => _toggleActive(category),
                               ),
                               IconButton(
                                 icon: Icon(

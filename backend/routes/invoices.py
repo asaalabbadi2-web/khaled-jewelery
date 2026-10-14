@@ -8995,7 +8995,9 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
 
         # The stock by category: its lines allocated, or no invoice (ADR-045 A1).
         db.session.flush()
+        from services.categories import assign_scrap_categories
         from services.stock_ledger import allocate_invoice
+        assign_scrap_categories(new_invoice)      # a customer's scrap: its karat's «كسر» (ADR-045 B)
         allocate_invoice(new_invoice, by=new_invoice.posted_by, now=now)
 
         # Audit: large discount (sales)

@@ -976,14 +976,27 @@ class Customer(db.Model):
     def to_dict_with_account(self):
         return self.to_dict()
 
+def _category_group_name(name, karat):
+    from services.categories import group_name
+    return group_name(name, karat)
+
+
 class Category(db.Model):
     """تصنيفات الأصناف - لتحسين دقة التقارير"""
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=False, unique=True)
     description = db.Column(db.String(200))
+    # Latin digits, one of services.categories.KARATS; fixed once the category
+    # is used (ADR-045 B). Text -- the app reads it as text or number alike.
     karat = db.Column(db.String(10), nullable=True)
     default_wage = db.Column(db.Float, nullable=True)  # متوسط أجور مصنعية افتراضي للتصنيف
     created_at = db.Column(db.DateTime, default=datetime.now)
+    # Stopped, never deleted once used: the invoices point at it; a stopped
+    # category is offered to no one (ADR-045 B).
+    is_active = db.Column(db.Boolean, nullable=False, default=True, server_default=db.true())
+    # The scrap category of its karat: a customer scrap purchase line without a
+    # category is given it (ADR-045 B).
+    is_scrap = db.Column(db.Boolean, nullable=False, default=False, server_default=db.false())
 
     # العلاقة مع الأصناف
     items = db.relationship('Item', backref='category', lazy=True)
@@ -996,7 +1009,10 @@ class Category(db.Model):
             'karat': self.karat,
             'default_wage': self.default_wage,
             'created_at': self.created_at.isoformat() if self.created_at else None,
-            'items_count': len(self.items)
+            'items_count': len(self.items),
+            'is_active': self.is_active is not False,
+            'is_scrap': bool(self.is_scrap),
+            'group_name': _category_group_name(self.name, self.karat),
         }
 
 
