@@ -1709,8 +1709,6 @@ def _upsert_weight_closing_order(invoice: Invoice, close_price_per_gram: float, 
 
 # Admin domain → routes/admin.py
 # (_TEMP_PDF_DIR constants, POST/GET /temp-pdf,
-#  GET /admin/clearing-gap-report, GET /admin/ip-settlement-trace,
-#  POST /admin/repair-voucher-date-bounded,
 #  GET/POST /admin/historical-clearing-adjustment,
 #  POST /admin/historical-clearing-adjustment/<id>/apply,
 #  POST /admin/historical-clearing-adjustment/<id>/cancel)

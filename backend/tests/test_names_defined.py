@@ -30,10 +30,6 @@ ALLOWED = {
     ('routes/system.py', 'InvoiceWeightSettlement'):
         '«حذف جميع العمليات» (_reset_transactions) fails on it and so deletes nothing; '
         'made to work it wipes the books -- the owner decides whether the reset stays (NAMES-1)',
-    ('routes/admin.py', 'InvoicePayment'):
-        'temporary clearing diagnostics and a settlement repair route (/admin/clearing-gap-report, '
-        '/admin/ip-settlement-trace, /admin/repair-voucher-date-bounded) no screen calls; '
-        'made to work the last rewrites settlement lines -- the owner decides (NAMES-1)',
 }
 
 

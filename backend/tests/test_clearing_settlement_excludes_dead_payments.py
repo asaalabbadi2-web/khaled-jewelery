@@ -339,11 +339,7 @@ class TestNoFifthSettleableReader:
         # manual admin tools, and changing a repair tool's selection without
         # re-deriving what it repairs could break the repair itself. Recorded
         # so they are visible and so this ratchet still fails on a NEW reader.
-        ('routes/admin.py', 'clearing_gap_report'):
-            'DEBT: reports a rejected invoice payment as a "true gap" (false alarm)',
         ('allocation_repair_service.py', 'repair_safe_box'):
-            'DEBT: could allocate settlement to a dead payment if run',
-        ('routes/admin.py', 'repair_voucher_date_bounded'):
             'DEBT: could allocate settlement to a dead payment if run',
     }
 
