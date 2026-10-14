@@ -25,10 +25,13 @@ from models import (
     Account, Customer, JournalEntry, JournalEntryLine, SafeBox, SafeBoxTransaction, Voucher, db,
 )
 from services.repair import stage4_package as pkg
-from services.repair.entries import (
-    PROTECTED_ACCOUNT_NUMBERS, SUBSTITUTES, ProtectedAccount, UnmirroredLine, reverse_entry, write_entry,
-)
+from services.repair.entries import ProtectedAccount, UnmirroredLine, reverse_entry, write_entry
 from services.safebox_subledger import subledger_totals_by_box
+
+# The owner's list (3 Oct 2026; the scrap safe 12 Oct) -- marks on the accounts
+# since CHART-002 4c3 (migration 20261014_repair_protection); the books below mark them so.
+PROTECTED_ACCOUNT_NUMBERS = ('1100000', '1110000', '340', '1720', '71720', '71310000')
+SUBSTITUTES = {'1100000': '1100002', '1110000': '1110001', '71310000': '71310002'}
 
 DAY = datetime(2026, 5, 19, 18, 24)
 NOW = datetime(2026, 10, 3, 22, 0)   # the run's clock, passed in (ADR-015)
@@ -72,6 +75,10 @@ def books():
     """The protected accounts and their twins, each cash one with its safe."""
     accounts = {n: _account(n, f'محمي {n}') for n in PROTECTED_ACCOUNT_NUMBERS}
     accounts.update({n: _account(n, f'مؤقت {n}') for n in SUBSTITUTES.values()})
+    for n in PROTECTED_ACCOUNT_NUMBERS:
+        accounts[n].repair_protected = True
+        accounts[n].repair_substitute_id = accounts[SUBSTITUTES[n]].id if n in SUBSTITUTES else None
+    db.session.flush()
     for n in list(SUBSTITUTES) + list(SUBSTITUTES.values()):
         _safe(accounts[n])
     return accounts

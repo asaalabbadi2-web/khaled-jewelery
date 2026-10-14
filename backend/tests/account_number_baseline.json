@@ -12,7 +12,6 @@
   "services/gold_cost_books.py": 3,
   "services/journals.py": 1,
   "services/repair/chart_001.py": 9,
-  "services/repair/entries.py": 12,
   "services/repair/gold_statements.py": 6,
   "services/repair/karat_diff_commission.py": 1,
   "services/repair/march_reservations_purchase.py": 2,

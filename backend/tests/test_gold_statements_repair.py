@@ -32,7 +32,7 @@ import pytest
 from app import app as flask_app
 from models import Account, JournalEntry, JournalEntryLine, SafeBox, SafeBoxTransaction, db
 from services.repair import gold_statements as gs
-from services.repair.entries import PROTECTED_ACCOUNT_NUMBERS, SUBSTITUTES, ProtectedAccount, write_entry
+from services.repair.entries import ProtectedAccount, write_entry
 from services.safebox_subledger import gold_subledger_by_box
 
 
@@ -137,9 +137,19 @@ def _ledger_grams(account):
 # ── the guard: the main scrap safe matches reality ──
 
 def test_the_main_scrap_safe_is_protected_and_its_twin_is_the_reserve():
-    assert '71310000' in PROTECTED_ACCOUNT_NUMBERS
-    assert SUBSTITUTES['71310000'] == '71310002'
+    """The mark is the account's (CHART-002 4c3); the migration marks the scrap safe
+    and names the reserve as its substitute."""
+    import importlib.util
+    import pathlib
+    path = pathlib.Path(__file__).resolve().parents[1] / 'alembic' / 'versions' / '20261014_repair_protection.py'
+    spec = importlib.util.spec_from_file_location('repair_protection', path)
+    migration = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(migration)
+    assert '71310000' in migration.PROTECTED
+    assert migration.SUBSTITUTES['71310000'] == '71310002'
     main = _account('71310000', 'صندوق الكسر الرئيسي وزني')
+    main.repair_protected = True
+    db.session.flush()
     other = _account()
     with pytest.raises(ProtectedAccount):
         write_entry(date=datetime(2026, 4, 17), description='x', reference_type='t', reference_id=None,

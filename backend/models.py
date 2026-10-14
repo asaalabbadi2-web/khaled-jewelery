@@ -124,6 +124,13 @@ class Account(db.Model):
     # (services/account_status.py; the guard below and account_status_trigger.py).
     is_active = db.Column(db.Boolean, nullable=False, default=True, server_default=db.true())
 
+    # The owner's rule (3 Oct 2026): an account that already matches reality
+    # takes no correction; what would move it moves its substitute instead
+    # (services/repair/entries.py). On the account, not a list of numbers, so it
+    # follows the account into 2027's numbering (CHART-002 step 4c3).
+    repair_protected = db.Column(db.Boolean, nullable=False, default=False, server_default=db.false())
+    repair_substitute_id = db.Column(db.Integer, db.ForeignKey('account.id'), nullable=True)
+
     # 🆕 علم تضمين الحساب في تقرير ربح الجرام الوزني
     # True → يدخل في حساب الربح الوزني (إيراد أو مصروف حسب رقم الحساب)
     include_in_gram_profit = db.Column(db.Boolean, default=False, nullable=False)
