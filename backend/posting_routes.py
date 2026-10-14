@@ -2155,15 +2155,10 @@ def post_invoice_document(invoice: Invoice, posted_by: str) -> None:
 
     db.session.flush()
     # The stock by category: its lines allocated, or no posting (ADR-045 A1) --
-    # never «if it fails, skip», as the old inventory ledger below still is
-    # (it retires with the count, A3). The category tracker is written no more (A2a).
+    # never «if it fails, skip». The category tracker (A2a) and the old
+    # inventory ledger (C3) are written no more.
     from services.stock_ledger import allocate_invoice
     allocate_invoice(invoice, by=invoice.posted_by, now=now)
-    try:
-        from services.inventory_posting_service import InventoryPostingService
-        InventoryPostingService.post(invoice)
-    except Exception as exc:
-        print(f"[post_invoice_document] inventory ledger of invoice {invoice.id} skipped: {exc}")
 
     try:
         SystemAlert.query.filter_by(entity_type='Invoice', entity_id=invoice.id, is_reviewed=False).update(
@@ -2194,11 +2189,12 @@ def unpost_invoice_document(invoice: Invoice) -> None:
     scrap gold in custody and one deleted it, none made the entries drafts, none
     reversed the inventory ledger.
 
-    In order: its entries become drafts; its own safe-box rows go (gold as cash,
-    whatever their name -- no scrap rule of its own); the inventory ledger is
-    reversed (append-only, ADR-002: its net goes to zero); the gold evidence it wrote is released, the obligations kept
-    (ADR-028); its payment state and the cached balances of the accounts its
-    entries touched are recomputed.
+    In order: its entries become drafts -- and with them its stock leaves the
+    stock reader, its allocations kept for a re-posting (ADR-045; the old
+    inventory ledger is retired); its own safe-box rows go (gold as cash,
+    whatever their name -- no scrap rule of its own); the gold evidence it wrote
+    is released, the obligations kept (ADR-028); its payment state and the
+    cached balances of the accounts its entries touched are recomputed.
 
     Its vouchers are not touched: the caller refuses while a payment stands
     (services/invoice_retraction_guard.live_payments_of), so only cancelled ones
@@ -2208,7 +2204,6 @@ def unpost_invoice_document(invoice: Invoice) -> None:
     """
     from services.invoice_retraction_guard import OWN_MOVEMENT_TYPES
     from services.gold_allocation_service import release_invoice_gold_evidence
-    from services.inventory_posting_service import InventoryPostingService
     from accounting.balances import _recalculate_account_balances_for_accounts
 
     touched = set()
@@ -2224,7 +2219,6 @@ def unpost_invoice_document(invoice: Invoice) -> None:
         SafeBoxTransaction.ref_type.in_(OWN_MOVEMENT_TYPES),
     ).delete(synchronize_session=False)
 
-    InventoryPostingService.reverse(invoice, reason=f'unpost invoice {invoice.id}')
     # Its category-tracker rows stay: 2026's history, read by nothing (ADR-045 A2a).
     release_invoice_gold_evidence(invoice.id)
 

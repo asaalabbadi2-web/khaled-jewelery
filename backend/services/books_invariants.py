@@ -70,7 +70,6 @@ RETRACTED_INVOICE_POSTED = 'RETRACTED_INVOICE_POSTED'
 OPEN_CLOSING_OF_RETRACTED_INVOICE = 'OPEN_CLOSING_OF_RETRACTED_INVOICE'
 COMMISSION_NOT_WRITTEN = 'COMMISSION_NOT_WRITTEN'
 ENTRY_WEIGHT_UNBALANCED = 'ENTRY_WEIGHT_UNBALANCED'
-INVENTORY_LEDGER_DRIFT = 'INVENTORY_LEDGER_DRIFT'
 STOCK_ALLOCATION_INVALID = 'STOCK_ALLOCATION_INVALID'
 
 KINDS = (
@@ -83,7 +82,6 @@ KINDS = (
     OPEN_CLOSING_OF_RETRACTED_INVOICE,
     COMMISSION_NOT_WRITTEN,
     ENTRY_WEIGHT_UNBALANCED,
-    INVENTORY_LEDGER_DRIFT,
     STOCK_ALLOCATION_INVALID,
 )
 
@@ -496,43 +494,6 @@ def check_entries_weight_unbalanced(threshold: float = WEIGHT_COLUMN_TOLERANCE) 
             for eid, number, date, net in rows]
 
 
-def check_inventory_ledger_drift(threshold: float = GOLD_DRIFT_THRESHOLD) -> list:
-    """The inventory ledger against the books, karat by karat (ADR-045 A0).
-
-    Three answers to «how much gold do we hold» on the 12 Oct copy: the books,
-    inventory_ledger and the category tracker. The ledger wrote invoices only,
-    inside «if it fails, skip»; vouchers, reversals and reservations move the
-    books' stock too. The books' side is what the posted entries hold on the
-    accounts of the safes that are stock locations (safe_box.stock_location) --
-    an office's gold safe sits on a supplier account and is not stock. One fact
-    per karat, keyed 'karat:<k>k'; the metric is ledger minus books, in grams.
-    It reports; it is a law from 2027's opening, written by its count."""
-    from models import InventoryLedger
-    from services.live_balances import live_balances_by_account_ids
-
-    account_ids = [aid for (aid,) in db.session.query(SafeBox.account_id)
-                   .filter(SafeBox.stock_location.isnot(None)).distinct().all()]
-    books = {}
-    for balance in live_balances_by_account_ids(account_ids).values():
-        for key in ('18k', '21k', '22k', '24k'):
-            books[key] = books.get(key, 0.0) + float(balance.get(key) or 0.0)
-    ledger = {}
-    for karat, grams in (db.session.query(InventoryLedger.karat, func.sum(InventoryLedger.weight_delta))
-                         .group_by(InventoryLedger.karat).all()):
-        key = f'{int(round(float(karat)))}k'
-        ledger[key] = ledger.get(key, 0.0) + float(grams or 0.0)
-    facts = []
-    for key in sorted(set(books) | set(ledger)):
-        diff = round(ledger.get(key, 0.0) - books.get(key, 0.0), 3)
-        if abs(diff) > threshold:
-            facts.append(Fact(INVENTORY_LEDGER_DRIFT, f'karat:{key}', diff, {
-                'karat': key,
-                'ledger_grams': round(ledger.get(key, 0.0), 3),
-                'books_grams': round(books.get(key, 0.0), 3),
-                'difference_grams': diff,
-            }))
-    return facts
-
 
 def check_stock_allocations() -> list:
     """A stock line's allocations that break the law (ADR-045 A1).
@@ -582,7 +543,6 @@ CHECKS = {
     OPEN_CLOSING_OF_RETRACTED_INVOICE: check_open_closings_of_retracted_invoices,
     COMMISSION_NOT_WRITTEN: check_commissions_not_written,
     ENTRY_WEIGHT_UNBALANCED: check_entries_weight_unbalanced,
-    INVENTORY_LEDGER_DRIFT: check_inventory_ledger_drift,
     STOCK_ALLOCATION_INVALID: check_stock_allocations,
 }
 

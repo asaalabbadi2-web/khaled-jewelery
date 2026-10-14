@@ -164,35 +164,6 @@ class InventoryService {
     );
   }
 
-  // ── Adjustments ───────────────────────────────────────────────────────────
-
-  Future<InventoryAdjustment> createManualAdjustment({
-    required int branchId,
-    required String reason,
-    required List<Map<String, dynamic>> lines,
-    bool autoPost = true,
-  }) async {
-    final resp = await _api.authedPost(
-      '/inventory/adjustment',
-      body: jsonEncode({
-        'branch_id': branchId,
-        'reason': reason,
-        'lines': lines,
-        'auto_post': autoPost,
-      }),
-    );
-    _check(resp, 'تعذّر إنشاء التسوية');
-    return InventoryAdjustment.fromJson(
-        jsonDecode(resp.body) as Map<String, dynamic>);
-  }
-
-  Future<InventoryAdjustment> getAdjustment(int adjustmentId) async {
-    final resp = await _api.authedGet('/inventory/adjustment/$adjustmentId');
-    _check(resp, 'تعذّر تحميل التسوية');
-    return InventoryAdjustment.fromJson(
-        jsonDecode(resp.body) as Map<String, dynamic>);
-  }
-
   // ── Reports ───────────────────────────────────────────────────────────────
 
   Future<ReconciliationReport> getReconciliation() async {

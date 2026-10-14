@@ -8998,13 +8998,6 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
         from services.stock_ledger import allocate_invoice
         allocate_invoice(new_invoice, by=new_invoice.posted_by, now=now)
 
-        # 📒 Inventory ledger posting (Event Log — append-only)
-        try:
-            from services.inventory_posting_service import InventoryPostingService
-            InventoryPostingService.post(new_invoice)
-        except Exception as exc:
-            print(f"⚠️ Inventory ledger posting skipped: {exc}")
-
         # Audit: large discount (sales)
         try:
             if str(invoice_type).strip() == 'بيع' and total_gross_cash > 0 and total_discount_cash > 0:

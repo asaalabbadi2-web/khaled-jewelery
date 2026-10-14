@@ -30,7 +30,7 @@ measured -- an order with gold closed against it -- is refused, not guessed at.
 """
 import json
 
-from models import AuditLog, CategoryWeightMovement, Invoice, InvoiceItem, WeightClosingOrder, db
+from models import AuditLog, Invoice, InvoiceItem, WeightClosingOrder, db
 
 SALE_RETURN = 'مرتجع بيع'
 
@@ -72,10 +72,10 @@ def withdraw_open_closings(*, by: str, now, dry_run: bool = True) -> dict:
 
 def categorise_returns(*, by: str, now, dry_run: bool = True) -> dict:
     """Give each uncategorised sale-return line its original line's category,
-    and the inventory ledger and the category weights what follows from it."""
-    from category_weight_tracking import record_category_weight_movements_for_invoice_payload
-    from services.inventory_posting_service import InventoryPostingService
+    and its stock lines the allocation that follows (ADR-045: the stock is the
+    entry lines; the old inventory ledger and the category tracker are retired)."""
     from services.return_lines import inherit_original_categories
+    from services.stock_ledger import allocate_invoice
 
     returns = (Invoice.query.filter(Invoice.invoice_type == SALE_RETURN, Invoice.is_posted.is_(True),
                                     Invoice.original_invoice_id.isnot(None))
@@ -92,24 +92,16 @@ def categorise_returns(*, by: str, now, dry_run: bool = True) -> dict:
                  if not line.category_id and row.get('category_id')]
         if not found:
             continue
-        has_movements = CategoryWeightMovement.query.filter_by(invoice_id=ret.id).first() is not None
         step = {'return_id': ret.id, 'number': ret.invoice_type_id, 'original_id': ret.original_invoice_id,
                 'lines': [{'line_id': line.id, 'name': line.name, 'karat': line.karat,
-                           'weight': line.weight, 'category_id': cat} for line, cat in found],
-                'category_weight_written': not has_movements}
+                           'weight': line.weight, 'category_id': cat} for line, cat in found]}
         plan.append(step)
         if dry_run:
             continue
-        InventoryPostingService.reverse(ret, reason=f'return {ret.id}: lines categorised as their original')
         for line, cat in found:
             line.category_id = int(cat)
         db.session.flush()
-        InventoryPostingService.post(ret)
-        if not has_movements:
-            record_category_weight_movements_for_invoice_payload(
-                invoice_id=ret.id,
-                items_payload=[{'name': line.name, 'karat': line.karat, 'weight': line.weight,
-                                'category_id': line.category_id} for line in lines])
+        step['allocated'] = len(allocate_invoice(ret, by=by, now=now))
         _audit(by, 'categorise_return_lines', ret.id, {**step, 'at': now})
     if not dry_run:
         db.session.flush()

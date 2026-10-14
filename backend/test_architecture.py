@@ -38,10 +38,13 @@ SERVICES_DIR = BACKEND_DIR / 'services'
 
 # ── Configuration ─────────────────────────────────────────────────────────────
 
-# Files allowed to instantiate InventoryLedger
-ALLOWED_LEDGER_WRITERS: set[str] = {'inventory_posting_service.py'}
-# Files allowed to instantiate InventoryBalance
-ALLOWED_BALANCE_WRITERS: set[str] = {'inventory_posting_service.py'}
+# Files allowed to instantiate InventoryLedger / InventoryBalance: none. The
+# old inventory ledger is retired (ADR-045 C3): the stock is the entry lines,
+# its rows are 2026's history, and nothing writes them.
+ALLOWED_LEDGER_WRITERS: set[str] = set()
+ALLOWED_BALANCE_WRITERS: set[str] = set()
+# The one writer of a stock line's category allocation (ADR-045 A1).
+ALLOWED_ALLOCATION_WRITERS: set[str] = {'stock_ledger.py'}
 
 # Patterns whose presence in a filename means "skip this file"
 _SKIP_PATTERNS = (
@@ -160,12 +163,25 @@ def _has_cycle(graph: Dict[str, Set[str]]) -> list[str]:
 # ── RULE-1: Single Writer ─────────────────────────────────────────────────────
 
 class TestSingleWriter:
-    """Only InventoryPostingService may instantiate inventory event-log classes.
-
-    See ADR-001 (single-writer) and ADR-002 (append-only ledger).
+    """The old inventory ledger and its balance are written by nobody (ADR-045
+    C3 retired them; ADR-001's single writer is now none); a stock line's
+    category allocation by services/stock_ledger alone (ADR-045 A1).
     """
 
-    def test_only_posting_service_creates_inventory_ledger_rows(self):
+    def test_only_the_stock_ledger_creates_allocations(self):
+        violators = [
+            str(p.relative_to(BACKEND_DIR))
+            for p in _scannable_files()
+            if p.name not in ALLOWED_ALLOCATION_WRITERS
+            if _instantiates(p, 'StockLineAllocation')
+        ]
+        assert violators == [], (
+            'StockLineAllocation instantiated outside services/stock_ledger.allocate:\n'
+            + '\n'.join(f'  {v}' for v in violators)
+            + '\nIts law (never heavier than its line) lives there. See ADR-045.'
+        )
+
+    def test_nothing_creates_old_inventory_ledger_rows(self):
         violators = [
             str(p.relative_to(BACKEND_DIR))
             for p in _scannable_files()
@@ -173,13 +189,13 @@ class TestSingleWriter:
             if _instantiates(p, 'InventoryLedger')
         ]
         assert violators == [], (
-            'RULE-1: InventoryLedger instantiated outside InventoryPostingService:\n'
+            'RULE-1: the retired InventoryLedger instantiated:\n'
             + '\n'.join(f'  {v}' for v in violators)
-            + '\nAll inventory movements must go through '
-              'InventoryPostingService.post(). See ADR-001.'
+            + '\nThe stock is the entry lines and their allocations '
+              '(services/stock_ledger). See ADR-045 C3.'
         )
 
-    def test_only_posting_service_creates_inventory_balance_rows(self):
+    def test_nothing_creates_old_inventory_balance_rows(self):
         violators = [
             str(p.relative_to(BACKEND_DIR))
             for p in _scannable_files()
@@ -187,10 +203,9 @@ class TestSingleWriter:
             if _instantiates(p, 'InventoryBalance')
         ]
         assert violators == [], (
-            'RULE-1: InventoryBalance instantiated outside InventoryPostingService:\n'
+            'RULE-1: the retired InventoryBalance instantiated:\n'
             + '\n'.join(f'  {v}' for v in violators)
-            + '\nBalance rows are managed by '
-              'InventoryPostingService._apply_to_balance(). See ADR-003.'
+            + '\nThe stock is read by services/stock_ledger.stock_balances. See ADR-045 C3.'
         )
 
 
@@ -204,13 +219,10 @@ class TestGLBoundary:
     """
 
     _GL_TYPES = ('JournalEntry', 'JournalEntryLine')
+    # services/stock_ledger reads the entry lines by design -- the stock IS the
+    # lines (ADR-045); this rule is about who writes entries.
     _PROTECTED_SERVICES = (
-        'inventory_posting_service.py',
         'inventory_count_service.py',
-        'inventory_adjustment_service.py',
-        'inventory_invariant_checker.py',
-        'inventory_reconciliation_report.py',
-        'inventory_health_report.py',
     )
 
     def test_inventory_services_do_not_import_journal_entry(self):
@@ -238,12 +250,7 @@ class TestAcyclicDependencies:
     A cycle means A→B→A, which indicates a design problem.
     Expected dependency order (high → low):
         inventory_count_service
-        inventory_adjustment_service
-        inventory_accounting_service
-        inventory_posting_service       ← lowest level; imports nothing upward
-        inventory_invariant_checker
-        inventory_reconciliation_report
-        inventory_health_report
+        inventory_accounting_service    ← the books' side; imports the count never
     """
 
     def test_inventory_services_import_graph_is_acyclic(self):
@@ -263,24 +270,13 @@ class TestAcyclicDependencies:
             + str({k: sorted(v) for k, v in graph.items() if v})
         )
 
-    def test_posting_service_does_not_import_higher_level_services(self):
-        """InventoryPostingService is the lowest-level writer.
-
-        It must not import count, adjustment, or accounting services —
-        those depend on it, not the other way around.
-        """
-        p = SERVICES_DIR / 'inventory_posting_service.py'
-        if not p.exists():
-            pytest.skip('inventory_posting_service.py not found')
-
-        forbidden_imports = {
-            'inventory_count_service',
-            'inventory_adjustment_service',
-            'inventory_accounting_service',
-        }
-        deps = _service_deps(p)
-        violations = deps & forbidden_imports
+    def test_the_accounting_side_does_not_import_the_count(self):
+        """InventoryAccountingService writes the count's entry; it takes the
+        session as an argument and never imports the count service back."""
+        p = SERVICES_DIR / 'inventory_accounting_service.py'
+        assert p.exists()
+        violations = _service_deps(p) & {'inventory_count_service'}
         assert not violations, (
-            f'RULE-4: InventoryPostingService imports higher-level services: {violations}\n'
-            'This creates an upward dependency. Restructure to remove the cycle.'
+            f'RULE-4: InventoryAccountingService imports the count: {violations}\n'
+            'The count calls the books\' side, not the other way round.'
         )

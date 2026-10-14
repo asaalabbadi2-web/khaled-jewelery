@@ -115,11 +115,14 @@ def test_a_failure_halfway_changes_nothing(auth_headers, unposting_allowed, worl
     inv = _create(auth_headers, world, 'scrap_purchase_unpaid', held=False)
     posted = snapshot(*_key(inv))
 
-    from services.inventory_posting_service import InventoryPostingService
+    # Halfway: after the entries turned drafts and the safe rows went -- the
+    # gold evidence's release (the old inventory ledger's reversal, retired by
+    # ADR-045 C3, was the step used before).
+    import services.gold_allocation_service as gold_allocation
 
     def boom(*a, **kw):
         raise RuntimeError('halfway')
-    monkeypatch.setattr(InventoryPostingService, 'reverse', classmethod(boom))
+    monkeypatch.setattr(gold_allocation, 'release_invoice_gold_evidence', boom)
     resp = ROUTES[route](flask_app.test_client(), auth_headers, inv['id'])
     assert resp.status_code >= 400
     assert _without_audit(snapshot(*_key(inv))) == _without_audit(posted)

@@ -14,7 +14,7 @@ from datetime import datetime
 import pytest
 
 from app import app as flask_app
-from models import (CategoryWeightMovement, InventoryLedger, InvoiceItem, JournalEntry,
+from models import (InvoiceItem, JournalEntry,
                     WeightClosingExecution, WeightClosingOrder, db)
 from services.repair.withdrawn_and_returned import NotAsMeasured, run_package
 from tests.retraction_world import world  # noqa: F401 (fixture)
@@ -48,11 +48,21 @@ def _left_open(sale_id):
 
 def _saved_uncategorised(ret_id):
     """As every sale return until 10 Oct was saved: no category anywhere."""
+    from models import JournalEntryLine, SafeBox, StockLineAllocation
     for line in InvoiceItem.query.filter_by(invoice_id=ret_id):
         line.category_id = None
-    for row in InventoryLedger.query.filter_by(source_type='invoice', source_id=ret_id):
-        row.category_id = None
-    CategoryWeightMovement.query.filter_by(invoice_id=ret_id).delete()
+    lines = [l.id for l in JournalEntryLine.query.join(JournalEntry).filter(
+        JournalEntry.reference_type == 'invoice', JournalEntry.reference_id == ret_id)]
+    StockLineAllocation.query.filter(StockLineAllocation.journal_entry_line_id.in_(lines or [-1])).delete(
+        synchronize_session=False)
+    # The return's gold comes back into a stock safe (ADR-045 A0).
+    gold = (JournalEntryLine.query.join(JournalEntry)
+            .filter(JournalEntry.reference_type == 'invoice', JournalEntry.reference_id == ret_id,
+                    JournalEntryLine.debit_21k > 0).first())
+    box = SafeBox.query.filter_by(account_id=gold.account_id).first() or SafeBox(
+        name='مخزون اختبار', safe_type='gold', account_id=gold.account_id, is_active=True)
+    box.stock_location = 'showroom'
+    db.session.add(box)
     db.session.flush()
 
 
@@ -76,12 +86,11 @@ def test_it_cancels_the_orders_and_categorises_the_returns(auth_headers, world):
     db.session.expire_all()
     assert WeightClosingOrder.query.filter_by(invoice_id=rejected['id']).first().status == 'cancelled'
     assert [l.category_id for l in InvoiceItem.query.filter_by(invoice_id=ret['id'])] == [cat.id]
-    assert [(m.category_id, m.weight_delta_grams) for m in CategoryWeightMovement.query.filter_by(invoice_id=ret['id'])] \
-        == [(cat.id, 2.0)]
-    by_bucket = {}
-    for row in InventoryLedger.query.filter_by(source_type='invoice', source_id=ret['id']):
-        by_bucket[row.category_id] = round(by_bucket.get(row.category_id, 0.0) + row.weight_delta, 6)
-    assert by_bucket == {None: 0.0, cat.id: 2.0}, 'the no-category bucket nets out; the category has it'
+    from models import JournalEntryLine, StockLineAllocation
+    allocated = (StockLineAllocation.query.join(JournalEntryLine).join(JournalEntry)
+                 .filter(JournalEntry.reference_type == 'invoice', JournalEntry.reference_id == ret['id']).all())
+    assert [(a.category_id, round(a.grams, 3)) for a in allocated] == [(cat.id, 2.0)], \
+        'the category gets its weight back -- on the return\'s stock line'
     assert JournalEntry.query.count() == entries, 'no entry is written'
 
     again = run_package(by='t', now=NOW, dry_run=True)

@@ -344,3 +344,30 @@ class TestTheCategoryReportReadsTheStock:
         opening, as an entry with its allocation (A3)."""
         resp = flask_app.test_client().post('/api/category-weight/adjustments', headers=auth_headers, json={})
         assert resp.status_code in (404, 405)
+
+
+class TestTheOldLedgerIsRetired:
+    """ADR-045 C3: inventory_ledger and its balance are 2026's history -- no
+    posting writes them, no route adjusts or backfills them, no nightly check
+    compares them."""
+
+    def test_posting_an_invoice_writes_no_old_ledger_row(self, app):
+        from models import InventoryLedger
+        from posting_routes import post_invoice_document
+        before = InventoryLedger.query.count()
+        box, ring = _safe(), _category()
+        invoice, _ = TestTheInvoiceAllocates._sale(box, [(ring, 21, 7.5)])
+        post_invoice_document(invoice, 't')
+        db.session.flush()
+        assert InventoryLedger.query.count() == before
+
+    @pytest.mark.parametrize('method,route', [('post', '/api/inventory/adjustment'),
+                                              ('get', '/api/inventory/adjustment/1'),
+                                              ('post', '/api/inventory/admin/backfill-invoices')])
+    def test_its_routes_are_gone(self, app, auth_headers, method, route):
+        resp = getattr(flask_app.test_client(), method)(route, headers=auth_headers, json={})
+        assert resp.status_code in (404, 405)
+
+    def test_no_nightly_check_compares_it(self, app):
+        from services.books_invariants import CHECKS
+        assert 'INVENTORY_LEDGER_DRIFT' not in CHECKS

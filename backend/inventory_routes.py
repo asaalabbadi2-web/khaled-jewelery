@@ -1,27 +1,26 @@
-"""Inventory API Blueprint — /api/inventory/
+"""Inventory API Blueprint — /api/inventory/ (ADR-045: the stock is the entry lines)
 
 Endpoints:
-    GET  /balance                  أرصدة الـ buckets (branch+category+karat)
-    GET  /balance/summary          تجميع للـ dashboard
+    GET  /balance                  المخزون لكل (موقع × تصنيف × عيار)
+    GET  /balance/summary          الإجمالي بالموقع وبالعيار، ونصيب «بلا تصنيف»
     GET  /count                    قائمة جلسات الجرد
-    POST /count                    فتح جلسة جرد جديدة
+    POST /count                    فتح جلسة جرد لموقع أو لكل المواقع
     GET  /count/<id>               تفاصيل جلسة + سطورها
-    PUT  /count/<id>/entry         تسجيل عدّ فعلي لـ bucket
+    PUT  /count/<id>/entry         تسجيل عدّ فعلي لسطر
     POST /count/<id>/close         إغلاق الجلسة (تحضير للاعتماد)
-    POST /count/<id>/approve       اعتماد الجلسة + توليد قيود التسوية
+    POST /count/<id>/approve       اعتماد الجلسة + قيد فروق الجرد في الدفاتر
     POST /count/<id>/cancel        إلغاء جلسة مفتوحة
-    POST /adjustment               تسوية يدوية مستقلة
-    GET  /adjustment/<id>          تفاصيل تسوية + سطورها
-    GET  /adjustment-reasons       قائمة أسباب التسوية المقننة
-    GET  /reconciliation           تقرير المطابقة الرباعي
-    GET  /health                   تقرير صحة محرك الجرد
+    GET  /adjustment-reasons       أسباب فروق الجرد المقننة
+    GET  /reconciliation           الدفاتر والمصنَّف وآخر جرد لكل (موقع × عيار)
+    GET  /health                   ما قد يكون خطأً في المخزون
+
+The old inventory ledger's manual adjustment, its view and its backfill are
+retired with it (ADR-045 C3): a difference is a count, and a count is an entry.
 
 Permissions:
-    inventory.view    → GET  balance, balance/summary, count, count/<id>,
-                              adjustment/<id>, adjustment-reasons, reconciliation*, health*
+    inventory.view    → GET  balance, balance/summary, count, count/<id>, adjustment-reasons
     inventory.count   → POST count, PUT entry, POST close, POST cancel
-    inventory.approve → POST approve, POST adjustment
-    (* reconciliation و health: inventory.approve فقط — بيانات تدقيق حساسة)
+    inventory.approve → POST approve, GET reconciliation, GET health
 """
 from __future__ import annotations
 
@@ -29,7 +28,7 @@ from datetime import datetime
 from flask import Blueprint, request, jsonify, g
 
 from auth_decorators import require_permission
-from models import db, Branch, Category, InventoryBalance, InventoryCountLine, InventoryCountSession, SafeBox
+from models import db, Category, InventoryCountLine, InventoryCountSession, SafeBox
 
 # ── Adjustment reason codes ───────────────────────────────────────────────────
 # Source of truth for the coded reason list.  Flutter reads this via
@@ -375,118 +374,6 @@ def approve_count_session(session_id: int):
         return _err(f'خطأ في اعتماد الجلسة: {e}', 500)
 
 
-# ── Adjustments ──────────────────────��──────────────────────────────���─────────
-
-@inventory_bp.route('/adjustment', methods=['POST'])
-@require_permission('inventory.approve')
-def create_manual_adjustment():
-    """تسوية يدوية مست��لة (فاقد تصنيع، خسارة، تصحيح).
-
-    Body (JSON):
-        branch_id  (int, required)
-        reason     (str, required)
-        lines      (list, required): [{category_id, karat, variance_weight}]
-        auto_post  (bool, default true)
-    """
-    from services.inventory_adjustment_service import InventoryAdjustmentService
-
-    data = request.get_json(silent=True) or {}
-    branch_id = data.get('branch_id')
-    reason = data.get('reason', '').strip()
-    lines_data = data.get('lines', [])
-    auto_post = data.get('auto_post', True)
-
-    if not branch_id:
-        return _err('branch_id مطلوب')
-    if not reason:
-        return _err('reason مطلوب')
-    if not lines_data or not isinstance(lines_data, list):
-        return _err('lines مطلوبة و��جب أن تكون قائمة')
-
-    # تحقق من كل سطر
-    for i, line in enumerate(lines_data):
-        if line.get('category_id') is None:
-            return _err(f'السطر {i+1}: category_id مطلوب')
-        if line.get('karat') is None:
-            return _err(f'السطر {i+1}: karat مطلوب')
-        if line.get('variance_weight') is None:
-            return _err(f'السطر {i+1}: variance_weight مطلوب')
-
-    try:
-        adjustment = InventoryAdjustmentService.create_manual(
-            branch_id=branch_id,
-            lines_data=lines_data,
-            reason=reason,
-            created_by=_current_user(),
-            auto_post=bool(auto_post),
-        )
-        db.session.commit()
-        return jsonify(_adjustment_detail(adjustment)), 201
-    except ValueError as e:
-        db.session.rollback()
-        return _err(str(e))
-    except Exception as e:
-        db.session.rollback()
-        return _err(f'خطأ في إنشاء التسوية: {e}', 500)
-
-
-@inventory_bp.route('/adjustment/<int:adjustment_id>', methods=['GET'])
-@require_permission('inventory.view')
-def get_adjustment(adjustment_id: int):
-    """تفاصيل تسوية مع سطورها."""
-    from models import InventoryAdjustment
-    adj = InventoryAdjustment.query.get(adjustment_id)
-    if not adj:
-        return _err('��لتسوية غير موجودة', 404)
-    return jsonify(_adjustment_detail(adj)), 200
-
-
-# ── Admin / Migration ────────────────────────────────────────────────────────
-
-@inventory_bp.route('/admin/backfill-invoices', methods=['POST'])
-@require_permission('inventory.approve')
-def backfill_invoices():
-    """يُعيد معالجة الفواتير التاريخية وتسجيلها في InventoryLedger + InventoryBalance.
-
-    آمن تماماً: الـ posting service يتجاهل الفواتير المُسجَّلة مسبقاً (idempotent).
-    يُستخدم مرة واحدة عند أول إعداد النظام.
-    """
-    from models import Invoice
-    from services.inventory_posting_service import InventoryPostingService
-
-    invoices = Invoice.query.order_by(Invoice.id.asc()).all()
-    posted_count = 0
-    skipped_count = 0
-    errors = []
-
-    for inv in invoices:
-        try:
-            entries = InventoryPostingService.post(inv)
-            if entries:
-                posted_count += len(entries)
-            else:
-                skipped_count += 1
-        except Exception as e:
-            errors.append({'invoice_id': inv.id, 'error': str(e)})
-
-    try:
-        db.session.commit()
-    except Exception as e:
-        db.session.rollback()
-        return _err(f'خطأ في حفظ البيانات: {e}', 500)
-
-    from models import InventoryBalance
-    balance_count = InventoryBalance.query.count()
-
-    return jsonify({
-        'invoices_processed': len(invoices),
-        'ledger_entries_created': posted_count,
-        'invoices_skipped': skipped_count,
-        'balance_buckets_now': balance_count,
-        'errors': errors,
-    }), 200
-
-
 # ── Reports ───────────────────────────────────────────────────────────────────
 
 @inventory_bp.route('/reconciliation', methods=['GET'])
@@ -510,18 +397,6 @@ def get_health():
 
 
 # ── Serialisers ──────────────────────��────────────────────────────────────────
-
-def _balance_row(r) -> dict:
-    return {
-        'id':                    r.id,
-        'branch_id':             r.branch_id,
-        'category_id':           r.category_id,
-        'karat':                 r.karat,
-        'balance':               round(float(r.balance or 0), 4),
-        'snapshot_max_ledger_id': r.snapshot_max_ledger_id,
-        'updated_at':            r.updated_at.isoformat() if r.updated_at else None,
-    }
-
 
 def _session_summary(s) -> dict:
     return {
@@ -601,37 +476,3 @@ def _should_reveal_expected(session) -> bool:
         return True
     return session.status in ('closed', 'approved')
 
-
-def _adjustment_summary(adj) -> dict | None:
-    if adj is None:
-        return None
-    return {
-        'id':              adj.id,
-        'branch_id':       adj.branch_id,
-        'adjustment_type': adj.adjustment_type,
-        'status':          adj.status,
-        'reason_code':     adj.reason,
-        'note':            adj.notes,
-        'created_by':      adj.created_by,
-        'created_at':      adj.created_at.isoformat() if adj.created_at else None,
-        'posted_by':       adj.posted_by,
-        'posted_at':       adj.posted_at.isoformat() if adj.posted_at else None,
-    }
-
-
-def _adjustment_detail(adj) -> dict:
-    summary = _adjustment_summary(adj)
-    summary['lines'] = [
-        {
-            'id':               ln.id,
-            'branch_id':        ln.branch_id,
-            'category_id':      ln.category_id,
-            'karat':            ln.karat,
-            'expected_weight':  round(float(ln.expected_weight or 0), 4),
-            'counted_weight':   round(float(ln.counted_weight or 0), 4),
-            'variance_weight':  round(float(ln.variance_weight), 4),
-            'notes':            ln.notes,
-        }
-        for ln in adj.lines
-    ]
-    return summary
