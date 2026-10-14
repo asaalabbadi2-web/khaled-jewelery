@@ -21,8 +21,8 @@ class _SystemResetScreenState extends State<SystemResetScreen> {
   void _showProductionLockMessage() {
     _showErrorDialog(
       'هذا الإجراء مقفول على نسخة الإنتاج (Production Lock).\n\n'
-      'تم تعطيل عمليات التصفير/الحذف التدميرية لأسباب أمنية.\n'
-      'إذا كنت متأكدًا وتحتاج تنفيذها، فعّل السماح من بيئة التشغيل أو نفّذ ذلك على بيئة Staging.',
+      'لا يُنفَّذ أي تصفير أو حذف على الإنتاج، ولا يفتحه أي إعداد.\n'
+      'لتجربته: استعد نسخة احتياطية على جهاز آخر ونفّذه عليها.',
     );
   }
 

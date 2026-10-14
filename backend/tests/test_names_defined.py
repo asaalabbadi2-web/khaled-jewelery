@@ -24,13 +24,10 @@ from pyflakes import messages as pyflakes_messages
 BACKEND = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SKIP_DIRS = {'venv', 'tests', '__pycache__', '.pg_backups', 'node_modules'}
 
-# (file, name) -> why it stays undefined. Each is a route left failing on
-# purpose until the owner decides; an entry that no longer occurs fails the test.
-ALLOWED = {
-    ('routes/system.py', 'InvoiceWeightSettlement'):
-        '«حذف جميع العمليات» (_reset_transactions) fails on it and so deletes nothing; '
-        'made to work it wipes the books -- the owner decides whether the reset stays (NAMES-1)',
-}
+# (file, name) -> why it stays undefined; an entry that no longer occurs fails
+# the test. Empty: the transactions reset works again on copies now that the
+# production lock is a law (RESET-1).
+ALLOWED = {}
 
 
 def _live_files():

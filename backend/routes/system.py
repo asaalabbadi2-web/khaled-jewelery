@@ -42,6 +42,7 @@ from models import (
     InvoiceItem,
     InvoiceKaratLine,
     InvoicePayment,
+    InvoiceWeightSettlement,
     Item,
     JournalEntry,
     JournalEntryLine,
@@ -1187,7 +1188,10 @@ def system_reset():
     """
     try:
         data = request.get_json(silent=True) or {}
-        reset_type = (data.get('reset_type') or 'all').strip()
+        # No implicit type: an empty request was «all» -- a full re-initialisation.
+        reset_type = (data.get('reset_type') or '').strip()
+        if not reset_type:
+            return jsonify({'status': 'error', 'message': 'نوع التصفير مطلوب (reset_type)'}), 400
 
         def _actor_is_system_admin() -> bool:
             try:
@@ -1207,23 +1211,20 @@ def system_reset():
             )
             return str(env).strip().lower() in {'prod', 'production'}
 
-        def _dangerous_resets_allowed() -> bool:
-            val = os.getenv('ALLOW_DANGEROUS_RESETS')
-            return str(val or '').strip().lower() in {'1', 'true', 'yes', 'y', 'on'}
-
-        # 🔒 Production Lock: block destructive reset types in production unless explicitly enabled.
-        if _is_production_env() and not _dangerous_resets_allowed():
-            if reset_type not in {'settings'}:
-                return jsonify({
-                    'status': 'error',
-                    'message': (
-                        'هذا الإجراء مقفّل على نسخة الإنتاج (Production Lock). '
-                        'لأسباب أمنية لا يُسمح بتنفيذ عمليات التصفير/الحذف على الإنتاج. '
-                        'إذا كنت متأكدًا، فعّل ALLOW_DANGEROUS_RESETS=true في بيئة التشغيل.'
-                    ),
-                    'error': 'production_lock',
-                    'reset_type': reset_type,
-                }), 403
+        # 🔒 Production Lock -- a law, not a switch (RESET-1, the owner 14 Oct
+        # 2026): on production no wipe runs, whatever the environment says.
+        # ALLOW_DANGEROUS_RESETS opens the backup restore only; trying a reset
+        # is done on a restored copy.
+        if _is_production_env() and reset_type not in {'settings'}:
+            return jsonify({
+                'status': 'error',
+                'message': (
+                    'هذا الإجراء مقفّل على نسخة الإنتاج (Production Lock). '
+                    'لا يُسمح بأي تصفير أو حذف على الإنتاج؛ يُجرَّب على نسخة مُستعادة.'
+                ),
+                'error': 'production_lock',
+                'reset_type': reset_type,
+            }), 403
         
         if reset_type in {'transactions', 'operations_only', 'operations'}:
             # حذف العمليات فقط (القيود، الفواتير، السندات، المدفوعات)
@@ -1966,7 +1967,9 @@ def get_reset_info():
 
         info = {
             'safety': {
-                'production_lock': _is_production_env() and not _dangerous_resets_allowed(),
+                # The lock is the environment itself: no switch opens a wipe on
+                # production (RESET-1). dangerous_resets_allowed concerns restore.
+                'production_lock': _is_production_env(),
                 'is_production': _is_production_env(),
                 'dangerous_resets_allowed': _dangerous_resets_allowed(),
             },
