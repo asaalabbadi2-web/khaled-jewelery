@@ -522,8 +522,22 @@ class Matrix:
         return self.rows
 
 
+def _timeless(value):
+    """A document without the moments it was produced at (a statement's QR is
+    stamped when served): two runs a second apart are the same document."""
+    if isinstance(value, dict):
+        return {k: _timeless(v) for k, v in value.items() if not str(k).endswith(('issued_at', 'generated_at'))}
+    if isinstance(value, list):
+        return [_timeless(v) for v in value]
+    return value
+
+
 def compare(a_path, b_path):
     a, b = json.load(open(a_path, encoding='utf-8')), json.load(open(b_path, encoding='utf-8'))
+    for rows in (a, b):
+        for row in rows.values():
+            if 'balances' in row:
+                row['balances'] = _timeless(row['balances'])
     same = differ = 0
     for name in a:
         if name not in b:

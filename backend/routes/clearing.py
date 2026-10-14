@@ -47,7 +47,6 @@ from routes import (
     get_current_gold_price,
     _resolve_account_from_id_or_number,
     _record_memo_weight_transfer,
-    ensure_weight_closing_support_accounts,
 )
 
 clearing_bp = Blueprint('clearing', __name__)
@@ -1271,8 +1270,6 @@ def execute_weight_closing_profile():
     if not profile_key:
         return jsonify({'error': 'profile_key مطلوب'}), 400
 
-    ensure_weight_closing_support_accounts()
-
     try:
         profile = resolve_weight_profile(profile_key)
     except ValueError as exc:
@@ -1280,7 +1277,9 @@ def execute_weight_closing_profile():
 
     financial_account = profile.get('financial_account')
     if not financial_account:
-        return jsonify({'error': 'الحساب المالي للبروفايل غير متوفر'}), 400
+        return jsonify({'error': 'account_mapping_missing',
+                        'message': f'لا حساب مربوط لهذه العملية (افتراضي / {profile["role"]}): '
+                                   f'يُربط حسابها في «الربط المحاسبي»، ولا تُنفَّذ دونه'}), 400
 
     settings = _load_weight_closing_settings()
 

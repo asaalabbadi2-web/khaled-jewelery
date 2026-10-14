@@ -50,7 +50,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 try:
 	from flask import Flask, url_for
 	from models import db
-	from routes import api, ensure_weight_closing_support_accounts
+	from routes import api
 	from routes import public_api
 	from routes.pricing import pricing_bp
 	from routes.customers import customers_bp
@@ -150,7 +150,6 @@ from schema_guard import (
 	ensure_safe_box_transaction_stones_columns,
 	ensure_goal_achievement_columns,
 	ensure_employee_bonus_audit_columns,
-	ensure_bonus_accounts,
 	ensure_unique_reservation_invoice_index,
 	ensure_category_wage_column,
 	ensure_invoice_gold24k_columns,
@@ -416,7 +415,6 @@ with app.app_context():
 	ensure_safe_box_transaction_stones_columns(db.engine)
 	ensure_goal_achievement_columns(db.engine)
 	ensure_employee_bonus_audit_columns(db.engine)
-	ensure_bonus_accounts(db.engine)
 	ensure_unique_reservation_invoice_index(db.engine)
 	ensure_category_wage_column(db.engine)
 	ensure_invoice_gold24k_columns(db.engine)
@@ -424,7 +422,6 @@ with app.app_context():
 	ensure_dashboard_performance_indexes(db.engine)
 	ensure_account_memo_pair_constraints(db.engine)
 	ensure_invoice_online_sale_columns(db.engine)
-	# ensure_weight_closing_support_accounts()  # Moved to after create_tables()
 # ⚠️ ترتيب التسجيل مهم: auth_bp يجب أن يُسجل قبل api لأن auth_bp.login له أولوية
 app.register_blueprint(auth_bp, url_prefix='/api')  # 🆕 تسجيل auth & permissions routes (أولاً!)
 app.register_blueprint(permissions_bp, url_prefix='/api')  # 🆕 تسجيل permissions routes
@@ -546,55 +543,13 @@ try:
 			print(f"[WARNING] Bootstrap flag read failed: {exc}")
 			bootstrap_disabled = False
 
+		# The chart is data: no account is created at startup -- not from the
+		# standard chart file, the weight-closing support list, the VAT accounts or
+		# the employee custody group (CHART-002 step 4c2). An empty database imports
+		# its chart (coa_seed); production's has been the owner's since 2026.
 		if bootstrap_disabled:
-			print('[INFO] Startup bootstrap disabled by settings; skipping COA/support account seeding.')
+			print('[INFO] Startup bootstrap disabled by settings; skipping default payment types.')
 		else:
-			# Seed chart of accounts only for fresh/empty databases.
-			try:
-				from coa_seed import seed_chart_of_accounts_if_empty
-				seeded = seed_chart_of_accounts_if_empty(db, '../exports/accounts_standard_220126.json')
-				if seeded:
-					print(f"[INFO] Seeded chart of accounts from standard JSON: {seeded} accounts")
-			except Exception as exc:
-				print(f"[WARNING] COA seed skipped/failed: {exc}")
-
-			# Repair/normalize employee gold custody group account numbering on startup.
-			try:
-				from employee_gold_safe_helpers import ensure_employee_gold_group_account
-				ensure_employee_gold_group_account(created_by='system')
-				db.session.commit()
-			except Exception as exc:
-				db.session.rollback()
-				print(f"[WARNING] Employee gold custody bootstrap skipped/failed: {exc}")
-
-			ensure_weight_closing_support_accounts()
-			# Ensure core VAT accounts exist (required by supplier purchase postings).
-			try:
-				from models import Account
-
-				def _ensure_account(account_number, name, acc_type):
-					acc = Account.query.filter_by(account_number=str(account_number)).first()
-					if acc:
-						return acc
-					acc = Account(
-						account_number=str(account_number),
-						name=str(name),
-						type=str(acc_type),
-						transaction_type='cash',
-						tracks_weight=False,
-						parent_id=None,
-					)
-					db.session.add(acc)
-					db.session.flush()
-					return acc
-
-				_ensure_account('1500', 'ضريبة القيمة المضافة (مدفوعة)', 'Asset')
-				_ensure_account('2210', 'ضريبة القيمة المضافة المستحقة', 'Liability')
-				_ensure_account('1501', 'ضريبة عمولات نقاط البيع (مدفوعة)', 'Asset')
-				db.session.commit()
-			except Exception as exc:
-				db.session.rollback()
-				print(f"[WARNING] VAT accounts bootstrap skipped/failed: {exc}")
 			try:
 				ensure_default_payment_types()
 			except Exception as exc:
@@ -677,10 +632,6 @@ if __name__ == "__main__":
 	print(f"[INFO] افتح الرابط التالي من أي جهاز على الشبكة: http://<IP-الجهاز>:{port}/customers")
 	print(f"[INFO] Debug mode: {'ON' if debug_mode else 'OFF'}")
 	create_tables()
-	
-	# تنفيذ ensure_weight_closing_support_accounts داخل application context
-	with app.app_context():
-		ensure_weight_closing_support_accounts()
 	
 	# تفعيل مجدول المكافآت التلقائي
 	try:

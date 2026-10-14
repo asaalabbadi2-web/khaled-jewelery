@@ -7,6 +7,10 @@ from typing import Any, Dict, List, Optional
 from account_pair_service import link_accounts
 from models import Account
 
+# The standard chart: the file an empty database's chart is imported from (the
+# system reset «with the chart»); the code builds no account (CHART-002 4c2).
+STANDARD_CHART = str(Path(__file__).resolve().parents[1] / 'exports' / 'accounts_standard_220126.json')
+
 
 def _derive_transaction_type(account_number: str, tracks_weight: bool) -> str:
     n = (account_number or '').strip()

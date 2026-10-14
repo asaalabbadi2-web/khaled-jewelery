@@ -1,33 +1,30 @@
-"""خدمات مساندة لبروفايلات عمليات الوزن والتكاليف."""
+"""خدمات مساندة لبروفايلات عمليات الوزن والتكاليف.
+
+A profile's expense account is a role -- weight_profile_<support_account_key>
+(cleaning, melting, logistics, valuation_diff) -- mapped by the owner in
+«الربط المحاسبي»; its weight side is that account's linked twin. They were
+account numbers in config (5110/7510, 5120/7520, 5130/7530, 3600/7600) that
+production never had: every profile answered «الحساب المالي للبروفايل غير
+متوفر». The owner, 14 Oct 2026: the screen stays, its accounts are roles
+(CHART-002 step 4c2). Optional: a role left unmapped refuses only its profile.
+"""
 
 from typing import Dict, Optional
 
-from config import WEIGHT_SUPPORT_ACCOUNTS, WEIGHT_EXECUTION_PROFILES
-from models import Account
+from accounting.mappings import DEFAULT_MAPPING_OPERATION_TYPE, get_account_id_for_mapping
+from config import WEIGHT_EXECUTION_PROFILES
+from models import Account, db
 
 
-class WeightSupportRegistry:
-    """تجميع سريع لإعدادات الحسابات الداعمة مع أدوات استعلام."""
-
-    def __init__(self):
-        self._by_key = {entry['key']: entry for entry in WEIGHT_SUPPORT_ACCOUNTS}
-
-    def get_account_numbers(self, key: str):
-        entry = self._by_key.get(key or '')
-        if not entry:
-            return None, None
-        financial_number = (entry.get('financial') or {}).get('account_number')
-        memo_number = (entry.get('memo') or {}).get('account_number')
-        return financial_number, memo_number
-
-    def resolve_accounts(self, key: str):
-        financial_number, memo_number = self.get_account_numbers(key)
-        financial = Account.query.filter_by(account_number=financial_number).first() if financial_number else None
-        memo = Account.query.filter_by(account_number=memo_number).first() if memo_number else None
-        return financial, memo
+def profile_role(support_account_key: str) -> str:
+    return f'weight_profile_{support_account_key}'
 
 
-_support_registry = WeightSupportRegistry()
+def _resolve_accounts(support_account_key: str):
+    account_id = get_account_id_for_mapping(DEFAULT_MAPPING_OPERATION_TYPE, profile_role(support_account_key or ''))
+    financial = db.session.get(Account, account_id) if account_id else None
+    memo = db.session.get(Account, financial.memo_account_id) if financial and financial.memo_account_id else None
+    return financial, memo
 
 
 def list_weight_profiles():
@@ -52,10 +49,11 @@ def resolve_weight_profile(profile_key: str) -> Dict:
     if not profile:
         raise ValueError(f"Weight execution profile '{profile_key}' غير معرّف")
 
-    financial_account, memo_account = _support_registry.resolve_accounts(profile.get('support_account_key'))
+    financial_account, memo_account = _resolve_accounts(profile.get('support_account_key'))
 
     return {
         'key': profile_key,
+        'role': profile_role(profile.get('support_account_key') or ''),
         'meta': profile,
         'financial_account': financial_account,
         'memo_account': memo_account,

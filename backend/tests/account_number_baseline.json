@@ -1,12 +1,9 @@
 {
   "account_number_generator.py": 6,
-  "app.py": 1,
   "coa_seed.py": 1,
-  "config.py": 14,
-  "dual_system_helpers.py": 2,
+  "dual_system_helpers.py": 1,
   "models.py": 9,
   "payment_methods_routes.py": 1,
-  "routes/__init__.py": 5,
   "routes/accounts.py": 5,
   "routes/reports.py": 21,
   "routes/system.py": 3,
@@ -25,7 +22,6 @@
   "services/vat_policy.py": 1,
   "services/vat_return.py": 2,
   "services/weight_ledger_service.py": 1,
-  "tools/migration/renumber_accounts.py": 13,
   "tools/repair/gold_statements.py": 1,
   "tools/repair/sales_vat_to_revenue.py": 1
 }

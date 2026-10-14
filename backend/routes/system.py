@@ -89,10 +89,8 @@ from accounting.balances import _recalculate_account_balances_for_accounts
 from routes import (
     _normalize_account_ref,
     _normalize_fk_ref,
-    ensure_weight_closing_support_accounts,
     _try_process_due_auto_clearing_settlements,
     _get_manufacturing_wage_inventory_account_id,
-    _repair_inventory_wage_memo_links,
 )
 
 from core.environment import is_production
@@ -599,7 +597,6 @@ def review_system_alert(alert_id: int):
 @system_bp.route('/weight-closing/profiles', methods=['GET'])
 @require_permission('journal.post')
 def list_weight_closing_profiles():
-    ensure_weight_closing_support_accounts()
     return jsonify({'profiles': list_weight_profiles()})
 
 def _settings_actor() -> str:
@@ -1344,23 +1341,18 @@ def system_reset():
             except Exception:
                 db.session.rollback()
 
-            # إعادة إنشاء شجرة الحسابات بالترقيم الجديد (مالية + وزنية)
+            # The chart is data: imported from the standard chart file, never built
+            # by the code (CHART-002 step 4c2 -- renumber_accounts and the support
+            # account list are gone).
             try:
-                from renumber_accounts import create_financial_and_memo_accounts
-                create_financial_and_memo_accounts(force_delete_existing=True)
+                from coa_seed import STANDARD_CHART, seed_chart_of_accounts_if_empty
+                seed_chart_of_accounts_if_empty(db, STANDARD_CHART)
             except Exception as exc:
                 return jsonify({
                     'status': 'error',
-                    'message': f'فشل إنشاء شجرة الحسابات بالترقيم الجديد: {str(exc)}',
+                    'message': f'فشل استيراد شجرة الحسابات من ملفها: {str(exc)}',
                     'reset_type': reset_type,
                 }), 500
-
-            # إعادة إنشاء حسابات الدعم الأساسية (إن وجدت/مطلوبة) بعد إعادة تهيئة الجداول
-            try:
-                ensure_weight_closing_support_accounts()
-            except Exception:
-                # لا نكسر عملية إعادة التهيئة إذا فشل إنشاء حسابات الدعم
-                pass
 
             message = 'تم إعادة تهيئة النظام بالكامل بنجاح (بما في ذلك شجرة الحسابات).'
             

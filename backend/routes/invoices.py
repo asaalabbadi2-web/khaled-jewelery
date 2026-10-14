@@ -47,9 +47,9 @@ from models import (
 )
 
 try:
-    from backend.config import REQUIRE_AUTH_FOR_INVOICE_CREATE, WEIGHT_SUPPORT_ACCOUNTS
+    from backend.config import REQUIRE_AUTH_FOR_INVOICE_CREATE
 except ImportError:
-    from config import REQUIRE_AUTH_FOR_INVOICE_CREATE, WEIGHT_SUPPORT_ACCOUNTS
+    from config import REQUIRE_AUTH_FOR_INVOICE_CREATE
 
 from allocation_service import AllocationService
 from core.database import _db_has_column
@@ -69,7 +69,6 @@ from code_generator import (
 from dual_system_helpers import (
     create_dual_journal_entry,
     get_account_balances,
-    link_memo_accounts_helper,
     verify_dual_balance,
 )
 from gold_costing_service import GoldCostingService, ScrapCostingService
