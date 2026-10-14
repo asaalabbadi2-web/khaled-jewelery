@@ -290,8 +290,6 @@ class GoldPriceBar extends StatelessWidget {
                     value: sell,
                     unit: 'ريال',
                     color: palette.sell,
-                    changePercent: _formatPercent(changePercent),
-                    isUp: isUp,
                   ),
                 ),
                 const SizedBox(width: 20),
@@ -302,8 +300,6 @@ class GoldPriceBar extends StatelessWidget {
                     value: buy,
                     unit: 'ريال',
                     color: palette.buy,
-                    changePercent: _formatPercent(changePercent),
-                    isUp: isUp,
                   ),
                 ),
               ],
@@ -334,8 +330,6 @@ class GoldPriceBar extends StatelessWidget {
     required double? value,
     required String unit,
     required Color color,
-    required String changePercent,
-    required bool isUp,
   }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -350,43 +344,21 @@ class GoldPriceBar extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 2),
-        // The price and its change scale down to their column: at 1024 and
-        // 1280 the sell price was drawn over the buy price.
+        // The price scales down to its column (at 1024 and 1280 the sell price
+        // was drawn over the buy price). Its change is not repeated here: the
+        // card shows it once, over the sparkline.
         FittedBox(
           fit: BoxFit.scaleDown,
           alignment: AlignmentDirectional.centerStart,
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Text(
-                value != null ? _formatPrice(value) : '—',
-                style: TextStyle(
-                  fontSize: 21,
-                  fontWeight: FontWeight.w900,
-                  color: color,
-                  fontFamily: 'Cairo',
-                  height: 1,
-                ),
-              ),
-              const SizedBox(width: 6),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
-                decoration: BoxDecoration(
-                  color: (isUp ? palette.up : palette.down).withValues(alpha: 0.15),
-                  borderRadius: BorderRadius.circular(3),
-                ),
-                child: Text(
-                  '${isUp ? '▲' : '▼'} $changePercent',
-                  style: TextStyle(
-                    fontSize: 10,
-                    fontWeight: FontWeight.w700,
-                    color: isUp ? palette.up : palette.down,
-                    fontFamily: 'Cairo',
-                  ),
-                ),
-              ),
-            ],
+          child: Text(
+            value != null ? _formatPrice(value) : '—',
+            style: TextStyle(
+              fontSize: 21,
+              fontWeight: FontWeight.w900,
+              color: color,
+              fontFamily: 'Cairo',
+              height: 1,
+            ),
           ),
         ),
         const SizedBox(height: 3),
