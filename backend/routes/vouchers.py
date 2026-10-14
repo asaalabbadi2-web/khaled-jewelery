@@ -60,7 +60,7 @@ from services.gold_allocation_service import (
     sync_gold_attribution_after_voucher_approval,
     remove_attributions_for_voucher,
 )
-from accounting.wages import _ensure_gold24k_commission_revenue_account
+from accounting.mappings import DEFAULT_MAPPING_OPERATION_TYPE, AccountNotMapped, require_account
 from routes import (
     _resolve_account_id_for_amount_type,
 )
@@ -793,6 +793,13 @@ def _upsert_voucher_from_payload(voucher, data, *, is_create=False):
 
     # عمولة السداد بذهب صافي — قيد العمولة فقط (حركة الوزن مدعومة من سطور السند)
     if data.get('gold24k_settlement') and voucher.voucher_type == 'payment' and voucher.supplier_id:
+        # Asked before the entry, whose failures are only printed: an unmapped
+        # role refuses the voucher rather than drop its commission (CHART-002).
+        if float(data.get('gold24k_commission_total') or 0) > 0:
+            try:
+                revenue_account_id = require_account(DEFAULT_MAPPING_OPERATION_TYPE, 'karat_diff_revenue')
+            except AccountNotMapped as exc:
+                return jsonify({'error': 'account_mapping_missing', 'message': str(exc)}), 400
         try:
             g24_weight = float(data.get('gold24k_weight') or 0)
             g24_commission_per_gram = float(data.get('gold24k_commission_per_gram') or 0)
@@ -802,9 +809,8 @@ def _upsert_voucher_from_payload(voucher, data, *, is_create=False):
                 supplier = Supplier.query.get(voucher.supplier_id)
                 if supplier:
                     supplier_cash_account_id = supplier.account_id
-                    revenue_account_id = _ensure_gold24k_commission_revenue_account()
 
-                    if supplier_cash_account_id and revenue_account_id:
+                    if supplier_cash_account_id:
                         je_commission = JournalEntry(
                             entry_number=_generate_journal_entry_number(entry_date=voucher.date),
                             date=voucher.date,

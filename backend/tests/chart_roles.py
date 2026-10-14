@@ -13,8 +13,6 @@ from __future__ import annotations
 # The fallback the code held until CHART-002 -- here only to say what the test
 # chart's roles have always been. Never read by the application.
 _NUMBERS = {
-    'inventory_18k': ['1300'], 'inventory_21k': ['1220', '1310'], 'inventory_22k': ['1320'],
-    'inventory_24k': ['1200', '1330', '1340'],
     'manufacturing_wage_inventory': ['1340', '1350', '1320'],
     'cash': ['15', '1100'], 'customers': ['1200'], 'suppliers': ['210'],
     'revenue': ['400', '40'], 'sales_gold_new': ['400', '40'], 'sales_gold_scrap': ['401'],
@@ -29,11 +27,14 @@ _NUMBERS = {
     'employee_commission_payable_parent': ['2410'], 'employee_eos_payable_parent': ['2420'],
     'employee_bonus_payable_parent': ['2310'], 'employee_gold_custody_parent': ['71310001'],
     'employee_cash_custody_parent': ['1100001'], 'salary_expense': ['5410'], 'bonus_expense': ['5401'],
+    # Step 4: the gold's financial inventory (the old settings' defaults), the
+    # weight closing's bridge, the karat-difference commission.
+    'gold_inventory_new': ['1300'], 'gold_inventory_scrap': ['1310'], 'weight_closing_bridge': ['1710'],
+    'karat_diff_revenue': ['4110'], 'karat_diff_expense': ['5240'],
 }
 _NAMES = {
     'cash': ['صندوق النقدية'], 'sales_gold_new': ['مبيعات ذهب جديد'], 'sales_gold_scrap': ['مبيعات ذهب كسر'],
-    'revenue': ['مبيعات ذهب جديد'], 'inventory_21k': ['مخزون ذهب عيار 21'],
-    'inventory_24k': ['مخزون ذهب عيار 24'], 'suppliers': ['موردو ذهب'], 'customers': ['أرصدة ذهب العملاء'],
+    'revenue': ['مبيعات ذهب جديد'], 'suppliers': ['موردو ذهب'], 'customers': ['أرصدة ذهب العملاء'],
 }
 
 

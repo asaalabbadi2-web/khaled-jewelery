@@ -15,7 +15,7 @@ from models import (
 from core.number_helpers import coerce_float as _coerce_float
 from pricing.karat_service import convert_from_main_karat, convert_to_main_karat, get_main_karat
 from pricing.gold_price_service import get_current_gold_price
-from accounting.mappings import get_account_id_by_number
+from accounting.mappings import DEFAULT_MAPPING_OPERATION_TYPE, require_account
 from dual_system_helpers import create_dual_journal_entry
 
 
@@ -28,9 +28,6 @@ DEFAULT_WEIGHT_CLOSING_SETTINGS = {
     'shift_close_gold_pure_deficit_threshold_grams': 0.10,
     'order_number_prefix': 'WCO',
     'reservation_code_prefix': 'RES',
-    'inventory_new_account_id': 1300,
-    'inventory_scrap_account_id': 1310,
-    'inventory_account_id': 1310,
     'cash_safe_box_id': None,
     'cash_account_id': 1100,
 }
@@ -61,7 +58,7 @@ def _auto_consume_weight_closing(
     notes=None,
 ):
     # Lazy imports for helpers still in routes (avoid circular import).
-    from routes import _invoice_weight_in_main_karat, _get_inventory_account_by_karat
+    from routes import _invoice_weight_in_main_karat, _gold_inventory_account_id
 
     invoice = Invoice.query.get(source_invoice_id) if source_invoice_id else None
 
@@ -133,15 +130,8 @@ def _auto_consume_weight_closing(
             execution_karat = karat_line.karat if karat_line else get_main_karat()
 
             _order_gold_kind = order.invoice.gold_type if order.invoice else 'new'
-            inventory_account_id = _get_inventory_account_by_karat(execution_karat, kind=_order_gold_kind)
-
-            bridge_account_id = (
-                Account.query.filter_by(account_number='1710').first()
-                or Account.query.filter_by(account_number='1290').first()
-            )
-            if not bridge_account_id:
-                bridge_account_id = Account.query.filter_by(name='جسر مشتريات الكسر والتسكير').first()
-            bridge_id = bridge_account_id.id if bridge_account_id else None
+            inventory_account_id = _gold_inventory_account_id(_order_gold_kind)
+            bridge_id = require_account(DEFAULT_MAPPING_OPERATION_TYPE, 'weight_closing_bridge')
 
             if bridge_id:
                 weight_in_karat = convert_from_main_karat(chunk, execution_karat)
@@ -157,7 +147,8 @@ def _auto_consume_weight_closing(
                 except Exception:
                     inventory_memo_acc_id = None
                 if not inventory_memo_acc_id:
-                    inventory_memo_acc_id = get_account_id_by_number('7521')
+                    inventory_memo_acc_id = require_account(DEFAULT_MAPPING_OPERATION_TYPE,
+                                                            'gold_cost_of_sales_weight')
 
                 if inventory_memo_acc_id:
                     create_dual_journal_entry(
@@ -181,7 +172,8 @@ def _auto_consume_weight_closing(
         cash_spent += chunk_cash_value
 
         if journal_entry_id and chunk_cash_value > 0 and execution_type not in ('expense', 'office_reservation'):
-            _cogs_account = Account.query.filter_by(account_number='521').first()
+            _cogs_account = db.session.get(Account, require_account(DEFAULT_MAPPING_OPERATION_TYPE,
+                                                                      'gold_cost_of_sales'))
             if _cogs_account:
                 _karat_ln = (
                     InvoiceKaratLine.query.filter_by(invoice_id=invoice.id).first()
@@ -189,7 +181,7 @@ def _auto_consume_weight_closing(
                 )
                 _exec_karat_cogs = int(_karat_ln.karat) if _karat_ln else get_main_karat()
                 _order_gold_kind_cogs = order.invoice.gold_type if order.invoice else 'new'
-                _inv_fin_id = _get_inventory_account_by_karat(_exec_karat_cogs, kind=_order_gold_kind_cogs)
+                _inv_fin_id = _gold_inventory_account_id(_order_gold_kind_cogs)
                 if _inv_fin_id:
                     create_dual_journal_entry(
                         journal_entry_id=journal_entry_id,

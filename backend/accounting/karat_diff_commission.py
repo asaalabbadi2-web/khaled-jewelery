@@ -2,8 +2,10 @@
 
 When a supplier is paid, or a purchase's lines settled, in a karat other than
 the one owed, the difference is a commission: what the company earns (debit
-the supplier / credit 4110 «خصم السداد بعيار أعلى») or pays (debit 5240
-«رسوم السداد بعيار أقل» / credit the supplier).
+the supplier / credit the role karat_diff_revenue, «خصم السداد بعيار أعلى» on
+production) or pays (debit karat_diff_expense, «رسوم السداد بعيار أقل» /
+credit the supplier). The roles are mapped; an unmapped one refuses the posting
+-- the accounts are no longer found by number or made here (CHART-002).
 
 It had two writers -- the invoice's in routes/invoices.py and the voucher's
 in posting_routes.py -- the same accounts and rule in two copies, each
@@ -17,34 +19,16 @@ document's commission account is not written again -- and it refuses rather
 than skips: a commission with no supplier account raises, and the posting is
 refused with it.
 """
-from models import Account, JournalEntry, JournalEntryLine, Supplier, db
+from accounting.mappings import DEFAULT_MAPPING_OPERATION_TYPE, require_account
+from models import JournalEntry, JournalEntryLine, Supplier, db
 
-REVENUE_NUMBER = '4110'   # خصم السداد بعيار أعلى
-EXPENSE_NUMBER = '5240'   # رسوم السداد بعيار أقل
+REVENUE_ROLE = 'karat_diff_revenue'   # خصم السداد بعيار أعلى
+EXPENSE_ROLE = 'karat_diff_expense'   # رسوم السداد بعيار أقل
 CENT = 0.005
 
 
 class CommissionRefused(ValueError):
     pass
-
-
-def _ensure_karat_diff_expense_account() -> int:
-    """Find or create رسوم السداد بعيار أقل. Production number: 5240."""
-    by_number = Account.query.filter_by(account_number=EXPENSE_NUMBER).first()
-    if by_number:
-        return by_number.id
-    name = 'رسوم السداد بعيار أقل'
-    by_name = Account.query.filter_by(name=name).first()
-    if by_name:
-        return by_name.id
-    parent = Account.query.filter_by(account_number='52').first() or Account.query.filter_by(account_number='5').first()
-    number = next((c for c in ('5240', '5241', '5242', '5250')
-                   if not Account.query.filter_by(account_number=c).first()), '5240')
-    account = Account(account_number=number, name=name, type='expense', transaction_type='cash',
-                      tracks_weight=False, parent_id=parent.id if parent else None)
-    db.session.add(account)
-    db.session.flush()
-    return account.id
 
 
 def _written(reference_type: str, reference_id: int, account_id: int) -> bool:
@@ -61,7 +45,6 @@ def write_karat_diff_commission(document, *, reference_type: str, label: str, by
     karat_diff_earn_total / karat_diff_pay_total and supplier_id), posted, dated
     as it, keyed to it. Returns the entries written."""
     from accounting.voucher_engine import _generate_journal_entry_number
-    from accounting.wages import _ensure_gold24k_commission_revenue_account
     from dimensions_service import compute_line_analytics
 
     earn = round(float(getattr(document, 'karat_diff_earn_total', 0) or 0), 2)
@@ -74,10 +57,10 @@ def write_karat_diff_commission(document, *, reference_type: str, label: str, by
 
     sides = []
     if earn >= CENT:
-        revenue_id = _ensure_gold24k_commission_revenue_account()
+        revenue_id = require_account(DEFAULT_MAPPING_OPERATION_TYPE, REVENUE_ROLE)
         sides.append((revenue_id, 'عمولة فرق العيار', supplier.account_id, revenue_id, earn))
     if pay >= CENT:
-        expense_id = _ensure_karat_diff_expense_account()
+        expense_id = require_account(DEFAULT_MAPPING_OPERATION_TYPE, EXPENSE_ROLE)
         sides.append((expense_id, 'رسوم فرق العيار', expense_id, supplier.account_id, pay))
 
     written = []

@@ -48,7 +48,11 @@ class GoldCostingService:
                 total_manufacturing_value=0.0,
             )
             db.session.add(config)
-            db.session.commit()
+            # flush, not commit: an invoice asks for the average mid-creation,
+            # and a commit here kept the half-built invoice when its posting
+            # was then refused -- on a database with no costing row yet (a new
+            # year's, ADR-044). The row is the caller's transaction's.
+            db.session.flush()
         return config
 
     @staticmethod

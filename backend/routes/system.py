@@ -522,14 +522,9 @@ def update_weight_closing_settings():
             float(_coerce_float(payload.get('shift_close_gold_pure_deficit_threshold_grams'), 0.10)),
         )
 
-    # Inventory + cash account IDs
-    for key in (
-        'inventory_new_account_id',
-        'inventory_scrap_account_id',
-        # Backward-compat
-        'inventory_account_id',
-        'cash_account_id',
-    ):
+    # The cash account ID. The gold inventory is no setting: its accounts are
+    # the mapped roles gold_inventory_new / gold_inventory_scrap (CHART-002).
+    for key in ('cash_account_id',):
         if key in payload:
             v = _normalize_account_ref(payload.get(key))
             if v is None:

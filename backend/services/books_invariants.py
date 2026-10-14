@@ -42,7 +42,6 @@ from sqlalchemy.orm import aliased
 from sqlalchemy import and_, exists, func, or_
 
 from models import (
-    Account,
     Invoice,
     JournalEntry,
     JournalEntryLine,
@@ -427,13 +426,15 @@ def check_commissions_not_written() -> list:
     whose path wrote no commission -- lost 307.37 for a month unseen. One fact
     per document, keyed 'invoice:<id>' or 'voucher:<id>'; the metric is what is
     missing, earned plus paid."""
-    from accounting.karat_diff_commission import CENT, EXPENSE_NUMBER, REVENUE_NUMBER
-    accounts = {n: i for n, i in db.session.query(Account.account_number, Account.id)
-                .filter(Account.account_number.in_([REVENUE_NUMBER, EXPENSE_NUMBER])).all()}
+    from accounting.karat_diff_commission import CENT, EXPENSE_ROLE, REVENUE_ROLE
+    from accounting.mappings import DEFAULT_MAPPING_OPERATION_TYPE, get_account_id_for_mapping
+    # An unmapped role is ROLE_NOT_MAPPED's to report; here its commissions count as unwritten.
+    accounts = {role: get_account_id_for_mapping(DEFAULT_MAPPING_OPERATION_TYPE, role)
+                for role in (REVENUE_ROLE, EXPENSE_ROLE)}
 
     def missing(reference_type, doc_id, earn, pay):
         amount = 0.0
-        for value, number in ((earn, REVENUE_NUMBER), (pay, EXPENSE_NUMBER)):
+        for value, number in ((earn, REVENUE_ROLE), (pay, EXPENSE_ROLE)):
             if float(value or 0) < CENT:
                 continue
             written = accounts.get(number) and db.session.query(JournalEntry.id).join(

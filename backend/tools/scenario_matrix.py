@@ -382,6 +382,75 @@ class Matrix:
             return code, ({'detail': body.get('error') or body.get('message')} if code != 200 else {})
         self.run('office_reservation_settled', office)
 
+        # the karat-difference commission, earned and paid, and the 24k net-gold
+        # settlement's commission -- on a supplier's purchase and on a payment voucher
+        invoice('supplier_purchase_karat_diff_earned',
+                lambda: {**self.supplier_purchase(w), 'karat_diff_earn_total': 50.0})
+        invoice('supplier_purchase_karat_diff_paid',
+                lambda: {**self.supplier_purchase(w), 'karat_diff_pay_total': 40.0})
+        invoice('supplier_purchase_gold24k_settled',
+                lambda: {**self.supplier_purchase(w), 'gold24k_settlement': True, 'gold24k_weight': 10.0,
+                         'gold24k_commission_per_gram': 5.0, 'gold24k_commission_total': 50.0})
+        cash_line = {'account_id': cash_acc, 'line_type': 'credit', 'amount_type': 'cash', 'amount': 200.0}
+        supplier_line = {'account_id': supp_acc, 'line_type': 'debit', 'amount_type': 'cash', 'amount': 200.0}
+        for name, extra in (('voucher_karat_diff_paid', {'karat_diff_pay_total': 25.0}),
+                            ('voucher_karat_diff_earned', {'karat_diff_earn_total': 15.0}),
+                            ('voucher_gold24k_settled', {'gold24k_settlement': True, 'gold24k_weight': 6.0,
+                                                         'gold24k_commission_per_gram': 5.0,
+                                                         'gold24k_commission_total': 30.0})):
+            self.run(name, lambda e=extra: (self.post('/api/vouchers', {
+                'voucher_type': 'payment', 'date': date.today().isoformat(), 'party_type': 'supplier',
+                'supplier_id': w['supplier'].id, 'account_lines': [supplier_line, cash_line], **e})[0], {}))
+
+        # the weight closing executed as a purchase (not an office's) against one
+        # sale's order -- the others held for it -- and that sale then returned,
+        # reversing the cost it had settled
+        invoice('sale_for_weight_closing',
+                lambda: self.sale(w, payments=[{'payment_method_id': w['cash_pm'].id, 'amount': 1000.0}]))
+
+        def weight_closing_executed():
+            from accounting.voucher_engine import _generate_journal_entry_number
+            from models import JournalEntry, WeightClosingOrder
+            sale = made.get('sale_for_weight_closing')
+            if not sale:
+                return 'skipped: no sale', {}
+            others = (WeightClosingOrder.query.filter(WeightClosingOrder.status.in_(['open', 'partially_closed']),
+                                                      WeightClosingOrder.invoice_id != sale['id']).all())
+            held = {o.id: o.status for o in others}
+            for o in others:
+                o.status = 'held_by_matrix'
+            je = JournalEntry(entry_number=_generate_journal_entry_number(), date=datetime.now(),
+                              description='تنفيذ تسكير — مصفوفة', entry_type='عادي', is_posted=True,
+                              created_by='scenario_matrix')
+            db.session.add(je)
+            db.session.commit()
+            try:
+                code, body = self.post('/api/weight-closing/cash-settlement', {
+                    'source_invoice_id': sale['id'], 'cash_amount': 400.0, 'price_per_gram': 400.0,
+                    'execution_type': 'purchase_scrap', 'journal_entry_id': je.id})
+                db.session.commit()
+            finally:
+                for o in WeightClosingOrder.query.filter(WeightClosingOrder.id.in_(list(held))).all():
+                    o.status = held[o.id]
+                db.session.commit()
+            return code, {'consumed': _r(body.get('weight_consumed')), 'executions': body.get('executions_created')}
+        self.run('weight_closing_executed_as_purchase', weight_closing_executed)
+
+        def executed_sale_returned():
+            sale = made.get('sale_for_weight_closing')
+            if not sale:
+                return 'skipped: no sale', {}
+            item = sale['items'][0]
+            return self.post('/api/invoices', {
+                'invoice_type': 'مرتجع بيع', 'customer_id': w['customer'].id, 'original_invoice_id': sale['id'],
+                'gold_type': 'new', 'branch_id': sale.get('branch_id'), 'date': sale['date'], 'total': 1000.0,
+                'total_weight': 2.0, 'total_tax': 0.0, 'amount_paid': 1000.0,
+                'payments': [{'payment_method_id': w['cash_pm'].id, 'amount': 1000.0}],
+                'items': [{'name': item['name'], 'karat': item['karat'], 'weight': 2.0, 'quantity': 1,
+                           'price': 1000.0, 'net': 1000.0, 'wage': 0, 'tax': 0,
+                           'original_invoice_item_id': item['id']}]})[0], {}
+        self.run('sales_return_of_a_weight_closed_sale', executed_sale_returned)
+
         # a new employee, through the route
         self.run('employee_created', lambda: (self.post('/api/employees', {
             'name': 'موظف مصفوفة', 'employee_code': 'E-MATRIX-1', 'salary': 3000})[0], {}))

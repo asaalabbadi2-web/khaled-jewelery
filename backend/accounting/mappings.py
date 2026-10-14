@@ -26,8 +26,6 @@ def get_account_id_by_number(account_number) -> int | None:
 
 VAT_ROLES = ('vat_payable', 'vat_receivable', 'commission_vat')
 
-_KARATS = ('inventory_18k', 'inventory_21k', 'inventory_22k', 'inventory_24k')
-
 # The roles the postings ask for, by operation -- each must resolve to a mapped
 # account (directly or through the default operation). Measured from every call
 # the code and the suite make, on the production copy (14 Oct 2026). A role the
@@ -35,16 +33,16 @@ _KARATS = ('inventory_18k', 'inventory_21k', 'inventory_22k', 'inventory_24k')
 # not resolve -- a new year's database starts with all of them (ADR-044).
 REQUIRED_ROLES = (
     *((DEFAULT_MAPPING_OPERATION_TYPE, r) for r in ('inventory_count_shortage', 'inventory_count_surplus')),
-    *(('بيع', r) for r in ('cash', 'commission', 'commission_vat', *_KARATS, 'manufacturing_wage', 'revenue',
+    *(('بيع', r) for r in ('cash', 'commission', 'commission_vat', 'manufacturing_wage', 'revenue',
                            'sales_gold_new', 'sales_gold_scrap', 'vat_payable', 'vat_receivable')),
     *(('تسوية_مورد', r) for r in ('supplier_settlement_expense', 'supplier_settlement_income',
                                   'supplier_weight_settlement_expense', 'supplier_weight_settlement_income')),
-    *(('شراء', r) for r in ('cash', *_KARATS, 'manufacturing_wage_inventory', 'purchases_gold', 'suppliers',
+    *(('شراء', r) for r in ('cash', 'manufacturing_wage_inventory', 'purchases_gold', 'suppliers',
                             'vat_receivable')),
-    *(('شراء من عميل', r) for r in ('cash', *_KARATS, 'purchases_gold', 'purchases_gold_new',
+    *(('شراء من عميل', r) for r in ('cash', 'purchases_gold', 'purchases_gold_new',
                                     'purchases_gold_scrap', 'vat_receivable')),
-    *(('مرتجع بيع', r) for r in ('cash', 'customers', *_KARATS, 'manufacturing_wage', 'sales_returns')),
-    *(('مرتجع شراء', r) for r in ('cash', 'customers', *_KARATS, 'purchase_returns')),
+    *(('مرتجع بيع', r) for r in ('cash', 'customers', 'manufacturing_wage', 'sales_returns')),
+    *(('مرتجع شراء', r) for r in ('cash', 'customers', 'purchase_returns')),
     ('مرتجع شراء (مورد)', 'purchase_returns'),
     # The gold's cost of sales, in cash and in weight: a return reverses its
     # cost on the first; a purchase's weight falls back on the second (CHART-002).
@@ -56,6 +54,12 @@ REQUIRED_ROLES = (
         'employee_personal_parent', 'employee_salary_payable_parent', 'employee_commission_payable_parent',
         'employee_eos_payable_parent', 'employee_bonus_payable_parent', 'employee_gold_custody_parent',
         'employee_cash_custody_parent', 'salary_expense', 'bonus_expense')),
+    # The gold's financial inventory -- one account for every karat, new apart
+    # from scrap -- the weight closing's bridge, and the karat-difference
+    # commission earned and paid (CHART-002 step 4).
+    *((DEFAULT_MAPPING_OPERATION_TYPE, r) for r in (
+        'gold_inventory_new', 'gold_inventory_scrap', 'weight_closing_bridge',
+        'karat_diff_revenue', 'karat_diff_expense')),
 )
 
 

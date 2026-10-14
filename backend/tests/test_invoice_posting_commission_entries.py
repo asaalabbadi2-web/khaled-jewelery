@@ -87,19 +87,17 @@ def _entries(invoice_id, prefix):
 
 
 def _revenue_account():
-    from accounting.wages import _ensure_gold24k_commission_revenue_account
+    from accounting.karat_diff_commission import REVENUE_ROLE
+    from accounting.mappings import DEFAULT_MAPPING_OPERATION_TYPE, require_account
     with flask_app.app_context():
-        account_id = _ensure_gold24k_commission_revenue_account()
-        db.session.commit()
-        return account_id
+        return require_account(DEFAULT_MAPPING_OPERATION_TYPE, REVENUE_ROLE)
 
 
 def _expense_account():
-    from accounting.karat_diff_commission import _ensure_karat_diff_expense_account
+    from accounting.karat_diff_commission import EXPENSE_ROLE
+    from accounting.mappings import DEFAULT_MAPPING_OPERATION_TYPE, require_account
     with flask_app.app_context():
-        account_id = _ensure_karat_diff_expense_account()
-        db.session.commit()
-        return account_id
+        return require_account(DEFAULT_MAPPING_OPERATION_TYPE, EXPENSE_ROLE)
 
 
 def test_a_karat_difference_the_shop_earns_is_charged_to_the_supplier(unposted_purchase, auth_headers):

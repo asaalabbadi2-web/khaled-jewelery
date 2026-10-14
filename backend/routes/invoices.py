@@ -98,8 +98,8 @@ from accounting.voucher_engine import (
     post_entry_of_approved_voucher,
     _append_safe_transactions_for_voucher,
 )
-from accounting.mappings import (DEFAULT_MAPPING_OPERATION_TYPE, get_account_id_by_number, get_account_id_for_mapping,
-                                 require_account, require_vat_account)
+from accounting.mappings import (DEFAULT_MAPPING_OPERATION_TYPE, AccountNotMapped, get_account_id_by_number,
+                                 get_account_id_for_mapping, require_account, require_vat_account)
 from services.vat_policy import input_vat_account as _input_vat_account
 
 
@@ -114,14 +114,12 @@ def _commission_vat_account(invoice, recovered_account_id):
 from accounting.weight_closing import _load_weight_closing_settings
 from accounting.safe_boxes import _ensure_safe_box_transactions_for_invoice_je
 from accounting.wages import (
-    _ensure_gold24k_commission_revenue_account,
     live_wage_mode,
     manufacturing_wage_expense_account_id,
     manufacturing_wage_inventory_account_id,
     wage_mode_of,
     wages_are_capitalized,
 )
-from accounting.inventory import get_inventory_average_cost
 from accounting.balances import _recalculate_account_balances_for_accounts
 from routes import (
     get_current_gold_price,
@@ -129,7 +127,7 @@ from routes import (
     create_item_from_invoice_payload,
     InlineItemCreationError,
     _resolve_inventory_account_id_for_invoice,
-    _get_inventory_account_by_karat,
+    _gold_inventory_account_id,
     validate_bridge_account_balance,
     _try_process_due_auto_clearing_settlements,
     _ensure_weight_tracking_account,
@@ -3096,10 +3094,9 @@ def _create_gold24k_settlement_entries(invoice, posted_by: str = 'system'):
         return
 
     supplier_cash_account_id = supplier.account_id
-    revenue_account_id = _ensure_gold24k_commission_revenue_account()
-
-    if not supplier_cash_account_id or not revenue_account_id:
+    if not supplier_cash_account_id:
         return
+    revenue_account_id = require_account(DEFAULT_MAPPING_OPERATION_TYPE, 'karat_diff_revenue')
 
     weight = float(invoice.gold24k_weight or 0)
     je_commission = JournalEntry(
@@ -3126,103 +3123,6 @@ def _create_gold24k_settlement_entries(invoice, posted_by: str = 'system'):
         cash_debit=0,
         cash_credit=commission_total,
     ))
-
-def calculate_profit_in_gold(items_sold):
-    """
-    حساب الربح بالذهب لأصناف مباعة
-    
-    Args:
-        items_sold: قائمة الأصناف المباعة
-        مثال: [{'karat': '24', 'weight': 2.0, 'subtotal': 800}, ...]
-    
-    Returns:
-        dict: {
-            'total_profit_cash': float,      # الربح النقدي الإجمالي
-            'total_profit_gold': float,      # الربح بالذهب الإجمالي (جم)
-            'total_cost': float,             # التكلفة الإجمالية
-            'details_by_karat': {            # التفاصيل حسب العيار
-                '24': {
-                    'weight_sold': float,
-                    'sale_price': float,
-                    'avg_cost_per_gram': float,
-                    'total_cost': float,
-                    'profit_cash': float,
-                    'profit_gold': float,
-                    'profit_percentage': float
-                }
-            }
-        }
-        
-    المعادلة:
-        الربح النقدي يعتمد على متوسط تكلفة الجرام
-        الربح بالذهب (جم) = الربح النقدي (ر.س) ÷ سعر البيع المباشر للفاتورة (ر.س/جم)
-    """
-    total_profit_cash = 0.0
-    total_profit_gold = 0.0
-    total_cost = 0.0
-    details_by_karat = {}
-    
-    for item in items_sold:
-        karat = str(item.get('karat', '24'))
-        weight = float(item.get('weight', 0))
-        sale_price = float(item.get('subtotal', 0))
-        
-        # 1. حساب متوسط سعر الشراء (تكلفة/جم)
-        avg_cost_per_gram = get_inventory_average_cost(karat)
-        
-        # 2. حساب متوسط سعر البيع (سعر الفاتورة المباشر)
-        sale_price_per_gram = (sale_price / weight) if weight > 0 else 0
-        
-        # 3. حساب التكلفة والربح النقدي باستخدام متوسط التكلفة/جم
-        item_cost = weight * avg_cost_per_gram
-        profit_cash = (sale_price_per_gram - avg_cost_per_gram) * weight if weight > 0 else 0
-        
-        # 4. حساب الربح بالذهب باستخدام سعر الفاتورة المباشر
-        profit_gold = (profit_cash / sale_price_per_gram) if sale_price_per_gram > 0 else 0
-        
-        # 5. حساب نسبة الربح
-        profit_percentage = (profit_cash / item_cost * 100) if item_cost > 0 else 0
-        
-        # 6. جمع الإجماليات
-        total_profit_cash += profit_cash
-        total_profit_gold += profit_gold
-        total_cost += item_cost
-        
-        # 7. حفظ التفاصيل حسب العيار
-        if karat not in details_by_karat:
-            details_by_karat[karat] = {
-                'weight_sold': 0,
-                'sale_price': 0,
-                'avg_cost_per_gram': avg_cost_per_gram,
-                'total_cost': 0,
-                'profit_cash': 0,
-                'profit_gold': 0,
-                'sale_price_per_gram': 0,
-                'profit_percentage': 0
-            }
-        
-        details = details_by_karat[karat]
-        details['weight_sold'] += weight
-        details['sale_price'] += sale_price
-        details['total_cost'] += item_cost
-        details['profit_cash'] += profit_cash
-        details['profit_gold'] += profit_gold
-        details['avg_cost_per_gram'] = avg_cost_per_gram
-        details['sale_price_per_gram'] = (
-            details['sale_price'] / details['weight_sold']
-            if details['weight_sold'] > 0 else 0
-        )
-        details['profit_percentage'] = (
-            (details['profit_cash'] / details['total_cost'] * 100)
-            if details['total_cost'] > 0 else 0
-        )
-    
-    return {
-        'total_profit_cash': round(total_profit_cash, 2),
-        'total_profit_gold': round(total_profit_gold, 3),
-        'total_cost': round(total_cost, 2),
-        'details_by_karat': details_by_karat
-    }
 
 def _commit_or_flush(defer_commit: bool) -> None:
     """add_invoice's own commit -- deferred (a flush) when a caller writes more in
@@ -6624,13 +6524,7 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
             # حسابات المخزون: دعم التوحيد (حساب واحد لكل العيارات)
             inventory_accounts = {}
             unified_inventory_acc_id = _resolve_inventory_account_id_for_invoice(invoice_type, gold_type)
-            if unified_inventory_acc_id:
-                inventory_accounts = {k: unified_inventory_acc_id for k in ['18', '21', '22', '24']}
-            else:
-                for karat in ['18', '21', '22', '24']:
-                    inv_acc_id = get_account_id_for_mapping('بيع', f'inventory_{karat}k')
-                    if inv_acc_id:
-                        inventory_accounts[karat] = inv_acc_id
+            inventory_accounts = {k: unified_inventory_acc_id for k in ['18', '21', '22', '24']}
 
             # بيع كسر: استخدام حساب صندوق الكسر للوزن بدلاً من 7130001 (مخزون وزني)
             # يضمن التناسق مع سطر الشراء الذي يُدبن 71310000 (صندوق الكسر الرئيسي وزني)
@@ -7008,13 +6902,7 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
             # حسابات المخزون الوزني: دعم التوحيد (حساب واحد لكل العيارات)
             inventory_accounts = {}
             unified_inventory_acc_id = _resolve_inventory_account_id_for_invoice(invoice_type, gold_type)
-            if unified_inventory_acc_id:
-                inventory_accounts = {k: unified_inventory_acc_id for k in ['18', '21', '22', '24']}
-            else:
-                for karat in ['18', '21', '22', '24']:
-                    inv_acc_id = get_account_id_for_mapping('شراء من عميل', f'inventory_{karat}k')
-                    if inv_acc_id:
-                        inventory_accounts[karat] = inv_acc_id
+            inventory_accounts = {k: unified_inventory_acc_id for k in ['18', '21', '22', '24']}
             
             # ✅ الحصول على السعر المباشر للذهب (العيار الرئيسي)
             gold_price_data = get_current_gold_price()
@@ -7193,13 +7081,7 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
             # حسابات المخزون
             inventory_accounts = {}
             unified_inventory_acc_id = _resolve_inventory_account_id_for_invoice(invoice_type, gold_type)
-            if unified_inventory_acc_id:
-                inventory_accounts = {k: unified_inventory_acc_id for k in ['18', '21', '22', '24']}
-            else:
-                for karat in ['18', '21', '22', '24']:
-                    inv_acc_id = get_account_id_for_mapping('مرتجع بيع', f'inventory_{karat}k')
-                    if inv_acc_id:
-                        inventory_accounts[karat] = inv_acc_id
+            inventory_accounts = {k: unified_inventory_acc_id for k in ['18', '21', '22', '24']}
 
             # بيع كسر مرتجع: استخدام حساب صندوق الكسر للوزن بدلاً من مخزون الكسر
             # العام، ليطابق فاتورة البيع الأصلية (نفس منطق بيع الكسر في فرع 'بيع'
@@ -7438,10 +7320,8 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
                             if _over_executed > 0.0001:
                                 _remaining_to_reverse = _over_executed
                                 _cogs_account = db.session.get(Account, require_account('افتراضي', 'gold_cost_of_sales'))
-                                _inv_fin_id = _get_inventory_account_by_karat(
-                                    int(_orig_wco.main_karat or get_main_karat() or 21),
-                                    kind=(_orig_wco.invoice.gold_type if _orig_wco.invoice else 'new'),
-                                )
+                                _inv_fin_id = _gold_inventory_account_id(
+                                    _orig_wco.invoice.gold_type if _orig_wco.invoice else 'new')
                                 _past_executions = (
                                     WeightClosingExecution.query
                                     .filter_by(order_id=_orig_wco.id)
@@ -7531,13 +7411,6 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
             # حسابات المخزون — يجب أن تكون مدركة لـ gold_type
             # (كسر → 1310، جديد → 1300) مثل سائر أنواع الفواتير الأخرى.
             inventory_acc_id = _resolve_inventory_account_id_for_invoice(invoice_type, gold_type)
-            if not inventory_acc_id:
-                # Fallback: scan generic karat mappings (legacy behaviour)
-                for karat in ['18', '21', '22', '24']:
-                    inv_acc_id = get_account_id_for_mapping('مرتجع شراء', f'inventory_{karat}k')
-                    if inv_acc_id:
-                        inventory_acc_id = inv_acc_id
-                        break
             
             # VAT receivable to reverse
             vat_receivable_acc_id_ret = get_account_id_for_mapping('شراء من عميل', 'vat_receivable')
@@ -7672,13 +7545,7 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
                 # بناء قاموس حسابات المخزون: دعم التوحيد (حساب واحد لكل العيارات)
                 inventory_accounts = {}
                 unified_inventory_acc_id = _resolve_inventory_account_id_for_invoice(invoice_type, gold_type)
-                if unified_inventory_acc_id:
-                    inventory_accounts = {k: unified_inventory_acc_id for k in ['18', '21', '22', '24']}
-                else:
-                    for karat in ['18', '21', '22', '24']:
-                        acc_id = _mapping(f'inventory_{karat}k')
-                        if acc_id:
-                            inventory_accounts[karat] = acc_id
+                inventory_accounts = {k: unified_inventory_acc_id for k in ['18', '21', '22', '24']}
 
                 # تحديد حساب المورد (يجب أن يتتبع الوزن دائماً)
                 # Root-fix: supplier invoices must post to the supplier's own subledger account
@@ -8337,26 +8204,14 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
                 supplier_fin_account_id = None
 
             # حسابات المخزون
-            inventory_acc_id = None
             try:
-                unified_inventory_acc_id = _resolve_inventory_account_id_for_invoice('شراء', gold_type)
-            except Exception:
-                unified_inventory_acc_id = None
-            if unified_inventory_acc_id:
-                inventory_acc_id = unified_inventory_acc_id
-            else:
-                for karat in ['18', '21', '22', '24']:
-                    inv_acc_id = get_account_id_for_mapping('شراء', f'inventory_{karat}k')
-                    if inv_acc_id:
-                        inventory_acc_id = inv_acc_id
-                        break
-
-            if not inventory_acc_id:
+                inventory_acc_id = _resolve_inventory_account_id_for_invoice('شراء', gold_type)
+            except AccountNotMapped as exc:
                 db.session.rollback()
                 return jsonify({
                     'error': 'account_mapping_missing',
-                    'message': 'لم يتم العثور على حساب مخزون لمرتجع شراء (مورد). الرجاء ضبط Accounting Mapping (inventory_XXk) أو تفعيل المخزون الموحد.',
-                    'missing': [{'mapping': 'inventory_*', 'operation_type': 'شراء'}],
+                    'message': str(exc),
+                    'missing': [{'mapping': exc.role, 'operation_type': exc.operation_type}],
                 }), 400
 
             acc_id = supplier_fin_account_id or (party_account.id if party_account else None) or suppliers_acc_id or cash_acc_id

@@ -241,7 +241,13 @@ def initialize_db():
                                    ('2310', 'مكافآت مستحقة للموظفين', 'Liability'),
                                    ('1100001', 'حساب عهدة نقدية الموظفين', 'Asset'),
                                    ('5410', 'رواتب الموظفين', 'Expense'),
-                                   ('5401', 'حساب المكافئات والعمولات', 'Expense')):
+                                   ('5401', 'حساب المكافئات والعمولات', 'Expense'),
+                                   # The karat-difference commission and the weight
+                                   # closing's bridge: made on demand by the code
+                                   # until CHART-002 step 4; production has them.
+                                   ('4110', 'خصم السداد بعيار أعلى', 'revenue'),
+                                   ('5240', 'رسوم السداد بعيار أقل', 'expense'),
+                                   ('1710', 'حساب جسر المشتريات', 'Asset')):
             if not Account.query.filter_by(account_number=number).first():
                 db.session.add(Account(account_number=number, name=name, type=kind,
                                        transaction_type='cash', tracks_weight=False))

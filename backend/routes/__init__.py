@@ -869,59 +869,21 @@ def _record_memo_weight_transfer(journal_entry_id, *, debit_account_id=None, cre
     )
 
 
-def _get_inventory_account_by_karat(karat: int, kind: str = 'new') -> int:
+def _gold_inventory_account_id(kind: str = 'new') -> int:
+    """The gold's financial inventory -- one account for every karat, new apart
+    from scrap: the mapped role gold_inventory_new / gold_inventory_scrap
+    (CHART-002 step 4), or AccountNotMapped.
+
+    It was two finders. The invoices' read the weight-closing settings' account
+    numbers (1300 new / 1310 scrap -- the settings empty on production, the
+    numbers the code's own defaults). The weight closing's read one setting,
+    'inventory_account_id', default 1310, as a row id first -- so new gold's
+    cost left the scrap inventory, and the day account row 1310 is made (1305
+    on the production copy, 12 Oct 2026) it would have left that account. Its
+    path never posted on production (every execution an office reservation).
     """
-    اختيار حساب المخزون المالي المناسب حسب نوع الذهب (جديد/كسر) — العيار لا
-    يحدد الحساب (مطابقةً لتصميم WEIGHT_SUPPORT_ACCOUNTS في config.py: 1300 =
-    جديد لأي عيار، 1310 = كسر لأي عيار). كانت هذه الدالة سابقاً تربط كل عيار
-    بحساب مختلف (ترقيم قديم) بصرف النظر عن النوع، مما كان يُسوّي بيوع الذهب
-    الجديد على حساب مخزون الكسر (أو العكس) عند عيارات غير 18.
-
-    Args:
-        karat: العيار (غير مستخدم في التحديد، يبقى للتوافق مع الاستدعاءات الحالية)
-        kind: 'scrap' للكسر، أي قيمة أخرى تُعامل كـ 'new' (جديد)
-
-    Returns:
-        int: ID حساب المخزون المالي
-    """
-    # ✅ إذا تم توحيد مخزون العيارات/الأنواع في حساب واحد، نعتمد إعداد
-    # inventory_account_id (قد يكون رقم حساب أو account.id حسب بيئة العميل).
-    try:
-        settings = _load_weight_closing_settings() or {}
-        preferred = settings.get('inventory_account_id')
-        if preferred not in (None, '', 0, False):
-            try:
-                preferred_int = int(preferred)
-            except Exception:
-                preferred_int = None
-
-            if preferred_int:
-                acc = Account.query.get(preferred_int)
-                if not acc:
-                    acc = Account.query.filter_by(account_number=str(preferred_int)).first()
-                if acc:
-                    return acc.id
-    except Exception:
-        pass
-
-    # حساب حسب النوع (جديد/كسر) — لا حسب العيار
-    account_number = '1310' if kind == 'scrap' else '1300'
-
-    account = Account.query.filter_by(account_number=account_number).first()
-    if account:
-        return account.id
-
-    # fallback: استخدام الحساب من الإعدادات
-    settings = _load_weight_closing_settings()
-    preferred = settings.get('inventory_account_id', 1300)
-    try:
-        preferred_int = int(preferred)
-    except Exception:
-        preferred_int = None
-    if preferred_int:
-        acc = Account.query.get(preferred_int) or Account.query.filter_by(account_number=str(preferred_int)).first()
-        if acc:
-            return acc.id
+    return require_account(DEFAULT_MAPPING_OPERATION_TYPE,
+                           'gold_inventory_scrap' if kind == 'scrap' else 'gold_inventory_new')
 
 
 def _resolve_account_from_id_or_number(value):
@@ -946,63 +908,12 @@ def _resolve_account_from_id_or_number(value):
     return Account.query.filter_by(account_number=str(value)).first()
 
 
-def _resolve_inventory_account_id_for_invoice(invoice_type: str, gold_type: str) -> int | None:
-    """Resolve the financial inventory account for an invoice context.
-
-    We unify across karats, but we do NOT unify between:
-    - معروض للبيع (new/for-sale)  -> typically 1300
-    - ذهب كسر (scrap)            -> typically 1310
-    """
-
-    inv_type = (invoice_type or '').strip()
-    gt = (str(gold_type or '').strip().lower() or 'new')
-
-    # Determine inventory kind.
-    # - Customer scrap purchase is always "scrap" inventory.
-    # - Sales/purchases can be either depending on gold_type.
-    kind = 'scrap' if gt == 'scrap' else 'new'
-    if inv_type == 'شراء من عميل':
-        kind = 'scrap'
-
-    settings = {}
-    try:
-        settings = _load_weight_closing_settings() or {}
-    except Exception:
-        settings = {}
-
-    preferred_key = 'inventory_scrap_account_id' if kind == 'scrap' else 'inventory_new_account_id'
-    preferred = settings.get(preferred_key)
-
-    # Backward-compat: old setting treated as scrap inventory.
-    if preferred in (None, '', 0, False) and kind == 'scrap':
-        preferred = settings.get('inventory_account_id')
-
-    fallback_number = 1310 if kind == 'scrap' else 1300
-
-    def _resolve(value) -> int | None:
-        if value in (None, '', 0, False):
-            return None
-        try:
-            v = int(str(value).strip())
-        except Exception:
-            return None
-        if v <= 0:
-            return None
-
-        # Always prefer looking up by account_number first.
-        # The numeric constants used as fallbacks (e.g. 1310, 1300) are
-        # chart-of-accounts numbers, NOT database primary keys.
-        acc = Account.query.filter_by(account_number=str(v)).first()
-        if not acc:
-            acc = Account.query.get(v)
-        return int(acc.id) if acc else None
-
-    resolved = _resolve(preferred)
-    if resolved:
-        return resolved
-
-    # Default: resolve by chart account_number.
-    return _resolve(fallback_number)
+def _resolve_inventory_account_id_for_invoice(invoice_type: str, gold_type: str) -> int:
+    """The financial inventory for an invoice: scrap for scrap gold and for a
+    purchase from a customer, new otherwise -- one account for every karat."""
+    kind = 'scrap' if (str(gold_type or '').strip().lower() == 'scrap'
+                       or (invoice_type or '').strip() == 'شراء من عميل') else 'new'
+    return _gold_inventory_account_id(kind)
 
 
 def _invoice_weight_mk_v2(invoice: Invoice) -> float:
@@ -1199,14 +1110,9 @@ def _generate_employee_code():
 # _ACCOUNT_NUMBER_CACHE + get_account_id_by_number → accounting/mappings.py (re-exported above)
 
 
-# _ensure_gold24k_commission_revenue_account → accounting/wages.py
 # Invoices domain → routes/invoices.py
 # (_create_gold24k_settlement_entries; the karat-difference commission is
 #  accounting/karat_diff_commission.py's, item 9)
-
-# get_inventory_average_cost → accounting/inventory.py
-# Invoices domain → routes/invoices.py
-# (calculate_profit_in_gold helper)
 
 # Invoices domain → routes/invoices.py
 # (POST /invoices — add_invoice, ~5600 lines)
@@ -1312,6 +1218,7 @@ from accounting.mappings import (  # noqa: F401
     _ACCOUNT_NUMBER_CACHE,
     get_account_id_by_number,
     get_account_id_for_mapping,
+    require_account,
 )
 
 # Weight Closing → accounting/weight_closing.py
@@ -1333,13 +1240,6 @@ from accounting.safe_boxes import (  # noqa: F401
     _ensure_safe_box_transactions_for_invoice_je,
 )
 
-# Wage & Commission Accounts → accounting/wages.py
-from accounting.wages import (  # noqa: F401
-    _ensure_gold24k_commission_revenue_account,
-)
-
-# Inventory Costing → accounting/inventory.py
-from accounting.inventory import get_inventory_average_cost  # noqa: F401
 
 
 def _ensure_weight_tracking_account(account_id):
@@ -1695,7 +1595,7 @@ def _upsert_weight_closing_order(invoice: Invoice, close_price_per_gram: float, 
 #  GET /reports/trial-balance/cash, GET /reports/trial-balance/gold,
 #  GET /reports/inventory_reconciliation,
 #  GET /reports/gold-weight-trial-balance,
-#  GET /reports/income-statement/cash, GET /reports/income-statement/gold,
+#  GET /reports/income-statement/gold,
 #  GET /dashboard/summary-debug, GET /dashboard/admin)
 
 # ---------------------------------------------------------------------------
@@ -1720,5 +1620,4 @@ from routes.system import (                                          # noqa: F40
     _pg_tools_available,
     _postgres_conn_parts,
 )
-from accounting.karat_diff_commission import _ensure_karat_diff_expense_account  # noqa: F401
 
