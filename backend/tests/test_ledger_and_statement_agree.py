@@ -147,8 +147,13 @@ def test_customer_and_supplier_statements_carry_it_too(auth_headers, route):
     supplier = Supplier(supplier_code=f'S-{uuid.uuid4().hex[:6]}', name=f'مورد {uuid.uuid4().hex[:6]}')
     db.session.add_all([customer, supplier])
     db.session.flush()
-    receivable = Account(account_number=f'12{uuid.uuid4().hex[:5]}', name='مدينون', type='Asset')
-    payable = Account(account_number=f'21{uuid.uuid4().hex[:5]}', name='دائنون', type='Liability')
+    # Under the receivables and payables groups, as on production (CHART-002: by the tree).
+    from accounting.chart_tree import CUSTOMER_RECEIVABLES_ROOT, SUPPLIER_PAYABLES_ROOT
+    from accounting.mappings import DEFAULT_MAPPING_OPERATION_TYPE, require_account
+    receivable = Account(account_number=f'12{uuid.uuid4().hex[:5]}', name='مدينون', type='Asset',
+                         parent_id=require_account(DEFAULT_MAPPING_OPERATION_TYPE, CUSTOMER_RECEIVABLES_ROOT))
+    payable = Account(account_number=f'21{uuid.uuid4().hex[:5]}', name='دائنون', type='Liability',
+                      parent_id=require_account(DEFAULT_MAPPING_OPERATION_TYPE, SUPPLIER_PAYABLES_ROOT))
     other = _account()
     db.session.add_all([receivable, payable])
     db.session.flush()

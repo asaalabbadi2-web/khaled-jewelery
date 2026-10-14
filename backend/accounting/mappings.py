@@ -64,6 +64,9 @@ REQUIRED_ROLES = (
     # (party_account_service.py, CHART-002 step 4b).
     *((DEFAULT_MAPPING_OPERATION_TYPE, r) for r in (
         'customer_accounts_parent', 'supplier_accounts_parent', 'office_accounts_parent')),
+    # The groups whose tree is what suppliers are owed and customers owe
+    # (accounting/chart_tree.py, step 4b2).
+    *((DEFAULT_MAPPING_OPERATION_TYPE, r) for r in ('supplier_payables_root', 'customer_receivables_root')),
 )
 
 

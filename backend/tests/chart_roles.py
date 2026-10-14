@@ -35,6 +35,8 @@ _NUMBERS = {
     'customer_accounts_parent': ['1200', '1100', '120', '110'],
     'supplier_accounts_parent': ['2100', '210', '21', '21100', '2110', '211', '2200', '220'],
     'office_accounts_parent': ['2100', '210', '21', '2200', '220', '21100', '211'],
+    # Step 4b2: the groups the balance readers walk (production: 21 and 120).
+    'supplier_payables_root': ['21', '210'], 'customer_receivables_root': ['120', '12', '1200'],
 }
 _NAMES = {
     'cash': ['صندوق النقدية'], 'sales_gold_new': ['مبيعات ذهب جديد'], 'sales_gold_scrap': ['مبيعات ذهب كسر'],

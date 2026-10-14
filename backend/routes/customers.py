@@ -95,6 +95,8 @@ def get_customer_statement(id):
     _own_all = all_customer_own_account_ids()
     # A customer's lines: its own account's, tagged or not, plus those tagged to
     # it on shared customer accounts -- one rule with the list (BALANCE-001 B1).
+    from accounting.chart_tree import CUSTOMER_RECEIVABLES_ROOT, role_subtree_ids
+    receivable_ids = role_subtree_ids(CUSTOMER_RECEIVABLES_ROOT)
     opening_filters = [
         customer_line_clause(id, customer.account_id, _own_all),
         JournalEntry.entry_type == 'افتتاحي',
@@ -113,7 +115,7 @@ def get_customer_statement(id):
         .join(Account, JournalEntryLine.account_id == Account.id)
         .filter(*opening_filters)
         .filter(Account.type == 'Asset')
-        .filter(Account.account_number.like('12%'))
+        .filter(Account.id.in_(receivable_ids))   # the receivables group's tree (CHART-002)
         .all()
     )
 
@@ -156,7 +158,7 @@ def get_customer_statement(id):
         .join(Account, JournalEntryLine.account_id == Account.id)
         .filter(*journal_filters)
         .filter(Account.type == 'Asset')
-        .filter(Account.account_number.like('12%'))
+        .filter(Account.id.in_(receivable_ids))   # the receivables group's tree (CHART-002)
         .order_by(JournalEntry.date.asc(), JournalEntry.id.asc(), JournalEntryLine.id.asc())
         .all()
     )

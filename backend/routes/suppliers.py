@@ -466,7 +466,10 @@ def get_supplier_ledger(supplier_id):
     except Exception:
         supplier_memo_account_id = None
 
-    payable_filter = and_(Account.type == 'Liability', Account.account_number.like('21%'))
+    # What is owed to suppliers: the Liability accounts under the role's group (21 on
+    # production) -- by the tree, not the number's prefix (CHART-002).
+    from accounting.chart_tree import SUPPLIER_PAYABLES_ROOT, role_subtree_ids
+    payable_filter = and_(Account.type == 'Liability', Account.id.in_(role_subtree_ids(SUPPLIER_PAYABLES_ROOT)))
 
     allowed_ids = []
     fallback_ids = []
@@ -771,7 +774,10 @@ def get_supplier_weight_statement(supplier_id):
     except Exception:
         supplier_memo_account_id = None
 
-    payable_filter = and_(Account.type == 'Liability', Account.account_number.like('21%'))
+    # What is owed to suppliers: the Liability accounts under the role's group (21 on
+    # production) -- by the tree, not the number's prefix (CHART-002).
+    from accounting.chart_tree import SUPPLIER_PAYABLES_ROOT, role_subtree_ids
+    payable_filter = and_(Account.type == 'Liability', Account.id.in_(role_subtree_ids(SUPPLIER_PAYABLES_ROOT)))
     allowed_ids = []
     fallback_ids = []
     try:
@@ -1171,7 +1177,9 @@ def supplier_send_gold(supplier_id):
 
     inventory_account_id = data.get('inventory_account_id')
     if not inventory_account_id:
-        inventory_account_id = get_account_id_by_number('71310')
+        # The scrap inventory's weight twin, by its role (CHART-002).
+        from routes import _gold_inventory_account_id
+        inventory_account_id = db.session.get(Account, _gold_inventory_account_id('scrap')).memo_account_id
     if not inventory_account_id:
         return jsonify({'error': 'لم يُحدَّد حساب المخزون الوزني المصدر'}), 400
 

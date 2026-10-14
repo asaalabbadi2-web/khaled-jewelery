@@ -36,7 +36,7 @@ def compute_live_supplier_balances(
     Returns mapping supplier_id -> {'cash','18k','21k','22k','24k'}.
 
     This mirrors the filtering behavior used by the suppliers list endpoint:
-    - include supplier payable liability lines (21%)
+    - include supplier payable liability lines (the payables group's tree, 21 on production)
     - include the supplier's own financial + memo accounts
     - include mis-tagged lines posted to the supplier's own accounts when
       supplier_id is NULL.
@@ -219,7 +219,10 @@ def compute_live_supplier_balances(
         for sid in supplier_ids
     }
 
-    payable_filter = and_(Account.type == 'Liability', Account.account_number.like('21%'))
+    # What is owed to suppliers: the Liability accounts under the role's group (21 on
+    # production) -- by the tree, not the number's prefix (CHART-002).
+    from accounting.chart_tree import SUPPLIER_PAYABLES_ROOT, role_subtree_ids
+    payable_filter = and_(Account.type == 'Liability', Account.id.in_(role_subtree_ids(SUPPLIER_PAYABLES_ROOT)))
     account_filter = payable_filter
     if allowed_account_ids:
         account_filter = or_(Account.id.in_(allowed_account_ids), payable_filter)
@@ -338,14 +341,16 @@ def compute_live_supplier_balances(
 def customer_line_clause(customer_id: int, own_account_id, all_own_account_ids):
     """The ledger lines that are a customer's: every line on its own financial
     account, tagged or not, plus the lines tagged to it on shared customer
-    accounts (12…) -- not those tagged to it on another customer's own account.
+    accounts (the receivables group's, 120 on production) -- not those tagged to
+    it on another customer's own account.
     One rule for the list, the statement and the dashboard."""
+    from accounting.chart_tree import CUSTOMER_RECEIVABLES_ROOT, role_subtree_ids
     from models import JournalEntryLine
     others = [a for a in all_own_account_ids if a != own_account_id] or [-1]
     tagged_on_shared = and_(
         JournalEntryLine.customer_id == int(customer_id),
         Account.type == 'Asset',
-        Account.account_number.like('12%'),
+        Account.id.in_(role_subtree_ids(CUSTOMER_RECEIVABLES_ROOT)),
         JournalEntryLine.account_id.notin_(others),
     )
     if own_account_id:

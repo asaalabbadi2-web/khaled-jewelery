@@ -174,9 +174,35 @@ class Matrix:
                 'items': [{'name': 'سلسال مورد مصفوفة', 'karat': 21, 'weight': 10.0, 'quantity': 1,
                            'manufacturing_wage_per_gram': wage / 10.0}]}
 
+    # ── every party's balance, by the readers (step 4b2) ─────────────────
+    def balances(self, *, documents):
+        """Each customer's and supplier's live balance -- and, with *documents*,
+        its list row and its statement and ledger in full (only before the
+        scenarios: after them, the new entries' ids and times differ by copy)."""
+        from models import Customer, Supplier
+        from services.party_live_balances import compute_live_customer_balances, compute_live_supplier_balances
+
+        def get(url):
+            resp = self.client.get(url, headers=self.headers)
+            return [resp.status_code, resp.get_json(silent=True)]
+
+        customers = Customer.query.order_by(Customer.id).all()
+        suppliers = Supplier.query.order_by(Supplier.id).all()
+        live_c, live_s = compute_live_customer_balances(customers), compute_live_supplier_balances(suppliers)
+        out = {'customers': {c.customer_code: {k: _r(v) for k, v in live_c.get(c.id, {}).items()} for c in customers},
+               'suppliers': {s.supplier_code: {k: _r(v) for k, v in live_s.get(s.id, {}).items()} for s in suppliers}}
+        if documents:
+            out['customer_list'] = get('/api/customers')
+            out['supplier_list'] = get('/api/suppliers')
+            out['customer_statements'] = {c.customer_code: get(f'/api/customers/{c.id}/statement') for c in customers}
+            out['supplier_statements'] = {s.supplier_code: get(f'/api/suppliers/{s.id}/statement') for s in suppliers}
+            out['supplier_ledgers'] = {s.supplier_code: get(f'/api/suppliers/{s.id}/ledger') for s in suppliers}
+        return 200, {'balances': out}
+
     # ── the scenarios ────────────────────────────────────────────────────
     def all(self):
         from models import EmployeeBonus, InvoiceItem, Settings, db
+        self.run('party_balances_before', lambda: self.balances(documents=True))
         w = self.world()
         settings = Settings.query.first()
         settings.allow_partial_invoice_payments = True
@@ -484,6 +510,8 @@ class Matrix:
         self.run('employee_created', lambda: (self.post('/api/employees', {
             'name': 'موظف مصفوفة', 'employee_code': 'E-MATRIX-1', 'salary': 3000})[0], {}))
 
+        self.run('party_balances_after', lambda: self.balances(documents=False))
+
         # reports that read accounts by role or number
         for name, url in (('report_income_statement', '/api/reports/income_statement?start_date=2026-01-01&end_date=2026-12-31'),
                           ('report_admin_dashboard', '/api/dashboard/admin'),
@@ -502,7 +530,7 @@ def compare(a_path, b_path):
             print(f'{name}: missing in {b_path}')
             continue
         ra, rb = a[name], b[name]
-        keys = ('status', 'entries', 'accounts_created')
+        keys = ('status', 'entries', 'accounts_created', 'balances')
         if all(ra.get(k) == rb.get(k) for k in keys):
             same += 1
             print(f'SAME   {name}  ({ra["status"]})')

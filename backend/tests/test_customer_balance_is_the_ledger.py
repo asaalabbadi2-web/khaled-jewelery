@@ -39,8 +39,12 @@ def rollback_after_each(app, db_fence):
     yield
 
 
-def _account(number, name):
-    acc = Account(account_number=number, name=name, type='Asset')
+def _account(number, name, *, receivable=True):
+    """A customer account sits under the receivables group, as on production (CHART-002: by the tree)."""
+    from accounting.chart_tree import CUSTOMER_RECEIVABLES_ROOT
+    from accounting.mappings import DEFAULT_MAPPING_OPERATION_TYPE, require_account
+    parent = require_account(DEFAULT_MAPPING_OPERATION_TYPE, CUSTOMER_RECEIVABLES_ROOT) if receivable else None
+    acc = Account(account_number=number, name=name, type='Asset', parent_id=parent)
     db.session.add(acc)
     db.session.flush()
     return acc
@@ -63,7 +67,7 @@ def ledger():
     own = _account(f'12{n:05d}1', 'عميل نقدي اختبار')
     other_own = _account(f'12{n:05d}2', 'عميل آخر')
     shared = _account(f'12{n:05d}3', 'عملاء مشترك')
-    revenue = _account(f'4{n:05d}', 'إيراد')
+    revenue = _account(f'4{n:05d}', 'إيراد', receivable=False)
     me = Customer(customer_code=f'C-{uuid.uuid4().hex[:6]}', name='عميل نقدي', account_id=own.id,
                   balance_cash=-2790158.17)                       # the cached column, wrong
     other = Customer(customer_code=f'C-{uuid.uuid4().hex[:6]}', name='آخر', account_id=other_own.id)
