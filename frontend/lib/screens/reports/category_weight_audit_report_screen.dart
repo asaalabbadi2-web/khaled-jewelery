@@ -4,6 +4,11 @@ import 'package:flutter/material.dart';
 import '../../api_service.dart';
 import '../../models/safe_box_model.dart';
 import '../../theme/app_theme.dart';
+import '../../theme/app_semantic_colors.dart';
+
+/// The theme's colours (ADR-038): the scheme and the semantic tones.
+ColorScheme _cs(BuildContext context) => Theme.of(context).colorScheme;
+AppSemanticColors _tn(BuildContext context) => AppSemanticColors.of(context);
 
 class CategoryWeightAuditReportScreen extends StatefulWidget {
   final ApiService api;
@@ -250,7 +255,7 @@ class _CategoryWeightAuditReportScreenState
           children: [
             Row(
               children: [
-                Icon(Icons.tune, color: AppColors.primaryGold),
+                Icon(Icons.tune, color: _cs(context).primary),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
@@ -389,14 +394,17 @@ class _CategoryWeightAuditReportScreenState
 
     final total = pieData.fold<double>(0, (acc, e) => acc + e.value);
 
+    // The chart's palette: the theme's section tones, readable in both modes (ADR-038).
+    final tones = _tn(context);
     final colors = [
-      AppColors.primaryGold,
-      Colors.orange.shade600,
-      Colors.blueGrey.shade500,
-      Colors.deepOrange.shade400,
-      Colors.teal.shade400,
-      Colors.indigo.shade400,
-      Colors.brown.shade400,
+      _cs(context).primary,
+      tones.warning.fg,
+      tones.sectionSlate.fg,
+      tones.sectionRed.fg,
+      tones.sectionTeal.fg,
+      tones.sectionIndigo.fg,
+      tones.sectionPurple.fg,
+      tones.sectionBlue.fg,
     ];
 
     final sections = <PieChartSectionData>[];
@@ -409,8 +417,8 @@ class _CategoryWeightAuditReportScreenState
           value: e.value,
           title: '${pct.toStringAsFixed(1)}%',
           radius: 60,
-          titleStyle: const TextStyle(
-            color: Colors.white,
+          titleStyle: TextStyle(
+            color: _cs(context).onPrimary,
             fontWeight: FontWeight.bold,
           ),
         ),
@@ -497,9 +505,9 @@ class _CategoryWeightAuditReportScreenState
       final main = _asDouble(row['weight_main_karat']);
       final grams = _asDouble(row['weight_grams_signed']);
 
-      final mainColor = main <= 0 ? Colors.red.shade700 : Colors.green.shade700;
+      final mainColor = main <= 0 ? _cs(context).error : _tn(context).ready.fg;
       final gramsColor =
-          grams <= 0 ? Colors.red.shade700 : Colors.green.shade700;
+          grams <= 0 ? _cs(context).error : _tn(context).ready.fg;
 
       return DataRow(
         cells: [
@@ -563,7 +571,7 @@ class _CategoryWeightAuditReportScreenState
                 'Note: Red values mean zero/negative.',
               ),
               textAlign: isArabic ? TextAlign.right : TextAlign.left,
-              style: TextStyle(color: Colors.grey.shade700),
+              style: TextStyle(color: _cs(context).onSurfaceVariant),
             ),
           ],
         ),
@@ -749,8 +757,8 @@ class _CategoryWeightAuditReportScreenState
     return ActionChip(
       label: Text(label),
       onPressed: onTap,
-      backgroundColor: Colors.grey.shade100,
-      side: BorderSide(color: Colors.grey.shade300),
+      backgroundColor: _cs(context).surfaceContainerHigh,
+      side: BorderSide(color: _cs(context).outlineVariant),
     );
   }
 
@@ -825,7 +833,7 @@ class _CategoryWeightAuditReportScreenState
     final label = _asString(row['line_label']);
 
     final deltaColor =
-        deltaMain == 0 ? Colors.grey.shade700 : (deltaMain > 0 ? Colors.green.shade700 : Colors.red.shade700);
+        deltaMain == 0 ? _cs(context).onSurfaceVariant : (deltaMain > 0 ? _tn(context).ready.fg : _cs(context).error);
 
     return Card(
       elevation: 1,
@@ -872,7 +880,7 @@ class _CategoryWeightAuditReportScreenState
             ),
             Text(
               '${_fmtNum(deltaGrams, decimals: 3)} g',
-              style: TextStyle(color: Colors.grey.shade700),
+              style: TextStyle(color: _cs(context).onSurfaceVariant),
             ),
           ],
         ),
@@ -892,7 +900,7 @@ class _CategoryWeightAuditReportScreenState
         padding: const EdgeInsets.all(16),
         child: Row(
           children: [
-            Icon(icon, size: 34, color: AppColors.primaryGold),
+            Icon(icon, size: 34, color: _cs(context).primary),
             const SizedBox(width: 12),
             Expanded(
               child: Column(
@@ -926,7 +934,7 @@ class _CategoryWeightAuditReportScreenState
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.error_outline, color: Colors.red.shade700, size: 42),
+            Icon(Icons.error_outline, color: _cs(context).error, size: 42),
             const SizedBox(height: 10),
             Text(
               _t('حدث خطأ أثناء التحميل', 'Failed to load'),
@@ -936,7 +944,7 @@ class _CategoryWeightAuditReportScreenState
             Text(
               error,
               textAlign: TextAlign.center,
-              style: TextStyle(color: Colors.grey.shade700),
+              style: TextStyle(color: _cs(context).onSurfaceVariant),
             ),
             const SizedBox(height: 12),
             ElevatedButton.icon(
@@ -959,6 +967,10 @@ class _CategoryWeightAuditReportScreenState
         title: Text(title),
         bottom: TabBar(
           controller: _tabController,
+          labelColor: Theme.of(context).appBarTheme.foregroundColor,
+          unselectedLabelColor:
+              Theme.of(context).appBarTheme.foregroundColor?.withValues(alpha: 0.7),
+          indicatorColor: Theme.of(context).appBarTheme.foregroundColor,
           tabs: [
             Tab(text: _t('الأرصدة', 'Balances')),
             Tab(text: _t('الحركة', 'Movements')),

@@ -4,6 +4,11 @@ import '../models/inventory_models.dart';
 import '../services/inventory_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/bucket_balance_card.dart' show formatWeight;
+import '../theme/app_semantic_colors.dart';
+
+/// The theme's colours (ADR-038): the scheme and the semantic tones.
+ColorScheme _cs(BuildContext context) => Theme.of(context).colorScheme;
+AppSemanticColors _tn(BuildContext context) => AppSemanticColors.of(context);
 
 class InventoryAuditScreen extends StatefulWidget {
   const InventoryAuditScreen({super.key});
@@ -63,8 +68,6 @@ class _InventoryAuditScreenState extends State<InventoryAuditScreen>
         backgroundColor: Theme.of(context).scaffoldBackgroundColor,
         appBar: AppBar(
           title: const Text('مركز التدقيق'),
-          backgroundColor: AppColors.primaryGold,
-          foregroundColor: Colors.white,
           actions: [
             IconButton(
               icon: const Icon(Icons.refresh),
@@ -74,9 +77,10 @@ class _InventoryAuditScreenState extends State<InventoryAuditScreen>
           ],
           bottom: TabBar(
             controller: _tabs,
-            labelColor: Colors.white,
-            unselectedLabelColor: Colors.white60,
-            indicatorColor: Colors.white,
+            labelColor: Theme.of(context).appBarTheme.foregroundColor,
+            unselectedLabelColor:
+                Theme.of(context).appBarTheme.foregroundColor?.withValues(alpha: 0.7),
+            indicatorColor: Theme.of(context).appBarTheme.foregroundColor,
             tabs: const [
               Tab(text: 'المطابقة', icon: Icon(Icons.table_rows_outlined, size: 18)),
               Tab(text: 'الصحة', icon: Icon(Icons.health_and_safety_outlined, size: 18)),
@@ -84,7 +88,7 @@ class _InventoryAuditScreenState extends State<InventoryAuditScreen>
           ),
         ),
         body: _loading
-            ? const Center(child: CircularProgressIndicator(color: AppColors.primaryGold))
+            ? Center(child: CircularProgressIndicator(color: _cs(context).primary))
             : _error != null
                 ? _ErrorView(message: _error!, onRetry: _load)
                 : TabBarView(
@@ -128,7 +132,7 @@ class _ReconciliationTab extends StatelessWidget {
 
     return RefreshIndicator(
       onRefresh: onRefresh,
-      color: AppColors.primaryGold,
+      color: _cs(context).primary,
       child: CustomScrollView(
         slivers: [
           SliverToBoxAdapter(child: _ReconSummaryCard(report: report)),
@@ -162,15 +166,15 @@ class _ReconSummaryCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isClean = report.isClean;
-    final color = isClean ? AppColors.success : AppColors.warning;
+    final color = isClean ? _tn(context).ready.fg : _tn(context).warning.fg;
 
     return Container(
       margin: const EdgeInsets.all(16),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.08),
+        color: color.withValues(alpha: 0.08),
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: color.withOpacity(0.4)),
+        border: Border.all(color: color.withValues(alpha: 0.4)),
       ),
       child: Row(
         children: [
@@ -201,13 +205,13 @@ class _ReconSummaryCard extends StatelessWidget {
                     _StatChip(
                       label: 'موقع × عيار',
                       value: '${report.rows.length}',
-                      color: AppColors.primaryGold,
+                      color: _cs(context).primary,
                     ),
                     if (report.violations > 0)
                       _StatChip(
                         label: 'توزيع يخالف سطره',
                         value: '${report.violations}',
-                        color: AppColors.error,
+                        color: _cs(context).error,
                       ),
                   ],
                 ),
@@ -231,7 +235,7 @@ class _StatChip extends StatelessWidget {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Text(label, style: TextStyle(fontSize: 11, color: Colors.grey[600])),
+        Text(label, style: TextStyle(fontSize: 11, color: _cs(context).onSurfaceVariant)),
         const SizedBox(width: 4),
         Text(
           value,
@@ -272,19 +276,19 @@ class _FilterRow extends StatelessWidget {
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                 decoration: BoxDecoration(
                   color: showMismatchOnly
-                      ? AppColors.warning
+                      ? _tn(context).warning.fg
                       : Colors.transparent,
                   borderRadius: BorderRadius.circular(20),
                   border: Border.all(
                     color: showMismatchOnly
-                        ? AppColors.warning
-                        : Colors.grey.shade300,
+                        ? _tn(context).warning.fg
+                        : _cs(context).outlineVariant,
                   ),
                 ),
                 child: Text(
                   'بلا تصنيف فقط ($mismatchCount)',
                   style: TextStyle(
-                    color: showMismatchOnly ? Colors.white : Colors.grey[700],
+                    color: showMismatchOnly ? _cs(context).surface : _cs(context).onSurfaceVariant,
                     fontSize: 12,
                     fontWeight: showMismatchOnly
                         ? FontWeight.bold
@@ -296,7 +300,7 @@ class _FilterRow extends StatelessWidget {
           const Spacer(),
           Text(
             'تاريخ التقرير: ${_fmt(generatedAt)}',
-            style: TextStyle(fontSize: 10, color: Colors.grey[500]),
+            style: TextStyle(fontSize: 10, color: _cs(context).onSurfaceVariant),
           ),
         ],
       ),
@@ -336,7 +340,7 @@ class _TableHeader extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
-        color: Colors.grey.shade100,
+        color: _cs(context).surfaceContainerHigh,
         borderRadius: const BorderRadius.vertical(top: Radius.circular(10)),
       ),
       child: const Row(
@@ -363,7 +367,7 @@ class _HeaderCell extends StatelessWidget {
       style: TextStyle(
         fontSize: 11,
         fontWeight: FontWeight.bold,
-        color: Colors.grey[600],
+        color: _cs(context).onSurfaceVariant,
       ),
     );
   }
@@ -375,7 +379,7 @@ class _TableRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final karatColor = AppColors.karatColorFor(row.karat);
+    final karatColor = _tn(context).karat(((row.karat) as num).round()).fg;
     final unclassified = row.unclassifiedGrams.abs() > 0.0005;
     final counted = row.lastCountAt;
 
@@ -383,9 +387,9 @@ class _TableRow extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
         border: Border(
-          bottom: BorderSide(color: Colors.grey.shade200),
+          bottom: BorderSide(color: _cs(context).outlineVariant),
           right: unclassified
-              ? const BorderSide(color: AppColors.warning, width: 3)
+              ? BorderSide(color: _tn(context).warning.fg, width: 3)
               : BorderSide.none,
         ),
       ),
@@ -399,7 +403,7 @@ class _TableRow extends StatelessWidget {
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                   decoration: BoxDecoration(
-                    color: karatColor.withOpacity(0.12),
+                    color: karatColor.withValues(alpha: 0.12),
                     borderRadius: BorderRadius.circular(6),
                   ),
                   child: Text(
@@ -439,7 +443,7 @@ class _TableRow extends StatelessWidget {
                   formatWeight(row.classifiedGrams),
                   style: TextStyle(
                     fontSize: 12,
-                    color: unclassified ? AppColors.warning : null,
+                    color: unclassified ? _tn(context).warning.fg : null,
                   ),
                 ),
                 const SizedBox(width: 4),
@@ -454,7 +458,7 @@ class _TableRow extends StatelessWidget {
               counted != null
                   ? '${counted.year}/${counted.month}/${counted.day}'
                   : '—',
-              style: TextStyle(fontSize: 12, color: counted == null ? Colors.grey[400] : null),
+              style: TextStyle(fontSize: 12, color: counted == null ? _cs(context).outline : null),
             ),
           ),
           SizedBox(
@@ -481,7 +485,7 @@ class _StatusDot extends StatelessWidget {
       width: 8,
       height: 8,
       decoration: BoxDecoration(
-        color: ok ? AppColors.success : AppColors.error,
+        color: ok ? _tn(context).ready.fg : _cs(context).error,
         shape: BoxShape.circle,
       ),
     );
@@ -499,15 +503,15 @@ class _VarianceBadge extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
       decoration: BoxDecoration(
         color: isPos
-            ? AppColors.success.withOpacity(0.15)
-            : AppColors.error.withOpacity(0.15),
+            ? _tn(context).ready.fg.withValues(alpha: 0.15)
+            : _cs(context).error.withValues(alpha: 0.15),
         borderRadius: BorderRadius.circular(4),
       ),
       child: Text(
         '${isPos ? '+' : ''}${formatWeight(variance)}',
         style: TextStyle(
           fontSize: 9,
-          color: isPos ? AppColors.success : AppColors.error,
+          color: isPos ? _tn(context).ready.fg : _cs(context).error,
           fontWeight: FontWeight.bold,
         ),
       ),
@@ -542,7 +546,7 @@ class _HealthTab extends StatelessWidget {
           _SectionLabel(
             label: 'تحتاج مراجعة',
             count: issueMetrics.length,
-            color: AppColors.error,
+            color: _cs(context).error,
           ),
           const SizedBox(height: 8),
           ...issueMetrics.map((m) => _MetricCard(metric: m)),
@@ -554,7 +558,7 @@ class _HealthTab extends StatelessWidget {
           _SectionLabel(
             label: 'سليمة',
             count: okMetrics.length,
-            color: AppColors.success,
+            color: _tn(context).ready.fg,
           ),
           const SizedBox(height: 8),
           ...okMetrics.map((m) => _MetricCard(metric: m)),
@@ -576,13 +580,13 @@ class _HealthBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = hasIssues ? AppColors.error : AppColors.success;
+    final color = hasIssues ? _cs(context).error : _tn(context).ready.fg;
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.08),
+        color: color.withValues(alpha: 0.08),
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: color.withOpacity(0.35)),
+        border: Border.all(color: color.withValues(alpha: 0.35)),
       ),
       child: Row(
         children: [
@@ -609,7 +613,7 @@ class _HealthBanner extends StatelessWidget {
                 const SizedBox(height: 2),
                 Text(
                   '$metricCount مؤشر — ${generatedAt.hour.toString().padLeft(2, '0')}:${generatedAt.minute.toString().padLeft(2, '0')}',
-                  style: TextStyle(fontSize: 11, color: Colors.grey[600]),
+                  style: TextStyle(fontSize: 11, color: _cs(context).onSurfaceVariant),
                 ),
               ],
             ),
@@ -655,7 +659,7 @@ class _SectionLabel extends StatelessWidget {
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
           decoration: BoxDecoration(
-            color: color.withOpacity(0.15),
+            color: color.withValues(alpha: 0.15),
             borderRadius: BorderRadius.circular(10),
           ),
           child: Text(
@@ -678,17 +682,17 @@ class _MetricCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = metric.ok ? AppColors.success : AppColors.error;
+    final color = metric.ok ? _tn(context).ready.fg : _cs(context).error;
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       decoration: BoxDecoration(
         color: Theme.of(context).cardColor,
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: color.withOpacity(0.25)),
+        border: Border.all(color: color.withValues(alpha: 0.25)),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.03),
+            color: _cs(context).shadow.withValues(alpha: 0.03),
             blurRadius: 4,
             offset: const Offset(0, 1),
           ),
@@ -722,7 +726,7 @@ class _MetricCard extends StatelessWidget {
                   const SizedBox(height: 3),
                   Text(
                     metric.detail,
-                    style: TextStyle(fontSize: 11, color: Colors.grey[600]),
+                    style: TextStyle(fontSize: 11, color: _cs(context).onSurfaceVariant),
                   ),
                 ],
               ],
@@ -754,7 +758,7 @@ class _ErrorView extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.cloud_off, size: 48, color: AppColors.warning),
+            Icon(Icons.cloud_off, size: 48, color: _tn(context).warning.fg),
             const SizedBox(height: 12),
             Text(message, textAlign: TextAlign.center),
             const SizedBox(height: 16),
@@ -763,8 +767,8 @@ class _ErrorView extends StatelessWidget {
               icon: const Icon(Icons.refresh),
               label: const Text('إعادة المحاولة'),
               style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.primaryGold,
-                foregroundColor: Colors.white,
+                backgroundColor: _cs(context).primary,
+                foregroundColor: _cs(context).onPrimary,
               ),
             ),
           ],

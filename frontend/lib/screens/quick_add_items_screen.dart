@@ -4,6 +4,11 @@ import '../models/category_model.dart';
 import '../theme/app_theme.dart';
 import '../services/data_sync_bus.dart';
 import '../utils.dart';
+import '../theme/app_semantic_colors.dart';
+
+/// The theme's colours (ADR-038): the scheme and the semantic tones.
+ColorScheme _cs(BuildContext context) => Theme.of(context).colorScheme;
+AppSemanticColors _tn(BuildContext context) => AppSemanticColors.of(context);
 
 /// 🚀 شاشة الإضافة السريعة للأصناف
 /// مصممة خصيصاً لإضافة قطع ذهبية متعددة بسرعة
@@ -135,9 +140,9 @@ class _QuickAddItemsScreenState extends State<QuickAddItemsScreen> {
     final text = _bulkWeightsController.text.trim();
     if (text.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
+        SnackBar(
           content: Text('⚠️ الرجاء لصق الأوزان أولاً'),
-          backgroundColor: AppColors.warning,
+          backgroundColor: _tn(context).warning.fg,
         ),
       );
       return;
@@ -152,9 +157,9 @@ class _QuickAddItemsScreenState extends State<QuickAddItemsScreen> {
 
     if (matches.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
+        SnackBar(
           content: Text('⚠️ لم يتم العثور على أوزان صالحة'),
-          backgroundColor: AppColors.warning,
+          backgroundColor: _tn(context).warning.fg,
         ),
       );
       return;
@@ -180,7 +185,7 @@ class _QuickAddItemsScreenState extends State<QuickAddItemsScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text('✅ تم استيراد ${matches.length} وزن بنجاح'),
-        backgroundColor: AppColors.success,
+        backgroundColor: _tn(context).ready.fg,
       ),
     );
   }
@@ -207,9 +212,9 @@ class _QuickAddItemsScreenState extends State<QuickAddItemsScreen> {
 
     if (validPieces.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
+        SnackBar(
           content: Text('⚠️ يرجى إدخال وزن صحيح لقطعة واحدة على الأقل'),
-          backgroundColor: AppColors.warning,
+          backgroundColor: _tn(context).warning.fg,
         ),
       );
       return;
@@ -252,7 +257,7 @@ class _QuickAddItemsScreenState extends State<QuickAddItemsScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(result['message'] ?? '✅ تم إضافة الأصناف بنجاح'),
-          backgroundColor: AppColors.success,
+          backgroundColor: _tn(context).ready.fg,
         ),
       );
 
@@ -266,7 +271,7 @@ class _QuickAddItemsScreenState extends State<QuickAddItemsScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('❌ خطأ: ${e.toString()}'),
-          backgroundColor: AppColors.error,
+          backgroundColor: _cs(context).error,
         ),
       );
     } finally {
@@ -333,7 +338,7 @@ class _QuickAddItemsScreenState extends State<QuickAddItemsScreen> {
           if (widget.embedded)
             Card(
               margin: const EdgeInsets.only(bottom: 16),
-              color: AppColors.primaryGold.withValues(alpha: 0.08),
+              color: _cs(context).primary.withValues(alpha: 0.08),
               child: Padding(
                 padding: const EdgeInsets.all(16),
                 child: Row(
@@ -347,7 +352,7 @@ class _QuickAddItemsScreenState extends State<QuickAddItemsScreen> {
                             '⚡ وضع الإضافة السريعة',
                             style: theme.textTheme.titleMedium?.copyWith(
                               fontWeight: FontWeight.bold,
-                              color: AppColors.darkGold,
+                              color: _cs(context).primary,
                             ),
                           ),
                           const SizedBox(height: 4),
@@ -385,7 +390,7 @@ class _QuickAddItemsScreenState extends State<QuickAddItemsScreen> {
                   Text(
                     '📝 البيانات المشتركة',
                     style: theme.textTheme.titleMedium?.copyWith(
-                      color: AppColors.primaryGold,
+                      color: _cs(context).primary,
                       fontWeight: FontWeight.bold,
                     ),
                   ),
@@ -490,7 +495,7 @@ class _QuickAddItemsScreenState extends State<QuickAddItemsScreen> {
                   Text(
                     '⚡ طرق إدخال أسرع',
                     style: theme.textTheme.titleMedium?.copyWith(
-                      color: AppColors.primaryGold,
+                      color: _cs(context).primary,
                       fontWeight: FontWeight.bold,
                     ),
                   ),
@@ -544,7 +549,7 @@ class _QuickAddItemsScreenState extends State<QuickAddItemsScreen> {
               Text(
                 '💎 القطع (${pieces.length})',
                 style: theme.textTheme.titleMedium?.copyWith(
-                  color: AppColors.primaryGold,
+                  color: _cs(context).primary,
                   fontWeight: FontWeight.bold,
                 ),
               ),
@@ -572,7 +577,7 @@ class _QuickAddItemsScreenState extends State<QuickAddItemsScreen> {
                       children: [
                         Chip(
                           label: Text('قطعة ${index + 1}'),
-                          backgroundColor: AppColors.lightGold,
+                          backgroundColor: _cs(context).primaryContainer,
                         ),
                         const SizedBox(width: 4),
                         IconButton(
@@ -585,7 +590,7 @@ class _QuickAddItemsScreenState extends State<QuickAddItemsScreen> {
                           IconButton(
                             icon: const Icon(Icons.delete_outline),
                             iconSize: 20,
-                            color: AppColors.error,
+                            color: _cs(context).error,
                             onPressed: () => _removePiece(index),
                           ),
                       ],
@@ -692,7 +697,7 @@ class _QuickAddItemsScreenState extends State<QuickAddItemsScreen> {
             label: Text(saving ? 'جاري الحفظ...' : 'حفظ الكل'),
             style: ElevatedButton.styleFrom(
               padding: const EdgeInsets.symmetric(vertical: 16),
-              backgroundColor: AppColors.primaryGold,
+              backgroundColor: _cs(context).primary,
             ),
           ),
         ],

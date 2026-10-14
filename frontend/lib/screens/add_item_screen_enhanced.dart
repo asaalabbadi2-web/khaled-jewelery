@@ -8,6 +8,11 @@ import '../theme/app_theme.dart';
 import '../services/data_sync_bus.dart';
 import 'barcode_print_screen.dart';
 import 'quick_add_items_screen.dart';
+import '../theme/app_semantic_colors.dart';
+
+/// The theme's colours (ADR-038): the scheme and the semantic tones.
+ColorScheme _cs(BuildContext context) => Theme.of(context).colorScheme;
+AppSemanticColors _tn(BuildContext context) => AppSemanticColors.of(context);
 
 /// شاشة إضافة صنف ذهب محسّنة
 ///
@@ -40,7 +45,6 @@ class _AddItemScreenEnhancedState extends State<AddItemScreenEnhanced> {
   late TextEditingController _countController;
   late TextEditingController _wageController;
   late TextEditingController _descriptionController;
-  late TextEditingController _priceController;
   late TextEditingController _stockController;
 
   bool _isLoading = false;
@@ -78,9 +82,6 @@ class _AddItemScreenEnhancedState extends State<AddItemScreenEnhanced> {
     _descriptionController = TextEditingController(
       text: item['description']?.toString() ?? '',
     );
-    _priceController = TextEditingController(
-      text: item['price']?.toString() ?? '0',
-    );
     final initialStockValue = _isEditMode ? _parseStockValue(item['stock']) : 1;
     _stockController = TextEditingController(
       text: initialStockValue.toString(),
@@ -96,7 +97,6 @@ class _AddItemScreenEnhancedState extends State<AddItemScreenEnhanced> {
     _countController.dispose();
     _wageController.dispose();
     _descriptionController.dispose();
-    _priceController.dispose();
     _stockController.dispose();
     super.dispose();
   }
@@ -104,9 +104,9 @@ class _AddItemScreenEnhancedState extends State<AddItemScreenEnhanced> {
   void _handleQuickAddSuccess() {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
+      SnackBar(
         content: Text('✅ تم حفظ الأصناف السريعة بنجاح'),
-        backgroundColor: AppColors.success,
+        backgroundColor: _tn(context).ready.fg,
       ),
     );
     setState(() {
@@ -124,7 +124,7 @@ class _AddItemScreenEnhancedState extends State<AddItemScreenEnhanced> {
       _countController.text = '1';
       _stockController.text = '1';
 
-      // Keep karat/wage/price as-is for fast repeated entry.
+      // Keep karat/wage as-is for fast repeated entry.
       if (response?['barcode'] != null) {
         _barcodeController.text = response!['barcode'].toString();
       } else {
@@ -149,7 +149,7 @@ class _AddItemScreenEnhancedState extends State<AddItemScreenEnhanced> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('✅ تم مسح الباركود: $code'),
-            backgroundColor: AppColors.success,
+            backgroundColor: _tn(context).ready.fg,
           ),
         );
       }
@@ -158,7 +158,7 @@ class _AddItemScreenEnhancedState extends State<AddItemScreenEnhanced> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('خطأ في الماسح: $e'),
-          backgroundColor: AppColors.error,
+          backgroundColor: _cs(context).error,
         ),
       );
     }
@@ -167,9 +167,9 @@ class _AddItemScreenEnhancedState extends State<AddItemScreenEnhanced> {
   Future<void> _saveItem() async {
     if (!_formKey.currentState!.validate()) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
+        SnackBar(
           content: Text('⚠️ يرجى تصحيح الأخطاء أولاً'),
-          backgroundColor: AppColors.warning,
+          backgroundColor: _tn(context).warning.fg,
         ),
       );
       return;
@@ -195,7 +195,6 @@ class _AddItemScreenEnhancedState extends State<AddItemScreenEnhanced> {
         'count': int.tryParse(_countController.text) ?? 1,
         'wage': normalizeNumber(_wageController.text),
         'description': _descriptionController.text,
-        'price': normalizeNumber(_priceController.text),
         'stock': resolvedStock,
       };
 
@@ -253,7 +252,7 @@ class _AddItemScreenEnhancedState extends State<AddItemScreenEnhanced> {
                     ),
                 ],
               ),
-              backgroundColor: AppColors.success,
+              backgroundColor: _tn(context).ready.fg,
               duration: const Duration(seconds: 4),
             ),
           );
@@ -280,7 +279,7 @@ class _AddItemScreenEnhancedState extends State<AddItemScreenEnhanced> {
           content: Text(
             _isEditMode ? '✅ تم تحديث الصنف بنجاح' : '✅ تم إضافة الصنف بنجاح',
           ),
-          backgroundColor: AppColors.success,
+          backgroundColor: _tn(context).ready.fg,
         ),
       );
 
@@ -291,7 +290,7 @@ class _AddItemScreenEnhancedState extends State<AddItemScreenEnhanced> {
       if (!mounted) return;
 
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('خطأ: $e'), backgroundColor: AppColors.error),
+        SnackBar(content: Text('خطأ: $e'), backgroundColor: _cs(context).error),
       );
     } finally {
       if (mounted) {
@@ -311,9 +310,9 @@ class _AddItemScreenEnhancedState extends State<AddItemScreenEnhanced> {
   void _printBarcode() {
     if (_barcodeController.text.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
+        SnackBar(
           content: Text('⚠️ لا يوجد باركود لطباعته'),
-          backgroundColor: AppColors.warning,
+          backgroundColor: _tn(context).warning.fg,
         ),
       );
       return;
@@ -326,7 +325,7 @@ class _AddItemScreenEnhancedState extends State<AddItemScreenEnhanced> {
           barcode: _barcodeController.text,
           itemName: _nameController.text,
           itemCode: _itemCode ?? '',
-          price: double.tryParse(_priceController.text),
+          // No price on a tag: the price is the day's gold (the owner, 13 Oct).
           karat: _karatController.text.isEmpty ? null : _karatController.text,
         ),
       ),
@@ -367,8 +366,6 @@ class _AddItemScreenEnhancedState extends State<AddItemScreenEnhanced> {
       backgroundColor: theme.scaffoldBackgroundColor,
       appBar: AppBar(
         title: Text(_isEditMode ? 'تعديل صنف' : 'إضافة صنف جديد'),
-        backgroundColor: AppColors.darkGold,
-        foregroundColor: Colors.white,
         elevation: 0,
         scrolledUnderElevation: 2,
         actions: [
@@ -377,14 +374,12 @@ class _AddItemScreenEnhancedState extends State<AddItemScreenEnhanced> {
               icon: const Icon(Icons.qr_code_scanner),
               tooltip: 'مسح باركود',
               onPressed: _scanBarcode,
-              color: Colors.white,
             ),
           if (_isEditMode && _barcodeController.text.isNotEmpty)
             IconButton(
               icon: const Icon(Icons.print),
               tooltip: 'طباعة باركود',
               onPressed: _printBarcode,
-              color: Colors.white,
             ),
         ],
       ),
@@ -392,7 +387,7 @@ class _AddItemScreenEnhancedState extends State<AddItemScreenEnhanced> {
         decoration: BoxDecoration(
           gradient: LinearGradient(
             colors: [
-              AppColors.lightGold.withValues(alpha: 0.25),
+              _cs(context).primaryContainer.withValues(alpha: 0.25),
               theme.scaffoldBackgroundColor,
             ],
             begin: Alignment.topCenter,
@@ -461,30 +456,30 @@ class _AddItemScreenEnhancedState extends State<AddItemScreenEnhanced> {
               Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: AppColors.primaryGold.withValues(alpha: 0.12),
+                  color: _cs(context).primary.withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(8),
                   border: Border.all(
-                    color: AppColors.primaryGold.withValues(alpha: 0.3),
+                    color: _cs(context).primary.withValues(alpha: 0.3),
                   ),
                 ),
                 child: Row(
                   children: [
-                    const Icon(Icons.tag, color: AppColors.primaryGold),
+                    Icon(Icons.tag, color: _cs(context).primary),
                     const SizedBox(width: 12),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text(
+                          Text(
                             'كود الصنف',
-                            style: TextStyle(fontSize: 12, color: Colors.grey),
+                            style: TextStyle(fontSize: 12, color: _cs(context).onSurfaceVariant),
                           ),
                           Text(
                             _itemCode!,
-                            style: const TextStyle(
+                            style: TextStyle(
                               fontSize: 16,
                               fontWeight: FontWeight.bold,
-                              color: AppColors.primaryGold,
+                              color: _cs(context).primary,
                             ),
                           ),
                         ],
@@ -496,14 +491,14 @@ class _AddItemScreenEnhancedState extends State<AddItemScreenEnhanced> {
                         vertical: 4,
                       ),
                       decoration: BoxDecoration(
-                        color: AppColors.success.withValues(alpha: 0.15),
+                        color: _tn(context).ready.fg.withValues(alpha: 0.15),
                         borderRadius: BorderRadius.circular(4),
                       ),
-                      child: const Text(
+                      child: Text(
                         'تلقائي',
                         style: TextStyle(
                           fontSize: 10,
-                          color: AppColors.success,
+                          color: _tn(context).ready.fg,
                           fontWeight: FontWeight.bold,
                         ),
                       ),
@@ -520,7 +515,7 @@ class _AddItemScreenEnhancedState extends State<AddItemScreenEnhanced> {
                 labelText: 'الباركود (اختياري - يُولّد تلقائياً)',
                 prefixIcon: const Icon(Icons.qr_code),
                 suffixIcon: IconButton(
-                  icon: const Icon(Icons.camera_alt, color: AppColors.info),
+                  icon: Icon(Icons.camera_alt, color: _tn(context).info.fg),
                   tooltip: 'مسح بالكاميرا',
                   onPressed: _scanBarcode,
                 ),
@@ -691,28 +686,6 @@ class _AddItemScreenEnhancedState extends State<AddItemScreenEnhanced> {
                 ),
               ],
             ),
-            const SizedBox(height: 16),
-
-            // السعر
-            TextFormField(
-              controller: _priceController,
-              decoration: const InputDecoration(
-                labelText: 'السعر *',
-                prefixIcon: Icon(Icons.attach_money),
-                border: OutlineInputBorder(),
-                hintText: 'سعر البيع',
-              ),
-              keyboardType: const TextInputType.numberWithOptions(
-                decimal: true,
-              ),
-              inputFormatters: [
-                NormalizeNumberFormatter(),
-                FilteringTextInputFormatter.allow(RegExp(r'^\d+\.?\d{0,2}')),
-              ],
-              validator: (value) =>
-                  InvoiceFormValidator.validatePrice(value, allowZero: true),
-            ),
-
             const SizedBox(height: 32),
 
             // زر الحفظ
@@ -733,8 +706,8 @@ class _AddItemScreenEnhancedState extends State<AddItemScreenEnhanced> {
               ),
               style: ElevatedButton.styleFrom(
                 padding: const EdgeInsets.symmetric(vertical: 16),
-                backgroundColor: AppColors.primaryGold,
-                foregroundColor: Colors.black,
+                backgroundColor: _cs(context).primary,
+                foregroundColor: _cs(context).onSurface,
               ),
             ),
           ],
@@ -770,18 +743,18 @@ class _AddItemScreenEnhancedState extends State<AddItemScreenEnhanced> {
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
             color: selected
-                ? Colors.white
-                : Colors.white.withValues(alpha: 0.6),
+                ? _cs(context).surface
+                : _cs(context).surface.withValues(alpha: 0.6),
             borderRadius: BorderRadius.circular(18),
             border: Border.all(
               color: selected
-                  ? AppColors.primaryGold
-                  : AppColors.primaryGold.withValues(alpha: 0.3),
+                  ? _cs(context).primary
+                  : _cs(context).primary.withValues(alpha: 0.3),
             ),
             boxShadow: selected
                 ? [
                     BoxShadow(
-                      color: AppColors.primaryGold.withValues(alpha: 0.25),
+                      color: _cs(context).primary.withValues(alpha: 0.25),
                       offset: const Offset(0, 12),
                       blurRadius: 28,
                     ),
@@ -798,18 +771,18 @@ class _AddItemScreenEnhancedState extends State<AddItemScreenEnhanced> {
                     padding: const EdgeInsets.all(10),
                     decoration: BoxDecoration(
                       color: selected
-                          ? AppColors.primaryGold.withValues(alpha: 0.2)
-                          : AppColors.primaryGold.withValues(alpha: 0.1),
+                          ? _cs(context).primary.withValues(alpha: 0.2)
+                          : _cs(context).primary.withValues(alpha: 0.1),
                       shape: BoxShape.circle,
                     ),
-                    child: Icon(icon, color: AppColors.darkGold),
+                    child: Icon(icon, color: _cs(context).primary),
                   ),
                   const SizedBox(width: 8),
                   Text(
                     title,
                     style: theme.textTheme.titleMedium?.copyWith(
                       fontWeight: FontWeight.bold,
-                      color: AppColors.darkGold,
+                      color: _cs(context).primary,
                     ),
                   ),
                   const Spacer(),
@@ -821,14 +794,14 @@ class _AddItemScreenEnhancedState extends State<AddItemScreenEnhanced> {
                       ),
                       decoration: BoxDecoration(
                         color: selected
-                            ? AppColors.darkGold
-                            : AppColors.darkGold.withValues(alpha: 0.15),
+                            ? _cs(context).primary
+                            : _cs(context).primary.withValues(alpha: 0.15),
                         borderRadius: BorderRadius.circular(20),
                       ),
                       child: Text(
                         badge,
                         style: TextStyle(
-                          color: selected ? Colors.white : AppColors.darkGold,
+                          color: selected ? _cs(context).onPrimary : _cs(context).primary,
                           fontSize: 12,
                           fontWeight: FontWeight.bold,
                         ),
@@ -840,7 +813,7 @@ class _AddItemScreenEnhancedState extends State<AddItemScreenEnhanced> {
               Text(
                 subtitle,
                 style: theme.textTheme.bodyMedium?.copyWith(
-                  color: Colors.black87,
+                  color: _cs(context).onSurface,
                 ),
               ),
             ],
@@ -852,15 +825,15 @@ class _AddItemScreenEnhancedState extends State<AddItemScreenEnhanced> {
     return Container(
       decoration: BoxDecoration(
         gradient: LinearGradient(
-          colors: [AppColors.primaryGold.withValues(alpha: 0.16), Colors.white],
+          colors: [_cs(context).primary.withValues(alpha: 0.16), _cs(context).surface],
           begin: Alignment.topRight,
           end: Alignment.bottomLeft,
         ),
         borderRadius: BorderRadius.circular(22),
-        border: Border.all(color: AppColors.primaryGold.withValues(alpha: 0.2)),
+        border: Border.all(color: _cs(context).primary.withValues(alpha: 0.2)),
         boxShadow: [
           BoxShadow(
-            color: AppColors.primaryGold.withValues(alpha: 0.12),
+            color: _cs(context).primary.withValues(alpha: 0.12),
             blurRadius: 30,
             offset: const Offset(0, 12),
           ),
@@ -876,12 +849,12 @@ class _AddItemScreenEnhancedState extends State<AddItemScreenEnhanced> {
                 Container(
                   padding: const EdgeInsets.all(10),
                   decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.6),
+                    color: _cs(context).surface.withValues(alpha: 0.6),
                     shape: BoxShape.circle,
                   ),
-                  child: const Icon(
+                  child: Icon(
                     Icons.swap_horiz,
-                    color: AppColors.darkGold,
+                    color: _cs(context).primary,
                   ),
                 ),
                 const SizedBox(width: 12),
@@ -889,7 +862,7 @@ class _AddItemScreenEnhancedState extends State<AddItemScreenEnhanced> {
                   'طريقة الإدخال',
                   style: theme.textTheme.titleMedium?.copyWith(
                     fontWeight: FontWeight.bold,
-                    color: AppColors.darkGold,
+                    color: _cs(context).primary,
                   ),
                 ),
                 const Spacer(),
@@ -900,7 +873,7 @@ class _AddItemScreenEnhancedState extends State<AddItemScreenEnhanced> {
                     vertical: 6,
                   ),
                   decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.8),
+                    color: _cs(context).surface.withValues(alpha: 0.8),
                     borderRadius: BorderRadius.circular(30),
                   ),
                   child: Row(
@@ -911,16 +884,16 @@ class _AddItemScreenEnhancedState extends State<AddItemScreenEnhanced> {
                             ? Icons.looks_one
                             : Icons.bolt,
                         size: 16,
-                        color: AppColors.darkGold,
+                        color: _cs(context).primary,
                       ),
                       const SizedBox(width: 6),
                       Text(
                         _entryMode == _AddItemEntryMode.single
                             ? 'قطعة واحدة'
                             : 'إضافة سريعة',
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontWeight: FontWeight.bold,
-                          color: AppColors.darkGold,
+                          color: _cs(context).primary,
                         ),
                       ),
                     ],
@@ -962,7 +935,7 @@ class _AddItemScreenEnhancedState extends State<AddItemScreenEnhanced> {
                     : 'مصمم للتهام الأوزان من الميزان أو ملفات Excel وتسريع إضافة عدة قطع.',
                 key: ValueKey(_entryMode),
                 style: theme.textTheme.bodySmall?.copyWith(
-                  color: Colors.black87,
+                  color: _cs(context).onSurface,
                   height: 1.5,
                 ),
               ),
@@ -979,20 +952,20 @@ class _AddItemScreenEnhancedState extends State<AddItemScreenEnhanced> {
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
       margin: const EdgeInsets.only(bottom: 8),
       decoration: BoxDecoration(
-        color: AppColors.primaryGold.withValues(alpha: 0.12),
+        color: _cs(context).primary.withValues(alpha: 0.12),
         borderRadius: BorderRadius.circular(30),
-        border: Border.all(color: AppColors.primaryGold.withValues(alpha: 0.3)),
+        border: Border.all(color: _cs(context).primary.withValues(alpha: 0.3)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, color: AppColors.darkGold, size: 18),
+          Icon(icon, color: _cs(context).primary, size: 18),
           const SizedBox(width: 8),
           Text(
             title,
             style: theme.textTheme.titleMedium?.copyWith(
               fontWeight: FontWeight.bold,
-              color: AppColors.darkGold,
+              color: _cs(context).primary,
             ),
           ),
         ],
@@ -1023,7 +996,6 @@ class _BarcodeScannerWidgetState extends State<_BarcodeScannerWidget> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('مسح الباركود 📷'),
-        backgroundColor: Colors.black87,
         actions: [
           IconButton(
             icon: ValueListenableBuilder(
@@ -1035,9 +1007,9 @@ class _BarcodeScannerWidgetState extends State<_BarcodeScannerWidget> {
                   case TorchState.off:
                     return const Icon(Icons.flash_off);
                   case TorchState.on:
-                    return const Icon(Icons.flash_on, color: Colors.yellow);
+                    return Icon(Icons.flash_on, color: _tn(context).warning.fg);
                   case TorchState.unavailable:
-                    return const Icon(Icons.flash_off, color: Colors.grey);
+                    return Icon(Icons.flash_off, color: _cs(context).onSurfaceVariant);
                 }
               },
             ),
@@ -1064,7 +1036,7 @@ class _BarcodeScannerWidgetState extends State<_BarcodeScannerWidget> {
               width: 250,
               height: 250,
               decoration: BoxDecoration(
-                border: Border.all(color: Colors.blue, width: 3),
+                border: Border.all(color: _tn(context).info.fg, width: 3),
                 borderRadius: BorderRadius.circular(12),
               ),
             ),
@@ -1077,12 +1049,12 @@ class _BarcodeScannerWidgetState extends State<_BarcodeScannerWidget> {
               padding: const EdgeInsets.all(16),
               margin: const EdgeInsets.symmetric(horizontal: 32),
               decoration: BoxDecoration(
-                color: Colors.black87,
+                color: _cs(context).inverseSurface,
                 borderRadius: BorderRadius.circular(12),
               ),
-              child: const Text(
+              child: Text(
                 '🎯 وجّه الكاميرا نحو الباركود',
-                style: TextStyle(color: Colors.white, fontSize: 16),
+                style: TextStyle(color: _cs(context).onInverseSurface, fontSize: 16),
                 textAlign: TextAlign.center,
               ),
             ),

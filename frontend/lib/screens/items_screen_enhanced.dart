@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import '../api_service.dart';
 import '../models/category_model.dart';
@@ -10,8 +9,14 @@ import '../services/data_sync_bus.dart';
 import 'add_item_screen_enhanced.dart';
 import 'barcode_print_screen.dart';
 import 'quick_add_items_screen.dart';
+import 'inventory_balance_screen.dart';
 import '../utils.dart';
 import '../utils/currency_utils.dart' as cu;
+import '../theme/app_semantic_colors.dart';
+
+/// The theme's colours (ADR-038): the scheme and the semantic tones.
+ColorScheme _cs(BuildContext context) => Theme.of(context).colorScheme;
+AppSemanticColors _tn(BuildContext context) => AppSemanticColors.of(context);
 
 /// شاشة قائمة الأصناف المحسّنة
 ///
@@ -51,25 +56,22 @@ class _ItemsScreenEnhancedState extends State<ItemsScreenEnhanced> {
   double? _maxWeight;
   double? _minWage;
   double? _maxWage;
-  double? _minPrice;
-  double? _maxPrice;
 
   // Statistics
   int get totalItems => filteredItems.length;
-  int get totalCount => filteredItems.fold(
-    0,
-    (sum, item) => sum + (int.tryParse(item['count']?.toString() ?? '0') ?? 0),
-  );
   double get totalWeight => filteredItems.fold(
     0.0,
     (sum, item) =>
         sum + (double.tryParse(item['weight']?.toString() ?? '0') ?? 0.0),
   );
-  double get totalValue => filteredItems.fold(0.0, (sum, item) {
-    final count = int.tryParse(item['count']?.toString() ?? '0') ?? 0;
-    final price = double.tryParse(item['price']?.toString() ?? '0') ?? 0.0;
-    return sum + (count * price);
-  });
+
+  /// The categories the shown items are in. (A value of count x price was
+  /// here: every price is zero -- the price is the day's gold, live, §13.)
+  int get totalCategories => filteredItems
+      .map((item) => item['category_id'])
+      .whereType<int>()
+      .toSet()
+      .length;
 
   @override
   void initState() {
@@ -117,7 +119,7 @@ class _ItemsScreenEnhancedState extends State<ItemsScreenEnhanced> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('خطأ في تحميل الأصناف: $e'),
-          backgroundColor: AppColors.error,
+          backgroundColor: _cs(context).error,
         ),
       );
     }
@@ -166,19 +168,12 @@ class _ItemsScreenEnhancedState extends State<ItemsScreenEnhanced> {
             (_minWage == null || wage >= _minWage!) &&
             (_maxWage == null || wage <= _maxWage!);
 
-        // 🆕 Price range filter
-        final price = double.tryParse(item['price']?.toString() ?? '0') ?? 0;
-        final matchesPrice =
-            (_minPrice == null || price >= _minPrice!) &&
-            (_maxPrice == null || price <= _maxPrice!);
-
         return matchesSearch &&
             matchesKarat &&
             matchesCategory &&
             matchesStones &&
             matchesWeight &&
-            matchesWage &&
-            matchesPrice;
+            matchesWage;
       }).toList();
 
       // Apply sorting
@@ -200,11 +195,6 @@ class _ItemsScreenEnhancedState extends State<ItemsScreenEnhanced> {
           final weightA = double.tryParse(a['weight']?.toString() ?? '0') ?? 0;
           final weightB = double.tryParse(b['weight']?.toString() ?? '0') ?? 0;
           comparison = weightA.compareTo(weightB);
-          break;
-        case 'price':
-          final priceA = double.tryParse(a['price']?.toString() ?? '0') ?? 0;
-          final priceB = double.tryParse(b['price']?.toString() ?? '0') ?? 0;
-          comparison = priceA.compareTo(priceB);
           break;
         case 'karat':
           final karatA = double.tryParse(a['karat']?.toString() ?? '0') ?? 0;
@@ -241,7 +231,9 @@ class _ItemsScreenEnhancedState extends State<ItemsScreenEnhanced> {
             ),
             ElevatedButton(
               onPressed: () => Navigator.pop(context, true),
-              style: ElevatedButton.styleFrom(backgroundColor: AppColors.error),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: _cs(context).error,
+              ),
               child: const Text('حذف'),
             ),
           ],
@@ -255,9 +247,9 @@ class _ItemsScreenEnhancedState extends State<ItemsScreenEnhanced> {
         await _loadItems(notifyListeners: true);
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
+          SnackBar(
             content: Text('✅ تم حذف الصنف بنجاح'),
-            backgroundColor: AppColors.success,
+            backgroundColor: _tn(context).ready.fg,
           ),
         );
       } catch (e) {
@@ -265,7 +257,7 @@ class _ItemsScreenEnhancedState extends State<ItemsScreenEnhanced> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('خطأ في الحذف: $e'),
-            backgroundColor: AppColors.error,
+            backgroundColor: _cs(context).error,
           ),
         );
       }
@@ -377,32 +369,54 @@ class _ItemsScreenEnhancedState extends State<ItemsScreenEnhanced> {
     return Container(
       padding: const EdgeInsets.all(12),
       color: colorScheme.surface.withValues(alpha: isDark ? 0.35 : 0.2),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Expanded(
-            child: _buildStatCard(
-              'الأصناف',
-              totalItems.toString(),
-              Icons.inventory_2_outlined,
-              AppColors.info,
-            ),
+          Row(
+            children: [
+              Expanded(
+                child: _buildStatCard(
+                  'الأصناف',
+                  totalItems.toString(),
+                  Icons.inventory_2_outlined,
+                  _tn(context).info.fg,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _buildStatCard(
+                  // The items registered, not the stock: the stock is the books
+                  // («الجرد الفعلي», ADR-045).
+                  'الوزن المسجّل',
+                  '${totalWeight.toStringAsFixed(1)}جم',
+                  Icons.scale,
+                  colorScheme.primary,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _buildStatCard(
+                  'التصنيفات',
+                  totalCategories.toString(),
+                  Icons.category_outlined,
+                  _tn(context).ready.fg,
+                ),
+              ),
+            ],
           ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: _buildStatCard(
-              'الوزن',
-              '${totalWeight.toStringAsFixed(1)}جم',
-              Icons.scale,
-              colorScheme.primary,
-            ),
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: _buildStatCard(
-              'القيمة',
-              NumberFormat.compact().format(totalValue),
-              Icons.attach_money,
-              AppColors.success,
+          // The stock is the books, by location and category (ADR-045) --
+          // these cards count the items registered, not the gold held.
+          Align(
+            alignment: AlignmentDirectional.centerStart,
+            child: TextButton.icon(
+              onPressed: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => const InventoryBalanceScreen(),
+                ),
+              ),
+              icon: const Icon(Icons.inventory_outlined, size: 18),
+              label: const Text('رصيد المخزون في الدفاتر'),
             ),
           ),
         ],
@@ -501,17 +515,6 @@ class _ItemsScreenEnhancedState extends State<ItemsScreenEnhanced> {
               });
             },
           ),
-          const SizedBox(width: 4),
-          ChoiceChip(
-            label: const Text('السعر'),
-            selected: _sortBy == 'price',
-            onSelected: (selected) {
-              setState(() {
-                _sortBy = 'price';
-                _applyFilters();
-              });
-            },
-          ),
           const Spacer(),
           IconButton(
             icon: Icon(
@@ -535,11 +538,10 @@ class _ItemsScreenEnhancedState extends State<ItemsScreenEnhanced> {
     final barcode = item['barcode']?.toString();
     final karat = item['karat']?.toString() ?? '0';
     final weight = double.tryParse(item['weight']?.toString() ?? '0') ?? 0.0;
-    final count = int.tryParse(item['count']?.toString() ?? '0') ?? 0;
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
     final textTheme = theme.textTheme;
-    final karatBadgeColor = AppColors.primaryGold;
+    final karatBadgeColor = _cs(context).primary;
     final auth = context.read<AuthProvider>();
     final canCreateItems = auth.hasPermission('items.create');
     final canEditItems = auth.hasPermission('items.edit');
@@ -666,13 +668,13 @@ class _ItemsScreenEnhancedState extends State<ItemsScreenEnhanced> {
                                 Icon(
                                   Icons.category,
                                   size: 14,
-                                  color: AppColors.primaryGold,
+                                  color: _cs(context).primary,
                                 ),
                                 const SizedBox(width: 4),
                                 Text(
                                   item['category_name'],
                                   style: textTheme.bodySmall?.copyWith(
-                                    color: AppColors.primaryGold,
+                                    color: _cs(context).primary,
                                     fontWeight: FontWeight.w600,
                                   ),
                                 ),
@@ -688,22 +690,24 @@ class _ItemsScreenEnhancedState extends State<ItemsScreenEnhanced> {
                                 Icon(
                                   Icons.diamond,
                                   size: 14,
-                                  color: Colors.purple.shade400,
+                                  color: _tn(context).sectionPurple.fg,
                                 ),
                                 const SizedBox(width: 4),
                                 Text(
                                   'أحجار: ${item['stones_weight']?.toStringAsFixed(2) ?? '0'} جم',
                                   style: textTheme.bodySmall?.copyWith(
-                                    color: Colors.purple.shade400,
+                                    color: _tn(context).sectionPurple.fg,
                                     fontWeight: FontWeight.w600,
                                   ),
                                 ),
                                 const SizedBox(width: 8),
                                 cu.SarAwareText(
                                   '${item['stones_value']?.toStringAsFixed(2) ?? '0'} ${context.read<SettingsProvider>().currencySymbolText}',
-              isNewSar: context.read<SettingsProvider>().currencyIsNewSar,
+                                  isNewSar: context
+                                      .read<SettingsProvider>()
+                                      .currencyIsNewSar,
                                   style: textTheme.bodySmall?.copyWith(
-                                    color: Colors.purple.shade400,
+                                    color: _tn(context).sectionPurple.fg,
                                   ),
                                 ),
                               ],
@@ -722,23 +726,6 @@ class _ItemsScreenEnhancedState extends State<ItemsScreenEnhanced> {
                             const SizedBox(width: 4),
                             Text(
                               '${weight.toStringAsFixed(2)} جم',
-                              style: textTheme.bodySmall?.copyWith(
-                                color: colorScheme.onSurface.withValues(
-                                  alpha: 0.8,
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 16),
-                            Icon(
-                              Icons.inventory,
-                              size: 14,
-                              color: colorScheme.onSurface.withValues(
-                                alpha: 0.6,
-                              ),
-                            ),
-                            const SizedBox(width: 4),
-                            Text(
-                              '$count قطعة',
                               style: textTheme.bodySmall?.copyWith(
                                 color: colorScheme.onSurface.withValues(
                                   alpha: 0.8,
@@ -792,8 +779,8 @@ class _ItemsScreenEnhancedState extends State<ItemsScreenEnhanced> {
                       icon: const Icon(Icons.copy, size: 16),
                       label: const Text('استنساخ'),
                       style: OutlinedButton.styleFrom(
-                        foregroundColor: AppColors.primaryGold,
-                        side: BorderSide(color: AppColors.primaryGold),
+                        foregroundColor: _cs(context).primary,
+                        side: BorderSide(color: _cs(context).primary),
                         padding: const EdgeInsets.symmetric(vertical: 8),
                       ),
                     ),
@@ -828,9 +815,9 @@ class _ItemsScreenEnhancedState extends State<ItemsScreenEnhanced> {
                   if (canDeleteItems)
                     IconButton(
                       onPressed: () => _deleteItem(item),
-                      icon: const Icon(
+                      icon: Icon(
                         Icons.delete,
-                        color: AppColors.error,
+                        color: _cs(context).error,
                         size: 20,
                       ),
                       padding: EdgeInsets.zero,
@@ -849,14 +836,13 @@ class _ItemsScreenEnhancedState extends State<ItemsScreenEnhanced> {
     final itemCode = item['item_code']?.toString();
     final barcode = item['barcode']?.toString();
     final name = item['name']?.toString() ?? 'غير محدد';
-    final price = double.tryParse(item['price']?.toString() ?? '0');
     final karat = item['karat']?.toString();
 
     if (barcode == null || barcode.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
+        SnackBar(
           content: Text('⚠️ هذا الصنف لا يحتوي على باركود'),
-          backgroundColor: AppColors.warning,
+          backgroundColor: _tn(context).warning.fg,
         ),
       );
       return;
@@ -869,7 +855,7 @@ class _ItemsScreenEnhancedState extends State<ItemsScreenEnhanced> {
           barcode: barcode,
           itemName: name,
           itemCode: itemCode ?? '',
-          price: price,
+          // No price on a tag: the price is the day's gold (the owner, 13 Oct).
           karat: karat,
         ),
       ),
@@ -939,12 +925,6 @@ class _ItemsScreenEnhancedState extends State<ItemsScreenEnhanced> {
     );
     final maxWageController = TextEditingController(
       text: _maxWage?.toString() ?? '',
-    );
-    final minPriceController = TextEditingController(
-      text: _minPrice?.toString() ?? '',
-    );
-    final maxPriceController = TextEditingController(
-      text: _maxPrice?.toString() ?? '',
     );
 
     showDialog(
@@ -1077,7 +1057,7 @@ class _ItemsScreenEnhancedState extends State<ItemsScreenEnhanced> {
               // مدى المصنعية
               cu.SarAwareText(
                 'مدى المصنعية (${context.read<SettingsProvider>().currencySymbolText})',
-              isNewSar: context.read<SettingsProvider>().currencyIsNewSar,
+                isNewSar: context.read<SettingsProvider>().currencyIsNewSar,
                 style: const TextStyle(fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 8),
@@ -1109,43 +1089,6 @@ class _ItemsScreenEnhancedState extends State<ItemsScreenEnhanced> {
                   ),
                 ],
               ),
-              const SizedBox(height: 16),
-
-              // مدى السعر
-              cu.SarAwareText(
-                'مدى السعر (${context.read<SettingsProvider>().currencySymbolText})',
-              isNewSar: context.read<SettingsProvider>().currencyIsNewSar,
-                style: const TextStyle(fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  Expanded(
-                    child: TextField(
-                      controller: minPriceController,
-                      decoration: const InputDecoration(
-                        labelText: 'من',
-                        border: OutlineInputBorder(),
-                        hintText: '0',
-                      ),
-                      keyboardType: TextInputType.number,
-                      inputFormatters: [NormalizeNumberFormatter()],
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: TextField(
-                      controller: maxPriceController,
-                      decoration: const InputDecoration(
-                        labelText: 'إلى',
-                        border: OutlineInputBorder(),
-                      ),
-                      keyboardType: TextInputType.number,
-                      inputFormatters: [NormalizeNumberFormatter()],
-                    ),
-                  ),
-                ],
-              ),
             ],
           ),
         ),
@@ -1160,8 +1103,6 @@ class _ItemsScreenEnhancedState extends State<ItemsScreenEnhanced> {
                 _maxWeight = null;
                 _minWage = null;
                 _maxWage = null;
-                _minPrice = null;
-                _maxPrice = null;
               });
               _applyFilters();
               Navigator.pop(context);
@@ -1175,8 +1116,6 @@ class _ItemsScreenEnhancedState extends State<ItemsScreenEnhanced> {
                 _maxWeight = double.tryParse(maxWeightController.text);
                 _minWage = double.tryParse(minWageController.text);
                 _maxWage = double.tryParse(maxWageController.text);
-                _minPrice = double.tryParse(minPriceController.text);
-                _maxPrice = double.tryParse(maxPriceController.text);
               });
               _applyFilters();
               Navigator.pop(context);
@@ -1241,8 +1180,11 @@ class _CategoriesManagementDialogState
     try {
       final data = await widget.api.getCategories(includeInactive: true);
       if (!mounted) return;
-      setState(() => _categories =
-          data.map((e) => Category.fromJson(e as Map<String, dynamic>)).toList());
+      setState(
+        () => _categories = data
+            .map((e) => Category.fromJson(e as Map<String, dynamic>))
+            .toList(),
+      );
     } catch (_) {
       // the active list from the screen stays
     }
@@ -1251,13 +1193,18 @@ class _CategoriesManagementDialogState
   /// Stop a category (offered to no one, its invoices untouched) or restart it.
   Future<void> _toggleActive(Category category) async {
     try {
-      await widget.api.updateCategory(category.id!, {'is_active': !category.isActive});
+      await widget.api.updateCategory(category.id!, {
+        'is_active': !category.isActive,
+      });
       await _reloadAll();
       widget.onCategoriesChanged();
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('$e'), backgroundColor: Theme.of(context).colorScheme.error),
+        SnackBar(
+          content: Text('$e'),
+          backgroundColor: Theme.of(context).colorScheme.error,
+        ),
       );
     }
   }
@@ -1302,7 +1249,9 @@ class _CategoriesManagementDialogState
                 hintText: 'مثال: 15.5',
                 prefixIcon: Icon(Icons.build_circle_outlined),
               ),
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
             ),
             const SizedBox(height: 12),
             TextField(
@@ -1331,7 +1280,9 @@ class _CategoriesManagementDialogState
     if (result == true && nameController.text.isNotEmpty) {
       setState(() => _loading = true);
       try {
-        final wageVal = double.tryParse(wageController.text.trim().replaceAll(',', '.'));
+        final wageVal = double.tryParse(
+          wageController.text.trim().replaceAll(',', '.'),
+        );
         final response = await widget.api.addCategory({
           'name': nameController.text,
           'description': descController.text,
@@ -1348,9 +1299,9 @@ class _CategoriesManagementDialogState
         widget.onCategoriesChanged();
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
+          SnackBar(
             content: Text('✅ تم إضافة التصنيف بنجاح'),
-            backgroundColor: AppColors.success,
+            backgroundColor: _tn(context).ready.fg,
           ),
         );
       } catch (e) {
@@ -1359,7 +1310,7 @@ class _CategoriesManagementDialogState
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('خطأ: ${e.toString()}'),
-            backgroundColor: AppColors.error,
+            backgroundColor: _cs(context).error,
           ),
         );
       }
@@ -1409,7 +1360,9 @@ class _CategoriesManagementDialogState
                 hintText: 'مثال: 15.5',
                 prefixIcon: Icon(Icons.build_circle_outlined),
               ),
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
             ),
             const SizedBox(height: 12),
             TextField(
@@ -1438,7 +1391,9 @@ class _CategoriesManagementDialogState
     if (result == true && nameController.text.isNotEmpty) {
       setState(() => _loading = true);
       try {
-        final wageVal = double.tryParse(wageController.text.trim().replaceAll(',', '.'));
+        final wageVal = double.tryParse(
+          wageController.text.trim().replaceAll(',', '.'),
+        );
         final response = await widget.api.updateCategory(category.id!, {
           'name': nameController.text,
           'description': descController.text,
@@ -1458,9 +1413,9 @@ class _CategoriesManagementDialogState
         widget.onCategoriesChanged();
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
+          SnackBar(
             content: Text('✅ تم تعديل التصنيف بنجاح'),
-            backgroundColor: AppColors.success,
+            backgroundColor: _tn(context).ready.fg,
           ),
         );
       } catch (e) {
@@ -1469,7 +1424,7 @@ class _CategoriesManagementDialogState
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('خطأ: ${e.toString()}'),
-            backgroundColor: AppColors.error,
+            backgroundColor: _cs(context).error,
           ),
         );
       }
@@ -1492,7 +1447,9 @@ class _CategoriesManagementDialogState
           ),
           ElevatedButton(
             onPressed: () => Navigator.pop(context, true),
-            style: ElevatedButton.styleFrom(backgroundColor: AppColors.error),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: _cs(context).error,
+            ),
             child: const Text('حذف'),
           ),
         ],
@@ -1510,9 +1467,9 @@ class _CategoriesManagementDialogState
         widget.onCategoriesChanged();
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
+          SnackBar(
             content: Text('✅ تم حذف التصنيف بنجاح'),
-            backgroundColor: AppColors.success,
+            backgroundColor: _tn(context).ready.fg,
           ),
         );
       } catch (e) {
@@ -1521,7 +1478,7 @@ class _CategoriesManagementDialogState
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('خطأ: ${e.toString()}'),
-            backgroundColor: AppColors.error,
+            backgroundColor: _cs(context).error,
           ),
         );
       }
@@ -1543,7 +1500,7 @@ class _CategoriesManagementDialogState
             Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
-                color: AppColors.primaryGold.withValues(alpha: 0.15),
+                color: _cs(context).primary.withValues(alpha: 0.15),
                 borderRadius: const BorderRadius.only(
                   topLeft: Radius.circular(12),
                   topRight: Radius.circular(12),
@@ -1551,7 +1508,7 @@ class _CategoriesManagementDialogState
               ),
               child: Row(
                 children: [
-                  Icon(Icons.category, color: AppColors.primaryGold),
+                  Icon(Icons.category, color: _cs(context).primary),
                   const SizedBox(width: 12),
                   const Expanded(
                     child: Text(
@@ -1604,12 +1561,12 @@ class _CategoriesManagementDialogState
                         final category = _categories[index];
                         return ListTile(
                           leading: CircleAvatar(
-                            backgroundColor: AppColors.primaryGold.withValues(
-                              alpha: 0.18,
-                            ),
+                            backgroundColor: _cs(
+                              context,
+                            ).primary.withValues(alpha: 0.18),
                             child: Icon(
                               Icons.category,
-                              color: AppColors.primaryGold,
+                              color: _cs(context).primary,
                               size: 20,
                             ),
                           ),
@@ -1617,15 +1574,19 @@ class _CategoriesManagementDialogState
                             category.name,
                             style: TextStyle(
                               fontWeight: FontWeight.bold,
-                              color: category.isActive ? null : colorScheme.outline,
+                              color: category.isActive
+                                  ? null
+                                  : colorScheme.outline,
                             ),
                           ),
                           subtitle: Text(
                             [
                               if (!category.isActive) 'موقوف',
                               if (category.isScrap) 'كسر',
-                              if ((category.groupName ?? '').isNotEmpty) 'المجموعة: ${category.groupName}',
-                              if ((category.description ?? '').isNotEmpty) category.description!,
+                              if ((category.groupName ?? '').isNotEmpty)
+                                'المجموعة: ${category.groupName}',
+                              if ((category.description ?? '').isNotEmpty)
+                                category.description!,
                             ].join(' · '),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
@@ -1666,14 +1627,16 @@ class _CategoriesManagementDialogState
                                       : Icons.play_circle_outline,
                                   size: 20,
                                 ),
-                                tooltip: category.isActive ? 'إيقاف' : 'إعادة تفعيل',
+                                tooltip: category.isActive
+                                    ? 'إيقاف'
+                                    : 'إعادة تفعيل',
                                 onPressed: () => _toggleActive(category),
                               ),
                               IconButton(
                                 icon: Icon(
                                   Icons.delete,
                                   size: 20,
-                                  color: AppColors.error,
+                                  color: _cs(context).error,
                                 ),
                                 onPressed: () => _deleteCategory(category),
                               ),

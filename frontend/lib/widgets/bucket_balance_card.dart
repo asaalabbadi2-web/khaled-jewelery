@@ -3,6 +3,11 @@ import '../api_service.dart';
 import '../models/inventory_models.dart';
 import '../services/inventory_service.dart';
 import '../theme/app_theme.dart';
+import '../theme/app_semantic_colors.dart';
+
+/// The theme's colours (ADR-038): the scheme and the semantic tones.
+ColorScheme _cs(BuildContext context) => Theme.of(context).colorScheme;
+AppSemanticColors _tn(BuildContext context) => AppSemanticColors.of(context);
 
 /// Reusable card showing the stock of one (location, category, karat) --
 /// the books themselves (ADR-045).
@@ -89,7 +94,7 @@ class _BucketBalanceCardState extends State<BucketBalanceCard> {
 
   @override
   Widget build(BuildContext context) {
-    final karatColor = AppColors.karatColorFor(widget.karat);
+    final karatColor = _tn(context).karat(((widget.karat) as num).round()).fg;
 
     if (_loading) {
       return _shell(
@@ -108,7 +113,7 @@ class _BucketBalanceCardState extends State<BucketBalanceCard> {
         karatColor,
         child: Row(
           children: [
-            const Icon(Icons.warning_amber_rounded, size: 16, color: AppColors.warning),
+            Icon(Icons.warning_amber_rounded, size: 16, color: _tn(context).warning.fg),
             const SizedBox(width: 6),
             Expanded(child: Text(_error!, style: const TextStyle(fontSize: 11))),
             IconButton(
@@ -127,7 +132,7 @@ class _BucketBalanceCardState extends State<BucketBalanceCard> {
         karatColor,
         child: Text(
           'لا يوجد رصيد مسجّل',
-          style: TextStyle(color: Colors.grey[500], fontSize: 12),
+          style: TextStyle(color: _cs(context).onSurfaceVariant, fontSize: 12),
         ),
       );
     }
@@ -145,7 +150,7 @@ class _BucketBalanceCardState extends State<BucketBalanceCard> {
         'عيار ${b.karat.toStringAsFixed(b.karat == b.karat.truncateToDouble() ? 0 : 1)}';
     final badgeTextColor = isDark
         ? karatColor
-        : AppColors.karatBadgeTextColorFor(b.karat);
+        : _tn(context).karat(((b.karat) as num).round()).onContainer;
     return Row(
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
@@ -159,7 +164,7 @@ class _BucketBalanceCardState extends State<BucketBalanceCard> {
                 style: TextStyle(
                   fontSize: 22,
                   fontWeight: FontWeight.bold,
-                  color: AppColors.goldText(context),
+                  color: _cs(context).primary,
                 ),
               ),
               Text(
@@ -174,9 +179,9 @@ class _BucketBalanceCardState extends State<BucketBalanceCard> {
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
           decoration: BoxDecoration(
-            color: karatColor.withOpacity(0.15),
+            color: karatColor.withValues(alpha: 0.15),
             borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: karatColor.withOpacity(0.4)),
+            border: Border.all(color: karatColor.withValues(alpha: 0.4)),
           ),
           child: Text(
             karatLabel,
@@ -189,7 +194,7 @@ class _BucketBalanceCardState extends State<BucketBalanceCard> {
         ),
         const SizedBox(width: 6),
         IconButton(
-          icon: Icon(Icons.refresh, size: 18, color: AppColors.goldText(context)),
+          icon: Icon(Icons.refresh, size: 18, color: _cs(context).primary),
           onPressed: _load,
           tooltip: 'تحديث',
           padding: EdgeInsets.zero,
@@ -204,7 +209,7 @@ class _BucketBalanceCardState extends State<BucketBalanceCard> {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final textColor = isDark
         ? karatColor
-        : AppColors.karatBadgeTextColorFor(b.karat);
+        : _tn(context).karat(((b.karat) as num).round()).onContainer;
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -234,10 +239,10 @@ class _BucketBalanceCardState extends State<BucketBalanceCard> {
       decoration: BoxDecoration(
         color: Theme.of(context).cardColor,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: karatColor.withOpacity(0.25)),
+        border: Border.all(color: karatColor.withValues(alpha: 0.25)),
         boxShadow: [
           BoxShadow(
-            color: karatColor.withOpacity(0.06),
+            color: karatColor.withValues(alpha: 0.06),
             blurRadius: 8,
             offset: const Offset(0, 2),
           ),

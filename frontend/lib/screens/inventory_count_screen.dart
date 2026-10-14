@@ -6,6 +6,11 @@ import '../models/safe_box_model.dart';
 import '../services/inventory_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/bucket_balance_card.dart' show formatWeight;
+import '../theme/app_semantic_colors.dart';
+
+/// The theme's colours (ADR-038): the scheme and the semantic tones.
+ColorScheme _cs(BuildContext context) => Theme.of(context).colorScheme;
+AppSemanticColors _tn(BuildContext context) => AppSemanticColors.of(context);
 
 /// Screen 2 — Count Session Workspace.
 ///
@@ -146,7 +151,7 @@ class _InventoryCountScreenState extends State<InventoryCountScreen> {
       setState(() => ls.status = CountLineStatus.failed);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(e.message), backgroundColor: AppColors.error),
+          SnackBar(content: Text(e.message), backgroundColor: _cs(context).error),
         );
       }
     }
@@ -258,22 +263,22 @@ class _InventoryCountScreenState extends State<InventoryCountScreen> {
               Container(
                 padding: const EdgeInsets.all(10),
                 decoration: BoxDecoration(
-                  color: AppColors.warning.withOpacity(0.08),
+                  color: _tn(context).warning.fg.withValues(alpha: 0.08),
                   borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: AppColors.warning.withOpacity(0.4)),
+                  border: Border.all(color: _tn(context).warning.fg.withValues(alpha: 0.4)),
                 ),
                 child: Row(
                   children: [
-                    const Icon(Icons.warning_amber_rounded,
-                        color: AppColors.warning, size: 16),
+                    Icon(Icons.warning_amber_rounded,
+                        color: _tn(context).warning.fg, size: 16),
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
                         isOpening
                             ? '$uncountedCount صنف لم يُدخَل وزنه.'
                             : '$uncountedCount صنف لم يُعدّ — قد تكون خارج المحل.',
-                        style: const TextStyle(
-                            fontSize: 12, color: AppColors.warning),
+                        style: TextStyle(
+                            fontSize: 12, color: _tn(context).warning.fg),
                       ),
                     ),
                   ],
@@ -292,16 +297,16 @@ class _InventoryCountScreenState extends State<InventoryCountScreen> {
             TextButton(
               onPressed: () => Navigator.pop(
                   context, (confirmed: true, force: true, zeroUncounted: false)),
-              child: const Text('إغلاق مع تحذير',
-                  style: TextStyle(color: AppColors.warning)),
+              child: Text('إغلاق مع تحذير',
+                  style: TextStyle(color: _tn(context).warning.fg)),
             ),
           // Opening: set uncounted lines to 0 automatically
           if (hasUncounted && isOpening)
             TextButton(
               onPressed: () => Navigator.pop(
                   context, (confirmed: true, force: false, zeroUncounted: true)),
-              child: const Text('سجّل الباقي كصفر وأغلق',
-                  style: TextStyle(color: Colors.teal)),
+              child: Text('سجّل الباقي كصفر وأغلق',
+                  style: TextStyle(color: _tn(context).sectionTeal.fg)),
             ),
           ElevatedButton(
             onPressed: hasUncounted
@@ -309,9 +314,9 @@ class _InventoryCountScreenState extends State<InventoryCountScreen> {
                 : () => Navigator.pop(
                     context, (confirmed: true, force: false, zeroUncounted: false)),
             style: ElevatedButton.styleFrom(
-              backgroundColor: AppColors.primaryGold,
-              foregroundColor: Colors.white,
-              disabledBackgroundColor: Colors.grey[300],
+              backgroundColor: _cs(context).primary,
+              foregroundColor: _cs(context).onPrimary,
+              disabledBackgroundColor: _cs(context).outlineVariant,
             ),
             child: const Text('إنهاء العدّ'),
           ),
@@ -332,7 +337,7 @@ class _InventoryCountScreenState extends State<InventoryCountScreen> {
       if (r.uncountedLines > 0 && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content: Text('${r.uncountedLines} صنف غير معدود — ستظهر في تقرير المطابقة'),
-          backgroundColor: AppColors.warning,
+          backgroundColor: _tn(context).warning.fg,
           duration: const Duration(seconds: 4),
         ));
       }
@@ -340,7 +345,7 @@ class _InventoryCountScreenState extends State<InventoryCountScreen> {
       setState(() => _loading = false);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(e.message), backgroundColor: AppColors.error),
+          SnackBar(content: Text(e.message), backgroundColor: _cs(context).error),
         );
       }
     }
@@ -368,13 +373,13 @@ class _InventoryCountScreenState extends State<InventoryCountScreen> {
             _InfoChip(
               icon: Icons.shield_outlined,
               label: 'لن تؤثر على المخزون أو التسويات.',
-              color: AppColors.info,
+              color: _tn(context).info.fg,
             ),
             const SizedBox(height: 6),
             _InfoChip(
               icon: Icons.warning_amber_rounded,
               label: 'لا يمكن التراجع.',
-              color: AppColors.warning,
+              color: _tn(context).warning.fg,
             ),
           ],
         ),
@@ -386,8 +391,8 @@ class _InventoryCountScreenState extends State<InventoryCountScreen> {
           ElevatedButton(
             onPressed: () => Navigator.pop(context, true),
             style: ElevatedButton.styleFrom(
-              backgroundColor: AppColors.error,
-              foregroundColor: Colors.white,
+              backgroundColor: _cs(context).error,
+              foregroundColor: _cs(context).onError,
             ),
             child: const Text('إلغاء الجرد'),
           ),
@@ -404,7 +409,7 @@ class _InventoryCountScreenState extends State<InventoryCountScreen> {
       setState(() => _loading = false);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(e.message), backgroundColor: AppColors.error),
+          SnackBar(content: Text(e.message), backgroundColor: _cs(context).error),
         );
       }
     }
@@ -427,9 +432,9 @@ class _InventoryCountScreenState extends State<InventoryCountScreen> {
             child: AlertDialog(
               shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(16)),
-              title: const Row(
+              title: Row(
                 children: [
-                  Icon(Icons.lock_outlined, color: AppColors.primaryGold),
+                  Icon(Icons.lock_outlined, color: _cs(context).primary),
                   SizedBox(width: 8),
                   Text('اعتماد الرصيد الافتتاحي'),
                 ],
@@ -444,21 +449,21 @@ class _InventoryCountScreenState extends State<InventoryCountScreen> {
                   Container(
                     padding: const EdgeInsets.all(10),
                     decoration: BoxDecoration(
-                      color: AppColors.warning.withOpacity(0.08),
+                      color: _tn(context).warning.fg.withValues(alpha: 0.08),
                       borderRadius: BorderRadius.circular(8),
                       border: Border.all(
-                          color: AppColors.warning.withOpacity(0.4)),
+                          color: _tn(context).warning.fg.withValues(alpha: 0.4)),
                     ),
-                    child: const Row(
+                    child: Row(
                       children: [
                         Icon(Icons.warning_amber_rounded,
-                            color: AppColors.warning, size: 16),
+                            color: _tn(context).warning.fg, size: 16),
                         SizedBox(width: 8),
                         Expanded(
                           child: Text(
                             'هذا الإجراء لا يمكن التراجع عنه.\nالجرد الافتتاحي يُنفَّذ مرة واحدة فقط.',
                             style: TextStyle(
-                                fontSize: 12, color: AppColors.warning),
+                                fontSize: 12, color: _tn(context).warning.fg),
                           ),
                         ),
                       ],
@@ -469,7 +474,7 @@ class _InventoryCountScreenState extends State<InventoryCountScreen> {
                     Text(
                       '${total - counted} صنف لم يُدخَل وزنه — سيُسجَّل كصفر.',
                       style: TextStyle(
-                          fontSize: 12, color: Colors.grey[500]),
+                          fontSize: 12, color: _cs(context).onSurfaceVariant),
                     ),
                   ],
                 ],
@@ -482,8 +487,8 @@ class _InventoryCountScreenState extends State<InventoryCountScreen> {
                 ElevatedButton(
                   onPressed: () => Navigator.pop(context, true),
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.success,
-                    foregroundColor: Colors.white,
+                    backgroundColor: _tn(context).ready.fg,
+                    foregroundColor: _cs(context).surface,
                   ),
                   child: const Text('اعتماد الرصيد'),
                 ),
@@ -510,7 +515,7 @@ class _InventoryCountScreenState extends State<InventoryCountScreen> {
         setState(() => _loading = false);
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(e.message), backgroundColor: AppColors.error),
+            SnackBar(content: Text(e.message), backgroundColor: _cs(context).error),
           );
         }
       }
@@ -558,7 +563,7 @@ class _InventoryCountScreenState extends State<InventoryCountScreen> {
       setState(() => _loading = false);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(e.message), backgroundColor: AppColors.error),
+          SnackBar(content: Text(e.message), backgroundColor: _cs(context).error),
         );
       }
     }
@@ -599,8 +604,8 @@ class _InventoryCountScreenState extends State<InventoryCountScreen> {
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Icon(Icons.verified_rounded,
-                  size: 64, color: AppColors.success),
+              Icon(Icons.verified_rounded,
+                  size: 64, color: _tn(context).ready.fg),
               const SizedBox(height: 12),
               const Text(
                 'تم اعتماد الجرد',
@@ -614,7 +619,7 @@ class _InventoryCountScreenState extends State<InventoryCountScreen> {
                   label: 'فروقات',
                   value: varCount.toString(),
                   sub: '${netDelta >= 0 ? '+' : ''}${formatWeight(netDelta)} جم',
-                  subColor: netDelta >= 0 ? AppColors.success : AppColors.error,
+                  subColor: netDelta >= 0 ? _tn(context).ready.fg : _cs(context).error,
                 ),
               if (elapsed != null)
                 _SuccessStat(
@@ -634,8 +639,8 @@ class _InventoryCountScreenState extends State<InventoryCountScreen> {
             ElevatedButton(
               onPressed: () => Navigator.pop(context),
               style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.success,
-                foregroundColor: Colors.white,
+                backgroundColor: _tn(context).ready.fg,
+                foregroundColor: _cs(context).surface,
                 minimumSize: const Size(120, 44),
               ),
               child: const Text('إغلاق'),
@@ -659,8 +664,6 @@ class _InventoryCountScreenState extends State<InventoryCountScreen> {
           title: s == null
               ? const Text('جلسة جرد جديدة')
               : Text(isOpening ? 'الجرد الافتتاحي' : 'جرد دوري'),
-          backgroundColor: AppColors.primaryGold,
-          foregroundColor: Colors.white,
           actions: [
             if (s != null && isActive) ...[
               IconButton(
@@ -671,13 +674,13 @@ class _InventoryCountScreenState extends State<InventoryCountScreen> {
               PopupMenuButton<String>(
                 onSelected: (v) { if (v == 'cancel') _cancelSession(); },
                 itemBuilder: (_) => [
-                  const PopupMenuItem(
+                  PopupMenuItem(
                     value: 'cancel',
                     child: Row(children: [
-                      Icon(Icons.cancel_outlined, color: AppColors.error, size: 18),
+                      Icon(Icons.cancel_outlined, color: _cs(context).error, size: 18),
                       SizedBox(width: 8),
                       Text('إلغاء الجلسة',
-                          style: TextStyle(color: AppColors.error)),
+                          style: TextStyle(color: _cs(context).error)),
                     ]),
                   ),
                 ],
@@ -686,8 +689,8 @@ class _InventoryCountScreenState extends State<InventoryCountScreen> {
           ],
         ),
         body: _loading
-            ? const Center(
-                child: CircularProgressIndicator(color: AppColors.primaryGold))
+            ? Center(
+                child: CircularProgressIndicator(color: _cs(context).primary))
             : _error != null
                 ? _ErrorRetry(
                     message: _error!,
@@ -701,8 +704,8 @@ class _InventoryCountScreenState extends State<InventoryCountScreen> {
         floatingActionButton: (s != null && isActive)
             ? FloatingActionButton.extended(
                 onPressed: _showAddItemSheet,
-                backgroundColor: AppColors.primaryGold,
-                foregroundColor: Colors.white,
+                backgroundColor: _cs(context).primary,
+                foregroundColor: _cs(context).onPrimary,
                 icon: const Icon(Icons.add),
                 label: const Text('إضافة صنف'),
               )
@@ -727,7 +730,7 @@ class _InventoryCountScreenState extends State<InventoryCountScreen> {
         Expanded(
           child: RefreshIndicator(
             onRefresh: _refresh,
-            color: AppColors.primaryGold,
+            color: _cs(context).primary,
             child: _lineStates.isEmpty
                 ? _EmptyCountState(
                     isOpening: s.isOpening,
@@ -906,7 +909,7 @@ class _InventoryCountScreenState extends State<InventoryCountScreen> {
         decoration: BoxDecoration(
           color: Theme.of(context).cardColor,
           boxShadow: [
-            BoxShadow(color: Colors.black.withOpacity(0.08), blurRadius: 8)
+            BoxShadow(color: _cs(context).shadow.withValues(alpha: 0.08), blurRadius: 8)
           ],
         ),
         child: Row(
@@ -923,9 +926,9 @@ class _InventoryCountScreenState extends State<InventoryCountScreen> {
                       : 'إنهاء العدّ ($counted/$total)'),
                   style: ElevatedButton.styleFrom(
                     backgroundColor:
-                        allDone ? AppColors.success : AppColors.primaryGold,
-                    foregroundColor: Colors.white,
-                    disabledBackgroundColor: Colors.grey[300],
+                        allDone ? _tn(context).ready.fg : _cs(context).primary,
+                    foregroundColor: _cs(context).onPrimary,
+                    disabledBackgroundColor: _cs(context).outlineVariant,
                     padding: const EdgeInsets.symmetric(vertical: 14),
                   ),
                 ),
@@ -938,8 +941,8 @@ class _InventoryCountScreenState extends State<InventoryCountScreen> {
                   icon: const Icon(Icons.verified_outlined),
                   label: const Text('اعتماد الجرد'),
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.success,
-                    foregroundColor: Colors.white,
+                    backgroundColor: _tn(context).ready.fg,
+                    foregroundColor: _cs(context).surface,
                     padding: const EdgeInsets.symmetric(vertical: 14),
                   ),
                 ),
@@ -949,20 +952,20 @@ class _InventoryCountScreenState extends State<InventoryCountScreen> {
                 child: Container(
                   padding: const EdgeInsets.symmetric(vertical: 14),
                   decoration: BoxDecoration(
-                    color: AppColors.success.withOpacity(0.1),
+                    color: _tn(context).ready.fg.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(8),
                     border: Border.all(
-                        color: AppColors.success.withOpacity(0.4)),
+                        color: _tn(context).ready.fg.withValues(alpha: 0.4)),
                   ),
-                  child: const Row(
+                  child: Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       Icon(Icons.check_circle,
-                          color: AppColors.success, size: 20),
+                          color: _tn(context).ready.fg, size: 20),
                       SizedBox(width: 8),
                       Text('تم الاعتماد بنجاح',
                           style: TextStyle(
-                              color: AppColors.success,
+                              color: _tn(context).ready.fg,
                               fontWeight: FontWeight.bold)),
                     ],
                   ),
@@ -1002,32 +1005,32 @@ class _ProgressBanner extends StatelessWidget {
     String label;
 
     if (isApproved) {
-      barColor = AppColors.success;
+      barColor = _tn(context).ready.fg;
       label = 'معتمد — تم تحديث الأرصدة';
     } else if (isClosed) {
-      barColor = AppColors.primaryGold;
+      barColor = _cs(context).primary;
       label = 'بانتظار اعتماد المدير';
     } else if (total == 0) {
-      barColor = Colors.grey;
+      barColor = _cs(context).onSurfaceVariant;
       label = session.isOpening
           ? 'اضغط + لإضافة الأصناف'
           : 'لا توجد أصناف في هذا الفرع';
     } else if (counted == total) {
-      barColor = AppColors.success;
+      barColor = _tn(context).ready.fg;
       label = 'تم عدّ جميع الأصناف ✓';
     } else {
-      barColor = AppColors.primaryGold;
+      barColor = _cs(context).primary;
       label = 'تم عدّ $counted من $total صنف';
     }
 
     // primaryGold (#D4AF37) fails contrast on near-white bg — use darkGold for text
-    final labelColor = barColor == AppColors.primaryGold
-        ? AppColors.darkGold
+    final labelColor = barColor == _cs(context).primary
+        ? _cs(context).primary
         : barColor;
 
     return Container(
       padding: const EdgeInsets.fromLTRB(16, 10, 16, 10),
-      color: barColor.withOpacity(0.05),
+      color: barColor.withValues(alpha: 0.05),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -1048,16 +1051,16 @@ class _ProgressBanner extends StatelessWidget {
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                   decoration: BoxDecoration(
-                    color: AppColors.info.withOpacity(0.1),
+                    color: _tn(context).info.fg.withValues(alpha: 0.1),
                     borderRadius: BorderRadius.circular(6),
                   ),
-                  child: const Row(
+                  child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(Icons.visibility_off, size: 12, color: AppColors.info),
+                      Icon(Icons.visibility_off, size: 12, color: _tn(context).info.fg),
                       SizedBox(width: 4),
                       Text('أعمى',
-                          style: TextStyle(fontSize: 11, color: AppColors.info)),
+                          style: TextStyle(fontSize: 11, color: _tn(context).info.fg)),
                     ],
                   ),
                 ),
@@ -1072,7 +1075,7 @@ class _ProgressBanner extends StatelessWidget {
                   borderRadius: BorderRadius.circular(5),
                   child: LinearProgressIndicator(
                     value: total == 0 ? 0 : progress,
-                    backgroundColor: Colors.grey.shade200,
+                    backgroundColor: _cs(context).outlineVariant,
                     color: barColor,
                     minHeight: 10,
                   ),
@@ -1095,7 +1098,7 @@ class _ProgressBanner extends StatelessWidget {
                         text: ' / $total',
                         style: TextStyle(
                           fontSize: 13,
-                          color: Colors.grey[500],
+                          color: _cs(context).onSurfaceVariant,
                         ),
                       ),
                     ],
@@ -1109,7 +1112,7 @@ class _ProgressBanner extends StatelessWidget {
             const SizedBox(height: 6),
             Row(
               children: [
-                Icon(Icons.my_location, size: 11, color: labelColor.withOpacity(0.7)),
+                Icon(Icons.my_location, size: 11, color: labelColor.withValues(alpha: 0.7)),
                 const SizedBox(width: 4),
                 Text(
                   currentLabel!,
@@ -1121,12 +1124,12 @@ class _ProgressBanner extends StatelessWidget {
                 ),
                 if (nextLabel != null) ...[
                   Text('  ←  ',
-                      style: TextStyle(fontSize: 11, color: Colors.grey[400])),
-                  Icon(Icons.navigate_next, size: 13, color: Colors.grey[400]),
+                      style: TextStyle(fontSize: 11, color: _cs(context).outline)),
+                  Icon(Icons.navigate_next, size: 13, color: _cs(context).outline),
                   const SizedBox(width: 2),
                   Text(
                     nextLabel!,
-                    style: TextStyle(fontSize: 11, color: Colors.grey[500]),
+                    style: TextStyle(fontSize: 11, color: _cs(context).onSurfaceVariant),
                   ),
                 ],
               ],
@@ -1174,12 +1177,12 @@ class _EmptyCountState extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, size: 64, color: Colors.grey[300]),
+            Icon(icon, size: 64, color: _cs(context).outlineVariant),
             const SizedBox(height: 16),
             Text(
               message,
               textAlign: TextAlign.center,
-              style: TextStyle(color: Colors.grey[500], fontSize: 15, height: 1.6),
+              style: TextStyle(color: _cs(context).onSurfaceVariant, fontSize: 15, height: 1.6),
             ),
             if (isActive && onAdd != null) ...[
               const SizedBox(height: 20),
@@ -1188,8 +1191,8 @@ class _EmptyCountState extends StatelessWidget {
                 icon: const Icon(Icons.add),
                 label: const Text('إضافة صنف يدوياً'),
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.primaryGold,
-                  foregroundColor: Colors.white,
+                  backgroundColor: _cs(context).primary,
+                  foregroundColor: _cs(context).onPrimary,
                 ),
               ),
             ],
@@ -1259,10 +1262,10 @@ class _FocusedCardState extends State<_FocusedCard> {
     final ls = widget.ls;
     final line = ls.line;
     final karat = line.karat;
-    final karatColor = AppColors.karatColorFor(karat);
+    final karatColor = _tn(context).karat(((karat) as num).round()).fg;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final badgeTextColor =
-        isDark ? karatColor : AppColors.karatBadgeTextColorFor(karat);
+        isDark ? karatColor : _tn(context).karat(((karat) as num).round()).onContainer;
     final categoryLabel = countLineLabel(line);
     final saved = ls.status == CountLineStatus.saved || line.isCounted;
     final saving = ls.status == CountLineStatus.saving;
@@ -1275,20 +1278,20 @@ class _FocusedCardState extends State<_FocusedCard> {
           padding: const EdgeInsets.all(28),
           decoration: BoxDecoration(
             color: saved
-                ? AppColors.success.withOpacity(0.04)
+                ? _tn(context).ready.fg.withValues(alpha: 0.04)
                 : Theme.of(context).cardColor,
             borderRadius: BorderRadius.circular(20),
             border: Border.all(
               color: failed
-                  ? AppColors.error.withOpacity(0.5)
+                  ? _cs(context).error.withValues(alpha: 0.5)
                   : saved
-                      ? AppColors.success.withOpacity(0.4)
-                      : karatColor.withOpacity(0.2),
+                      ? _tn(context).ready.fg.withValues(alpha: 0.4)
+                      : karatColor.withValues(alpha: 0.2),
               width: saved || failed ? 1.5 : 1.0,
             ),
             boxShadow: [
               BoxShadow(
-                color: (saved ? AppColors.success : karatColor).withOpacity(0.08),
+                color: (saved ? _tn(context).ready.fg : karatColor).withValues(alpha: 0.08),
                 blurRadius: 16,
                 offset: const Offset(0, 4),
               ),
@@ -1308,7 +1311,7 @@ class _FocusedCardState extends State<_FocusedCard> {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 5),
                 decoration: BoxDecoration(
-                  color: karatColor.withOpacity(0.12),
+                  color: karatColor.withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(20),
                 ),
                 child: Text(
@@ -1333,11 +1336,11 @@ class _FocusedCardState extends State<_FocusedCard> {
                 style: const TextStyle(fontSize: 36, fontWeight: FontWeight.bold),
                 decoration: InputDecoration(
                   suffixText: 'جم',
-                  suffixStyle: TextStyle(fontSize: 18, color: Colors.grey[500]),
+                  suffixStyle: TextStyle(fontSize: 18, color: _cs(context).onSurfaceVariant),
                   hintText: '0.000',
                   hintStyle: TextStyle(
                     fontSize: 36,
-                    color: Colors.grey[300],
+                    color: _cs(context).outlineVariant,
                     fontWeight: FontWeight.bold,
                   ),
                   isDense: true,
@@ -1353,8 +1356,8 @@ class _FocusedCardState extends State<_FocusedCard> {
                     borderRadius: BorderRadius.circular(12),
                     borderSide: BorderSide(
                       color: saved
-                          ? AppColors.success.withOpacity(0.4)
-                          : Colors.grey.shade300,
+                          ? _tn(context).ready.fg.withValues(alpha: 0.4)
+                          : _cs(context).outlineVariant,
                     ),
                   ),
                 ),
@@ -1364,39 +1367,39 @@ class _FocusedCardState extends State<_FocusedCard> {
               SizedBox(
                 height: 24,
                 child: saving
-                    ? const SizedBox(
+                    ? SizedBox(
                         width: 20,
                         height: 20,
                         child: CircularProgressIndicator(
-                            strokeWidth: 2, color: AppColors.primaryGold),
+                            strokeWidth: 2, color: _cs(context).primary),
                       )
                     : ls.savedAt != null && !failed
                         ? Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              const Icon(Icons.check_circle,
-                                  size: 14, color: AppColors.success),
+                              Icon(Icons.check_circle,
+                                  size: 14, color: _tn(context).ready.fg),
                               const SizedBox(width: 5),
                               Text(
                                 'حُفظ ${_savedAgo(ls.savedAt!)}',
                                 style: TextStyle(
-                                    fontSize: 12, color: Colors.grey[500]),
+                                    fontSize: 12, color: _cs(context).onSurfaceVariant),
                               ),
                             ],
                           )
                         : failed
                             ? GestureDetector(
                                 onTap: widget.onRetry,
-                                child: const Row(
+                                child: Row(
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
                                     Icon(Icons.replay,
-                                        size: 14, color: AppColors.error),
+                                        size: 14, color: _cs(context).error),
                                     SizedBox(width: 4),
                                     Text('فشل الحفظ — اضغط للمحاولة',
                                         style: TextStyle(
                                             fontSize: 12,
-                                            color: AppColors.error)),
+                                            color: _cs(context).error)),
                                   ],
                                 ),
                               )
@@ -1413,8 +1416,8 @@ class _FocusedCardState extends State<_FocusedCard> {
                       icon: const Icon(Icons.save_alt_outlined, size: 16),
                       label: const Text('حفظ + التالي'),
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: AppColors.primaryGold,
-                        foregroundColor: Colors.white,
+                        backgroundColor: _cs(context).primary,
+                        foregroundColor: _cs(context).onPrimary,
                         padding: const EdgeInsets.symmetric(vertical: 13),
                         shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(10)),
@@ -1428,8 +1431,8 @@ class _FocusedCardState extends State<_FocusedCard> {
                     icon: const Icon(Icons.arrow_forward_ios, size: 13),
                     label: const Text('السابق'),
                     style: OutlinedButton.styleFrom(
-                      foregroundColor: Colors.grey[600],
-                      side: BorderSide(color: Colors.grey.shade300),
+                      foregroundColor: _cs(context).onSurfaceVariant,
+                      side: BorderSide(color: _cs(context).outlineVariant),
                       padding: const EdgeInsets.symmetric(
                           vertical: 13, horizontal: 12),
                       shape: RoundedRectangleBorder(
@@ -1442,7 +1445,7 @@ class _FocusedCardState extends State<_FocusedCard> {
               Center(
                 child: Text(
                   'أو Enter من لوحة المفاتيح',
-                  style: TextStyle(fontSize: 11, color: Colors.grey[400]),
+                  style: TextStyle(fontSize: 11, color: _cs(context).outline),
                 ),
               ),
             ],
@@ -1480,7 +1483,7 @@ class _NavStrip extends StatelessWidget {
       height: 60,
       decoration: BoxDecoration(
         color: Theme.of(context).cardColor,
-        border: Border(top: BorderSide(color: Colors.grey.shade200)),
+        border: Border(top: BorderSide(color: _cs(context).outlineVariant)),
       ),
       child: ListView.builder(
         controller: scrollController,
@@ -1492,7 +1495,7 @@ class _NavStrip extends StatelessWidget {
           final ls = lineStates[i];
           final isCurrent = i == currentIndex;
           final isDone = ls.line.isCounted;
-          final karatColor = AppColors.karatColorFor(ls.line.karat);
+          final karatColor = _tn(context).karat(((ls.line.karat) as num).round()).fg;
 
           return GestureDetector(
             onTap: () => onTap(i),
@@ -1502,17 +1505,17 @@ class _NavStrip extends StatelessWidget {
               padding: const EdgeInsets.symmetric(horizontal: 10),
               decoration: BoxDecoration(
                 color: isCurrent
-                    ? AppColors.primaryGold
+                    ? _cs(context).primary
                     : isDone
-                        ? AppColors.success.withOpacity(0.1)
-                        : Colors.grey.shade100,
+                        ? _tn(context).ready.fg.withValues(alpha: 0.1)
+                        : _cs(context).surfaceContainerHigh,
                 borderRadius: BorderRadius.circular(10),
                 border: Border.all(
                   color: isCurrent
-                      ? AppColors.primaryGold
+                      ? _cs(context).primary
                       : isDone
-                          ? AppColors.success.withOpacity(0.35)
-                          : Colors.grey.shade300,
+                          ? _tn(context).ready.fg.withValues(alpha: 0.35)
+                          : _cs(context).outlineVariant,
                 ),
               ),
               child: Row(
@@ -1524,10 +1527,10 @@ class _NavStrip extends StatelessWidget {
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
                       color: isCurrent
-                          ? Colors.white
+                          ? _cs(context).onPrimary
                           : isDone
-                              ? AppColors.success
-                              : karatColor.withOpacity(0.5),
+                              ? _tn(context).ready.fg
+                              : karatColor.withValues(alpha: 0.5),
                     ),
                   ),
                   const SizedBox(width: 5),
@@ -1535,13 +1538,13 @@ class _NavStrip extends StatelessWidget {
                     '${i + 1}  ${ls.line.karat.toStringAsFixed(0)}K',
                     style: TextStyle(
                       fontSize: 12,
-                      color: isCurrent ? Colors.white : null,
+                      color: isCurrent ? _cs(context).onPrimary : null,
                       fontWeight: isCurrent ? FontWeight.bold : null,
                     ),
                   ),
                   if (isDone && !isCurrent) ...[
                     const SizedBox(width: 3),
-                    const Icon(Icons.check, size: 10, color: AppColors.success),
+                    Icon(Icons.check, size: 10, color: _tn(context).ready.fg),
                   ],
                 ],
               ),
@@ -1576,7 +1579,7 @@ class _NavList extends StatelessWidget {
           final ls = lineStates[i];
           final isCurrent = i == currentIndex;
           final isDone = ls.line.isCounted;
-          final karatColor = AppColors.karatColorFor(ls.line.karat);
+          final karatColor = _tn(context).karat(((ls.line.karat) as num).round()).fg;
           final label = countLineLabel(ls.line);
 
           return InkWell(
@@ -1586,11 +1589,11 @@ class _NavList extends StatelessWidget {
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
               decoration: BoxDecoration(
                 color: isCurrent
-                    ? AppColors.primaryGold.withOpacity(0.1)
+                    ? _cs(context).primary.withValues(alpha: 0.1)
                     : Colors.transparent,
                 border: Border(
                   right: BorderSide(
-                    color: isCurrent ? AppColors.primaryGold : Colors.transparent,
+                    color: isCurrent ? _cs(context).primary : Colors.transparent,
                     width: 3,
                   ),
                 ),
@@ -1602,7 +1605,7 @@ class _NavList extends StatelessWidget {
                     height: 10,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
-                      color: isDone ? AppColors.success : karatColor.withOpacity(0.4),
+                      color: isDone ? _tn(context).ready.fg : karatColor.withValues(alpha: 0.4),
                     ),
                   ),
                   const SizedBox(width: 10),
@@ -1624,19 +1627,19 @@ class _NavList extends StatelessWidget {
                         Text(
                           'عيار ${ls.line.karat.toStringAsFixed(0)}',
                           style: TextStyle(
-                              fontSize: 11, color: Colors.grey[500]),
+                              fontSize: 11, color: _cs(context).onSurfaceVariant),
                         ),
                       ],
                     ),
                   ),
                   if (isDone)
-                    const Icon(Icons.check_circle,
-                        size: 16, color: AppColors.success)
+                    Icon(Icons.check_circle,
+                        size: 16, color: _tn(context).ready.fg)
                   else
                     Text(
                       '${i + 1}',
                       style: TextStyle(
-                          fontSize: 11, color: Colors.grey[400]),
+                          fontSize: 11, color: _cs(context).outline),
                     ),
                 ],
               ),
@@ -1717,7 +1720,7 @@ class _CountLineRowState extends State<_CountLineRow> {
     final ls = widget.ls;
     final line = ls.line;
     final karat = line.karat;
-    final karatColor = AppColors.karatColorFor(karat);
+    final karatColor = _tn(context).karat(((karat) as num).round()).fg;
     final categoryLabel = countLineLabel(line);
 
     // ── Counting mode (employee view) ─────────────────────────────────────
@@ -1741,22 +1744,22 @@ class _CountLineRowState extends State<_CountLineRow> {
     final failed = ls.status == CountLineStatus.failed;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final badgeTextColor =
-        isDark ? karatColor : AppColors.karatBadgeTextColorFor(karat);
+        isDark ? karatColor : _tn(context).karat(((karat) as num).round()).onContainer;
 
     return AnimatedContainer(
       duration: const Duration(milliseconds: 200),
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: saved
-            ? AppColors.success.withOpacity(0.04)
+            ? _tn(context).ready.fg.withValues(alpha: 0.04)
             : Theme.of(context).cardColor,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
           color: failed
-              ? AppColors.error.withOpacity(0.5)
+              ? _cs(context).error.withValues(alpha: 0.5)
               : saved
-                  ? AppColors.success.withOpacity(0.25)
-                  : Colors.grey.shade200,
+                  ? _tn(context).ready.fg.withValues(alpha: 0.25)
+                  : _cs(context).outlineVariant,
           width: saved ? 1.5 : 1.0,
         ),
       ),
@@ -1777,7 +1780,7 @@ class _CountLineRowState extends State<_CountLineRow> {
                 padding:
                     const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                 decoration: BoxDecoration(
-                  color: karatColor.withOpacity(0.12),
+                  color: karatColor.withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(6),
                 ),
                 child: Text(
@@ -1794,14 +1797,14 @@ class _CountLineRowState extends State<_CountLineRow> {
                 width: 20,
                 height: 20,
                 child: saving
-                    ? const CircularProgressIndicator(
-                        strokeWidth: 2, color: AppColors.primaryGold)
+                    ? CircularProgressIndicator(
+                        strokeWidth: 2, color: _cs(context).primary)
                     : saved
-                        ? const Icon(Icons.check_circle,
-                            size: 20, color: AppColors.success)
+                        ? Icon(Icons.check_circle,
+                            size: 20, color: _tn(context).ready.fg)
                         : failed
-                            ? const Icon(Icons.error_outline,
-                                size: 20, color: AppColors.error)
+                            ? Icon(Icons.error_outline,
+                                size: 20, color: _cs(context).error)
                             : const SizedBox(),
               ),
             ],
@@ -1824,7 +1827,7 @@ class _CountLineRowState extends State<_CountLineRow> {
                   decoration: InputDecoration(
                     suffixText: 'جم',
                     suffixStyle: TextStyle(
-                        fontSize: 14, color: Colors.grey[500]),
+                        fontSize: 14, color: _cs(context).onSurfaceVariant),
                     hintText: '0.000',
                     isDense: true,
                     contentPadding: const EdgeInsets.symmetric(
@@ -1841,8 +1844,8 @@ class _CountLineRowState extends State<_CountLineRow> {
                       borderRadius: BorderRadius.circular(8),
                       borderSide: BorderSide(
                         color: saved
-                            ? AppColors.success.withOpacity(0.4)
-                            : Colors.grey.shade300,
+                            ? _tn(context).ready.fg.withValues(alpha: 0.4)
+                            : _cs(context).outlineVariant,
                       ),
                     ),
                   ),
@@ -1859,11 +1862,11 @@ class _CountLineRowState extends State<_CountLineRow> {
             Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Icon(Icons.check, size: 12, color: AppColors.success),
+                Icon(Icons.check, size: 12, color: _tn(context).ready.fg),
                 const SizedBox(width: 3),
                 Text(
                   'حُفظ ${_savedAgo(ls.savedAt!)}',
-                  style: TextStyle(fontSize: 11, color: Colors.grey[500]),
+                  style: TextStyle(fontSize: 11, color: _cs(context).onSurfaceVariant),
                 ),
               ],
             ),
@@ -1872,14 +1875,14 @@ class _CountLineRowState extends State<_CountLineRow> {
             const SizedBox(height: 6),
             GestureDetector(
               onTap: () => widget.onRetry(ls),
-              child: const Row(
+              child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(Icons.replay, size: 14, color: AppColors.error),
+                  Icon(Icons.replay, size: 14, color: _cs(context).error),
                   SizedBox(width: 4),
                   Text('فشل الحفظ — اضغط للمحاولة مجدداً',
                       style:
-                          TextStyle(fontSize: 11, color: AppColors.error)),
+                          TextStyle(fontSize: 11, color: _cs(context).error)),
                 ],
               ),
             ),
@@ -1907,19 +1910,19 @@ class _CountLineRowState extends State<_CountLineRow> {
     final hasVariance = variance != null && variance != 0;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final badgeTextColor =
-        isDark ? karatColor : AppColors.karatBadgeTextColorFor(karat);
+        isDark ? karatColor : _tn(context).karat(((karat) as num).round()).onContainer;
 
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: hasVariance
-            ? AppColors.warning.withOpacity(0.05)
+            ? _tn(context).warning.fg.withValues(alpha: 0.05)
             : Theme.of(context).cardColor,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
           color: hasVariance
-              ? AppColors.warning.withOpacity(0.35)
-              : Colors.grey.shade200,
+              ? _tn(context).warning.fg.withValues(alpha: 0.35)
+              : _cs(context).outlineVariant,
         ),
       ),
       child: Column(
@@ -1939,7 +1942,7 @@ class _CountLineRowState extends State<_CountLineRow> {
                 padding:
                     const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                 decoration: BoxDecoration(
-                  color: karatColor.withOpacity(0.12),
+                  color: karatColor.withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(6),
                 ),
                 child: Text(
@@ -1985,10 +1988,10 @@ class _CountLineRowState extends State<_CountLineRow> {
                   label: 'الفرق',
                   value: '${variance >= 0 ? '+' : ''}${formatWeight(variance)} جم',
                   valueColor: variance > 0
-                      ? AppColors.success
+                      ? _tn(context).ready.fg
                       : variance < 0
-                          ? AppColors.error
-                          : Colors.grey,
+                          ? _cs(context).error
+                          : _cs(context).onSurfaceVariant,
                   bold: hasVariance,
                 ),
               ],
@@ -2019,7 +2022,7 @@ class _ReviewCell extends StatelessWidget {
           children: [
             Text(label,
                 style:
-                    TextStyle(fontSize: 10, color: Colors.grey[500])),
+                    TextStyle(fontSize: 10, color: _cs(context).onSurfaceVariant)),
             const SizedBox(height: 2),
             Text(
               value,
@@ -2129,13 +2132,13 @@ class _ApproveDialogState extends State<_ApproveDialog> {
                       vertical: 16, horizontal: 12),
                   decoration: BoxDecoration(
                     color: hasVariance
-                        ? AppColors.warning.withOpacity(0.06)
-                        : AppColors.success.withOpacity(0.06),
+                        ? _tn(context).warning.fg.withValues(alpha: 0.06)
+                        : _tn(context).ready.fg.withValues(alpha: 0.06),
                     borderRadius: BorderRadius.circular(12),
                     border: Border.all(
                       color: hasVariance
-                          ? AppColors.warning.withOpacity(0.3)
-                          : AppColors.success.withOpacity(0.3),
+                          ? _tn(context).warning.fg.withValues(alpha: 0.3)
+                          : _tn(context).ready.fg.withValues(alpha: 0.3),
                     ),
                   ),
                   child: Row(
@@ -2148,28 +2151,28 @@ class _ApproveDialogState extends State<_ApproveDialog> {
                           value: '${widget.varLines.length}',
                           label: 'فروقات',
                           color: hasVariance
-                              ? AppColors.warning
-                              : AppColors.success),
+                              ? _tn(context).warning.fg
+                              : _tn(context).ready.fg),
                       _BigStat(
                           value:
                               '${delta >= 0 ? '+' : ''}${formatWeight(delta)} جم',
                           label: 'صافي الفرق',
                           color: delta > 0.001
-                              ? AppColors.success
+                              ? _tn(context).ready.fg
                               : delta < -0.001
-                                  ? AppColors.error
-                                  : Colors.grey),
+                                  ? _cs(context).error
+                                  : _cs(context).onSurfaceVariant),
                     ],
                   ),
                 ),
                 // Variance list (sorted descending by absolute value)
                 if (hasVariance) ...[
                   const SizedBox(height: 14),
-                  const Text('الفروقات',
+                  Text('الفروقات',
                       style: TextStyle(
                           fontSize: 12,
                           fontWeight: FontWeight.w600,
-                          color: Colors.grey)),
+                          color: _cs(context).onSurfaceVariant)),
                   const SizedBox(height: 6),
                   ConstrainedBox(
                     constraints: const BoxConstraints(maxHeight: 160),
@@ -2190,8 +2193,8 @@ class _ApproveDialogState extends State<_ApproveDialog> {
                                   : Icons.arrow_downward,
                               size: 14,
                               color: v > 0
-                                  ? AppColors.success
-                                  : AppColors.error,
+                                  ? _tn(context).ready.fg
+                                  : _cs(context).error,
                             ),
                             const SizedBox(width: 6),
                             Expanded(
@@ -2204,8 +2207,8 @@ class _ApproveDialogState extends State<_ApproveDialog> {
                                 fontWeight: FontWeight.bold,
                                 fontSize: 13,
                                 color: v > 0
-                                    ? AppColors.success
-                                    : AppColors.error,
+                                    ? _tn(context).ready.fg
+                                    : _cs(context).error,
                               ),
                             ),
                           ]),
@@ -2216,18 +2219,18 @@ class _ApproveDialogState extends State<_ApproveDialog> {
                   const SizedBox(height: 14),
                   // Reason dropdown
                   if (_loadingReasons)
-                    const Center(
+                    Center(
                         child: SizedBox(
                             height: 24,
                             width: 24,
                             child: CircularProgressIndicator(
                                 strokeWidth: 2,
-                                color: AppColors.primaryGold)))
+                                color: _cs(context).primary)))
                   else if (_reasons.isEmpty)
                     _InfoChip(
                         icon: Icons.warning_amber_rounded,
                         label: 'تعذّر تحميل أسباب التسوية',
-                        color: AppColors.warning)
+                        color: _tn(context).warning.fg)
                   else
                     DropdownButtonFormField<AdjustmentReason>(
                       value: _selectedReason,
@@ -2267,7 +2270,7 @@ class _ApproveDialogState extends State<_ApproveDialog> {
                     child: _InfoChip(
                       icon: Icons.check_circle_outline,
                       label: 'الجرد مطابق تماماً — لا توجد فروقات',
-                      color: AppColors.success,
+                      color: _tn(context).ready.fg,
                     ),
                   ),
               ],
@@ -2284,9 +2287,9 @@ class _ApproveDialogState extends State<_ApproveDialog> {
                 ? () => setState(() => _confirming = true)
                 : null,
             style: ElevatedButton.styleFrom(
-              backgroundColor: AppColors.primaryGold,
-              foregroundColor: Colors.white,
-              disabledBackgroundColor: Colors.grey[300],
+              backgroundColor: _cs(context).primary,
+              foregroundColor: _cs(context).onPrimary,
+              disabledBackgroundColor: _cs(context).outlineVariant,
             ),
             child: const Text('متابعة'),
           ),
@@ -2320,7 +2323,7 @@ class _ApproveDialogState extends State<_ApproveDialog> {
             _InfoChip(
               icon: Icons.warning_amber_rounded,
               label: 'هذه العملية لا يمكن التراجع عنها.',
-              color: AppColors.warning,
+              color: _tn(context).warning.fg,
             ),
           ],
         ),
@@ -2337,8 +2340,8 @@ class _ApproveDialogState extends State<_ApproveDialog> {
             icon: const Icon(Icons.verified_outlined),
             label: Text(hasVariance ? 'اعتماد وترحيل' : 'اعتماد'),
             style: ElevatedButton.styleFrom(
-              backgroundColor: AppColors.success,
-              foregroundColor: Colors.white,
+              backgroundColor: _tn(context).ready.fg,
+              foregroundColor: _cs(context).surface,
             ),
           ),
         ],
@@ -2364,7 +2367,7 @@ class _BigStat extends StatelessWidget {
                   color: color)),
           const SizedBox(height: 2),
           Text(label,
-              style: TextStyle(fontSize: 11, color: Colors.grey[500])),
+              style: TextStyle(fontSize: 11, color: _cs(context).onSurfaceVariant)),
         ],
       );
 }
@@ -2377,8 +2380,8 @@ class _WillDo extends StatelessWidget {
   Widget build(BuildContext context) => Padding(
         padding: const EdgeInsets.only(bottom: 8),
         child: Row(children: [
-          const Icon(Icons.check_circle_outline,
-              size: 16, color: AppColors.success),
+          Icon(Icons.check_circle_outline,
+              size: 16, color: _tn(context).ready.fg),
           const SizedBox(width: 8),
           Expanded(
               child:
@@ -2406,7 +2409,7 @@ class _SuccessStat extends StatelessWidget {
           children: [
             Text(label,
                 style: TextStyle(
-                    fontSize: 13, color: Colors.grey[500])),
+                    fontSize: 13, color: _cs(context).onSurfaceVariant)),
             Column(
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
@@ -2435,9 +2438,9 @@ class _InfoChip extends StatelessWidget {
   Widget build(BuildContext context) => Container(
         padding: const EdgeInsets.all(8),
         decoration: BoxDecoration(
-          color: color.withOpacity(0.08),
+          color: color.withValues(alpha: 0.08),
           borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: color.withOpacity(0.25)),
+          border: Border.all(color: color.withValues(alpha: 0.25)),
         ),
         child: Row(children: [
           Icon(icon, size: 16, color: color),
@@ -2551,7 +2554,7 @@ class _OpenSessionSheetState extends State<_OpenSessionSheet> {
                 width: 40,
                 height: 4,
                 decoration: BoxDecoration(
-                  color: Colors.grey[300],
+                  color: _cs(context).outlineVariant,
                   borderRadius: BorderRadius.circular(2),
                 ),
               ),
@@ -2564,20 +2567,20 @@ class _OpenSessionSheetState extends State<_OpenSessionSheet> {
             const SizedBox(height: 16),
             // Branch selector
             if (_loadingBranches)
-              const Center(
+              Center(
                 child: SizedBox(
                   height: 24,
                   width: 24,
                   child: CircularProgressIndicator(
                       strokeWidth: 2,
-                      color: AppColors.primaryGold),
+                      color: _cs(context).primary),
                 ),
               )
             else if (_locations.isEmpty)
               _InfoChip(
                 icon: Icons.warning_amber_rounded,
                 label: 'لا توجد مواقع مخزون — حدّد نوع الموقع للخزائن من إدارة الخزائن',
-                color: AppColors.warning,
+                color: _tn(context).warning.fg,
               )
             else
               DropdownButtonFormField<int>(
@@ -2618,7 +2621,7 @@ class _OpenSessionSheetState extends State<_OpenSessionSheet> {
                 'لتسجيل أرصدة البداية — بقيد فروق في الدفاتر',
                 style: TextStyle(fontSize: 12),
               ),
-              activeColor: Colors.teal,
+              activeColor: _tn(context).sectionTeal.fg,
               contentPadding: EdgeInsets.zero,
             ),
             if (!_isOpening)
@@ -2632,7 +2635,7 @@ class _OpenSessionSheetState extends State<_OpenSessionSheet> {
                   'الرصيد المتوقع مخفي أثناء العدّ — موصى به',
                   style: TextStyle(fontSize: 12),
                 ),
-                activeColor: AppColors.primaryGold,
+                activeColor: _cs(context).primary,
                 contentPadding: EdgeInsets.zero,
               ),
             if (_error != null) ...[
@@ -2640,7 +2643,7 @@ class _OpenSessionSheetState extends State<_OpenSessionSheet> {
               _InfoChip(
                   icon: Icons.error_outline,
                   label: _error!,
-                  color: AppColors.error),
+                  color: _cs(context).error),
             ],
             const SizedBox(height: 16),
             if (_existingSessionId != null) ...[
@@ -2653,8 +2656,8 @@ class _OpenSessionSheetState extends State<_OpenSessionSheet> {
                   icon: const Icon(Icons.arrow_forward),
                   label: Text('الانتقال إلى الجلسة #$_existingSessionId'),
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.primaryGold,
-                    foregroundColor: Colors.white,
+                    backgroundColor: _cs(context).primary,
+                    foregroundColor: _cs(context).onPrimary,
                     padding: const EdgeInsets.symmetric(vertical: 14),
                     shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(10)),
@@ -2671,19 +2674,19 @@ class _OpenSessionSheetState extends State<_OpenSessionSheet> {
                       ? null
                       : _open,
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.primaryGold,
-                    foregroundColor: Colors.white,
-                    disabledBackgroundColor: Colors.grey[300],
+                    backgroundColor: _cs(context).primary,
+                    foregroundColor: _cs(context).onPrimary,
+                    disabledBackgroundColor: _cs(context).outlineVariant,
                     padding: const EdgeInsets.symmetric(vertical: 14),
                     shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(10)),
                   ),
                   child: _submitting
-                      ? const SizedBox(
+                      ? SizedBox(
                           height: 20,
                           width: 20,
                           child: CircularProgressIndicator(
-                              strokeWidth: 2, color: Colors.white),
+                              strokeWidth: 2, color: _cs(context).onPrimary),
                         )
                       : const Text('بدء الجرد',
                           style: TextStyle(fontSize: 16)),
@@ -2692,8 +2695,8 @@ class _OpenSessionSheetState extends State<_OpenSessionSheet> {
             ],
             TextButton(
               onPressed: widget.onCancelled,
-              child: const Text('إلغاء',
-                  style: TextStyle(color: Colors.grey)),
+              child: Text('إلغاء',
+                  style: TextStyle(color: _cs(context).onSurfaceVariant)),
             ),
           ],
         ),
@@ -2882,7 +2885,7 @@ class _AddItemSheetState extends State<_AddItemSheet> {
               child: Container(
                 width: 40, height: 4,
                 decoration: BoxDecoration(
-                  color: Colors.grey[300],
+                  color: _cs(context).outlineVariant,
                   borderRadius: BorderRadius.circular(2),
                 ),
               ),
@@ -2916,13 +2919,13 @@ class _AddItemSheetState extends State<_AddItemSheet> {
                 labelText: 'الصنف',
                 hintText: 'ابحث أو اكتب اسماً جديداً...',
                 prefixIcon: _loadingCats
-                    ? const Padding(
+                    ? Padding(
                         padding: EdgeInsets.all(12),
                         child: SizedBox(
                           width: 16, height: 16,
                           child: CircularProgressIndicator(
                               strokeWidth: 2,
-                              color: AppColors.primaryGold),
+                              color: _cs(context).primary),
                         ),
                       )
                     : const Icon(Icons.search),
@@ -2943,8 +2946,8 @@ class _AddItemSheetState extends State<_AddItemSheet> {
                   borderRadius: BorderRadius.circular(10),
                   borderSide: BorderSide(
                     color: _selectedCategory != null
-                        ? AppColors.success
-                        : Colors.grey.shade400,
+                        ? _tn(context).ready.fg
+                        : _cs(context).outline,
                     width: _selectedCategory != null ? 1.5 : 1.0,
                   ),
                 ),
@@ -2958,7 +2961,7 @@ class _AddItemSheetState extends State<_AddItemSheet> {
               Container(
                 constraints: const BoxConstraints(maxHeight: 180),
                 decoration: BoxDecoration(
-                  border: Border.all(color: Colors.grey.shade300),
+                  border: Border.all(color: _cs(context).outlineVariant),
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: ListView(
@@ -2976,22 +2979,22 @@ class _AddItemSheetState extends State<_AddItemSheet> {
                       ListTile(
                         dense: true,
                         leading: _creatingCat
-                            ? const SizedBox(
+                            ? SizedBox(
                                 width: 18, height: 18,
                                 child: CircularProgressIndicator(
                                     strokeWidth: 2,
-                                    color: AppColors.primaryGold))
-                            : const Icon(Icons.add_circle_outline,
-                                size: 18, color: AppColors.primaryGold),
+                                    color: _cs(context).primary))
+                            : Icon(Icons.add_circle_outline,
+                                size: 18, color: _cs(context).primary),
                         title: Text.rich(TextSpan(children: [
-                          const TextSpan(
+                          TextSpan(
                               text: 'إنشاء صنف جديد: ',
-                              style: TextStyle(color: AppColors.primaryGold)),
+                              style: TextStyle(color: _cs(context).primary)),
                           TextSpan(
                               text: '"$_searchQuery"',
-                              style: const TextStyle(
+                              style: TextStyle(
                                   fontWeight: FontWeight.bold,
-                                  color: AppColors.primaryGold)),
+                                  color: _cs(context).primary)),
                         ])),
                         onTap: _creatingCat
                             ? null
@@ -3005,13 +3008,13 @@ class _AddItemSheetState extends State<_AddItemSheet> {
             const SizedBox(height: 14),
 
             // ── Karat chips ───────────────────────────────────────────────
-            const Text('العيار',
-                style: TextStyle(fontSize: 13, color: Colors.grey)),
+            Text('العيار',
+                style: TextStyle(fontSize: 13, color: _cs(context).onSurfaceVariant)),
             const SizedBox(height: 8),
             Row(
               children: _karats.map((k) {
                 final selected = _selectedKarat == k;
-                final color = AppColors.karatColorFor(k);
+                final color = _tn(context).karat(((k) as num).round()).fg;
                 return Padding(
                   padding: const EdgeInsets.only(left: 8),
                   child: ChoiceChip(
@@ -3019,7 +3022,7 @@ class _AddItemSheetState extends State<_AddItemSheet> {
                     selected: selected,
                     onSelected: (_) =>
                         setState(() => _selectedKarat = k),
-                    selectedColor: color.withOpacity(0.2),
+                    selectedColor: color.withValues(alpha: 0.2),
                     labelStyle: TextStyle(
                         color: selected ? color : null,
                         fontWeight: selected
@@ -3056,7 +3059,7 @@ class _AddItemSheetState extends State<_AddItemSheet> {
               _InfoChip(
                   icon: Icons.error_outline,
                   label: _error!,
-                  color: AppColors.error),
+                  color: _cs(context).error),
             ],
 
             const SizedBox(height: 16),
@@ -3065,18 +3068,18 @@ class _AddItemSheetState extends State<_AddItemSheet> {
               child: ElevatedButton(
                 onPressed: canAdd ? _submit : null,
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: AppColors.primaryGold,
-                  foregroundColor: Colors.white,
-                  disabledBackgroundColor: Colors.grey[300],
+                  backgroundColor: _cs(context).primary,
+                  foregroundColor: _cs(context).onPrimary,
+                  disabledBackgroundColor: _cs(context).outlineVariant,
                   padding: const EdgeInsets.symmetric(vertical: 14),
                   shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(10)),
                 ),
                 child: _submitting
-                    ? const SizedBox(
+                    ? SizedBox(
                         height: 20, width: 20,
                         child: CircularProgressIndicator(
-                            strokeWidth: 2, color: Colors.white))
+                            strokeWidth: 2, color: _cs(context).onPrimary))
                     : const Text('إضافة', style: TextStyle(fontSize: 16)),
               ),
             ),
@@ -3108,8 +3111,8 @@ class _ErrorRetry extends StatelessWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Icon(Icons.error_outline,
-                  size: 48, color: AppColors.error),
+              Icon(Icons.error_outline,
+                  size: 48, color: _cs(context).error),
               const SizedBox(height: 12),
               Text(message,
                   textAlign: TextAlign.center,
@@ -3120,8 +3123,8 @@ class _ErrorRetry extends StatelessWidget {
                 icon: const Icon(Icons.refresh),
                 label: const Text('إعادة المحاولة'),
                 style: ElevatedButton.styleFrom(
-                    backgroundColor: AppColors.primaryGold,
-                    foregroundColor: Colors.white),
+                    backgroundColor: _cs(context).primary,
+                    foregroundColor: _cs(context).onPrimary),
               ),
             ],
           ),

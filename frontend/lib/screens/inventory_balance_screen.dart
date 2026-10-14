@@ -5,6 +5,11 @@ import '../services/inventory_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/bucket_balance_card.dart';
 import 'inventory_count_screen.dart';
+import '../theme/app_semantic_colors.dart';
+
+/// The theme's colours (ADR-038): the scheme and the semantic tones.
+ColorScheme _cs(BuildContext context) => Theme.of(context).colorScheme;
+AppSemanticColors _tn(BuildContext context) => AppSemanticColors.of(context);
 
 class InventoryBalanceScreen extends StatefulWidget {
   const InventoryBalanceScreen({super.key});
@@ -79,8 +84,6 @@ class _InventoryBalanceScreenState extends State<InventoryBalanceScreen> {
         backgroundColor: Theme.of(context).scaffoldBackgroundColor,
         appBar: AppBar(
           title: const Text('الجرد الفعلي'),
-          backgroundColor: AppColors.primaryGold,
-          foregroundColor: Colors.white,
           actions: [
             IconButton(
               icon: const Icon(Icons.refresh),
@@ -90,12 +93,12 @@ class _InventoryBalanceScreenState extends State<InventoryBalanceScreen> {
           ],
         ),
         body: _loading
-            ? const Center(child: CircularProgressIndicator(color: AppColors.primaryGold))
+            ? Center(child: CircularProgressIndicator(color: _cs(context).primary))
             : _error != null
                 ? _ErrorView(message: _error!, onRetry: _load)
                 : RefreshIndicator(
                     onRefresh: _load,
-                    color: AppColors.primaryGold,
+                    color: _cs(context).primary,
                     child: CustomScrollView(
                       slivers: [
                         // ── Freeze Banner ─────────────────────────────────
@@ -147,8 +150,8 @@ class _InventoryBalanceScreenState extends State<InventoryBalanceScreen> {
         floatingActionButton: _activeSession == null
             ? FloatingActionButton.extended(
                 onPressed: _openCountSession,
-                backgroundColor: AppColors.primaryGold,
-                foregroundColor: Colors.white,
+                backgroundColor: _cs(context).primary,
+                foregroundColor: _cs(context).onPrimary,
                 icon: const Icon(Icons.fact_check_outlined),
                 label: const Text('بدء جرد'),
               )
@@ -197,12 +200,12 @@ class _FreezeBanner extends StatelessWidget {
     return Container(
       margin: const EdgeInsets.fromLTRB(16, 16, 16, 0),
       decoration: BoxDecoration(
-        color: Colors.amber.shade50,
+        color: _tn(context).warning.container,
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Colors.amber.shade300, width: 1.5),
+        border: Border.all(color: _tn(context).warning.fg, width: 1.5),
         boxShadow: [
           BoxShadow(
-            color: Colors.amber.withOpacity(0.15),
+            color: _tn(context).warning.fg.withValues(alpha: 0.15),
             blurRadius: 10,
             offset: const Offset(0, 3),
           ),
@@ -215,25 +218,25 @@ class _FreezeBanner extends StatelessWidget {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
             decoration: BoxDecoration(
-              color: Colors.amber.shade300,
+              color: _tn(context).warning.fg,
               borderRadius: const BorderRadius.vertical(top: Radius.circular(13)),
             ),
             child: Row(
               children: [
-                const Icon(Icons.timer_outlined, size: 16, color: Colors.black87),
+                Icon(Icons.timer_outlined, size: 16, color: _cs(context).surface),
                 const SizedBox(width: 6),
                 Text(
                   awaitingApproval ? 'جرد بانتظار الاعتماد' : 'جلسة جرد قيد التنفيذ',
                   style: TextStyle(
                     fontWeight: FontWeight.bold,
                     fontSize: 13,
-                    color: Colors.black87,
+                    color: _cs(context).surface,
                   ),
                 ),
                 const Spacer(),
                 Text(
                   session.isOpening ? 'افتتاحي' : 'دوري',
-                  style: const TextStyle(fontSize: 11, color: Colors.black54),
+                  style: TextStyle(fontSize: 11, color: _cs(context).surface),
                 ),
               ],
             ),
@@ -246,15 +249,17 @@ class _FreezeBanner extends StatelessWidget {
               children: [
                 Row(
                   children: [
-                    const Icon(Icons.store_outlined, size: 16, color: Colors.black54),
+                    Icon(Icons.store_outlined, size: 16, color: _tn(context).warning.onContainer),
                     const SizedBox(width: 6),
                     Text(branchLabel,
-                        style: const TextStyle(fontWeight: FontWeight.w600)),
+                        style: TextStyle(
+                            fontWeight: FontWeight.w600,
+                            color: _tn(context).warning.onContainer)),
                     const Spacer(),
                     if (elapsed.isNotEmpty)
                       Text(
                         'بدأت $elapsed',
-                        style: const TextStyle(fontSize: 12, color: Colors.black54),
+                        style: TextStyle(fontSize: 12, color: _tn(context).warning.onContainer),
                       ),
                   ],
                 ),
@@ -267,8 +272,9 @@ class _FreezeBanner extends StatelessWidget {
                           borderRadius: BorderRadius.circular(4),
                           child: LinearProgressIndicator(
                             value: progress,
-                            backgroundColor: Colors.amber.shade100,
-                            color: Colors.amber.shade600,
+                            backgroundColor:
+                                _tn(context).warning.fg.withValues(alpha: 0.25),
+                            color: _tn(context).warning.fg,
                             minHeight: 6,
                           ),
                         ),
@@ -276,8 +282,10 @@ class _FreezeBanner extends StatelessWidget {
                       const SizedBox(width: 10),
                       Text(
                         '$counted / $total',
-                        style: const TextStyle(
-                            fontWeight: FontWeight.bold, fontSize: 13),
+                        style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 13,
+                            color: _tn(context).warning.onContainer),
                       ),
                     ],
                   ),
@@ -290,8 +298,8 @@ class _FreezeBanner extends StatelessWidget {
                     icon: const Icon(Icons.play_arrow_rounded),
                     label: Text(awaitingApproval ? 'مراجعة واعتماد' : 'متابعة الجرد'),
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.amber.shade600,
-                      foregroundColor: Colors.white,
+                      backgroundColor: _tn(context).warning.fg,
+                      foregroundColor: _cs(context).surface,
                       padding: const EdgeInsets.symmetric(vertical: 12),
                       shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(10)),
@@ -328,15 +336,15 @@ class _SummaryHeader extends StatelessWidget {
       margin: const EdgeInsets.all(16),
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [AppColors.darkGold, AppColors.primaryGold],
+        gradient: LinearGradient(
+          colors: [_cs(context).primary, _cs(context).primary],
           begin: Alignment.topRight,
           end: Alignment.bottomLeft,
         ),
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
-            color: AppColors.primaryGold.withOpacity(0.3),
+            color: _cs(context).primary.withValues(alpha: 0.3),
             blurRadius: 12,
             offset: const Offset(0, 4),
           ),
@@ -345,15 +353,15 @@ class _SummaryHeader extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
+          Text(
             'إجمالي الذهب (بالعيار الرئيسي)',
-            style: TextStyle(color: Colors.white, fontSize: 13),
+            style: TextStyle(color: _cs(context).onPrimary, fontSize: 13),
           ),
           const SizedBox(height: 4),
           Text(
             '${formatWeight(summary.grandTotalWeight)} جم',
-            style: const TextStyle(
-              color: Colors.white,
+            style: TextStyle(
+              color: _cs(context).onPrimary,
               fontSize: 28,
               fontWeight: FontWeight.bold,
             ),
@@ -387,14 +395,14 @@ class _KaratChip extends StatelessWidget {
       margin: const EdgeInsets.only(left: 8),
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
       decoration: BoxDecoration(
-        color: Colors.black.withOpacity(0.22),
+        color: _cs(context).shadow.withValues(alpha: 0.22),
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: Colors.white.withOpacity(0.3)),
+        border: Border.all(color: _cs(context).onPrimary.withValues(alpha: 0.3)),
       ),
       child: Text(
         'عيار ${k.karat.toStringAsFixed(0)}  ${formatWeight(k.totalWeight)} جم',
-        style: const TextStyle(
-            color: Colors.white, fontSize: 12, fontWeight: FontWeight.w600),
+        style: TextStyle(
+            color: _cs(context).onPrimary, fontSize: 12, fontWeight: FontWeight.w600),
       ),
     );
   }
@@ -429,7 +437,7 @@ class _KaratFilterBar extends StatelessWidget {
           ...karats.map((k) => _FilterChip(
                 label: 'عيار ${k.toStringAsFixed(0)}',
                 selected: selected == k,
-                color: AppColors.karatColorFor(k),
+                color: _tn(context).karat(((k) as num).round()).fg,
                 onTap: () => onSelected(selected == k ? null : k),
               )),
         ],
@@ -489,7 +497,7 @@ class _FilterChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final c = color ?? AppColors.primaryGold;
+    final c = color ?? _cs(context).primary;
     return GestureDetector(
       onTap: onTap,
       child: AnimatedContainer(
@@ -499,12 +507,12 @@ class _FilterChip extends StatelessWidget {
         decoration: BoxDecoration(
           color: selected ? c : Colors.transparent,
           borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: selected ? c : Colors.grey.shade300),
+          border: Border.all(color: selected ? c : _cs(context).outlineVariant),
         ),
         child: Text(
           label,
           style: TextStyle(
-            color: selected ? Colors.white : Colors.grey[700],
+            color: selected ? _cs(context).onPrimary : _cs(context).onSurfaceVariant,
             fontSize: 12,
             fontWeight: selected ? FontWeight.bold : FontWeight.normal,
           ),
@@ -529,7 +537,7 @@ class _ErrorView extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.cloud_off, size: 48, color: AppColors.warning),
+            Icon(Icons.cloud_off, size: 48, color: _tn(context).warning.fg),
             const SizedBox(height: 12),
             Text(message, textAlign: TextAlign.center),
             const SizedBox(height: 16),
@@ -538,8 +546,8 @@ class _ErrorView extends StatelessWidget {
               icon: const Icon(Icons.refresh),
               label: const Text('إعادة المحاولة'),
               style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.primaryGold,
-                foregroundColor: Colors.white,
+                backgroundColor: _cs(context).primary,
+                foregroundColor: _cs(context).onPrimary,
               ),
             ),
           ],
