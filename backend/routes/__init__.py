@@ -944,7 +944,6 @@ def _resolve_account_from_id_or_number(value):
         return Account.query.filter_by(account_number=str(value_int)).first()
 
     return Account.query.filter_by(account_number=str(value)).first()
-    return 1310
 
 
 def _resolve_inventory_account_id_for_invoice(invoice_type: str, gold_type: str) -> int | None:

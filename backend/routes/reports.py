@@ -8,12 +8,13 @@ from datetime import date, datetime, time, timedelta
 
 from flask import Blueprint, current_app, g, jsonify, request
 from statistics import pstdev
-from sqlalchemy import and_, cast, func, or_
+from sqlalchemy import String, and_, case, cast, func, or_
 from sqlalchemy.orm import joinedload
 
 from models import (
     db,
     Account,
+    AccountingMapping,
     AuditLog,
     Customer,
     Employee,
@@ -22,6 +23,7 @@ from models import (
     InvoiceItem,
     InvoiceKaratLine,
     InvoicePayment,
+    Item,
     JournalEntry,
     JournalEntryLine,
     Office,
@@ -2816,150 +2818,6 @@ def get_customer_balances_aging():
         },
         'count': len(customers_payload),
     })
-    
-    # Build query
-    query = JournalEntryLine.query.join(JournalEntry).filter(JournalEntryLine.is_deleted == False)
-    
-    # Apply filters
-    if account_id:
-        query = query.filter(JournalEntryLine.account_id == account_id)
-    
-    if start_date:
-        from datetime import datetime
-        start_dt = datetime.strptime(start_date, '%Y-%m-%d')
-        query = query.filter(JournalEntry.date >= start_dt)
-    
-    if end_date:
-        from datetime import datetime
-        end_dt = datetime.strptime(end_date, '%Y-%m-%d')
-        query = query.filter(JournalEntry.date <= end_dt)
-    
-    # Order by date and id
-    lines = query.order_by(JournalEntry.date.asc(), JournalEntry.id.asc()).all()
-    
-    # Calculate running balances
-    running_cash_balance = 0
-    running_gold_18k = 0
-    running_gold_21k = 0
-    running_gold_22k = 0
-    running_gold_24k = 0
-    
-    result = []
-    for line in lines:
-        # Calculate normalized gold for main view
-        gold_debit_normalized = (
-            convert_to_main_karat(line.debit_18k or 0, 18) +
-            convert_to_main_karat(line.debit_21k or 0, 21) +
-            convert_to_main_karat(line.debit_22k or 0, 22) +
-            convert_to_main_karat(line.debit_24k or 0, 24)
-        )
-        gold_credit_normalized = (
-            convert_to_main_karat(line.credit_18k or 0, 18) +
-            convert_to_main_karat(line.credit_21k or 0, 21) +
-            convert_to_main_karat(line.credit_22k or 0, 22) +
-            convert_to_main_karat(line.credit_24k or 0, 24)
-        )
-        
-        # Update running balances
-        running_cash_balance += (line.cash_debit or 0) - (line.cash_credit or 0)
-        running_gold_18k += (line.debit_18k or 0) - (line.credit_18k or 0)
-        running_gold_21k += (line.debit_21k or 0) - (line.credit_21k or 0)
-        running_gold_22k += (line.debit_22k or 0) - (line.credit_22k or 0)
-        running_gold_24k += (line.debit_24k or 0) - (line.credit_24k or 0)
-        
-        entry_data = {
-            'id': line.id,
-            'journal_entry_id': line.journal_entry.id,
-            'date': line.journal_entry.date.isoformat(),
-            'type': 'Journal Entry',
-            'description': line.journal_entry.description or line.description,
-            'account_id': line.account_id,
-            'account_name': line.account.name if line.account else 'Unknown Account',
-            'account_number': line.account.account_number if line.account else 'N/A',
-            'cash_debit': round(line.cash_debit or 0, 2),
-            'cash_credit': round(line.cash_credit or 0, 2),
-            'gold_debit': round(gold_debit_normalized, 3),
-            'gold_credit': round(gold_credit_normalized, 3),
-        }
-        
-        # Add karat details if requested
-        if karat_detail:
-            entry_data['karat_details'] = {
-                '18k': {
-                    'debit': round(line.debit_18k or 0, 3),
-                    'credit': round(line.credit_18k or 0, 3)
-                },
-                '21k': {
-                    'debit': round(line.debit_21k or 0, 3),
-                    'credit': round(line.credit_21k or 0, 3)
-                },
-                '22k': {
-                    'debit': round(line.debit_22k or 0, 3),
-                    'credit': round(line.credit_22k or 0, 3)
-                },
-                '24k': {
-                    'debit': round(line.debit_24k or 0, 3),
-                    'credit': round(line.credit_24k or 0, 3)
-                }
-            }
-        
-        # Add running balances if requested
-        if show_balances:
-            entry_data['running_balance'] = {
-                'cash': round(running_cash_balance, 2),
-                'gold_normalized': round(
-                    convert_to_main_karat(running_gold_18k, 18) +
-                    convert_to_main_karat(running_gold_21k, 21) +
-                    convert_to_main_karat(running_gold_22k, 22) +
-                    convert_to_main_karat(running_gold_24k, 24),
-                    3
-                )
-            }
-            
-            if karat_detail:
-                entry_data['running_balance']['by_karat'] = {
-                    '18k': round(running_gold_18k, 3),
-                    '21k': round(running_gold_21k, 3),
-                    '22k': round(running_gold_22k, 3),
-                    '24k': round(running_gold_24k, 3)
-                }
-        
-        result.append(entry_data)
-    
-    # Summary
-    summary = {
-        'total_entries': len(result),
-        'final_balance': {
-            'cash': round(running_cash_balance, 2),
-            'gold_normalized': round(
-                convert_to_main_karat(running_gold_18k, 18) +
-                convert_to_main_karat(running_gold_21k, 21) +
-                convert_to_main_karat(running_gold_22k, 22) +
-                convert_to_main_karat(running_gold_24k, 24),
-                3
-            )
-        }
-    }
-    
-    if karat_detail:
-        summary['final_balance']['by_karat'] = {
-            '18k': round(running_gold_18k, 3),
-            '21k': round(running_gold_21k, 3),
-            '22k': round(running_gold_22k, 3),
-            '24k': round(running_gold_24k, 3)
-        }
-    
-    return jsonify({
-        'entries': result,
-        'summary': summary,
-        'filters': {
-            'account_id': account_id,
-            'start_date': start_date,
-            'end_date': end_date,
-            'show_balances': show_balances,
-            'karat_detail': karat_detail
-        }
-    })
 
 # Accounts domain → routes/accounts.py (ledger)
 # (GET /account_ledger/<id>)
@@ -4701,12 +4559,9 @@ def get_bridge_balance_monitor():
     try:
         # البحث عن حسابات الجسر
         # 1. من الإعدادات المحاسبية
+        # The role is AccountingMapping.account_type (there is no mapping_key).
         bridge_mapping = AccountingMapping.query.filter(
-            or_(
-                AccountingMapping.mapping_key == 'supplier_bridge',
-                AccountingMapping.mapping_key == 'customer_bridge',
-                AccountingMapping.mapping_key.like('%bridge%')
-            )
+            AccountingMapping.account_type.like('%bridge%')
         ).all()
         
         bridge_account_ids = set()
@@ -5747,13 +5602,6 @@ def get_admin_dashboard():
         spot_price_24k_per_gram = None
         spot_price_timestamp = None
 
-    inventory_value = None
-    if spot_price_24k_per_gram is not None:
-        try:
-            inventory_value = float(gold_pure_24k) * float(spot_price_24k_per_gram)
-        except Exception:
-            inventory_value = None
-
     # --- Critical alerts (unreviewed) ---
     critical_unreviewed_count = 0
     critical_latest = None
@@ -6009,6 +5857,12 @@ def get_admin_dashboard():
         + (gold_22k * (22.0 / 24.0))
         + gold_24k
     )
+
+    # Valued once the pure grams are known (NAMES-1: it was valued before
+    # them, failed on the name, and was always empty).
+    inventory_value = None
+    if spot_price_24k_per_gram is not None:
+        inventory_value = float(gold_pure_24k) * float(spot_price_24k_per_gram)
 
     try:
         mk = float(main_karat or 21)

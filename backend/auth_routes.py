@@ -45,6 +45,7 @@ from redis_client import get_redis
 from typing import Optional, Dict, Tuple
 
 from sqlalchemy import func
+from sqlalchemy.exc import IntegrityError
 
 from datetime import datetime, timedelta
 import os

@@ -28,7 +28,10 @@ Close policy:
 """
 from __future__ import annotations
 
-from typing import List
+from typing import TYPE_CHECKING, List
+
+if TYPE_CHECKING:
+    from models import InventoryCountLine, InventoryCountSession
 
 STANDARD_KARATS = (18.0, 21.0, 22.0, 24.0)
 

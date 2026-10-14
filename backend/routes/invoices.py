@@ -1532,17 +1532,18 @@ def reassign_invoice_employee(invoice_id: int):
     except Exception:
         pass
 
-    try:
-        actor = _actor_username()
-        db.session.add(AuditLog(
-            action='reassign_employee',
-            entity_type='invoice',
-            entity_id=invoice_id,
-            actor=actor,
-            details=f'تغيير منشئ {invoice.invoice_number}: {old_name} ← {new_name} (شامل القيود والسندات)',
-        ))
-    except Exception:
-        pass
+    # The change of creator is audited (NAMES-1: it never was -- an undefined
+    # helper and a column AuditLog does not have, both swallowed).
+    current_user = getattr(g, 'current_user', None)
+    AuditLog.log_action(
+        user_name=getattr(current_user, 'username', None) or 'system',
+        user_id=getattr(current_user, 'id', None),
+        action='reassign_employee',
+        entity_type='Invoice',
+        entity_id=invoice_id,
+        entity_number=invoice.invoice_number,
+        details=f'تغيير منشئ {invoice.invoice_number}: {old_name} ← {new_name} (شامل القيود والسندات)',
+    )
 
     db.session.commit()
     return jsonify({'success': True, 'new_employee': {'id': new_emp.id, 'name': new_emp.name}})
@@ -8634,7 +8635,7 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
                             'payment_method_id': payment_method_id,
                             'payment_commission_timing': pm_commission_timing if 'pm_commission_timing' in locals() else None,
                             'safe_box_id': safe_box_id,
-                            'payments_count': len(payments) if isinstance(payments, list) else None,
+                            'payments_count': len(payments_data) if isinstance(payments_data, list) else None,
                         }
                     except Exception as preview_exc:
                         try:

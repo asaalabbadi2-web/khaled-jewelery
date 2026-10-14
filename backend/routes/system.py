@@ -37,10 +37,12 @@ from models import (
     Employee,
     EmployeeBonus,
     GoalAchievement,
+    GoldPrice,
     Invoice,
     InvoiceItem,
     InvoiceKaratLine,
     InvoicePayment,
+    Item,
     JournalEntry,
     JournalEntryLine,
     Office,
@@ -481,22 +483,6 @@ def _create_pre_restore_snapshot_zip() -> str:
 
     return out_zip_path
 
-    src = sqlite3.connect(src_backup_path)
-    try:
-        dst = sqlite3.connect(dest_path)
-        try:
-            src.backup(dst)
-            dst.commit()
-        finally:
-            dst.close()
-    finally:
-        src.close()
-
-    # Dispose again so new requests reconnect cleanly.
-    try:
-        db.engine.dispose()
-    except Exception:
-        pass
 
 @system_bp.route('/weight-closing/settings', methods=['GET'])
 @require_permission('system.settings')
@@ -1579,7 +1565,6 @@ def _reset_balances_only():
     try:
         SafeBoxTransaction.query.delete()
         db.session.commit()
-        _try_process_due_auto_clearing_settlements(payment_method_ids=[pm_id])
     except Exception as e:
         db.session.rollback()
         raise e

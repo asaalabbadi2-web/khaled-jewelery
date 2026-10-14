@@ -6,7 +6,11 @@ import hashlib
 import hmac
 import json
 import os
+from typing import TYPE_CHECKING
 from urllib.parse import quote
+
+if TYPE_CHECKING:
+    from models import Account
 
 from core.settings import _get_settings_singleton
 
