@@ -1199,7 +1199,6 @@ def _generate_employee_code():
 # _ACCOUNT_NUMBER_CACHE + get_account_id_by_number → accounting/mappings.py (re-exported above)
 
 
-# _ensure_manufacturing_wage_expense_account → accounting/wages.py
 # _ensure_gold24k_commission_revenue_account → accounting/wages.py
 # Invoices domain → routes/invoices.py
 # (_create_gold24k_settlement_entries; the karat-difference commission is
@@ -1336,7 +1335,6 @@ from accounting.safe_boxes import (  # noqa: F401
 
 # Wage & Commission Accounts → accounting/wages.py
 from accounting.wages import (  # noqa: F401
-    _ensure_manufacturing_wage_expense_account,
     _ensure_gold24k_commission_revenue_account,
 )
 

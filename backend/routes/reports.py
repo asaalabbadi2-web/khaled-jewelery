@@ -39,7 +39,7 @@ from pricing.constants import SAR_USD_PEG, TROY_OZ_TO_GRAMS
 from pricing.karat_service import convert_to_main_karat, get_main_karat
 from accounting.mappings import get_account_id_by_number, get_account_id_for_mapping
 from core.settings import _get_settings_singleton
-from accounting.wages import _ensure_manufacturing_wage_expense_account
+from accounting.wages import manufacturing_wage_expense_account_id
 from accounting.inventory import get_inventory_average_cost
 from services.journals import create_wage_weight_release_journal
 from services.live_balances import live_balances_by_account_ids, safe_box_balances_bulk
@@ -3632,11 +3632,7 @@ def get_weight_based_income_statement():
                 actual_sold_weight += direction * float(weight_value)
 
         # مصروفات أجور المصنعية → تحويل من النقد إلى وزن بالسعر المباشر للسطر
-        manufacturing_wage_acc_id = (
-            get_account_id_for_mapping('بيع', 'manufacturing_wage')
-            or _ensure_manufacturing_wage_expense_account()
-            or get_account_id_by_number('51')
-        )
+        manufacturing_wage_acc_id = manufacturing_wage_expense_account_id()
         manufacturing_wage_weight = 0.0
         manufacturing_wage_details = []
 
@@ -3946,11 +3942,7 @@ def get_income_statement():
         total_expense = total_cogs + total_operating
 
         # The manufacturing wage is a cost of sales (510, under 51), shown on its own.
-        manufacturing_wage_acc_id = (
-            get_account_id_for_mapping('بيع', 'manufacturing_wage')
-            or _ensure_manufacturing_wage_expense_account()
-            or get_account_id_by_number('51')
-        )
+        manufacturing_wage_acc_id = manufacturing_wage_expense_account_id()
         manufacturing_wage_detail = next(
             (d for d in cost_of_goods_details if d['account_id'] == manufacturing_wage_acc_id), None)
         manufacturing_wage_amount = manufacturing_wage_detail['amount'] if manufacturing_wage_detail else 0.0
@@ -5220,12 +5212,7 @@ def get_cash_income_statement():
 
         # ---------- المصاريف: أجور المصنعية + المصاريف التشغيلية ----------
         # حساب أجور المصنعية المسجلة كمصروف (الحساب المخصص أو الحساب العام 51)
-        manufacturing_wage_expense_acc_id = (
-            get_account_id_for_mapping('بيع', 'manufacturing_wage')
-            or _ensure_manufacturing_wage_expense_account()
-            or get_account_id_for_mapping('بيع', 'operating_expenses')
-            or get_account_id_by_number('51')
-        )
+        manufacturing_wage_expense_acc_id = manufacturing_wage_expense_account_id()
 
         manufacturing_wage_amount = 0.0
         manufacturing_wage_details = []

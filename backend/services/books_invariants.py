@@ -71,6 +71,7 @@ OPEN_CLOSING_OF_RETRACTED_INVOICE = 'OPEN_CLOSING_OF_RETRACTED_INVOICE'
 COMMISSION_NOT_WRITTEN = 'COMMISSION_NOT_WRITTEN'
 ENTRY_WEIGHT_UNBALANCED = 'ENTRY_WEIGHT_UNBALANCED'
 STOCK_ALLOCATION_INVALID = 'STOCK_ALLOCATION_INVALID'
+ROLE_NOT_MAPPED = 'ROLE_NOT_MAPPED'
 
 KINDS = (
     ORPHAN_POSTED_ENTRY,
@@ -83,6 +84,7 @@ KINDS = (
     COMMISSION_NOT_WRITTEN,
     ENTRY_WEIGHT_UNBALANCED,
     STOCK_ALLOCATION_INVALID,
+    ROLE_NOT_MAPPED,
 )
 
 # An invoice in one of these states is retracted: its entries must not count
@@ -532,6 +534,18 @@ def check_stock_allocations() -> list:
     return facts
 
 
+def check_roles_not_mapped() -> list:
+    """A role the postings ask for that no mapping resolves (CHART-002).
+
+    No number stands in for a role any more: a posting that asks for an
+    unmapped role is refused, or -- where the code still tolerates a missing
+    account -- drops the line. Keyed 'role:<operation>:<role>'; no metric. The
+    first night of a new year's database (ADR-044) says what it lacks."""
+    from accounting.mappings import unmapped_roles
+    return [Fact(ROLE_NOT_MAPPED, f'role:{op}:{role}', None, {'operation_type': op, 'role': role})
+            for op, role in unmapped_roles()]
+
+
 CHECKS = {
     ORPHAN_POSTED_ENTRY: check_orphan_posted_entries,
     UNPOSTED_ENTRY_IN_LIMBO: check_unposted_entries_in_limbo,
@@ -544,6 +558,7 @@ CHECKS = {
     COMMISSION_NOT_WRITTEN: check_commissions_not_written,
     ENTRY_WEIGHT_UNBALANCED: check_entries_weight_unbalanced,
     STOCK_ALLOCATION_INVALID: check_stock_allocations,
+    ROLE_NOT_MAPPED: check_roles_not_mapped,
 }
 
 

@@ -42,45 +42,19 @@ def wages_are_capitalized(mode: str) -> bool:
 
 
 def manufacturing_wage_inventory_account_id() -> int | None:
-    """Where capitalized wages live: the mapping, else 1320, else 1350."""
+    """Where capitalized wages live: the mapped role, nothing else (CHART-002)."""
     for operation in ('شراء', 'شراء من مورد', 'بيع'):
         acc_id = get_account_id_for_mapping(operation, 'manufacturing_wage_inventory')
         if acc_id:
             return acc_id
-    return get_account_id_by_number('1320') or get_account_id_by_number('1350')
+    return None
 
 
 def manufacturing_wage_expense_account_id() -> int | None:
     """Where wages become an expense -- at sale when capitalized, at purchase
-    when expensed: one account either way."""
-    return (
-        get_account_id_for_mapping('بيع', 'manufacturing_wage')
-        or _ensure_manufacturing_wage_expense_account()
-        or get_account_id_for_mapping('بيع', 'operating_expenses')
-        or get_account_id_by_number('51')
-    )
-
-
-def _ensure_manufacturing_wage_expense_account() -> int | None:
-    """Find or create the manufacturing wage expense account (510) and return its ID."""
-    target_number = '510'
-    cached = get_account_id_by_number(target_number)
-    if cached:
-        return cached
-
-    parent = Account.query.filter_by(account_number='51').first()
-    account = Account(
-        account_number=target_number,
-        name='مصروفات أجور المصنعية',
-        type='expense',
-        transaction_type='cash',
-        tracks_weight=False,
-        parent_id=parent.id if parent else None,
-    )
-    db.session.add(account)
-    db.session.commit()
-    _ACCOUNT_NUMBER_CACHE[target_number] = account.id
-    return account.id
+    when expensed: one account either way, the mapped role (CHART-002: no 510
+    created on the fly, no 51 standing in)."""
+    return get_account_id_for_mapping('بيع', 'manufacturing_wage')
 
 
 def _ensure_gold24k_commission_revenue_account() -> int | None:

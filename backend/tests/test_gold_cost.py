@@ -203,7 +203,8 @@ def test_the_gross_by_cost_still_pays_the_making_charge(books):
     revenue = _child(_account('4'), 'إيراد اختبار')
     cost_of_sales = _account('51')
     _account('512').parent_id = cost_of_sales.id                # the purchases and the wages, under 51 as the chart has them
-    wages = _child(_account('510', cost_of_sales), 'أجور اختبار')
+    _account('510').parent_id = cost_of_sales.id
+    wages = _child(_account('510'), 'أجور اختبار')
     db.session.flush()
     _entry(1, [(b['scrap_safe'], {'debit_21k': 100}), (b['twin'], {'credit_21k': 100}),
                (b['purchases'], {'cash_debit': 40000}), (b['cash'], {'cash_credit': 40000})])

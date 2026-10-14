@@ -1,4 +1,4 @@
-"""Accounting mappings — account resolution from AccountingMapping config and default fallbacks."""
+"""Accounting mappings -- an account is found by its role (AccountingMapping), never by its number (CHART-002)."""
 from __future__ import annotations
 
 from models import db, Account, AccountingMapping
@@ -25,6 +25,33 @@ def get_account_id_by_number(account_number) -> int | None:
 
 
 VAT_ROLES = ('vat_payable', 'vat_receivable', 'commission_vat')
+
+_KARATS = ('inventory_18k', 'inventory_21k', 'inventory_22k', 'inventory_24k')
+
+# The roles the postings ask for, by operation -- each must resolve to a mapped
+# account (directly or through the default operation). Measured from every call
+# the code and the suite make, on the production copy (14 Oct 2026). A role the
+# code starts asking for joins this list; ROLE_NOT_MAPPED reports any that do
+# not resolve -- a new year's database starts with all of them (ADR-044).
+REQUIRED_ROLES = (
+    *((DEFAULT_MAPPING_OPERATION_TYPE, r) for r in ('inventory_count_shortage', 'inventory_count_surplus')),
+    *(('بيع', r) for r in ('cash', 'commission', 'commission_vat', *_KARATS, 'manufacturing_wage', 'revenue',
+                           'sales_gold_new', 'sales_gold_scrap', 'vat_payable', 'vat_receivable')),
+    *(('تسوية_مورد', r) for r in ('supplier_settlement_expense', 'supplier_settlement_income',
+                                  'supplier_weight_settlement_expense', 'supplier_weight_settlement_income')),
+    *(('شراء', r) for r in ('cash', *_KARATS, 'manufacturing_wage_inventory', 'purchases_gold', 'suppliers',
+                            'vat_receivable')),
+    *(('شراء من عميل', r) for r in ('cash', *_KARATS, 'purchases_gold', 'purchases_gold_new',
+                                    'purchases_gold_scrap', 'vat_receivable')),
+    *(('مرتجع بيع', r) for r in ('cash', 'customers', *_KARATS, 'manufacturing_wage', 'sales_returns')),
+    *(('مرتجع شراء', r) for r in ('cash', 'customers', *_KARATS, 'purchase_returns')),
+    ('مرتجع شراء (مورد)', 'purchase_returns'),
+)
+
+
+def unmapped_roles() -> list:
+    """The required roles no mapping resolves -- what a posting would be refused."""
+    return [(op, role) for op, role in REQUIRED_ROLES if not get_account_id_for_mapping(op, role)]
 
 
 class VatAccountNotMapped(ValueError):
@@ -96,92 +123,10 @@ def get_account_id_for_mapping(operation_type, account_type) -> int | None:
             if default_mapping:
                 return default_mapping.account_id
 
-    def _first_existing_account_id_by_numbers(numbers):
-        for n in numbers:
-            if n in (None, '', False):
-                continue
-            acc = Account.query.filter_by(account_number=str(n)).first()
-            if acc:
-                return acc.id
-        return None
-
-    def _first_existing_account_id_by_names(names):
-        for nm in names:
-            if not nm:
-                continue
-            acc = Account.query.filter_by(name=str(nm)).first()
-            if acc:
-                return acc.id
-        return None
-
-    # 3. fallback لأرقام افتراضية داخلية
-    DEFAULT_ACCOUNT_NUMBER_CANDIDATES = {
-        'inventory_18k': ['1300'],
-        'inventory_21k': ['1220', '1310'],
-        'inventory_22k': ['1320'],
-        'inventory_24k': ['1200', '1330', '1340'],
-        'manufacturing_wage_inventory': ['1340', '1350', '1320'],
-        'inventory_weight_18k': ['71300', '7300'],
-        'inventory_weight_21k': ['71310', '7310'],
-        'inventory_weight_22k': ['71320', '7320'],
-        'inventory_weight_24k': ['71330', '7330'],
-        'cash': ['15', '1100'],
-        'bank': ['1110'],
-        'bank_rajhi': ['1120'],
-        'customers': ['1200'],
-        'customers_scrap': ['1210'],
-        'suppliers': ['210'],
-        'suppliers_processed': ['220'],
-        'revenue': ['400', '40'],
-        'sales_gold_new': ['400', '40'],
-        'sales_gold_scrap': ['401'],
-        'sales_wage': ['41'],
-        'sales_returns': ['420', '400', '40'],
-        'purchases_gold': ['511', '512', '510', '51'],
-        'purchases_gold_new': ['511', '510', '51'],
-        'purchases_gold_scrap': ['512', '511', '510'],
-        'cost': ['521', '50'],
-        'cost_of_sales': ['521', '50'],
-        'purchase_returns': ['513', '512', '511', '50'],
-        # No number stands in for a VAT role (ADR-043 rule 4): 2210 took three
-        # April 2026 returns' VAT, and 1500 is «مدى». See require_vat_account.
-        'commission': ['5150'],
-        'operating_expenses': ['51'],
-        'capital': ['31'],
-        'retained_earnings': ['32'],
-        'supplier_bridge': [None],
-        'manufacturing_wage': ['510'],
-    }
-
-    DEFAULT_ACCOUNT_NAME_CANDIDATES = {
-        'cash': ['صندوق النقدية'],
-        'sales_gold_new': ['مبيعات ذهب جديد'],
-        'sales_gold_scrap': ['مبيعات ذهب كسر'],
-        'revenue': ['مبيعات ذهب جديد'],
-        'cost_of_sales': ['تكلفة مبيعات الذهب'],
-        'cost': ['تكلفة مبيعات الذهب'],
-        'inventory_21k': ['مخزون ذهب عيار 21'],
-        'inventory_24k': ['مخزون ذهب عيار 24'],
-        'suppliers': ['موردو ذهب'],
-        'customers': ['أرصدة ذهب العملاء'],
-    }
-
-    for ct in candidates:
-        numbers = DEFAULT_ACCOUNT_NUMBER_CANDIDATES.get(ct)
-        if numbers:
-            hit = _first_existing_account_id_by_numbers(numbers)
-            if hit:
-                return hit
-
-        names = DEFAULT_ACCOUNT_NAME_CANDIDATES.get(ct)
-        if names:
-            hit = _first_existing_account_id_by_names(names)
-            if hit:
-                return hit
-
-    if account_type == 'manufacturing_wage':
-        # Lazy import to break the wages ↔ mappings cycle (wages imports mappings at module level).
-        from accounting.wages import _ensure_manufacturing_wage_expense_account
-        return _ensure_manufacturing_wage_expense_account()
-
+    # No number, no name, no account created on the fly stands in for a role
+    # (CHART-002, the owner 14 Oct 2026): a role is its mapping or nothing. The
+    # 33 numbers and 10 names that stood in -- some stale (24k inventory fell
+    # back on 1200, the customers) -- became mappings where production used
+    # them (migration 20261014_roles_mapped); a role still unmapped is reported
+    # nightly (ROLE_NOT_MAPPED) and refused where the posting asks for it.
     return None
