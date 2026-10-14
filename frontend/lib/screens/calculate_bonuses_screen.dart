@@ -5,6 +5,8 @@ import '../api_service.dart';
 import '../models/bonus_rule_model.dart';
 import '../models/employee_model.dart';
 import '../theme/app_theme.dart';
+import 'package:provider/provider.dart';
+import '../providers/settings_provider.dart';
 
 class CalculateBonusesScreen extends StatefulWidget {
   final ApiService api;
@@ -402,7 +404,7 @@ class _ResultTile extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.end,
           children: [
             Text(
-              '${(result['amount'] as double).toStringAsFixed(0)} IQD',
+              '${(result['amount'] as double).toStringAsFixed(0)} ${context.read<SettingsProvider>().currencySymbolText}',
               style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF8B6914)),
             ),
             Container(

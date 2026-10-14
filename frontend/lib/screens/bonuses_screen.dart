@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
+import 'package:intl/intl.dart' hide TextDirection;
 import 'package:provider/provider.dart';
 
 import '../api_service.dart';
@@ -10,6 +10,7 @@ import '../providers/settings_provider.dart';
 import '../theme/app_theme.dart';
 import 'bonus_management_screen.dart';
 import 'calculate_bonuses_screen.dart';
+import '../widgets/bonus_owed_from_books_card.dart';
 
 class BonusesScreen extends StatefulWidget {
   final ApiService api;
@@ -30,6 +31,9 @@ class BonusesScreen extends StatefulWidget {
 class _BonusesScreenState extends State<BonusesScreen>
     with SingleTickerProviderStateMixin {
   List<EmployeeBonusModel> _bonuses = [];
+  // What each employee is owed in the books (BONUS-BOOKS-1): the books are
+  // right -- a voucher outside this screen moves them, not a bonus's status.
+  List<Map<String, dynamic>> _owed = [];
   bool _loading = false;
   bool _bulkLoading = false;
 
@@ -75,9 +79,14 @@ class _BonusesScreenState extends State<BonusesScreen>
         dateFrom: _periodStart?.toIso8601String().split('T').first,
         dateTo: _periodEnd?.toIso8601String().split('T').first,
       );
+      final owed = await widget.api.getBonusesOwed();
       setState(() {
         _bonuses = data
             .map((j) => EmployeeBonusModel.fromJson(j as Map<String, dynamic>))
+            .toList();
+        _owed = ((owed['employees'] as List?) ?? const [])
+            .whereType<Map>()
+            .map((m) => Map<String, dynamic>.from(m))
             .toList();
       });
     } catch (e) {
@@ -573,7 +582,7 @@ class _BonusesScreenState extends State<BonusesScreen>
                                       color: Colors.grey.shade600,
                                       fontSize: 12)),
                               Text(
-                                '${b.amount.toStringAsFixed(2)} IQD',
+                                '${b.amount.toStringAsFixed(2)} ${context.read<SettingsProvider>().currencySymbolText}',
                                 style: const TextStyle(
                                     fontSize: 22,
                                     fontWeight: FontWeight.bold,
@@ -1040,6 +1049,13 @@ class _BonusesScreenState extends State<BonusesScreen>
               physics: const AlwaysScrollableScrollPhysics(),
               slivers: [
                 SliverToBoxAdapter(child: _buildSummary(isAr)),
+                if (_owed.isNotEmpty)
+                  SliverToBoxAdapter(
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+                      child: BonusOwedFromBooksCard(rows: _owed, isArabic: isAr),
+                    ),
+                  ),
                 SliverToBoxAdapter(
                   child: Padding(
                     padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
@@ -1258,7 +1274,7 @@ class _BonusesScreenState extends State<BonusesScreen>
       child: Row(children: [
         Expanded(child: _SmartMetricTile(
           label: isAr ? 'الإجمالي' : 'Total',
-          value: '${total.toStringAsFixed(0)} IQD',
+          value: '${total.toStringAsFixed(0)} ${context.read<SettingsProvider>().currencySymbolText}',
           color: AppColors.info,
           icon: Icons.payments_outlined,
           trend: pctChange,
@@ -1286,7 +1302,7 @@ class _BonusesScreenState extends State<BonusesScreen>
           value: '$paid',
           color: AppColors.primaryGold,
           icon: Icons.task_alt_rounded,
-          subtitle: isAr ? 'هذا الشهر' : 'this month',
+          subtitle: isAr ? 'كل الفترات' : 'all periods',
         )),
       ]),
     );
@@ -1423,7 +1439,7 @@ class _BonusTile extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
                 Text(
-                  '${bonus.amount.toStringAsFixed(0)} IQD',
+                  '${bonus.amount.toStringAsFixed(0)} ${context.read<SettingsProvider>().currencySymbolText}',
                   style: const TextStyle(
                       fontWeight: FontWeight.bold,
                       fontSize: 15,

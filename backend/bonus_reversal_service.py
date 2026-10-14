@@ -51,18 +51,8 @@ def _find_bonus_expense_account() -> Account | None:
 
 def _find_bonus_payable_account(employee: Employee | None = None) -> Account | None:
     """حساب 2310xxx — مكافآت مستحقة للموظف."""
-    if employee:
-        specific = (
-            Account.query
-            .filter(
-                Account.account_number.like('2310%'),
-                Account.name.like(f'%{employee.name}%'),
-            )
-            .first()
-        )
-        if specific:
-            return specific
-    return Account.query.filter_by(account_number='2310').first()
+    from services.bonus_accounts import employee_bonus_account
+    return employee_bonus_account(employee) or Account.query.filter_by(account_number='2310').first()
 
 
 # ── Main service ──────────────────────────────────────────────────────────────

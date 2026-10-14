@@ -7481,6 +7481,16 @@ class ApiService {
     }
   }
 
+  /// What each employee is owed in the books, beside their approved unpaid
+  /// bonuses (BONUS-BOOKS-1).
+  Future<Map<String, dynamic>> getBonusesOwed() async {
+    final response = await _authedGet(Uri.parse('$_baseUrl/bonuses/owed'));
+    if (response.statusCode == 200) {
+      return json.decode(utf8.decode(response.bodyBytes));
+    }
+    throw Exception('فشل في تحميل المستحق من الدفاتر');
+  }
+
   Future<Map<String, dynamic>> getBonusesPayablesReport() async {
     final response = await _authedGet(
       Uri.parse('$_baseUrl/bonuses/payables-report'),

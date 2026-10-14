@@ -24,6 +24,7 @@ from sqlalchemy import or_, func
 from sqlalchemy.exc import IntegrityError
 from werkzeug.exceptions import HTTPException
 from services.live_balances import live_balances_by_account_ids
+from services.bonus_accounts import employee_bonus_account, owed_by_employee
 
 bonus_bp = Blueprint('bonuses', __name__)
 
@@ -938,18 +939,7 @@ def _approve_single_bonus(bonus_id: int, approved_by: str) -> tuple:
         employee = Employee.query.get(bonus.employee_id)
         emp_name = employee.name if employee else str(bonus.employee_id)
 
-        bonuses_payable_account = None
-        if employee:
-            bonuses_payable_account = (
-                Account.query
-                .filter(
-                    Account.account_number.like('2310%'),
-                    Account.name.like(f'%{employee.name}%'),
-                )
-                .first()
-            )
-        if not bonuses_payable_account:
-            bonuses_payable_account = _find_bonus_payable_account()
+        bonuses_payable_account = employee_bonus_account(employee) or _find_bonus_payable_account()
         if not bonuses_payable_account:
             return False, {
                 'error': (
@@ -1420,18 +1410,7 @@ def pay_bonus(bonus_id):
         
         # حساب الذمة المدينة عند الصرف: نفس الحساب الذي جرى القيد عليه عند الاعتماد
         # الأولوية: 2310xxx (مكافآت مستحقة) الخاص بالموظف → 2310 العام كاحتياط
-        bonuses_payable_account = None
-        if employee:
-            bonuses_payable_account = (
-                Account.query
-                .filter(
-                    Account.account_number.like('2310%'),
-                    Account.name.like(f'%{employee.name}%'),
-                )
-                .first()
-            )
-        if not bonuses_payable_account:
-            bonuses_payable_account = _find_bonus_payable_account()
+        bonuses_payable_account = employee_bonus_account(employee) or _find_bonus_payable_account()
         if not bonuses_payable_account:
             return jsonify({
                 'success': False,
@@ -1838,6 +1817,21 @@ def get_invoice_types():
 # 📊 تقرير المستحقات (Payables Report)
 # ==========================================
 
+@bonus_bp.route('/bonuses/owed', methods=['GET'])
+@require_any_permission('bonus.calculate', 'bonus.approve', 'bonus.pay')
+@require_auth
+def get_bonuses_owed():
+    """What each employee is owed in the books, beside their approved unpaid
+    bonuses (BONUS-BOOKS-1: the books are right; a voucher outside the bonus
+    screen moves the books, not the bonus's status)."""
+    rows = owed_by_employee()
+    return jsonify({
+        'employees': rows,
+        'total_owed_in_books': round(sum(r['owed_in_books'] for r in rows), 2),
+        'total_approved_unpaid': round(sum(r['approved_unpaid'] for r in rows), 2),
+    }), 200
+
+
 @bonus_bp.route('/bonuses/payables-report', methods=['GET'])
 @require_any_permission('bonus.calculate', 'bonus.approve', 'bonus.pay')
 @require_auth
@@ -1916,6 +1910,8 @@ def get_bonuses_payables_report():
             'status_summary': status_summary,
             'employees_payables': employees_payables,
             'total_unpaid': total_unpaid,
+            # What the books say each employee is owed (BONUS-BOOKS-1).
+            'owed_by_employee': owed_by_employee(),
             'account_info': {
                 'account_number': bonuses_payable_account.account_number,
                 'account_name': bonuses_payable_account.name,

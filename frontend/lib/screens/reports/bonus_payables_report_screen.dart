@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 
 import '../../api_service.dart';
 import '../../providers/settings_provider.dart';
+import '../../widgets/bonus_owed_from_books_card.dart';
 
 /// تقرير مستحقات المكافآت - يعرض المكافآت الموافق عليها ولم تُدفع بعد
 class BonusPayablesReportScreen extends StatefulWidget {
@@ -112,6 +113,13 @@ class _BonusPayablesReportScreenState extends State<BonusPayablesReportScreen> {
     return [];
   }
 
+  /// What the books say each employee is owed (BONUS-BOOKS-1).
+  List<Map<String, dynamic>> _owedByEmployee() {
+    final raw = _report?['owed_by_employee'];
+    if (raw is! List) return [];
+    return raw.whereType<Map>().map((m) => Map<String, dynamic>.from(m)).toList();
+  }
+
   Map<String, dynamic>? _accountInfo() {
     final raw = _report?['account_info'];
     if (raw is Map<String, dynamic>) {
@@ -191,6 +199,10 @@ class _BonusPayablesReportScreenState extends State<BonusPayablesReportScreen> {
         children: [
           _buildSummaryCard(isArabic),
           const SizedBox(height: 16),
+          if (_owedByEmployee().isNotEmpty) ...[
+            BonusOwedFromBooksCard(rows: _owedByEmployee(), isArabic: isArabic),
+            const SizedBox(height: 16),
+          ],
           _buildStatusCard(isArabic),
           const SizedBox(height: 16),
           _buildEmployeesCard(isArabic),

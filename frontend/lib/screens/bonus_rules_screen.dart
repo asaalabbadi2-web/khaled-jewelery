@@ -6,6 +6,8 @@ import '../api_service.dart';
 import '../models/bonus_rule_model.dart';
 import '../models/employee_model.dart';
 import '../models/invoice_type_model.dart';
+import 'package:provider/provider.dart';
+import '../providers/settings_provider.dart';
 
 class BonusRulesScreen extends StatefulWidget {
   final ApiService api;
@@ -756,8 +758,8 @@ class _BonusRuleDialogState extends State<_BonusRuleDialog> {
                     helperText: _selectedRuleType == 'points_based' &&
                             _selectedBonusType == 'points_per_unit'
                         ? (isAr
-                            ? 'مثال: 0.5 يعني 0.5 دينار لكل نقطة'
-                            : 'e.g. 0.5 = 0.5 IQD per point')
+                            ? 'مثال: 0.5 يعني 0.5 ${context.read<SettingsProvider>().currencySymbolText} لكل نقطة'
+                            : 'e.g. 0.5 = 0.5 ${context.read<SettingsProvider>().currencySymbolText} per point')
                         : null,
                     border: const OutlineInputBorder(),
                   ),
