@@ -1891,25 +1891,23 @@ def get_bonuses_payables_report():
             })
             total_unpaid += float(total)
         
-        # التحقق من رصيد حساب مكافآت مستحقة (215)
-        bonuses_payable_account = Account.query.filter_by(account_number='215').first()
+        # The payable's balance is the books': the account the bonuses post to
+        # (the one finder) with the employees' accounts under it, from the
+        # counted journal lines. (It read account 215 -- none -- from voucher
+        # lines, and called it 2310.)
+        bonuses_payable_account = _find_bonus_payable_account()
         account_balance = None
         balance_matches = None
-        
+
         if bonuses_payable_account:
-            # حساب الرصيد من VoucherAccountLine
-            debit_sum = db.session.query(func.sum(VoucherAccountLine.amount)).filter(
-                VoucherAccountLine.account_id == bonuses_payable_account.id,
-                VoucherAccountLine.line_type == 'debit'
-            ).scalar() or 0
-            
-            credit_sum = db.session.query(func.sum(VoucherAccountLine.amount)).filter(
-                VoucherAccountLine.account_id == bonuses_payable_account.id,
-                VoucherAccountLine.line_type == 'credit'
-            ).scalar() or 0
-            
-            # رصيد حساب الالتزام = الدائن - المدين
-            account_balance = float(credit_sum - debit_sum)
+            tree, frontier = {bonuses_payable_account.id}, [bonuses_payable_account.id]
+            while frontier:
+                children = [a.id for a in Account.query.filter(Account.parent_id.in_(frontier)).all()]
+                frontier = [c for c in children if c not in tree]
+                tree.update(frontier)
+            live = live_balances_by_account_ids(tree)
+            # A liability: credit less debit.
+            account_balance = round(-sum(v['cash'] for v in live.values()), 2)
             balance_matches = abs(account_balance - total_unpaid) < 0.01
         
         return jsonify({
@@ -1919,8 +1917,8 @@ def get_bonuses_payables_report():
             'employees_payables': employees_payables,
             'total_unpaid': total_unpaid,
             'account_info': {
-                'account_number': '2310',
-                'account_name': 'مكافآت مستحقة',
+                'account_number': bonuses_payable_account.account_number,
+                'account_name': bonuses_payable_account.name,
                 'balance': account_balance,
                 'balance_matches': balance_matches
             } if bonuses_payable_account else None

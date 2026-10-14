@@ -8,6 +8,7 @@ import '../../widgets/report_category_section.dart';
 import '../accounts_screen.dart';
 import '../general_ledger_screen_v2.dart';
 import '../payroll_report_screen.dart';
+import 'bonus_payables_report_screen.dart';
 import '../trial_balance_screen_v2.dart';
 import 'category_weight_audit_report_screen.dart';
 import 'sales_by_customer_report_screen.dart';
@@ -437,6 +438,12 @@ class _ReportsMainScreenState extends State<ReportsMainScreen> {
         break;
       case 'payroll_report':
         destination = PayrollReportScreen(
+          api: widget.api,
+          isArabic: widget.isArabic,
+        );
+        break;
+      case 'bonus_payables':
+        destination = BonusPayablesReportScreen(
           api: widget.api,
           isArabic: widget.isArabic,
         );

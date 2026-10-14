@@ -7483,7 +7483,7 @@ class ApiService {
 
   Future<Map<String, dynamic>> getBonusesPayablesReport() async {
     final response = await _authedGet(
-      Uri.parse('$_baseUrl/reports/bonuses-payables'),
+      Uri.parse('$_baseUrl/bonuses/payables-report'),
     );
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));

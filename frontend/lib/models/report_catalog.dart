@@ -329,6 +329,18 @@ class ReportCatalog {
             route: 'attendance_summary',
             type: ReportType.payroll,
           ),
+          ReportDescriptor(
+            id: 'bonus_payables',
+            icon: Icons.card_giftcard,
+            titleAr: 'المكافآت المستحقة',
+            titleEn: 'Bonus Payables',
+            descriptionAr: 'المكافآت المعتمدة غير المصروفة لكل موظف، ومطابقتها برصيد حساب المكافآت المستحقة.',
+            descriptionEn: 'Approved unpaid bonuses per employee, reconciled to the payable account.',
+            route: 'bonus_payables',
+            type: ReportType.payroll,
+            available: true,
+            requiresFilters: false,
+          ),
         ],
       ),
       ReportCategory(
