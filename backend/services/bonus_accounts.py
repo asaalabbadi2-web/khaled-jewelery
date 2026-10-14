@@ -6,8 +6,8 @@ owed without passing through the bonus's status. The bonus screen and the
 payables report read the owed amount from the books; the bonuses stay the
 documents they are -- no voucher is attributed to a bonus by guess (no FIFO).
 
-One rule finds the account -- approval, payment, reversal and this reader
-used three copies of it.
+One rule finds each account -- approval, payment, reversal and this reader used
+copies of them; the employee's is an explicit link now (employee_account).
 """
 from __future__ import annotations
 
@@ -15,17 +15,28 @@ from sqlalchemy import func
 
 from models import Account, Employee, EmployeeBonus, db
 
-PAYABLE_PREFIX = '2310'
+def employee_bonus_account(employee):
+    """The employee's bonus payable account -- by its link (employee_account),
+    no longer the first 2310xxx whose name held theirs."""
+    from services.employee_accounts import employee_account
+    return employee_account(employee, 'bonus_payable')
 
 
-def employee_bonus_account(employee: Employee | None) -> Account | None:
-    """The employee's 2310xxx account -- the one their bonuses post to."""
-    if employee is None:
-        return None
-    return (Account.query
-            .filter(Account.account_number.like(f'{PAYABLE_PREFIX}%'),
-                    Account.name.like(f'%{employee.name}%'))
-            .first())
+def bonus_expense_account():
+    """Where an approved bonus is an expense: the mapped role bonus_expense (5401
+    on production). Two finders guessed it -- settings, a name, seven numbers;
+    a setting, a number, a name."""
+    from accounting.mappings import DEFAULT_MAPPING_OPERATION_TYPE, get_account_id_for_mapping
+    from services.employee_accounts import BONUS_EXPENSE
+    account_id = get_account_id_for_mapping(DEFAULT_MAPPING_OPERATION_TYPE, BONUS_EXPENSE)
+    return db.session.get(Account, account_id) if account_id else None
+
+
+def bonus_payable_parent():
+    """The bonus payables' parent: the mapped role employee_bonus_payable_parent (2310)."""
+    from accounting.mappings import DEFAULT_MAPPING_OPERATION_TYPE, get_account_id_for_mapping
+    account_id = get_account_id_for_mapping(DEFAULT_MAPPING_OPERATION_TYPE, 'employee_bonus_payable_parent')
+    return db.session.get(Account, account_id) if account_id else None
 
 
 def owed_by_employee() -> list[dict]:

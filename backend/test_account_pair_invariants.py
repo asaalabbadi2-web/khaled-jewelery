@@ -145,7 +145,12 @@ def test_new_employee_payables_accounts_are_valid_and_audit_clean():
     (CHART-001، المالك 12 أكتوبر 2026: «صحح الجميع» -- صُنع 26 توأمًا لم
     يُستعمل أيٌّ منها)، والتدقيق نظيف بعدها كما قبلها."""
     with app.app_context():
-        accounts = get_or_create_employee_payables_accounts('موظف اختبار ذمم')
+        import uuid
+        from models import Employee
+        employee = Employee(employee_code=f'E-P-{uuid.uuid4().hex[:6]}', name='موظف اختبار ذمم', is_active=True)
+        db.session.add(employee)
+        db.session.flush()
+        accounts = get_or_create_employee_payables_accounts(employee)
         db.session.commit()
 
         assert len(accounts) > 0

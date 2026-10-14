@@ -30,29 +30,18 @@ from models import (
 )
 
 
-# ── Account lookup helpers (مطابق للمنطق في bonus_routes.py) ─────────────────
+# ── Account lookup helpers (services/bonus_accounts.py, as approval) ─────────
 
 def _find_bonus_expense_account() -> Account | None:
-    """حساب 5401 — مصروف مكافآت الموظفين."""
-    from app import app
-    expense_number = app.config.get('BONUS_EXPENSE_ACCOUNT_NUMBER', '5401')
-    acct = Account.query.filter_by(account_number=expense_number).first()
-    if acct:
-        return acct
-    return (
-        Account.query
-        .filter(
-            Account.name.ilike('%مصروف مكافأ%'),
-            Account.type == 'Expense',
-        )
-        .first()
-    )
+    """مصروف المكافآت: الدور المربوط (CHART-002) -- the same as approval's."""
+    from services.bonus_accounts import bonus_expense_account
+    return bonus_expense_account()
 
 
 def _find_bonus_payable_account(employee: Employee | None = None) -> Account | None:
-    """حساب 2310xxx — مكافآت مستحقة للموظف."""
-    from services.bonus_accounts import employee_bonus_account
-    return employee_bonus_account(employee) or Account.query.filter_by(account_number='2310').first()
+    """مكافآت الموظف المستحقة: حسابه المربوط، وإلا الأب المربوط (CHART-002)."""
+    from services.bonus_accounts import bonus_payable_parent, employee_bonus_account
+    return employee_bonus_account(employee) or bonus_payable_parent()
 
 
 # ── Main service ──────────────────────────────────────────────────────────────

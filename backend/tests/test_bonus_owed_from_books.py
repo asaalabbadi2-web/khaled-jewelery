@@ -38,6 +38,8 @@ def _employee_with_account():
     account = Account(account_number=f'2310{uid}', name=f'ح/ذمم الموظف موظف {uid} - مكافآت', type='Liability')
     db.session.add_all([employee, account])
     db.session.flush()
+    from services.employee_accounts import link
+    link(employee, 'bonus_payable', account, by='t')       # explicit, as production's (CHART-002)
     return employee, account
 
 

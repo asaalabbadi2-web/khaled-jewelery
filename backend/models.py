@@ -3883,6 +3883,24 @@ class Employee(db.Model):
         return f'<Employee {self.employee_code} - {self.name}>'
 
 
+class EmployeeAccount(db.Model):
+    """An employee's account for one role -- salaries, commissions, end of
+    service, bonuses (CHART-002, ADR-046). The code found them by the employee's
+    name under a parent known by its number: a renamed employee lost them, a
+    name inside another's could take theirs. One row per (employee, role)."""
+    __tablename__ = 'employee_account'
+    __table_args__ = (db.UniqueConstraint('employee_id', 'role', name='uq_employee_account_role'),)
+
+    id = db.Column(db.Integer, primary_key=True)
+    employee_id = db.Column(db.Integer, db.ForeignKey('employee.id', ondelete='CASCADE'), nullable=False, index=True)
+    role = db.Column(db.String(40), nullable=False)
+    account_id = db.Column(db.Integer, db.ForeignKey('account.id'), nullable=False)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.now)
+    created_by = db.Column(db.String(100))
+
+    account = db.relationship('Account')
+
+
 class AppUser(db.Model):
     """حسابات المستخدمين الخاصة بالنظام"""
     __tablename__ = 'app_user'

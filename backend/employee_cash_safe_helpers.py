@@ -5,9 +5,9 @@
 Requirement:
 - الخزائن النقدية تحت "صناديق الموظفين النقدية (عهد)"
 
-Implementation (matches the current chart-of-accounts):
-- Ensure a grouping account exists: 1100001 "صناديق الموظفين النقدية (عهد)" under cash account "1100" (or "110").
-- Create a dedicated account per employee under 1100001 (11000010, 11000011, ...).
+Implementation:
+- The grouping account is the mapped role employee_cash_custody_parent (1100001 on production).
+- Create a dedicated account per employee under it.
 - Create a SafeBox of type 'cash' linked to that account.
 """
 
@@ -17,40 +17,16 @@ from account_number_generator import get_next_account_number
 from employee_account_naming import (
     employee_cash_custody_account_name,
     employee_cash_safe_name,
-    group_account_name,
 )
 
 from typing import Optional
 
 
 def ensure_employee_cash_group_account(created_by: str = 'system') -> Optional[Account]:
-    """Ensure the grouping account for employee cash safes exists (1100001)."""
-    group = Account.query.filter_by(account_number='1100001').first()
-    if group:
-        # Keep naming consistent with requested structure.
-        desired = group_account_name('employee_cash_custody')
-        if (group.name or '').strip() in ('', 'صناديق الموظفين النقدية (عهد)') and (group.name or '').strip() != desired:
-            group.name = desired
-            db.session.flush()
-        return group
-
-    parent = Account.query.filter_by(account_number='1100').first()
-    if not parent:
-        parent = Account.query.filter_by(account_number='110').first()
-    if not parent:
-        return None
-
-    group = Account(
-        account_number='1100001',
-        name=group_account_name('employee_cash_custody'),
-        type='asset',
-        transaction_type='cash',
-        tracks_weight=False,
-        parent_id=parent.id,
-    )
-    db.session.add(group)
-    db.session.flush()
-    return group
+    """The group employee cash safes live under: a mapped role (1100001 on
+    production; CHART-002, ADR-046) -- no longer created by number when missing."""
+    from services.employee_accounts import CASH_CUSTODY_PARENT, parent_account
+    return parent_account(CASH_CUSTODY_PARENT)
 
 
 def _next_child_number_under_group(group_account: Account) -> str:
@@ -71,8 +47,6 @@ def create_employee_cash_safe(employee_name: str, created_by: str = 'system', em
     """
 
     group = ensure_employee_cash_group_account(created_by=created_by)
-    if not group:
-        raise ValueError('تعذر تحديد/إنشاء الحساب التجميعي لصناديق الموظفين النقدية (1100001).')
 
     acc_number = _next_child_number_under_group(group)
     label = employee_name

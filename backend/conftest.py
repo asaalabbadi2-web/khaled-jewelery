@@ -207,24 +207,6 @@ def initialize_db():
             e = Employee(employee_code='E-000001', name='موظف اختبار', is_active=True)
             db.session.add(e)
 
-        # The accounts production maps the posting roles to, by their production
-        # numbers and names (CHART-002): a role is mapped, not found by number.
-        for number, name, kind in (('1320', 'مخزون أجور المصنعية', 'Asset'),
-                                   ('510', 'مصروفات أجور المصنعية', 'expense'),
-                                   ('511', 'مشتريات ذهب جديد من العملاء', 'Expense'),
-                                   ('512', 'مشتريات ذهب كسر من العملاء', 'Expense'),
-                                   ('513', 'مردودات مشتريات ذهب', 'Expense'),
-                                   ('401', 'مبيعات ذهب كسر', 'Revenue'),
-                                   ('420', 'مردودات مبيعات ذهب', 'Revenue')):
-            if not Account.query.filter_by(account_number=number).first():
-                db.session.add(Account(account_number=number, name=name, type=kind,
-                                       transaction_type='cash', tracks_weight=False))
-
-        # Roles mapped as the test chart has always resolved them (CHART-002).
-        db.session.flush()
-        from tests.chart_roles import map_roles_as_the_test_chart_resolves
-        map_roles_as_the_test_chart_resolves()
-
         db.session.commit()
 
         # PostgreSQL: rows seeded with explicit ids (accounts 15, 1300, 1610,
@@ -241,6 +223,38 @@ def initialize_db():
                 db.session.execute(text(
                     f'select setval(\'{sequence}\', coalesce((select max("{column}") from "{table}"), 0) + 1, false)'))
             db.session.commit()
+
+        # After the sequences: these rows take ids the sequences hand out.
+        # The accounts production maps the posting roles to, by their production
+        # numbers and names (CHART-002): a role is mapped, not found by number.
+        for number, name, kind in (('1320', 'مخزون أجور المصنعية', 'Asset'),
+                                   ('510', 'مصروفات أجور المصنعية', 'expense'),
+                                   ('511', 'مشتريات ذهب جديد من العملاء', 'Expense'),
+                                   ('512', 'مشتريات ذهب كسر من العملاء', 'Expense'),
+                                   ('513', 'مردودات مشتريات ذهب', 'Expense'),
+                                   ('401', 'مبيعات ذهب كسر', 'Revenue'),
+                                   ('420', 'مردودات مبيعات ذهب', 'Revenue'),
+                                   ('1700', 'حسابات الموظفين', 'Asset'),
+                                   ('2400', 'ذمم الموظفين-رواتب', 'Liability'),
+                                   ('2410', 'ذمم الموظفين-عمولات', 'Liability'),
+                                   ('2420', 'ذمم الموظفين - مكافآت نهاية الخدمة', 'Liability'),
+                                   ('2310', 'مكافآت مستحقة للموظفين', 'Liability'),
+                                   ('1100001', 'حساب عهدة نقدية الموظفين', 'Asset'),
+                                   ('5410', 'رواتب الموظفين', 'Expense'),
+                                   ('5401', 'حساب المكافئات والعمولات', 'Expense')):
+            if not Account.query.filter_by(account_number=number).first():
+                db.session.add(Account(account_number=number, name=name, type=kind,
+                                       transaction_type='cash', tracks_weight=False))
+        if not Account.query.filter_by(account_number='71310001').first():
+            db.session.add(Account(account_number='71310001', name='حساب عهدة ذهب الموظفين وزني', type='Asset',
+                                   transaction_type='gold', tracks_weight=True))
+
+        # Roles mapped as the test chart has always resolved them (CHART-002).
+        db.session.flush()
+        from tests.chart_roles import map_roles_as_the_test_chart_resolves
+        map_roles_as_the_test_chart_resolves()
+
+        db.session.commit()
 
 
 @pytest.fixture

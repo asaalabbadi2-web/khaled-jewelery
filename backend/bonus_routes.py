@@ -24,7 +24,8 @@ from sqlalchemy import or_, func
 from sqlalchemy.exc import IntegrityError
 from werkzeug.exceptions import HTTPException
 from services.live_balances import live_balances_by_account_ids
-from services.bonus_accounts import employee_bonus_account, owed_by_employee
+from services.bonus_accounts import (bonus_expense_account, bonus_payable_parent, employee_bonus_account,
+                                     owed_by_employee)
 
 bonus_bp = Blueprint('bonuses', __name__)
 
@@ -94,97 +95,18 @@ def _validate_points_source(points_source, rule_type: str, conditions):
 # دوال البحث المرنة عن حسابات المكافآت
 # ──────────────────────────────────────────────────────────────────────────────
 # تتجنب الأرقام الصلبة حتى تعمل في أي بيئة إنتاج بمخططات حسابات مختلفة.
-# ترتيب البحث:
-#   1. الإعدادات (bonus_expense_account / bonus_payable_account)
-#   2. بحث بالاسم تحت الحساب الأب المناسب
-#   3. قائمة أرقام احتياطية معروفة
+# الحسابات بأدوارها المربوطة (CHART-002، ADR-046): لا إعداد برقم، ولا بحث
+# بالاسم، ولا أرقام احتياطية — services/bonus_accounts.py.
 # ══════════════════════════════════════════════════════════════════════════════
 
 def _find_bonus_expense_account():  # Optional[Account]
-    """حساب مصروف المكافآت (مدين عند الاعتماد)."""
-    # 1) من الإعدادات إن وُجد
-    try:
-        from models import Settings
-        s = Settings.query.first()
-        cfg_num = getattr(s, 'bonus_expense_account_number', None) if s else None
-        if cfg_num:
-            acc = Account.query.filter_by(account_number=str(cfg_num)).first()
-            if acc:
-                return acc
-    except Exception:
-        pass
-
-    # 2) بحث بالاسم: "مصروف" + "مكافأ" تحت أي حساب مصروفات (type=Expense)
-    name_match = (
-        Account.query
-        .filter(
-            Account.type.in_(['Expense', 'expense']),
-            or_(
-                Account.name.ilike('%مصروف%مكافأ%'),
-                Account.name.ilike('%مكافأ%مصروف%'),
-                Account.name.ilike('%مصروف%مكافئ%'),
-                Account.name.ilike('%مكافئ%مصروف%'),
-                Account.name.ilike('%bonus%expense%'),
-                Account.name.ilike('%expense%bonus%'),
-            ),
-        )
-        .order_by(Account.id)
-        .first()
-    )
-    if name_match:
-        return name_match
-
-    # 3) أرقام احتياطية مرتبة حسب الأولوية
-    # 5401 = المكافآت والعمولات (الحساب المعتمد في دليل الحسابات)
-    for num in ('5401', '5450', '5451', '5452', '5455', '5491', '5492'):
-        acc = Account.query.filter_by(account_number=num).first()
-        if acc and acc.type in ('Expense', 'expense'):
-            return acc
-
-    return None
+    """حساب مصروف المكافآت: الدور المربوط bonus_expense (CHART-002)."""
+    return bonus_expense_account()
 
 
 def _find_bonus_payable_account():  # Optional[Account]
-    """حساب مكافآت مستحقة العام (دائن عند الاعتماد / مدين عند الصرف)."""
-    # 1) من الإعدادات إن وُجد
-    try:
-        from models import Settings
-        s = Settings.query.first()
-        cfg_num = getattr(s, 'bonus_payable_account_number', None) if s else None
-        if cfg_num:
-            acc = Account.query.filter_by(account_number=str(cfg_num)).first()
-            if acc:
-                return acc
-    except Exception:
-        pass
-
-    # 2) بحث بالاسم: "مكافأ" + "مستحق" تحت الخصوم
-    name_match = (
-        Account.query
-        .filter(
-            Account.type.in_(['Liability', 'liability']),
-            or_(
-                Account.name.ilike('%مكافأ%مستحق%'),
-                Account.name.ilike('%مستحق%مكافأ%'),
-                Account.name.ilike('%مكافئ%مستحق%'),
-                Account.name.ilike('%مستحق%مكافئ%'),
-                Account.name.ilike('%accrued%bonus%'),
-                Account.name.ilike('%bonus%payable%'),
-            ),
-        )
-        .order_by(Account.id)
-        .first()
-    )
-    if name_match:
-        return name_match
-
-    # 3) أرقام احتياطية معروفة
-    for num in ('2310', '2311', '2312'):
-        acc = Account.query.filter_by(account_number=num).first()
-        if acc:
-            return acc
-
-    return None
+    """أبو مكافآت الموظفين المستحقة: الدور المربوط employee_bonus_payable_parent (CHART-002)."""
+    return bonus_payable_parent()
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -929,9 +851,8 @@ def _approve_single_bonus(bonus_id: int, approved_by: str) -> tuple:
         if not bonus_expense_account:
             return False, {
                 'error': (
-                    'لم يُعثر على حساب مصروف المكافآت. '
-                    'يرجى إنشاء حساب مصروفات باسم يحتوي على "مصروف مكافأ" '
-                    'أو تحديد رقمه في الإعدادات (bonus_expense_account_number).'
+                    'لا حساب مربوط لمصروف المكافآت (افتراضي / bonus_expense) — '
+                    'يُضبط في «الربط المحاسبي».'
                 ),
                 'code': 'missing_expense_account',
             }
@@ -939,14 +860,20 @@ def _approve_single_bonus(bonus_id: int, approved_by: str) -> tuple:
         employee = Employee.query.get(bonus.employee_id)
         emp_name = employee.name if employee else str(bonus.employee_id)
 
-        bonuses_payable_account = employee_bonus_account(employee) or _find_bonus_payable_account()
+        # The employee's own bonus account: linked, or made under its mapped
+        # parent and linked -- the approval no longer credits the parent (2310)
+        # itself for an employee who has none (CHART-002).
+        from accounting.mappings import AccountNotMapped
+        from services.employee_accounts import ensure_payable_account
+        try:
+            bonuses_payable_account = (ensure_payable_account(employee, 'bonus_payable', by='bonus-approval')
+                                       if employee else None)
+        except AccountNotMapped as missing:
+            bonuses_payable_account = None
+            emp_name = f'{emp_name} — {missing}'
         if not bonuses_payable_account:
             return False, {
-                'error': (
-                    f'لم يُعثر على حساب مكافآت مستحقة للموظف ({emp_name}). '
-                    'شغّل "إصلاح حسابات الموظف" لإنشاء حساب 2310xxx '
-                    'أو حدد حساب 2310 في الإعدادات.'
-                ),
+                'error': f'لا حساب مكافآت مستحقة للموظف ({emp_name}).',
                 'code': 'missing_payable_account',
             }
 

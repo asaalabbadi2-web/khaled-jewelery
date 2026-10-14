@@ -50,6 +50,12 @@ REQUIRED_ROLES = (
     # cost on the first; a purchase's weight falls back on the second (CHART-002).
     (DEFAULT_MAPPING_OPERATION_TYPE, 'gold_cost_of_sales'),
     (DEFAULT_MAPPING_OPERATION_TYPE, 'gold_cost_of_sales_weight'),
+    # The employee structure (services/employee_accounts.py): the parents an
+    # employee's accounts are made under, and the payroll and bonus expenses.
+    *((DEFAULT_MAPPING_OPERATION_TYPE, r) for r in (
+        'employee_personal_parent', 'employee_salary_payable_parent', 'employee_commission_payable_parent',
+        'employee_eos_payable_parent', 'employee_bonus_payable_parent', 'employee_gold_custody_parent',
+        'employee_cash_custody_parent', 'salary_expense', 'bonus_expense')),
 )
 
 

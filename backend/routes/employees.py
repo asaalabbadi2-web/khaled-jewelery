@@ -100,7 +100,6 @@ def create_employee():
     from employee_account_helpers import (
         create_employee_account,
         create_employee_payables_accounts,
-        get_employee_department_from_code,
         ensure_employee_group_accounts,
         ensure_memo_for_account,
     )
@@ -149,10 +148,12 @@ def create_employee():
         if account_id not in (None, '', False):
             linked = Account.query.get(int(account_id))
             if linked:
-                linked_num = str(getattr(linked, 'account_number', '') or '')
                 linked_tt = (getattr(linked, 'transaction_type', '') or '').strip().lower()
 
-                if linked_num in ('170', '1700', '7170', '71700') or linked_tt == 'gold' or bool(getattr(linked, 'tracks_weight', False)):
+                # A group (an account with children) or a weight account is no
+                # employee's personal account -- known by what it is, not its number.
+                is_group = Account.query.filter_by(parent_id=linked.id).first() is not None
+                if is_group or linked_tt == 'gold' or bool(getattr(linked, 'tracks_weight', False)):
                     account_id = None
     except Exception:
         # If parsing fails, fall back to auto-creation path.
@@ -192,7 +193,7 @@ def create_employee():
         except Exception as e:
             return jsonify({
                 'error': f'فشل إنشاء الحساب التلقائي: {str(e)}',
-                'hint': 'تأكد من تشغيل seed_employee_accounts.py لإنشاء الحسابات التجميعية'
+                'hint': 'تأكد من ربط حسابات الموظفين التجميعية في «الربط المحاسبي» (employee_personal_parent…)'
             }), 500
 
     # Ensure the linked/selected personal account has a memo/weight parallel.
@@ -311,9 +312,13 @@ def create_employee():
         if _boolish(data.get('auto_create_payables_accounts'), default=True):
             try:
                 created_by = data.get('created_by', 'system')
-                created_payables_accounts = create_employee_payables_accounts(name, created_by=created_by)
+                created_payables_accounts = create_employee_payables_accounts(employee, created_by=created_by)
             except Exception as exc:
-                return jsonify({'error': f'فشل إنشاء حسابات مستحقات الموظف: {str(exc)}'}), 500
+                # Nothing of the employee is kept half-made (CHART-002).
+                db.session.rollback()
+                from accounting.mappings import AccountNotMapped
+                status = 400 if isinstance(exc, AccountNotMapped) else 500
+                return jsonify({'error': f'فشل إنشاء حسابات مستحقات الموظف: {str(exc)}'}), status
 
         # Employee advance accounts were removed by request (legacy 1400 and related logic).
         created_advance_account = None
@@ -537,18 +542,6 @@ def list_employee_attendance(employee_id):
     attendance_records = query.order_by(Attendance.attendance_date.desc()).all()
     return jsonify([record.to_dict() for record in attendance_records])
 
-@employees_bp.route('/employees/departments/summary', methods=['GET'])
-@require_permission('employees.view')
-def get_employee_departments_summary():
-    """الحصول على ملخص أقسام الموظفين وعدد الموظفين في كل قسم"""
-    from employee_account_helpers import get_department_summary
-    
-    try:
-        summary = get_department_summary()
-        return jsonify(summary)
-    except Exception as e:
-        return jsonify({'error': f'Failed to get departments summary: {str(e)}'}), 500
-
 @employees_bp.route('/employees/<int:employee_id>/advance-account', methods=['GET'])
 @require_permission('employees.payroll')
 def get_employee_advance_account(employee_id):
@@ -581,7 +574,6 @@ def ensure_employee_setup(employee_id):
         create_employee_account,
         ensure_employee_group_accounts,
         get_or_create_employee_payables_accounts,
-        EMPLOYEE_PERSONAL_PARENT_NUMBER,
         ensure_memo_for_account,
     )
     from employee_account_naming import employee_personal_account_name
@@ -628,14 +620,12 @@ def ensure_employee_setup(employee_id):
 
         # 1) Ensure personal account is linked.
         if ensure_personal and not getattr(employee, 'account_id', None):
-            parent_acc = Account.query.filter_by(account_number=str(EMPLOYEE_PERSONAL_PARENT_NUMBER)).first()
+            # An unlinked personal account already made for this employee, under
+            # the mapped personal parent -- never a same-named account elsewhere.
+            from services.employee_accounts import PERSONAL_PARENT, parent_account
+            parent_acc = parent_account(PERSONAL_PARENT)
             expected_name = employee_personal_account_name(employee.name)
-            existing = None
-            if parent_acc:
-                existing = Account.query.filter_by(parent_id=parent_acc.id, name=expected_name).first()
-            if not existing:
-                # Fallback lookup by name only (in case parent linkage differs in older DBs)
-                existing = Account.query.filter_by(name=expected_name).order_by(Account.id.desc()).first()
+            existing = Account.query.filter_by(parent_id=parent_acc.id, name=expected_name).first()
 
             if existing:
                 try:
@@ -659,7 +649,7 @@ def ensure_employee_setup(employee_id):
 
         # 2) Ensure payables accounts exist (idempotent).
         if ensure_payables:
-            payables = get_or_create_employee_payables_accounts(employee.name, created_by=created_by)
+            payables = get_or_create_employee_payables_accounts(employee, created_by=created_by)
             created['ensured_payables_accounts'] = [
                 {
                     'account_id': int(a.id),
@@ -723,7 +713,6 @@ def bulk_ensure_employees_setup():
         get_or_create_employee_payables_accounts,
         ensure_employee_group_accounts,
         create_employee_account,
-        EMPLOYEE_PERSONAL_PARENT_NUMBER,
         ensure_memo_for_account,
     )
     from employee_account_naming import employee_personal_account_name
@@ -765,7 +754,7 @@ def bulk_ensure_employees_setup():
                 created['personal_account'] = acct.account_number
 
             # payables accounts (2400/2410/2420/2310) — always
-            payables = get_or_create_employee_payables_accounts(emp.name, created_by='bulk-ensure')
+            payables = get_or_create_employee_payables_accounts(emp, created_by='bulk-ensure')
             if payables:
                 created['payables'] = [a.account_number for a in payables]
 
@@ -1190,28 +1179,15 @@ def _post_payroll_accrual_internal(payroll_entry, created_by='system'):
     if not employee:
         return False, 'الموظف غير موجود', None
 
-    # ── حساب مصروف الرواتب (5410) ────────────────────────────────────
-    salary_expense_account = Account.query.filter_by(account_number='5410').first()
-    if not salary_expense_account:
-        return False, 'حساب مصروف الرواتب (5410) غير موجود في شجرة الحسابات', None
-
-    # ── حساب ذمم رواتب الموظف (2400xxxx) ──────────────────────────────
-    salary_payable_account_id = None
+    # ── حساب مصروف الرواتب: بدوره (5410 على الإنتاج، CHART-002) ──────────
+    from accounting.mappings import AccountNotMapped
+    from services.employee_accounts import SALARY_EXPENSE, ensure_payable_account, parent_account
     try:
-        from employee_account_helpers import get_or_create_employee_payables_accounts
-        from employee_account_naming import employee_payable_account_name
-        expected_name = employee_payable_account_name(employee.name, category_ar='رواتب')
-        payables = get_or_create_employee_payables_accounts(
-            employee.name,
-            created_by=created_by,
-        )
-        salary_acc = next((a for a in payables if (a.name or '').strip() == expected_name), None)
-        salary_payable_account_id = int(salary_acc.id) if salary_acc else None
-    except Exception:
-        salary_payable_account_id = None
-
-    if not salary_payable_account_id:
-        return False, 'لا يوجد حساب ذمم رواتب (2400xxxx) لهذا الموظف. يرجى تشغيل Ensure setup للموظف.', None
+        salary_expense_account = parent_account(SALARY_EXPENSE)
+        # ── ذمم رواتب الموظف: حسابه المربوط، أو يُنشأ تحت أبيه المربوط ─────
+        salary_payable_account_id = int(ensure_payable_account(employee, 'salary_payable', by=created_by).id)
+    except AccountNotMapped as missing:
+        return False, str(missing), None
 
     # ── إنشاء القيد ───────────────────────────────────────────────────
     now = datetime.now()
@@ -1387,24 +1363,14 @@ def mark_payroll_paid(payroll_id):
             db.session.flush()  # للحصول على voucher.id
 
             # ✅ تحديد حساب طرف الرواتب: ذمم الموظف - رواتب (2400xxxx)
-            salary_account_id = None
+            from accounting.mappings import AccountNotMapped, get_account_id_for_mapping
+            from services.employee_accounts import ensure_payable_account
             try:
-                from employee_account_helpers import get_or_create_employee_payables_accounts
-                from employee_account_naming import employee_payable_account_name
-
-                expected_name = employee_payable_account_name(employee.name, category_ar='رواتب')
-                payables = get_or_create_employee_payables_accounts(
-                    employee.name,
-                    created_by=data.get('created_by', 'system'),
-                )
-                salary_acc = next((a for a in payables if (a.name or '').strip() == expected_name), None)
-                salary_account_id = int(salary_acc.id) if salary_acc else None
-            except Exception:
-                salary_account_id = None
-
-            if not salary_account_id:
+                salary_account_id = int(ensure_payable_account(
+                    employee, 'salary_payable', by=data.get('created_by', 'system')).id)
+            except AccountNotMapped as missing:
                 db.session.rollback()
-                return jsonify({'error': 'لا يوجد حساب ذمم رواتب (2400xxxx) لهذا الموظف. يرجى تشغيل Ensure setup للموظف.'}), 400
+                return jsonify({'error': str(missing)}), 400
 
             # ✅ تحديد حساب الدفع (نقدية/بنك/شيك)
             payment_account_id = data.get('payment_account_id')
@@ -1416,19 +1382,14 @@ def mark_payroll_paid(payroll_id):
                     db.session.rollback()
                     return jsonify({'error': f'حساب الدفع غير موجود (ID: {payment_account_id})'}), 400
             else:
-                # البحث عن حساب النقدية الافتراضي
-                payment_account = Account.query.filter(
-                    or_(
-                        Account.account_number.like('100%'),
-                        Account.name.like('%صندوق%'),
-                        Account.name.like('%نقدية%'),
-                        Account.name.like('%cash%')
-                    )
-                ).first()
-
+                # The cash role, mapped -- the first account whose number began
+                # with 100 or whose name held «صندوق» was the scrap box (1310002)
+                # on the production copy (CHART-002).
+                cash_id = get_account_id_for_mapping('افتراضي', 'cash')
+                payment_account = db.session.get(Account, cash_id) if cash_id else None
                 if not payment_account:
                     db.session.rollback()
-                    return jsonify({'error': 'لا يوجد حساب دفع (نقدية/بنك) في النظام'}), 400
+                    return jsonify({'error': 'لا حساب نقدية مربوط (افتراضي / cash) ولا حساب دفع محدد'}), 400
 
             cash_paid = max(0.0, net_salary - advance_deduction_amount)
 

@@ -69,22 +69,26 @@ def test_bonuses_and_end_of_service_move_to_other_credit_balances_numbered_as_th
     assert chart_001.apply(by='t', now=NOW, dry_run=True, steps=['move'])['move']['moved'] == []
 
 
-def test_the_code_creates_2310_under_24():
+def test_the_code_creates_no_2310_the_bonus_parent_is_its_role():
+    """It created 2310 under 24 when missing; the chart is data now (CHART-002,
+    ADR-046): the bonus payables' parent is the mapped role, whatever its number."""
     from employee_account_helpers import ensure_employee_group_accounts
-    two = _acc('2', 'الخصوم')
-    _acc('23', 'الالتزامات الضريبية', parent=two)
-    other = _acc('24', 'أرصدة دائنة أخرى', parent=two)
     existing = Account.query.filter_by(account_number='2310').first()
-    if existing:
-        existing.account_number = f'x{uuid.uuid4().hex[:6]}'
-        db.session.flush()
+    existing.account_number = f'x{uuid.uuid4().hex[:6]}'
+    db.session.flush()
     ensured = ensure_employee_group_accounts(created_by='t')
-    assert ensured['2310'].parent_id == other.id
+    assert ensured['employee_bonus_payable_parent'].id == existing.id
+    assert Account.query.filter_by(account_number='2310').first() is None
 
 
 def test_an_employee_cash_account_gets_no_weight_twin():
     from employee_account_helpers import get_or_create_employee_payables_accounts
-    made = get_or_create_employee_payables_accounts(f'موظف {uuid.uuid4().hex[:4]}', created_by='t')
+    from models import Employee
+    employee = Employee(employee_code=f'E-C-{uuid.uuid4().hex[:6]}', name=f'موظف {uuid.uuid4().hex[:4]}',
+                        is_active=True)
+    db.session.add(employee)
+    db.session.flush()
+    made = get_or_create_employee_payables_accounts(employee, created_by='t')
     assert made, 'its payables were made'
     assert all(a.memo_account_id is None for a in made), 'cash only: no twin'
 

@@ -23,6 +23,12 @@ _NUMBERS = {
     'purchases_gold_scrap': ['512', '511', '510'], 'purchase_returns': ['513', '512', '511', '50'],
     'commission': ['5150'], 'manufacturing_wage': ['510'],
     'gold_cost_of_sales': ['521'], 'gold_cost_of_sales_weight': ['7521'],
+    # The employee structure (CHART-002 step 3): what the code built by these
+    # numbers before; production maps the same.
+    'employee_personal_parent': ['1700'], 'employee_salary_payable_parent': ['2400'],
+    'employee_commission_payable_parent': ['2410'], 'employee_eos_payable_parent': ['2420'],
+    'employee_bonus_payable_parent': ['2310'], 'employee_gold_custody_parent': ['71310001'],
+    'employee_cash_custody_parent': ['1100001'], 'salary_expense': ['5410'], 'bonus_expense': ['5401'],
 }
 _NAMES = {
     'cash': ['صندوق النقدية'], 'sales_gold_new': ['مبيعات ذهب جديد'], 'sales_gold_scrap': ['مبيعات ذهب كسر'],

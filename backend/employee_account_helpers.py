@@ -1,45 +1,26 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
-"""Employee account helpers.
+"""Employee account helpers -- the parents are mapped roles, the employee's accounts linked (CHART-002).
 
-This project supports a dual ledger (cash + weight/memo). For employees, the
-requested structure is:
-
-- Assets (employee personal accounts):
-    - 170: أرصدة مدينة أخرى
-        - 1700: حسابات الموظفين
-
-- Liabilities (employee payables):
-    - 240: ذمم الموظفين
-        - 2400: ذمم الموظفين-رواتب
-        - 2410: ذمم الموظفين-عمولات
-        - 2420: ذمم الموظفين - مكافآت نهاية الخدمة
-
-All created/ensured accounts should have a weight (memo) parallel account:
-    memo_number = '7' + financial_number
-
-The helpers remain defensive: they create missing grouping accounts when
-possible, without force-changing existing account parents/types.
+An employee's personal account lives under the mapped role
+employee_personal_parent (1700 on production); the payables under
+employee_salary_payable_parent / _commission_ / _eos_ / employee_bonus_payable_parent
+(2400, 2410, 2420, 2310), linked per employee in employee_account
+(services/employee_accounts.py). The code creates an employee's own accounts
+and their weight twins; never a parent -- the chart is data (ADR-046).
 """
 
 # استخدم نفس الوحدة التي يهيئها app.py لتفادي إنشاء نسخة SQLAlchemy ثانية
 from models import Account, db
 from account_pair_service import link_accounts
 
-from employee_account_naming import (
-    employee_payable_account_name,
-    employee_personal_account_name,
-    group_account_name,
-)
+from employee_account_naming import employee_personal_account_name
 
 from account_number_generator import get_next_account_number
 
-from typing import Dict, List, Optional, Tuple
+from typing import List, Optional
 
 
-EMPLOYEE_DEBTORS_ROOT_NUMBER = '170'
-EMPLOYEE_PERSONAL_PARENT_NUMBER = '1700'
-EMPLOYEE_PAYABLES_ROOT_NUMBER = '240'
 
 
 def _normalize_type(value: str) -> str:
@@ -147,327 +128,44 @@ def ensure_memo_for_account(fin_account: Account) -> Optional[Account]:
     return memo_account
 
 
-def _digits_only(value: str) -> str:
-    return ''.join(ch for ch in str(value or '').strip() if ch.isdigit())
-
-
-def _find_existing_parent_by_prefix(account_number: str) -> Optional[Account]:
-    """Try to find a reasonable parent by stripping digits from the end.
-
-    Example: 230 -> 23 -> 2
-    """
-
-    digits = _digits_only(account_number)
-    while len(digits) > 1:
-        digits = digits[:-1]
-        parent = Account.query.filter_by(account_number=digits).first()
-        if parent:
-            return parent
-    return None
-
-
-def _ensure_account(
-    *,
-    account_number: str,
-    name: str,
-    acc_type: str,
-    transaction_type: str,
-    tracks_weight: bool,
-    parent_account: Optional[Account],
-) -> Account:
-    existing = Account.query.filter_by(account_number=str(account_number)).first()
-    if existing:
-        # Keep it non-destructive: only normalize the name if empty.
-        if not (existing.name or '').strip():
-            existing.name = name
-            db.session.flush()
-        return existing
-
-    account = Account(
-        account_number=str(account_number),
-        name=name,
-        type=acc_type,
-        transaction_type=transaction_type,
-        tracks_weight=tracks_weight,
-        parent_id=(parent_account.id if parent_account else None),
-    )
-    db.session.add(account)
-    db.session.flush()
-    return account
-
-
 def ensure_employee_group_accounts(created_by: str = 'system'):
-    """Ensure required employee grouping accounts exist.
+    """The employee structure's parents, by their roles (CHART-002, ADR-046).
 
-        Requested structure:
-        - 170: أرصدة مدينة أخرى (تجميعي)
-            - 1700: حسابات الموظفين (تجميعي)
-        - 240: ذمم الموظفين (تجميعي)
-            - 2400/2410/2420: مجموعات ذمم الموظفين
+    This built 170, 1700, 240, 2400-2420 and 2310 by their 2026 numbers when
+    missing; the chart is data now -- the parents are mapped roles, and an
+    unmapped one refuses (AccountNotMapped). Returns {role: account}.
     """
+    from services.employee_accounts import PAYABLE_ROLES, PERSONAL_PARENT, parent_account
 
-    ensured: Dict[str, Account] = {}
-
-    # 170 - other debtors under assets
-    root_assets = Account.query.filter_by(account_number=EMPLOYEE_DEBTORS_ROOT_NUMBER).first()
-    if not root_assets:
-        inferred_parent = Account.query.filter_by(account_number='11').first() or _find_existing_parent_by_prefix('11')
-        root_assets = _ensure_account(
-            account_number=EMPLOYEE_DEBTORS_ROOT_NUMBER,
-            name='أرصدة مدينة أخرى',
-            acc_type='Asset',
-            transaction_type='cash',
-            tracks_weight=False,
-            parent_account=inferred_parent,
-        )
-    ensured[EMPLOYEE_DEBTORS_ROOT_NUMBER] = root_assets
-    ensure_memo_for_account(root_assets)
-
-    # 1700 - employee personal accounts group under 170
-    parent_1700 = Account.query.filter_by(account_number=EMPLOYEE_PERSONAL_PARENT_NUMBER).first()
-    if not parent_1700:
-        parent_1700 = _ensure_account(
-            account_number=EMPLOYEE_PERSONAL_PARENT_NUMBER,
-            name='حسابات الموظفين',
-            acc_type='Asset',
-            transaction_type='cash',
-            tracks_weight=False,
-            parent_account=root_assets,
-        )
-    ensured[EMPLOYEE_PERSONAL_PARENT_NUMBER] = parent_1700
-    ensure_memo_for_account(parent_1700)
-
-    # 240 - employee payables root under other credit balances (24)
-    # Employee payables are cash: no weight twin for them or their groups
-    # (CHART-001, the owner 12 Oct 2026) -- 26 were made, none ever used.
-    root_liab = Account.query.filter_by(account_number=EMPLOYEE_PAYABLES_ROOT_NUMBER).first()
-    if not root_liab:
-        inferred_parent = (Account.query.filter_by(account_number='24').first()
-                           or Account.query.filter_by(account_number='2').first()
-                           or _find_existing_parent_by_prefix('2'))
-        root_liab = _ensure_account(
-            account_number=EMPLOYEE_PAYABLES_ROOT_NUMBER,
-            name='ذمم الموظفين',
-            acc_type='Liability',
-            transaction_type='cash',
-            tracks_weight=False,
-            parent_account=inferred_parent,
-        )
-    ensured[EMPLOYEE_PAYABLES_ROOT_NUMBER] = root_liab
-
-    # Detail groups under 240 for employee payables
-    detail_groups: List[Tuple[str, str]] = [
-        ('2400', 'ذمم الموظفين-رواتب'),
-        ('2410', 'ذمم الموظفين-عمولات'),
-        ('2420', 'ذمم الموظفين - مكافآت نهاية الخدمة'),
-    ]
-
-    for acc_num, name_ar in detail_groups:
-        detail = Account.query.filter_by(account_number=acc_num).first()
-        if not detail:
-            detail = _ensure_account(
-                account_number=acc_num,
-                name=name_ar,
-                acc_type='Liability',
-                transaction_type='cash',
-                tracks_weight=False,
-                parent_account=root_liab,
-            )
-        ensured[acc_num] = detail
-
-    # 2310 - مكافآت مستحقة للموظفين: under other credit balances (24), beside 240
-    # -- not under the tax liabilities (23), where it sat under VAT (CHART-001).
-    acc_2310 = Account.query.filter_by(account_number='2310').first()
-    if not acc_2310:
-        parent_23 = (
-            Account.query.filter_by(account_number='24').first()
-            or Account.query.filter_by(account_number='2').first()
-            or _find_existing_parent_by_prefix('2')
-        )
-        acc_2310 = _ensure_account(
-            account_number='2310',
-            name='مكافآت مستحقة للموظفين',
-            acc_type='Liability',
-            transaction_type='cash',
-            tracks_weight=False,
-            parent_account=parent_23,
-        )
-    ensured['2310'] = acc_2310
-
-    # Backfill: ensure memo copies for any existing employee personal accounts under 1700.
-    try:
-        personal_children = Account.query.filter_by(parent_id=parent_1700.id).all()
-        for child in personal_children:
-            if getattr(child, 'transaction_type', None) == 'gold':
-                continue
-            ensure_memo_for_account(child)
-    except Exception:
-        pass
-
-    db.session.flush()
-    return ensured
-
-def get_next_employee_account_number(parent_account_number: str = '1700') -> str:
-    """Generate next employee account number under the requested parent."""
-    return get_next_account_number(str(parent_account_number))
+    roles = (PERSONAL_PARENT, *(parent for parent, _ in PAYABLE_ROLES.values()))
+    return {role: parent_account(role) for role in roles}
 
 
 def create_employee_account(employee_name, department='administration', created_by='system'):
-    """
-    إنشاء حساب تلقائي لموظف جديد
-    
-    Args:
-        employee_name: اسم الموظف
-        department: القسم (administration, sales, maintenance, accounting, warehouse)
-        created_by: المستخدم المُنشئ
-    
-    Returns:
-        Account: الحساب المُنشأ
-    
-    Raises:
-        ValueError: إذا كان القسم غير صحيح أو تجاوزت السعة
-    """
-    # Requested structure: employee personal accounts under 1700 (employee accounts group).
-    parent_account = Account.query.filter_by(account_number=EMPLOYEE_PERSONAL_PARENT_NUMBER).first()
-    if not parent_account:
-        ensured = ensure_employee_group_accounts(created_by=created_by)
-        parent_account = ensured.get(EMPLOYEE_PERSONAL_PARENT_NUMBER)
-    if not parent_account:
-        raise ValueError(f'تعذر تحديد/إنشاء حساب تجميعي للموظفين ({EMPLOYEE_PERSONAL_PARENT_NUMBER}).')
+    """The personal account of a new employee, under the mapped personal parent
+    (1700 on production); the caller links it as Employee.account_id."""
+    from services.employee_accounts import PERSONAL_PARENT, parent_account
 
-    account_number = get_next_employee_account_number(EMPLOYEE_PERSONAL_PARENT_NUMBER)
-    
-    # إنشاء الحساب
+    parent = parent_account(PERSONAL_PARENT)
     account = Account(
-        account_number=account_number,
+        account_number=get_next_account_number(str(parent.account_number)),
         name=employee_personal_account_name(employee_name),
         type='Asset',
         transaction_type='cash',
-        parent_id=parent_account.id,
+        parent_id=parent.id,
     )
-    
     db.session.add(account)
-    db.session.flush()  # ensure account.id is available immediately
-
+    db.session.flush()
     # Ensure memo/weight parallel exists and is linked.
     ensure_memo_for_account(account)
-    # لا نعمل commit هنا، سيتم في create_employee
-    
     return account
 
 
-def create_employee_payables_accounts(employee_name: str, created_by: str = 'system') -> List[Account]:
-    """Create employee-specific payables accounts under 2400/2410/2420.
-
-    Notes:
-    - These accounts are not linked to the Employee model directly.
-    - Intended for future payroll/benefits/obligations posting.
-    """
-
-    return get_or_create_employee_payables_accounts(employee_name, created_by=created_by)
+def get_or_create_employee_payables_accounts(employee, created_by: str = 'system') -> List[Account]:
+    """The employee's payable accounts -- salaries, commissions, end of service,
+    bonuses -- by their links, made under their mapped parents when missing."""
+    from services.employee_accounts import ensure_payable_accounts
+    return ensure_payable_accounts(employee, by=created_by)
 
 
-def get_or_create_employee_payables_accounts(employee_name: str, created_by: str = 'system') -> List[Account]:
-    """Idempotently ensure employee-specific payables accounts under (24/23) groups.
-
-    Creates per-employee accounts under:
-    - 2400 ذمم الموظفين-رواتب
-    - 2410 ذمم الموظفين-عمولات
-    - 2420 ذمم الموظفين - مكافآت نهاية الخدمة
-    - 2310 مكافآت مستحقة للموظفين
-    """
-
-    ensured = ensure_employee_group_accounts(created_by=created_by)
-    result: List[Account] = []
-
-    specs = [
-        ('2400', 'رواتب'),
-        ('2410', 'عمولات'),
-        ('2420', 'نهاية الخدمة'),
-        ('2310', 'مكافآت'),
-    ]
-
-    for parent_num, category_ar in specs:
-        parent = ensured.get(parent_num) or Account.query.filter_by(account_number=parent_num).first()
-        if not parent:
-            continue
-
-        expected_name = employee_payable_account_name(employee_name, category_ar=category_ar)
-        existing = Account.query.filter_by(parent_id=parent.id, name=expected_name).first()
-        if existing:
-            result.append(existing)
-            continue
-
-        acc_number = get_next_account_number(str(parent.account_number))
-        account = Account(
-            account_number=str(acc_number),
-            name=expected_name,
-            type='Liability',
-            transaction_type='cash',
-            tracks_weight=False,
-            parent_id=parent.id,
-        )
-        db.session.add(account)
-        db.session.flush()
-        result.append(account)
-
-    return result
-
-
-def get_employee_department_from_code(employee_code):
-    """
-    استخراج القسم من كود الموظف أو تخمينه من المسمى الوظيفي
-    
-    Args:
-        employee_code: كود الموظف (مثل: EMP-2025-0001)
-    
-    Returns:
-        str: رمز القسم (administration, sales, etc.) - افتراضي: administration
-    """
-    # يمكن تطوير هذه الدالة لاستخراج القسم من الكود إذا كان متضمناً
-    # حالياً: نرجع القسم الافتراضي
-    return 'administration'
-
-
-def get_department_summary():
-    """
-    الحصول على ملخص لكل قسم وعدد الموظفين فيه
-    
-    Returns:
-        list: قائمة بمعلومات الأقسام
-    """
-    # Legacy summary (kept for backwards compatibility)
-    departments = [
-        ('1300', 'موظفو الإدارة', 'Administration'),
-        ('1310', 'موظفو المبيعات', 'Sales'),
-        ('1320', 'موظفو الصيانة', 'Maintenance'),
-        ('1330', 'موظفو المحاسبة', 'Accounting'),
-        ('1340', 'موظفو المستودعات', 'Warehouse'),
-    ]
-    
-    summary = []
-    for code, name_ar, name_en in departments:
-        parent = Account.query.filter_by(account_number=code).first()
-        if not parent:
-            continue
-        
-        # عدّ الموظفين
-        start_range = f"{code}000"
-        end_range = f"{code}999"
-        
-        count = Account.query.filter(
-            Account.account_number >= start_range,
-            Account.account_number <= end_range
-        ).count()
-        
-        summary.append({
-            'code': code,
-            'name_ar': name_ar,
-            'name_en': name_en,
-            'employee_count': count,
-            'capacity': 1000,
-            'available': 1000 - count,
-            'parent_id': parent.id
-        })
-    
-    return summary
+create_employee_payables_accounts = get_or_create_employee_payables_accounts
