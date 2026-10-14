@@ -60,6 +60,10 @@ REQUIRED_ROLES = (
     *((DEFAULT_MAPPING_OPERATION_TYPE, r) for r in (
         'gold_inventory_new', 'gold_inventory_scrap', 'weight_closing_bridge',
         'karat_diff_revenue', 'karat_diff_expense')),
+    # The parents a party's account is made under when it has no category
+    # (party_account_service.py, CHART-002 step 4b).
+    *((DEFAULT_MAPPING_OPERATION_TYPE, r) for r in (
+        'customer_accounts_parent', 'supplier_accounts_parent', 'office_accounts_parent')),
 )
 
 

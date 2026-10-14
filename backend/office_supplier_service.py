@@ -5,7 +5,7 @@ from typing import Optional
 
 from models import db, Office, Supplier
 from code_generator import generate_supplier_code
-from office_account_service import ensure_office_parent_account
+from office_account_service import office_parent_account
 
 
 def _sync_supplier_account_with_office(supplier: Supplier, office: Office) -> None:
@@ -33,12 +33,8 @@ def ensure_office_supplier(office: Office, *, auto_commit: bool = False) -> Supp
         _sync_supplier_account_with_office(office.supplier, office)
         return office.supplier
 
-    # Supplier.account_category_id is a category/root (e.g. 2200/2100), not the office posting account.
-    try:
-        supplier_category = ensure_office_parent_account()
-        supplier_category_id = int(getattr(supplier_category, 'id', None)) if supplier_category else None
-    except Exception:
-        supplier_category_id = None
+    # Supplier.account_category_id is the offices' parent (a role), not the office posting account.
+    supplier_category_id = office_parent_account().id
 
     # If the office already has a dedicated posting account (account_category_id), we reuse it
     # as the supplier's financial account so that ALL payment flows (reservation + manual vouchers)

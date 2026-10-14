@@ -427,9 +427,6 @@ def create_office():
         elif data.get('account_category_number'):
             requested_number = str(data['account_category_number']).strip()
             account_category = Account.query.filter_by(account_number=requested_number).first()
-            if not account_category and requested_number == '21110':
-                # Legacy default used by older office screens; map to current office parent.
-                account_category = Account.query.filter_by(account_number='2200').first()
             if not account_category:
                 return jsonify({'error': f"الحساب غير موجود: {data['account_category_number']}"}), 400
             office.account_category_id = account_category.id
@@ -546,8 +543,6 @@ def update_office(office_id):
         elif 'account_category_number' in data and data['account_category_number']:
             requested_number = str(data['account_category_number']).strip()
             account_category = Account.query.filter_by(account_number=requested_number).first()
-            if not account_category and requested_number == '21110':
-                account_category = Account.query.filter_by(account_number='2200').first()
             if not account_category:
                 return jsonify({'error': f"الحساب غير موجود: {data['account_category_number']}"}), 400
             office.account_category_id = account_category.id

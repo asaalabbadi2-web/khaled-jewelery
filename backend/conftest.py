@@ -255,6 +255,33 @@ def initialize_db():
             db.session.add(Account(account_number='71310001', name='حساب عهدة ذهب الموظفين وزني', type='Asset',
                                    transaction_type='gold', tracks_weight=True))
 
+        # The parties' parents and their weight twins, as on production: the
+        # code built them (210/2100, 7210, 71000, the parents' twins) until
+        # CHART-002 step 4b; a party's twin is made under its parent's twin.
+        db.session.flush()
+        from account_pair_service import link_accounts
+
+        def _seed(number, name, kind, *, parent=None, weight=False):
+            account = Account.query.filter_by(account_number=number).first()
+            if account is None:
+                account = Account(account_number=number, name=name, type=kind,
+                                  transaction_type='gold' if weight else 'cash', tracks_weight=weight,
+                                  parent_id=parent.id if parent else None)
+                db.session.add(account)
+                db.session.flush()
+            return account
+
+        def _twin(financial, number, *, parent=None):
+            if not financial.memo_account_id:
+                link_accounts(financial, _seed(number, f'{financial.name} وزني', financial.type,
+                                               parent=parent, weight=True), created_by='test-chart')
+            return db.session.get(Account, financial.memo_account_id)
+
+        suppliers_group = _seed('210', 'موردو الذهب المشغول', 'Liability')
+        suppliers = _seed('2100', 'حسابات موردو الذهب المشغول', 'Liability', parent=suppliers_group)
+        _twin(suppliers, '72100', parent=_twin(suppliers_group, '7210'))
+        _twin(Account.query.filter_by(account_number='1200').one(), '71200')
+
         # Roles mapped as the test chart has always resolved them (CHART-002).
         db.session.flush()
         from tests.chart_roles import map_roles_as_the_test_chart_resolves

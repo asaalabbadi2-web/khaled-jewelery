@@ -451,6 +451,35 @@ class Matrix:
                            'original_invoice_item_id': item['id']}]})[0], {}
         self.run('sales_return_of_a_weight_closed_sale', executed_sale_returned)
 
+        # a new customer, supplier and office, through their routes (step 4b)
+        self.run('customer_created', lambda: (self.post('/api/customers', {
+            'name': 'عميل مصفوفة', 'phone': '0500000001'})[0], {}))
+        self.run('supplier_created', lambda: (self.post('/api/suppliers', {'name': 'مورد مصفوفة'})[0], {}))
+        self.run('office_created', lambda: (self.post('/api/offices', {'name': 'مكتب مصفوفة'})[0], {}))
+
+        # a purchase paid at creation from a supplier whose linked weight twin is
+        # not numbered «7 + its number» -- read from the copy, none named here
+        def paid_purchase_odd_twin():
+            from models import Supplier
+            odd = None
+            for s in Supplier.query.filter(Supplier.account_id.isnot(None)).order_by(Supplier.id).all():
+                own = db.session.get(self.Account, s.account_id)
+                twin = db.session.get(self.Account, own.memo_account_id) if own and own.memo_account_id else None
+                if twin is not None and twin.account_number != f'7{own.account_number}':
+                    odd = s
+                    break
+            if odd is None:
+                return 'skipped: no such supplier', {}
+            cash = 200.0 + 30.0   # the wage and its VAT: the gold is owed in gold
+            code, body = self.post('/api/invoices', {
+                **self.supplier_purchase({**w, 'supplier': odd}), 'settlement_method': 'cash',
+                'amount_paid': cash, 'safe_box_id': w['cash_pm'].default_safe_box_id,
+                'payments': [{'payment_method_id': w['cash_pm'].id, 'amount': cash,
+                              'safe_box_id': w['cash_pm'].default_safe_box_id}]})
+            return code, ({'detail': body.get('detail') or body.get('error') or body.get('message')}
+                          if code != 201 else {})
+        self.run('supplier_purchase_paid_odd_twin', paid_purchase_odd_twin)
+
         # a new employee, through the route
         self.run('employee_created', lambda: (self.post('/api/employees', {
             'name': 'موظف مصفوفة', 'employee_code': 'E-MATRIX-1', 'salary': 3000})[0], {}))

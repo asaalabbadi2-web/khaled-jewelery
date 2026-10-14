@@ -205,17 +205,10 @@ def add_supplier():
         requested_category_number = data.get('account_category_number')
         account_category = None
         if requested_category_number:
-            requested_str = str(requested_category_number)
-            if requested_str == '210':
-                account_category = Account.query.filter_by(account_number='2100').first()
-            if not account_category:
-                account_category = Account.query.filter_by(account_number=requested_str).first()
-
+            account_category = Account.query.filter_by(account_number=str(requested_category_number)).first()
         if not account_category:
-            for fallback_number in ('2100', '220', '210', '21', '21100', '211'):
-                account_category = Account.query.filter_by(account_number=fallback_number).first()
-                if account_category:
-                    break
+            from party_account_service import SUPPLIER_PARENT, party_parent
+            account_category = party_parent(SUPPLIER_PARENT)   # the mapped role (CHART-002)
 
         raw_wage_type = data.get('default_wage_type')
         wage_type = (raw_wage_type or 'cash')

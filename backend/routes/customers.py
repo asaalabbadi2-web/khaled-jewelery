@@ -499,10 +499,8 @@ def add_customer():
             account_category = Account.query.filter_by(account_number=str(account_category_number)).first()
 
         if not account_category:
-            for fallback_number in ('1200', '1100', '120', '110'):
-                account_category = Account.query.filter_by(account_number=fallback_number).first()
-                if account_category:
-                    break
+            from party_account_service import CUSTOMER_PARENT, party_parent
+            account_category = party_parent(CUSTOMER_PARENT)   # the mapped role (CHART-002)
 
         ensure_accounts = _boolish(data.get('ensure_accounts'), True)
 

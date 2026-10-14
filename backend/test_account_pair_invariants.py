@@ -48,14 +48,26 @@ def _ensure_account_number(number, *, name, acc_type, tracks_weight=False):
     return acc
 
 
+def _with_twin(category, number):
+    """A party group as the chart holds it: with its weight twin (CHART-002 step 4b --
+    the code makes a party's twin under its group's, and no longer the group's own)."""
+    if not category.memo_account_id:
+        twin = Account(account_number=number, name=f'{category.name} وزني', type=category.type,
+                       transaction_type='gold', tracks_weight=True)
+        db.session.add(twin)
+        db.session.flush()
+        link_accounts(category, twin, created_by='test')
+    return category
+
+
 def test_new_supplier_account_pair_is_valid_and_audit_clean():
     """إنشاء مورد جديد عبر ensure_supplier_accounts (المسار الحقيقي
     المستخدم في offices_routes.py وغيره) يجب أن يولّد زوجاً صحيحاً
     (ثنائي الاتجاه، أنواع مختلفة)، ولا يُخرج التدقيق أي مخالفة بعده."""
     with app.app_context():
-        supplier_root = _ensure_account_number(
+        supplier_root = _with_twin(_ensure_account_number(
             '2100-T1', name='حسابات موردو ذهب اختبار', acc_type='Liability'
-        )
+        ), '72100-T1')
         supplier = Supplier(
             supplier_code='S-PAIRTEST-001', name='مورد اختبار ربط',
             account_category_id=supplier_root.id,
@@ -79,9 +91,9 @@ def test_new_supplier_account_pair_is_valid_and_audit_clean():
 def test_new_customer_account_pair_is_valid_and_audit_clean():
     """نفس الضمان لمسار العميل (ensure_customer_accounts)."""
     with app.app_context():
-        category = _ensure_account_number(
+        category = _with_twin(_ensure_account_number(
             '1200-T1', name='حسابات العملاء اختبار', acc_type='Asset'
-        )
+        ), '71200-T1')
         customer = Customer(
             customer_code='C-PAIRTEST-001', name='عميل اختبار ربط',
             account_category_id=category.id,

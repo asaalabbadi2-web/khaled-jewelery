@@ -31,6 +31,10 @@ _NUMBERS = {
     # weight closing's bridge, the karat-difference commission.
     'gold_inventory_new': ['1300'], 'gold_inventory_scrap': ['1310'], 'weight_closing_bridge': ['1710'],
     'karat_diff_revenue': ['4110'], 'karat_diff_expense': ['5240'],
+    # Step 4b: the parents a party's account is made under (the code's old order).
+    'customer_accounts_parent': ['1200', '1100', '120', '110'],
+    'supplier_accounts_parent': ['2100', '210', '21', '21100', '2110', '211', '2200', '220'],
+    'office_accounts_parent': ['2100', '210', '21', '2200', '220', '21100', '211'],
 }
 _NAMES = {
     'cash': ['صندوق النقدية'], 'sales_gold_new': ['مبيعات ذهب جديد'], 'sales_gold_scrap': ['مبيعات ذهب كسر'],

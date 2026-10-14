@@ -537,17 +537,16 @@ def settle_office_reservation(reservation_id: int):
         db.session.add(gold_entry)
         db.session.flush()
 
-        # حساب المشتريات (512 كسر / 511 جديد) — مدين نقداً
+        # حساب المشتريات (الكسر / الجديد) — مدين نقداً، بدوره المربوط (CHART-002)
         _purchases_key = 'purchases_gold_scrap' if getattr(reservation, 'gold_type', 'scrap') == 'scrap' else 'purchases_gold_new'
         purchases_acc_id = (
             get_account_id_for_mapping('شراء من عميل', _purchases_key)
             or get_account_id_for_mapping('شراء من عميل', 'purchases_gold')
-            or get_account_id_by_number('512')
-            or get_account_id_by_number('511')
         )
         if not purchases_acc_id:
             db.session.rollback()
-            return jsonify({'error': 'تعذر تحديد حساب المشتريات (511/512) لتسوية الحجز'}), 500
+            return jsonify({'error': f'لا حساب مربوط للدور (شراء من عميل / {_purchases_key}): '
+                                     f'يُضبط في «الربط المحاسبي»، ولا تُسوّى الحجوزات دونه'}), 400
 
         karat = int(reservation.karat or get_main_karat())
         if karat not in (18, 21, 22, 24):
