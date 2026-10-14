@@ -1475,8 +1475,7 @@ def _weight_kwargs_from_map(gold_map, side='debit'):
 # Reports domain → routes/reports.py (cluster 1)
 # (GET /reports/sales_overview, GET /reports/employee_scrap_ledger,
 #  GET /reports/sales_by_customer, GET /reports/sales_by_item,
-#  GET /reports/sales_by_karat, GET /reports/inventory_status,
-#  GET /reports/low_stock, GET /reports/inventory_movement,
+#  GET /reports/sales_by_karat,
 #  GET /sales-race/config, PUT /sales-race/config,
 #  GET /home/leaderboard, GET /general_ledger_all,
 #  GET /analytics/summary, GET /reports/sales_vs_purchases_trend,

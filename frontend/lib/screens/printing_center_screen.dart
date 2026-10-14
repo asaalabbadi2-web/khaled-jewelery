@@ -15,7 +15,7 @@ import 'barcode_print_screen.dart';
 import 'customers_screen.dart';
 import 'journal_entry_print_screen.dart';
 import 'general_ledger_screen_v2.dart';
-import 'reports/inventory_status_report_screen.dart';
+import 'reports/category_weight_audit_report_screen.dart';
 import 'reports/sales_overview_report_screen.dart';
 import 'trial_balance_screen_v2.dart';
 import '../utils/invoice_direct_print.dart';
@@ -2254,17 +2254,19 @@ class _PrintingCenterScreenState extends State<PrintingCenterScreen> {
             jobId: _generateJobId('RPT-INV'),
             titleAr: titles['ar']!,
             titleEn: titles['en']!,
-            etaAr: 'جارٍ تحميل مخزون مكاتب التسكير',
-            etaEn: 'Loading inventory workspace',
+            etaAr: 'جارٍ تحميل المخزون من الدفاتر',
+            etaEn: 'Loading the stock from the books',
             metaAr: {
-              'التفاصيل': 'اضبط الأعيرة والفرز داخل الشاشة',
-              'النطاق': 'يعرض الأصناف البطيئة والمتحركة',
+              'التفاصيل': 'اختر الموقع والتصنيف داخل الشاشة',
+              'النطاق': 'الأرصدة بالموقع والتصنيف والعيار، وسجل الحركة',
             },
             metaEn: {
-              'Details': 'Configure karats & sorting inside the screen',
-              'Scope': 'Highlights slow vs active items',
+              'Details': 'Pick the location and category inside the screen',
+              'Scope': 'Balances by location, category and karat, and the movements',
             },
-            builder: (_) => InventoryStatusReportScreen(
+            // The stock is the books (ADR-045); «حالة المخزون» counted its own
+            // from invoice lines and is gone (STOCK-REPORTS-1).
+            builder: (_) => CategoryWeightAuditReportScreen(
               api: _apiService,
               isArabic: widget.isArabic,
             ),
@@ -3923,7 +3925,7 @@ class _PrintingCenterScreenState extends State<PrintingCenterScreen> {
         await Navigator.push(
           context,
           MaterialPageRoute(
-            builder: (_) => InventoryStatusReportScreen(
+            builder: (_) => CategoryWeightAuditReportScreen(
               api: widget.api,
               isArabic: widget.isArabic,
             ),

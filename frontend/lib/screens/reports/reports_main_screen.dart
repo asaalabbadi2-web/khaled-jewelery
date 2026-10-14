@@ -9,10 +9,7 @@ import '../accounts_screen.dart';
 import '../general_ledger_screen_v2.dart';
 import '../payroll_report_screen.dart';
 import '../trial_balance_screen_v2.dart';
-import 'inventory_status_report_screen.dart';
-import 'inventory_movement_timeline_report_screen.dart';
 import 'category_weight_audit_report_screen.dart';
-import 'low_stock_report_screen.dart';
 import 'sales_by_customer_report_screen.dart';
 import 'sales_by_item_report_screen.dart';
 import 'sales_by_karat_report_screen.dart';
@@ -395,26 +392,8 @@ class _ReportsMainScreenState extends State<ReportsMainScreen> {
           isArabic: widget.isArabic,
         );
         break;
-      case 'inventory_status':
-        destination = InventoryStatusReportScreen(
-          api: widget.api,
-          isArabic: widget.isArabic,
-        );
-        break;
-      case 'inventory_movement':
-        destination = InventoryMovementTimelineReportScreen(
-          api: widget.api,
-          isArabic: widget.isArabic,
-        );
-        break;
       case 'category_weight_audit':
         destination = CategoryWeightAuditReportScreen(
-          api: widget.api,
-          isArabic: widget.isArabic,
-        );
-        break;
-      case 'low_stock':
-        destination = LowStockReportScreen(
           api: widget.api,
           isArabic: widget.isArabic,
         );
