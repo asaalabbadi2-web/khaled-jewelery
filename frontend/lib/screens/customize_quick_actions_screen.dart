@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../providers/quick_actions_provider.dart';
 import '../models/quick_action_item.dart';
 import '../theme/app_theme.dart';
+import '../widgets/app_bar_tab_bar.dart';
 
 class _AddActionResult {
   final QuickActionItem? action;
@@ -109,7 +110,7 @@ class _CustomizeQuickActionsScreenState
               ],
             ),
           ],
-          bottom: TabBar(
+          bottom: AppBarTabBar(
             controller: _tabController,
             tabs: List.generate(
               _groups.length,
@@ -118,8 +119,6 @@ class _CustomizeQuickActionsScreenState
                 text: _groupTitles[i],
               ),
             ),
-            indicatorColor: AppColors.primaryGold,
-            labelColor: AppColors.primaryGold,
           ),
         ),
         body: Consumer<QuickActionsProvider>(

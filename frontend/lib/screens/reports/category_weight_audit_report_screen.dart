@@ -5,6 +5,7 @@ import '../../api_service.dart';
 import '../../models/safe_box_model.dart';
 import '../../theme/app_theme.dart';
 import '../../theme/app_semantic_colors.dart';
+import '../../widgets/app_bar_tab_bar.dart';
 
 /// The theme's colours (ADR-038): the scheme and the semantic tones.
 ColorScheme _cs(BuildContext context) => Theme.of(context).colorScheme;
@@ -965,12 +966,8 @@ class _CategoryWeightAuditReportScreenState
     return Scaffold(
       appBar: AppBar(
         title: Text(title),
-        bottom: TabBar(
+        bottom: AppBarTabBar(
           controller: _tabController,
-          labelColor: Theme.of(context).appBarTheme.foregroundColor,
-          unselectedLabelColor:
-              Theme.of(context).appBarTheme.foregroundColor?.withValues(alpha: 0.7),
-          indicatorColor: Theme.of(context).appBarTheme.foregroundColor,
           tabs: [
             Tab(text: _t('الأرصدة', 'Balances')),
             Tab(text: _t('الحركة', 'Movements')),

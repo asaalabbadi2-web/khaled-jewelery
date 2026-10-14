@@ -5,6 +5,7 @@ import '../services/inventory_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/bucket_balance_card.dart' show formatWeight;
 import '../theme/app_semantic_colors.dart';
+import '../widgets/app_bar_tab_bar.dart';
 
 /// The theme's colours (ADR-038): the scheme and the semantic tones.
 ColorScheme _cs(BuildContext context) => Theme.of(context).colorScheme;
@@ -75,12 +76,8 @@ class _InventoryAuditScreenState extends State<InventoryAuditScreen>
               tooltip: 'تحديث',
             ),
           ],
-          bottom: TabBar(
+          bottom: AppBarTabBar(
             controller: _tabs,
-            labelColor: Theme.of(context).appBarTheme.foregroundColor,
-            unselectedLabelColor:
-                Theme.of(context).appBarTheme.foregroundColor?.withValues(alpha: 0.7),
-            indicatorColor: Theme.of(context).appBarTheme.foregroundColor,
             tabs: const [
               Tab(text: 'المطابقة', icon: Icon(Icons.table_rows_outlined, size: 18)),
               Tab(text: 'الصحة', icon: Icon(Icons.health_and_safety_outlined, size: 18)),

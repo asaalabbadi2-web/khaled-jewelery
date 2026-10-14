@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../api_service.dart';
 import '../providers/settings_provider.dart';
 import '../theme/app_theme.dart';
+import '../widgets/app_bar_tab_bar.dart';
 
 class ShiftClosingScreen extends StatefulWidget {
   final ApiService api;
@@ -923,7 +924,7 @@ class _ShiftClosingScreenState extends State<ShiftClosingScreen> {
         child: Scaffold(
           appBar: AppBar(
             title: Text(widget.isArabic ? 'إغلاق اليومية' : 'Shift Closing'),
-            bottom: TabBar(
+            bottom: AppBarTabBar(
               tabs: [
                 Tab(text: widget.isArabic ? 'السيولة المالية' : 'Cash'),
                 Tab(text: widget.isArabic ? 'أوزان الذهب' : 'Gold'),

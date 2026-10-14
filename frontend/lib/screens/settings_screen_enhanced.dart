@@ -23,6 +23,7 @@ import 'supplier_settlement_policy_screen.dart';
 import 'weight_closing_settings_screen.dart';
 import 'weight_closing_execute_screen.dart';
 import '../utils.dart';
+import '../widgets/app_bar_tab_bar.dart';
 
 enum SettingsEntry {
   goldPrice,
@@ -668,7 +669,7 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
     return Scaffold(
       appBar: AppBar(
         title: const Text('إعدادات النظام'),
-        bottom: TabBar(
+        bottom: AppBarTabBar(
           controller: _tabController,
           isScrollable: true,
           tabs: const [

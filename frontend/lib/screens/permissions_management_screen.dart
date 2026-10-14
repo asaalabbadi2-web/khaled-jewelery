@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../api_service.dart';
 import '../models/permissions_model.dart';
 import '../models/app_user_model.dart';
+import '../widgets/app_bar_tab_bar.dart';
 
 /// شاشة إدارة الصلاحيات والأدوار
 class PermissionsManagementScreen extends StatefulWidget {
@@ -136,8 +137,7 @@ class _PermissionsManagementScreenState
     return Scaffold(
       appBar: AppBar(
         title: Text('صلاحيات: ${widget.user.username}'),
-        backgroundColor: Theme.of(context).colorScheme.primary,
-        bottom: TabBar(
+        bottom: AppBarTabBar(
           controller: _tabController,
           tabs: const [
             Tab(text: 'الدور', icon: Icon(Icons.person_outline)),
