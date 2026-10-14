@@ -99,7 +99,7 @@ from accounting.voucher_engine import (
     _append_safe_transactions_for_voucher,
 )
 from accounting.mappings import (DEFAULT_MAPPING_OPERATION_TYPE, get_account_id_by_number, get_account_id_for_mapping,
-                                 require_vat_account)
+                                 require_account, require_vat_account)
 from services.vat_policy import input_vat_account as _input_vat_account
 
 
@@ -6764,10 +6764,10 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
                         pm_commission = _to_float(payment.get('commission_amount', 0.0))
                         pm_commission_vat = _to_float(payment.get('commission_vat', 0.0))
 
-                    if pm_commission > 0 and commission_acc_id:
+                    if pm_commission > 0:
                         create_dual_journal_entry(
                             journal_entry_id=journal_entry.id,
-                            account_id=commission_acc_id,
+                            account_id=commission_acc_id or require_account('بيع', 'commission'),
                             cash_debit=pm_commission,
                             description=f"عمولة {pm_obj.name if pm_obj else ''}",
                             apply_golden_rule=False,
@@ -6798,10 +6798,10 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
 
                 paid_amount_total = total_cash
 
-                if commission_amount > 0 and commission_acc_id:
+                if commission_amount > 0:
                     create_dual_journal_entry(
                         journal_entry_id=journal_entry.id,
-                        account_id=commission_acc_id,
+                        account_id=commission_acc_id or require_account('بيع', 'commission'),
                         cash_debit=commission_amount,
                         description="عمولة الدفع",
                         apply_golden_rule=False,
@@ -6916,8 +6916,9 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
             # Only capitalized wages are released at sale; expensed ones were
             # charged at purchase (ADR-039).
             if _wage_cash_sale > 0 and wages_are_capitalized(wage_mode_of(new_invoice)):
-                _wage_inv_acc = manufacturing_wage_inventory_account_id()
-                _wage_exp_acc = manufacturing_wage_expense_account_id()
+                _wage_inv_acc = manufacturing_wage_inventory_account_id() or require_account(
+                    'شراء', 'manufacturing_wage_inventory')
+                _wage_exp_acc = manufacturing_wage_expense_account_id() or require_account('بيع', 'manufacturing_wage')
                 if _wage_inv_acc and _wage_exp_acc:
                     create_dual_journal_entry(
                         journal_entry_id=journal_entry.id,
@@ -7001,9 +7002,7 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
             purchases_acc_id = (
                 get_account_id_for_mapping('شراء من عميل', _purchases_key)
                 or get_account_id_for_mapping('شراء من عميل', 'purchases_gold')
-                or get_account_id_for_mapping('شراء من عميل', 'purchases')
-                or get_account_id_by_number('512' if gold_type == 'scrap' else '511')
-                or get_account_id_by_number('511')
+                or require_account('شراء من عميل', _purchases_key)
             )
 
             # حسابات المخزون الوزني: دعم التوحيد (حساب واحد لكل العيارات)
@@ -7114,7 +7113,7 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
                         _inv_id = inventory_accounts[_karat]
                         _target = (
                             scrap_purchase_gold_safe_account_id
-                            or get_account_id_by_number('7521')
+                            or get_account_id_for_mapping('افتراضي', 'gold_cost_of_sales_weight')
                             or _inv_id
                         )
                         if _target:
@@ -7186,8 +7185,7 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
             sales_returns_acc_id = get_account_id_for_mapping('مرتجع بيع', 'sales_returns')
             if not sales_returns_acc_id:
                 sales_returns_acc_id = (
-                    get_account_id_by_number('420')
-                    or get_account_id_for_mapping('بيع', 'revenue')
+                    get_account_id_for_mapping('بيع', 'revenue')
                     or get_account_id_for_mapping('بيع', 'sales_gold_new')
                 )
             vat_payable_acc_id = get_account_id_for_mapping('بيع', 'vat_payable')
@@ -7311,10 +7309,10 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
                         continue
                     pm_commission     = _to_float(payment.get('commission_amount', 0.0))
                     pm_commission_vat = _to_float(payment.get('commission_vat', 0.0))
-                    if pm_commission > 0 and _commission_acc_id:
+                    if pm_commission > 0:
                         create_dual_journal_entry(
                             journal_entry_id=journal_entry.id,
-                            account_id=_commission_acc_id,
+                            account_id=_commission_acc_id or require_account('بيع', 'commission'),
                             cash_credit=pm_commission,
                             apply_golden_rule=False,
                             description=f"عكس عمولة {pm_obj.name if pm_obj else ''} - مرتجع",
@@ -7345,8 +7343,9 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
                     )
             # A return reverses the release -- only when wages are capitalized (ADR-039).
             if _wage_cash_ret > 0 and wages_are_capitalized(wage_mode_of(new_invoice)):
-                _wage_inv_acc = manufacturing_wage_inventory_account_id()
-                _wage_exp_acc = manufacturing_wage_expense_account_id()
+                _wage_inv_acc = manufacturing_wage_inventory_account_id() or require_account(
+                    'شراء', 'manufacturing_wage_inventory')
+                _wage_exp_acc = manufacturing_wage_expense_account_id() or require_account('مرتجع بيع', 'manufacturing_wage')
                 if _wage_inv_acc and _wage_exp_acc:
                     # عكس: مدين مخزون المصنعية، دائن مصروف المصنعية
                     create_dual_journal_entry(
@@ -7438,7 +7437,7 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
 
                             if _over_executed > 0.0001:
                                 _remaining_to_reverse = _over_executed
-                                _cogs_account = Account.query.filter_by(account_number='521').first()
+                                _cogs_account = db.session.get(Account, require_account('افتراضي', 'gold_cost_of_sales'))
                                 _inv_fin_id = _get_inventory_account_by_karat(
                                     int(_orig_wco.main_karat or get_main_karat() or 21),
                                     kind=(_orig_wco.invoice.gold_type if _orig_wco.invoice else 'new'),
@@ -7526,10 +7525,7 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
             cash_acc_id = get_account_id_for_mapping('مرتجع شراء', 'cash')
             customers_acc_id = get_account_id_for_mapping('مرتجع شراء', 'customers')
             purchase_returns_acc_id = (
-                get_account_id_for_mapping('مرتجع شراء', 'purchase_returns')
-                or get_account_id_by_number('513')
-                or get_account_id_by_number('512')
-                or get_account_id_by_number('511')
+                require_account('مرتجع شراء', 'purchase_returns')
             )
 
             # حسابات المخزون — يجب أن تكون مدركة لـ gold_type
@@ -7615,7 +7611,7 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
                 or (Account.query.get(acc_id) if acc_id else None)
             )
             if _je_party_ret and _inv_accounts_ret:
-                _pr_acc = purchase_returns_acc_id or get_account_id_by_number('513')
+                _pr_acc = purchase_returns_acc_id
                 _pr_weight_override = (
                     _je_adapter._resolve_weight_account_id(_pr_acc)
                     if _pr_acc else None
@@ -7923,9 +7919,9 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
                             except Exception:
                                 weight_inventory_memo_acc_id = None
 
-                            # fallback على الحساب المذكرة الافتراضي 7521
+                            # fallback على دور تكلفة مبيعات الذهب الوزنية (7521 على الإنتاج)
                             if not weight_inventory_memo_acc_id:
-                                weight_inventory_memo_acc_id = get_account_id_by_number('7521')
+                                weight_inventory_memo_acc_id = get_account_id_for_mapping('افتراضي', 'gold_cost_of_sales_weight')
 
                             # لا نسقط على الحساب المالي — الأوزان يجب أن تذهب لحسابات مذكرة فقط.
                             if weight_inventory_memo_acc_id:
@@ -7975,7 +7971,7 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
 
                     # Fallback to a generic inventory memo account if present.
                     if not weight_target_acc_id:
-                        weight_target_acc_id = get_account_id_by_number('7521')
+                        weight_target_acc_id = get_account_id_for_mapping('افتراضي', 'gold_cost_of_sales_weight')
 
                     # لا نسقط على الحساب المالي — الأوزان يجب أن تذهب لحسابات مذكرة فقط.
                     if not weight_target_acc_id:
@@ -8377,7 +8373,7 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
             except Exception:
                 weight_inventory_acc_id = None
             if not weight_inventory_acc_id:
-                weight_inventory_acc_id = get_account_id_by_number('7521')
+                weight_inventory_acc_id = get_account_id_for_mapping('افتراضي', 'gold_cost_of_sales_weight')
             if not weight_inventory_acc_id:
                 weight_inventory_acc_id = inventory_acc_id  # last resort fallback
 

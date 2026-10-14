@@ -25,7 +25,6 @@
   "routes/accounts.py": 5,
   "routes/customers.py": 6,
   "routes/employees.py": 6,
-  "routes/invoices.py": 13,
   "routes/office_reservations.py": 2,
   "routes/reports.py": 22,
   "routes/suppliers.py": 8,

@@ -22,6 +22,7 @@ _NUMBERS = {
     'purchases_gold': ['511', '512', '510', '51'], 'purchases_gold_new': ['511', '510', '51'],
     'purchases_gold_scrap': ['512', '511', '510'], 'purchase_returns': ['513', '512', '511', '50'],
     'commission': ['5150'], 'manufacturing_wage': ['510'],
+    'gold_cost_of_sales': ['521'], 'gold_cost_of_sales_weight': ['7521'],
 }
 _NAMES = {
     'cash': ['صندوق النقدية'], 'sales_gold_new': ['مبيعات ذهب جديد'], 'sales_gold_scrap': ['مبيعات ذهب كسر'],

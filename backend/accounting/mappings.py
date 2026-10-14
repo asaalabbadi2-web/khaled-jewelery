@@ -46,6 +46,10 @@ REQUIRED_ROLES = (
     *(('مرتجع بيع', r) for r in ('cash', 'customers', *_KARATS, 'manufacturing_wage', 'sales_returns')),
     *(('مرتجع شراء', r) for r in ('cash', 'customers', *_KARATS, 'purchase_returns')),
     ('مرتجع شراء (مورد)', 'purchase_returns'),
+    # The gold's cost of sales, in cash and in weight: a return reverses its
+    # cost on the first; a purchase's weight falls back on the second (CHART-002).
+    (DEFAULT_MAPPING_OPERATION_TYPE, 'gold_cost_of_sales'),
+    (DEFAULT_MAPPING_OPERATION_TYPE, 'gold_cost_of_sales_weight'),
 )
 
 
@@ -54,13 +58,31 @@ def unmapped_roles() -> list:
     return [(op, role) for op, role in REQUIRED_ROLES if not get_account_id_for_mapping(op, role)]
 
 
-class VatAccountNotMapped(ValueError):
+class AccountNotMapped(ValueError):
+    """An amount to post on a role no mapping resolves (CHART-002, ADR-046): the
+    posting is refused -- a ValueError, so the invoice rolls back and says why."""
+
+    def __init__(self, operation_type, role, message=None):
+        self.operation_type, self.role = operation_type, role
+        super().__init__(message or f'لا حساب مربوط للدور ({operation_type} / {role}): '
+                                    f'يُضبط في «الربط المحاسبي»، ولا يُرحَّل القيد دونه')
+
+
+class VatAccountNotMapped(AccountNotMapped):
     """A VAT amount with no account mapped for its role (ADR-043 rule 4)."""
 
     def __init__(self, operation_type, role):
-        self.operation_type, self.role = operation_type, role
-        super().__init__(f'حساب الضريبة غير مربوط ({operation_type} / {role}): '
+        super().__init__(operation_type, role,
+                         f'حساب الضريبة غير مربوط ({operation_type} / {role}): '
                          f'يُضبط في الربط المحاسبي، ولا يُرحَّل قيد بضريبة دونه')
+
+
+def require_account(operation_type, role) -> int:
+    """The account mapped for a role -- or the posting is refused (ADR-046)."""
+    account_id = get_account_id_for_mapping(operation_type, role)
+    if not account_id:
+        raise AccountNotMapped(operation_type, role)
+    return account_id
 
 
 def require_vat_account(operation_type, role) -> int:
