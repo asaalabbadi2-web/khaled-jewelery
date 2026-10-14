@@ -16,7 +16,7 @@ def _derive_transaction_type(account_number: str, tracks_weight: bool) -> str:
     n = (account_number or '').strip()
     if n.startswith(('1W', '2W', '3W', '4W', '5W')):
         return 'gold'
-    if n.startswith('7') and tracks_weight:
+    if tracks_weight:
         return 'gold'
     return 'cash'
 

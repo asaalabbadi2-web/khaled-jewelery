@@ -87,7 +87,8 @@ def ensure_memo_for_account(fin_account: Account) -> Optional[Account]:
         if memo:
             return memo
 
-    memo_number = f"7{str(fin_account.account_number)}"
+    from accounting.twins import twin_number
+    memo_number = twin_number(fin_account.account_number)
     existing = Account.query.filter_by(account_number=memo_number).first()
     if existing:
         # الربط الثنائي عبر الخدمة المركزية فقط -- كانت هذه الدالة تضبط

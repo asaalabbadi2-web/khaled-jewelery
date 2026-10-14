@@ -190,9 +190,8 @@ def create_dual_journal_entry(journal_entry_id, account_id, cash_debit=0, cash_c
     if not account:
         raise ValueError(f"Account {account_id} not found while creating dual journal entry")
 
-    account_code = (account.account_number or '').strip()
-    # حسابات المذكرة تبدأ بـ '7' (النظام القديم)
-    is_memo_account = account_code.startswith('7') if account_code else False
+    # A weight (memo) account is one that tracks weight -- its mark, not its first digit (CHART-002 4c4).
+    is_memo_account = bool(account.tracks_weight)
     memo_main_karat = _get_main_karat_value(db.session) if is_memo_account else None
 
     # Resolve customer/supplier context automatically when not provided explicitly.

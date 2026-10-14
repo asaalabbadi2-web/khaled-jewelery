@@ -1,10 +1,7 @@
 {
-  "account_number_generator.py": 6,
-  "coa_seed.py": 1,
-  "dual_system_helpers.py": 1,
-  "models.py": 9,
+  "account_number_generator.py": 2,
+  "models.py": 8,
   "payment_methods_routes.py": 1,
-  "routes/accounts.py": 5,
   "routes/reports.py": 21,
   "routes/system.py": 3,
   "routes/vouchers.py": 1,

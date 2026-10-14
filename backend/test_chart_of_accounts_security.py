@@ -251,8 +251,9 @@ class TestTracksWeightBusinessRule:
             assert body['tracks_weight'] is True, 'Backend must ignore user-supplied tracks_weight'
             assert body['transaction_type'] == 'gold'
 
-    def test_7xxx_account_number_forces_tracks_weight_true_on_update(self, admin_headers):
-        """PUT: changing account_number to 7xxx forces tracks_weight=True (user False ignored)."""
+    def test_a_number_into_the_twin_scheme_is_refused_and_the_kind_kept(self, admin_headers):
+        """PUT: a cash account renumbered 7xxx is refused -- the kind is the account's
+        mark, not its number (CHART-002 4c4); it used to flip silently to gold."""
         with app.app_context():
             a = Account(account_number='9920', name='تعديل اختبار', type='Asset', tracks_weight=False)
             db.session.add(a)
@@ -262,16 +263,19 @@ class TestTracksWeightBusinessRule:
         with app.test_client() as c:
             r = c.put(
                 f'/api/accounts/{target_id}',
-                json={'account_number': '7920', 'tracks_weight': False},  # user sends False but 7xxx enforces True
+                json={'account_number': '7920', 'tracks_weight': True},  # the user's tracks_weight is ignored
                 headers=admin_headers,
             )
-            assert r.status_code == 200
-            body = r.get_json()
-            assert body['tracks_weight'] is True
-            assert body['transaction_type'] == 'gold'
+            assert r.status_code == 400
+            assert r.get_json()['error'] == 'MEMO_MISMATCH'
+        with app.app_context():
+            kept = Account.query.get(target_id)
+            assert kept.account_number == '9920' and kept.tracks_weight is False
 
-    def test_non_7xxx_update_always_sets_tracks_weight_false(self, admin_headers):
-        """PUT: non-7xxx accounts always get tracks_weight=False, derived from account number."""
+    def test_an_update_keeps_the_accounts_own_mark(self, admin_headers):
+        """PUT: the mark is the account's -- an update does not re-derive it from the
+        number (CHART-002 4c4; it used to reset a weight account numbered outside the
+        scheme to cash on any edit, its name's included)."""
         with app.app_context():
             # Account with legacy tracks_weight=True (e.g. old inventory account)
             a = Account(account_number='9921', name='مخزون اختبار', type='Asset', tracks_weight=True)
@@ -280,10 +284,10 @@ class TestTracksWeightBusinessRule:
             target_id = a.id
 
         with app.test_client() as c:
-            # Update name only — tracks_weight must be corrected to False (always derived)
-            r = c.put(f'/api/accounts/{target_id}', json={'name': 'مخزون اختبار معدّل'}, headers=admin_headers)
+            r = c.put(f'/api/accounts/{target_id}', json={'name': 'مخزون اختبار معدّل', 'tracks_weight': False},
+                      headers=admin_headers)
             assert r.status_code == 200
-            assert r.get_json()['tracks_weight'] is False, 'Non-7xxx must always be False (derived)'
+            assert r.get_json()['tracks_weight'] is True, 'the mark is kept, the input ignored'
 
 
 # ── 5. Parallel account: warning surfaces, not crash ─────────────────────────
@@ -773,8 +777,9 @@ class TestUpdateAccountMemoRevalidation:
         db.session.commit()
         return cash, gold
 
-    def test_number_change_to_7xxx_unlinks_memo(self, admin_headers):
-        """نقدي مرتبط بذهبي → تغيير رقمه لـ 7xxx يقلب tracks_weight ويُبطل الرابط."""
+    def test_number_change_to_7xxx_is_refused_and_the_link_kept(self, admin_headers):
+        """نقدي مرتبط بذهبي → تغيير رقمه لـ 7xxx يُرفض، ويبقى نوعه ورابطه (CHART-002 4c4:
+        النوع علامة الحساب لا رقمه؛ كان يُقلب ويُفسخ الرابط بصمت)."""
         with app.app_context():
             cash, gold = self._make_linked_pair('446', '7446', name='اختبار قلب النوع')
             cash_id, gold_id = cash.id, gold.id
@@ -782,19 +787,13 @@ class TestUpdateAccountMemoRevalidation:
         with app.test_client() as c:
             r = c.put(f'/api/accounts/{cash_id}',
                       json={'account_number': '74460'}, headers=admin_headers)
-            assert r.status_code == 200, r.get_json()
-            body = r.get_json()
-            assert body['tracks_weight'] is True, 'يجب أن يصبح True بعد تغيير الرقم لـ 7xxx'
+            assert r.status_code == 400, r.get_json()
+            assert r.get_json()['error'] == 'MEMO_MISMATCH'
 
         with app.app_context():
             updated = Account.query.get(cash_id)
-            partner = Account.query.get(gold_id)
-            assert updated.memo_account_id is None, (
-                'الرابط يجب أن يُبطَل — الحسابان أصبحا كلاهما gold'
-            )
-            assert partner.memo_account_id is None, (
-                'الشريك يجب أن يُفسَخ ربطه أيضاً عبر unlink_account()'
-            )
+            assert updated.account_number == '446' and updated.tracks_weight is False
+            assert updated.memo_account_id == gold_id, 'الرابط باقٍ'
 
     def test_name_change_preserves_memo_link(self, admin_headers):
         """تغيير الاسم فقط لا يُبطل رابط memo_account_id."""

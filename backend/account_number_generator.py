@@ -143,10 +143,11 @@ def _is_weight_parent(parent_account_number: str) -> bool:
 
 
 def _financial_parent_from_weight(parent_account_number: str) -> str:
-    parent_digits = _digits_only(parent_account_number)
-    if not parent_digits.startswith('7') or len(parent_digits) < 2:
+    from accounting.twins import financial_number_of
+    financial = financial_number_of(parent_account_number)
+    if financial is None:
         raise ValueError('رقم الحساب الوزني الأب غير صالح')
-    return parent_digits[1:]
+    return financial
 
 
 def _suggest_next_weight_child_number(weight_parent_number: str) -> tuple[str, bool, dict]:
@@ -164,7 +165,8 @@ def _suggest_next_weight_child_number(weight_parent_number: str) -> tuple[str, b
     # but financial parent '210000002' (9-digit) → candidate '7210000020' (10 digits) would
     # overflow PostgreSQL INTEGER (max 2,147,483,647).  BIGINT handles it but the number is
     # unusable in practice; cap at _MAX_ACCOUNT_DIGITS to keep the chart manageable.
-    weight_start_str = f"7{start_range}"
+    from accounting.twins import twin_number
+    weight_start_str = twin_number(start_range)
     if len(weight_start_str) > _MAX_ACCOUNT_DIGITS:
         raise ValueError(
             f'رقم الحساب الوزني الأب {weight_parent_number} عميق جداً ({len(weight_start_str)} خانة). '
@@ -174,15 +176,15 @@ def _suggest_next_weight_child_number(weight_parent_number: str) -> tuple[str, b
 
     # Iterate the financial child range and pick first unused weight number.
     for candidate in range(start_range, end_range + 1, step):
-        weight_candidate = f"7{candidate}"
+        weight_candidate = twin_number(candidate)
         if not _find_account_by_number(weight_candidate):
             return (
                 weight_candidate,
                 use_spacing,
                 {
-                    'start': int(f"7{start_range}"),
-                    'end': int(f"7{end_range}"),
-                    'step': int(f"7{start_range + step}") - int(f"7{start_range}"),
+                    'start': int(twin_number(start_range)),
+                    'end': int(twin_number(end_range)),
+                    'step': int(twin_number(start_range + step)) - int(twin_number(start_range)),
                     'child_len': child_len + 1,
                     'mapped_financial_parent': financial_parent,
                 },
@@ -368,8 +370,8 @@ def suggest_account_number_with_validation(parent_account_number: str) -> dict:
     try:
         parent_digits = _digits_only(parent_account_number)
 
-        # Weight accounts: follow financial numbering rules but prefix with '7'.
-        if parent_digits.startswith('7') and _is_weight_parent(parent_digits):
+        # Weight accounts (the parent tracks weight): the twin rule over the financial numbering.
+        if _is_weight_parent(parent_digits):
             suggested_number, use_spacing, range_info = _suggest_next_weight_child_number(parent_digits)
             return {
                 'suggested_number': suggested_number,
@@ -449,12 +451,13 @@ def validate_account_number(
         }
 
     # Weight parent: validate using mapped financial rules.
-    if parent_digits.startswith('7') and _is_weight_parent(parent_digits):
-        if not acc_digits.startswith('7') or len(acc_digits) < 2:
+    if _is_weight_parent(parent_digits):
+        from accounting.twins import financial_number_of
+        financial_child = financial_number_of(acc_digits)
+        if financial_child is None:
             return {'is_valid': False, 'message': 'رقم الحساب الوزني يجب أن يبدأ بـ 7'}
 
         financial_parent = _financial_parent_from_weight(parent_digits)
-        financial_child = acc_digits[1:]
 
         start, end, _step, child_len = _compute_child_range_and_step(financial_parent)
         account_num = int(financial_child)

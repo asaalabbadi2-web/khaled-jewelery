@@ -10,6 +10,7 @@ import logging
 from sqlalchemy.exc import IntegrityError
 
 from models import db, Account, AccountingMapping, JournalEntry, JournalEntryLine, SafeBox
+from accounting.twins import numbered_as_twin, twin_number
 from account_pair_service import link_accounts, unlink_account, AccountPairLinkError
 from core.database import _db_has_column
 from core.responses import _wrap_api_exceptions
@@ -997,8 +998,8 @@ def get_next_account_number_api(parent_number):
         parent_acc = Account.query.filter_by(account_number=parent_number).first()
         if parent_acc is not None:
             result['parent_has_parallel'] = parent_acc.memo_account_id is not None
-            if not parent_number.startswith('7') and result.get('suggested_number'):
-                result['suggested_parallel_number'] = f'7{result["suggested_number"]}'
+            if not parent_acc.tracks_weight and result.get('suggested_number'):
+                result['suggested_parallel_number'] = twin_number(result['suggested_number'])
             else:
                 result['suggested_parallel_number'] = None
         return jsonify(result), 200
@@ -1111,16 +1112,18 @@ def add_account():
                 'message': validation.get('message', 'رقم الحساب غير صالح')
             }), 400
 
-    # ── Derive tracks_weight and transaction_type from account number ──────────
-    # 7xxx → gold + weight-tracking (True). All others → cash + no-weight (False).
-    # tracks_weight is a derived field — never accepted from user input.
-    is_memo_account = account_number.startswith('7')
+    # ── Derive tracks_weight and transaction_type ───────────────────────────
+    # A child is what its parent is (a weight parent's child tracks weight); a
+    # root account, by the twin numbering rule (accounting/twins.py). Never
+    # accepted from user input. The parent's kind is its mark, not its first
+    # digit (CHART-002 4c4); the number must follow the parent's scheme.
+    is_memo_account = (bool(parent_account.tracks_weight) if parent_account is not None
+                       else numbered_as_twin(account_number))
     derived_transaction_type = 'gold' if is_memo_account else 'cash'
     derived_tracks_weight = is_memo_account
 
     if parent_account is not None:
-        parent_is_memo = str(parent_account.account_number or '').startswith('7')
-        if parent_is_memo != is_memo_account:
+        if numbered_as_twin(account_number) != is_memo_account:
             return jsonify({
                 'error': 'MEMO_MISMATCH',
                 'message': 'رقم الحساب يجب أن يتبع نفس مخطط الأب (مالي/مذكرة)'
@@ -1169,23 +1172,19 @@ def add_account():
 
         if _create_parallel and not is_memo_account:
             try:
-                parallel_number = f'7{account_number}'
+                parallel_number = twin_number(account_number)
                 gold_account = Account.query.filter_by(account_number=parallel_number).first()
                 if gold_account is None:
                     # أب الحساب الذهبي = memo_account_id لأب الحساب النقدي.
                     # الإنفاريانت: أب(gold) = gold_parallel(أب(cash)).
+                    # A parent with no linked twin gives none: the twin is refused
+                    # (a warning, the account saved) -- not guessed by number (CHART-002 4c4).
                     gold_parent_id = None
-                    if parent_account is not None and parent_account.memo_account_id:
+                    if parent_account is not None:
+                        if not parent_account.memo_account_id:
+                            raise ValueError(f'الحساب الأب «{parent_account.name}» بلا حساب وزني مربوط — '
+                                             f'يُربط أولًا، ثم يُنشأ الموازي')
                         gold_parent_id = parent_account.memo_account_id
-                    elif parent_account is not None:
-                        # أب النقدي ليس له حساب ذهبي صريح — ابحث بالاتفاقية (7 + رقم الأب).
-                        _p_digits = ''.join(ch for ch in str(parent_account.account_number or '') if ch.isdigit())
-                        if _p_digits:
-                            _gold_parent_candidate = Account.query.filter_by(
-                                account_number=f'7{_p_digits}'
-                            ).first()
-                            if _gold_parent_candidate:
-                                gold_parent_id = _gold_parent_candidate.id
                     gold_account = Account(
                         account_number=parallel_number,
                         name=f'{name} وزني',
@@ -1230,7 +1229,7 @@ def add_account():
         result['warning'] = f'تم حفظ الحساب، لكن تعذر إنشاء الحساب الموازي: {parallel_warning}'
     # يساعد Flutter على عرض الاقتراح الصحيح عند إضافة حساب ابن لاحقاً:
     result['parent_has_parallel'] = parent_account is not None and parent_account.memo_account_id is not None
-    result['suggested_parallel_number'] = f'7{account_number}' if not is_memo_account else None
+    result['suggested_parallel_number'] = twin_number(account_number) if not is_memo_account else None
 
     return jsonify(result), 201
 
@@ -1258,6 +1257,14 @@ def update_account(id):
                     'error': 'ACCOUNT_NUMBER_EXISTS',
                     'message': f'رقم الحساب {normalized} مستخدم بالفعل'
                 }), 409
+            # A number follows the account's kind -- the kind is not changed by it
+            # (CHART-002 4c4: the mark is the account's; the number, the rule's).
+            if numbered_as_twin(normalized) != bool(account.tracks_weight):
+                return jsonify({
+                    'error': 'MEMO_MISMATCH',
+                    'message': 'رقم الحساب يجب أن يتبع نوعه (مالي / وزني): '
+                               'الحساب الوزني يبدأ رقمه بـ7، والمالي لا يبدأ بها',
+                }), 400
             account.account_number = normalized
 
     if 'name' in data:
@@ -1285,18 +1292,16 @@ def update_account(id):
     if 'exclude_from_gram_profit' in data:
         account.exclude_from_gram_profit = bool(data['exclude_from_gram_profit'])
 
-    # tracks_weight is always derived from account number — never accepted from user input.
-    # 7xxx → gold + True. All others → cash + False.
-    is_memo_account = str(account.account_number or '').startswith('7')
+    # tracks_weight is the account's own -- never accepted from user input, never
+    # re-read from its number (CHART-002 4c4); transaction_type follows it.
+    is_memo_account = bool(account.tracks_weight)
     account.transaction_type = 'gold' if is_memo_account else 'cash'
-    account.tracks_weight = is_memo_account
 
     # فحص الأب أولاً (early return) — قبل أي تعديل على قاعدة البيانات.
     if account.parent_id is not None:
         parent = Account.query.get(account.parent_id)
         if parent is not None:
-            parent_is_memo = str(parent.account_number or '').startswith('7')
-            if parent_is_memo != is_memo_account:
+            if bool(parent.tracks_weight) != is_memo_account:
                 return jsonify({
                     'error': 'MEMO_MISMATCH',
                     'message': 'لا يمكن نقل الحساب بين المالي والمذكرة عبر parent_id'

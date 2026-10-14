@@ -45,10 +45,8 @@ def _digits_only(value: str) -> str:
 
 
 def _memo_number_from_financial(financial_account_number: str | int) -> str:
-    digits = _digits_only(str(financial_account_number))
-    if not digits:
-        raise ValueError('Invalid financial account number')
-    return f"7{digits}"
+    from accounting.twins import twin_number
+    return twin_number(financial_account_number)
 
 
 def party_parent(role: str) -> Account:

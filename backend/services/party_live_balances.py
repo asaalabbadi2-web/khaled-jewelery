@@ -87,37 +87,9 @@ def compute_live_supplier_balances(
             except Exception:
                 continue
 
-    # Batch-resolve memo accounts by number pattern ('7' + financial account_number) for
-    # financial accounts where memo_account_id is NULL.  A single query avoids N+1.
-    # This prevents live-balance from missing gold settlements posted to memo accounts
-    # when the memo_account_id foreign key was not backfilled after the dual-chart migration.
-    _memo_candidate_numbers: Dict[str, int] = {}  # memo_account_number -> supplier_id
-    for s in suppliers:
-        try:
-            sid = int(s.id)
-            fin_id = int(s.account_id) if s.account_id else None
-        except Exception:
-            continue
-        if not fin_id:
-            continue
-        fin_acc = financial_accounts.get(fin_id)
-        if not fin_acc:
-            continue
-        fin_num = str(getattr(fin_acc, 'account_number', '') or '').strip()
-        if fin_num and not getattr(fin_acc, 'memo_account_id', None):
-            candidate = '7' + fin_num
-            _memo_candidate_numbers[candidate] = sid
-
-    _memo_by_number: Dict[str, Account] = {}
-    if _memo_candidate_numbers:
-        try:
-            for acc in Account.query.filter(
-                Account.account_number.in_(list(_memo_candidate_numbers.keys()))
-            ).all():
-                _memo_by_number[str(acc.account_number)] = acc
-        except Exception:
-            pass
-
+    # A supplier's weight twin is its account's link (memo_account_id) -- never
+    # guessed as «7 + number» (CHART-002 4c4; no supplier lacked the link on the
+    # production copy, 14 Oct 2026).
     allowed_account_to_supplier: Dict[int, int] = {}
     for s in suppliers:
         try:
@@ -142,14 +114,6 @@ def compute_live_supplier_balances(
             memo_id = int(fin_acc.memo_account_id) if fin_acc and fin_acc.memo_account_id else None
         except Exception:
             memo_id = None
-
-        # Fallback: resolve memo account by number when memo_account_id link is missing.
-        if not memo_id and fin_acc:
-            fin_num = str(getattr(fin_acc, 'account_number', '') or '').strip()
-            if fin_num:
-                fallback_memo = _memo_by_number.get('7' + fin_num)
-                if fallback_memo and getattr(fallback_memo, 'tracks_weight', False):
-                    memo_id = int(fallback_memo.id)
 
         if memo_id:
             allowed_account_to_supplier[memo_id] = sid

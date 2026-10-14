@@ -316,7 +316,8 @@ class Account(db.Model):
         # تحديد اتجاه الإنشاء
         if self.transaction_type == 'cash':
             # إنشاء حساب وزني موازي
-            parallel_number = f"7{self.account_number}"
+            from accounting.twins import twin_number
+            parallel_number = twin_number(self.account_number)
             parallel_name = f"{self.name} وزني"
             parallel_type = 'gold'
             parallel_tracks_weight = True
@@ -336,12 +337,12 @@ class Account(db.Model):
         
         elif self.transaction_type == 'gold':
             # إنشاء حساب مالي موازي
-            # التحقق من أن الرقم يبدأ بـ 7
-            if not self.account_number.startswith('7'):
-                # حساب وزني لكن لا يبدأ بـ 7، لا يمكن إنشاء موازي
+            # The financial number the twin's was made from (accounting/twins.py).
+            from accounting.twins import financial_number_of
+            parallel_number = financial_number_of(self.account_number)
+            if parallel_number is None:
+                # حساب وزني لا يتبع قاعدة الترقيم، لا يمكن إنشاء موازي
                 return None
-            
-            parallel_number = self.account_number[1:]  # حذف الـ 7
             parallel_name = self.name.replace(' وزني', '').strip()
             parallel_type = 'cash'
             parallel_tracks_weight = False

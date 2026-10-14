@@ -491,6 +491,8 @@ class Matrix:
             for s in Supplier.query.filter(Supplier.account_id.isnot(None)).order_by(Supplier.id).all():
                 own = db.session.get(self.Account, s.account_id)
                 twin = db.session.get(self.Account, own.memo_account_id) if own and own.memo_account_id else None
+                # The twin rule, written here: the matrix runs older code too, which
+                # has no accounting/twins.py (tests/test_twin_rule_in_one_place.py names it).
                 if twin is not None and twin.account_number != f'7{own.account_number}':
                     odd = s
                     break
