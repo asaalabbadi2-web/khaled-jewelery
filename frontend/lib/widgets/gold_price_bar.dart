@@ -350,37 +350,44 @@ class GoldPriceBar extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 2),
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.end,
-          children: [
-            Text(
-              value != null ? _formatPrice(value) : '—',
-              style: TextStyle(
-                fontSize: 21,
-                fontWeight: FontWeight.w900,
-                color: color,
-                fontFamily: 'Cairo',
-                height: 1,
-              ),
-            ),
-            const SizedBox(width: 6),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
-              decoration: BoxDecoration(
-                color: (isUp ? palette.up : palette.down).withValues(alpha: 0.15),
-                borderRadius: BorderRadius.circular(3),
-              ),
-              child: Text(
-                '${isUp ? '▲' : '▼'} $changePercent',
+        // The price and its change scale down to their column: at 1024 and
+        // 1280 the sell price was drawn over the buy price.
+        FittedBox(
+          fit: BoxFit.scaleDown,
+          alignment: AlignmentDirectional.centerStart,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text(
+                value != null ? _formatPrice(value) : '—',
                 style: TextStyle(
-                  fontSize: 10,
-                  fontWeight: FontWeight.w700,
-                  color: isUp ? palette.up : palette.down,
+                  fontSize: 21,
+                  fontWeight: FontWeight.w900,
+                  color: color,
                   fontFamily: 'Cairo',
+                  height: 1,
                 ),
               ),
-            ),
-          ],
+              const SizedBox(width: 6),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                decoration: BoxDecoration(
+                  color: (isUp ? palette.up : palette.down).withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(3),
+                ),
+                child: Text(
+                  '${isUp ? '▲' : '▼'} $changePercent',
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w700,
+                    color: isUp ? palette.up : palette.down,
+                    fontFamily: 'Cairo',
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
         const SizedBox(height: 3),
         Text(
