@@ -112,6 +112,8 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
 
   // Data
   double? goldPrice;
+  // The server's sell and buy per gram by karat (PRICE-BUY-1).
+  Map<String, dynamic>? goldPricesPerGram;
   DateTime? goldPriceDate;
   double? goldPriceOpening;
   DateTime? goldPriceOpeningDate;
@@ -665,6 +667,8 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
           goldPrice = (response['price_usd_per_oz'] is String)
               ? double.tryParse(response['price_usd_per_oz'])
               : (response['price_usd_per_oz'] as num?)?.toDouble();
+          final perGram = response['prices_per_gram'];
+          goldPricesPerGram = perGram is Map ? Map<String, dynamic>.from(perGram) : null;
 
           if (response['date'] != null) {
             // Sent marked UTC ('Z', 2 Oct 2026): shown in the device's time.
@@ -2454,6 +2458,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
         children: [
           GoldPriceBar(
             goldPrice: goldPrice,
+            pricesPerGram: goldPricesPerGram,
             goldPriceOpening: goldPriceOpening,
             goldPriceDate: goldPriceDate,
             exchangeRate: exchangeRate,

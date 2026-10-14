@@ -6,6 +6,11 @@ import 'gold_sparkline_enhanced.dart';
 
 class GoldPriceBar extends StatelessWidget {
   final double? goldPrice;
+
+  /// The server's prices per gram by karat, {'21': {'sell': .., 'buy': ..}}
+  /// (GET /gold_price, PRICE-BUY-1): the buy price is the market's times the
+  /// settings' ratio -- read here, never computed.
+  final Map<String, dynamic>? pricesPerGram;
   final double? goldPriceOpening;
   final DateTime? goldPriceDate;
   final double exchangeRate;
@@ -20,6 +25,7 @@ class GoldPriceBar extends StatelessWidget {
   const GoldPriceBar({
     super.key,
     this.goldPrice,
+    this.pricesPerGram,
     this.goldPriceOpening,
     this.goldPriceDate,
     this.exchangeRate = 3.75,
@@ -38,6 +44,16 @@ class GoldPriceBar extends StatelessWidget {
 
   double _gramPrice(double ouncePrice, int karat) =>
       (ouncePrice / 31.1035) * (karat / 24.0) * exchangeRate;
+
+  double? _serverPrice(int karat, String side) {
+    final row = pricesPerGram?['$karat'];
+    final value = row is Map ? row[side] : null;
+    return value is num ? value.toDouble() : null;
+  }
+
+  double? _sell(double? ouncePrice, int karat) =>
+      _serverPrice(karat, 'sell') ??
+      (ouncePrice != null ? _gramPrice(ouncePrice, karat) : null);
 
   String _formatPrice(double value) => NumberFormat('#,##0.00', 'en').format(value);
 
@@ -202,8 +218,8 @@ class GoldPriceBar extends StatelessWidget {
     required double? changePercent,
     required bool isUp,
   }) {
-    final sell = ouncePrice != null ? _gramPrice(ouncePrice, mainKarat) : null;
-    final buy = sell != null ? sell * 0.98 : null;
+    final sell = _sell(ouncePrice, mainKarat);
+    final buy = _serverPrice(mainKarat, 'buy');
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
@@ -383,8 +399,8 @@ class GoldPriceBar extends StatelessWidget {
     double? changeAbsGram,
     required bool isUp,
   }) {
-    final sell = ouncePrice != null ? _gramPrice(ouncePrice, karat) : null;
-    final buy = sell != null ? sell * 0.98 : null;
+    final sell = _sell(ouncePrice, karat);
+    final buy = _serverPrice(karat, 'buy');
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),

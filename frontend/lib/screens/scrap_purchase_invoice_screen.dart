@@ -19,9 +19,6 @@ import '../widgets/adaptive_invoice_summary_dialog.dart';
 import '../utils/invoice_direct_print.dart';
 import '../utils.dart';
 
-// نسبة افتراضية لخفض سعر السوق للحصول على سعر شراء آمن عند عدم توفر بيانات مخاطبة من المتوسط
-const double kScrapPurchasePriceDiscount = 0.98;
-
 /// شاشة فاتورة شراء الكسر - نسخة مبسطة
 /// ميزات: تصوير الذهب + ملاحظات + دفع نقدي/تحويل فقط + بدون ضريبة
 /// Whether to warn that the purchased gold will go to the main scrap safe:
@@ -103,6 +100,9 @@ class _ScrapPurchaseInvoiceScreenState
 
   // Gold Price & Settings
   double _goldPrice24k = 0.0;
+  // The market's buy price per gram of 24k -- the server's, by the settings'
+  // ratio (PRICE-BUY-1); it was this screen's own 0.98.
+  double _marketBuy24k = 0.0;
   double _purchasePrice24k = 0.0;
   late SettingsProvider _settingsProvider;
 
@@ -466,8 +466,9 @@ class _ScrapPurchaseInvoiceScreenState
       setState(() {
         final fetched = _parseDouble(priceData['price_24k']);
         _goldPrice24k = fetched;
+        _marketBuy24k = _buy24kFrom(priceData);
         if (_purchasePrice24k <= 0) {
-          _purchasePrice24k = _fallbackPurchasePriceFromMarket(fetched);
+          _purchasePrice24k = _marketBuy24k;
         }
       });
     } catch (e) {
@@ -490,19 +491,16 @@ class _ScrapPurchaseInvoiceScreenState
     }
   }
 
-  double _fallbackPurchasePriceFromMarket(double marketPrice) {
-    if (marketPrice <= 0) return 0.0;
-    return double.parse(
-      (marketPrice * kScrapPurchasePriceDiscount).toStringAsFixed(2),
-    );
+  /// The server's buy price per gram of 24k from a GET /gold_price answer.
+  double _buy24kFrom(Map<String, dynamic> priceData) {
+    final perGram = priceData['prices_per_gram'];
+    final row = perGram is Map ? perGram['24'] : null;
+    return row is Map ? _parseDouble(row['buy']) : 0.0;
   }
 
   double get _effectivePurchasePrice24k {
     if (_purchasePrice24k > 0) return _purchasePrice24k;
-    if (_goldPrice24k > 0) {
-      return _fallbackPurchasePriceFromMarket(_goldPrice24k);
-    }
-    return 0.0;
+    return _marketBuy24k;
   }
 
   int? _parseInt(dynamic value) {
@@ -781,8 +779,9 @@ class _ScrapPurchaseInvoiceScreenState
         if (mounted) {
           setState(() {
             _goldPrice24k = newPrice;
+            _marketBuy24k = _buy24kFrom(priceData);
             if (_purchasePrice24k <= 0) {
-              _purchasePrice24k = _fallbackPurchasePriceFromMarket(newPrice);
+              _purchasePrice24k = _marketBuy24k;
             }
           });
         }
@@ -1004,6 +1003,7 @@ class _ScrapPurchaseInvoiceScreenState
       if (fetched > 0) {
         setState(() {
           _goldPrice24k = fetched;
+          _marketBuy24k = _buy24kFrom(priceData);
         });
       }
     } catch (_) {

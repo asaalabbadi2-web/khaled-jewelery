@@ -728,6 +728,7 @@ def update_settings():
         'manufacturing_wage_mode',
         'voucher_auto_post',
         'gold_settlement_tolerance_grams',
+        'buy_price_ratio',
         'accountant_approval_limit_cash',
         'accountant_approval_limit_gold_grams',
         'auto_post_invoices',
@@ -770,6 +771,17 @@ def update_settings():
                 return jsonify({'error': 'invalid_tolerance',
                                 'message': f'{_key} بين 0 و{_limit}'}), 400
             setattr(settings, _key, _value)
+
+    # نسبة سعر الشراء من سعر السوق (PRICE-BUY-1): أكبر من صفر ولا تتجاوز واحدًا
+    if 'buy_price_ratio' in data:
+        try:
+            _ratio = float(data['buy_price_ratio'])
+        except (TypeError, ValueError):
+            return jsonify({'error': 'invalid_buy_price_ratio', 'message': 'نسبة سعر الشراء يجب أن تكون رقمًا'}), 400
+        if not (0.5 <= _ratio <= 1.0):
+            return jsonify({'error': 'invalid_buy_price_ratio',
+                            'message': 'نسبة سعر الشراء بين 0.50 و1.00 من سعر السوق'}), 400
+        settings.buy_price_ratio = _ratio
 
     # حدّ اعتماد المحاسب (ADR-036 R4): غير سالب؛ 0 = لا يعتمد شيئًا
     for _key in ('accountant_approval_limit_cash', 'accountant_approval_limit_gold_grams'):

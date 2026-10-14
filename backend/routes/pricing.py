@@ -20,6 +20,7 @@ from models import GoldPrice, InventoryCostingConfig, Invoice, db
 from utils import get_main_karat
 from pricing.constants import SAR_USD_PEG, TROY_OZ_TO_GRAMS
 from pricing import price_clock
+from pricing.buy_price import buy_price_ratio, gram_prices
 
 pricing_bp = Blueprint('pricing', __name__)
 
@@ -62,6 +63,8 @@ def get_gold_price():
                     'currency': 'ر.س',
                     'date': price_clock.iso_utc(now),
                     'source': 'API',
+                    'buy_price_ratio': buy_price_ratio(),
+                    'prices_per_gram': gram_prices(price_usd),
                 })
         except Exception as e:
             print(f'[ERROR] فشل جلب السعر من API: {e}')
@@ -78,6 +81,8 @@ def get_gold_price():
                     'currency': 'ر.س',
                     'date': price_clock.iso_utc(latest.date),
                     'source': 'Database (Fallback)',
+                    'buy_price_ratio': buy_price_ratio(),
+                    'prices_per_gram': gram_prices(latest.price),
                 })
 
     if latest:
@@ -93,6 +98,8 @@ def get_gold_price():
             'currency': 'ر.س',
             'date': price_clock.iso_utc(latest.date),
             'source': 'Database (Cached)',
+            'buy_price_ratio': buy_price_ratio(),
+            'prices_per_gram': gram_prices(latest.price),
         })
 
     return jsonify({'price_24k': 0, 'price_usd_per_oz': 0, 'currency': 'ر.س', 'date': None,
