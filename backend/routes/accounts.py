@@ -14,7 +14,7 @@ from accounting.twins import numbered_as_twin, twin_number
 from account_pair_service import link_accounts, unlink_account, AccountPairLinkError
 from core.database import _db_has_column
 from core.responses import _wrap_api_exceptions
-from auth_decorators import require_permission
+from auth_decorators import require_any_permission, require_permission
 
 _log = logging.getLogger(__name__)
 
@@ -1681,7 +1681,7 @@ def get_account_ledger(account_id):
 # ---------------------------------------------------------------------------
 
 @accounts_bp.route('/accounting-mappings', methods=['GET'])
-@require_permission('business.setup')
+@require_any_permission('business.setup', 'accounting.mapping')
 def get_accounting_mappings():
     """الحصول على جميع إعدادات الربط المحاسبي"""
     try:
@@ -1700,154 +1700,75 @@ def get_accounting_mappings():
     except Exception as e:
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
+
+@accounts_bp.route('/accounting-roles', methods=['GET'])
+@require_any_permission('business.setup', 'accounting.mapping')
+def get_accounting_roles():
+    """Every role the code knows, with its mapping per operation (MAPPING-UI-1)."""
+    from services.role_mappings import catalog
+    return jsonify(catalog()), 200
+
+
+def _mapping_refused(exc):
+    return jsonify({'status': 'error', 'error': exc.code, 'message': exc.message}), 400
+
+
 @accounts_bp.route('/accounting-mappings', methods=['POST'])
-@require_permission('business.setup')
+@require_permission('accounting.mapping')
 def create_accounting_mapping():
-    """إنشاء أو تحديث إعداد ربط محاسبي"""
+    """إنشاء أو تحديث إعداد ربط — يُتحقَّق منه ويُسجَّل (MAPPING-UI-1)."""
+    from services.approval_policy import actor
+    from services.role_mappings import MappingRefused, save
+    data = request.get_json(silent=True) or {}
+    operation_type, account_type, account_id = data.get('operation_type'), data.get('account_type'), data.get('account_id')
+    if not all([operation_type, account_type, account_id]):
+        return jsonify({'status': 'error', 'message': 'يجب تحديد نوع العملية ونوع الحساب والحساب المحاسبي'}), 400
     try:
-        data = request.get_json()
-
-        operation_type = data.get('operation_type')
-        account_type = data.get('account_type')
-        account_id = data.get('account_id')
-
-        if not all([operation_type, account_type, account_id]):
-            return jsonify({
-                'status': 'error',
-                'message': 'يجب تحديد نوع العملية ونوع الحساب والحساب المحاسبي'
-            }), 400
-
-        account = Account.query.get(account_id)
-        if not account:
-            return jsonify({'status': 'error', 'message': 'الحساب المحاسبي غير موجود'}), 404
-
-        existing_mapping = AccountingMapping.query.filter_by(
-            operation_type=operation_type,
-            account_type=account_type
-        ).first()
-
-        if existing_mapping:
-            existing_mapping.account_id = account_id
-            existing_mapping.allocation_percentage = data.get('allocation_percentage')
-            existing_mapping.description = data.get('description')
-            existing_mapping.is_active = data.get('is_active', True)
-            db.session.commit()
-            return jsonify({
-                'status': 'success',
-                'message': 'تم تحديث إعدادات الربط بنجاح',
-                'mapping': existing_mapping.to_dict()
-            }), 200
-        else:
-            new_mapping = AccountingMapping(
-                operation_type=operation_type,
-                account_type=account_type,
-                account_id=account_id,
-                allocation_percentage=data.get('allocation_percentage'),
-                description=data.get('description'),
-                is_active=data.get('is_active', True),
-                created_by=data.get('created_by', 'system')
-            )
-            db.session.add(new_mapping)
-            db.session.commit()
-            return jsonify({
-                'status': 'success',
-                'message': 'تم إنشاء إعدادات الربط بنجاح',
-                'mapping': new_mapping.to_dict()
-            }), 201
-
-    except Exception as e:
+        row = save(operation_type, account_type, int(account_id), by=actor())
+        db.session.commit()
+    except MappingRefused as exc:
         db.session.rollback()
-        return jsonify({'status': 'error', 'message': str(e)}), 500
+        return _mapping_refused(exc)
+    return jsonify({'status': 'success', 'message': 'تم حفظ الربط', 'mapping': row.to_dict()}), 200
+
 
 @accounts_bp.route('/accounting-mappings/batch', methods=['POST'])
-@require_permission('business.setup')
+@require_permission('accounting.mapping')
 def batch_create_accounting_mappings():
-    """إنشاء عدة إعدادات ربط دفعة واحدة"""
+    """حفظ عدة ربطات دفعة واحدة — كلها أو لا شيء (MAPPING-UI-1)."""
+    from services.approval_policy import actor
+    from services.role_mappings import MappingRefused, save
+    mappings_data = (request.get_json(silent=True) or {}).get('mappings') or []
+    if not mappings_data:
+        return jsonify({'status': 'error', 'message': 'لا توجد بيانات للحفظ'}), 400
+    saved, by = [], actor()
     try:
-        data = request.get_json()
-        mappings_data = data.get('mappings', [])
-
-        if not mappings_data:
-            return jsonify({'status': 'error', 'message': 'لا توجد بيانات للإنشاء'}), 400
-
-        created_mappings = []
-        updated_mappings = []
-        errors = []
-
-        for mapping_data in mappings_data:
-            try:
-                operation_type = mapping_data.get('operation_type')
-                account_type = mapping_data.get('account_type')
-                account_id = mapping_data.get('account_id')
-
-                if not all([operation_type, account_type, account_id]):
-                    errors.append(f'بيانات ناقصة: {mapping_data}')
-                    continue
-
-                account = Account.query.get(account_id)
-                if not account:
-                    errors.append(f'الحساب {account_id} غير موجود')
-                    continue
-
-                existing_mapping = AccountingMapping.query.filter_by(
-                    operation_type=operation_type,
-                    account_type=account_type
-                ).first()
-
-                if existing_mapping:
-                    existing_mapping.account_id = account_id
-                    existing_mapping.allocation_percentage = mapping_data.get('allocation_percentage')
-                    existing_mapping.description = mapping_data.get('description')
-                    existing_mapping.is_active = mapping_data.get('is_active', True)
-                    updated_mappings.append(existing_mapping.to_dict())
-                else:
-                    new_mapping = AccountingMapping(
-                        operation_type=operation_type,
-                        account_type=account_type,
-                        account_id=account_id,
-                        allocation_percentage=mapping_data.get('allocation_percentage'),
-                        description=mapping_data.get('description'),
-                        is_active=mapping_data.get('is_active', True),
-                        created_by=data.get('created_by', 'system')
-                    )
-                    db.session.add(new_mapping)
-                    created_mappings.append(new_mapping.to_dict())
-
-            except Exception as e:
-                errors.append(f'خطأ في معالجة {mapping_data}: {str(e)}')
-
+        for item in mappings_data:
+            operation_type, account_type = item.get('operation_type'), item.get('account_type')
+            if not all([operation_type, account_type, item.get('account_id')]):
+                raise MappingRefused('INCOMPLETE', f'بيانات ناقصة: {operation_type} / {account_type}')
+            saved.append(save(operation_type, account_type, int(item['account_id']), by=by).to_dict())
         db.session.commit()
-
-        return jsonify({
-            'status': 'success',
-            'message': f'تم إنشاء {len(created_mappings)} وتحديث {len(updated_mappings)} من إعدادات الربط',
-            'created': created_mappings,
-            'updated': updated_mappings,
-            'errors': errors
-        }), 200
-
-    except Exception as e:
+    except MappingRefused as exc:
         db.session.rollback()
-        return jsonify({'status': 'error', 'message': str(e)}), 500
+        return _mapping_refused(exc)
+    return jsonify({'status': 'success', 'message': f'تم حفظ {len(saved)} ربطًا', 'saved': saved}), 200
+
 
 @accounts_bp.route('/accounting-mappings/<int:mapping_id>', methods=['DELETE'])
-@require_permission('business.setup')
+@require_permission('accounting.mapping')
 def delete_accounting_mapping(mapping_id):
-    """حذف إعداد ربط محاسبي"""
+    """حذف ربط — يُرفض لدور مطلوب يبقى بلا حساب (MAPPING-UI-1)."""
+    from services.approval_policy import actor
+    from services.role_mappings import MappingRefused, remove
     try:
-        mapping = AccountingMapping.query.get(mapping_id)
-
-        if not mapping:
-            return jsonify({'status': 'error', 'message': 'إعدادات الربط غير موجودة'}), 404
-
-        db.session.delete(mapping)
+        remove(mapping_id, by=actor())
         db.session.commit()
-
-        return jsonify({'status': 'success', 'message': 'تم حذف إعدادات الربط بنجاح'}), 200
-
-    except Exception as e:
+    except MappingRefused as exc:
         db.session.rollback()
-        return jsonify({'status': 'error', 'message': str(e)}), 500
+        return (jsonify({'status': 'error', 'error': exc.code, 'message': exc.message}),
+                404 if exc.code == 'NOT_FOUND' else 400)
+    return jsonify({'status': 'success', 'message': 'تم حذف إعدادات الربط بنجاح'}), 200
 
 @accounts_bp.route('/accounting-mappings/get-account', methods=['POST'])
 @require_permission('business.setup')

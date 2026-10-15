@@ -30,6 +30,9 @@ SYSTEM_PERMISSIONS = {
     'system.backup': 'النسخ الاحتياطي والاستعادة',
     'system.logs': 'عرض سجلات النظام',
     'business.setup': 'إعداد وسائل الدفع والفروع والمكاتب وربط الحسابات',
+    # MAPPING-UI-1 (the owner, 15 Oct 2026): a role's account decides where every
+    # entry through it goes -- changed by the owner or the manager only.
+    'accounting.mapping': 'تعديل الربط المحاسبي (حساب كل دور)',
     'audit.view': 'عرض سجل التدقيق ونتائج الفحص',
 }
 
@@ -176,6 +179,7 @@ ROLE_PERMISSIONS = {
 
     # 2. المدير — الإشراف والاعتماد: الموافقات والإلغاء وفك الترحيل والبيانات الأساسية
     'manager': [
+        'accounting.mapping',
         'audit.view',
         'employees.view', 'employees.create', 'employees.edit', 'employees.delete',
         'employees.payroll', 'employees.bonuses',

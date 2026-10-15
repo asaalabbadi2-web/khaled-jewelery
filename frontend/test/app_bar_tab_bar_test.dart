@@ -12,7 +12,6 @@ import 'package:frontend/widgets/app_bar_tab_bar.dart';
 // background, each to be walked in both themes before it moves to AppBarTabBar
 // (recovery roadmap, APPBAR-TABS). A new plain `bottom: TabBar(` fails here.
 const _customBars = {
-  'lib/screens/accounting_mapping_screen_enhanced.dart',
   'lib/screens/melting_renewal_screen.dart',
   'lib/screens/posting_management_screen.dart',
   'lib/screens/sales_race_management_screen.dart',

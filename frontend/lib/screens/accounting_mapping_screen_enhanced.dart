@@ -1,1202 +1,622 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+
 import '../api_service.dart';
+import '../providers/auth_provider.dart';
+import '../theme/app_semantic_colors.dart';
 import '../widgets/account_picker_sheet.dart';
 
+/// «الربط المحاسبي» (MAPPING-UI-1): يرسم ما يقوله الخادم في `/accounting-roles`
+/// -- كل دور يطلبه الكود باسمه وغرضه ونوعه، ولكل عملية حسابها، صريحًا أو
+/// موروثًا من «افتراضي»، والتوأم الوزني حيث يُقرأ. لا قائمة أدوار هنا: كانت
+/// الشاشة تعرف ١٧ دورًا من كودها، ستة منها لم يعد يطلبها أحد، والكود يطلب ٦٩
+/// (١٥ أكتوبر ٢٠٢٦). الحفظ والحذف يحكم فيهما الخادم ويُعرض رفضه كما هو.
 class AccountingMappingScreenEnhanced extends StatefulWidget {
-  const AccountingMappingScreenEnhanced({super.key});
+  const AccountingMappingScreenEnhanced({super.key, this.api});
+
+  final ApiService? api;
 
   @override
   State<AccountingMappingScreenEnhanced> createState() =>
       _AccountingMappingScreenEnhancedState();
 }
 
+enum _Filter { all, unmapped, twinMissing }
+
+const _defaultOperation = 'افتراضي';
+const _changePermission = 'accounting.mapping';
+
 class _AccountingMappingScreenEnhancedState
-    extends State<AccountingMappingScreenEnhanced>
-    with SingleTickerProviderStateMixin {
-  final ApiService _apiService = ApiService();
+    extends State<AccountingMappingScreenEnhanced> {
+  late final ApiService _api = widget.api ?? ApiService();
+  final _search = TextEditingController();
 
-  static const String _defaultOperationType = 'افتراضي';
+  bool _loading = true;
+  String? _error;
+  List<String> _groups = const [];
+  List<Map<String, dynamic>> _roles = const [];
+  Map<String, dynamic> _summary = const {};
+  List<Map<String, dynamic>> _accounts = const [];
+  _Filter _filter = _Filter.all;
+  bool _busy = false;
 
-  late final TabController _tabController;
-
-  final List<_OperationConfig> _operationConfigs = const [
-    _OperationConfig(
-      key: _defaultOperationType,
-      label: 'افتراضي',
-      description: 'قائمة ربط واحدة تُستخدم لكل الأنواع (يمكن تخصيص استثناءات لاحقاً).',
-      icon: Icons.link,
-      tone: _Tone.primary,
-    ),
-    _OperationConfig(
-      key: 'سندات',
-      label: 'سندات',
-      description: 'سندات القبض والصرف (ربط حسابات العملاء والموردين التجميعية)',
-      icon: Icons.receipt_long,
-      tone: _Tone.info,
-    ),
-    _OperationConfig(
-      key: 'بيع',
-      label: 'بيع',
-      description: 'عمليات بيع المجوهرات مباشرة للعملاء',
-      icon: Icons.shopping_cart,
-      tone: _Tone.success,
-    ),
-    _OperationConfig(
-      key: 'شراء من عميل',
-      label: 'شراء من عميل',
-      description: 'استلام ذهب من عميل مقابل دفع نقدي أو وزن',
-      icon: Icons.person_add_alt_1,
-      tone: _Tone.primary,
-    ),
-    _OperationConfig(
-      key: 'مرتجع بيع',
-      label: 'مرتجع بيع',
-      description: 'إرجاع مبيعات سابقة وما يتبعها من قيود',
-      icon: Icons.assignment_return,
-      tone: _Tone.warning,
-    ),
-    _OperationConfig(
-      key: 'مرتجع شراء',
-      label: 'مرتجع شراء',
-      description: 'إرجاع مشتريات سابقة من العملاء أو الموردين',
-      icon: Icons.undo,
-      tone: _Tone.info,
-    ),
-    _OperationConfig(
-      key: 'شراء',
-      label: 'شراء',
-      description: 'توريد ذهب من موردين مع قيد التكلفة',
-      icon: Icons.business_center,
-      tone: _Tone.secondary,
-    ),
-    _OperationConfig(
-      key: 'مرتجع شراء (مورد)',
-      label: 'مرتجع شراء (مورد)',
-      description: 'إرجاع ذهب تم شراؤه من موردين',
-      icon: Icons.keyboard_return,
-      tone: _Tone.danger,
-    ),
-  ];
-
-  final Map<String, _AccountTypeConfig> _accountTypeConfigs = const {
-    'inventory_18k': _AccountTypeConfig(
-      name: 'مخزون ذهب عيار 18',
-      category: 'المخزون',
-      icon: Icons.inventory_2,
-      tone: _Tone.secondary,
-    ),
-    'inventory_21k': _AccountTypeConfig(
-      name: 'مخزون ذهب عيار 21',
-      category: 'المخزون',
-      icon: Icons.inventory,
-      tone: _Tone.secondary,
-    ),
-    'inventory_22k': _AccountTypeConfig(
-      name: 'مخزون ذهب عيار 22',
-      category: 'المخزون',
-      icon: Icons.inventory_outlined,
-      tone: _Tone.secondary,
-    ),
-    'inventory_24k': _AccountTypeConfig(
-      name: 'مخزون ذهب عيار 24',
-      category: 'المخزون',
-      icon: Icons.inventory_rounded,
-      tone: _Tone.secondary,
-    ),
-    'cash': _AccountTypeConfig(
-      name: 'النقدية / الصندوق',
-      category: 'النقدية',
-      icon: Icons.account_balance_wallet,
-      tone: _Tone.primary,
-    ),
-    'customers': _AccountTypeConfig(
-      name: 'العملاء (حساب تجميعي)',
-      category: 'العملاء والموردين',
-      icon: Icons.people_alt,
-      tone: _Tone.info,
-    ),
-    'suppliers': _AccountTypeConfig(
-      name: 'الموردون (حساب تجميعي)',
-      category: 'العملاء والموردين',
-      icon: Icons.store,
-      tone: _Tone.info,
-    ),
-    'revenue': _AccountTypeConfig(
-      name: 'الإيرادات',
-      category: 'الإيرادات والمصروفات',
-      icon: Icons.trending_up,
-      tone: _Tone.success,
-    ),
-    'cost': _AccountTypeConfig(
-      name: 'تكلفة البضاعة المباعة',
-      category: 'الإيرادات والمصروفات',
-      icon: Icons.request_quote,
-      tone: _Tone.success,
-    ),
-    'commission': _AccountTypeConfig(
-      name: 'مصروف العمولات',
-      category: 'العمولات',
-      icon: Icons.receipt_long,
-      tone: _Tone.info,
-    ),
-    'commission_vat': _AccountTypeConfig(
-      name: 'ضريبة القيمة المضافة على العمولات',
-      category: 'العمولات',
-      icon: Icons.receipt,
-      tone: _Tone.info,
-    ),
-    'vat_payable': _AccountTypeConfig(
-      name: 'ضريبة القيمة المضافة المستحقة (دائنة)',
-      category: 'الضرائب',
-      icon: Icons.balance,
-      tone: _Tone.warning,
-    ),
-    'vat_receivable': _AccountTypeConfig(
-      name: 'ضريبة القيمة المضافة المدفوعة (مدينة)',
-      category: 'الضرائب',
-      icon: Icons.balance_outlined,
-      tone: _Tone.warning,
-    ),
-    'profit_loss': _AccountTypeConfig(
-      name: 'الأرباح والخسائر',
-      category: 'حسابات إضافية',
-      icon: Icons.leaderboard,
-      tone: _Tone.neutral,
-    ),
-    'sales_returns': _AccountTypeConfig(
-      name: 'مردودات المبيعات',
-      category: 'حسابات إضافية',
-      icon: Icons.reply,
-      tone: _Tone.neutral,
-    ),
-    'purchase_returns': _AccountTypeConfig(
-      name: 'مردودات المشتريات',
-      category: 'حسابات إضافية',
-      icon: Icons.reply_all,
-      tone: _Tone.neutral,
-    ),
-  };
-
-  final Map<String, _Tone> _categoryTones = const {
-    'المخزون': _Tone.secondary,
-    'النقدية': _Tone.primary,
-    'العملاء والموردين': _Tone.info,
-    'الإيرادات والمصروفات': _Tone.success,
-    'العمولات': _Tone.info,
-    'الضرائب': _Tone.warning,
-    'حسابات إضافية': _Tone.neutral,
-  };
-
-  List<Map<String, dynamic>> _accounts = [];
-  List<Map<String, dynamic>> _mappings = [];
-  Map<String, Map<String, int?>> _pendingChanges = {};
-  bool _hasUnsavedChanges = false;
-  bool _isLoading = true;
+  bool get _canChange =>
+      context.read<AuthProvider>().hasPermission(_changePermission);
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(
-      length: _operationConfigs.length,
-      vsync: this,
-    );
-    _loadData();
+    _load();
   }
 
   @override
   void dispose() {
-    _tabController.dispose();
+    _search.dispose();
     super.dispose();
   }
 
-  ColorScheme get _scheme => Theme.of(context).colorScheme;
-  bool get _isDark => Theme.of(context).brightness == Brightness.dark;
-
-  Color get _surfaceColor => _scheme.surface;
-  Color get _cardColor => _isDark
-      ? Color.alphaBlend(
-          _withOpacity(_scheme.surfaceContainerHighest, 0.45),
-          _surfaceColor,
-        )
-      : Color.alphaBlend(_withOpacity(_scheme.primary, 0.05), _surfaceColor);
-
-  Color get _outlineColor => _scheme.outline;
-  Color get _strongTextColor => _scheme.onSurface;
-  Color get _mutedTextColor => _scheme.onSurfaceVariant;
-
-  Color _toneColor(_Tone tone) {
-    switch (tone) {
-      case _Tone.primary:
-        return _scheme.primary;
-      case _Tone.secondary:
-        return _scheme.secondary;
-      case _Tone.tertiary:
-        return _scheme.tertiary;
-      case _Tone.success:
-        return _scheme.tertiary;
-      case _Tone.warning:
-        return _scheme.errorContainer;
-      case _Tone.info:
-        return _scheme.secondaryContainer;
-      case _Tone.danger:
-        return _scheme.error;
-      case _Tone.neutral:
-        return _scheme.outlineVariant;
-    }
-  }
-
-  Color _withOpacity(Color color, double opacity) {
-    final clamped = opacity.clamp(0.0, 1.0);
-    final alpha = (clamped * 255).round();
-    return color.withAlpha(alpha);
-  }
-
-  Color _blendOnSurface(Color color, double opacity) {
-    return Color.alphaBlend(_withOpacity(color, opacity), _surfaceColor);
-  }
-
-  Future<void> _loadData() async {
-    setState(() => _isLoading = true);
+  Future<void> _load() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
     try {
       final results = await Future.wait([
-        _apiService.getAccounts(),
-        _apiService.getAccountingMappings(),
+        _api.getAccountingRoles(),
+        _api.getAccounts(skipBalances: true),
       ]);
-
+      if (!mounted) return;
+      final body = results[0] as Map<String, dynamic>;
+      setState(() {
+        _groups = (body['groups'] as List).map((g) => '$g').toList();
+        _roles = (body['roles'] as List).cast<Map<String, dynamic>>();
+        _summary = (body['summary'] as Map).cast<String, dynamic>();
+        _accounts = (results[1] as List).whereType<Map<String, dynamic>>().toList();
+        _loading = false;
+      });
+    } catch (e) {
       if (!mounted) return;
       setState(() {
-        _accounts = List<Map<String, dynamic>>.from(results[0]);
-        _mappings = List<Map<String, dynamic>>.from(results[1]);
-        _pendingChanges = {};
-        _hasUnsavedChanges = false;
-        _isLoading = false;
+        _error = '$e';
+        _loading = false;
       });
-    } catch (error) {
-      if (!mounted) return;
-      setState(() => _isLoading = false);
-      _showSnackBar('خطأ في تحميل البيانات: $error', _toneColor(_Tone.danger));
     }
   }
 
-  int? _getMappedAccountId(String operationType, String accountType) {
-    // 1) Explicit override for the operation (or pending change)
-    final hasPending =
-        _pendingChanges[operationType]?.containsKey(accountType) ?? false;
-    if (hasPending) {
-      return _pendingChanges[operationType]![accountType];
+  // ── ما يُعرض ─────────────────────────────────────────────────────────────
+
+  static List<Map<String, dynamic>> _operations(Map<String, dynamic> role) =>
+      (role['operations'] as List).cast<Map<String, dynamic>>();
+
+  static Map<String, dynamic>? _account(Map<String, dynamic> op) =>
+      (op['account'] as Map?)?.cast<String, dynamic>();
+
+  static Map<String, dynamic>? _defaultAccount(Map<String, dynamic> role) {
+    for (final op in _operations(role)) {
+      if (op['operation'] == _defaultOperation) return _account(op);
     }
-
-    final mapping = _mappings.firstWhere(
-      (m) =>
-          m['operation_type'] == operationType &&
-          m['account_type'] == accountType,
-      orElse: () => {},
-    );
-    final explicitId = mapping['account_id'];
-    if (explicitId != null) return explicitId as int?;
-
-    // 2) Inherit from default mapping if this operation has no override
-    if (operationType != _defaultOperationType) {
-      final inherited = _mappings.firstWhere(
-        (m) =>
-            m['operation_type'] == _defaultOperationType &&
-            m['account_type'] == accountType,
-        orElse: () => {},
-      );
-      return inherited['account_id'] as int?;
-    }
-
     return null;
   }
 
-  int? _getExplicitMappedAccountId(String operationType, String accountType) {
-    final hasPending =
-        _pendingChanges[operationType]?.containsKey(accountType) ?? false;
-    if (hasPending) {
-      return _pendingChanges[operationType]![accountType];
+  /// The operations that take the default's account: one line under it, not a row each.
+  static List<String> _inheriting(Map<String, dynamic> role) => [
+        for (final op in _operations(role))
+          if (op['source'] == 'default') '${op['operation']}',
+      ];
+
+  /// What «حساب خاص لعملية» offers: an operation with no row of its own.
+  static List<String> _overrideCandidates(Map<String, dynamic> role) => [
+        ..._inheriting(role),
+        ...((role['overridable'] as List?) ?? const []).map((o) => '$o'),
+      ];
+
+  static bool _unmapped(Map<String, dynamic> role) =>
+      _operations(role).any((op) => op['required'] == true && op['account'] == null);
+
+  static bool _twinMissing(Map<String, dynamic> role) =>
+      role['needs_twin'] == true &&
+      _operations(role).any((op) {
+        final account = _account(op);
+        return account != null && account['twin'] == null;
+      });
+
+  bool _matches(Map<String, dynamic> role) {
+    switch (_filter) {
+      case _Filter.unmapped:
+        if (!_unmapped(role)) return false;
+      case _Filter.twinMissing:
+        if (!_twinMissing(role)) return false;
+      case _Filter.all:
+        break;
     }
-    final mapping = _mappings.firstWhere(
-      (m) =>
-          m['operation_type'] == operationType &&
-          m['account_type'] == accountType,
-      orElse: () => {},
-    );
-    return mapping['account_id'] as int?;
+    final q = _search.text.trim();
+    if (q.isEmpty) return true;
+    final haystack = [
+      role['label'],
+      role['purpose'],
+      role['key'],
+      for (final op in _operations(role)) ...[
+        _account(op)?['number'],
+        _account(op)?['name'],
+      ],
+    ].whereType<Object>().join(' ');
+    return haystack.contains(q);
   }
 
-  int? _getExistingMappingRowId(String operationType, String accountType) {
-    final mapping = _mappings.firstWhere(
-      (m) =>
-          m['operation_type'] == operationType &&
-          m['account_type'] == accountType,
-      orElse: () => {},
-    );
-    final raw = mapping['id'];
-    if (raw is int) return raw;
-    if (raw is num) return raw.toInt();
-    return int.tryParse('${raw ?? ''}');
-  }
+  // ── التغيير ──────────────────────────────────────────────────────────────
 
-  void _updateMapping(
-    String operationType,
-    String accountType,
-    int? accountId,
-  ) {
-    setState(() {
-      _pendingChanges.putIfAbsent(operationType, () => {});
-      _pendingChanges[operationType]![accountType] = accountId;
-      _hasUnsavedChanges = true;
-    });
-  }
-
-  Future<void> _saveAllChanges() async {
-    if (_pendingChanges.isEmpty) {
-      _showSnackBar('لا توجد تغييرات للحفظ', _toneColor(_Tone.warning));
-      return;
-    }
-
-    showDialog<void>(
+  Future<void> _change(Map<String, dynamic> role, String operation,
+      Map<String, dynamic>? current) async {
+    final weight = role['kind'] == 'weight';
+    final picked = await showAccountPickerBottomSheet(
       context: context,
-      barrierDismissible: false,
-      builder: (dialogContext) => Directionality(
-        textDirection: TextDirection.rtl,
-        child: AlertDialog(
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
-          ),
-          content: SizedBox(
-            width: 260,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                CircularProgressIndicator(color: _scheme.primary),
-                const SizedBox(height: 16),
-                const Text('جاري حفظ التغييرات...'),
-              ],
-            ),
-          ),
-        ),
-      ),
+      accounts: _accounts,
+      title: '«${role['label']}» — $operation',
+      selectedId: current?['id'] as int?,
+      // الدور يأخذ نوعًا واحدًا من الحسابات، والخادم يرفض غيره.
+      predicate: (a) =>
+          accountTracksWeight(a) == weight && a['is_active'] != false,
+      showTransactionTypeFilter: false,
+      showLeafOnlyFilter: true,
     );
-
-    try {
-      for (final entry in _pendingChanges.entries) {
-        final operationType = entry.key;
-        for (final accountEntry in entry.value.entries) {
-          final accountType = accountEntry.key;
-          final accountId = accountEntry.value;
-          if (accountId != null) {
-            await _apiService.createAccountingMapping(
-              operationType: operationType,
-              accountType: accountType,
-              accountId: accountId,
-            );
-          } else {
-            // Null means "remove override" (or clear default mapping)
-            final mappingId = _getExistingMappingRowId(operationType, accountType);
-            if (mappingId != null) {
-              await _apiService.deleteAccountingMapping(mappingId);
-            }
-          }
-        }
-      }
-
-      if (mounted) {
-        Navigator.of(context, rootNavigator: true).pop();
-      }
-
-      await _loadData();
-
-      if (mounted) {
-        _showSnackBar(
-          '✅ تم حفظ جميع التغييرات بنجاح',
-          _toneColor(_Tone.success),
-        );
-      }
-    } catch (error) {
-      if (mounted) {
-        Navigator.of(context, rootNavigator: true).pop();
-        _showSnackBar('خطأ في الحفظ: $error', _toneColor(_Tone.danger));
-      }
-    }
+    if (!mounted || picked == null) return;
+    final id = picked['id'] is int ? picked['id'] as int : int.tryParse('${picked['id']}');
+    if (id == null || id == current?['id']) return;
+    final ok = await _confirm(
+      title: 'تغيير حساب «${role['label']}»',
+      lines: [
+        'العملية: ${_operationLabel(operation)}',
+        'الحالي: ${_currentText(role, operation)}',
+        'الجديد: ${accountLabelOf(picked)}',
+        if (operation == _defaultOperation)
+          'يسري على كل عملية ليس لها ربط خاص بها.',
+      ],
+      action: 'حفظ',
+    );
+    if (!ok) return;
+    await _run(() => _api.createAccountingMapping(
+        operationType: operation, accountType: '${role['key']}', accountId: id));
   }
 
-  Future<bool> _confirmDiscardChanges() async {
-    if (!_hasUnsavedChanges) {
-      return true;
-    }
+  Future<void> _remove(Map<String, dynamic> role, Map<String, dynamic> op) async {
+    final ok = await _confirm(
+      title: 'حذف ربط «${role['label']}»',
+      lines: [
+        'العملية: ${_operationLabel('${op['operation']}')}',
+        'الحساب: ${_accountText(_account(op)!)}',
+        if (op['operation'] != _defaultOperation && role['retired'] != true && _defaultAccount(role) != null)
+          'تعود العملية إلى حساب «افتراضي»: ${_accountText(_defaultAccount(role)!)}.',
+      ],
+      action: 'حذف',
+    );
+    if (!ok) return;
+    await _run(() => _api.deleteAccountingMapping(op['mapping_id'] as int));
+  }
 
-    final result = await showDialog<bool>(
+  Future<void> _override(Map<String, dynamic> role) async {
+    final ops = _overrideCandidates(role);
+    final operation = await showModalBottomSheet<String>(
       context: context,
-      builder: (dialogContext) => Directionality(
-        textDirection: TextDirection.rtl,
-        child: AlertDialog(
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(20),
-          ),
-          title: Row(
-            children: [
-              Icon(Icons.warning, color: _toneColor(_Tone.warning)),
-              const SizedBox(width: 12),
-              const Text('إلغاء التغييرات؟'),
-            ],
-          ),
-          content: const Text(
-            'سيتم فقدان جميع التعديلات غير المحفوظة. هل تريد المتابعة؟',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(false),
-              child: const Text('متابعة التحرير'),
+      showDragHandle: true,
+      builder: (ctx) => SafeArea(
+        child: ListView(
+          shrinkWrap: true,
+          children: [
+            ListTile(
+              title: Text('حساب خاص لعملية — «${role['label']}»'),
+              subtitle: const Text('العملية التي لا ربط خاص لها تأخذ حساب «افتراضي».'),
             ),
-            FilledButton.tonal(
-              onPressed: () => Navigator.of(dialogContext).pop(true),
-              child: const Text('إلغاء التغييرات'),
-            ),
+            for (final op in ops)
+              ListTile(
+                leading: const Icon(Icons.call_split),
+                title: Text(_operationLabel(op)),
+                onTap: () => Navigator.pop(ctx, op),
+              ),
           ],
         ),
       ),
     );
-
-    if (result == true) {
-      setState(() {
-        _pendingChanges = {};
-        _hasUnsavedChanges = false;
-      });
-      _showSnackBar('تم تجاهل التغييرات', _toneColor(_Tone.info));
-      return true;
-    }
-
-    return false;
+    if (!mounted || operation == null) return;
+    await _change(role, operation, null);
   }
 
-  void _showSnackBar(String message, Color backgroundColor) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: backgroundColor,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        duration: const Duration(seconds: 3),
+  Future<void> _run(Future<Object?> Function() call) async {
+    setState(() => _busy = true);
+    try {
+      await call();
+      if (!mounted) return;
+      await _load();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('حُفظ الربط')));
+    } catch (e) {
+      if (!mounted) return;
+      // رفض الخادم بنصّه: دور مطلوب، حساب من غير نوعه، حساب موقوف...
+      await showDialog<void>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('لم يُحفظ'),
+          content: Text('$e'),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('حسنًا')),
+          ],
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<bool> _confirm(
+      {required String title, required List<String> lines, required String action}) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(title),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            for (final line in lines)
+              Padding(padding: const EdgeInsets.only(bottom: 6), child: Text(line)),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('إلغاء')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: Text(action)),
+        ],
       ),
     );
+    return ok == true;
   }
 
-  String _accountLabel(Map<String, dynamic> account) {
-    final number = account['account_number'] ?? '---';
-    final name = account['name'] ?? 'غير معروف';
-    return '$number - $name';
+  /// What the operation posts on now, and from where -- as the server resolved it.
+  static String _currentText(Map<String, dynamic> role, String operation) {
+    final op = _operations(role).where((o) => o['operation'] == operation).firstOrNull;
+    final account = op == null ? _defaultAccount(role) : _account(op);
+    if (account == null) return 'غير مربوط';
+    final via = (op?['via'] as Map?)?.cast<String, dynamic>();
+    if (via != null) return '${_accountText(account)} (من ربط «${via['label']}»)';
+    if (op == null || op['source'] == 'default') return '${_accountText(account)} (من «افتراضي»)';
+    return _accountText(account);
   }
 
-  String _getAccountName(int? accountId) {
-    if (accountId == null) return '---';
-    final account = _accounts.firstWhere(
-      (a) => a['id'] == accountId,
-      orElse: () => {'account_number': '---', 'name': 'غير معروف'},
-    );
-    return _accountLabel(account);
-  }
+  static String _operationLabel(String op) =>
+      op == _defaultOperation ? 'افتراضي (لكل العمليات)' : op.replaceAll('_', ' ');
+
+  static String _accountText(Map<String, dynamic> account) =>
+      '${account['number']} — ${account['name']}';
+
+  // ── الرسم ────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
-    return PopScope(
-      canPop: !_hasUnsavedChanges,
-      onPopInvokedWithResult: (didPop, result) async {
-        if (didPop || !_hasUnsavedChanges) {
-          return;
-        }
-        final shouldLeave = await _confirmDiscardChanges();
-        if (!mounted || !shouldLeave) {
-          return;
-        }
-        Navigator.of(this.context).pop(result);
-      },
-      child: Directionality(
-        textDirection: TextDirection.rtl,
-        child: Scaffold(
-          appBar: _buildAppBar(),
-          body: _isLoading ? _buildLoadingState() : _buildMainContent(),
-          floatingActionButton: _hasUnsavedChanges ? _buildSaveButton() : null,
-        ),
-      ),
-    );
-  }
-
-  PreferredSizeWidget _buildAppBar() {
-    return AppBar(
-      title: Row(
-        children: const [
-          Icon(Icons.settings),
-          SizedBox(width: 12),
-          Text('إعدادات الربط المحاسبي'),
-        ],
-      ),
-      actions: [
-        if (_hasUnsavedChanges)
-          IconButton(
-            icon: const Icon(Icons.cancel_outlined),
-            tooltip: 'إلغاء التغييرات',
-            onPressed: () async {
-              await _confirmDiscardChanges();
-            },
-          ),
-        IconButton(
-          icon: const Icon(Icons.refresh),
-          tooltip: 'تحديث البيانات',
-          onPressed: _loadData,
-        ),
-        IconButton(
-          icon: const Icon(Icons.help_outline),
-          tooltip: 'مساعدة',
-          onPressed: _showHelpDialog,
-        ),
-      ],
-      bottom: TabBar(
-        controller: _tabController,
-        isScrollable: true,
-        labelColor: _strongTextColor,
-        unselectedLabelColor: _mutedTextColor,
-        indicatorColor: _scheme.primary,
-        tabs: _operationConfigs
-            .map(
-              (config) => Tab(
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(config.icon, size: 20),
-                    const SizedBox(width: 8),
-                    Text(config.label),
-                  ],
-                ),
-              ),
-            )
-            .toList(),
-      ),
-    );
-  }
-
-  Widget _buildLoadingState() {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          CircularProgressIndicator(color: _scheme.primary),
-          const SizedBox(height: 16),
-          Text(
-            'جاري تحميل البيانات...',
-            style: TextStyle(color: _mutedTextColor),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildMainContent() {
-    return Column(
-      children: [
-        _buildStatisticsCard(),
-        Expanded(
-          child: TabBarView(
-            controller: _tabController,
-            children: _operationConfigs
-                .map((config) => _buildOperationTypeSettings(config))
-                .toList(),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildStatisticsCard() {
-    final totalMappings = _mappings.length;
-    final totalAccountTypes = _accountTypeConfigs.length;
-    final totalOperations = _operationConfigs.length;
-    final completionPercent = totalAccountTypes == 0
-        ? 0
-        : (totalMappings / (totalOperations * totalAccountTypes) * 100)
-              .clamp(0, 100)
-              .round();
-
-    return Card(
-      margin: const EdgeInsets.all(16),
-      elevation: 0,
-      color: _cardColor,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceAround,
-          children: [
-            _buildStatItem(
-              'إجمالي الربطات',
-              '$totalMappings',
-              Icons.link,
-              _toneColor(_Tone.success),
-            ),
-            _buildStatItem(
-              'أنواع الحسابات',
-              '$totalAccountTypes',
-              Icons.account_tree,
-              _toneColor(_Tone.primary),
-            ),
-            _buildStatItem(
-              'أنواع العمليات',
-              '$totalOperations',
-              Icons.category,
-              _toneColor(_Tone.warning),
-            ),
-            _buildStatItem(
-              'نسبة الإكمال',
-              '$completionPercent%',
-              Icons.percent,
-              _toneColor(_Tone.info),
+    return Directionality(
+      textDirection: TextDirection.rtl,
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text('الربط المحاسبي'),
+          actions: [
+            IconButton(
+              tooltip: 'تحديث',
+              icon: const Icon(Icons.refresh),
+              onPressed: _loading ? null : _load,
             ),
           ],
         ),
+        body: _body(context),
       ),
     );
   }
 
-  Widget _buildStatItem(
-    String label,
-    String value,
-    IconData icon,
-    Color color,
-  ) {
-    return Column(
-      children: [
-        Container(
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: _blendOnSurface(color, 0.18),
-            borderRadius: BorderRadius.circular(12),
+  Widget _body(BuildContext context) {
+    if (_loading) return const Center(child: CircularProgressIndicator());
+    if (_error != null) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text('تعذّر تحميل الربط المحاسبي', style: Theme.of(context).textTheme.titleMedium),
+              const SizedBox(height: 8),
+              Text(_error!, textAlign: TextAlign.center),
+              const SizedBox(height: 16),
+              FilledButton.icon(
+                onPressed: _load,
+                icon: const Icon(Icons.refresh),
+                label: const Text('إعادة المحاولة'),
+              ),
+            ],
           ),
-          child: Icon(icon, color: color, size: 22),
+        ),
+      );
+    }
+    final canChange = _canChange;
+    final visible = _roles.where(_matches).toList();
+    return AbsorbPointer(
+      absorbing: _busy,
+      child: ListView(
+        // A row's account stays next to its buttons on a wide screen.
+        padding: EdgeInsets.symmetric(
+          horizontal: MediaQuery.sizeOf(context).width > 1132
+              ? (MediaQuery.sizeOf(context).width - 1100) / 2
+              : 16,
+          vertical: 16,
+        ),
+        children: [
+          _SummaryCard(summary: _summary, canChange: canChange),
+          const SizedBox(height: 12),
+          _filters(context),
+          const SizedBox(height: 8),
+          if (visible.isEmpty)
+            const Padding(
+              padding: EdgeInsets.all(32),
+              child: Center(child: Text('لا دور يطابق البحث')),
+            ),
+          for (final group in _groups)
+            if (visible.any((r) => r['group'] == group)) ...[
+              Padding(
+                padding: const EdgeInsets.fromLTRB(4, 16, 4, 8),
+                child: Text(group, style: Theme.of(context).textTheme.titleMedium),
+              ),
+              for (final role in visible.where((r) => r['group'] == group))
+                _roleCard(context, role, canChange),
+            ],
+        ],
+      ),
+    );
+  }
+
+  Widget _filters(BuildContext context) {
+    final unmapped = _roles.where(_unmapped).length;
+    final twinless = _roles.where(_twinMissing).length;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        TextField(
+          controller: _search,
+          decoration: const InputDecoration(
+            prefixIcon: Icon(Icons.search),
+            hintText: 'بحث باسم الدور أو رقم الحساب أو اسمه',
+            border: OutlineInputBorder(),
+            isDense: true,
+          ),
+          onChanged: (_) => setState(() {}),
         ),
         const SizedBox(height: 8),
-        Text(
-          value,
-          style: TextStyle(
-            fontWeight: FontWeight.bold,
-            fontSize: 18,
-            color: _strongTextColor,
-          ),
+        Wrap(
+          spacing: 8,
+          children: [
+            ChoiceChip(
+              label: const Text('الكل'),
+              selected: _filter == _Filter.all,
+              onSelected: (_) => setState(() => _filter = _Filter.all),
+            ),
+            ChoiceChip(
+              label: Text('غير المربوط ($unmapped)'),
+              selected: _filter == _Filter.unmapped,
+              onSelected: (_) => setState(() => _filter = _Filter.unmapped),
+            ),
+            ChoiceChip(
+              label: Text('بلا توأم وزني ($twinless)'),
+              selected: _filter == _Filter.twinMissing,
+              onSelected: (_) => setState(() => _filter = _Filter.twinMissing),
+            ),
+          ],
         ),
-        const SizedBox(height: 4),
-        Text(label, style: TextStyle(color: _mutedTextColor, fontSize: 12)),
       ],
     );
   }
 
-  Widget _buildOperationTypeSettings(_OperationConfig config) {
-    final Map<String, List<MapEntry<String, _AccountTypeConfig>>> grouped = {};
-    final List<String> categoryOrder = [];
-
-    for (final entry in _accountTypeConfigs.entries) {
-      final accountConfig = entry.value;
-      final category = accountConfig.category;
-      if (!grouped.containsKey(category)) {
-        grouped[category] = [];
-        categoryOrder.add(category);
-      }
-      grouped[category]!.add(entry);
-    }
-
-    final toneColor = _toneColor(config.tone);
-
-    return ListView(
-      padding: const EdgeInsets.all(16),
-      children: [
-        Card(
-          color: _cardColor,
-          elevation: 1,
-          shadowColor: _withOpacity(toneColor, 0.12),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(20),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.all(20),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: _blendOnSurface(toneColor, 0.18),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Icon(config.icon, color: toneColor, size: 28),
-                    ),
-                    const SizedBox(width: 16),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'إعدادات الربط المحاسبي لـ ${config.label}',
-                            style: TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.bold,
-                              color: _strongTextColor,
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            config.description,
-                            style: TextStyle(
-                              color: _mutedTextColor,
-                              fontSize: 14,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 14),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 10,
-                  ),
-                  decoration: BoxDecoration(
-                    color: _blendOnSurface(_scheme.secondary, 0.12),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(
-                        Icons.info_outline,
-                        color: _scheme.secondary,
-                        size: 20,
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          'اختر الحساب المحاسبي المناسب لكل نوع حساب لضمان قيود دقيقة.',
-                          style: TextStyle(
-                            color: _mutedTextColor,
-                            fontSize: 13,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-        const SizedBox(height: 20),
-        for (final category in categoryOrder) ...[
-          Padding(
-            padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
-            child: Text(
-              category,
-              style: TextStyle(
-                fontWeight: FontWeight.bold,
-                fontSize: 16,
-                color: _strongTextColor,
-              ),
-            ),
-          ),
-          ...grouped[category]!.map(
-            (accountEntry) => _buildMappingCard(
-              operationType: config.key,
-              accountKey: accountEntry.key,
-              config: accountEntry.value,
-            ),
-          ),
-          const SizedBox(height: 12),
-        ],
-      ],
-    );
-  }
-
-  Widget _buildMappingCard({
-    required String operationType,
-    required String accountKey,
-    required _AccountTypeConfig config,
-  }) {
-    final tone =
-        config.tone ?? _categoryTones[config.category] ?? _Tone.neutral;
-    final color = _toneColor(tone);
-    final explicitId = _getExplicitMappedAccountId(operationType, accountKey);
-    final effectiveId = _getMappedAccountId(operationType, accountKey);
-    final hasMapping = effectiveId != null;
-    final isInherited =
-      explicitId == null && hasMapping && operationType != _defaultOperationType;
-    final existingRowId = _getExistingMappingRowId(operationType, accountKey);
-
+  Widget _roleCard(BuildContext context, Map<String, dynamic> role, bool canChange) {
+    final tones = AppSemanticColors.of(context);
+    final scheme = Theme.of(context).colorScheme;
+    final retired = role['retired'] == true;
+    final overridable = _overrideCandidates(role);
+    final inheriting = _inheriting(role);
     return Card(
-      margin: const EdgeInsets.only(bottom: 12),
-      elevation: 1,
-      shadowColor: _withOpacity(color, 0.14),
+      key: ValueKey('role-${role['key']}'),
+      margin: const EdgeInsets.only(bottom: 10),
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(12),
         side: BorderSide(
-          color: hasMapping
-              ? _withOpacity(color, 0.35)
-              : _blendOnSurface(_outlineColor, 0.4),
-          width: 1.2,
+          color: _unmapped(role) ? tones.blocked.fg : scheme.outlineVariant,
+          width: _unmapped(role) ? 1.5 : 1,
         ),
       ),
-      child: Container(
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(16),
-          color: _cardColor,
-        ),
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                      color: _blendOnSurface(color, 0.16),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Icon(config.icon, color: color, size: 24),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Text(
-                      config.name,
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
-                        color: _strongTextColor,
-                      ),
-                    ),
-                  ),
-                  if (hasMapping)
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 10,
-                        vertical: 4,
-                      ),
-                      decoration: BoxDecoration(
-                        color: _toneColor(_Tone.success),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const Icon(
-                            Icons.check_circle,
-                            color: Colors.white,
-                            size: 16,
-                          ),
-                          const SizedBox(width: 4),
-                          Text(
-                            isInherited ? 'افتراضي' : 'مرتبط',
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 12,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                ],
-              ),
-              if (hasMapping)
-                Padding(
-                  padding: const EdgeInsets.only(top: 6),
-                  child: Text(
-                    isInherited
-                        ? 'يستخدم الربط الافتراضي'
-                        : (operationType == _defaultOperationType
-                            ? 'ربط افتراضي'
-                            : 'ربط مخصص لهذا النوع'),
-                    style: TextStyle(
-                      color: _mutedTextColor,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-              const SizedBox(height: 16),
-              Row(
-                children: [
-                  Expanded(
-                    child: InkWell(
-                      borderRadius: BorderRadius.circular(12),
-                      onTap: _accounts.isEmpty
-                          ? null
-                          : () async {
-                              final picked = await showAccountPickerBottomSheet(
-                                context: context,
-                                accounts: _accounts,
-                                title: 'اختيار حساب',
-                                isArabic: true,
-                                selectedId: effectiveId,
-                                showTransactionTypeFilter: true,
-                                showTracksWeightFilter: true,
-                                showLeafOnlyFilter: true,
-                              );
-                              if (!mounted || picked == null) return;
-                              final raw = picked['id'];
-                              final id = raw is int
-                                  ? raw
-                                  : (raw is num
-                                      ? raw.toInt()
-                                      : int.tryParse('${raw ?? ''}'));
-                              if (id == null) return;
-                              _updateMapping(operationType, accountKey, id);
-                            },
-                      child: InputDecorator(
-                        decoration: InputDecoration(
-                          labelText: 'الحساب المحاسبي',
-                          labelStyle: TextStyle(
-                            color: color,
-                            fontWeight: FontWeight.w600,
-                          ),
-                          filled: true,
-                          fillColor:
-                              _blendOnSurface(color, _isDark ? 0.18 : 0.08),
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          focusedBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(12),
-                            borderSide: BorderSide(color: color, width: 2),
-                          ),
-                          enabledBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(12),
-                            borderSide:
-                                BorderSide(color: _blendOnSurface(color, 0.3)),
-                          ),
-                        ),
-                        child: Row(
-                          children: [
-                            Expanded(
-                              child: Text(
-                                effectiveId == null
-                                    ? 'اضغط للاختيار / بحث'
-                                    : (isInherited
-                                        ? 'افتراضي: ${_getAccountName(effectiveId)}'
-                                        : _getAccountName(effectiveId)),
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                  color: _strongTextColor,
-                                  fontWeight: FontWeight.w600,
-                                  fontSize: 14,
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            Icon(Icons.manage_search, color: color),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  if (existingRowId != null || explicitId != null)
-                    IconButton(
-                      tooltip: 'إزالة الربط',
-                      icon: Icon(Icons.clear, color: _toneColor(_Tone.danger)),
-                      onPressed: () {
-                        _updateMapping(operationType, accountKey, null);
-                      },
-                    ),
-                ],
-              ),
-              if (hasMapping) ...[
-                const SizedBox(height: 12),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 10,
-                  ),
-                  decoration: BoxDecoration(
-                    color: _blendOnSurface(_toneColor(_Tone.success), 0.18),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                      color: _withOpacity(_toneColor(_Tone.success), 0.35),
-                    ),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(
-                        Icons.link,
-                        color: _toneColor(_Tone.success),
-                        size: 18,
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          'مرتبط بـ ${_getAccountName(effectiveId)}',
-                          style: TextStyle(
-                            fontWeight: FontWeight.w600,
-                            color: _strongTextColor,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildSaveButton() {
-    return FloatingActionButton.extended(
-      onPressed: _saveAllChanges,
-      backgroundColor: _toneColor(_Tone.success),
-      icon: const Icon(Icons.save_outlined),
-      label: const Text('حفظ التغييرات'),
-    );
-  }
-
-  void _showHelpDialog() {
-    showDialog<void>(
-      context: context,
-      builder: (dialogContext) => Directionality(
-        textDirection: TextDirection.rtl,
-        child: AlertDialog(
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(20),
-          ),
-          title: Row(
-            children: [
-              Icon(Icons.help_outline, color: _scheme.primary),
-              const SizedBox(width: 12),
-              const Text('مساعدة - الربط المحاسبي'),
-            ],
-          ),
-          content: SingleChildScrollView(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: const [
-                _HelpItem(
-                  icon: Icons.info,
-                  title: 'ما هو الربط المحاسبي؟',
-                  description:
-                      'يحدد الحسابات المحاسبية المستخدمة تلقائياً لكل عملية في النظام لضمان توازن القيود.',
-                ),
-                _HelpItem(
-                  icon: Icons.settings,
-                  title: 'كيف أعدّل الإعدادات؟',
-                  description:
-                      'اختر نوع العملية من الأعلى، ثم عيّن الحساب المناسب لكل بند باستخدام القائمة المنسدلة، وبعد الانتهاء اضغط حفظ التغييرات.',
-                ),
-                _HelpItem(
-                  icon: Icons.lightbulb,
-                  title: 'نصيحة',
-                  description:
-                      'يمكنك إجراء عدة تغييرات دفعة واحدة ثم حفظها مرة واحدة فقط لتقليل عدد الطلبات على الخادم.',
-                ),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Wrap(
+              spacing: 6,
+              runSpacing: 4,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                Text('${role['label']}', style: Theme.of(context).textTheme.titleSmall),
+                if (retired)
+                  _Badge('لم يعد مستعملًا', tones.warning)
+                else if (role['required'] == true)
+                  _Badge('مطلوب', tones.info)
+                else
+                  _Badge('اختياري', SemanticTone(scheme.outline, scheme.surfaceContainerHighest, scheme.onSurface)),
+                if (role['kind'] == 'weight') _Badge('حساب وزني', tones.gold),
+                if (role['needs_twin'] == true) _Badge('يُقرأ توأمه الوزني', tones.gold),
               ],
             ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(),
-              child: const Text('إغلاق'),
-            ),
+            const SizedBox(height: 4),
+            Text('${role['purpose']}', style: Theme.of(context).textTheme.bodySmall),
+            const Divider(height: 16),
+            for (final op in _operations(role))
+              if (op['source'] != 'default') _operationRow(context, role, op, canChange),
+            if (inheriting.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(top: 2, bottom: 4),
+                child: Text('تأخذ حساب «افتراضي»: ${inheriting.join('، ')}',
+                    style: Theme.of(context).textTheme.bodySmall),
+              ),
+            if (canChange && overridable.isNotEmpty)
+              Align(
+                alignment: AlignmentDirectional.centerStart,
+                child: TextButton.icon(
+                  onPressed: () => _override(role),
+                  icon: const Icon(Icons.call_split, size: 18),
+                  label: const Text('حساب خاص لعملية'),
+                ),
+              ),
           ],
         ),
       ),
     );
   }
-}
 
-class _HelpItem extends StatelessWidget {
-  const _HelpItem({
-    required this.icon,
-    required this.title,
-    required this.description,
-  });
-
-  final IconData icon;
-  final String title;
-  final String description;
-
-  @override
-  Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-    final muted = Theme.of(context).colorScheme.onSurfaceVariant;
-
+  Widget _operationRow(BuildContext context, Map<String, dynamic> role,
+      Map<String, dynamic> op, bool canChange) {
+    final tones = AppSemanticColors.of(context);
+    final text = Theme.of(context).textTheme;
+    final account = _account(op);
+    final operation = '${op['operation']}';
+    // Not its own row: answered by another role's (an inherited one is not a row here).
+    final via = (op['via'] as Map?)?.cast<String, dynamic>();
+    final retired = role['retired'] == true;
+    // As the server allows: an operation's own row, or a retired role's. A live
+    // role's default is changed, never removed.
+    final removable = canChange &&
+        op['mapping_id'] != null &&
+        (retired || operation != _defaultOperation);
     return Padding(
-      padding: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.symmetric(vertical: 4),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(icon, color: colorScheme.secondary, size: 24),
-          const SizedBox(width: 12),
+          SizedBox(
+            width: 140,
+            child: Text(_operationLabel(operation), style: text.labelMedium),
+          ),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  title,
-                  style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    color: colorScheme.secondary,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(description, style: TextStyle(color: muted, fontSize: 13)),
+                if (account == null && op['required'] == true)
+                  Text('غير مربوط',
+                      style: text.bodyMedium
+                          ?.copyWith(color: tones.blocked.fg, fontWeight: FontWeight.w600))
+                else if (account == null)
+                  Text('بلا حساب (لا يطلبه النظام هنا)', style: text.bodyMedium)
+                else
+                  Text(_accountText(account),
+                      textDirection: TextDirection.rtl,
+                      style: text.bodyMedium?.copyWith(
+                          color: account['is_active'] == false ? tones.blocked.fg : null)),
+                if (via != null)
+                  Text(
+                      'من ربط «${via['label']}»'
+                      '${via['operation'] == _defaultOperation ? ' (افتراضي)' : ''}',
+                      style: text.bodySmall),
+                if (account != null && account['is_active'] == false)
+                  Text('الحساب موقوف', style: text.bodySmall?.copyWith(color: tones.blocked.fg)),
+                if (account != null && role['needs_twin'] == true)
+                  account['twin'] == null
+                      ? Text('بلا توأم وزني مربوط',
+                          style: text.bodySmall?.copyWith(color: tones.warning.fg))
+                      : Text('التوأم الوزني: ${_accountText((account['twin'] as Map).cast<String, dynamic>())}',
+                          style: text.bodySmall),
               ],
             ),
           ),
+          if (canChange && !retired)
+            IconButton(
+              tooltip: 'تغيير الحساب',
+              icon: const Icon(Icons.edit_outlined, size: 20),
+              onPressed: () => _change(role, operation, op['mapping_id'] == null ? null : account),
+            ),
+          if (removable)
+            IconButton(
+              tooltip: 'حذف الربط',
+              icon: Icon(Icons.delete_outline, size: 20, color: tones.blocked.fg),
+              onPressed: () => _remove(role, op),
+            ),
         ],
       ),
     );
   }
 }
 
-enum _Tone {
-  primary,
-  secondary,
-  tertiary,
-  success,
-  warning,
-  info,
-  danger,
-  neutral,
+class _SummaryCard extends StatelessWidget {
+  const _SummaryCard({required this.summary, required this.canChange});
+
+  final Map<String, dynamic> summary;
+  final bool canChange;
+
+  @override
+  Widget build(BuildContext context) {
+    final tones = AppSemanticColors.of(context);
+    final required = (summary['required'] as num?)?.toInt() ?? 0;
+    final mapped = (summary['required_mapped'] as num?)?.toInt() ?? 0;
+    final complete = required > 0 && mapped == required;
+    final tone = complete ? tones.ready : tones.blocked;
+    return Card(
+      color: tone.container,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'الأدوار المطلوبة: $mapped من $required مربوطة',
+              key: const ValueKey('mapping-summary'),
+              style: Theme.of(context)
+                  .textTheme
+                  .titleMedium
+                  ?.copyWith(color: tone.onContainer, fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 8),
+            LinearProgressIndicator(
+              value: required == 0 ? 0 : mapped / required,
+              color: tone.fg,
+              backgroundColor: tone.onContainer.withValues(alpha: 0.15),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              complete
+                  ? 'كل دور يطلبه النظام له حسابه.'
+                  : 'دور مطلوب بلا حساب يُرفض به كل قيد يحتاجه.',
+              style: TextStyle(color: tone.onContainer),
+            ),
+            if (!canChange)
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Text(
+                  'للعرض فقط: تغيير الربط للمالك والمدير.',
+                  key: const ValueKey('mapping-read-only'),
+                  style: TextStyle(color: tone.onContainer, fontWeight: FontWeight.w600),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
-class _OperationConfig {
-  const _OperationConfig({
-    required this.key,
-    required this.label,
-    required this.description,
-    required this.icon,
-    required this.tone,
-  });
+class _Badge extends StatelessWidget {
+  const _Badge(this.text, this.tone);
 
-  final String key;
-  final String label;
-  final String description;
-  final IconData icon;
-  final _Tone tone;
-}
+  final String text;
+  final SemanticTone tone;
 
-class _AccountTypeConfig {
-  const _AccountTypeConfig({
-    required this.name,
-    required this.category,
-    required this.icon,
-    this.tone,
-  });
-
-  final String name;
-  final String category;
-  final IconData icon;
-  final _Tone? tone;
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      decoration: BoxDecoration(
+        color: tone.container,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Text(text,
+          style: Theme.of(context).textTheme.labelSmall?.copyWith(color: tone.onContainer)),
+    );
+  }
 }

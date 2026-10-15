@@ -4045,31 +4045,21 @@ class ApiService {
 
   // ==================== Accounting Mapping Methods ====================
 
-  /// الحصول على جميع إعدادات الربط المحاسبي
-  Future<List<dynamic>> getAccountingMappings({String? operationType}) async {
-    String url = '$_baseUrl/accounting-mappings';
-    if (operationType != null) {
-      url += '?operation_type=$operationType';
-    }
-
-    final uri = Uri.parse(url);
-    final response = await _authedGet(uri);
-
-    if (response.statusCode == 200) {
-      return json.decode(utf8.decode(response.bodyBytes)) as List<dynamic>;
-    } else {
-      throw Exception('Failed to load accounting mappings');
-    }
+  /// «الربط المحاسبي» كما يقرؤه الخادم (MAPPING-UI-1): كل دور يطلبه الكود،
+  /// باسمه وغرضه ونوعه، ولكل عملية حسابها وهل هو صريح أم موروث من الافتراضي.
+  Future<Map<String, dynamic>> getAccountingRoles() async {
+    final response = await _authedGet(Uri.parse('$_baseUrl/accounting-roles'));
+    if (response.statusCode != 200) _throwSettlementError(response);
+    return json.decode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
   }
 
-  /// إنشاء أو تحديث إعداد ربط محاسبي
+  /// يربط دور [accountType] للعملية [operationType] بالحساب [accountId].
+  /// رفض الخادم (دور مجهول، حساب من غير نوعه، حساب موقوف) يصل ApiException
+  /// برمزه ونصّه.
   Future<Map<String, dynamic>> createAccountingMapping({
     required String operationType,
     required String accountType,
     required int accountId,
-    double? allocationPercentage,
-    String? description,
-    bool isActive = true,
   }) async {
     final response = await _authedPost(
       Uri.parse('$_baseUrl/accounting-mappings'),
@@ -4078,69 +4068,22 @@ class ApiService {
         'operation_type': operationType,
         'account_type': accountType,
         'account_id': accountId,
-        'allocation_percentage': allocationPercentage,
-        'description': description,
-        'is_active': isActive,
       }),
     );
-
-    if (response.statusCode == 200 || response.statusCode == 201) {
-      return json.decode(utf8.decode(response.bodyBytes));
-    } else {
-      throw Exception('Failed to create accounting mapping: ${response.body}');
+    if (response.statusCode != 200 && response.statusCode != 201) {
+      _throwSettlementError(response);
     }
+    return json.decode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
   }
 
-  /// إنشاء عدة إعدادات ربط دفعة واحدة
-  Future<Map<String, dynamic>> batchCreateAccountingMappings(
-    List<Map<String, dynamic>> mappings,
-  ) async {
-    final response = await _authedPost(
-      Uri.parse('$_baseUrl/accounting-mappings/batch'),
-      headers: {'Content-Type': 'application/json; charset=UTF-8'},
-      body: json.encode({'mappings': mappings}),
-    );
-
-    if (response.statusCode == 200) {
-      return json.decode(utf8.decode(response.bodyBytes));
-    } else {
-      throw Exception(
-        'Failed to batch create accounting mappings: ${response.body}',
-      );
-    }
-  }
-
-  /// حذف إعداد ربط محاسبي
+  /// يحذف ربطًا؛ يرفضه الخادم إن ترك دورًا مطلوبًا بلا حساب (REQUIRED_ROLE).
   Future<void> deleteAccountingMapping(int mappingId) async {
     final response = await _authedDelete(
       Uri.parse('$_baseUrl/accounting-mappings/$mappingId'),
     );
-
-    if (response.statusCode != 200) {
-      throw Exception('Failed to delete accounting mapping');
-    }
+    if (response.statusCode != 200) _throwSettlementError(response);
   }
 
-  /// الحصول على الحساب المرتبط لعملية معينة
-  Future<Map<String, dynamic>> getMappedAccount({
-    required String operationType,
-    required String accountType,
-  }) async {
-    final response = await _authedPost(
-      Uri.parse('$_baseUrl/accounting-mappings/get-account'),
-      headers: {'Content-Type': 'application/json; charset=UTF-8'},
-      body: json.encode({
-        'operation_type': operationType,
-        'account_type': accountType,
-      }),
-    );
-
-    if (response.statusCode == 200) {
-      return json.decode(utf8.decode(response.bodyBytes));
-    } else {
-      throw Exception('Failed to get mapped account: ${response.body}');
-    }
-  }
 
   // ==================== App Config ====================
 

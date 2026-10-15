@@ -121,56 +121,40 @@ def require_vat_account(operation_type, role) -> int:
 
 
 def get_account_id_for_mapping(operation_type, account_type) -> int | None:
+    """The account mapped for a role -- its id, or None (see resolve_mapping)."""
+    mapping = resolve_mapping(operation_type, account_type)
+    return mapping.account_id if mapping else None
+
+
+# A role answered by another's mapping when it has none of its own (legacy/UI keys).
+ROLE_ALIASES = {
+    'cost_of_sales': ('cost',),
+    'cost': ('cost_of_sales',),
+    'sales_gold_new': ('revenue',),
+    'revenue': ('sales_gold_new',),
+}
+
+
+def resolve_mapping(operation_type, account_type, *, excluding=None) -> AccountingMapping | None:
+    """The mapping row that answers (operation_type, account_type) -- the one resolver.
+
+    The role's own row for the operation, then an alias's (ROLE_ALIASES); then the
+    same under the default operation, which every operation inherits. *excluding*
+    (a row id) answers «and without this row?» -- what removing it would leave.
     """
-    الحصول على معرف الحساب المحاسبي لعملية معينة
-
-    Args:
-        operation_type: نوع العملية (بيع، شراء، مرتجع...)
-        account_type: نوع الحساب (inventory_21k, cash, revenue...)
-
-    Returns:
-        int: معرف الحساب المحاسبي، أو None إذا لم يتم العثور عليه
-
-    الدالة تحاول:
-    1. البحث في إعدادات الربط المخصصة (AccountingMapping)
-    2. إذا لم تجد، تستخدم الحسابات الافتراضية
-    """
-    # Support legacy/UI alias keys.
-    _alias_map = {
-        'cost_of_sales': ['cost'],
-        'cost': ['cost_of_sales'],
-        'sales_gold_new': ['revenue'],
-        'revenue': ['sales_gold_new'],
-    }
-
-    candidates = [account_type]
-    try:
-        for alt in (_alias_map.get(account_type) or []):
-            if alt and alt not in candidates:
-                candidates.append(alt)
-    except Exception:
-        candidates = [account_type]
-
-    # 1. محاولة الحصول على الحساب من الإعدادات المخصصة
-    for ct in candidates:
-        mapping = db.session.query(AccountingMapping).filter_by(
-            operation_type=operation_type,
-            account_type=ct,
-            is_active=True
-        ).first()
-        if mapping:
-            return mapping.account_id
-
-    # 2. fallback للربط الافتراضي العام
+    candidates = (account_type, *ROLE_ALIASES.get(account_type, ()))
+    operations = [operation_type]
     if operation_type != DEFAULT_MAPPING_OPERATION_TYPE:
+        operations.append(DEFAULT_MAPPING_OPERATION_TYPE)
+    for operation in operations:
         for ct in candidates:
-            default_mapping = db.session.query(AccountingMapping).filter_by(
-                operation_type=DEFAULT_MAPPING_OPERATION_TYPE,
-                account_type=ct,
-                is_active=True
-            ).first()
-            if default_mapping:
-                return default_mapping.account_id
+            query = db.session.query(AccountingMapping).filter_by(
+                operation_type=operation, account_type=ct, is_active=True)
+            if excluding is not None:
+                query = query.filter(AccountingMapping.id != excluding)
+            mapping = query.first()
+            if mapping:
+                return mapping
 
     # No number, no name, no account created on the fly stands in for a role
     # (CHART-002, the owner 14 Oct 2026): a role is its mapping or nothing. The

@@ -40,6 +40,7 @@ MATRIX = {
     'users.view': '', 'users.create': '', 'users.edit': '', 'users.delete': '',
     'users.change_permissions': '', 'system.settings': '', 'system.backup': '', 'system.logs': '',
     'business.setup': 'C',
+    'accounting.mapping': 'M',   # MAPPING-UI-1: the owner or the manager
     'audit.view': 'MC',
     'employees.view': 'MC', 'employees.create': 'M', 'employees.edit': 'M', 'employees.delete': 'M',
     'employees.payroll': 'MC', 'employees.bonuses': 'M',
