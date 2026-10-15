@@ -95,50 +95,25 @@ class _EmployeesScreenState extends State<EmployeesScreen> {
     await _loadEmployees();
   }
 
+  /// The employee's salary payable account: its link on the server
+  /// (payable_accounts), found in the chart by its id -- never scored by a
+  /// number prefix and a name (CHART-002 5c).
   Map<String, dynamic>? _pickEmployeeSalaryAccount(
     List<dynamic> accounts,
     EmployeeModel employee,
   ) {
-    final empName = employee.name.trim().toLowerCase();
-    if (empName.isEmpty) return null;
+    final linked = employee.payableAccounts['salary_payable'];
+    if (linked == null) return null;
 
-    String normalizeName(String input) {
-      final s = input.toLowerCase().trim();
-      // Collapse all whitespace + remove common separators to be resilient
-      // to formatting differences (e.g. spaces around '-')
-      return s
-          .replaceAll(RegExp(r'\s+'), '')
-          .replaceAll('-', '')
-          .replaceAll('–', '')
-          .replaceAll('—', '')
-          .replaceAll('/', '')
-          .replaceAll('\\', '')
-          .replaceAll('_', '')
-          .replaceAll('|', '')
-          .replaceAll(':', '')
-          .replaceAll('،', '')
-          .replaceAll(',', '')
-          .replaceAll('.', '')
-          .replaceAll('(', '')
-          .replaceAll(')', '');
-    }
-
-    final expectedSalaryAccountName =
-        'ح/ذمم الموظف ${employee.name.trim()} - رواتب';
-    final expectedNormalized = normalizeName(expectedSalaryAccountName);
-
-    final nameTokens = empName
-        .split(RegExp(r'\s+'))
-        .map((t) => t.trim())
-        .where((t) => t.length >= 2)
-        .toList(growable: false);
-
-    final flat = <Map<String, dynamic>>[];
-
+    Map<String, dynamic>? found;
     void visit(dynamic node) {
-      if (node is! Map) return;
+      if (found != null || node is! Map) return;
       final map = node.cast<String, dynamic>();
-      flat.add(map);
+      final id = map['id'];
+      if ((id is int ? id : int.tryParse('$id')) == linked) {
+        found = map;
+        return;
+      }
       final children = map['sub_accounts'];
       if (children is List) {
         for (final ch in children) {
@@ -150,71 +125,7 @@ class _EmployeesScreenState extends State<EmployeesScreen> {
     for (final root in accounts) {
       visit(root);
     }
-
-    // 1) Prefer an exact match by name + 2400 prefix to avoid collisions
-    // when employee names overlap (e.g. "محمد" vs "محمد علي").
-    for (final acc in flat) {
-      final number = (acc['account_number'] ?? '').toString().toLowerCase();
-      if (!number.startsWith('2400')) continue;
-      final name = (acc['name'] ?? '').toString();
-      if (name.isEmpty) continue;
-      if (normalizeName(name) == expectedNormalized) {
-        return acc;
-      }
-    }
-
-    bool looksLikeSalaryName(String name) {
-      final n = name.toLowerCase();
-      return n.contains('رواتب') ||
-          n.contains('راتب') ||
-          n.contains('salary') ||
-          n.contains('payroll');
-    }
-
-    int scoreAccount(Map<String, dynamic> acc) {
-      final name = (acc['name'] ?? '').toString().toLowerCase();
-      final number = (acc['account_number'] ?? '').toString().toLowerCase();
-
-      final normalizedName = normalizeName(name);
-
-      var score = 0;
-      if (number.startsWith('2400')) score += 50;
-      if (looksLikeSalaryName(name)) score += 30;
-
-      // Strong signal: close to the canonical naming.
-      if (normalizedName == expectedNormalized) {
-        score += 80;
-      }
-
-      if (name.contains(empName)) {
-        score += 20;
-      } else if (nameTokens.isNotEmpty && nameTokens.any(name.contains)) {
-        score += 10;
-      }
-
-      // Prefer detail accounts (usually no children)
-      final children = acc['sub_accounts'];
-      final hasChildren = children is List && children.isNotEmpty;
-      if (!hasChildren) score += 5;
-
-      return score;
-    }
-
-    Map<String, dynamic>? best;
-    var bestScore = 0;
-    for (final acc in flat) {
-      final name = (acc['name'] ?? '').toString();
-      if (name.isEmpty) continue;
-      final sc = scoreAccount(acc);
-      if (sc > bestScore) {
-        bestScore = sc;
-        best = acc;
-      }
-    }
-
-    // Require a minimum confidence.
-    if (bestScore < 50) return null;
-    return best;
+    return found;
   }
 
   Future<void> _toggleEmployee(EmployeeModel employee) async {
@@ -806,8 +717,8 @@ class _EmployeesScreenState extends State<EmployeesScreen> {
                                               : const Icon(Icons.payments_outlined, size: 18),
                                           label: Text(
                                             isAr
-                                                ? 'كشف حساب الرواتب (2400)'
-                                                : 'Salary Statement (2400)',
+                                                ? 'كشف حساب الرواتب'
+                                                : 'Salary Statement',
                                           ),
                                         ),
                                       ),

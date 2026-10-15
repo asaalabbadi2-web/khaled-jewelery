@@ -198,12 +198,8 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
     } catch (_) {}
 
     try {
+      // A weight account by its mark -- never its number's first digit (CHART-002).
       if (_truthy(account['tracks_weight'])) return 0;
-    } catch (_) {}
-
-    try {
-      final num = (account['account_number'] ?? '').toString().trim();
-      if (num.startsWith('7')) return 0;
     } catch (_) {}
 
     return 2; // cash-only

@@ -293,7 +293,10 @@ class _AccountFormState extends State<_AccountForm> {
 
   @override
   Widget build(BuildContext context) {
-    final isMemo = _number.text.startsWith('7');
+    // A child is what its parent is -- the server's rule (CHART-002 4c4): a weight
+    // parent's child tracks weight. Its mark, not its number's first digit.
+    final parentWeight = _parent?['tracks_weight'];
+    final isMemo = parentWeight == true || parentWeight == 1 || '$parentWeight' == 'true';
     return AlertDialog(
       title: Text(
         _editing

@@ -13,6 +13,11 @@ class EmployeeModel {
   final DateTime? hireDate;
   final DateTime? terminationDate;
   final int? accountId;
+
+  /// The employee's own accounts by role -- salary_payable, commission_payable,
+  /// eos_payable, bonus_payable -- their links on the server (employee_account).
+  /// Read here, never found by a number prefix and a name (CHART-002 5c).
+  final Map<String, int> payableAccounts;
   final int? goldSafeBoxId;
   final int? cashSafeBoxId;
   final bool isActive;
@@ -68,6 +73,7 @@ class EmployeeModel {
     required this.hireDate,
     required this.terminationDate,
     required this.accountId,
+    this.payableAccounts = const {},
     required this.goldSafeBoxId,
     required this.cashSafeBoxId,
     required this.isActive,
@@ -104,6 +110,16 @@ class EmployeeModel {
     this.goalBonusRuleIdMonthly,
   });
 
+  static Map<String, int> _parsePayableAccounts(dynamic raw) {
+    if (raw is! Map) return const {};
+    final out = <String, int>{};
+    raw.forEach((key, value) {
+      final id = value is int ? value : int.tryParse('$value');
+      if (id != null) out['$key'] = id;
+    });
+    return out;
+  }
+
   factory EmployeeModel.fromJson(Map<String, dynamic> json) {
     return EmployeeModel(
       id: json['id'] as int?,
@@ -118,6 +134,7 @@ class EmployeeModel {
       hireDate: _parseDate(json['hire_date']),
       terminationDate: _parseDate(json['termination_date']),
       accountId: json['account_id'] as int?,
+      payableAccounts: _parsePayableAccounts(json['payable_accounts']),
       goldSafeBoxId: json['gold_safe_box_id'] as int?,
       cashSafeBoxId: json['cash_safe_box_id'] as int?,
       isActive: json['is_active'] as bool? ?? true,
@@ -216,6 +233,7 @@ class EmployeeModel {
       hireDate: hireDate ?? this.hireDate,
       terminationDate: terminationDate ?? this.terminationDate,
       accountId: accountId ?? this.accountId,
+      payableAccounts: payableAccounts,
       goldSafeBoxId: goldSafeBoxId ?? this.goldSafeBoxId,
       cashSafeBoxId: cashSafeBoxId ?? this.cashSafeBoxId,
       isActive: isActive ?? this.isActive,

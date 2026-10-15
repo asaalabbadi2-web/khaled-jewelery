@@ -243,6 +243,14 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
   int? _suppliersAggregateAccountId;
   String? _suppliersAggregateAccountNumber;
 
+  // The groups the templates filter by -- mapped roles on the server and the ids
+  // under them (/app-config account_groups), never account numbers (CHART-002 5c).
+  // A group's own account is left out: a voucher line takes an employee's account.
+  Set<int> _employeePersonalIds = const {};
+  Set<int> _employeeSalaryPayableIds = const {};
+  int? _employeeBonusPayableParentId;
+  Set<int> _expenseIds = const {};
+
   final Map<int, double> _safeLedgerCashBalance = {};
   final Set<int> _safeLedgerCashBalanceLoading = {};
   final Map<int, int> _safeUsageCounts = {};
@@ -1127,6 +1135,34 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
         (k, v) => MapEntry(k.toString(), v),
       );
 
+      final groups = (appConfig['account_groups'] as Map?)?.map(
+        (k, v) => MapEntry(k.toString(), v),
+      );
+      Set<int> childrenOf(String name) {
+        final g = groups?[name];
+        if (g is! Map) return const {};
+        final root = _coerceAccountId(g['account_id']);
+        return ((g['subtree_ids'] as List?) ?? const [])
+            .map(_coerceAccountId)
+            .whereType<int>()
+            .where((id) => id != root)
+            .toSet();
+      }
+
+      final employeePersonalIds = childrenOf('employee_personal');
+      final employeeSalaryPayableIds = childrenOf('employee_salary_payable');
+      final bonusGroup = groups?['employee_bonus_payable'];
+      final employeeBonusPayableParentId = bonusGroup is Map
+          ? _coerceAccountId(bonusGroup['account_id'])
+          : null;
+      final expensesGroup = groups?['expenses'];
+      final expenseIds = expensesGroup is Map
+          ? ((expensesGroup['subtree_ids'] as List?) ?? const [])
+                .map(_coerceAccountId)
+                .whereType<int>()
+                .toSet()
+          : <int>{};
+
       final customersAggId = _coerceAccountId(customersAgg?['account_id']);
       final customersAggNumber = customersAgg?['account_number']?.toString();
       final suppliersAggId = _coerceAccountId(suppliersAgg?['account_id']);
@@ -1154,6 +1190,10 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
         _customersAggregateAccountNumber = customersAggNumber;
         _suppliersAggregateAccountId = suppliersAggId;
         _suppliersAggregateAccountNumber = suppliersAggNumber;
+        _employeePersonalIds = employeePersonalIds;
+        _employeeSalaryPayableIds = employeeSalaryPayableIds;
+        _employeeBonusPayableParentId = employeeBonusPayableParentId;
+        _expenseIds = expenseIds;
 
         _isLoading = false;
       });
@@ -1215,7 +1255,7 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
 
       // Special case: Salary payment with advance deduction.
       // In the salary template, allow adding a second CREDIT cash line that targets
-      // the employee's personal account under 1700 (170xxxx) to reduce the advance
+      // the employee's personal account (its group from /app-config) to reduce the advance
       // balance as part of the same voucher.
       final bool allowEmployeeAdvanceOffset =
           widget.voucherType != 'receipt' &&
@@ -1227,30 +1267,17 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
         return safeOptions;
       }
 
-      final employeeAccounts = _accounts.where((acc) {
-        final accNum = (acc['account_number'] ?? '').toString();
-        return (accNum.startsWith('170') || accNum.startsWith('171')) &&
-            accNum.length >= 5;
-      }).toList();
+      final employeeAccounts = _accounts
+          .where(
+            (acc) => _employeePersonalIds.contains(_coerceAccountId(acc['id'])),
+          )
+          .toList();
 
       // Combine: safes first (common UX), then employee accounts.
       return [...safeOptions, ...employeeAccounts];
     }
 
     // للحالات الأخرى: نعرض الحسابات العادية
-    final commonAccounts = [
-      '1000',
-      '1010',
-      '1020',
-      '1030',
-      '1200',
-      '1210',
-      '1220',
-      '1230',
-      '1240',
-      '1250',
-      '1260',
-    ];
 
     // فلترة الحسابات: إظهار الحسابات التفصيلية فقط (4 خانات أو أكثر)،
     // وتطابق نوع المبلغ (نقدي/ذهب) لهذا السطر تلقائياً -- بنفس حقل
@@ -1266,26 +1293,13 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
       return t == 'cash' || t == 'both';
     }).toList();
 
-    // ترتيب: الحسابات الأكثر استخداماً في المقدمة
-    detailedAccounts.sort((a, b) {
-      final aNumber = a['account_number'].toString();
-      final bNumber = b['account_number'].toString();
-
-      final aIndex = commonAccounts.indexOf(aNumber);
-      final bIndex = commonAccounts.indexOf(bNumber);
-
-      // الحسابات الشائعة في المقدمة
-      if (aIndex != -1 && bIndex != -1) {
-        return aIndex.compareTo(bIndex);
-      } else if (aIndex != -1) {
-        return -1; // a قبل b
-      } else if (bIndex != -1) {
-        return 1; // b قبل a
-      } else {
-        // ترتيب باقي الحسابات حسب الرقم
-        return aNumber.compareTo(bNumber);
-      }
-    });
+    // ترتيب الحسابات حسب الرقم (كانت قائمة «شائعة» بأرقام مكتوبة، عشرة من
+    // أحد عشر منها لا وجود لها على الإنتاج — CHART-002)
+    detailedAccounts.sort(
+      (a, b) => a['account_number'].toString().compareTo(
+        b['account_number'].toString(),
+      ),
+    );
 
     return detailedAccounts;
   }
@@ -1499,85 +1513,15 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
     }
   }
 
-  String _normalizeSearchText(String value) {
-    // Best-effort normalization for matching Arabic names in account labels.
-    return (value).toString().trim().toLowerCase().replaceAll(
-      RegExp(r'\s+'),
-      '',
-    );
-  }
+  /// The employee's salary payable account: its link on the server
+  /// (payable_accounts), never a number prefix and a name (CHART-002 5c).
+  int? _findEmployeeSalaryPayableAccountId(EmployeeModel employee) =>
+      employee.payableAccounts['salary_payable'];
 
-  int? _findEmployeeSalaryPayableAccountId(EmployeeModel employee) {
-    // Expected: per-employee salary payable account under 2400xxxx
-    // Account name pattern (from backend helpers): "ح/ذمم الموظف <name> - رواتب"
-    final empKey = _normalizeSearchText(employee.name);
-
-    final candidates = _accounts.where((acc) {
-      final numStr = (acc['account_number'] ?? '').toString().trim();
-      if (!numStr.startsWith('2400') || numStr.length < 5) return false;
-
-      final nameStr = (acc['name'] ?? '').toString();
-      final key = _normalizeSearchText(nameStr);
-      return key.contains(empKey) &&
-          key.contains(_normalizeSearchText('رواتب'));
-    }).toList();
-
-    if (candidates.isEmpty) {
-      // Fallback: match employee name under 2400 even if "رواتب" missing.
-      final fallback = _accounts.where((acc) {
-        final numStr = (acc['account_number'] ?? '').toString().trim();
-        if (!numStr.startsWith('2400') || numStr.length < 5) return false;
-        final nameStr = (acc['name'] ?? '').toString();
-        return _normalizeSearchText(nameStr).contains(empKey);
-      }).toList();
-      if (fallback.isEmpty) return null;
-      // Prefer the most specific/longest account number.
-      fallback.sort((a, b) {
-        final an = (a['account_number'] ?? '').toString().length;
-        final bn = (b['account_number'] ?? '').toString().length;
-        return bn.compareTo(an);
-      });
-      return _coerceAccountId(fallback.first['id']);
-    }
-
-    // Prefer the most specific/longest account number.
-    candidates.sort((a, b) {
-      final an = (a['account_number'] ?? '').toString().length;
-      final bn = (b['account_number'] ?? '').toString().length;
-      return bn.compareTo(an);
-    });
-    return _coerceAccountId(candidates.first['id']);
-  }
-
-  int? _findEmployeeBonusPayableAccountId(EmployeeModel employee) {
-    // Expected: per-employee bonus payable account under 2310xxxx
-    // Account name pattern: "ح/مكافآت مستحقة <name>" or similar
-    final empKey = _normalizeSearchText(employee.name);
-
-    final candidates = _accounts.where((acc) {
-      final numStr = (acc['account_number'] ?? '').toString().trim();
-      if (!numStr.startsWith('2310') || numStr.length < 5) return false;
-      final nameStr = (acc['name'] ?? '').toString();
-      return _normalizeSearchText(nameStr).contains(empKey);
-    }).toList();
-
-    if (candidates.isNotEmpty) {
-      candidates.sort((a, b) {
-        final an = (a['account_number'] ?? '').toString().length;
-        final bn = (b['account_number'] ?? '').toString().length;
-        return bn.compareTo(an);
-      });
-      return _coerceAccountId(candidates.first['id']);
-    }
-
-    // Fallback: only the exact parent 2310 account — never a sibling employee's sub-account
-    final fallback = _accounts.where((acc) {
-      final numStr = (acc['account_number'] ?? '').toString().trim();
-      return numStr == '2310';
-    }).toList();
-    if (fallback.isEmpty) return null;
-    return _coerceAccountId(fallback.first['id']);
-  }
+  /// The employee's bonus payable account by its link -- or, before their first
+  /// approved bonus, the bonus payables' parent (a mapped role on the server).
+  int? _findEmployeeBonusPayableAccountId(EmployeeModel employee) =>
+      employee.payableAccounts['bonus_payable'] ?? _employeeBonusPayableParentId;
 
   int? _coerceAccountId(dynamic value) {
     if (value == null) {
@@ -1895,20 +1839,13 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
               ? 'استرداد سلفة من موظف'
               : _descriptionController.text;
           _notesController.text = _notesController.text.isEmpty
-              ? 'حدد حساب السلفة (140xxx) المرتبط بالموظف.'
+              ? 'حدد حساب الموظف الذي تُسترد منه السلفة.'
               : _notesController.text;
           _ensureFirstLineConfiguration(
             amountType: 'cash',
             description: 'استرداد سلفة',
           );
-          // البحث عن حساب السلف التجميعي
-          final advanceAccount = _accounts.firstWhere(
-            (acc) => acc['account_number']?.toString() == '1400',
-            orElse: () => <String, dynamic>{},
-          );
-          if (advanceAccount.isNotEmpty) {
-            _selectedOtherAccountId = advanceAccount['id'] as int?;
-          }
+          // لا حساب يُختار تلقائيًّا: كان يُختار 1400 «ضريبة المدخلات» (CHART-002)
           break;
         case 'receipt_safe_transfer':
           _partyType = 'other';
@@ -1942,7 +1879,7 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
               ? 'صرف راتب موظف'
               : _descriptionController.text;
           _notesController.text = _notesController.text.isEmpty
-              ? 'اختر الموظف وسيتم الربط تلقائياً بحساب ذمم الرواتب (2400xxxx).'
+              ? 'اختر الموظف وسيتم الربط تلقائياً بحساب ذمم رواتبه.'
               : _notesController.text;
           _ensureFirstLineConfiguration(
             amountType: 'cash',
@@ -1956,7 +1893,7 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
               ? 'صرف سلفة لموظف'
               : _descriptionController.text;
           _notesController.text = _notesController.text.isEmpty
-              ? 'اختر الموظف وسيتم الربط تلقائياً بحسابه ضمن الأصول (170xxxx).'
+              ? 'اختر الموظف وسيتم الربط تلقائياً بحسابه ضمن الأصول.'
               : _notesController.text;
           _ensureFirstLineConfiguration(
             amountType: 'cash',
@@ -1970,7 +1907,7 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
               ? 'صرف مكافأة لموظف'
               : _descriptionController.text;
           _notesController.text = _notesController.text.isEmpty
-              ? 'اختر الموظف وسيتم الربط تلقائياً بحساب المكافآت المستحقة (2310xxxx).'
+              ? 'اختر الموظف وسيتم الربط تلقائياً بحساب مكافآته المستحقة.'
               : _notesController.text;
           _ensureFirstLineConfiguration(
             amountType: 'cash',
@@ -1988,7 +1925,7 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
             description: 'مصروف تشغيلي',
           );
           final expenseAccount = _accounts.firstWhere(
-            (acc) => acc['account_number']?.toString().startsWith('5') ?? false,
+            (acc) => _expenseIds.contains(_coerceAccountId(acc['id'])),
             orElse: () => <String, dynamic>{},
           );
           if (expenseAccount.isNotEmpty) {
@@ -2657,9 +2594,9 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
                 value: _selectedOtherAccountId,
                 labelText: 'الحساب *',
                 hintText: _selectedTemplateId == 'payment_salary'
-                    ? 'اختر حساب ذمم الموظفين - رواتب (2400xxxx)'
+                    ? 'اختر حساب ذمم الموظفين - رواتب'
                     : _selectedTemplateId == 'payment_advance'
-                    ? 'اختر حساب الموظف (170xxxx)'
+                    ? 'اختر حساب الموظف'
                     : 'اختر الحساب المناسب (مصروف، سلفة، إلخ)',
                 title: 'اختيار حساب',
                 isArabic: true,
@@ -2677,16 +2614,15 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
                       .trim()
                       .toLowerCase();
 
-                  // Template-driven filters:
-                  // - Salary: employee salary payables accounts under 2400xxxx
-                  // - Advances: employee personal/receivable accounts under 170xxxx
+                  // Template-driven filters -- the groups' ids from /app-config:
+                  // - Salary: the employees' salary payables
+                  // - Advances: the employees' personal accounts
+                  final accId = _coerceAccountId(a['id']);
                   if (_selectedTemplateId == 'payment_salary') {
-                    return accNum.startsWith('2400') && accNum.length >= 5;
+                    return _employeeSalaryPayableIds.contains(accId);
                   }
                   if (_selectedTemplateId == 'payment_advance') {
-                    return (accNum.startsWith('170') ||
-                            accNum.startsWith('171')) &&
-                        accNum.length >= 5;
+                    return _employeePersonalIds.contains(accId);
                   }
                   if (_selectedTemplateId == 'receipt_safe_transfer') {
                     return safeType == 'cash' ||
@@ -3911,13 +3847,9 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
             _customersAggregateAccountNumber!,
           );
         }
-        // Final fallback for older servers/configs.
-        partyAccountId ??= _findAccountIdByNumber('1100');
-
         if (partyAccountId == null) {
-          final expected = _customersAggregateAccountNumber ?? '1100';
           throw Exception(
-            'العميل المختار لا يملك حساباً مرتبطاً، ولا يوجد حساب تجميعي للعملاء ($expected) في شجرة الحسابات',
+            'العميل المختار لا يملك حساباً مرتبطاً، ولا حساب تجميعي للعملاء مربوط في «الربط المحاسبي» (سندات / customers)',
           );
         }
       } else if (_partyType == 'supplier') {
@@ -3942,20 +3874,15 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
             _suppliersAggregateAccountNumber!,
           );
         }
-        // Final fallback for older servers/configs: prefer 220 then 211.
-        partyAccountId ??= _findAccountIdByNumber('220');
-        partyAccountId ??= _findAccountIdByNumber('211');
-
         if (partyAccountId == null) {
-          final expected = _suppliersAggregateAccountNumber ?? '220/211';
           throw Exception(
-            'المورد المختار لا يملك حساباً مرتبطاً، ولا يوجد حساب تجميعي للموردين ($expected) في شجرة الحسابات',
+            'المورد المختار لا يملك حساباً مرتبطاً، ولا حساب تجميعي للموردين مربوط في «الربط المحاسبي» (سندات / suppliers)',
           );
         }
       } else if (_partyType == 'employee') {
         // اختيار الموظف بالاسم، ثم الربط بالخلفية حسب القالب:
-        // - راتب: ذمم الموظفين-رواتب (2400xxxx)
-        // - سلفة: حساب الموظف ضمن الأصول (170xxxx)
+        // - راتب: ذمم رواتب الموظف (رابطه)
+        // - سلفة: حساب الموظف ضمن الأصول
         selectedEmployee = _findEmployeeById(_selectedEmployeeId);
         if (selectedEmployee == null) {
           throw Exception('تعذر العثور على بيانات الموظف المحدد');
@@ -3967,7 +3894,7 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
           );
           if (partyAccountId == null) {
             throw Exception(
-              'لا يوجد حساب ذمم رواتب (2400xxxx) مرتبط بهذا الموظف.\n'
+              'لا يوجد حساب ذمم رواتب مرتبط بهذا الموظف.\n'
               'يرجى إنشاء/تأكيد حسابات الذمم للموظف من شاشة الموظفين (Ensure setup).',
             );
           }
@@ -3975,12 +3902,12 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
           partyAccountId = _findEmployeeBonusPayableAccountId(selectedEmployee);
           if (partyAccountId == null) {
             throw Exception(
-              'لا يوجد حساب مكافآت مستحقة (2310xxxx) في شجرة الحسابات.\n'
+              'لا يوجد حساب مكافآت مستحقة مربوط (لا للموظف ولا أبٌ في «الربط المحاسبي»).\n'
               'يرجى إنشاء حساب المكافآت المستحقة أولاً.',
             );
           }
         } else {
-          // Default: employee personal account (170xxxx)
+          // Default: employee personal account
           if (selectedEmployee.accountId != null) {
             partyAccountId = selectedEmployee.accountId;
           } else {

@@ -316,8 +316,8 @@ class _BonusPayablesReportScreenState extends State<BonusPayablesReportScreen> {
             if (accountInfo == null)
               Text(
                 isArabic
-                    ? 'لم يتم العثور على حساب مكافآت مستحقة (215) في الدليل'
-                    : 'Account 215 (Bonuses payable) was not found in chart of accounts',
+                    ? 'لا حساب مكافآت مستحقة مربوط في «الربط المحاسبي»'
+                    : 'No bonuses payable account is mapped in accounting mapping',
                 style: TextStyle(color: Colors.red.shade400),
               ),
             const SizedBox(height: 12),

@@ -1555,7 +1555,7 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
             const SizedBox(height: 16),
             _buildAccountPickerRow(
               label: 'حساب أصول الفصوص',
-              subtitle: 'مدين عند التجديد — يُسجَّل وزن الفصوص كأصل (115x)',
+              subtitle: 'مدين عند التجديد — يُسجَّل وزن الفصوص كأصل',
               accountId: _stonesPendingAccountId,
               icon: Icons.diamond_outlined,
               onPick: () async {

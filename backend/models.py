@@ -3690,6 +3690,12 @@ class Employee(db.Model):
             'hire_date': self.hire_date.isoformat() if self.hire_date else None,
             'termination_date': self.termination_date.isoformat() if self.termination_date else None,
             'account_id': self.account_id,
+            # The employee's own accounts by role -- their links (employee_account):
+            # salary_payable, commission_payable, eos_payable, bonus_payable. A screen
+            # reads them here, never by a number prefix and a name (CHART-002 5c).
+            'payable_accounts': ({row.role: row.account_id
+                                  for row in EmployeeAccount.query.filter_by(employee_id=self.id)}
+                                 if self.id else {}),
             'gold_safe_box_id': self.gold_safe_box_id,
             'cash_safe_box_id': self.cash_safe_box_id,
             'is_active': self.is_active,

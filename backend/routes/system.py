@@ -2715,6 +2715,25 @@ def get_app_config():
         customers_agg = _resolve_aggregate('customers')
         suppliers_agg = _resolve_aggregate('suppliers')
 
+        # The groups a screen filters its accounts by -- each a mapped role and the
+        # ids under it, so no screen reads an account number (CHART-002 release 5c).
+        # An unmapped role is null: the screen says so instead of guessing.
+        from accounting.chart_tree import EXPENSES_ROOT, subtree_ids
+        from accounting.mappings import DEFAULT_MAPPING_OPERATION_TYPE, get_account_id_for_mapping
+
+        def _group(role):
+            account_id = get_account_id_for_mapping(DEFAULT_MAPPING_OPERATION_TYPE, role)
+            account = db.session.get(Account, account_id) if account_id else None
+            if account is None:
+                return None
+            return {**_account_payload(account), 'subtree_ids': sorted(subtree_ids(account.id))}
+
+        account_groups = {name: _group(role) for name, role in (
+            ('employee_personal', 'employee_personal_parent'),
+            ('employee_salary_payable', 'employee_salary_payable_parent'),
+            ('employee_bonus_payable', 'employee_bonus_payable_parent'),
+            ('expenses', EXPENSES_ROOT))}
+
         return jsonify({
             'main_karat': int(getattr(settings, 'main_karat', 21) or 21) if settings else 21,
             'currency_symbol': getattr(settings, 'currency_symbol', 'ر.س') if settings else 'ر.س',
@@ -2722,6 +2741,7 @@ def get_app_config():
                 'customers': customers_agg,
                 'suppliers': suppliers_agg,
             },
+            'account_groups': account_groups,
         }), 200
 
     except Exception as e:
