@@ -555,33 +555,6 @@ try:
 			except Exception as exc:
 				print(f"[WARNING] Default payment types bootstrap failed: {exc}")
 
-		# ── One-time fix: remove duplicate invoice_sale_gold_movement SBTs for scrap invoices ──
-		# Before the inv_gold_type != 'scrap' guard was added, scrap sale invoices created
-		# BOTH an invoice_scrap_sale SBT and an invoice_sale_gold_movement SBT, doubling the
-		# weight-out in the sub-ledger and causing a GL reconciliation gap.
-		try:
-			from models import SafeBoxTransaction, Invoice as _Inv
-			from sqlalchemy import func as _func
-			_dup_sbts = (
-				db.session.query(SafeBoxTransaction)
-				.join(_Inv, _Inv.id == SafeBoxTransaction.invoice_id)
-				.filter(
-					SafeBoxTransaction.ref_type == 'invoice_sale_gold_movement',
-					_func.lower(_func.coalesce(_Inv.gold_type, 'new')) == 'scrap',
-				)
-				.all()
-			)
-			if _dup_sbts:
-				_ids = [s.id for s in _dup_sbts]
-				print(f'[INFO] Removing {len(_dup_sbts)} duplicate invoice_sale_gold_movement SBT(s) for scrap invoices: ids={_ids}')
-				for _s in _dup_sbts:
-					db.session.delete(_s)
-				db.session.commit()
-				print('[INFO] Duplicate scrap SBTs removed successfully.')
-		except Exception as exc:
-			db.session.rollback()
-			print(f"[WARNING] Duplicate scrap SBT cleanup failed: {exc}")
-
 except Exception as exc:
 	print(f"[WARNING] Startup DB bootstrap failed: {exc}")
 

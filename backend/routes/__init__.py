@@ -786,7 +786,6 @@ def _generate_employee_code():
 # (GET /safe-boxes/<id>/transactions, GET /safe-boxes/<id>/balance,
 #  GET /safe-boxes/balances, GET /safe-boxes/stones-balance,
 #  GET /safe-boxes/reconciliation,
-#  POST /safe-boxes/purge-duplicate-gold-movement-sbts,
 #  POST /safe-boxes/repair-transactions)
 
 # Invoices domain → routes/invoices.py
