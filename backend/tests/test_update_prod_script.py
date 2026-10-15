@@ -42,8 +42,8 @@ FAKE_DOCKER = textwrap.dedent(r'''
         tag="${args##*:}"
         for t in $FAKE_TAGS; do [ "$t" = "$tag" ] && exit 0; done
         exit 1 ;;
-      *" pull backend scheduler nginx") exit "${FAKE_PULL_EXIT:-0}" ;;
-      *"alembic upgrade head"*) exit "${FAKE_MIGRATE_EXIT:-0}" ;;
+      *" pull backend scheduler nginx") [ -n "$FAKE_PULL_OUTPUT" ] && echo "$FAKE_PULL_OUTPUT"; exit "${FAKE_PULL_EXIT:-0}" ;;
+      *"alembic upgrade head"*) [ -n "$FAKE_MIGRATE_OUTPUT" ] && echo "$FAKE_MIGRATE_OUTPUT"; exit "${FAKE_MIGRATE_EXIT:-0}" ;;
       *"alembic current"*) echo "20260925_settlement_reason_limits (head)"; exit 0 ;;
       *" up -d --force-recreate backend scheduler nginx") exit "${FAKE_UP_EXIT:-0}" ;;
       *" images --format json")
@@ -158,6 +158,30 @@ def test_a_missing_image_stops_everything_before_anything_changes(prod):
 
 def test_a_failed_migration_puts_the_old_tag_back_and_restarts_nothing(prod):
     result, calls = prod('-Tag', '99e86008', '-Deploy', '-Rehearsed', FAKE_MIGRATE_EXIT='1')
+    assert result.returncode != 0 and 'migration failed' in result.stdout
+    assert prod.tag() == '98ea5220'
+    assert not any('up -d' in c for c in calls)
+
+
+def test_a_migration_that_prints_and_succeeds_is_a_success(prod):
+    """A migration that writes to stdout -- CHART-002's print the roles they map
+    -- and exits 0 is a success. Run-Docker returned docker's output with its
+    exit code, so `(Run-Docker ...) -ne 0` held an array of the printed lines and
+    a successful migration was reported failed: on 15 Oct 2026 f2c5c806's
+    deploy ABORTED after migrating, IMAGE_TAG put back, «always lately»."""
+    result, calls = prod('-Tag', '99e86008', '-Deploy', '-Rehearsed',
+                         FAKE_MIGRATE_OUTPUT='[gold_roles] roles mapped [\'gold_inventory_new\']',
+                         FAKE_PULL_OUTPUT='Pulled backend')
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert 'migration failed' not in result.stdout
+    assert '[gold_roles] roles mapped' in result.stdout, 'what docker prints is still shown'
+    assert prod.tag() == '99e86008'
+    assert any('up -d --force-recreate' in c for c in calls)
+
+
+def test_a_migration_that_prints_and_fails_is_still_a_failure(prod):
+    result, calls = prod('-Tag', '99e86008', '-Deploy', '-Rehearsed',
+                         FAKE_MIGRATE_OUTPUT='Traceback (most recent call last):', FAKE_MIGRATE_EXIT='1')
     assert result.returncode != 0 and 'migration failed' in result.stdout
     assert prod.tag() == '98ea5220'
     assert not any('up -d' in c for c in calls)

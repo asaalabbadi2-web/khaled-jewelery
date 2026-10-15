@@ -61,7 +61,11 @@ function Fail([string]$text) { Write-Host "ABORTED: $text" -ForegroundColor Red;
 
 function Run-Docker([string[]]$arguments) {
     if ($DryRun) { Say ("  [dry-run] docker " + ($arguments -join ' ')); return 0 }
-    & docker @arguments
+    # Shown, never returned: whatever a PowerShell function writes is part of its
+    # return value, so docker's own output joined the exit code, and
+    # `(Run-Docker ...) -ne 0` held the printed lines -- a migration that printed
+    # (CHART-002's do) and succeeded was reported failed (15 Oct 2026, f2c5c806).
+    & docker @arguments | Out-Host
     return $LASTEXITCODE
 }
 
