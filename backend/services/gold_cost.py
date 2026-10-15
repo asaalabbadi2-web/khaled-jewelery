@@ -41,23 +41,43 @@ from datetime import date, datetime
 
 from sqlalchemy import func
 
-from models import Account, Invoice, JournalEntry, JournalEntryLine, OfficeReservation, db
+from models import Invoice, JournalEntry, JournalEntryLine, OfficeReservation, db
 
 MAIN_KARAT = 21.0
 KARATS = (18, 21, 22, 24)
 
-# Which accounts are which pool -- by the tree (a policy: data, not law).
-WORKED_ROOTS = ('71300',)
-SCRAP_ROOTS = ('71310', '7210')
-PURCHASE_CASH_ROOTS = ('512', '1310')    # where a purchase's price is debited
-CUSTOMER_ROOTS = ('7120',)
-SALES_TWIN_ROOTS = ('74',)               # the sales' weight twins (early sales wrote these)
-WEIGHT_EXPENSE_ROOTS = ('752',)          # operating expenses, by weight (52's twin)
-WEIGHT_COST_OF_SALES_ROOTS = ('751',)    # purchases and their returns, by weight (51's twin)
-SALES_RETURNS_ROOTS = ('7420',)
-PARTY_ROOTS = ('71', '72')               # weight assets and liabilities: parties' accounts
-EQUITY_ROOTS = ('73',)
-WAGE_COST_ROOTS = ('510',)                # the making charge: a cost the gold's average does not replace
+# Which accounts are which pool -- by the tree, under roles (a policy: data, not
+# law). They were numbers here (71300; 71310, 7210; 512, 1310; 7120; 74; 752;
+# 751; 7420; 71, 72; 73; 510): each is a role's account or its linked weight
+# twin, the subtree under it (CHART-002 release 5).
+def pool_accounts() -> dict[str, set[int]]:
+    from accounting.chart_tree import (
+        ASSETS_ROOT, COST_OF_SALES_ROOT, CUSTOMER_RECEIVABLES_ROOT, EQUITY_ROOT, LIABILITIES_ROOT,
+        OPERATING_EXPENSES_ROOT, REVENUE_ROOT, WORKED_GOLD_SUPPLIERS_ROOT, subtree_ids, twin_id, twin_subtree_ids)
+    from accounting.mappings import DEFAULT_MAPPING_OPERATION_TYPE as DEFAULT, require_account
+
+    def own(operation, role):
+        return subtree_ids(require_account(operation, role))
+
+    def twin(operation, role):
+        twin_account = twin_id(require_account(operation, role))
+        return subtree_ids(twin_account) if twin_account else set()
+
+    return {
+        'worked': twin(DEFAULT, 'gold_inventory_new'),
+        'scrap': twin(DEFAULT, 'gold_inventory_scrap') | twin_subtree_ids(WORKED_GOLD_SUPPLIERS_ROOT),
+        # where a purchase's price is debited
+        'purchase_cash': own('شراء من عميل', 'purchases_gold_scrap') | own(DEFAULT, 'gold_inventory_scrap'),
+        'customers': twin_subtree_ids(CUSTOMER_RECEIVABLES_ROOT),
+        'sales_twin': twin_subtree_ids(REVENUE_ROOT),                # early sales wrote these
+        'weight_expense': twin_subtree_ids(OPERATING_EXPENSES_ROOT),  # operating expenses, by weight
+        'weight_cost_of_sales': twin_subtree_ids(COST_OF_SALES_ROOT),  # purchases and their returns, by weight
+        'sales_returns': twin('مرتجع بيع', 'sales_returns'),
+        'party': twin_subtree_ids(ASSETS_ROOT) | twin_subtree_ids(LIABILITIES_ROOT),  # parties' weight accounts
+        'equity': twin_subtree_ids(EQUITY_ROOT),
+        'wage_cost': own('بيع', 'manufacturing_wage'),  # the making charge: a cost the average does not replace
+    }
+
 CORRECTION_TYPES = ('journal_entry_reversal', 'balance_correction', 'voucher_reversal')
 OFFICE_TRANSFER = 'office_reservation_weight_transfer'
 EPS = 0.0005
@@ -133,23 +153,6 @@ class Replay:
     pools: dict = field(default_factory=dict)
 
 
-def _subtree_ids(roots) -> set[int]:
-    rows = Account.query.with_entities(Account.id, Account.parent_id, Account.account_number).all()
-    children, by_number = defaultdict(list), {}
-    for i, p, n in rows:
-        by_number[str(n or '').strip()] = i
-        if p is not None:
-            children[p].append(i)
-    found = set()
-    stack = [by_number[r] for r in roots if r in by_number]
-    while stack:
-        node = stack.pop()
-        if node not in found:
-            found.add(node)
-            stack.extend(children.get(node, ()))
-    return found
-
-
 def _grams(line) -> float:
     return sum((float(getattr(line, f'debit_{k}k') or 0) - float(getattr(line, f'credit_{k}k') or 0)) * k / MAIN_KARAT
                for k in KARATS)
@@ -158,15 +161,16 @@ def _grams(line) -> float:
 def replay(*, opening_price: float, since: date | None = None, until: date | None = None) -> Replay:
     """Replay every posted movement of the two pools, oldest first."""
     from accounting.balances import counted_line_filters
-    worked, scrap = _subtree_ids(WORKED_ROOTS), _subtree_ids(SCRAP_ROOTS)
-    cash_accounts = _subtree_ids(PURCHASE_CASH_ROOTS)
-    customers, equity = _subtree_ids(CUSTOMER_ROOTS), _subtree_ids(EQUITY_ROOTS)
-    sales_twin = _subtree_ids(SALES_TWIN_ROOTS)
+    pools = pool_accounts()
+    worked, scrap = pools['worked'], pools['scrap']
+    cash_accounts = pools['purchase_cash']
+    customers, equity = pools['customers'], pools['equity']
+    sales_twin = pools['sales_twin']
     # By the nature of the account the gold went to (the owner, 11 Oct 2026):
-    expense_accounts = _subtree_ids(WEIGHT_EXPENSE_ROOTS)
-    cost_of_sales_weight = _subtree_ids(WEIGHT_COST_OF_SALES_ROOTS)
-    sales_returns = _subtree_ids(SALES_RETURNS_ROOTS)
-    receivable_accounts = _subtree_ids(PARTY_ROOTS) - worked - scrap
+    expense_accounts = pools['weight_expense']
+    cost_of_sales_weight = pools['weight_cost_of_sales']
+    sales_returns = pools['sales_returns']
+    receivable_accounts = pools['party'] - worked - scrap
     pool_ids = worked | scrap
 
     touched = (db.session.query(JournalEntryLine.journal_entry_id)
@@ -347,8 +351,9 @@ def ledger_weights() -> dict:
     """Each pool's weight as the books say it -- the replay must end on it."""
     from accounting.balances import counted_line_filters
     result = {}
-    for name, roots in (('scrap', SCRAP_ROOTS), ('worked', WORKED_ROOTS)):
-        ids = _subtree_ids(roots)
+    pools = pool_accounts()
+    for name in ('scrap', 'worked'):
+        ids = pools[name]
         expr = sum((func.coalesce(func.sum(getattr(JournalEntryLine, f'debit_{k}k')), 0.0)
                     - func.coalesce(func.sum(getattr(JournalEntryLine, f'credit_{k}k')), 0.0)) * k / MAIN_KARAT
                    for k in KARATS)
@@ -375,7 +380,7 @@ def gross_by_month(result: Replay) -> dict[str, dict]:
 
     groups = income_account_groups()
     revenue = {k: -v for k, v in monthly(groups['revenue']).items()}
-    cost_today, wages = monthly(groups['cost_of_sales']), monthly(_subtree_ids(WAGE_COST_ROOTS))
+    cost_today, wages = monthly(groups['cost_of_sales']), monthly(pool_accounts()['wage_cost'])
     out = {}
     for k in sorted(set(result.months) | set(revenue) | set(cost_today)):
         m = result.months.get(k, Month())

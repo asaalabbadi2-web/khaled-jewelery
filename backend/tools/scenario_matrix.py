@@ -199,10 +199,56 @@ class Matrix:
             out['supplier_ledgers'] = {s.supplier_code: get(f'/api/suppliers/{s.id}/ledger') for s in suppliers}
         return 200, {'balances': out}
 
+    # ── the reports that read the chart's groups, in full (release 5) ──────
+    def reports(self):
+        """Each report a CHART release can reclassify, as served -- and the gold
+        cost replay and its transition plan, as computed -- before the scenarios."""
+        import dataclasses
+
+        def plain(value):
+            if dataclasses.is_dataclass(value):
+                value = dataclasses.asdict(value)
+            if isinstance(value, dict):
+                return {str(k): plain(v) for k, v in value.items()}
+            if isinstance(value, (list, tuple, set)):
+                return [plain(v) for v in value]
+            if isinstance(value, float):
+                return round(value, 2)
+            if isinstance(value, (date, datetime)):
+                return value.isoformat()
+            return value
+
+        def get(url):
+            resp = self.client.get(url, headers=self.headers)
+            return [resp.status_code, resp.get_json(silent=True)]
+
+        year = 'start_date=2026-01-01&end_date=2026-12-31'
+        docs = {name: get(url) for name, url in (
+            ('income_statement', f'/api/reports/income_statement?{year}'),
+            ('gold_income_statement', f'/api/reports/income-statement/gold?{year}'),
+            ('gram_profit', f'/api/reports/gram_profit?{year}'),
+            ('analytics_summary', f'/api/analytics/summary?{year}'),
+            ('inventory_reconciliation', '/api/reports/inventory_reconciliation?date=2026-10-12'),
+            ('bridge_balance_monitor', '/api/reports/bridge-balance-monitor'),
+            ('admin_dashboard', '/api/dashboard/admin'))}
+        try:
+            from services.gold_cost import gross_by_month, ledger_weights, replay
+            from services.gold_cost_books import plan_transition
+            r = replay(opening_price=350.0, since=date(2026, 1, 1))
+            docs['gold_cost'] = plain({'months': r.months, 'pools': r.pools, 'others': len(r.others),
+                                       'ledger': ledger_weights(), 'gross': gross_by_month(r),
+                                       'transition': plan_transition(opening_price=350.0, at=date(2026, 10, 1),
+                                                                     since=date(2026, 1, 1))['lines']})
+        except Exception as exc:  # recorded, so the two copies compare on it too
+            self.db.session.rollback()
+            docs['gold_cost'] = f'{type(exc).__name__}: {exc}'
+        return 200, {'documents': docs}
+
     # ── the scenarios ────────────────────────────────────────────────────
     def all(self):
         from models import EmployeeBonus, InvoiceItem, Settings, db
         self.run('party_balances_before', lambda: self.balances(documents=True))
+        self.run('reports_before', self.reports)
         w = self.world()
         settings = Settings.query.first()
         settings.allow_partial_invoice_payments = True
@@ -538,15 +584,16 @@ def compare(a_path, b_path):
     a, b = json.load(open(a_path, encoding='utf-8')), json.load(open(b_path, encoding='utf-8'))
     for rows in (a, b):
         for row in rows.values():
-            if 'balances' in row:
-                row['balances'] = _timeless(row['balances'])
+            for key in ('balances', 'documents'):
+                if key in row:
+                    row[key] = _timeless(row[key])
     same = differ = 0
     for name in a:
         if name not in b:
             print(f'{name}: missing in {b_path}')
             continue
         ra, rb = a[name], b[name]
-        keys = ('status', 'entries', 'accounts_created', 'balances')
+        keys = ('status', 'entries', 'accounts_created', 'balances', 'documents')
         if all(ra.get(k) == rb.get(k) for k in keys):
             same += 1
             print(f'SAME   {name}  ({ra["status"]})')

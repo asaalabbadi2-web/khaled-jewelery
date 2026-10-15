@@ -17,9 +17,9 @@ from models import Account, JournalEntry, db
 
 BACKEND = pathlib.Path(__file__).resolve().parents[1]
 RULE = re.compile(r"""startswith\(\s*['"]7['"]|f['"]7\{|['"]7['"]\s*\+""")
-# Not yet theirs: the reports (CHART-002 release 5); a repair applied in 2026 (history);
-# the scenario matrix, which runs the code before this release too.
-ALLOWED = {'routes/reports.py': 1, 'services/repair/chart_001.py': 1, 'tools/scenario_matrix.py': 1}
+# Not theirs: a repair applied in 2026 (history); the scenario matrix, which runs
+# the code before a release too. The reports' went with CHART-002 release 5.
+ALLOWED = {'services/repair/chart_001.py': 1, 'tools/scenario_matrix.py': 1}
 SKIP = {'venv', 'tests', 'alembic', '__pycache__', '.pytest_db'}
 
 

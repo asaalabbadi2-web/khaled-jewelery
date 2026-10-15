@@ -67,6 +67,12 @@ REQUIRED_ROLES = (
     # The groups whose tree is what suppliers are owed and customers owe
     # (accounting/chart_tree.py, step 4b2).
     *((DEFAULT_MAPPING_OPERATION_TYPE, r) for r in ('supplier_payables_root', 'customer_receivables_root')),
+    # The chart's groups the reports read; a weight group is its group's linked
+    # twin (accounting/chart_tree.py, CHART-002 release 5).
+    *((DEFAULT_MAPPING_OPERATION_TYPE, r) for r in (
+        'assets_root', 'liabilities_root', 'equity_root', 'revenue_root', 'expenses_root', 'operating_revenue_root',
+        'cost_of_sales_root', 'operating_expenses_root', 'gold_inventory_root', 'worked_gold_suppliers_root',
+        'valuation_equity')),
 )
 
 

@@ -11,8 +11,10 @@ This ratchet holds each file at what it has: a new number, or a new file with
 one, fails. Each CHART-002 release lowers the caps (core postings -> employees
 and bonuses -> safes, scrap and repair tools -> reports and the screens) until
 they are all zero. Migrations are history and may name numbers; tests too.
-A literal counts when it is a number of the chart (3 digits or more) or a
-prefix search ('2310%', startswith('21')).
+A literal counts when it is a number of the chart (3 digits or more), a
+prefix search ('2310%', startswith('21')), or -- from CHART-002 release 5 --
+any digit string compared with or searched in an account number, or held in
+a constant named as a root, parent, number or prefix.
 """
 import ast
 import json
@@ -39,6 +41,63 @@ def _chart_numbers():
         return {n for n in walk(json.load(fh)) if len(n) >= 3}
 
 
+DIGITS = re.compile(r'^\d[\d.]*%?$')
+LOOKUPS = {'like', 'ilike', 'notlike', 'in_', 'notin_', 'startswith', 'endswith'}
+NAMED = re.compile(r'(ROOT|NUMBER|PARENT|ACCOUNT|PREFIX)', re.I)
+
+
+def _digit_constants(node):
+    """The digit strings in *node*: a constant, or a tuple/list/set of them."""
+    if isinstance(node, ast.Constant) and isinstance(node.value, str) and DIGITS.match(node.value):
+        return [node]
+    if isinstance(node, (ast.Tuple, ast.List, ast.Set)):
+        return [e for e in node.elts if isinstance(e, ast.Constant) and isinstance(e.value, str)
+                and DIGITS.match(e.value)]
+    return []
+
+
+def _numbers_in(tree, source, numbers) -> set:
+    """Each literal that names an account by its number, once: a number of the
+    chart anywhere; a prefix search ('2310%', startswith('21')); and -- the
+    gate saw neither until CHART-002 release 5 -- any digit string compared
+    with, or searched in, an account number (== / filter_by / like / in_), or
+    held in a constant named as a root, a parent, a number or a prefix (the
+    groups '4', '51', '74' and numbers outside the 2027 chart: 5113, 71100...)."""
+    found = set()
+
+    def add(nodes):
+        found.update((n.lineno, n.col_offset) for n in nodes)
+
+    def mentions_number(expr):
+        return any((isinstance(n, ast.Attribute) and 'account_number' in n.attr)
+                   or (isinstance(n, ast.Name) and 'account_number' in n.id) for n in ast.walk(expr))
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            if node.value in numbers or re.fullmatch(r'\d{2,8}%', node.value):
+                add([node])
+        elif isinstance(node, ast.Call):
+            func = node.func
+            if isinstance(func, ast.Attribute) and func.attr in LOOKUPS and node.args:
+                if func.attr == 'startswith' or mentions_number(func.value):
+                    for arg in node.args:
+                        add(_digit_constants(arg))
+            for kw in node.keywords:
+                if kw.arg == 'account_number':
+                    add(_digit_constants(kw.value))
+        elif isinstance(node, ast.Compare):
+            sides = [node.left, *node.comparators]
+            if any(mentions_number(side) for side in sides):
+                for side in sides:
+                    add(_digit_constants(side))
+        elif isinstance(node, (ast.Assign, ast.AnnAssign)):
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            names = [t.id for t in targets if isinstance(t, ast.Name)]
+            if node.value is not None and any(NAMED.search(n) and n.isupper() for n in names):
+                add(_digit_constants(node.value))
+    return found
+
+
 def count_by_file() -> dict:
     numbers = _chart_numbers()
     counts = {}
@@ -50,19 +109,12 @@ def count_by_file() -> dict:
             path = os.path.join(root, name)
             rel = os.path.relpath(path, BACKEND).replace(os.sep, '/')
             with open(path, encoding='utf-8') as fh:
-                try:
-                    tree = ast.parse(fh.read())
-                except SyntaxError:
-                    continue
-            n = 0
-            for node in ast.walk(tree):
-                if isinstance(node, ast.Constant) and isinstance(node.value, str):
-                    if node.value in numbers or re.fullmatch(r'\d{2,8}%', node.value):
-                        n += 1
-                elif (isinstance(node, ast.Call) and getattr(node.func, 'attr', '') == 'startswith'
-                      and node.args and isinstance(node.args[0], ast.Constant)
-                      and isinstance(node.args[0].value, str) and node.args[0].value.isdigit()):
-                    n += 1
+                source = fh.read()
+            try:
+                tree = ast.parse(source)
+            except SyntaxError:
+                continue
+            n = len(_numbers_in(tree, source, numbers))
             if n:
                 counts[rel] = n
     return counts

@@ -282,6 +282,26 @@ def initialize_db():
         _twin(suppliers, '72100', parent=_twin(suppliers_group, '7210'))
         _twin(Account.query.filter_by(account_number='1200').one(), '71200')
 
+        # The chart's groups the reports read, each with its weight twin under
+        # its parent's twin, as on production (CHART-002 release 5).
+        def _group(number, name, kind, parent=None):
+            group = _seed(number, name, kind, parent=parent)
+            parent_twin = db.session.get(Account, parent.memo_account_id) if parent and parent.memo_account_id else None
+            from accounting.twins import twin_number
+            _twin(group, twin_number(number), parent=parent_twin)
+            return group
+
+        assets = _group('1', 'الأصول', 'Asset')
+        _group('2', 'الخصوم', 'Liability')
+        equity = _group('3', 'حقوق الملكية', 'Equity')
+        revenue = _group('4', 'الإيرادات', 'Revenue')
+        expenses = _group('5', 'المصروفات', 'Expense')
+        _group('41', 'إيرادات النشاط', 'Revenue', parent=revenue)
+        _group('51', 'تكلفة المبيعات', 'Expense', parent=expenses)
+        _group('52', 'مصاريف تشغيلية', 'Expense', parent=expenses)
+        _group('130', 'المخزون', 'Asset', parent=assets)
+        _group('33', 'فروقات تقييم الذهب', 'Equity', parent=equity)
+
         # Roles mapped as the test chart has always resolved them (CHART-002).
         db.session.flush()
         from tests.chart_roles import map_roles_as_the_test_chart_resolves

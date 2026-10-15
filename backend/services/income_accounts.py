@@ -20,50 +20,21 @@ operating expense without a code change.
 """
 from __future__ import annotations
 
-from models import Account
-
-REVENUE_ROOT = '4'
-EXPENSES_ROOT = '5'
-COST_OF_SALES_ROOT = '51'
-
-
-def _subtree_ids(root_number: str, children_of: dict, ids_by_number: dict) -> set[int]:
-    root = ids_by_number.get(root_number)
-    if root is None:
-        return set()
-    found, stack = set(), [root]
-    while stack:
-        node = stack.pop()
-        if node in found:
-            continue
-        found.add(node)
-        stack.extend(children_of.get(node, ()))
-    return found
-
-
-def _tree():
-    rows = Account.query.with_entities(Account.id, Account.parent_id, Account.account_number).all()
-    children_of: dict[int, list[int]] = {}
-    ids_by_number: dict[str, int] = {}
-    for account_id, parent_id, number in rows:
-        ids_by_number[str(number or '').strip()] = account_id
-        if parent_id is not None:
-            children_of.setdefault(parent_id, []).append(account_id)
-    return children_of, ids_by_number
+from accounting.chart_tree import COST_OF_SALES_ROOT, EXPENSES_ROOT, REVENUE_ROOT, role_subtree_ids
 
 
 def income_account_groups() -> dict[str, set[int]]:
-    """{'revenue', 'cost_of_sales', 'operating'}: account ids, by the tree."""
-    children_of, ids_by_number = _tree()
-    expenses = _subtree_ids(EXPENSES_ROOT, children_of, ids_by_number)
-    cost_of_sales = _subtree_ids(COST_OF_SALES_ROOT, children_of, ids_by_number)
+    """{'revenue', 'cost_of_sales', 'operating'}: account ids, by the tree under
+    the group roles (CHART-002 release 5: 4, 5 and 51 were numbers here)."""
+    expenses = role_subtree_ids(EXPENSES_ROOT)
+    cost_of_sales = role_subtree_ids(COST_OF_SALES_ROOT)
     return {
-        'revenue': _subtree_ids(REVENUE_ROOT, children_of, ids_by_number),
+        'revenue': role_subtree_ids(REVENUE_ROOT),
         'cost_of_sales': cost_of_sales,
         'operating': expenses - cost_of_sales,
     }
 
 
 def operating_expense_account_ids() -> set[int]:
-    """Group 5 and everything under it, less 51 and everything under it."""
+    """The expenses group and everything under it, less the cost of sales group."""
     return income_account_groups()['operating']

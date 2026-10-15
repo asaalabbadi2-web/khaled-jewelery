@@ -37,7 +37,8 @@ from auth_decorators import get_current_user, require_auth, require_permission
 
 from pricing.constants import SAR_USD_PEG, TROY_OZ_TO_GRAMS
 from pricing.karat_service import convert_to_main_karat, get_main_karat
-from accounting.mappings import get_account_id_by_number, get_account_id_for_mapping
+from accounting.mappings import (DEFAULT_MAPPING_OPERATION_TYPE, get_account_id_by_number, get_account_id_for_mapping,
+                                 require_account)
 from core.settings import _get_settings_singleton
 from accounting.wages import manufacturing_wage_expense_account_id
 from services.journals import create_wage_weight_release_journal
@@ -2143,10 +2144,17 @@ def get_analytics_summary():
     # - حسابات المخزون المالية 13xx (إن وُجدت بها أوزان)
     # - حسابات المخزون الوزنية الفعلية (71300/71310/71320/71330) لكل العيارات
     # ولا نضم باقي حسابات 71xx مثل الصندوق الوزني أو العملاء وزني.
-    gold_inventory_weight_accounts = ['71300', '71310', '71320', '71330']
+    # By the tree under the inventory group's role, and the weight twins of the
+    # new, scrap and wage stock by their links (CHART-002 release 5: '13%' and
+    # 71300/71310/71320 were written here).
+    from accounting.chart_tree import GOLD_INVENTORY_ROOT, role_subtree_ids, twin_id
+    gold_inventory_weight_ids = {t for t in (
+        twin_id(require_account(DEFAULT_MAPPING_OPERATION_TYPE, 'gold_inventory_new')),
+        twin_id(require_account(DEFAULT_MAPPING_OPERATION_TYPE, 'gold_inventory_scrap')),
+        twin_id(require_account('شراء', 'manufacturing_wage_inventory'))) if t}
     inv_condition = or_(
-        Account.account_number.like('13%'),
-        Account.account_number.in_(gold_inventory_weight_accounts),
+        Account.id.in_(role_subtree_ids(GOLD_INVENTORY_ROOT)),
+        Account.id.in_(gold_inventory_weight_ids),
     )
 
     # 🟢 اعتبار الأسطر كـ "وزن فعلي" إذا:
@@ -3579,9 +3587,9 @@ def get_weight_based_income_statement():
         ).all()
         
         # حسابات الإيرادات النقدية (لتحويلها إلى وزن بالسعر المباشر)
+        from accounting.chart_tree import REVENUE_ROOT, role_subtree_ids
         revenue_accounts_cash = db.session.query(Account).filter(
-            Account.account_number.like('4%'),
-            ~Account.account_number.like('7%')
+            Account.id.in_(role_subtree_ids(REVENUE_ROOT))      # the revenue group, by the tree
         ).all()
         revenue_cash_ids = {acc.id for acc in revenue_accounts_cash}
 
@@ -4242,9 +4250,13 @@ def get_gram_profit_report():
         #   741xx = مقابلات المبيعات الوزنية  (Layer ① → trading_profit)
         #   751xx = مقابلات تكلفة المبيعات الوزنية (Layer ① → avg_buy)
         # ونستثني أيضاً أي حساب عليه exclude_from_gram_profit=True
-        _counterpart_roots = Account.query.filter(
-            Account.account_number.in_(['741', '751'])
-        ).all()
+        from accounting.chart_tree import (COST_OF_SALES_ROOT, EXPENSES_ROOT, OPERATING_REVENUE_ROOT,
+                                           REVENUE_ROOT, role_account_id, role_subtree_ids, twin_id,
+                                           twin_subtree_ids)
+        # The weight twins of the operating revenue and the cost of sales groups (741, 751).
+        _counterpart_roots = Account.query.filter(Account.id.in_([
+            t for t in (twin_id(role_account_id(OPERATING_REVENUE_ROOT)), twin_id(role_account_id(COST_OF_SALES_ROOT)))
+            if t])).all()
         # D-3 FIX: جمع كل المنحدرين بشكل مُعادي — الفلتر الضحل (parent_id) لا يرى الأحفاد
         _counterpart_all_ids: set = {a.id for a in _counterpart_roots}
 
@@ -4260,10 +4272,7 @@ def get_gram_profit_report():
 
         weight_memo_accs = (
             Account.query
-            .filter(or_(
-                Account.account_number.like('74%'),
-                Account.account_number.like('75%'),
-            ))
+            .filter(Account.id.in_(twin_subtree_ids(REVENUE_ROOT) | twin_subtree_ids(EXPENSES_ROOT)))
             .filter(Account.id.notin_(_counterpart_all_ids))
             .filter(func.coalesce(Account.exclude_from_gram_profit, False) == False)
             .all()
@@ -4280,13 +4289,13 @@ def get_gram_profit_report():
 
         revenue_account_ids = set()
         expense_account_ids = set()
+        # The revenue and expense groups and their weight twins, by the tree (4/74, 5/75).
+        _revenue_tree = role_subtree_ids(REVENUE_ROOT) | twin_subtree_ids(REVENUE_ROOT)
+        _expense_tree = role_subtree_ids(EXPENSES_ROOT) | twin_subtree_ids(EXPENSES_ROOT)
         for acc in flagged_accounts:
-            num = str(acc.account_number or '')
-            # 4xxx = إيرادات مالية، 74xx = إيرادات وزنية (مذكرة)
-            if num.startswith('4') or num.startswith('74'):
+            if acc.id in _revenue_tree:
                 revenue_account_ids.add(acc.id)
-            # 5xxx/6xxx = مصاريف مالية، 75xx = مصاريف وزنية (مذكرة)
-            elif num.startswith('5') or num.startswith('6') or num.startswith('75'):
+            elif acc.id in _expense_tree:
                 expense_account_ids.add(acc.id)
 
         all_flagged_ids = revenue_account_ids | expense_account_ids
@@ -4343,7 +4352,7 @@ def get_gram_profit_report():
             # - حسابات مالية (4/5/6): تستخدم debit_21k / credit_21k
             # - حسابات وزنية (74/75): تجمع جميع العيارات مُطبَّعةً إلى 21k
             #   وإلا fallback إلى debit_weight / credit_weight
-            if acc_num.startswith('74') or acc_num.startswith('75'):
+            if acc.tracks_weight:   # a weight account (74/75): its mark, not its number
                 w_debit = _normalized_21k('debit')
                 w_credit = _normalized_21k('credit')
                 # fallback إلى debit_weight إذا لم تتوفر أي حقول karat
@@ -4565,7 +4574,6 @@ def get_bridge_balance_monitor():
             or_(
                 Account.name.like('%جسر%'),
                 Account.name.like('%bridge%'),
-                Account.account_number.like('%999%')  # نمط شائع لحسابات الجسر
             )
         ).all()
         
@@ -4821,8 +4829,10 @@ def get_inventory_reconciliation_report():
         main_karat = MAIN_KARAT or 21
 
         # 1) حساب أرصدة المخزون المالية 13xx
+        # مجموعة المخزون، بالشجرة تحت دورها (CHART-002)
+        from accounting.chart_tree import GOLD_INVENTORY_ROOT, role_subtree_ids, subtree_ids, twin_id
         financial_accounts = Account.query.filter(
-            Account.account_number.like('13%'),
+            Account.id.in_(role_subtree_ids(GOLD_INVENTORY_ROOT)),
             Account.transaction_type.in_(['cash', 'both']),
         ).order_by(Account.account_number).all()
 
@@ -4848,8 +4858,10 @@ def get_inventory_reconciliation_report():
             }
 
         # 2) حساب أرصدة المخزون الوزنية 7131xx (وزن محوَّل للعيار الرئيسي)
+        # فرع توأم مخزون الكسر المربوط (لا البادئة 7131 — CHART-002)
+        _scrap_twin = twin_id(require_account(DEFAULT_MAPPING_OPERATION_TYPE, 'gold_inventory_scrap'))
         gold_accounts = Account.query.filter(
-            Account.account_number.like('7131%'),
+            Account.id.in_(subtree_ids(_scrap_twin) if _scrap_twin else set()),
             Account.transaction_type == 'gold',
         ).order_by(Account.account_number).all()
 
@@ -4891,12 +4903,11 @@ def get_inventory_reconciliation_report():
         for number in all_numbers:
             fin = financial_balances.get(number)
             # نظير وزني متوقع بإضافة 7 في البداية (إن لم يكن 7131xx مباشرة)
-            expected_gold_number = None
-            if number.startswith('13') and not number.startswith('7131'):
-                # مثال: 1310 → 71310
-                expected_gold_number = '7' + number
-            else:
-                expected_gold_number = number
+            expected_gold_number = number
+            if fin is not None:
+                # نظير الحساب المالي الوزني: توأمه المربوط (لا «7 + الرقم» — CHART-002)
+                _twin = db.session.get(Account, fin['account'].memo_account_id) if fin['account'].memo_account_id else None
+                expected_gold_number = _twin.account_number if _twin is not None else None
 
             gold = gold_balances.get(expected_gold_number)
 
@@ -5159,15 +5170,17 @@ def get_gold_income_statement():
         main_karat = MAIN_KARAT or 21
         
         # جلب حسابات الإيرادات (74xx) من شجرة المذكرة
+        from accounting.chart_tree import EXPENSES_ROOT, REVENUE_ROOT, twin_subtree_ids
+        # توأما مجموعتي الإيرادات والمصروفات المربوطان (74، 75)، بالشجرة (CHART-002)
         revenue_accounts = Account.query.filter(
             Account.transaction_type == 'gold',
-            Account.account_number.like('74%')
+            Account.id.in_(twin_subtree_ids(REVENUE_ROOT))
         ).all()
         
         # جلب حسابات المصروفات (75xx) من شجرة المذكرة
         expense_accounts = Account.query.filter(
             Account.transaction_type == 'gold',
-            Account.account_number.like('75%')
+            Account.id.in_(twin_subtree_ids(EXPENSES_ROOT))
         ).all()
         
         revenues_data = []

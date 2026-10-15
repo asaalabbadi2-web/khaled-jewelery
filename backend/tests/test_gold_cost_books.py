@@ -77,20 +77,49 @@ def _entry(month, day, lines):
     return je
 
 
+def _stock_pair(role):
+    """The role's stock account and its linked weight twin, as production holds
+    them (CHART-002 release 5) -- the test chart's 1300/1310 are «both» accounts
+    that track weight and take no twin, so the role is mapped here to one that does."""
+    from account_pair_service import link_accounts
+    from models import AccountingMapping
+    n = uuid.uuid4().int % 10**5
+    stock = Account(account_number=f'138{n:05d}', name=f'مخزون {role}', type='Asset', transaction_type='cash')
+    twin = Account(account_number=f'7138{n:05d}', name=f'مخزون {role} وزني', type='Asset', transaction_type='gold',
+                   tracks_weight=True)
+    db.session.add_all([stock, twin])
+    db.session.flush()
+    link_accounts(stock, twin, created_by='test')
+    row = AccountingMapping.query.filter_by(operation_type='افتراضي', account_type=role).first()
+    if row is None:
+        row = AccountingMapping(operation_type='افتراضي', account_type=role, created_by='test')
+        db.session.add(row)
+    row.account_id, row.is_active = stock.id, True
+    db.session.flush()
+    return stock, twin
+
+
+def _role_twin(role):
+    from accounting.chart_tree import role_account_id, twin_id
+    return db.session.get(Account, twin_id(role_account_id(role)))
+
+
 @pytest.fixture
 def books():
     _account('33', kind='Equity')
+    stock_worked, worked_twin = _stock_pair('gold_inventory_new')
+    stock_scrap, scrap_twin = _stock_pair('gold_inventory_scrap')
     b = {
-        'display': _child(_account('71300', weight=True), 'معروض اختبار'),
-        'scrap_safe': _child(_account('71310', weight=True), 'صندوق كسر اختبار'),
-        'supplier': _child(_account('7210', weight=True), 'مورد اختبار وزني', kind='Liability'),
-        'customer': _child(_account('7120', weight=True), 'عميل اختبار وزني'),
+        'display': _child(worked_twin, 'معروض اختبار'),
+        'scrap_safe': _child(scrap_twin, 'صندوق كسر اختبار'),
+        'supplier': _child(_role_twin('worked_gold_suppliers_root'), 'مورد اختبار وزني', kind='Liability'),
+        'customer': _child(_role_twin('customer_receivables_root'), 'عميل اختبار وزني'),
         'party': _child(_account('71', weight=True), 'موظف اختبار وزني'),
         'expense': _child(_account('752', kind='Expense', weight=True), 'مصروف اختبار وزني', kind='Expense'),
         'equity': _child(_account('73', weight=True), 'رأس مال اختبار وزني', kind='Equity'),
         'twin': _child(_account('7512', weight=True), 'مشتريات اختبار وزني', kind='Expense'),
         'purchases': _account('512', kind='Expense'),
-        'stock_worked': _account('1300'), 'stock_scrap': _account('1310'),
+        'stock_worked': stock_worked, 'stock_scrap': stock_scrap,
         'suppliers_value': _account('2100', kind='Liability'),
         'cash': _child(_account('1100'), 'صندوق اختبار', weight=False),
     }
@@ -119,7 +148,8 @@ def _cash(account):
 def test_the_plan_reads_the_worked_example(books):
     plan = plan_transition(opening_price=400.0, at=AT, since=SINCE)
     assert plan['date'] == datetime(2032, 3, 1)
-    assert plan['lines'] == {'1300': pytest.approx(14800), '1310': pytest.approx(1260),
+    worked, scrap = books['stock_worked'].account_number, books['stock_scrap'].account_number
+    assert plan['lines'] == {worked: pytest.approx(14800), scrap: pytest.approx(1260),
                              '2100': pytest.approx(18000), '33': pytest.approx(-34060)}
 
 
@@ -157,7 +187,8 @@ def test_a_back_dated_entry_after_the_transition_gets_a_further_entry(books):
     _write()
     _entry(2, 20, [(b['scrap_safe'], {'debit_21k': 10}), (b['twin'], {'credit_21k': 10}),
                    (b['purchases'], {'cash_debit': 4300}), (b['cash'], {'cash_credit': 4300})])
-    assert _write(dry_run=True)['drift'] == {'1310': pytest.approx(4300), '33': pytest.approx(-4300)}
+    assert _write(dry_run=True)['drift'] == {b['stock_scrap'].account_number: pytest.approx(4300),
+                                             '33': pytest.approx(-4300)}
     assert len(_write()['written']) == 1
     assert len(JournalEntry.query.filter_by(reference_type=TRANSITION).filter(
         JournalEntry.date == datetime(2032, 3, 1)).all()) == 2

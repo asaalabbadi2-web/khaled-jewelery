@@ -37,6 +37,11 @@ _NUMBERS = {
     'office_accounts_parent': ['2100', '210', '21', '2200', '220', '21100', '211'],
     # Step 4b2: the groups the balance readers walk (production: 21 and 120).
     'supplier_payables_root': ['21', '210'], 'customer_receivables_root': ['120', '12', '1200'],
+    # Release 5: the groups the reports read (production's numbers; conftest seeds them).
+    'assets_root': ['1'], 'liabilities_root': ['2'], 'equity_root': ['3'], 'revenue_root': ['4'],
+    'expenses_root': ['5'], 'operating_revenue_root': ['41'], 'cost_of_sales_root': ['51'],
+    'operating_expenses_root': ['52'], 'gold_inventory_root': ['130'], 'worked_gold_suppliers_root': ['210'],
+    'valuation_equity': ['33'],
 }
 _NAMES = {
     'cash': ['صندوق النقدية'], 'sales_gold_new': ['مبيعات ذهب جديد'], 'sales_gold_scrap': ['مبيعات ذهب كسر'],

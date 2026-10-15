@@ -88,13 +88,41 @@ def _entry(day, lines, reference_type=None):
     db.session.flush()
 
 
+def _stock_twin(role):
+    """A pool's root as production's books hold it (CHART-002 release 5): the
+    role's financial stock account with its linked weight twin. The test chart's
+    1300/1310 are «both» accounts that track weight and take no twin, so the role
+    is mapped here to one that does."""
+    from account_pair_service import link_accounts
+    from models import AccountingMapping
+    n = uuid.uuid4().int % 10**5
+    stock = Account(account_number=f'139{n:05d}', name=f'مخزون {role}', type='Asset', transaction_type='cash')
+    twin = Account(account_number=f'7139{n:05d}', name=f'مخزون {role} وزني', type='Asset', transaction_type='gold',
+                   tracks_weight=True)
+    db.session.add_all([stock, twin])
+    db.session.flush()
+    link_accounts(stock, twin, created_by='test')
+    row = AccountingMapping.query.filter_by(operation_type='افتراضي', account_type=role).first()
+    if row is None:
+        row = AccountingMapping(operation_type='افتراضي', account_type=role, created_by='test')
+        db.session.add(row)
+    row.account_id, row.is_active = stock.id, True
+    db.session.flush()
+    return twin
+
+
+def _role_twin(role):
+    from accounting.chart_tree import role_account_id, twin_id
+    return db.session.get(Account, twin_id(role_account_id(role)))
+
+
 @pytest.fixture
 def books():
     return {
-        'display': _child(_account('71300'), 'معروض اختبار'),
-        'scrap_safe': _child(_account('71310'), 'صندوق كسر اختبار'),
-        'supplier': _child(_account('7210'), 'مورد اختبار وزني'),
-        'customer': _child(_account('7120'), 'عميل اختبار وزني'),
+        'display': _child(_stock_twin('gold_inventory_new'), 'معروض اختبار'),
+        'scrap_safe': _child(_stock_twin('gold_inventory_scrap'), 'صندوق كسر اختبار'),
+        'supplier': _child(_role_twin('worked_gold_suppliers_root'), 'مورد اختبار وزني'),
+        'customer': _child(_role_twin('customer_receivables_root'), 'عميل اختبار وزني'),
         'twin': _child(_account('7512'), 'مشتريات وزني اختبار'),
         'purchases': _child(_account('512'), 'مشتريات اختبار'),
         'cash': _child(_account('1100'), 'صندوق اختبار'),

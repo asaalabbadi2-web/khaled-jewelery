@@ -30,13 +30,16 @@ from datetime import date, datetime, time
 from sqlalchemy import func, or_
 
 from models import Account, AuditLog, JournalEntry, JournalEntryLine, db
-from services.gold_cost import SCRAP_ROOTS, WORKED_ROOTS, _subtree_ids, replay
+from services.gold_cost import pool_accounts, replay
 
 TRANSITION = 'gold_cost_transition'
 
-WORKED_STOCK, SCRAP_STOCK = '1300', '1310'
-SUPPLIERS_GOLD_VALUE = '2100'      # its own postings, not its suppliers'
-VALUATION_EQUITY = '33'
+# The transition's accounts, by role (CHART-002 release 5: they were 1300, 1310,
+# 2100 and 33 here): the worked and scrap gold's stock, the suppliers' gold
+# value (its own postings, not its suppliers'), the valuation equity.
+WORKED_STOCK, SCRAP_STOCK = 'gold_inventory_new', 'gold_inventory_scrap'
+SUPPLIERS_GOLD_VALUE = 'supplier_accounts_parent'
+VALUATION_EQUITY = 'valuation_equity'
 CENT = 0.005
 
 PURCHASES_NOTE = ('تكلفة المبيعات على أساس المشتريات: يُحمَّل الذهب عند شرائه لا عند بيعه، '
@@ -48,8 +51,9 @@ class NotAsMeasured(ValueError):
     pass
 
 
-def _ids(number) -> set[int]:
-    return {a.id for a in Account.query.filter_by(account_number=number)}
+def _role_account(role) -> Account:
+    from accounting.mappings import DEFAULT_MAPPING_OPERATION_TYPE, require_account
+    return db.session.get(Account, require_account(DEFAULT_MAPPING_OPERATION_TYPE, role))
 
 
 def _balances(account_ids, since, until) -> dict[int, float]:
@@ -80,19 +84,21 @@ def plan_transition(*, opening_price: float, at: date, since: date | None = None
     """The transition entry at *at* -- {account number: debit +, credit -} -- measured, not written."""
     r = replay(opening_price=opening_price, since=since, until=at)
     number = dict(Account.query.with_entities(Account.id, Account.account_number).all())
-    worked, scrap, suppliers = _ids(WORKED_STOCK), _ids(SCRAP_STOCK), _ids(SUPPLIERS_GOLD_VALUE)
-    pool_weight = _subtree_ids(WORKED_ROOTS) | _subtree_ids(SCRAP_ROOTS)
+    worked_stock, scrap_stock = _role_account(WORKED_STOCK), _role_account(SCRAP_STOCK)
+    worked, scrap, suppliers = {worked_stock.id}, {scrap_stock.id}, {_role_account(SUPPLIERS_GOLD_VALUE).id}
+    pools = pool_accounts()
+    pool_weight = pools['worked'] | pools['scrap']
     found = _balances(worked | scrap | suppliers | pool_weight, since, at)
 
     lines = defaultdict(float)
-    lines[WORKED_STOCK] = r.pools['worked'].value - sum(v for i, v in found.items() if i in worked)
-    lines[SCRAP_STOCK] = r.pools['scrap'].value - sum(v for i, v in found.items() if i in scrap)
+    lines[worked_stock.account_number] = r.pools['worked'].value - sum(v for i, v in found.items() if i in worked)
+    lines[scrap_stock.account_number] = r.pools['scrap'].value - sum(v for i, v in found.items() if i in scrap)
     for account_id, amount in found.items():
         if account_id in suppliers | pool_weight:
             lines[number[account_id]] -= amount
     return {
         'at': at, 'date': datetime.combine(at, time.min), 'opening_price': opening_price,
-        'lines': _balanced(lines, VALUATION_EQUITY),
+        'lines': _balanced(lines, _role_account(VALUATION_EQUITY).account_number),
         'pools': {n: {'grams': round(p.weight, 3), 'value': round(p.value, 2), 'average': round(p.avg, 4)}
                   for n, p in r.pools.items()},
         'others': r.others,
