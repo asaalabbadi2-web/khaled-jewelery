@@ -288,10 +288,9 @@ class PaymentMethod(db.Model):
     # تُضاف إلى العمولة النسبية عند الحساب (إن وُجدت)
     commission_fixed_amount = db.Column(db.Float, default=0.0)
 
-    # متى تُسجل العمولة؟
-    # - invoice: تُحسب/تُسجل ضمن الفاتورة (وتؤثر على net_amount)
-    # - settlement: تُسجل عند التسوية (ولا تخصم ضمن الفاتورة)
-    commission_timing = db.Column(db.String(20), default='invoice', nullable=False)
+    # The commission is taken at the settlement, never at the invoice: there is
+    # no timing to set (COMMISSION-1). The commission_timing column stays in the
+    # database, unread, until no deployed code reads it.
     
     # أيام التسوية
     settlement_days = db.Column(db.Integer, default=0)  # عدد أيام التسوية
@@ -393,7 +392,6 @@ class PaymentMethod(db.Model):
             'name': self.name,
             'commission_rate': self.commission_rate,
             'commission_fixed_amount': getattr(self, 'commission_fixed_amount', 0.0) or 0.0,
-            'commission_timing': getattr(self, 'commission_timing', 'invoice'),
             'settlement_days': getattr(self, 'settlement_days', 0),
             'auto_settlement_enabled': bool(getattr(self, 'auto_settlement_enabled', False)),
             'settlement_schedule_type': getattr(self, 'settlement_schedule_type', 'days') or 'days',

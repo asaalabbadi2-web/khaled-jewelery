@@ -69,7 +69,7 @@ def gated_sale():
         db.session.add(box)
         db.session.flush()
         pm = PaymentMethod(name=f'نقد {_uid()}', payment_type='cash', default_safe_box_id=box.id,
-                           commission_rate=0.0, commission_timing='invoice', is_active=True)
+                           commission_rate=0.0, is_active=True)
         customer = Customer(customer_code=f'C-{_uid()}', name=f'عميل {_uid()}', account_id=cust_acc.id)
         db.session.add_all([pm, customer])
         db.session.flush()

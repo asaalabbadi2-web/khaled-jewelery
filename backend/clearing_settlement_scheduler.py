@@ -95,10 +95,7 @@ def public_holidays() -> frozenset:
 
 def settlement_fee(pm, gross_amount: float, transaction_count: int) -> float:
     """The commission a settlement of *gross_amount* over *transaction_count*
-    payments carries -- 0 unless the method takes its commission at settlement."""
-    timing = str(getattr(pm, 'commission_timing', 'invoice') or 'invoice').strip().lower()
-    if timing != 'settlement':
-        return 0.0
+    payments carries -- the only place a commission is taken (COMMISSION-1)."""
     rate = float(getattr(pm, 'commission_rate', 0.0) or 0.0)
     fixed = float(getattr(pm, 'commission_fixed_amount', 0.0) or 0.0)
     if rate <= 0.0 and fixed <= 0.0:

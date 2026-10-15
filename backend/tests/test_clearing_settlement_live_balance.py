@@ -64,7 +64,7 @@ def mada(world):
     db.session.add_all([box, bank])
     db.session.flush()
     pm = PaymentMethod(payment_type='mada', name=f'مدى {_uid()}', commission_rate=0.0,
-                       commission_timing='settlement', is_active=True, default_safe_box_id=box.id)
+                       is_active=True, default_safe_box_id=box.id)
     db.session.add(pm)
     db.session.flush()
     return {'world': world, 'pm': pm, 'box': box, 'bank': bank, 'account': clearing_acc}

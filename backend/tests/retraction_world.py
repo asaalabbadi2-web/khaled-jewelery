@@ -34,7 +34,7 @@ def world():
     db.session.add(box)
     db.session.flush()
     pm = PaymentMethod(payment_type='cash', name=f'نقداً U0 {uuid.uuid4().hex[:6]}', commission_rate=0.0,
-                       commission_timing='invoice', is_active=True, default_safe_box_id=box.id)
+                       is_active=True, default_safe_box_id=box.id)
     gold_account = Account(account_number=f'79{uuid.uuid4().int % 10**6:06d}', name='عهدة U0', type='Asset')
     db.session.add_all([pm, gold_account])
     db.session.flush()

@@ -1042,14 +1042,6 @@ class _PaymentMethodsScreenEnhancedState
       feeExpenseAccountId = null;
     }
 
-    String selectedCommissionTiming =
-        (editingMethod?['commission_timing']?.toString().trim().toLowerCase() ??
-        'invoice');
-    if (selectedCommissionTiming != 'invoice' &&
-        selectedCommissionTiming != 'settlement') {
-      selectedCommissionTiming = 'invoice';
-    }
-
     // One settlement mode: a provider's deposit settles its payments together
     // (the owner, 6 Oct 2026). The per-transaction option is gone.
     const selectedSettlementMode = 'bulk';
@@ -1290,37 +1282,6 @@ class _PaymentMethodsScreenEnhancedState
                         fillColor: formFieldFill,
                       ),
                       keyboardType: TextInputType.number,
-                    ),
-
-                    SizedBox(height: 16),
-
-                    // متى تُسجل العمولة؟
-                    DropdownButtonFormField<String>(
-                      initialValue: selectedCommissionTiming,
-                      decoration: InputDecoration(
-                        labelText: 'تسجيل العمولة',
-                        prefixIcon: Icon(Icons.receipt_long, color: _infoColor),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        filled: true,
-                        fillColor: formFieldFill,
-                      ),
-                      items: const [
-                        DropdownMenuItem(
-                          value: 'invoice',
-                          child: Text('ضمن الفاتورة (لا تخصم عند التسوية)'),
-                        ),
-                        DropdownMenuItem(
-                          value: 'settlement',
-                          child: Text('عند التسوية (لا تخصم ضمن الفاتورة)'),
-                        ),
-                      ],
-                      onChanged: (value) {
-                        setDialogState(() {
-                          selectedCommissionTiming = value ?? 'invoice';
-                        });
-                      },
                     ),
 
                     SizedBox(height: 16),
@@ -1960,7 +1921,6 @@ class _PaymentMethodsScreenEnhancedState
                         defaultSafeBoxId: selectedDefaultSafeBoxId,
                         commissionRate: commissionRate,
                         commissionFixedAmount: commissionFixedAmount,
-                        commissionTiming: selectedCommissionTiming,
                         settlementDays: settlementDays, // 🆕
                         autoSettlementEnabled: autoSettlementEnabled,
                         settlementScheduleType: schedule.batchPeriod,
@@ -1991,7 +1951,6 @@ class _PaymentMethodsScreenEnhancedState
                         name: name,
                         commissionRate: commissionRate,
                         commissionFixedAmount: commissionFixedAmount,
-                        commissionTiming: selectedCommissionTiming,
                         settlementDays: settlementDays,
                         autoSettlementEnabled: autoSettlementEnabled,
                         settlementScheduleType: schedule.batchPeriod,

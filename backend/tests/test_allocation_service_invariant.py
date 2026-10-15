@@ -66,7 +66,6 @@ def _minimal_env(total: float = 0.0):
         name=f'Test-PM-{_uid()}',
         commission_rate=0.0,
         commission_fixed_amount=0.0,
-        commission_timing='settlement',
         auto_settlement_enabled=False,
         is_active=True,
     )

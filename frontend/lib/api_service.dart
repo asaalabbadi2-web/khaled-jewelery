@@ -3781,7 +3781,6 @@ class ApiService {
     int? defaultSafeBoxId, // 🆕 الخزينة الافتراضية
     double commissionRate = 0.0,
     double commissionFixedAmount = 0.0,
-    String commissionTiming = 'invoice',
     int settlementDays = 0, // 🆕
     bool autoSettlementEnabled = false,
     String settlementScheduleType = 'days',
@@ -3805,7 +3804,6 @@ class ApiService {
       'name': name,
       'commission_rate': commissionRate,
       'commission_fixed_amount': commissionFixedAmount,
-      'commission_timing': commissionTiming,
       'settlement_days': settlementDays,
       'auto_settlement_enabled': autoSettlementEnabled,
       'settlement_schedule_type': settlementScheduleType,
@@ -3851,7 +3849,6 @@ class ApiService {
     required String name,
     required double commissionRate,
     double? commissionFixedAmount,
-    String commissionTiming = 'invoice',
     int settlementDays = 0,
     bool? autoSettlementEnabled,
     String? settlementScheduleType,
@@ -3873,7 +3870,6 @@ class ApiService {
       'payment_type': paymentType,
       'name': name,
       'commission_rate': commissionRate,
-      'commission_timing': commissionTiming,
       'settlement_days': settlementDays,
       'is_active': isActive,
       // Always include to allow clearing (null) explicitly.

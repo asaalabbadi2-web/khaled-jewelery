@@ -67,7 +67,6 @@ class _ClearingSettlementScreenState extends State<ClearingSettlementScreen> {
 
   bool _autoCalcFee = true;
   bool _updatingFee = false;
-  bool _feeAlreadyAppliedInInvoice = false;
 
   // VAT settings (used for journal preview; backend is source of truth)
   bool _taxEnabled = true;
@@ -353,18 +352,6 @@ class _ClearingSettlementScreenState extends State<ClearingSettlementScreen> {
       // Load settlement history for admin/manager reversal.
       _loadHistory();
 
-      // If policy indicates fee was already applied at invoice time, disable fee inputs to avoid double-deduction.
-      if (_feeAlreadyAppliedInInvoice) {
-        setState(() {
-          _autoCalcFee = false;
-          _rateController.text = '0';
-          _fixedFeeController.text = '0';
-          _txCountController.text = '1';
-          _feeController.text = '0';
-          _feeAccount = null;
-        });
-      }
-
       // If enabled, compute fee based on current inputs.
       _recomputeFeeIfNeeded();
     } catch (e) {
@@ -386,7 +373,6 @@ class _ClearingSettlementScreenState extends State<ClearingSettlementScreen> {
   }
 
   void _recomputeFeeIfNeeded() {
-    if (_feeAlreadyAppliedInInvoice) return;
     if (!_autoCalcFee || _updatingFee) return;
 
     final gross = _parseAmount(_grossController.text);
@@ -428,7 +414,6 @@ class _ClearingSettlementScreenState extends State<ClearingSettlementScreen> {
   }
 
   double _computeFeeVat(double fee) {
-    if (_feeAlreadyAppliedInInvoice) return 0.0;
     if (!_taxEnabled) return 0.0;
     if (fee <= 0) return 0.0;
     return _round2(fee * _taxRate);
@@ -545,9 +530,7 @@ class _ClearingSettlementScreenState extends State<ClearingSettlementScreen> {
                       Text('الصافي إلى البنك: ${_formatMoney(net)}'),
                       const SizedBox(height: 6),
                       Text(
-                        _feeAlreadyAppliedInInvoice
-                            ? 'ملاحظة: العمولة محسوبة في الفاتورة (لن تُخصم هنا).'
-                            : 'ملاحظة: سيتم تسجيل العمولة أثناء التسوية.',
+                        'ملاحظة: سيتم تسجيل العمولة أثناء التسوية.',
                         style: TextStyle(
                           color: Colors.grey.shade700,
                           fontSize: 12,
@@ -729,12 +712,6 @@ class _ClearingSettlementScreenState extends State<ClearingSettlementScreen> {
       scheduleInfo = summary.isEmpty ? null : summary;
     }
 
-    final timing = matched == null
-        ? 'invoice'
-        : (matched['commission_timing']?.toString().trim().toLowerCase() ??
-              'invoice');
-    final shouldTreatAsAlreadyApplied = timing != 'settlement';
-
     // Auto-select bank safe from settlement_bank_safe_box_id
     SafeBoxModel? autoBank;
     if (matched != null) {
@@ -754,10 +731,9 @@ class _ClearingSettlementScreenState extends State<ClearingSettlementScreen> {
       _autoSettlementEnabled = autoSettlement;
       _settlementScheduleInfo = scheduleInfo;
 
-      _feeAlreadyAppliedInInvoice = shouldTreatAsAlreadyApplied;
-
-      if (!shouldTreatAsAlreadyApplied && matched != null) {
-        // timing == 'settlement': auto-populate commission fields
+      // The commission is taken at the settlement (COMMISSION-1): the
+      // method's rate and fixed fee fill the fields.
+      if (matched != null) {
         final rate = (matched['commission_rate'] as num?)?.toDouble() ?? 0.0;
         final fixed =
             (matched['commission_fixed_amount'] as num?)?.toDouble() ?? 0.0;
@@ -776,14 +752,6 @@ class _ClearingSettlementScreenState extends State<ClearingSettlementScreen> {
             if (found != null) _feeAccount = found;
           }
         }
-      } else {
-        // timing == 'invoice': fee already in invoice, disable fee fields
-        _autoCalcFee = false;
-        _rateController.text = '0';
-        _fixedFeeController.text = '0';
-        _txCountController.text = '1';
-        _feeController.text = '0';
-        _feeAccount = null;
       }
 
       // Auto-select bank safe when PM specifies one
@@ -844,9 +812,7 @@ class _ClearingSettlementScreenState extends State<ClearingSettlementScreen> {
           }
         }
         // Auto-fill tx count for per-transaction commission (bulk mode only)
-        if (txCountForFee != null &&
-            txCountForFee > 0 &&
-            !_feeAlreadyAppliedInInvoice) {
+        if (txCountForFee != null && txCountForFee > 0) {
           final currentTxCount = int.tryParse(_txCountController.text) ?? 0;
           if (currentTxCount <= 1) {
             _txCountController.text = txCountForFee.toString();
@@ -984,9 +950,7 @@ class _ClearingSettlementScreenState extends State<ClearingSettlementScreen> {
     }
 
     final gross = _parseAmount(_grossController.text);
-    final fee = _feeAlreadyAppliedInInvoice
-        ? 0.0
-        : _parseAmount(_feeController.text);
+    final fee = _parseAmount(_feeController.text);
     final feeVat = _computeFeeVat(fee);
     final net = gross - fee - feeVat;
 
@@ -1214,9 +1178,7 @@ class _ClearingSettlementScreenState extends State<ClearingSettlementScreen> {
     final isLight = themeData.brightness == Brightness.light;
 
     final gross = _parseAmount(_grossController.text);
-    final fee = _feeAlreadyAppliedInInvoice
-        ? 0.0
-        : _parseAmount(_feeController.text);
+    final fee = _parseAmount(_feeController.text);
     final feeVat = _computeFeeVat(fee);
     final net = gross - fee - feeVat;
 
@@ -1391,44 +1353,11 @@ class _ClearingSettlementScreenState extends State<ClearingSettlementScreen> {
                         const SizedBox(height: 10),
 
                         SwitchListTile.adaptive(
-                          value: _feeAlreadyAppliedInInvoice,
+                          value: _autoCalcFee,
                           onChanged: (v) {
-                            setState(() {
-                              _feeAlreadyAppliedInInvoice = v;
-                              if (v) {
-                                _autoCalcFee = false;
-                                _rateController.text = '0';
-                                _fixedFeeController.text = '0';
-                                _txCountController.text = '1';
-                                _feeController.text = '0';
-                                _feeAccount = null;
-                              } else {
-                                _autoCalcFee = true;
-                              }
-                            });
+                            setState(() => _autoCalcFee = v);
                             _recomputeFeeIfNeeded();
                           },
-                          contentPadding: EdgeInsets.zero,
-                          title: const Text(
-                            'العمولة محسوبة في الفاتورة (لا تخصم مرة أخرى)',
-                          ),
-                          subtitle: Text(
-                            _feeAlreadyAppliedInInvoice
-                                ? 'سيتم تحويل كامل المبلغ من خزينة المستحقات إلى خزينة البنك بدون خصم عمولة هنا.'
-                                : 'سيتم احتساب/تسجيل العمولة أثناء التسوية (قد يخصمها البنك عند الإيداع).',
-                            style: TextStyle(color: Colors.grey.shade700),
-                          ),
-                        ),
-                        const SizedBox(height: 10),
-
-                        SwitchListTile.adaptive(
-                          value: _autoCalcFee,
-                          onChanged: _feeAlreadyAppliedInInvoice
-                              ? null
-                              : (v) {
-                                  setState(() => _autoCalcFee = v);
-                                  _recomputeFeeIfNeeded();
-                                },
                           contentPadding: EdgeInsets.zero,
                           title: const Text(
                             'احتساب العمولة تلقائياً (نسبة + مبلغ ثابت)',
@@ -1440,7 +1369,7 @@ class _ClearingSettlementScreenState extends State<ClearingSettlementScreen> {
                             style: TextStyle(color: Colors.grey.shade700),
                           ),
                         ),
-                        if (_autoCalcFee && !_feeAlreadyAppliedInInvoice)
+                        if (_autoCalcFee)
                           Column(
                             children: [
                               const SizedBox(height: 10),
@@ -1457,7 +1386,6 @@ class _ClearingSettlementScreenState extends State<ClearingSettlementScreen> {
                                       inputFormatters: [
                                         NormalizeNumberFormatter(),
                                       ],
-                                      enabled: !_feeAlreadyAppliedInInvoice,
                                       decoration: const InputDecoration(
                                         labelText: 'نسبة العمولة %',
                                         prefixIcon: Icon(Icons.percent),
@@ -1479,7 +1407,6 @@ class _ClearingSettlementScreenState extends State<ClearingSettlementScreen> {
                                       inputFormatters: [
                                         NormalizeNumberFormatter(),
                                       ],
-                                      enabled: !_feeAlreadyAppliedInInvoice,
                                       decoration: const InputDecoration(
                                         labelText: 'مبلغ ثابت/عملية',
                                         prefixIcon: Icon(Icons.attach_money),
@@ -1495,7 +1422,6 @@ class _ClearingSettlementScreenState extends State<ClearingSettlementScreen> {
                                 controller: _txCountController,
                                 keyboardType: TextInputType.number,
                                 inputFormatters: [NormalizeNumberFormatter()],
-                                enabled: !_feeAlreadyAppliedInInvoice,
                                 decoration: const InputDecoration(
                                   labelText: 'عدد العمليات',
                                   prefixIcon: Icon(
@@ -1514,7 +1440,6 @@ class _ClearingSettlementScreenState extends State<ClearingSettlementScreen> {
                               decimal: true,
                             ),
                             inputFormatters: [NormalizeNumberFormatter()],
-                            enabled: !_feeAlreadyAppliedInInvoice,
                             decoration: const InputDecoration(
                               labelText: 'العمولة (Fee)',
                               prefixIcon: Icon(Icons.percent),
@@ -1522,7 +1447,7 @@ class _ClearingSettlementScreenState extends State<ClearingSettlementScreen> {
                             ),
                           ),
 
-                        if (_autoCalcFee && !_feeAlreadyAppliedInInvoice)
+                        if (_autoCalcFee)
                           Padding(
                             padding: const EdgeInsets.only(top: 10),
                             child: TextField(
@@ -1545,18 +1470,13 @@ class _ClearingSettlementScreenState extends State<ClearingSettlementScreen> {
                               ? null
                               : '${_feeAccount?['account_number'] ?? ''} - ${_feeAccount?['name'] ?? ''}',
                           icon: Icons.receipt_long,
-                          onTap: () {
-                            if (_feeAlreadyAppliedInInvoice) return;
-                            _pickFeeAccount();
-                          },
+                          onTap: _pickFeeAccount,
                           trailing: _feeAccount == null
                               ? null
                               : IconButton(
                                   tooltip: 'مسح',
-                                  onPressed: _feeAlreadyAppliedInInvoice
-                                      ? null
-                                      : () =>
-                                            setState(() => _feeAccount = null),
+                                  onPressed: () =>
+                                      setState(() => _feeAccount = null),
                                   icon: const Icon(Icons.close),
                                 ),
                         ),
@@ -1812,22 +1732,10 @@ class _PaymentMethodInfoCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final themeData = Theme.of(context);
     final name = paymentMethod['name']?.toString() ?? '';
-    final timing =
-        (paymentMethod['commission_timing']?.toString().toLowerCase() ?? '')
-            .trim();
     final rate = (paymentMethod['commission_rate'] as num?)?.toDouble() ?? 0.0;
     final fixed =
         (paymentMethod['commission_fixed_amount'] as num?)?.toDouble() ?? 0.0;
 
-    String timingLabel;
-    Color timingColor;
-    if (timing == 'settlement') {
-      timingLabel = 'عمولة عند التسوية';
-      timingColor = Colors.orange.shade700;
-    } else {
-      timingLabel = 'عمولة محسوبة في الفاتورة';
-      timingColor = Colors.green.shade700;
-    }
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
@@ -1897,11 +1805,6 @@ class _PaymentMethodInfoCard extends StatelessWidget {
             spacing: 8,
             runSpacing: 6,
             children: [
-              _InfoChip(
-                label: timingLabel,
-                color: timingColor,
-                icon: Icons.schedule,
-              ),
               if (rate > 0)
                 _InfoChip(
                   label:

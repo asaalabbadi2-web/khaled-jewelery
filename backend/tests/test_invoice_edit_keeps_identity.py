@@ -43,7 +43,7 @@ def _cash_method():
     db.session.add(box)
     db.session.flush()
     pm = PaymentMethod(payment_type='cash', name='نقداً - تعديل', commission_rate=0.0,
-                       commission_timing='invoice', is_active=True, default_safe_box_id=box.id)
+                       is_active=True, default_safe_box_id=box.id)
     db.session.add(pm)
     db.session.flush()
     return pm

@@ -101,14 +101,6 @@ from accounting.mappings import (DEFAULT_MAPPING_OPERATION_TYPE, AccountNotMappe
 from services.vat_policy import input_vat_account as _input_vat_account
 
 
-def _commission_vat_account(invoice, recovered_account_id):
-    """A card commission's VAT (ADR-043 rule 1): its input VAT account while
-    inputs are recovered; else «ضريبة القيمة المضافة غير القابلة للاسترداد» --
-    a commission enters no stock."""
-    from services.vat_policy import non_recoverable_account_id, policy_on
-    if policy_on(invoice.date.date()).input_vat_recoverable:
-        return recovered_account_id
-    return non_recoverable_account_id()
 from accounting.weight_closing import _load_weight_closing_settings
 from accounting.safe_boxes import _ensure_safe_box_transactions_for_invoice_je
 from accounting.wages import (
@@ -1582,21 +1574,9 @@ def _warn_if_safe_account_mismatches_payment_method(pm, safe_account_id, context
 
 def _compute_commission_fields(amount: float, pm) -> dict:
     """Same formula used when an InvoicePayment is first created."""
+    # The commission is taken at the settlement, never at the invoice (COMMISSION-1).
     rate = float(getattr(pm, 'commission_rate', 0.0) or 0.0)
-    try:
-        timing = str(getattr(pm, 'commission_timing', 'invoice') or 'invoice').strip().lower()
-    except Exception:
-        timing = 'invoice'
-    if timing == 'settlement':
-        return {'commission_rate': rate, 'commission_amount': 0.0, 'commission_vat': 0.0, 'net_amount': amount}
-    commission_amount = amount * (rate / 100.0) if rate > 0 else 0.0
-    commission_vat = commission_amount * 0.15
-    return {
-        'commission_rate': rate,
-        'commission_amount': commission_amount,
-        'commission_vat': commission_vat,
-        'net_amount': amount - commission_amount - commission_vat,
-    }
+    return {'commission_rate': rate, 'commission_amount': 0.0, 'commission_vat': 0.0, 'net_amount': amount}
 
 def _correct_invoice_payment_method_multi_split(invoice, ip, data):
     """N-way split: one InvoicePayment row that mixed 3+ payment methods.
@@ -2848,19 +2828,9 @@ def add_invoice_payment(invoice_id: int):
         }), 400
 
     commission_rate = _to_float(getattr(pm_obj, 'commission_rate', 0.0), 0.0)
-    try:
-        pm_commission_timing = str(getattr(pm_obj, 'commission_timing', 'invoice') or 'invoice').strip().lower()
-    except Exception:
-        pm_commission_timing = 'invoice'
-
-    if pm_commission_timing == 'settlement':
-        commission_amount = 0.0
-        commission_vat = 0.0
-        net_amount = amount
-    else:
-        commission_amount = amount * (commission_rate / 100.0) if commission_rate > 0 else 0.0
-        commission_vat = commission_amount * 0.15
-        net_amount = amount - commission_amount - commission_vat
+    # The commission is taken at the settlement, never at the invoice (COMMISSION-1).
+    commission_amount = commission_vat = 0.0
+    net_amount = amount
 
     try:
         payment = InvoicePayment(
@@ -4178,44 +4148,8 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
                     'invoice_type': invoice_type,
                 }), 400
 
-            # Commission policy:
-            # - invoice (default): commission is recorded at invoice time
-            # - settlement: do not record commission at invoice time
-            try:
-                pm_commission_timing = str(getattr(pm_obj, 'commission_timing', 'invoice') or 'invoice').strip().lower()
-            except Exception:
-                pm_commission_timing = 'invoice'
-            
-            # حساب عمولة هذه الدفعة
-            pm_commission_rate = _to_float_request(
-                payment.get('commission_rate', pm_obj.commission_rate if pm_obj else 0.0)
-            )
-
-            pm_commission_fixed_amount = _to_float_request(
-                payment.get(
-                    'commission_fixed_amount',
-                    getattr(pm_obj, 'commission_fixed_amount', 0.0) if pm_obj else 0.0,
-                )
-            )
-
-            if pm_commission_timing == 'settlement':
-                pm_commission_amount = 0.0
-                pm_commission_vat = 0.0
-            else:
-                if 'commission_amount' in payment:
-                    pm_commission_amount = _to_float_request(payment.get('commission_amount', 0.0))
-                else:
-                    pm_commission_amount = (
-                        (pm_commission_fixed_amount if pm_commission_fixed_amount > 0 else 0.0)
-                        + (pm_amount * (pm_commission_rate / 100) if pm_commission_rate > 0 else 0.0)
-                    )
-
-                pm_commission_vat = _to_float_request(
-                    payment.get('commission_vat', pm_commission_amount * 0.15)
-                )
-
-            commission_amount += pm_commission_amount
-            commission_vat_total += pm_commission_vat
+            # The commission is taken at the settlement, never at the invoice
+            # (COMMISSION-1): nothing of it is posted or netted here.
 
         # ملاحظة: net_amount تاريخياً يمثل صافي قيمة الفاتورة بعد العمولات.
         # عند تفعيل الدفع الجزئي، لا يمكن معرفة عمولة الجزء غير المدفوع (وسيلة الدفع غير معروفة بعد)
@@ -4235,29 +4169,7 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
         if not payment_method_obj.is_active:
             return jsonify({'error': f'Payment method "{payment_method_obj.name}" is not active'}), 400
         
-        # حساب العمولة
-        try:
-            pm_commission_timing = str(getattr(payment_method_obj, 'commission_timing', 'invoice') or 'invoice').strip().lower()
-        except Exception:
-            pm_commission_timing = 'invoice'
-
-        if pm_commission_timing != 'settlement':
-            try:
-                fixed_amount = float(getattr(payment_method_obj, 'commission_fixed_amount', 0.0) or 0.0)
-            except Exception:
-                fixed_amount = 0.0
-
-            rate_amount = 0.0
-            try:
-                if payment_method_obj.commission_rate and payment_method_obj.commission_rate > 0:
-                    rate_amount = data_total * (payment_method_obj.commission_rate / 100)
-            except Exception:
-                rate_amount = 0.0
-
-            commission_amount = (fixed_amount if fixed_amount > 0 else 0.0) + (rate_amount if rate_amount > 0 else 0.0)
-            if commission_amount > 0:
-                commission_vat_total = commission_amount * 0.15
-                net_amount = data_total - commission_amount - commission_vat_total
+        # The commission is taken at the settlement, never at the invoice (COMMISSION-1).
     
     wage_mode_snapshot = live_wage_mode()  # frozen on the invoice (ADR-039)
     # Capture the current max SafeBoxTransaction id before we create any new ones.
@@ -6482,12 +6394,6 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
         gold_debit_fields = {f"debit_{k}k": v for k, v in gold_by_karat.items() if v > 0}
         gold_credit_fields = {f"credit_{k}k": v for k, v in gold_by_karat.items() if v > 0}
         
-        # 🆕 دالة مساعدة لإضافة قيد العمولة وضريبتها
-        def add_commission_entry(journal_entry_id, payment_method_obj, commission_amount, commission_vat=0.0):
-            """
-            ملاحظة: قيود العمولات تُعالج الآن في قسم multi-payment أدناه
-            """
-        
         # --- القيود حسب نوع الفاتورة ---
         
         # 🆕 الحصول على سعر الذهب الحالي (يلزم لجميع أنواع الفواتير)
@@ -6516,8 +6422,6 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
             # اختر حساب المبيعات حسب نوع الذهب
             sales_gold_new_acc_id = _sales_scrap_acc_id if gold_type == 'scrap' else _sales_new_acc_id
             vat_payable_acc_id = get_account_id_for_mapping('بيع', 'vat_payable')
-            commission_acc_id = get_account_id_for_mapping('بيع', 'commission')
-            commission_vat_acc_id = get_account_id_for_mapping('بيع', 'commission_vat')
             
             # حسابات المخزون: دعم التوحيد (حساب واحد لكل العيارات)
             inventory_accounts = {}
@@ -6571,19 +6475,6 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
             if _tax_total_for_check > 0.009 and not vat_payable_acc_id:
                 missing.append({'mapping': 'vat_payable', 'operation_type': 'بيع'})
 
-            # If commissions are being applied at invoice time, commission mappings are required.
-            try:
-                if float(commission_amount or 0.0) > 0.009 and not commission_acc_id:
-                    missing.append({'mapping': 'commission', 'operation_type': 'بيع'})
-            except Exception:
-                pass
-
-            try:
-                if float(commission_vat_total or 0.0) > 0.009 and not (commission_vat_acc_id or commission_acc_id):
-                    missing.append({'mapping': 'commission_vat', 'operation_type': 'بيع'})
-            except Exception:
-                pass
-
             # تحقق من حساب المخزون المطلوب فعلياً حسب عناصر الفاتورة
             try:
                 required_karats = {
@@ -6633,88 +6524,9 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
             if _total_tax_for_je == 0.0:
                 _total_tax_for_je = float(new_invoice.total_tax or 0.0)
 
-            # ─── مجموع المدفوع + العمولات (تُخصم من مبلغ الذمم لتوازن القيد) ───
-            paid_amount_total = 0.0
-            _total_commission_je = 0.0   # إجمالي العمولات المُدرجة في قيد الفاتورة
-
-            if payments_data and len(payments_data) > 0:
-                for payment in payments_data:
-                    pm_obj = PaymentMethod.query.get(payment['payment_method_id'])
-                    pm_amount = _to_float(payment.get('amount', 0.0))
-                    paid_amount_total += pm_amount
-                    try:
-                        pm_commission_timing = str(
-                            getattr(pm_obj, 'commission_timing', 'invoice') or 'invoice'
-                        ).strip().lower()
-                    except Exception:
-                        pm_commission_timing = 'invoice'
-
-                    if pm_commission_timing == 'settlement':
-                        pm_commission = 0.0
-                        pm_commission_vat = 0.0
-                    else:
-                        pm_commission = _to_float(payment.get('commission_amount', 0.0))
-                        pm_commission_vat = _to_float(payment.get('commission_vat', 0.0))
-
-                    if pm_commission > 0:
-                        create_dual_journal_entry(
-                            journal_entry_id=journal_entry.id,
-                            account_id=commission_acc_id or require_account('بيع', 'commission'),
-                            cash_debit=pm_commission,
-                            description=f"عمولة {pm_obj.name if pm_obj else ''}",
-                            apply_golden_rule=False,
-                        )
-                        _total_commission_je += pm_commission
-                    _vat_debit_pm = _commission_vat_account(new_invoice, commission_vat_acc_id or commission_acc_id)
-                    if pm_commission_vat > 0 and _vat_debit_pm:
-                        create_dual_journal_entry(
-                            journal_entry_id=journal_entry.id,
-                            account_id=_vat_debit_pm,
-                            cash_debit=pm_commission_vat,
-                            description=f"ضريبة عمولة {pm_obj.name if pm_obj else ''}",
-                            apply_golden_rule=False,
-                        )
-                        _total_commission_je += pm_commission_vat
-
-            elif payment_method_id:
-                try:
-                    pm_commission_timing = str(
-                        getattr(payment_method_obj, 'commission_timing', 'invoice') or 'invoice'
-                    ).strip().lower()
-                except Exception:
-                    pm_commission_timing = 'invoice'
-
-                if pm_commission_timing == 'settlement':
-                    commission_amount = 0.0
-                    commission_vat_total = 0.0
-
-                paid_amount_total = total_cash
-
-                if commission_amount > 0:
-                    create_dual_journal_entry(
-                        journal_entry_id=journal_entry.id,
-                        account_id=commission_acc_id or require_account('بيع', 'commission'),
-                        cash_debit=commission_amount,
-                        description="عمولة الدفع",
-                        apply_golden_rule=False,
-                    )
-                    _total_commission_je += commission_amount
-                _vat_debit_single = _commission_vat_account(new_invoice, commission_vat_acc_id or commission_acc_id)
-                if commission_vat_total > 0 and _vat_debit_single:
-                    create_dual_journal_entry(
-                        journal_entry_id=journal_entry.id,
-                        account_id=_vat_debit_single,
-                        cash_debit=commission_vat_total,
-                        description="ضريبة عمولة الدفع",
-                        apply_golden_rule=False,
-                    )
-                    _total_commission_je += commission_vat_total
-            else:
-                paid_amount_total = total_cash
-
             # ─── je_engine_v2: قيد البيع الكامل ───
             # (ذمم العميل + مبيعات + ضريبة + مخزون وزني + وزن العميل)
-            # الذمم = total_cash − العمولات المُدرجة أعلاه (لتوازن القيد)
+            # الذمم = total_cash: the commission is taken at the settlement (COMMISSION-1)
             import je_adapter as _je_adapter  # noqa: local import
 
             _je_party = (
@@ -6722,7 +6534,7 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
                 or (Account.query.get(customer_account_id) if customer_account_id else None)
                 or (Account.query.get(default_memo_cash_account_id) if default_memo_cash_account_id else None)
             )
-            _ar_cash_for_je = round(total_cash - _total_commission_je, 2)
+            _ar_cash_for_je = round(total_cash, 2)
 
             if _je_party:
                 _je_adapter.sale_je_for_invoice(
@@ -7172,41 +6984,6 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
                         apply_golden_rule=False,
                         description="استرداد نقدي للعميل",
                     )
-
-            # ─── عكس عمولات وسائل الدفع ───
-            _commission_acc_id     = get_account_id_for_mapping('بيع', 'commission')
-            _commission_vat_acc_id = get_account_id_for_mapping('بيع', 'commission_vat')
-            if payments_data:
-                for payment in payments_data:
-                    pm_obj = PaymentMethod.query.get(payment['payment_method_id'])
-                    try:
-                        pm_commission_timing = str(
-                            getattr(pm_obj, 'commission_timing', 'invoice') or 'invoice'
-                        ).strip().lower()
-                    except Exception:
-                        pm_commission_timing = 'invoice'
-                    if pm_commission_timing == 'settlement':
-                        continue
-                    pm_commission     = _to_float(payment.get('commission_amount', 0.0))
-                    pm_commission_vat = _to_float(payment.get('commission_vat', 0.0))
-                    if pm_commission > 0:
-                        create_dual_journal_entry(
-                            journal_entry_id=journal_entry.id,
-                            account_id=_commission_acc_id or require_account('بيع', 'commission'),
-                            cash_credit=pm_commission,
-                            apply_golden_rule=False,
-                            description=f"عكس عمولة {pm_obj.name if pm_obj else ''} - مرتجع",
-                        )
-                    _vat_credit_pm = _commission_vat_account(_orig_for_tax or new_invoice,
-                                                             _commission_vat_acc_id or _commission_acc_id)
-                    if pm_commission_vat > 0 and _vat_credit_pm:
-                        create_dual_journal_entry(
-                            journal_entry_id=journal_entry.id,
-                            account_id=_vat_credit_pm,
-                            cash_credit=pm_commission_vat,
-                            apply_golden_rule=False,
-                            description=f"عكس ضريبة عمولة {pm_obj.name if pm_obj else ''} - مرتجع",
-                        )
 
             # ─── عكس أجور المصنعية ───
             _wage_cash_ret = 0.0
@@ -8482,7 +8259,6 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
                             'commission_amount': round(float(commission_amount or 0.0), 2) if 'commission_amount' in locals() else None,
                             'commission_vat_total': round(float(commission_vat_total or 0.0), 2) if 'commission_vat_total' in locals() else None,
                             'payment_method_id': payment_method_id,
-                            'payment_commission_timing': pm_commission_timing if 'pm_commission_timing' in locals() else None,
                             'safe_box_id': safe_box_id,
                             'payments_count': len(payments_data) if isinstance(payments_data, list) else None,
                         }
@@ -8500,7 +8276,6 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
                         if isinstance(ctx, dict):
                             ctx_bits = []
                             for k in (
-                                'payment_commission_timing',
                                 'total_cash',
                                 'net_amount',
                                 'commission_amount',

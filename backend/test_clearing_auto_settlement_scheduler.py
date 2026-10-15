@@ -39,7 +39,6 @@ def test_auto_settlement_bulk_supports_settlement_fee(monkeypatch):
             name='بطاقة اختبار تلقائية',
             commission_rate=2.5,
             commission_fixed_amount=0.0,
-            commission_timing='settlement',
             auto_settlement_enabled=True,
             settlement_schedule_type='days',
             settlement_days=0,

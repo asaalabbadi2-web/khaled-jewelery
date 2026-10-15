@@ -121,7 +121,7 @@ class Matrix:
         cash_pm = PaymentMethod.query.filter_by(payment_type='cash', is_active=True).order_by(PaymentMethod.id).first()
         card_box = (SafeBox.query.filter_by(safe_type='clearing', is_active=True).order_by(SafeBox.id).first())
         card_pm = PaymentMethod(payment_type='visa', name=f'بطاقة مصفوفة {uuid.uuid4().hex[:4]}', commission_rate=2.0,
-                                commission_timing='invoice', is_active=True,
+                                is_active=True,
                                 default_safe_box_id=card_box.id if card_box else cash_pm.default_safe_box_id)
         db.session.add(card_pm)
         holder = (Employee.query.filter(Employee.gold_safe_box_id.isnot(None), Employee.is_active.is_(True))
@@ -133,8 +133,7 @@ class Matrix:
         from models import is_cash_customer
         named = next(c for c in Customer.query.order_by(Customer.id).all() if not is_cash_customer(c))
         settlement_pm = (PaymentMethod.query.filter(PaymentMethod.is_active.is_(True),
-                                                    PaymentMethod.commission_rate > 0,
-                                                    PaymentMethod.commission_timing == 'settlement')
+                                                    PaymentMethod.commission_rate > 0)
                          .order_by(PaymentMethod.id).first())
         return {'customer': Customer.query.order_by(Customer.id).first(), 'named_customer': named,
                 'settlement_pm': settlement_pm,
@@ -265,8 +264,9 @@ class Matrix:
         invoice('sale_cash', lambda: self.sale(w, payments=[{'payment_method_id': w['cash_pm'].id, 'amount': 1000.0}]))
         invoice('sale_card_settled_later',
                 lambda: self.sale(w, payments=[{'payment_method_id': w['settlement_pm'].id, 'amount': 1000.0}]))
-        # No method on production charges its commission at the invoice; the path
-        # is recorded as it behaves, whatever that is.
+        # A card sale whose screen sends the commission it estimates. Before
+        # COMMISSION-1 the method took it at the invoice and the sale was refused
+        # (its revenue net of it, 23 short); since, nothing of it is posted here.
         invoice('sale_card_commission_at_invoice',
                 lambda: self.sale(w, payments=[{'payment_method_id': w['card_pm'].id, 'amount': 1000.0,
                                                 'commission_amount': 20.0, 'commission_vat': 3.0}]))

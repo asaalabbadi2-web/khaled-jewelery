@@ -19,6 +19,8 @@ from sqlalchemy import func
 
 from app import app as flask_app
 from models import Account, InvoiceItem, JournalEntry, JournalEntryLine, VatPolicyPeriod, db
+from tests.retraction_world import world  # noqa: F401 (fixture)
+from tests.test_clearing_settlement_live_balance import _sale_paid_by_mada, mada  # noqa: F401 (fixture)
 from tests.test_supplier_return_reverses_purchase import _return_of
 from tests.test_wage_treatment_follows_the_setting import (  # noqa: F401 (fixtures)
     app, books, rollback_after_each, _vat, _create, _purchase, _settings,
@@ -96,16 +98,37 @@ def test_vat_on_nothing_that_enters_the_stock_goes_to_non_recoverable():
     assert get_account_id_for_mapping('بيع', NON_RECOVERABLE_ROLE) == account_id
 
 
-def test_a_card_commissions_vat_follows_the_period_of_its_invoice():
+def test_a_card_commissions_vat_follows_the_period_of_its_settlement(auth_headers, mada):
+    """The commission is taken at the settlement (COMMISSION-1), and so is its
+    VAT: not recovered, «غير القابلة للاسترداد»; recovered, its input VAT account."""
+    import uuid
     from datetime import datetime
-    from models import Invoice
-    from routes.invoices import _commission_vat_account
+    from accounting.mappings import get_account_id_for_mapping
+    from routes.clearing import _create_clearing_settlement_voucher, commission_vat
     from services.vat_policy import non_recoverable_account_id
     test_vat_on_nothing_that_enters_the_stock_goes_to_non_recoverable()     # 540 and the period
-    sale = Invoice(invoice_type='بيع', date=datetime(2033, 3, 5), total=100.0, invoice_type_id=1)
-    assert _commission_vat_account(sale, 1410) == non_recoverable_account_id(), 'not recovered: an expense'
+    fee_account = Account(account_number=f'83{uuid.uuid4().int % 10**6:06d}', name='عمولة', type='Expense')
+    db.session.add(fee_account)
+    db.session.flush()
+
+    def settled_vat_on(account_id):
+        before = _debits(account_id)
+        ip = _sale_paid_by_mada(auth_headers, mada, 250.0)
+        _create_clearing_settlement_voucher(
+            clearing_safe_box_id=mada['box'].id, bank_safe_box_id=mada['bank'].id, gross_amount=250.0,
+            fee_amount=2.0, fee_account_id=fee_account.id, settlement_dt=datetime.now(),
+            created_by='pytest', invoice_payment_ids=[ip.id])
+        return round(_debits(account_id) - before, 2)
+
+    assert settled_vat_on(non_recoverable_account_id()) == commission_vat(2.0) > 0, 'not recovered: an expense'
     VatPolicyPeriod.query.delete()
     db.session.add(VatPolicyPeriod(effective_from=date(2000, 1, 1), input_vat_recoverable=True,
                                    sales_vat_charged=False, created_by='t'))
     db.session.flush()
-    assert _commission_vat_account(sale, 1410) == 1410, 'recovered: its input VAT account, as before'
+    recovered = get_account_id_for_mapping('بيع', 'commission_vat') or get_account_id_for_mapping('بيع', 'vat_receivable')
+    assert settled_vat_on(recovered) == commission_vat(2.0), 'recovered: its input VAT account'
+
+
+def _debits(account_id):
+    return float(db.session.query(func.coalesce(func.sum(JournalEntryLine.cash_debit), 0.0))
+                 .filter(JournalEntryLine.account_id == account_id).scalar())

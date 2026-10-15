@@ -884,10 +884,6 @@ class _ClearingMonitorScreenState extends State<ClearingMonitorScreen> {
 
   Widget _buildPmInfoRow(Map<String, dynamic> pm) {
     final name = pm['name']?.toString() ?? '—';
-    final timing =
-        pm['commission_timing']?.toString().trim().toLowerCase() == 'settlement'
-        ? 'عند التسوية'
-        : 'ضمن الفاتورة';
     final rate = (pm['commission_rate'] as num?)?.toDouble() ?? 0.0;
     final autoEnabled = pm['auto_settlement_enabled'] == true;
     // The schedule as the server reads it (ADR-037) -- not recomputed here.
@@ -923,7 +919,6 @@ class _ClearingMonitorScreenState extends State<ClearingMonitorScreen> {
             runSpacing: 4,
             children: [
               _infoTag('عمولة: $rate%', Colors.deepPurple),
-              _infoTag('توقيت: $timing', theme.AppColors.info),
               if (autoEnabled)
                 _infoTag('تلقائي: $scheduleLabel', theme.AppColors.success)
               else

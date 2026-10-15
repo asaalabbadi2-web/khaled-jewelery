@@ -299,33 +299,6 @@ def _create_clearing_settlement_voucher(
         # remaining-due data) that a genuine unsettled amount remains. Fall
         # through and create a new, independent voucher — see docstring.
 
-    # HARD GUARD (anti double-deduction):
-    # If the clearing safe box is the default safe for one or more payment methods,
-    # and those methods record commission at invoice time, then fee must be zero here.
-    if fee_amount > 0:
-        try:
-            matched_methods = (
-                PaymentMethod.query
-                .filter_by(default_safe_box_id=clearing_safe_box.id, is_active=True)
-                .all()
-            )
-        except Exception:
-            matched_methods = []
-
-        if matched_methods:
-            timings = set()
-            for pm in matched_methods:
-                try:
-                    t = str(getattr(pm, 'commission_timing', 'invoice') or 'invoice').strip().lower()
-                except Exception:
-                    t = 'invoice'
-                if t not in {'invoice', 'settlement'}:
-                    t = 'invoice'
-                timings.add(t)
-
-            if 'invoice' in timings:
-                raise ValueError('fee_not_allowed_when_commission_timing_invoice')
-
     clearing_account = clearing_safe_box.account
     bank_account = bank_safe_box.account
     if not clearing_account or not bank_account:
@@ -656,44 +629,6 @@ def create_clearing_settlement():
                 'error': 'Clearing balance is insufficient for settlement',
                 'clearing_balance': round(clearing_balance, 2),
                 'gross_amount': round(gross_amount, 2),
-            }), 400
-
-        if msg == 'fee_not_allowed_when_commission_timing_invoice':
-            # Preserve richer error payload for client UX
-            try:
-                clearing_safe_box = SafeBox.query.get(clearing_safe_box_id)
-            except Exception:
-                clearing_safe_box = None
-            methods_payload = []
-            try:
-                if clearing_safe_box:
-                    matched = (
-                        PaymentMethod.query
-                        .filter_by(default_safe_box_id=clearing_safe_box.id, is_active=True)
-                        .all()
-                    )
-                    for pm in matched:
-                        try:
-                            t = str(getattr(pm, 'commission_timing', 'invoice') or 'invoice').strip().lower()
-                        except Exception:
-                            t = 'invoice'
-                        if t not in {'invoice', 'settlement'}:
-                            t = 'invoice'
-                        methods_payload.append({'id': pm.id, 'name': pm.name, 'commission_timing': t})
-            except Exception:
-                methods_payload = []
-
-            return jsonify({
-                'error': 'fee_not_allowed_when_commission_timing_invoice',
-                'message': (
-                    'لا يمكن إرسال عمولة (fee) في التسوية لأن سياسة العمولة لهذه الخزينة '
-                    'تسجل العمولة ضمن الفاتورة (commission_timing=invoice) أو توجد سياسات متضاربة. '
-                    'لمنع خصم العمولة مرتين: اجعل fee=0 أو غيّر سياسة وسيلة الدفع إلى settlement '
-                    'أو استخدم خزينة مستحقات منفصلة لكل سياسة.'
-                ),
-                'clearing_safe_box_id': clearing_safe_box.id if clearing_safe_box else clearing_safe_box_id,
-                'fee_amount': round(float(data.get('fee_amount') or data.get('fee') or 0.0), 2),
-                'payment_methods': methods_payload,
             }), 400
 
         return jsonify({'error': 'validation_error', 'message': msg}), 400

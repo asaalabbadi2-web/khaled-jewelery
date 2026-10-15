@@ -24,7 +24,6 @@ def _ensure_cash_payment_method() -> PaymentMethod:
             payment_type='cash',
             name='نقداً - اختبار',
             commission_rate=0.0,
-            commission_timing='invoice',
             is_active=True,
             default_safe_box_id=safe_box.id,
         )

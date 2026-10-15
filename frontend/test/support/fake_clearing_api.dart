@@ -59,7 +59,6 @@ class FakeClearingApi extends ApiService {
           'name': 'مدى',
           'default_safe_box_id': 32,
           'settlement_bank_safe_box_id': 37,
-          'commission_timing': 'invoice',
         },
       ];
 

@@ -49,7 +49,7 @@ def _card(world, **schedule):
     db.session.add_all([box, bank])
     db.session.flush()
     pm = PaymentMethod(payment_type='mada', name=f'بطاقة {_uid()}', commission_rate=0.0,
-                       commission_timing='settlement', is_active=True, default_safe_box_id=box.id,
+                       is_active=True, default_safe_box_id=box.id,
                        auto_settlement_enabled=True, settlement_bank_safe_box_id=bank.id, **schedule)
     db.session.add(pm)
     db.session.flush()

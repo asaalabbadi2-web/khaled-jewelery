@@ -80,7 +80,7 @@ def world():
     db.session.add(box)
     db.session.flush()
     pm = PaymentMethod(payment_type='cash', name=f'نقداً {_uid()}', commission_rate=0.0,
-                       commission_timing='invoice', is_active=True, default_safe_box_id=box.id)
+                       is_active=True, default_safe_box_id=box.id)
     supplier = Supplier(supplier_code=f'SUP-{_uid()}', name=f'مورد {_uid()}', default_wage_type='cash')
     db.session.add_all([pm, supplier])
     db.session.flush()

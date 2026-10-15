@@ -37,7 +37,7 @@ def _two_payments_of_one_moment():
     _N[0] += 1
     pm = PaymentMethod(payment_type='receivable', name=f'mada-order-{_N[0]}',
                        commission_rate=0.0, commission_fixed_amount=0.0,
-                       commission_timing='settlement', auto_settlement_enabled=False,
+                       auto_settlement_enabled=False,
                        is_active=True)
     inv = Invoice(invoice_type_id=900000 + _N[0], invoice_type='بيع',
                   date=datetime(2026, 10, 5), total=420.0)

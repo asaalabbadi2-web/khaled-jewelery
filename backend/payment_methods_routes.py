@@ -203,17 +203,6 @@ def _schedule_refusal(pm):
     return None
 
 
-def _normalize_commission_timing(raw_value: Any) -> str:
-    if raw_value is None:
-        return 'invoice'
-    value = str(raw_value).strip().lower()
-    if not value:
-        return 'invoice'
-    if value in {'invoice', 'settlement'}:
-        return value
-    raise ValueError('قيمة commission_timing غير مدعومة (invoice أو settlement)')
-
-
 def _normalize_settlement_schedule_type(raw_value: Any) -> str:
     if raw_value is None:
         return 'days'
@@ -478,12 +467,6 @@ def _sync_payment_methods_from_settings() -> None:
             legacy.get('applicable_invoice_types')
         )
         default_safe_box_id = legacy.get('default_safe_box_id')
-        try:
-            legacy_commission_timing = _normalize_commission_timing(
-                legacy.get('commission_timing')
-            )
-        except ValueError:
-            legacy_commission_timing = 'invoice'
 
         payment_method = None
         created = False
@@ -514,7 +497,6 @@ def _sync_payment_methods_from_settings() -> None:
                 'payment_type': payment_type,
                 'commission_rate': float(commission_value or 0.0),
                 'commission_fixed_amount': float(fixed_commission_value or 0.0),
-                'commission_timing': legacy_commission_timing,
                 'settlement_days': int(settlement_days or 0),
                 'display_order': int(display_order or (index + 1)),
                 'is_active': is_active,
@@ -719,13 +701,6 @@ def create_payment_method():
         except ValueError as exc:
             return jsonify({'error': str(exc)}), 400
 
-        try:
-            commission_timing = _normalize_commission_timing(
-                data.get('commission_timing')
-            )
-        except ValueError as exc:
-            return jsonify({'error': str(exc)}), 400
-
         # عمولة ثابتة لكل عملية (اختياري)
         commission_fixed_amount = 0.0
         if 'commission_fixed_amount' in data and data.get('commission_fixed_amount') not in (None, '', False):
@@ -796,7 +771,6 @@ def create_payment_method():
                 name=data['name'],
                 commission_rate=data.get('commission_rate', 0.0),
                 commission_fixed_amount=commission_fixed_amount,
-                commission_timing=commission_timing,
                 settlement_days=data.get('settlement_days', 0),
                 auto_settlement_enabled=auto_settlement_enabled,
                 settlement_schedule_type=settlement_schedule_type,
@@ -1012,13 +986,6 @@ def update_payment_method(id):
                 if fixed_val < 0:
                     return jsonify({'error': 'لا يمكن أن تكون العمولة الثابتة سالبة'}), 400
                 payment_method.commission_fixed_amount = fixed_val
-        if 'commission_timing' in data:
-            try:
-                payment_method.commission_timing = _normalize_commission_timing(
-                    data.get('commission_timing')
-                )
-            except ValueError as exc:
-                return jsonify({'error': str(exc)}), 400
         if 'settlement_days' in data:
             try:
                 payment_method.settlement_days = int(data.get('settlement_days') or 0)
