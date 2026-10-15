@@ -45,7 +45,6 @@ def _get_settings_singleton(create_if_missing: bool = True) -> Settings | None:
                 'tax_rate',
                 'tax_enabled',
                 'vat_exempt_karats',
-                'payment_methods',
                 'invoice_prefix',
                 'show_company_logo',
                 'company_name',

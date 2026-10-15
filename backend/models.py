@@ -2601,7 +2601,9 @@ class Settings(db.Model):
     
     # وسائل الدفع (JSON)
     # مثال: [{"name": "نقداً", "commission": 0}, {"name": "بطاقة", "commission": 2.5}]
-    payment_methods = db.Column(db.Text, default='[{"name":"نقداً","commission":0},{"name":"بطاقة","commission":2.5},{"name":"تحويل","commission":1.5},{"name":"آجل","commission":0}]')
+    # payment_methods: a legacy list the payment methods were «synced» from on
+    # every read (PAYMENT-SYNC-1) -- gone; the column stays, unread, until a
+    # release drops it. The methods are PaymentMethod rows, set in their screen.
     
     # إعدادات الفواتير
     invoice_prefix = db.Column(db.String(10), default='INV')
@@ -2811,16 +2813,6 @@ class Settings(db.Model):
             monthly_target = 0.0
 
         # Decode JSON fields defensively (legacy DBs may contain invalid JSON strings).
-        payment_methods = []
-        try:
-            raw_pm = getattr(self, 'payment_methods', None)
-            if raw_pm:
-                decoded_pm = json.loads(raw_pm) if isinstance(raw_pm, str) else raw_pm
-                if isinstance(decoded_pm, (list, tuple)):
-                    payment_methods = list(decoded_pm)
-        except Exception:
-            payment_methods = []
-
         weight_closing_settings = None
         try:
             raw_wc = getattr(self, 'weight_closing_settings', None)
@@ -2843,7 +2835,6 @@ class Settings(db.Model):
             # The period in force today (ADR-043): the switch is a dated policy.
             'sales_vat_enabled': _sales_vat_today(self),
             'vat_exempt_karats': exempt_karats,
-            'payment_methods': payment_methods,
             'invoice_prefix': self.invoice_prefix,
             'show_company_logo': self.show_company_logo,
             'company_name': self.company_name,

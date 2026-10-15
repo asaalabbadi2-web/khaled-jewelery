@@ -2,7 +2,6 @@
 Payment Methods Routes
 وسائل الدفع API endpoints
 """
-import json
 from typing import Any, Dict, List
 
 from flask import Blueprint, request, jsonify
@@ -18,7 +17,6 @@ from models import (
     InvoicePayment,
     PAYMENT_METHOD_ALLOWED_INVOICE_TYPES,
     SafeBox,
-    Settings,
 )
 
 
@@ -147,37 +145,6 @@ def _filter_payment_methods_by_invoice_type(payment_methods, invoice_type):
         if invoice_type in applicable:
             filtered.append(method)
     return filtered
-
-LEGACY_FALLBACK_PAYMENT_METHODS: List[Dict[str, Any]] = [
-    {
-        'name': 'نقداً',
-        'payment_type': 'cash',
-        'commission_rate': 0.0,
-        'settlement_days': 0,
-        'display_order': 1,
-    },
-    {
-        'name': 'بطاقة',
-        'payment_type': 'mada',
-        'commission_rate': 2.5,
-        'settlement_days': 2,
-        'display_order': 2,
-    },
-    {
-        'name': 'تحويل',
-        'payment_type': 'bank_transfer',
-        'commission_rate': 0.0,
-        'settlement_days': 1,
-        'display_order': 3,
-    },
-    {
-        'name': 'آجل',
-        'payment_type': 'credit',
-        'commission_rate': 0.0,
-        'settlement_days': 0,
-        'display_order': 4,
-    },
-]
 
 payment_methods_api = Blueprint('payment_methods_api', __name__)
 
@@ -379,167 +346,6 @@ def ensure_default_payment_types() -> None:
             db.session.rollback()
 
 
-def _infer_payment_type_from_name(name: str) -> str:
-    normalized = (name or '').lower()
-    if any(keyword in normalized for keyword in ['cash', 'نقد']):
-        return 'cash'
-    if any(keyword in normalized for keyword in ['mada', 'مدى']):
-        return 'mada'
-    if any(keyword in normalized for keyword in ['visa', 'فيزا']):
-        return 'visa'
-    if any(keyword in normalized for keyword in ['master', 'ماستر']):
-        return 'mastercard'
-    if any(keyword in normalized for keyword in ['stc', 'ستc']):
-        return 'stc_pay'
-    if any(keyword in normalized for keyword in ['apple', 'ابل']):
-        return 'apple_pay'
-    if any(keyword in normalized for keyword in ['tabby', 'تابي']):
-        return 'tabby'
-    if any(keyword in normalized for keyword in ['tamara', 'تمارا']):
-        return 'tamara'
-    if any(keyword in normalized for keyword in ['bank', 'تحويل', 'حوالة']):
-        return 'bank_transfer'
-    if any(keyword in normalized for keyword in ['آجل', 'اجل', 'credit']):
-        return 'credit'
-    slug = ''.join(ch if ch.isalnum() else '_' for ch in normalized)
-    slug = slug.strip('_') or 'custom'
-    return f'custom_{slug}'[:50]
-
-
-def _load_legacy_payment_methods() -> List[Dict[str, Any]]:
-    settings_record = Settings.query.first()
-    legacy_methods: List[Dict[str, Any]] = []
-
-    # If settings explicitly provide a JSON list (even an empty one), honor it.
-    # This allows admin tooling (like WIPE-ALL) to intentionally disable legacy auto-seeding
-    # by setting Settings.payment_methods to "[]".
-    if settings_record and settings_record.payment_methods is not None:
-        raw_value = settings_record.payment_methods
-        if not raw_value or not str(raw_value).strip():
-            return []
-        try:
-            decoded = json.loads(raw_value)
-            if isinstance(decoded, list):
-                return [method for method in decoded if isinstance(method, dict)]
-        except (ValueError, TypeError):
-            legacy_methods = []
-
-    # Backward-compatible fallback: if settings are missing/invalid, seed from defaults.
-    if not legacy_methods:
-        legacy_methods = LEGACY_FALLBACK_PAYMENT_METHODS.copy()
-
-    return legacy_methods
-
-
-def _normalize_applicable_types(raw_value: Any) -> List[str]:
-    if isinstance(raw_value, list) and raw_value:
-        filtered = [
-            str(value)
-            for value in raw_value
-            if isinstance(value, str) and value in PAYMENT_METHOD_ALLOWED_INVOICE_TYPES
-        ]
-        if filtered:
-            return filtered
-    return list(PAYMENT_METHOD_ALLOWED_INVOICE_TYPES)
-
-
-def _sync_payment_methods_from_settings() -> None:
-    legacy_methods = _load_legacy_payment_methods()
-    if not legacy_methods:
-        return
-
-    changed = False
-    seen_ids: List[int] = []
-
-    for index, legacy in enumerate(legacy_methods):
-        name = str(legacy.get('name') or f'وسيلة دفع {index + 1}')
-        payment_type = legacy.get('payment_type') or _infer_payment_type_from_name(name)
-
-        commission_value = legacy.get('commission_rate', legacy.get('commission', 0))
-        fixed_commission_value = legacy.get(
-            'commission_fixed_amount',
-            legacy.get('fixed_commission_amount', legacy.get('fixed_commission', 0)),
-        )
-        settlement_days = legacy.get('settlement_days', 0)
-        display_order = legacy.get('display_order', index + 1)
-        is_active = bool(legacy.get('is_active', True))
-        applicable_types = _normalize_applicable_types(
-            legacy.get('applicable_invoice_types')
-        )
-        default_safe_box_id = legacy.get('default_safe_box_id')
-
-        payment_method = None
-        created = False
-        legacy_id = legacy.get('id')
-        if isinstance(legacy_id, int):
-            payment_method = PaymentMethod.query.get(legacy_id)
-
-        if not payment_method and payment_type:
-            payment_method = PaymentMethod.query.filter_by(payment_type=payment_type).first()
-
-        if not payment_method:
-            payment_method = PaymentMethod.query.filter_by(name=name).first()
-
-        if not payment_method:
-            payment_method = PaymentMethod(
-                payment_type=payment_type,
-                name=name,
-            )
-            db.session.add(payment_method)
-            created = True
-            changed = True
-
-        # IMPORTANT: do not overwrite existing DB values on every GET.
-        # Sync should only populate missing payment methods (initial migration/fallback).
-        if created:
-            update_fields = {
-                'name': name,
-                'payment_type': payment_type,
-                'commission_rate': float(commission_value or 0.0),
-                'commission_fixed_amount': float(fixed_commission_value or 0.0),
-                'settlement_days': int(settlement_days or 0),
-                'display_order': int(display_order or (index + 1)),
-                'is_active': is_active,
-                'default_safe_box_id': default_safe_box_id,
-            }
-
-            for attr, value in update_fields.items():
-                if getattr(payment_method, attr) != value:
-                    setattr(payment_method, attr, value)
-                    changed = True
-
-            payment_method.applicable_invoice_types = applicable_types
-            changed = True
-        else:
-            # Keep existing rows in sync for critical numeric knobs.
-            # This is important for legacy Settings-driven deployments where Settings is the source of truth.
-            try:
-                desired_commission = float(commission_value or 0.0)
-            except Exception:
-                desired_commission = 0.0
-
-            try:
-                desired_fixed_commission = float(fixed_commission_value or 0.0)
-            except Exception:
-                desired_fixed_commission = 0.0
-
-            if float(getattr(payment_method, 'commission_rate', 0.0) or 0.0) != desired_commission:
-                payment_method.commission_rate = desired_commission
-                changed = True
-
-            if float(getattr(payment_method, 'commission_fixed_amount', 0.0) or 0.0) != desired_fixed_commission:
-                payment_method.commission_fixed_amount = desired_fixed_commission
-                changed = True
-
-        if payment_method.applicable_invoice_types is None:
-            payment_method.applicable_invoice_types = applicable_types
-            changed = True
-
-        seen_ids.append(payment_method.id or 0)
-
-    if changed:
-        db.session.commit()
-
 def generate_payment_method_account_number(parent_account_id):
     """
     توليد رقم حساب لوسيلة دفع جديدة
@@ -575,7 +381,6 @@ def generate_payment_method_account_number(parent_account_id):
 def get_payment_methods():
     """جلب جميع وسائل الدفع"""
     try:
-        _sync_payment_methods_from_settings()
         invoice_type_filter = request.args.get('invoice_type')
 
         try:
@@ -595,7 +400,6 @@ def get_payment_methods():
 def get_active_payment_methods():
     """جلب وسائل الدفع النشطة فقط"""
     try:
-        _sync_payment_methods_from_settings()
         invoice_type_filter = request.args.get('invoice_type')
 
         try:

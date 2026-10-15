@@ -691,7 +691,6 @@ def update_settings():
         'tax_enabled',
         'sales_vat_enabled',
         'vat_exempt_karats',
-        'payment_methods',
         'invoice_prefix',
         'show_company_logo',
         'company_name',
@@ -840,17 +839,6 @@ def update_settings():
 
         values = sorted(set(values), key=lambda x: int(x))
         settings.vat_exempt_karats = json.dumps(values, ensure_ascii=False) if values else None
-    
-    # وسائل الدفع
-    if 'payment_methods' in data:
-        pm_raw = data.get('payment_methods')
-        if isinstance(pm_raw, str):
-            try:
-                pm_raw = json.loads(pm_raw)
-            except Exception:
-                pm_raw = None
-        if isinstance(pm_raw, (list, tuple)):
-            settings.payment_methods = json.dumps(list(pm_raw), ensure_ascii=False)
     
     # إعدادات الفواتير
     if 'invoice_prefix' in data:
@@ -1811,7 +1799,6 @@ def _reset_full_system_wipe():
         settings_row.main_cash_safe_box_id = None
         settings_row.sale_gold_safe_box_id = None
         settings_row.main_scrap_gold_safe_box_id = None
-        settings_row.payment_methods = '[]'
         try:
             settings_row.disable_startup_bootstrap = True
         except Exception:
