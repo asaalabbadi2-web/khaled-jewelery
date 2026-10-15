@@ -72,7 +72,11 @@ REQUIRED_ROLES = (
     *((DEFAULT_MAPPING_OPERATION_TYPE, r) for r in (
         'assets_root', 'liabilities_root', 'equity_root', 'revenue_root', 'expenses_root', 'operating_revenue_root',
         'cost_of_sales_root', 'operating_expenses_root', 'gold_inventory_root', 'worked_gold_suppliers_root',
-        'valuation_equity')),
+        'valuation_equity', 'cash_root')),
+    # The last live accounts found by number (release 5b): a party's opening
+    # equity, and the parents the VAT settlement and non-recoverable VAT are made under.
+    *((DEFAULT_MAPPING_OPERATION_TYPE, r) for r in (
+        'opening_balance_equity', 'vat_settlement_parent', 'vat_non_recoverable_parent')),
 )
 
 

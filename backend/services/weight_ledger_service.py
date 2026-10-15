@@ -16,7 +16,6 @@ Key Methods:
 -----------
 - should_create_weight_entry(account) → bool
 - convert_amount_to_weight(amount, karat) → float
-- is_inventory_account(account) → bool
 - create_weight_entry(...) → ensures balanced weight ledger
 - validate_weight_balance(journal_entry) → raises if imbalanced
 
@@ -51,12 +50,6 @@ class WeightImbalanceError(Exception):
 
 class WeightLedgerService:
     """Centralized service for managing weight ledger entries"""
-    
-    # حسابات المخزون (استثناء من القاعدة الذهبية)
-    INVENTORY_ACCOUNT_PREFIXES = ['13', '1310', '71', '7131']
-    
-    # حسابات المذكرة (الوزن فقط)
-    MEMO_ACCOUNT_PREFIX = '7'
     
     # الحد الأدنى للفرق المقبول (tolerance)
     WEIGHT_TOLERANCE = 0.0001
@@ -149,31 +142,10 @@ class WeightLedgerService:
         logger.warning(f"Using fallback gold price for {target_karat}k: {fallback_price:.2f} SAR/g")
         return fallback_price
     
-    def is_inventory_account(self, account) -> bool:
-        """
-        Check if account is an inventory account (exception to golden rule)
-        
-        Args:
-            account: Account object or account_number string
-        
-        Returns:
-            True if inventory account
-        """
-        account_number = getattr(account, 'account_number', account)
-        if not account_number:
-            return False
-        
-        account_str = str(account_number).strip()
-        return any(account_str.startswith(prefix) for prefix in self.INVENTORY_ACCOUNT_PREFIXES)
-    
     def is_memo_account(self, account) -> bool:
-        """Check if account is a memo (weight-only) account"""
-        account_number = getattr(account, 'account_number', account)
-        if not account_number:
-            return False
-        
-        account_str = str(account_number).strip()
-        return account_str.startswith(self.MEMO_ACCOUNT_PREFIX)
+        """A memo (weight-only) account: one that tracks weight -- its mark, not its first
+        digit (CHART-002)."""
+        return bool(getattr(account, 'tracks_weight', False))
     
     def should_create_weight_entry(self, account, has_memo_account: bool = True) -> bool:
         """
@@ -193,10 +165,6 @@ class WeightLedgerService:
         # Financial accounts with memo accounts → create weight entries
         if has_memo_account:
             return True
-        
-        # Inventory accounts → only if they have memo accounts
-        if self.is_inventory_account(account):
-            return has_memo_account
         
         return False
     
@@ -390,7 +358,3 @@ def convert_amount_to_weight(amount, from_karat=24, to_karat=None):
     """Convert amount to weight (backwards compatible)"""
     return weight_ledger_service.convert_amount_to_weight(amount, from_karat, to_karat)
 
-
-def is_inventory_account(account):
-    """Check if inventory account (backwards compatible)"""
-    return weight_ledger_service.is_inventory_account(account)

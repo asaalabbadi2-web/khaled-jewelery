@@ -206,38 +206,10 @@ class Account(db.Model):
         }
         return karat_map.get(str(karat), 0.0)
     
-    # ─────────────────────────────────────────────────────────────────────────
-    # قائمة البادئات المسموح لها بإنشاء حساب موازي (وزني).
-    # أي حساب لا تبدأ به رقمه بأحد هذه البادئات لا يستحق حساباً وزنياً.
-    # المعيار: هل الحساب يشارك مباشرة في حركات الذهب (مخزون / موردون ذهب /
-    #          مكاتب تسكير / مصروفات معالجة / إيرادات ذهب / فروقات تقييم)؟
-    # ─────────────────────────────────────────────────────────────────────────
-    _PARALLEL_ALLOWED_PREFIXES: tuple = (
-        # ── أصول ──────────────────────────────────────────────────────────
-        '129',   # جسر مشتريات الكسر والتسكير (1290)
-        '130',   # مخزون المعروض للبيع (1300)
-        '131',   # مخزون الكسر / عهدة موظفين (1310-1319)
-        '132',   # مخزون أجور مصنعية (1320)
-        # ── موردو الذهب ── (المطلوبات المرتبطة بعمليات ذهبية)
-        '210',   # موردو الذهب المشغول ومكاتب التسكير (2100xxx)
-        '220',   # موردو الذهب الخام (2200xxx)
-        # ── مصروفات معالجة الذهب ─────────────────────────────────────────
-        '511',   # مصاريف نظافة ذهب (5110)
-        '512',   # مشتريات ذهب كسر (512)
-        '513',   # مصاريف صهر (5120)
-        '510',   # بادئة مشتركة لمجموعة معالجة الذهب
-        '51',    # مجموعة كاملة لمصاريف معالجة الذهب
-        # ── إيرادات ذهب ─────────────────────────────────────────────────
-        '41',    # إيرادات المبيعات الذهبية
-        '42',    # إيرادات مشتريات الذهب / كسر
-        # ── حقوق ملكية: فروقات تقييم فقط ──────────────────────────────
-        '360',   # فروقات تقييم الذهب (3600)
-    )
-
-    def _is_parallel_allowed(self) -> bool:
-        """هل يُسمح لهذا الحساب بإنشاء حساب موازي وزني؟"""
-        num = (self.account_number or '').strip()
-        return num.startswith(self._PARALLEL_ALLOWED_PREFIXES)
+    # A weight twin is made only where asked for -- an account created with its twin
+    # (routes/accounts.py), a party (party_account_service) -- under its parent's twin.
+    # The whitelist of number prefixes «allowed» a twin and create_parallel_account
+    # built the parents' twins by recursion: gone (CHART-002 release 5).
 
     # علامات نصية تُستخدم في هذا النظام لوضع حساب كـ"متروك" بعد دمج/استبدال
     # (كُتبت قبل أن يصير للحساب حقل is_active -- ADR-043 المرحلة 1 -- فكانت
@@ -290,128 +262,6 @@ class Account(db.Model):
                 "لأنه موسوم كمتروك/مكرَّر -- هذا تحديداً ما سبّب حادثة حساب #1213."
             )
         return value
-
-    def create_parallel_account(self, force: bool = False):
-        """إنشاء حساب موازي (نقدي ↔ وزني).
-
-        بشكل افتراضي يعمل فقط على الحسابات المدرجة في _PARALLEL_ALLOWED_PREFIXES
-        (بادئات ذهبية معروفة). عند تمرير force=True تُتجاوز القائمة البيضاء —
-        يُستخدم عندما يختار المستخدم صراحةً إنشاء حساب موازي لحساب خارج القائمة
-        (مثال: ذمم الشركاء التي قد تستلم ذهباً).
-
-        القواعد:
-        - cash → ينشئ حساب gold برقم (7 + الرقم الأصلي)
-        - gold → ينشئ حساب cash بحذف الـ7 من البداية
-        - الأب الموازي يُنشأ تلقائياً إذا لم يكن موجوداً
-        """
-        if self.transaction_type == 'both':
-            return None
-
-        # القائمة البيضاء: تُطبَّق فقط عند الإنشاء التلقائي (force=False).
-        # عند الطلب الصريح من المستخدم (force=True) تُتجاوز — لأن السياسة
-        # ليست قانوناً: الشريك قد يستلم ذهباً، والمورد قد يُسوَّى وزنياً.
-        if self.transaction_type == 'cash' and not force and not self._is_parallel_allowed():
-            return None
-        
-        # تحديد اتجاه الإنشاء
-        if self.transaction_type == 'cash':
-            # إنشاء حساب وزني موازي
-            from accounting.twins import twin_number
-            parallel_number = twin_number(self.account_number)
-            parallel_name = f"{self.name} وزني"
-            parallel_type = 'gold'
-            parallel_tracks_weight = True
-            
-            # إيجاد/إنشاء الحساب الأب الموازي
-            parallel_parent_id = None
-            if self.parent_id:
-                parent_account = Account.query.get(self.parent_id)
-                if parent_account:
-                    # إذا الأب المالي ما عنده memo مربوط، ننشئ واحد له
-                    if not parent_account.memo_account_id:
-                        parent_parallel = parent_account.create_parallel_account()
-                        if parent_parallel:
-                            parallel_parent_id = parent_parallel.id
-                    else:
-                        parallel_parent_id = parent_account.memo_account_id
-        
-        elif self.transaction_type == 'gold':
-            # إنشاء حساب مالي موازي
-            # The financial number the twin's was made from (accounting/twins.py).
-            from accounting.twins import financial_number_of
-            parallel_number = financial_number_of(self.account_number)
-            if parallel_number is None:
-                # حساب وزني لا يتبع قاعدة الترقيم، لا يمكن إنشاء موازي
-                return None
-            parallel_name = self.name.replace(' وزني', '').strip()
-            parallel_type = 'cash'
-            parallel_tracks_weight = False
-            
-            # إيجاد/إنشاء الحساب الأب الموازي
-            parallel_parent_id = None
-            if self.parent_id:
-                parent_account = Account.query.get(self.parent_id)
-                if parent_account:
-                    # البحث عن الحساب المالي الذي يشير إلى الأب الوزني
-                    financial_parent = Account.query.filter_by(
-                        memo_account_id=parent_account.id
-                    ).first()
-                    if financial_parent:
-                        parallel_parent_id = financial_parent.id
-                    else:
-                        # إذا الأب الوزني ما عنده حساب مالي مربوط، ننشئ واحد له
-                        parent_parallel = parent_account.create_parallel_account()
-                        if parent_parallel:
-                            parallel_parent_id = parent_parallel.id
-        
-        else:
-            return None
-        
-        # التحقق من عدم وجود الحساب مسبقاً
-        existing = Account.query.filter_by(account_number=parallel_number).first()
-        if existing:
-            # Ensure existing account matches the intended parallel semantics.
-            existing.transaction_type = parallel_type
-            existing.tracks_weight = bool(parallel_tracks_weight)
-
-            # Keep parenting mirrored when possible.
-            if parallel_parent_id and existing.parent_id != parallel_parent_id:
-                existing.parent_id = parallel_parent_id
-                db.session.add(existing)
-
-            # جميع كتابات memo_account_id تمر حصراً عبر link_accounts() —
-            # الطريق الوحيد المعتمد — لضمان تنظيف stale pointers و1:1 و Audit Log.
-            from account_pair_service import link_accounts as _link
-            if self.transaction_type == 'cash':
-                _link(self, existing, created_by='create_parallel_account')
-            else:
-                _link(existing, self, created_by='create_parallel_account')
-
-            db.session.flush()
-            return existing
-
-        # إنشاء الحساب الموازي
-        parallel_account = Account(
-            account_number=parallel_number,
-            name=parallel_name,
-            type=self.type,  # نفس النوع (Asset, Liability, etc.)
-            transaction_type=parallel_type,
-            tracks_weight=parallel_tracks_weight,
-            parent_id=parallel_parent_id
-        )
-
-        db.session.add(parallel_account)
-        db.session.flush()  # ضروري: link_accounts() يتطلب id لكلا الطرفين
-
-        # جميع كتابات memo_account_id تمر حصراً عبر link_accounts().
-        from account_pair_service import link_accounts as _link
-        if self.transaction_type == 'cash':
-            _link(self, parallel_account, created_by='create_parallel_account')
-        else:
-            _link(parallel_account, self, created_by='create_parallel_account')
-
-        db.session.flush()
-        return parallel_account
 
     def __repr__(self):
         return f'<Account {self.name}>'

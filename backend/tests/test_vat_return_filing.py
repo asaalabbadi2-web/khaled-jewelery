@@ -100,7 +100,11 @@ def test_filing_a_period_closes_its_vat_into_what_is_owed(books):
     feb = datetime(2034, 2, 1)
     assert _moved(b['output'], feb) == 0 and _moved(b['input'], feb) == 0 and _moved(b['commission'], feb) == 0
     owed = db.session.get(Account, settlement_account_id())
-    assert owed.account_number == '2301' and _moved(owed) == -1180.0, 'owed to the authority'
+    # Made once under the mapped parent (230 on production, where 2301 is mapped):
+    # its place, not a number written here (CHART-002 release 5b).
+    from accounting.mappings import DEFAULT_MAPPING_OPERATION_TYPE, require_account
+    assert owed.parent_id == require_account(DEFAULT_MAPPING_OPERATION_TYPE, 'vat_settlement_parent')
+    assert _moved(owed) == -1180.0, 'owed to the authority'
     assert _moved(b['output']) == -99.0, "February's VAT is February's"
     assert filed['entry_number']
 

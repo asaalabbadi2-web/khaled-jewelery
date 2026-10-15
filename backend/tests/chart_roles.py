@@ -41,7 +41,10 @@ _NUMBERS = {
     'assets_root': ['1'], 'liabilities_root': ['2'], 'equity_root': ['3'], 'revenue_root': ['4'],
     'expenses_root': ['5'], 'operating_revenue_root': ['41'], 'cost_of_sales_root': ['51'],
     'operating_expenses_root': ['52'], 'gold_inventory_root': ['130'], 'worked_gold_suppliers_root': ['210'],
-    'valuation_equity': ['33'],
+    'valuation_equity': ['33'], 'cash_root': ['1100'],
+    # Release 5b: a party's opening equity; the VAT accounts' parents.
+    'opening_balance_equity': ['32', '31', '3600'], 'vat_settlement_parent': ['230'],
+    'vat_non_recoverable_parent': ['540'],
 }
 _NAMES = {
     'cash': ['صندوق النقدية'], 'sales_gold_new': ['مبيعات ذهب جديد'], 'sales_gold_scrap': ['مبيعات ذهب كسر'],

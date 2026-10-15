@@ -342,17 +342,10 @@ def _create_clearing_settlement_voucher(
                 .filter_by(default_safe_box_id=clearing_safe_box_id)
                 .first()
             )
+            # The method's own fee account -- its link. No account is guessed by
+            # number (5100/5110/5113 did not exist on production; CHART-002).
             if matched_pm and getattr(matched_pm, 'fee_expense_account_id', None):
                 fee_account_id = matched_pm.fee_expense_account_id
-            else:
-                # Fall back to a generic commission-expense account if it exists
-                generic = (
-                    Account.query.filter_by(account_number='5100').first()
-                    or Account.query.filter_by(account_number='5110').first()
-                    or Account.query.filter_by(account_number='5113').first()
-                )
-                if generic:
-                    fee_account_id = generic.id
 
         if not fee_account_id:
             raise ValueError('fee_account_id_required')
@@ -1122,16 +1115,13 @@ def create_bnpl_settlement():
             fee_account = Account.query.get(fee_account_id)
             if not fee_account:
                 return jsonify({'error': 'fee_account_id not found'}), 404
-        else:
-            if provider == 'tabby':
-                fee_account = Account.query.filter_by(account_number='5113').first()
-            elif provider == 'tamara':
-                fee_account = Account.query.filter_by(account_number='5114').first()
 
         if not fee_account:
+            # No account guessed by number for a provider (5113 tabby / 5114 tamara
+            # did not exist on production; CHART-002): the caller names it.
             return jsonify({
                 'error': 'fee_account is required for fee_amount > 0',
-                'hint': 'Provide fee_account_id or ensure accounts 5113/5114 exist'
+                'hint': 'Provide fee_account_id',
             }), 400
 
     # Balance check: prevent settling more than receivable tracked in system
@@ -1410,8 +1400,10 @@ def execute_weight_closing_profile():
         )
 
     memo_debit_account = Account.query.get(financial_account.memo_account_id) if financial_account.memo_account_id else None
-    default_memo_cash_account = Account.query.filter_by(account_number='71100').first()
-    memo_credit_account = default_memo_cash_account
+    # The cash group's weight twin, by its link (71100 on production; CHART-002).
+    from accounting.chart_tree import CASH_ROOT, role_account_id, twin_id
+    _cash_twin = twin_id(role_account_id(CASH_ROOT))
+    memo_credit_account = Account.query.get(_cash_twin) if _cash_twin else None
     if memo_debit_account and memo_credit_account and weight_main > 0:
         _record_memo_weight_transfer(
             journal_entry.id,

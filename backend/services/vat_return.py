@@ -26,7 +26,8 @@ from services.sales_vat import sales_vat_account_ids
 
 FILING = 'vat_return'
 SETTLEMENT_ROLE = 'vat_settlement'
-SETTLEMENT = ('2301', 'صافي ضريبة القيمة المضافة المستحقة للهيئة', '230')
+SETTLEMENT_PARENT_ROLE = 'vat_settlement_parent'   # 230 «ضريبة القيمة المضافة المستحقة» on production
+SETTLEMENT_NAME = 'صافي ضريبة القيمة المضافة المستحقة للهيئة'
 CENT = 0.005
 
 
@@ -37,23 +38,25 @@ class VatReturnRefused(ValueError):
 
 
 def settlement_account_id() -> int:
-    """2301, mapped -- or made once under 230 with its weight twin, and mapped."""
+    """The settlement account, mapped -- or made once under the mapped parent (230
+    on production; 2301 there is mapped by migration 20261015_live_roles) with its
+    weight twin, and mapped. No number: the parent is a role (CHART-002 release 5)."""
+    from account_number_generator import get_next_account_number
     from employee_account_helpers import ensure_memo_for_account
     mapped = get_account_id_for_mapping(DEFAULT_MAPPING_OPERATION_TYPE, SETTLEMENT_ROLE)
     if mapped:
         return mapped
-    number, name, parent_number = SETTLEMENT
-    account = Account.query.filter_by(account_number=number).first()
-    if account is None:
-        parent = Account.query.filter_by(account_number=parent_number).first()
-        if parent is None:
-            raise VatReturnRefused('NO_VAT_PARENT', f'الحساب {parent_number} غير موجود لصافي الضريبة المستحقة')
-        account = Account(account_number=number, name=name, type='Liability', transaction_type='cash',
-                          parent_id=parent.id)
-        db.session.add(account)
-        db.session.flush()
-        if parent.memo_account_id:
-            ensure_memo_for_account(account)
+    parent_id = get_account_id_for_mapping(DEFAULT_MAPPING_OPERATION_TYPE, SETTLEMENT_PARENT_ROLE)
+    if not parent_id:
+        raise VatReturnRefused('NO_VAT_PARENT', f'لا حساب مربوط للدور ({SETTLEMENT_PARENT_ROLE}): أبو صافي الضريبة '
+                                                f'المستحقة يُضبط في «الربط المحاسبي»')
+    parent = db.session.get(Account, parent_id)
+    account = Account(account_number=str(get_next_account_number(str(parent.account_number), use_spacing=False)),
+                      name=SETTLEMENT_NAME, type='Liability', transaction_type='cash', parent_id=parent.id)
+    db.session.add(account)
+    db.session.flush()
+    if parent.memo_account_id:
+        ensure_memo_for_account(account)
     db.session.add(AccountingMapping(operation_type=DEFAULT_MAPPING_OPERATION_TYPE, account_type=SETTLEMENT_ROLE,
                                      account_id=account.id, is_active=True))
     db.session.flush()

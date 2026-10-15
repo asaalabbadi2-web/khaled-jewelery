@@ -85,7 +85,6 @@ from services.gold_allocation_service import (
     create_gold_obligations_for_invoice,
     reverse_gold_allocations_for_invoice,
 )
-from services.journals import create_wage_weight_release_journal
 from services.weight_execution import list_weight_profiles, resolve_weight_profile
 from settlement_state_service import get_settled_amounts, is_locked
 from utils import normalize_number
@@ -6436,9 +6435,9 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
 
         # معرف حساب العميل/الطرف المستخدم في القيود اللاحقة (مثل القيود الوزنية)
         customer_account_id = None
-        # ✅ الصحيح: حساب النقدية الوزني هو 71100 (وليس 7100)
-        default_memo_cash_account = Account.query.filter_by(account_number='71100').first()
-        default_memo_cash_account_id = default_memo_cash_account.id if default_memo_cash_account else None
+        # توأم مجموعة النقدية المربوط (71100 على الإنتاج) — بالربط لا بالرقم (CHART-002)
+        from accounting.chart_tree import CASH_ROOT, role_account_id, twin_id
+        default_memo_cash_account_id = twin_id(role_account_id(CASH_ROOT))
 
         memo_party_account = None
         if party_account and party_account.memo_account_id:

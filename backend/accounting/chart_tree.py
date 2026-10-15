@@ -29,10 +29,11 @@ OPERATING_EXPENSES_ROOT = 'operating_expenses_root'      # 52 «مصاريف ت�
 GOLD_INVENTORY_ROOT = 'gold_inventory_root'              # 130 «المخزون»
 WORKED_GOLD_SUPPLIERS_ROOT = 'worked_gold_suppliers_root'  # 210 «موردو الذهب المشغول»
 VALUATION_EQUITY = 'valuation_equity'                    # 33 «فروقات تقييم الذهب»
+CASH_ROOT = 'cash_root'                                  # 1100 «النقدية»: its twin, the cash weight side
 
 GROUP_ROLES = (ASSETS_ROOT, LIABILITIES_ROOT, EQUITY_ROOT, REVENUE_ROOT, EXPENSES_ROOT, OPERATING_REVENUE_ROOT,
                COST_OF_SALES_ROOT, OPERATING_EXPENSES_ROOT, GOLD_INVENTORY_ROOT, WORKED_GOLD_SUPPLIERS_ROOT,
-               VALUATION_EQUITY)
+               VALUATION_EQUITY, CASH_ROOT)
 ROOT_ROLES = (SUPPLIER_PAYABLES_ROOT, CUSTOMER_RECEIVABLES_ROOT, *GROUP_ROLES)
 
 

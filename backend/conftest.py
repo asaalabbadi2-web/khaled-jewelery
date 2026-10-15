@@ -301,6 +301,12 @@ def initialize_db():
         _group('52', 'مصاريف تشغيلية', 'Expense', parent=expenses)
         _group('130', 'المخزون', 'Asset', parent=assets)
         _group('33', 'فروقات تقييم الذهب', 'Equity', parent=equity)
+        # Release 5b: the cash group (its twin, the cash weight side), a party's
+        # opening equity, and the VAT accounts' parents.
+        _group('1100', 'النقدية', 'Asset', parent=assets)
+        _group('32', 'أرباح/خسائر محتجزة', 'Equity', parent=equity)
+        _group('230', 'ضريبة القيمة المضافة المستحقة', 'Liability', parent=Account.query.filter_by(account_number='2').one())
+        _group('540', 'المصاريف الإدارية والعمومية', 'Expense', parent=Account.query.filter_by(account_number='52').one())
 
         # Roles mapped as the test chart has always resolved them (CHART-002).
         db.session.flush()

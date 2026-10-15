@@ -8,7 +8,6 @@ from .weight_ledger_service import (
     weight_ledger_service,
     should_create_weight_entry,
     convert_amount_to_weight,
-    is_inventory_account
 )
 
 __all__ = [
@@ -17,5 +16,4 @@ __all__ = [
     'weight_ledger_service',
     'should_create_weight_entry',
     'convert_amount_to_weight',
-    'is_inventory_account',
 ]

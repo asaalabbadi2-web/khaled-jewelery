@@ -2702,26 +2702,18 @@ def get_app_config():
                 'name': account.name,
             }
 
-        def _resolve_aggregate(account_type: str, fallback_numbers: list[str]):
-            # Prefer explicit mapping under operation_type='سندات'
+        def _resolve_aggregate(account_type: str):
+            # The mapping under operation_type='سندات', or none: no account by number
+            # (the customers' fell back on 1100 «النقدية» on production; CHART-002).
             mapping = AccountingMapping.query.filter_by(
                 operation_type='سندات',
                 account_type=account_type,
                 is_active=True,
             ).first()
-            if mapping and mapping.account:
-                return _account_payload(mapping.account)
+            return _account_payload(mapping.account) if mapping and mapping.account else None
 
-            # Fallback to well-known account numbers (supports different charts)
-            for num in fallback_numbers:
-                acc = Account.query.filter_by(account_number=str(num)).first()
-                if acc:
-                    return _account_payload(acc)
-
-            return None
-
-        customers_agg = _resolve_aggregate('customers', ['1100', '1110', '1120'])
-        suppliers_agg = _resolve_aggregate('suppliers', ['220', '211'])
+        customers_agg = _resolve_aggregate('customers')
+        suppliers_agg = _resolve_aggregate('suppliers')
 
         return jsonify({
             'main_karat': int(getattr(settings, 'main_karat', 21) or 21) if settings else 21,

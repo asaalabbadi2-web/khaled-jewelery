@@ -1,14 +1,5 @@
 {
-  "account_number_generator.py": 2,
   "accounting/twins.py": 1,
-  "models.py": 14,
-  "offices_routes.py": 3,
-  "payment_methods_routes.py": 1,
-  "routes/clearing.py": 6,
-  "routes/invoices.py": 1,
-  "routes/system.py": 3,
-  "routes/vouchers.py": 11,
-  "services/journals.py": 4,
   "services/repair/chart_001.py": 9,
   "services/repair/gold_statements.py": 6,
   "services/repair/karat_diff_commission.py": 1,
@@ -16,9 +7,6 @@
   "services/repair/office_reservation_weights.py": 2,
   "services/repair/stage4_closing.py": 5,
   "services/repair/stage4_package.py": 5,
-  "services/vat_policy.py": 1,
-  "services/vat_return.py": 2,
-  "services/weight_ledger_service.py": 5,
   "tools/repair/gold_statements.py": 1,
   "tools/repair/sales_vat_to_revenue.py": 1
 }

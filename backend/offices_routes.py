@@ -161,26 +161,14 @@ def _create_opening_entry_for_supplier(
     supplier_fin_id = int(accounts.financial.id)
     supplier_memo_id = int(accounts.memo.id)
 
-    # Equity offset account (varies by COA version).
-    # Legacy used 31/32. Current system may use 3600 (with memo 7600).
-    equity_fin = (
-        Account.query.filter_by(account_number='32').first()
-        or Account.query.filter_by(account_number='31').first()
-        or Account.query.filter_by(account_number='3600').first()
-        or Account.query.filter_by(type='Equity', tracks_weight=False).first()
-        or Account.query.filter_by(type='Equity').first()
-    )
-    if not equity_fin:
-        raise ValueError('تعذر العثور على حساب حقوق الملكية لتسجيل الرصيد الافتتاحي')
-
-    equity_memo_id = getattr(equity_fin, 'memo_account_id', None)
-    if not equity_memo_id:
-        try:
-            equity_fin.create_parallel_account()
-            db.session.flush()
-        except Exception:
-            pass
-        equity_memo_id = getattr(equity_fin, 'memo_account_id', None)
+    # The equity a party's opening balance is set against: the mapped role (32
+    # «أرباح/خسائر محتجزة» on production), its weight side the linked twin -- not
+    # 32/31/3600 by number, nor a twin built here (CHART-002 release 5).
+    from accounting.mappings import DEFAULT_MAPPING_OPERATION_TYPE, require_account
+    equity_fin = db.session.get(Account, require_account(DEFAULT_MAPPING_OPERATION_TYPE, 'opening_balance_equity'))
+    equity_memo_id = equity_fin.memo_account_id
+    if abs(opening_gold_main) > 0.0001 and not equity_memo_id:
+        raise ValueError(f'«{equity_fin.name}» بلا حساب وزني مربوط — لا يُقيَّد الرصيد الافتتاحي الذهبي دونه')
 
     now = datetime.now()
     entry = JournalEntry(

@@ -41,7 +41,6 @@ from accounting.mappings import (DEFAULT_MAPPING_OPERATION_TYPE, get_account_id_
                                  require_account)
 from core.settings import _get_settings_singleton
 from accounting.wages import manufacturing_wage_expense_account_id
-from services.journals import create_wage_weight_release_journal
 from services.live_balances import live_balances_by_account_ids, safe_box_balances_bulk
 from utils import normalize_number
 from routes import (
@@ -3765,42 +3764,6 @@ def get_weight_based_income_statement():
         print(f"❌ Error generating weight-based income statement: {e}")
         return jsonify({'error': f'فشل إنشاء قائمة الدخل الوزنية: {str(e)}'}), 500
 
-@reports_bp.route('/release-wage-weight', methods=['POST'])
-@require_permission('journal.create')
-def release_wage_weight():
-    data = request.get_json(silent=True) or {}
-    grams_raw = data.get('grams')
-    note = data.get('note') or data.get('description') or 'تحرير وزن أجور المصنعية'
-    karat_value = data.get('karat') or data.get('main_karat') or get_main_karat()
-
-    try:
-        grams_value = float(normalize_number(str(grams_raw))) if grams_raw not in (None, '') else 0.0
-    except Exception:
-        grams_value = 0.0
-
-    if grams_value <= 0:
-        return jsonify({'error': 'Invalid weight value'}), 400
-
-    try:
-        journal_entry = create_wage_weight_release_journal(
-            weight_grams=grams_value,
-            note=note,
-            karat=karat_value
-        )
-    except ValueError as exc:
-        db.session.rollback()
-        return jsonify({'error': str(exc)}), 400
-    except Exception as exc:
-        db.session.rollback()
-        print(f"❌ Error releasing wage weight: {exc}")
-        return jsonify({'error': 'فشل تحرير وزن الأجور'}), 500
-
-    return jsonify({
-        'status': 'ok',
-        'journal_entry_id': journal_entry.id,
-        'entry_number': journal_entry.entry_number,
-        'weight_grams': round(grams_value, 6)
-    }), 201
 
 @reports_bp.route('/dual_system/account_statement', methods=['GET'])
 @require_permission('reports.financial')

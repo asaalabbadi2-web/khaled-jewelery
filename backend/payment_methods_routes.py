@@ -1298,12 +1298,9 @@ def get_bank_accounts_for_payment_methods():
         # أو الحسابات ذات النوع المحدد
         eligible_types = ['bank_account', 'cash', 'digital_wallet', 'receivable']
 
-        # جلب الحسابات بناءً على النوع أو رقم الحساب (يبدأ بـ 10)
+        # جلب الحسابات بنوعها — لا ببادئة الرقم (البادئة 10 لم تطابق حسابًا على الإنتاج — CHART-002)
         available_accounts = Account.query.filter(
-            db.or_(
-                Account.account_type.in_(eligible_types),
-                Account.account_number.like('10%')
-            )
+            Account.account_type.in_(eligible_types)
         ).order_by(Account.account_number).all()
         
         # تصفية الحسابات لإزالة الحسابات الفرعية لوسائل الدفع

@@ -297,7 +297,7 @@ def get_next_party_account_number(parent_account_number: str) -> str:
     return get_next_account_number(parent_digits, use_spacing=False)
 
 
-def get_customer_account_capacity(customer_category: str = '1200') -> dict:
+def get_customer_account_capacity(customer_category: str) -> dict:
     """
     احصل على معلومات السعة المتاحة لفئة عملاء معينة
     
@@ -494,22 +494,3 @@ def validate_account_number(
         }
 
     return {'is_valid': True, 'message': 'رقم الحساب صحيح ومتاح'}
-
-
-if __name__ == '__main__':
-    # اختبار الدوال
-    from app import app
-    
-    with app.app_context():
-        # مثال 1: عملاء بيع ذهب
-        print("=== عملاء بيع ذهب ===")
-        result = suggest_account_number_with_validation('1100')
-        print(f"الرقم المقترح: {result['suggested_number']}")
-        if result['capacity_info']:
-            print(f"السعة المستخدمة: {result['capacity_info']['used']} / {result['capacity_info']['total_capacity']}")
-            print(f"نسبة الاستخدام: {result['capacity_info']['usage_percentage']}%")
-        
-        print("\n=== حسابات بنكية ===")
-        result = suggest_account_number_with_validation('100')
-        print(f"الرقم المقترح للبنك الجديد: {result['suggested_number']}")
-        print(f"استخدام التباعد: {result['use_spacing']}")

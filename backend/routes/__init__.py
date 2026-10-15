@@ -10,7 +10,7 @@
 #   catalog      → routes/catalog.py     ✅ (16 routes — items, categories, category-weight)
 #   safe_boxes   → routes/safe_boxes.py  ✅ (18 routes)
 #   journals     → routes/journals.py    ✅ (8 routes)
-#   vouchers     → routes/vouchers.py    ✅ (9 routes — vouchers + initialize-payment-system)
+#   vouchers     → routes/vouchers.py    ✅ (8 routes)
 #   clearing     → routes/clearing.py    ✅ (6 routes + weight-closing cash/execute)
 #   office_res   → routes/office_reservations.py ✅ (5 routes)
 #   admin        → routes/admin.py       ✅ (9 routes — temp-pdf + admin)
@@ -97,7 +97,6 @@ from dual_system_helpers import (
     verify_dual_balance,
     get_account_balances,
 )
-from services.journals import create_wage_weight_release_journal
 from services.weight_execution import list_weight_profiles, resolve_weight_profile
 from services.live_balances import (
     live_balances_by_account_ids,
@@ -1143,8 +1142,7 @@ def _resolve_account_id_for_amount_type(account_id, amount_type, *, safe_account
 #  GET /vouchers, GET /vouchers/<id>, POST /vouchers,
 #  PUT /vouchers/<id>, DELETE /vouchers/<id>,
 #  POST /vouchers/<id>/approve, POST /vouchers/<id>/cancel,
-#  GET /vouchers/stats,
-#  POST /initialize-payment-system)
+#  GET /vouchers/stats)
 
 # Reports domain → routes/reports.py (cluster 2)
 # (GET /reports/gold_price_history, GET /reports/gold_position)
