@@ -8,6 +8,28 @@ enum AccountTracksWeightFilter { all, weightOnly, nonWeightOnly }
 
 enum AccountLeafFilter { all, leafOnly }
 
+int? _idOf(dynamic v) {
+  if (v is int) return v;
+  if (v is num) return v.toInt();
+  return int.tryParse('${v ?? ''}');
+}
+
+/// The ids some account names as its parent: the group accounts.
+Set<int> parentAccountIdsOf(Iterable<Map<String, dynamic>> accounts) => {
+      for (final a in accounts)
+        if (_idOf(a['parent_id'] ?? a['parentId']) != null)
+          _idOf(a['parent_id'] ?? a['parentId'])!,
+    };
+
+/// A detail account -- one posted to -- is one no account is under; never
+/// judged by how long its number is (ACCT-LEAF-1: by length, the voucher
+/// screen offered 48 group accounts and hid 27 detail ones, 310 رأس المال
+/// among them, 15 Oct 2026).
+bool isLeafAccount(Map<String, dynamic> account, Set<int> parentIds) {
+  final id = _idOf(account['id']);
+  return id == null || !parentIds.contains(id);
+}
+
 String accountNumberOf(Map<String, dynamic> account) {
   final v =
       account['account_number'] ??
@@ -92,11 +114,7 @@ Future<Map<String, dynamic>?> showAccountPickerBottomSheet({
         return int.tryParse('${v ?? ''}');
       }
 
-      final parentIds = <int>{
-        for (final a in accounts)
-          if (toInt(a['parent_id'] ?? a['parentId']) != null)
-            toInt(a['parent_id'] ?? a['parentId'])!,
-      };
+      final parentIds = parentAccountIdsOf(accounts);
 
       // Same merge as the accounts list screen (see _annotateMemoLinks in
       // accounts_screen.dart): a leaf financial account paired with a leaf
@@ -162,10 +180,7 @@ Future<Map<String, dynamic>?> showAccountPickerBottomSheet({
         bool leafOk(Map<String, dynamic> a) {
           if (!showLeafOnlyFilter) return true;
           if (leafFilter == AccountLeafFilter.all) return true;
-          final id = toInt(a['id']);
-          if (id == null) return true;
-          // leafOnly: exclude any account that appears as a parent_id.
-          return !parentIds.contains(id);
+          return isLeafAccount(a, parentIds);
         }
 
         bool queryOk(Map<String, dynamic> a) {

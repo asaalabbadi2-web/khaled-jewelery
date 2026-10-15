@@ -1571,7 +1571,7 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
             const SizedBox(height: 12),
             _buildAccountPickerRow(
               label: 'حساب إيراد الفصوص',
-              subtitle: 'دائن عند التجديد — إيراد يُعترف به عند العرض (44xx)',
+              subtitle: 'دائن عند التجديد — إيراد يُعترف به عند العرض',
               accountId: _stonesDisplayRevenueAccountId,
               icon: Icons.storefront_outlined,
               onPick: () async {

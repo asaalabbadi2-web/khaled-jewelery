@@ -236,6 +236,8 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
   List<Map<String, dynamic>> _customers = [];
   List<Map<String, dynamic>> _suppliers = [];
   List<Map<String, dynamic>> _accounts = [];
+  // The group accounts (some account is under them): not posted to.
+  Set<int> _parentAccountIds = {};
   List<SafeBoxModel> _safeBoxes = [];
 
   int? _customersAggregateAccountId;
@@ -1184,6 +1186,7 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
             .whereType<Map<String, dynamic>>()
             .map((a) => Map<String, dynamic>.from(a))
             .toList();
+        _parentAccountIds = parentAccountIdsOf(_accounts);
         _safeBoxes = safeBoxes;
 
         _customersAggregateAccountId = customersAggId;
@@ -1279,14 +1282,13 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
 
     // للحالات الأخرى: نعرض الحسابات العادية
 
-    // فلترة الحسابات: إظهار الحسابات التفصيلية فقط (4 خانات أو أكثر)،
+    // فلترة الحسابات: إظهار الحسابات التفصيلية فقط (ما ليس أبًا لحساب)،
     // وتطابق نوع المبلغ (نقدي/ذهب) لهذا السطر تلقائياً -- بنفس حقل
     // transaction_type المستخدَم في فلتر "نقدي/ذهبي/كلاهما" بديلوج
     // "الطرف: آخر"، فيتغيّر محتوى القائمة فوراً عند تبديل نوع السطر بدل
     // اختلاط حسابات نقدية ووزنية معاً بلا علاقة بما هو محدَّد.
     final detailedAccounts = _accounts.where((acc) {
-      final accountNumber = acc['account_number'].toString();
-      if (accountNumber.length < 4) return false; // حسابات تفصيلية فقط
+      if (!isLeafAccount(acc, _parentAccountIds)) return false; // حسابات تفصيلية فقط
 
       final t = (acc['transaction_type'] ?? 'both').toString().toLowerCase();
       if (amountType == 'gold') return t == 'gold' || t == 'both';
@@ -2608,7 +2610,6 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
                     ? 'اختر الحساب الداخلي المصدر للتحويل إلى الخزينة.'
                     : 'اختر الحساب المناسب (مصروف، سلفة، إلخ)',
                 predicate: (a) {
-                  final accNum = accountNumberOf(a);
                   final safeType = (a['safe_box_type'] ?? '')
                       .toString()
                       .trim()
@@ -2640,7 +2641,7 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
                   // entirely (vs. just not being the common case) made them
                   // unreachable from this picker. Category/parent accounts
                   // are still excluded since you can't post to them directly.
-                  return accNum.length >= 4;
+                  return isLeafAccount(a, _parentAccountIds);
                 },
                 showTransactionTypeFilter: true,
                 showTracksWeightFilter: false,
