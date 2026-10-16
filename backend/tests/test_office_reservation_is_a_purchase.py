@@ -159,3 +159,17 @@ def test_a_settlement_with_no_weight_twin_is_refused(auth_headers, rworld):
     db.session.expire_all()
     assert db.session.get(OfficeReservation, rid).purchase_invoice_id is None
     assert _books(rworld) == before
+
+
+def test_a_settled_reservation_opens_no_weight_closing_order_for_its_purchase(auth_headers, rworld):
+    """A purchase closes riyals; it opens none (ADR-048, the owner 16 Oct 2026).
+    The settlement opened an order for its own purchase invoice, as if a sale:
+    on the 15 Oct copy 33 such orders (6,532.8 g), and eight executions closed
+    one purchase against another -- one of them, 26 Feb, its own."""
+    from models import OfficeReservation, WeightClosingOrder
+    rid = _create(auth_headers, rworld)
+    assert _settle(auth_headers, rid).status_code == 200
+    db.session.expire_all()
+    purchase_id = db.session.get(OfficeReservation, rid).purchase_invoice_id
+    assert purchase_id
+    assert WeightClosingOrder.query.filter_by(invoice_id=purchase_id).count() == 0

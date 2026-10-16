@@ -487,7 +487,6 @@ def settle_office_reservation(reservation_id: int):
             )
         )
 
-        _upsert_weight_closing_order(purchase_invoice, execution_price, settings=settings)
 
         reservation.purchase_invoice_id = purchase_invoice.id
         db.session.add(reservation)
