@@ -30,6 +30,16 @@ enum InvoiceKind {
   final String label;
 }
 
+/// نوع السند: لون هويته في شاشته، ولا يكون لون الخطأ -- الأحمر يقول «انتبه»،
+/// والصرف عملية عادية (ADR-049).
+enum VoucherKind {
+  receipt('قبض'),
+  payment('صرف');
+
+  const VoucherKind(this.label);
+  final String label;
+}
+
 /// الألوان ذات المعنى في التطبيق (ثيم-٠): حالة الجاهزية، ومدين/دائن،
 /// وذهب/نقد، والعيارات. لكل وضع نسخته، وتباين كل لون مع البطاقة
 /// والخلفية ونص حاويته لا يقل عن ٤٫٥:١.
@@ -55,6 +65,8 @@ class AppSemanticColors extends ThemeExtension<AppSemanticColors> {
     required this.invoicePurchase,
     required this.invoicePurchaseScrap,
     required this.invoiceReturn,
+    required this.voucherReceipt,
+    required this.voucherPayment,
     required this.sectionGreen,
     required this.sectionOrange,
     required this.sectionAmber,
@@ -86,6 +98,8 @@ class AppSemanticColors extends ThemeExtension<AppSemanticColors> {
   final SemanticTone invoicePurchase;
   final SemanticTone invoicePurchaseScrap;
   final SemanticTone invoiceReturn;
+  final SemanticTone voucherReceipt;
+  final SemanticTone voucherPayment;
 
   /// ألوان أقسام القائمة والدرج في الشاشة الرئيسية: لكل قسم لونه كما عرفه
   /// الموظفون، وهو هنا ليتبع الوضع الداكن.
@@ -111,6 +125,12 @@ class AppSemanticColors extends ThemeExtension<AppSemanticColors> {
     InvoiceKind.purchase => invoicePurchase,
     InvoiceKind.purchaseScrap => invoicePurchaseScrap,
     InvoiceKind.returned => invoiceReturn,
+  };
+
+  /// لون نوع السند.
+  SemanticTone voucher(VoucherKind kind) => switch (kind) {
+    VoucherKind.receipt => voucherReceipt,
+    VoucherKind.payment => voucherPayment,
   };
 
   /// شريط شاشة الفاتورة: في الفاتح لون النوع بنص أبيض، وفي الداكن حاوية
@@ -156,6 +176,8 @@ class AppSemanticColors extends ThemeExtension<AppSemanticColors> {
     'invoicePurchase': invoicePurchase,
     'invoicePurchaseScrap': invoicePurchaseScrap,
     'invoiceReturn': invoiceReturn,
+    'voucherReceipt': voucherReceipt,
+    'voucherPayment': voucherPayment,
     'sectionGreen': sectionGreen,
     'sectionOrange': sectionOrange,
     'sectionAmber': sectionAmber,
@@ -245,6 +267,16 @@ class AppSemanticColors extends ThemeExtension<AppSemanticColors> {
       Color(0xFFB71C1C),
       Color(0xFFFFDAD6),
       Color(0xFF410002),
+    ),
+    voucherReceipt: SemanticTone(
+      Color(0xFF1E6B2C),
+      Color(0xFFDDF1DF),
+      Color(0xFF0B3D14),
+    ),
+    voucherPayment: SemanticTone(
+      Color(0xFF3949AB),
+      Color(0xFFE2E5F7),
+      Color(0xFF141B52),
     ),
     sectionGreen: SemanticTone(
       Color(0xFF1E6B2C),
@@ -382,6 +414,16 @@ class AppSemanticColors extends ThemeExtension<AppSemanticColors> {
       Color(0xFF7A1F1F),
       Color(0xFFFFDAD6),
     ),
+    voucherReceipt: SemanticTone(
+      Color(0xFF7FD08A),
+      Color(0xFF1F3A24),
+      Color(0xFFCDEFD2),
+    ),
+    voucherPayment: SemanticTone(
+      Color(0xFFB3BCF5),
+      Color(0xFF1F2548),
+      Color(0xFFDDE1FB),
+    ),
     sectionGreen: SemanticTone(
       Color(0xFF7FD08A),
       Color(0xFF1F3A24),
@@ -480,6 +522,8 @@ class AppSemanticColors extends ThemeExtension<AppSemanticColors> {
         t,
       ),
       invoiceReturn: SemanticTone.lerp(invoiceReturn, other.invoiceReturn, t),
+      voucherReceipt: SemanticTone.lerp(voucherReceipt, other.voucherReceipt, t),
+      voucherPayment: SemanticTone.lerp(voucherPayment, other.voucherPayment, t),
       sectionGreen: SemanticTone.lerp(sectionGreen, other.sectionGreen, t),
       sectionOrange: SemanticTone.lerp(sectionOrange, other.sectionOrange, t),
       sectionAmber: SemanticTone.lerp(sectionAmber, other.sectionAmber, t),

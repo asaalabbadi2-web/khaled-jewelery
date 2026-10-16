@@ -654,12 +654,16 @@ class _VoucherDetailsScreenState extends State<VoucherDetailsScreen> {
 
     switch (voucherType) {
       case 'receipt':
-        typeColor = Colors.green;
+        typeColor = theme.AppSemanticColors.of(
+          context,
+        ).voucher(theme.VoucherKind.receipt).fg;
         typeIcon = Icons.south;
         typeText = 'سند قبض';
         break;
       case 'payment':
-        typeColor = Colors.red;
+        typeColor = theme.AppSemanticColors.of(
+          context,
+        ).voucher(theme.VoucherKind.payment).fg;
         typeIcon = Icons.north;
         typeText = 'سند صرف';
         break;

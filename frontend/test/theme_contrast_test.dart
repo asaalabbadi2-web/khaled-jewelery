@@ -98,6 +98,24 @@ void main() {
         expect(colors, hasLength(InvoiceKind.values.length));
       });
 
+      // ADR-049: red says «look out»; paying out is an ordinary act.
+      test('a voucher type wears its own color, never the error red', () {
+        final sem = theme.extension<AppSemanticColors>()!;
+        final reds = {s.error, sem.blocked.fg, sem.blocked.container};
+        for (final kind in VoucherKind.values) {
+          expect(reds, isNot(contains(sem.voucher(kind).fg)), reason: kind.name);
+          expect(
+            reds,
+            isNot(contains(sem.voucher(kind).container)),
+            reason: kind.name,
+          );
+        }
+        expect(
+          sem.voucher(VoucherKind.receipt).fg,
+          isNot(sem.voucher(VoucherKind.payment).fg),
+        );
+      });
+
       final semantic = theme.extension<AppSemanticColors>();
       test('semantic colors are on the theme', () {
         expect(semantic, isNotNull);

@@ -15,7 +15,9 @@ import '../api_service.dart';
 import 'clearing_settlement_screen.dart';
 import 'voucher_details_screen.dart';
 import 'add_voucher_screen.dart';
+import '../theme/app_button_styles.dart';
 import '../theme/app_semantic_colors.dart';
+import '../theme/app_tokens.dart';
 import '../providers/auth_provider.dart';
 import '../widgets/cancelled_vouchers_bar.dart';
 import '../widgets/widgets.dart';
@@ -2855,7 +2857,7 @@ class _VouchersListScreenState extends State<VouchersListScreen>
               child: _buildQuickActionButton(
                 label: 'تسوية تحصيل',
                 icon: Icons.swap_horiz,
-                backgroundColor: _tone.warning.fg,
+                tone: _tone.warning,
                 onPressed: () async {
                   final changed = await Navigator.of(context).push<bool>(
                     MaterialPageRoute(
@@ -2873,7 +2875,7 @@ class _VouchersListScreenState extends State<VouchersListScreen>
               child: _buildQuickActionButton(
                 label: 'سند قبض',
                 icon: Icons.south,
-                backgroundColor: _tone.ready.fg,
+                tone: _tone.voucher(VoucherKind.receipt),
                 onPressed: () => _navigateToAddVoucher('receipt'),
               ),
             ),
@@ -2882,7 +2884,7 @@ class _VouchersListScreenState extends State<VouchersListScreen>
               child: _buildQuickActionButton(
                 label: 'سند صرف',
                 icon: Icons.north,
-                backgroundColor: _tone.blocked.fg,
+                tone: _tone.voucher(VoucherKind.payment),
                 onPressed: () => _navigateToAddVoucher('payment'),
               ),
             ),
@@ -2895,22 +2897,19 @@ class _VouchersListScreenState extends State<VouchersListScreen>
   Widget _buildQuickActionButton({
     required String label,
     required IconData icon,
-    required Color backgroundColor,
+    required SemanticTone tone,
     required VoidCallback onPressed,
   }) {
+    // Three side by side: soft, each in its kind's tone (ADR-049) -- not
+    // three loud blocks across the bottom of the screen.
     return SizedBox(
-      height: 46,
-      child: ElevatedButton.icon(
+      height: kMinTapHeight,
+      child: FilledButton.icon(
         onPressed: onPressed,
-        style: ElevatedButton.styleFrom(
-          backgroundColor: backgroundColor,
-          foregroundColor: _cs.onPrimary,
-          elevation: 0,
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
+        style: AppButtonStyles.tonal(tone).copyWith(
+          padding: const WidgetStatePropertyAll(
+            EdgeInsets.symmetric(horizontal: AppSpace.sm),
           ),
-          textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
         ),
         icon: Icon(icon, size: 18),
         label: FittedBox(
@@ -3082,13 +3081,13 @@ class _VouchersListScreenState extends State<VouchersListScreen>
       case 'receipt':
         return _VoucherVisuals(
           label: 'قبض',
-          color: _tone.ready.fg,
+          color: _tone.voucher(VoucherKind.receipt).fg,
           icon: Icons.south,
         );
       case 'payment':
         return _VoucherVisuals(
           label: 'صرف',
-          color: _tone.blocked.fg,
+          color: _tone.voucher(VoucherKind.payment).fg,
           icon: Icons.north,
         );
       case 'adjustment':

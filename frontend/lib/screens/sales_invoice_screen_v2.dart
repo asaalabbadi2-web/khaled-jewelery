@@ -3802,21 +3802,10 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                     ],
                   ),
                 ),
-                FilledButton.icon(
+                FilledButton.tonalIcon(
                   onPressed: _addNewCustomer,
                   icon: const Icon(Icons.person_add_alt_1),
                   label: const Text('عميل جديد'),
-                  style: FilledButton.styleFrom(
-                    backgroundColor: AppColors.success,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 18,
-                      vertical: 12,
-                    ),
-                    textStyle: theme.textTheme.bodyMedium?.copyWith(
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
                 ),
               ],
             ),
@@ -6456,25 +6445,10 @@ class _CategoryLineDialogState extends State<_CategoryLineDialog> {
                       ),
                     ),
                     const SizedBox(width: 12),
-                    ElevatedButton.icon(
+                    FilledButton.icon(
                       onPressed: _submit,
                       icon: const Icon(Icons.check, size: 20),
                       label: const Text('إضافة السطر'),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFFD4AF37),
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 24,
-                          vertical: 14,
-                        ),
-                        elevation: 2,
-                        shadowColor: const Color(
-                          0xFFD4AF37,
-                        ).withValues(alpha: 0.4),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                      ),
                     ),
                   ],
                 ),

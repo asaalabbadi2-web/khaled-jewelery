@@ -2,8 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'app_semantic_colors.dart';
+import 'app_tokens.dart';
 
+export 'app_button_styles.dart';
 export 'app_semantic_colors.dart';
+export 'app_tokens.dart';
 
 /// نظام الألوان الذهبي لتطبيق مجوهرات خالد
 class AppColors {
@@ -211,6 +214,19 @@ ThemeData _buildTheme({
   );
   final isDark = scheme.brightness == Brightness.dark;
 
+  // ADR-049: every button has one shape, one height and one label style;
+  // only its weight differs (filled, tonal, outlined, text). Flat: a shadow
+  // under every button made the screen loud (the owner, 17 Oct 2026).
+  final buttonShape = RoundedRectangleBorder(
+    borderRadius: BorderRadius.circular(AppRadius.control),
+  );
+  const buttonPadding = EdgeInsets.symmetric(
+    horizontal: AppSpace.lg + AppSpace.xs,
+    vertical: AppSpace.sm + 2,
+  );
+  const buttonMinimumSize = Size(64, kMinTapHeight);
+  TextStyle buttonLabel(Color color) => t(14, FontWeight.w600, color);
+
   return ThemeData(
     useMaterial3: true,
     brightness: scheme.brightness,
@@ -235,7 +251,9 @@ ThemeData _buildTheme({
       color: card,
       surfaceTintColor: Colors.transparent,
       elevation: isDark ? 4 : 2,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(AppRadius.card),
+      ),
       shadowColor: Colors.black.withValues(alpha: isDark ? 0.3 : 0.08),
     ),
 
@@ -284,10 +302,45 @@ ThemeData _buildTheme({
       style: ElevatedButton.styleFrom(
         backgroundColor: scheme.primary,
         foregroundColor: scheme.onPrimary,
-        elevation: isDark ? 4 : 2,
-        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        textStyle: t(14, FontWeight.bold, scheme.onPrimary),
+        elevation: 0,
+        padding: buttonPadding,
+        minimumSize: buttonMinimumSize,
+        shape: buttonShape,
+        textStyle: buttonLabel(scheme.onPrimary),
+      ),
+    ),
+
+    filledButtonTheme: FilledButtonThemeData(
+      style: FilledButton.styleFrom(
+        elevation: 0,
+        padding: buttonPadding,
+        minimumSize: buttonMinimumSize,
+        shape: buttonShape,
+        textStyle: buttonLabel(scheme.onPrimary),
+      ),
+    ),
+
+    outlinedButtonTheme: OutlinedButtonThemeData(
+      style: OutlinedButton.styleFrom(
+        foregroundColor: scheme.primary,
+        side: BorderSide(color: scheme.outline),
+        padding: buttonPadding,
+        minimumSize: buttonMinimumSize,
+        shape: buttonShape,
+        textStyle: buttonLabel(scheme.primary),
+      ),
+    ),
+
+    textButtonTheme: TextButtonThemeData(
+      style: TextButton.styleFrom(
+        foregroundColor: scheme.primary,
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppSpace.md,
+          vertical: AppSpace.sm,
+        ),
+        minimumSize: buttonMinimumSize,
+        shape: buttonShape,
+        textStyle: buttonLabel(scheme.primary),
       ),
     ),
 
@@ -295,15 +348,15 @@ ThemeData _buildTheme({
       filled: true,
       fillColor: fieldFill,
       border: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(AppRadius.control),
         borderSide: BorderSide(color: scheme.outlineVariant),
       ),
       enabledBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(AppRadius.control),
         borderSide: BorderSide(color: scheme.outlineVariant),
       ),
       focusedBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(AppRadius.control),
         borderSide: BorderSide(color: scheme.primary, width: 2),
       ),
       labelStyle: TextStyle(

@@ -136,7 +136,9 @@ void main() {
         find.widgetWithText(TextFormField, 'المبلغ (ريال) *').first,
         '500',
       );
-      await tester.pump();
+      // Settled: one frame after it is ready, the button's label is still
+      // fading in from its disabled color, and the picture would show it so.
+      await tester.pumpAndSettle();
       expect(find.text('جاهز للحفظ'), findsOneWidget);
       await shot(tester, 'voucher_add_$name');
 

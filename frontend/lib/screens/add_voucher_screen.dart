@@ -14,7 +14,6 @@ import '../models/employee_model.dart';
 import '../models/safe_box_model.dart';
 import '../providers/auth_provider.dart';
 import '../providers/settings_provider.dart';
-import '../theme/app_semantic_colors.dart';
 import '../theme/app_theme.dart';
 import 'voucher_preview_screen.dart';
 import '../utils.dart';
@@ -214,6 +213,12 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
   // الألوان من الثيم (ثيم-٠): تتبع الوضعين.
   ColorScheme get _cs => Theme.of(context).colorScheme;
   AppSemanticColors get _tone => AppSemanticColors.of(context);
+
+  /// The voucher's own color: green for a receipt, indigo for a payment --
+  /// never the error red (ADR-049).
+  SemanticTone get _voucherTone => _tone.voucher(
+    widget.voucherType == 'receipt' ? VoucherKind.receipt : VoucherKind.payment,
+  );
 
   final _formKey = GlobalKey<FormState>();
 
@@ -3343,16 +3348,15 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
   Widget _buildSaveButton(Color accentColor, {required bool enabled}) {
     return ConstrainedBox(
       constraints: const BoxConstraints(minWidth: 240, minHeight: 56),
-      child: ElevatedButton.icon(
+      child: FilledButton.icon(
         onPressed: _isSaving || !enabled ? null : _saveIfReady,
-        style: ElevatedButton.styleFrom(
-          backgroundColor: accentColor,
-          foregroundColor: _cs.surfaceContainerLowest,
-          elevation: 3,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
+        // The one strong action on the screen, flat (ADR-049).
+        style: AppButtonStyles.primary(context, _voucherTone).copyWith(
+          textStyle: WidgetStatePropertyAll(
+            Theme.of(context).textTheme.titleLarge?.copyWith(
+              fontWeight: FontWeight.w700,
+            ),
           ),
-          padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
         ),
         icon: _isSaving && !_inReview
             ? SizedBox(
@@ -3364,10 +3368,7 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
                 ),
               )
             : const Icon(Icons.save_outlined, size: 24),
-        label: Text(
-          _isSaving && !_inReview ? 'جاري الحفظ...' : 'حفظ السند',
-          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-        ),
+        label: Text(_isSaving && !_inReview ? 'جاري الحفظ...' : 'حفظ السند'),
       ),
     );
   }
@@ -3379,7 +3380,9 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
     }
 
     final isReceipt = widget.voucherType == 'receipt';
-    final Color accentColor = isReceipt ? _tone.ready.fg : _tone.blocked.fg;
+    final Color accentColor = _tone
+        .voucher(isReceipt ? VoucherKind.receipt : VoucherKind.payment)
+        .fg;
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -4799,7 +4802,9 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
     final size = MediaQuery.of(context).size;
     final isWideLayout = size.width >= 1100;
     final isReceipt = widget.voucherType == 'receipt';
-    final Color accentColor = isReceipt ? _tone.ready.fg : _tone.blocked.fg;
+    final Color accentColor = _tone
+        .voucher(isReceipt ? VoucherKind.receipt : VoucherKind.payment)
+        .fg;
     final String title = isReceipt ? 'سند قبض' : 'سند صرف';
     final IconData icon = isReceipt ? Icons.south : Icons.north;
 
@@ -4850,19 +4855,11 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
       if (accountLineCards.isNotEmpty) const SizedBox(height: 12),
       Align(
         alignment: Alignment.centerLeft,
-        child: ElevatedButton.icon(
+        child: FilledButton.icon(
           icon: const Icon(Icons.add_circle_outline),
           label: const Text('إضافة سطر'),
           onPressed: _addNewLine,
-          style: ElevatedButton.styleFrom(
-            backgroundColor: accentColor,
-            foregroundColor: _cs.surfaceContainerLowest,
-            elevation: 2,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(8),
-            ),
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-          ),
+          style: AppButtonStyles.tonal(_voucherTone),
         ),
       ),
       const SizedBox(height: 12),

@@ -109,8 +109,10 @@ class PayBox extends StatelessWidget {
     );
     final key = Key('quick-pay-${method['id']}');
     void press() => onPay(method['id'] as int);
+    // The methods used most are soft-filled, the rest outlined: they are
+    // choices, not the screen's one strong action (ADR-049).
     final button = prominent
-        ? FilledButton.icon(
+        ? FilledButton.tonalIcon(
             key: key,
             onPressed: press,
             icon: icon,

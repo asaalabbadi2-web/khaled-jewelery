@@ -3312,19 +3312,10 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
                   ),
                 if (!_isLoadingSuppliers && !lockedByReturn) ...[
                   const SizedBox(width: 12),
-                  FilledButton.icon(
+                  FilledButton.tonalIcon(
                     onPressed: _openAddSupplierDialog,
                     icon: const Icon(Icons.person_add_alt_1),
                     label: const Text('مورد جديد'),
-                    style: FilledButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 18,
-                        vertical: 12,
-                      ),
-                      textStyle: theme.textTheme.bodyMedium?.copyWith(
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
                   ),
                 ],
               ],
