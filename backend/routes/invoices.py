@@ -7115,7 +7115,18 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
                                     _reverse_24k = convert_from_main_karat(_reverse_chunk, 24)
                                     _reverse_cash = round(_reverse_24k * _exec_price, 2) if _exec_price else 0.0
 
-                                    if _reverse_cash > 0 and _cogs_account and _inv_fin_id:
+                                    # Reverse what the execution posted, no more (OFFICE-COGS-1,
+                                    # the owner 16 Oct 2026): a closing in the shop posted its
+                                    # cost of sales; an office's execution is a purchase from the
+                                    # office (512 / the office) and posted none -- its weight is
+                                    # given back in the order below, no entry.
+                                    from models import JournalEntryLine as _ExecLine
+                                    _posted_cost = bool(_cogs_account and _exec_row.journal_entry_id and (
+                                        _ExecLine.query.filter(
+                                            _ExecLine.journal_entry_id == _exec_row.journal_entry_id,
+                                            _ExecLine.account_id == _cogs_account.id,
+                                            _ExecLine.cash_debit > 0).first()))
+                                    if _reverse_cash > 0 and _posted_cost and _inv_fin_id:
                                         create_dual_journal_entry(
                                             journal_entry_id=journal_entry.id,
                                             account_id=_inv_fin_id,

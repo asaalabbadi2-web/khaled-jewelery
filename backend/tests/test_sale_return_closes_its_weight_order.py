@@ -88,3 +88,77 @@ def test_a_return_of_a_closed_sale_reverses_what_was_closed(auth_headers, world)
         order_id=order.id, execution_type='sale_return_reversal').all()
     assert len(reversal) == 1
     assert round(float(reversal[0].weight_main_karat), 3) == round(-total, 3)
+
+
+# ── OFFICE-COGS-1: the return reverses what the execution posted, no more ──
+
+def _executed(order, *, execution_type, entry_lines):
+    """Close *order* by one execution whose entry is *entry_lines* [(account_id, debit, credit)]."""
+    import uuid
+    from models import JournalEntry, JournalEntryLine, WeightClosingExecution
+    from datetime import datetime
+    je = JournalEntry(entry_number=f'JE-WCO-{uuid.uuid4().hex[:8]}', date=datetime.now(),
+                      description='تنفيذ تسكير', entry_type='عادي', is_posted=True, created_by='t')
+    db.session.add(je)
+    db.session.flush()
+    for account_id, debit, credit in entry_lines:
+        db.session.add(JournalEntryLine(journal_entry_id=je.id, account_id=account_id,
+                                        cash_debit=debit, cash_credit=credit, description='تنفيذ'))
+    total = float(order.total_weight_main_karat or 0.0)
+    db.session.add(WeightClosingExecution(order_id=order.id, execution_type=execution_type,
+                                          weight_main_karat=total, price_per_gram=400.0,
+                                          journal_entry_id=je.id))
+    order.executed_weight_main_karat = total
+    order.remaining_weight_main_karat = 0.0
+    order.status = 'closed'
+    db.session.flush()
+
+
+def _return_lines_on(return_id, account_id):
+    from models import JournalEntry, JournalEntryLine
+    entries = [je.id for je in JournalEntry.query.filter_by(reference_type='invoice', reference_id=return_id)]
+    return [ln for ln in JournalEntryLine.query.filter(JournalEntryLine.journal_entry_id.in_(entries or [-1]),
+                                                       JournalEntryLine.account_id == account_id)]
+
+
+def _cost_of_sales():
+    from accounting.mappings import require_account
+    return require_account('افتراضي', 'gold_cost_of_sales')
+
+
+def _other_account():
+    import uuid
+    from models import Account
+    account = Account(account_number=f'96{uuid.uuid4().int % 10**6:06d}', name='طرف تنفيذ', type='Asset')
+    db.session.add(account)
+    db.session.flush()
+    return account.id
+
+
+def test_an_office_execution_is_a_purchase_and_its_sale_s_return_reverses_no_cost(auth_headers, world):
+    """The office's execution bought the gold (its entry: purchases / the office);
+    no cost of sales was posted. The return credited cost of sales anyway --
+    a credit on 521 never debited (the owner, 16 Oct 2026: nothing of an office
+    execution is reversed)."""
+    sale = _paid_sale(auth_headers, world)
+    purchases, office = _other_account(), _other_account()
+    _executed(_order_of(sale['id']), execution_type='office_reservation',
+              entry_lines=[(purchases, 457.14, 0.0), (office, 0.0, 457.14)])
+
+    ret = _post(auth_headers, _return_of(world, sale, total=1000.0))
+
+    assert ret.status_code == 201, ret.get_json()
+    assert _return_lines_on(ret.get_json()['id'], _cost_of_sales()) == []
+    assert _order_of(sale['id']).status == 'cancelled'
+
+
+def test_a_closing_that_posted_its_cost_has_it_reversed(auth_headers, world):
+    sale = _paid_sale(auth_headers, world)
+    _executed(_order_of(sale['id']), execution_type='purchase_scrap',
+              entry_lines=[(_cost_of_sales(), 457.14, 0.0), (_other_account(), 0.0, 457.14)])
+
+    ret = _post(auth_headers, _return_of(world, sale, total=1000.0))
+
+    assert ret.status_code == 201, ret.get_json()
+    credited = sum(float(ln.cash_credit or 0) for ln in _return_lines_on(ret.get_json()['id'], _cost_of_sales()))
+    assert credited > 0
