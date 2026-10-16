@@ -25,6 +25,7 @@ import '../utils/arabic_number_formatter.dart';
 import '../utils/invoice_direct_print.dart';
 import '../utils/currency_utils.dart' as cu;
 import '../utils/sales_readiness.dart';
+import '../widgets/app_feedback.dart';
 
 /// شاشة فاتورة البيع - النسخة الهجينة المحسّنة
 /// تجمع بين Smart Input (Progressive) و DataTable (Professional)
@@ -2693,11 +2694,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
   // ==================== Helpers ====================
   void _showError(String message) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(
-      SnackBar(content: Text(message), backgroundColor: AppColors.error),
-    );
+    AppFeedback.error(context, message);
   }
 
   /// The company's one cash customer, as the server picks it (routes/

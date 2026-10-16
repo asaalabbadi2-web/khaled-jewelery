@@ -12,6 +12,7 @@ import '../api_service.dart';
 import '../pdf/voucher_pdf_builder.dart';
 import '../providers/settings_provider.dart';
 import '../theme/app_theme.dart' as theme;
+import '../widgets/app_feedback.dart';
 
 Future<bool?> showVoucherDetailsSheet(
   BuildContext context, {
@@ -1385,17 +1386,11 @@ class _VoucherDetailsScreenState extends State<VoucherDetailsScreen> {
   }
 
   void _showSnack(String message, {bool error = false}) {
-    final messenger = ScaffoldMessenger.of(context);
-    messenger.hideCurrentSnackBar();
-    messenger.showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: error
-            ? theme.AppColors.error
-            : theme.AppColors.primaryGold,
-        behavior: SnackBarBehavior.floating,
-      ),
-    );
+    if (error) {
+      AppFeedback.error(context, message);
+    } else {
+      AppFeedback.success(context, message);
+    }
   }
 
   double? _toDouble(dynamic value) {

@@ -4,6 +4,7 @@ import '../api_service.dart';
 import '../providers/settings_provider.dart';
 import '../theme/app_theme.dart';
 import 'add_office_screen.dart';
+import '../widgets/app_feedback.dart';
 
 /// شاشة قائمة مكاتب التسكير (تسكير الذهب)
 class OfficesScreen extends StatefulWidget {
@@ -141,12 +142,11 @@ class _OfficesScreenState extends State<OfficesScreen> {
   }
 
   void _showMessage(String message, {required bool isError}) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: isError ? AppColors.error : AppColors.success,
-      ),
-    );
+    if (isError) {
+      AppFeedback.error(context, message);
+    } else {
+      AppFeedback.success(context, message);
+    }
   }
 
   Future<void> _navigateToAddOffice() async {

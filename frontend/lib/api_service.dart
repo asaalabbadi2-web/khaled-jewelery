@@ -105,6 +105,15 @@ class ApiException implements Exception {
     this.details = const {},
   });
 
+  /// A failure the client itself words (no reply to read the code from):
+  /// shown as [message], never as «Exception: ...» (ADR-049).
+  ApiException.text(
+    Object? message, {
+    this.statusCode = 0,
+    this.code = 'client_error',
+  }) : message = '${message ?? ''}',
+       details = const {};
+
   @override
   String toString() => message;
 }
@@ -418,7 +427,11 @@ class ApiService {
     return response;
   }
 
-  String _errorMessageFromResponse(http.Response response) {
+  String _errorMessageFromResponse(http.Response response, {String? fallback}) {
+    // A reply that says nothing a user can read (ADR-049).
+    String noWords() => fallback == null
+        ? _statusSentence(response.statusCode)
+        : '$fallback (${response.statusCode})';
     try {
       final decoded = json.decode(utf8.decode(response.bodyBytes));
       if (decoded is Map<String, dynamic>) {
@@ -434,8 +447,11 @@ class ApiService {
           return msg;
         }
         final err = decoded['error']?.toString();
-        if (err != null && err.isNotEmpty) {
-          final hasDetail = (detailShort != null && detailShort.isNotEmpty) ||
+        // A bare code («permission_denied») is for the caller, not the screen.
+        final isCode = err != null && RegExp(r'^[a-z0-9_.]+$').hasMatch(err);
+        if (err != null && err.isNotEmpty && !isCode) {
+          final hasDetail =
+              (detailShort != null && detailShort.isNotEmpty) ||
               (detail != null && detail.isNotEmpty);
           if (hasDetail) {
             return '$err\n${detailShort ?? detail}';
@@ -444,15 +460,65 @@ class ApiService {
         }
         if (detailShort != null && detailShort.isNotEmpty) return detailShort;
         if (detail != null && detail.isNotEmpty) return detail;
+        return noWords();
       }
     } catch (_) {
       // ignore
     }
+    String text;
     try {
-      return utf8.decode(response.bodyBytes);
+      text = utf8.decode(response.bodyBytes).trim();
     } catch (_) {
-      return response.body;
+      text = response.body.trim();
     }
+    // A short plain sentence is the server's; a page (nginx on a 502), an
+    // empty reply or a dump is not for the screen (ADR-049).
+    if (text.isEmpty ||
+        text.startsWith('<') ||
+        text.startsWith('{') ||
+        text.startsWith('[') ||
+        text.length > 300) {
+      return noWords();
+    }
+    return text;
+  }
+
+  /// What a refusal means when the server did not say it in words.
+  static String _statusSentence(int status) {
+    final sentence = switch (status) {
+      400 => 'الطلب غير صالح.',
+      401 => 'انتهت الجلسة. سجّل الدخول من جديد.',
+      403 => 'لا تملك صلاحية هذه العملية.',
+      404 => 'غير موجود؛ ربما حُذف أو تغيّر.',
+      409 => 'تعارض مع بيانات تغيّرت. حدّث الشاشة ثم أعد المحاولة.',
+      413 => 'الملف أكبر من المسموح.',
+      422 => 'بيانات غير مقبولة. راجع الحقول.',
+      429 => 'طلبات كثيرة. انتظر قليلًا ثم أعد المحاولة.',
+      >= 500 =>
+        'تعذّر على الخادم إتمام العملية. أعد المحاولة، وإن تكرر فأبلغ الدعم.',
+      _ => 'تعذّر إتمام العملية.',
+    };
+    return '$sentence ($status)';
+  }
+
+  /// The one shape of a refused request (ADR-049): the server's code as it
+  /// sent it, and its words -- or, when it sent none, [fallback] (what the
+  /// call was doing) with the status.
+  ApiException _apiError(http.Response response, {String? fallback}) {
+    Map<String, dynamic>? parsed;
+    try {
+      final decoded = json.decode(utf8.decode(response.bodyBytes));
+      if (decoded is Map<String, dynamic>) parsed = decoded;
+    } catch (_) {
+      parsed = null;
+    }
+    final code = parsed?['error']?.toString();
+    return ApiException(
+      statusCode: response.statusCode,
+      code: (code == null || code.isEmpty) ? 'http_error' : code,
+      message: _errorMessageFromResponse(response, fallback: fallback),
+      details: parsed ?? const {},
+    );
   }
 
   // ── Public HTTP helpers (for feature-specific service classes) ────────────
@@ -480,7 +546,7 @@ class ApiService {
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
-      throw Exception(_errorMessageFromResponse(response));
+      throw _apiError(response);
     }
   }
 
@@ -501,7 +567,7 @@ class ApiService {
       }
       return const [];
     } else {
-      throw Exception(_errorMessageFromResponse(response));
+      throw _apiError(response);
     }
   }
 
@@ -515,7 +581,7 @@ class ApiService {
     if (response.statusCode == 201) {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
-      throw Exception(_errorMessageFromResponse(response));
+      throw _apiError(response);
     }
   }
 
@@ -523,7 +589,7 @@ class ApiService {
     final response = await _authedDelete(Uri.parse('$_baseUrl/customers/$id'));
     if (response.statusCode != 200) {
       // Changed from 204 to 200
-      throw Exception(_errorMessageFromResponse(response));
+      throw _apiError(response);
     }
   }
 
@@ -533,7 +599,7 @@ class ApiService {
       body: json.encode(customerData),
     );
     if (response.statusCode != 200) {
-      throw Exception(_errorMessageFromResponse(response));
+      throw _apiError(response);
     }
   }
 
@@ -544,7 +610,7 @@ class ApiService {
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
-      throw Exception(_errorMessageFromResponse(response));
+      throw _apiError(response);
     }
   }
 
@@ -559,7 +625,7 @@ class ApiService {
     if (response.statusCode == 201) {
       return json.decode(response.body);
     } else {
-      throw Exception(_errorMessageFromResponse(response));
+      throw _apiError(response);
     }
   }
 
@@ -570,14 +636,14 @@ class ApiService {
       body: json.encode(supplierData),
     );
     if (response.statusCode != 200) {
-      throw Exception(_errorMessageFromResponse(response));
+      throw _apiError(response);
     }
   }
 
   Future<Map<String, dynamic>> deleteSupplier(int id) async {
     final response = await _authedDelete(Uri.parse('$_baseUrl/suppliers/$id'));
     if (response.statusCode != 200) {
-      throw Exception(_errorMessageFromResponse(response));
+      throw _apiError(response);
     }
     try {
       final decoded = json.decode(utf8.decode(response.bodyBytes));
@@ -595,22 +661,8 @@ class ApiService {
   // ApiException.code ليقرر مستدعيها كيف يعرضها.
 
   /// يرفع ApiException حاملًا رمز الخطأ من الخادم كما هو.
-  Never _throwSettlementError(http.Response response) {
-    Map<String, dynamic>? parsed;
-    try {
-      final decoded = json.decode(utf8.decode(response.bodyBytes));
-      if (decoded is Map<String, dynamic>) parsed = decoded;
-    } catch (_) {
-      parsed = null;
-    }
-    final code = parsed?['error']?.toString();
-    throw ApiException(
-      statusCode: response.statusCode,
-      code: (code == null || code.isEmpty) ? 'http_error' : code,
-      message: _errorMessageFromResponse(response),
-      details: parsed ?? const {},
-    );
-  }
+  Never _throwSettlementError(http.Response response) =>
+      throw _apiError(response);
 
   Map<String, dynamic> _decodeSettlementResponse(http.Response response) {
     if (response.statusCode < 200 || response.statusCode >= 300) {
@@ -778,7 +830,7 @@ class ApiService {
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
-      throw Exception(_errorMessageFromResponse(response));
+      throw _apiError(response);
     }
   }
 
@@ -788,7 +840,7 @@ class ApiService {
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
-      throw Exception(_errorMessageFromResponse(response));
+      throw _apiError(response);
     }
   }
 
@@ -803,7 +855,7 @@ class ApiService {
     if (response.statusCode == 201) {
       return json.decode(response.body);
     } else {
-      throw Exception(_errorMessageFromResponse(response));
+      throw _apiError(response);
     }
   }
 
@@ -814,14 +866,14 @@ class ApiService {
       body: json.encode(officeData),
     );
     if (response.statusCode != 200) {
-      throw Exception(_errorMessageFromResponse(response));
+      throw _apiError(response);
     }
   }
 
   Future<void> deleteOffice(int id) async {
     final response = await _authedDelete(Uri.parse('$_baseUrl/offices/$id'));
     if (response.statusCode != 200) {
-      throw Exception(_errorMessageFromResponse(response));
+      throw _apiError(response);
     }
   }
 
@@ -830,7 +882,7 @@ class ApiService {
       Uri.parse('$_baseUrl/offices/$id/activate'),
     );
     if (response.statusCode != 200) {
-      throw Exception(_errorMessageFromResponse(response));
+      throw _apiError(response);
     }
   }
 
@@ -853,7 +905,7 @@ class ApiService {
       }
       return [];
     } else {
-      throw Exception('Failed to load branches');
+      throw _apiError(response);
     }
   }
 
@@ -881,7 +933,7 @@ class ApiService {
           : Map<String, dynamic>.from(decoded as Map);
     }
 
-    throw Exception(_errorMessageFromResponse(response));
+    throw _apiError(response);
   }
 
   Future<Map<String, dynamic>> updateBranch(
@@ -907,13 +959,13 @@ class ApiService {
           : Map<String, dynamic>.from(decoded as Map);
     }
 
-    throw Exception(_errorMessageFromResponse(response));
+    throw _apiError(response);
   }
 
   Future<void> deactivateBranch(int id) async {
     final response = await _authedDelete(Uri.parse('$_baseUrl/branches/$id'));
     if (response.statusCode != 200) {
-      throw Exception(_errorMessageFromResponse(response));
+      throw _apiError(response);
     }
   }
 
@@ -927,7 +979,7 @@ class ApiService {
           ? decoded
           : Map<String, dynamic>.from(decoded as Map);
     }
-    throw Exception(_errorMessageFromResponse(response));
+    throw _apiError(response);
   }
 
   Future<Map<String, dynamic>> getOfficeBalance(int id) async {
@@ -938,7 +990,7 @@ class ApiService {
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
-      throw Exception('Failed to load office balance');
+      throw _apiError(response);
     }
   }
 
@@ -950,7 +1002,7 @@ class ApiService {
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
-      throw Exception('Failed to load offices statistics');
+      throw _apiError(response);
     }
   }
 
@@ -997,7 +1049,7 @@ class ApiService {
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
     }
-    throw Exception(_errorMessageFromResponse(response));
+    throw _apiError(response);
   }
 
   Future<Map<String, dynamic>> getOfficeReservation(int id) async {
@@ -1007,7 +1059,7 @@ class ApiService {
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
     }
-    throw Exception(_errorMessageFromResponse(response));
+    throw _apiError(response);
   }
 
   Future<Map<String, dynamic>> createOfficeReservation(
@@ -1020,7 +1072,7 @@ class ApiService {
     if (response.statusCode == 201) {
       return json.decode(utf8.decode(response.bodyBytes));
     }
-    throw Exception(_errorMessageFromResponse(response));
+    throw _apiError(response);
   }
 
   Future<Map<String, dynamic>> settleOfficeReservation(
@@ -1044,7 +1096,7 @@ class ApiService {
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
     }
-    throw Exception(_errorMessageFromResponse(response));
+    throw _apiError(response);
   }
 
   Future<Map<String, dynamic>> cancelOfficeReservation(
@@ -1064,7 +1116,7 @@ class ApiService {
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
     }
-    throw Exception(_errorMessageFromResponse(response));
+    throw _apiError(response);
   }
 
   // Item Methods
@@ -1093,7 +1145,7 @@ class ApiService {
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
-      throw Exception('Failed to load items');
+      throw _apiError(response);
     }
   }
 
@@ -1119,9 +1171,9 @@ class ApiService {
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
     } else if (response.statusCode == 404) {
-      throw Exception('الصنف غير موجود');
+      throw ApiException.text('الصنف غير موجود');
     } else {
-      throw Exception('Failed to search item by barcode');
+      throw _apiError(response);
     }
   }
 
@@ -1133,7 +1185,7 @@ class ApiService {
     if (response.statusCode == 201) {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
-      throw Exception(_errorMessageFromResponse(response));
+      throw _apiError(response);
     }
   }
 
@@ -1146,7 +1198,7 @@ class ApiService {
     if (response.statusCode == 201) {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
-      throw Exception(_errorMessageFromResponse(response));
+      throw _apiError(response);
     }
   }
 
@@ -1161,7 +1213,7 @@ class ApiService {
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
-      throw Exception(_errorMessageFromResponse(response));
+      throw _apiError(response);
     }
   }
 
@@ -1169,7 +1221,7 @@ class ApiService {
     final response = await _authedDelete(Uri.parse('$_baseUrl/items/$id'));
     if (response.statusCode != 200) {
       // Changed from 204 to 200
-      throw Exception(_errorMessageFromResponse(response));
+      throw _apiError(response);
     }
   }
 
@@ -1186,7 +1238,7 @@ class ApiService {
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
-      throw Exception('Failed to load categories');
+      throw _apiError(response);
     }
   }
 
@@ -1196,7 +1248,7 @@ class ApiService {
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
-      throw Exception('Failed to load category');
+      throw _apiError(response);
     }
   }
 
@@ -1213,7 +1265,7 @@ class ApiService {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
       final error = json.decode(utf8.decode(response.bodyBytes));
-      throw Exception(error['error'] ?? 'Failed to add category');
+      throw ApiException.text(error['error'] ?? 'Failed to add category');
     }
   }
 
@@ -1231,7 +1283,7 @@ class ApiService {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
       final error = json.decode(utf8.decode(response.bodyBytes));
-      throw Exception(error['error'] ?? 'Failed to update category');
+      throw ApiException.text(error['error'] ?? 'Failed to update category');
     }
   }
 
@@ -1240,7 +1292,7 @@ class ApiService {
     final response = await _authedDelete(Uri.parse('$_baseUrl/categories/$id'));
     if (response.statusCode != 200) {
       final error = json.decode(utf8.decode(response.bodyBytes));
-      throw Exception(error['error'] ?? 'Failed to delete category');
+      throw ApiException.text(error['error'] ?? 'Failed to delete category');
     }
   }
 
@@ -1253,7 +1305,7 @@ class ApiService {
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
-      throw Exception('Failed to load purchase items');
+      throw _apiError(response);
     }
   }
 
@@ -1275,7 +1327,9 @@ class ApiService {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
       final error = json.decode(utf8.decode(response.bodyBytes));
-      throw Exception(error['error'] ?? 'Failed to create purchase item');
+      throw ApiException.text(
+        error['error'] ?? 'Failed to create purchase item',
+      );
     }
   }
 
@@ -1285,7 +1339,9 @@ class ApiService {
     );
     if (response.statusCode != 200) {
       final error = json.decode(utf8.decode(response.bodyBytes));
-      throw Exception(error['error'] ?? 'Failed to delete purchase item');
+      throw ApiException.text(
+        error['error'] ?? 'Failed to delete purchase item',
+      );
     }
   }
 
@@ -1361,9 +1417,7 @@ class ApiService {
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
-      throw Exception(
-        'Failed to load invoices (HTTP ${response.statusCode})',
-      );
+      throw _apiError(response);
     }
   }
 
@@ -1376,9 +1430,7 @@ class ApiService {
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
-      throw Exception(
-        'Failed to load invoice details (status: ${response.statusCode})',
-      );
+      throw _apiError(response);
     }
   }
 
@@ -1397,8 +1449,16 @@ class ApiService {
       return decoded;
     }
     final body = decoded is Map ? decoded : const {};
-    final inner = body['inner_error'] is Map ? (body['inner_error'] as Map)['message'] ?? (body['inner_error'] as Map)['error'] : null;
-    throw Exception([body['message'] ?? 'تعذّر حفظ المقايضة', if (inner != null) inner].join(' — '));
+    final inner = body['inner_error'] is Map
+        ? (body['inner_error'] as Map)['message'] ??
+              (body['inner_error'] as Map)['error']
+        : null;
+    throw ApiException.text(
+      [
+        body['message'] ?? 'تعذّر حفظ المقايضة',
+        if (inner != null) inner,
+      ].join(' — '),
+    );
   }
 
   /// A sale, or a scrap purchase from a customer, reversed in full: the server
@@ -1416,7 +1476,7 @@ class ApiService {
     if (response.statusCode == 201) {
       return json.decode(utf8.decode(response.bodyBytes));
     }
-    throw Exception(_errorMessageFromResponse(response));
+    throw _apiError(response);
   }
 
   Future<Map<String, dynamic>> addInvoice(Map<String, dynamic> invoice) async {
@@ -1500,7 +1560,7 @@ class ApiService {
     );
 
     if (response.statusCode != 200) {
-      throw Exception(_errorMessageFromResponse(response));
+      throw _apiError(response);
     }
   }
 
@@ -1520,7 +1580,7 @@ class ApiService {
       final decoded = json.decode(utf8.decode(response.bodyBytes));
       if (decoded is Map<String, dynamic>) return decoded;
       if (decoded is Map) return Map<String, dynamic>.from(decoded);
-      throw Exception('Invalid server response');
+      throw _apiError(response);
     }
 
     Map<String, dynamic>? parsed;
@@ -1545,7 +1605,7 @@ class ApiService {
       body: json.encode({'employee_id': newEmployeeId}),
     );
     if (response.statusCode != 200) {
-      throw Exception(_errorMessageFromResponse(response));
+      throw _apiError(response);
     }
   }
 
@@ -1586,7 +1646,7 @@ class ApiService {
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
-      throw Exception('Failed to load gold price');
+      throw _apiError(response);
     }
   }
 
@@ -1601,7 +1661,7 @@ class ApiService {
       return json.decode(utf8.decode(response.bodyBytes));
     }
 
-    throw Exception(_errorMessageFromResponse(response));
+    throw _apiError(response);
   }
 
   Future<Map<String, dynamic>> updateGoldPrice({double? priceUsdPerOz}) async {
@@ -1615,7 +1675,7 @@ class ApiService {
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
-      throw Exception('Failed to update gold price');
+      throw _apiError(response);
     }
   }
 
@@ -1650,7 +1710,7 @@ class ApiService {
     if (response.statusCode == 200) {
       return response.bodyBytes;
     }
-    throw Exception(_errorMessageFromResponse(response));
+    throw _apiError(response);
   }
 
   Future<Map<String, dynamic>> restoreSystemBackupZip({
@@ -1670,7 +1730,7 @@ class ApiService {
       if (decoded is Map<String, dynamic>) return decoded;
       return {'status': 'success'};
     }
-    throw Exception(_errorMessageFromResponse(response));
+    throw _apiError(response);
   }
 
   // ============================================
@@ -1726,7 +1786,7 @@ class ApiService {
       return {'success': true};
     }
 
-    throw Exception(_errorMessageFromResponse(response));
+    throw _apiError(response);
   }
 
   // ============================================
@@ -1741,7 +1801,7 @@ class ApiService {
       final decoded = json.decode(utf8.decode(response.bodyBytes));
       if (decoded is Map<String, dynamic>) return decoded;
     }
-    throw Exception(_errorMessageFromResponse(response));
+    throw _apiError(response);
   }
 
   Future<Map<String, dynamic>> uploadSystemBackupToDriveServerSide() async {
@@ -1755,7 +1815,7 @@ class ApiService {
       if (decoded is Map<String, dynamic>) return decoded;
       return {'status': 'success'};
     }
-    throw Exception(_errorMessageFromResponse(response));
+    throw _apiError(response);
   }
 
   Future<List<Map<String, dynamic>>> listDriveBackupsServerSide({
@@ -1771,7 +1831,7 @@ class ApiService {
       }
       return <Map<String, dynamic>>[];
     }
-    throw Exception(_errorMessageFromResponse(response));
+    throw _apiError(response);
   }
 
   Future<List<int>> downloadDriveBackupServerSide(String fileId) async {
@@ -1782,7 +1842,7 @@ class ApiService {
     if (response.statusCode == 200) {
       return response.bodyBytes;
     }
-    throw Exception(_errorMessageFromResponse(response));
+    throw _apiError(response);
   }
 
   // Gold Costing (Moving Average)
@@ -1791,7 +1851,7 @@ class ApiService {
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
-      throw Exception('Failed to load gold costing snapshot: ${response.body}');
+      throw _apiError(response);
     }
   }
 
@@ -1816,9 +1876,7 @@ class ApiService {
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
-      throw Exception(
-        'Failed to calculate gold costing COGS: ${response.body}',
-      );
+      throw _apiError(response);
     }
   }
 
@@ -1832,7 +1890,7 @@ class ApiService {
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
-      throw Exception('Failed to recompute gold costing: ${response.body}');
+      throw _apiError(response);
     }
   }
 
@@ -1846,7 +1904,7 @@ class ApiService {
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
-      throw Exception(_errorMessageFromResponse(response));
+      throw _apiError(response);
     }
   }
 
@@ -1859,7 +1917,7 @@ class ApiService {
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
-      throw Exception(_errorMessageFromResponse(response));
+      throw _apiError(response);
     }
   }
 
@@ -1872,7 +1930,7 @@ class ApiService {
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
-      throw Exception(_errorMessageFromResponse(response));
+      throw _apiError(response);
     }
   }
 
@@ -1885,7 +1943,7 @@ class ApiService {
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
-      throw Exception(_errorMessageFromResponse(response));
+      throw _apiError(response);
     }
   }
 
@@ -1908,7 +1966,7 @@ class ApiService {
           .map((e) => Map<String, dynamic>.from(e as Map))
           .toList(growable: false);
     }
-    throw Exception(_errorMessageFromResponse(response));
+    throw _apiError(response);
   }
 
   /// What a voucher's gold currently settles, and how much is unattributed.
@@ -1921,7 +1979,7 @@ class ApiService {
         json.decode(utf8.decode(response.bodyBytes)) as Map,
       );
     }
-    throw Exception(_errorMessageFromResponse(response));
+    throw _apiError(response);
   }
 
   /// Correct a classification after approval: attribute this voucher's gold to
@@ -1946,7 +2004,7 @@ class ApiService {
         json.decode(utf8.decode(response.bodyBytes)) as Map,
       );
     }
-    throw Exception(_errorMessageFromResponse(response));
+    throw _apiError(response);
   }
 
   Future<void> removeVoucherGoldAttribution(
@@ -1957,7 +2015,7 @@ class ApiService {
       Uri.parse('$_baseUrl/vouchers/$voucherId/gold-attribution/$attributionId'),
     );
     if (response.statusCode != 200) {
-      throw Exception(_errorMessageFromResponse(response));
+      throw _apiError(response);
     }
   }
 
@@ -1978,7 +2036,7 @@ class ApiService {
           .map((e) => Map<String, dynamic>.from(e as Map))
           .toList(growable: false);
     }
-    throw Exception(_errorMessageFromResponse(response));
+    throw _apiError(response);
   }
 
   /// What a voucher's cash currently pays, and how much is unattributed.
@@ -1991,7 +2049,7 @@ class ApiService {
         json.decode(utf8.decode(response.bodyBytes)) as Map,
       );
     }
-    throw Exception(_errorMessageFromResponse(response));
+    throw _apiError(response);
   }
 
   /// Attribute this voucher's cash to a stated invoice -- the gold tool's mirror.
@@ -2010,7 +2068,7 @@ class ApiService {
         json.decode(utf8.decode(response.bodyBytes)) as Map,
       );
     }
-    throw Exception(_errorMessageFromResponse(response));
+    throw _apiError(response);
   }
 
   Future<void> removeVoucherCashAttribution(int voucherId, int paymentId) async {
@@ -2018,7 +2076,7 @@ class ApiService {
       Uri.parse('$_baseUrl/vouchers/$voucherId/cash-attribution/$paymentId'),
     );
     if (response.statusCode != 200) {
-      throw Exception(_errorMessageFromResponse(response));
+      throw _apiError(response);
     }
   }
 
@@ -2049,7 +2107,7 @@ class ApiService {
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
-      throw Exception('Failed to load supplier ledger: ${response.body}');
+      throw _apiError(response);
     }
   }
 
@@ -2062,17 +2120,17 @@ class ApiService {
       final response = await _authedGet(uri).timeout(
         const Duration(seconds: 10),
         onTimeout: () {
-          throw Exception('Connection timeout - تأكد من تشغيل Backend');
+          throw ApiException.text('Connection timeout - تأكد من تشغيل Backend');
         },
       );
 
       if (response.statusCode == 200) {
         return json.decode(utf8.decode(response.bodyBytes));
       } else {
-        throw Exception('Failed to load accounts: ${response.statusCode}');
+        throw _apiError(response);
       }
     } catch (e) {
-      throw Exception('خطأ في الاتصال بالـ API: $e');
+      throw ApiException.text('خطأ في الاتصال بالـ API: $e');
     }
   }
 
@@ -2081,17 +2139,19 @@ class ApiService {
         await _authedGet(Uri.parse('$_baseUrl/accounts/$accountId')).timeout(
           const Duration(seconds: 10),
           onTimeout: () {
-            throw Exception('Connection timeout - تأكد من تشغيل Backend');
+            throw ApiException.text(
+              'Connection timeout - تأكد من تشغيل Backend',
+            );
           },
         );
 
     if (response.statusCode == 200) {
       final decoded = json.decode(utf8.decode(response.bodyBytes));
       if (decoded is Map<String, dynamic>) return decoded;
-      throw Exception('Invalid account payload');
+      throw _apiError(response);
     }
 
-    throw Exception(_errorMessageFromResponse(response));
+    throw _apiError(response);
   }
 
   Future<Map<String, dynamic>> getAccountsBalances() async {
@@ -2100,17 +2160,19 @@ class ApiService {
           await _authedGet(Uri.parse('$_baseUrl/accounts/balances')).timeout(
             const Duration(seconds: 10),
             onTimeout: () {
-              throw Exception('Connection timeout - تأكد من تشغيل Backend');
+              throw ApiException.text(
+                'Connection timeout - تأكد من تشغيل Backend',
+              );
             },
           );
 
       if (response.statusCode == 200) {
         return json.decode(utf8.decode(response.bodyBytes));
       } else {
-        throw Exception('Failed to load balances: ${response.statusCode}');
+        throw _apiError(response);
       }
     } catch (e) {
-      throw Exception('خطأ في جلب الأرصدة: $e');
+      throw ApiException.text('خطأ في جلب الأرصدة: $e');
     }
   }
 
@@ -2120,9 +2182,7 @@ class ApiService {
     if (response.statusCode == 200) {
       return utf8.decode(response.bodyBytes);
     } else {
-      throw Exception(
-        'Failed to export accounts: ${response.statusCode} ${response.body}',
-      );
+      throw _apiError(response);
     }
   }
 
@@ -2143,7 +2203,7 @@ class ApiService {
     try {
       return json.decode(utf8.decode(response.bodyBytes));
     } catch (_) {
-      throw Exception('Failed to import accounts: ${response.statusCode}');
+      throw _apiError(response);
     }
   }
 
@@ -2159,7 +2219,7 @@ class ApiService {
       return json.decode(utf8.decode(response.bodyBytes));
     }
 
-    throw Exception(_errorMessageFromResponse(response));
+    throw _apiError(response);
   }
 
   Future<Map<String, dynamic>> getNextAccountNumber(String parentNumber) async {
@@ -2170,9 +2230,7 @@ class ApiService {
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
-      throw Exception(
-        'Failed to get next account number: ${utf8.decode(response.bodyBytes)}',
-      );
+      throw _apiError(response);
     }
   }
 
@@ -2200,7 +2258,7 @@ class ApiService {
     if (decoded is Map<String, dynamic>) {
       return decoded;
     }
-    throw Exception('Failed to validate account number');
+    throw _apiError(response);
   }
 
   Future<void> updateAccount(int id, Map<String, dynamic> accountData) async {
@@ -2210,7 +2268,7 @@ class ApiService {
       body: json.encode(accountData),
     );
     if (response.statusCode != 200) {
-      throw Exception(_errorMessageFromResponse(response));
+      throw _apiError(response);
     }
   }
 
@@ -2222,7 +2280,7 @@ class ApiService {
       headers: {'Content-Type': 'application/json; charset=UTF-8'},
     );
     if (response.statusCode != 200) {
-      throw Exception(_errorMessageFromResponse(response));
+      throw _apiError(response);
     }
     return json.decode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
   }
@@ -2234,7 +2292,7 @@ class ApiService {
     }
     final response = await _authedDelete(uri);
     if (response.statusCode != 200) {
-      throw Exception(_errorMessageFromResponse(response));
+      throw _apiError(response);
     }
     return json.decode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
   }
@@ -2248,7 +2306,7 @@ class ApiService {
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
-      throw Exception('Failed to load journal entries');
+      throw _apiError(response);
     }
   }
 
@@ -2317,7 +2375,7 @@ class ApiService {
           detail = (decoded['message'] ?? decoded['error'] ?? detail).toString();
         }
       } catch (_) {}
-      throw Exception('$detail (${response.statusCode})');
+      throw _apiError(response);
     }
   }
 
@@ -2328,7 +2386,7 @@ class ApiService {
       if (decoded is Map<String, dynamic>) return decoded;
       return Map<String, dynamic>.from(decoded as Map);
     }
-    throw Exception(_errorMessageFromResponse(response));
+    throw _apiError(response);
   }
 
   Future<Map<String, dynamic>> addJournalEntry(
@@ -2342,9 +2400,9 @@ class ApiService {
       final decoded = json.decode(utf8.decode(response.bodyBytes));
       if (decoded is Map<String, dynamic>) return decoded;
       if (decoded is Map) return Map<String, dynamic>.from(decoded);
-      throw Exception('Invalid server response');
+      throw _apiError(response);
     }
-    throw Exception(_errorMessageFromResponse(response));
+    throw _apiError(response);
   }
 
   Future<void> updateJournalEntry(
@@ -2356,7 +2414,7 @@ class ApiService {
       body: json.encode(entryData),
     );
     if (response.statusCode != 200) {
-      throw Exception(_errorMessageFromResponse(response));
+      throw _apiError(response);
     }
   }
 
@@ -2376,9 +2434,9 @@ class ApiService {
       final decoded = json.decode(utf8.decode(response.bodyBytes));
       if (decoded is Map<String, dynamic>) return decoded;
       if (decoded is Map) return Map<String, dynamic>.from(decoded);
-      throw Exception('Invalid server response');
+      throw _apiError(response);
     }
-    throw Exception(_errorMessageFromResponse(response));
+    throw _apiError(response);
   }
 
   Future<Map<String, dynamic>> restoreJournalEntry(
@@ -2394,9 +2452,9 @@ class ApiService {
       final decoded = json.decode(utf8.decode(response.bodyBytes));
       if (decoded is Map<String, dynamic>) return decoded;
       if (decoded is Map) return Map<String, dynamic>.from(decoded);
-      throw Exception('Invalid server response');
+      throw _apiError(response);
     }
-    throw Exception(_errorMessageFromResponse(response));
+    throw _apiError(response);
   }
 
   Future<List<dynamic>> getDeletedJournalEntries() async {
@@ -2406,7 +2464,7 @@ class ApiService {
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
-      throw Exception('Failed to load deleted journal entries');
+      throw _apiError(response);
     }
   }
 
@@ -2416,7 +2474,7 @@ class ApiService {
       Uri.parse('$_baseUrl/journal_entries/$id'),
     );
     if (response.statusCode != 200) {
-      throw Exception(_errorMessageFromResponse(response));
+      throw _apiError(response);
     }
   }
 
@@ -2449,9 +2507,7 @@ class ApiService {
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
-      throw Exception(
-        'Failed to load general ledger: ${response.statusCode} ${_errorMessageFromResponse(response)}',
-      );
+      throw _apiError(response);
     }
   }
 
@@ -2476,9 +2532,7 @@ class ApiService {
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
-      throw Exception(
-        'Failed to load account ledger: ${response.statusCode} ${utf8.decode(response.bodyBytes)}',
-      );
+      throw _apiError(response);
     }
   }
 
@@ -2502,7 +2556,7 @@ class ApiService {
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
-      throw Exception('Failed to load trial balance');
+      throw _apiError(response);
     }
   }
 
@@ -2540,7 +2594,7 @@ class ApiService {
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
-      throw Exception('Failed to load sales overview report: ${response.body}');
+      throw _apiError(response);
     }
   }
 
@@ -2573,7 +2627,7 @@ class ApiService {
       return json.decode(utf8.decode(response.bodyBytes))
           as Map<String, dynamic>;
     } else {
-      throw Exception('Failed to load analytics summary: ${response.body}');
+      throw _apiError(response);
     }
   }
 
@@ -2585,7 +2639,7 @@ class ApiService {
       return json.decode(utf8.decode(response.bodyBytes))
           as Map<String, dynamic>;
     } else {
-      throw Exception('Failed to load admin dashboard: ${response.body}');
+      throw _apiError(response);
     }
   }
 
@@ -2611,7 +2665,7 @@ class ApiService {
       return json.decode(utf8.decode(response.bodyBytes))
           as Map<String, dynamic>;
     } else {
-      throw Exception('Failed to load system alerts: ${response.body}');
+      throw _apiError(response);
     }
   }
 
@@ -2625,7 +2679,7 @@ class ApiService {
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
     }
-    throw Exception('Failed to load findings: ${response.statusCode}');
+    throw _apiError(response);
   }
 
   /// VAT returns (ADR-043 rule 5): the filed ones, a period's preview, filing it.
@@ -2633,7 +2687,7 @@ class ApiService {
   Future<List<Map<String, dynamic>>> getVatReturns() async {
     final response = await _authedGet(Uri.parse('$_baseUrl/vat-returns'));
     if (response.statusCode != 200) {
-      throw Exception(_errorMessageFromResponse(response));
+      throw _apiError(response);
     }
     return (json.decode(utf8.decode(response.bodyBytes)) as List)
         .whereType<Map>()
@@ -2654,7 +2708,7 @@ class ApiService {
       body: json.encode({'start': start, 'end': end}),
     );
     if (response.statusCode != 200 && response.statusCode != 201) {
-      throw Exception(_errorMessageFromResponse(response));
+      throw _apiError(response);
     }
     return json.decode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
   }
@@ -2667,7 +2721,7 @@ class ApiService {
       return json.decode(utf8.decode(response.bodyBytes))
           as Map<String, dynamic>;
     } else {
-      throw Exception('Failed to review alert: ${response.body}');
+      throw _apiError(response);
     }
   }
 
@@ -2704,9 +2758,7 @@ class ApiService {
       }
       return {'summary': {}, 'series': []};
     } else {
-      throw Exception(
-        'Failed to load income statement report: ${response.body}',
-      );
+      throw _apiError(response);
     }
   }
 
@@ -2771,7 +2823,7 @@ class ApiService {
       if (decoded is Map<String, dynamic>) return decoded;
       return {};
     } else {
-      throw Exception('Failed to load gram profit report: ${response.body}');
+      throw _apiError(response);
     }
   }
 
@@ -2811,9 +2863,7 @@ class ApiService {
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
-      throw Exception(
-        'Failed to load sales by customer report: ${response.body}',
-      );
+      throw _apiError(response);
     }
   }
 
@@ -2839,7 +2889,7 @@ class ApiService {
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
-      throw Exception('Failed to load sales by karat report: ${response.body}');
+      throw _apiError(response);
     }
   }
 
@@ -2878,7 +2928,7 @@ class ApiService {
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
-      throw Exception('Failed to load sales by item report: ${response.body}');
+      throw _apiError(response);
     }
   }
 
@@ -2911,7 +2961,7 @@ class ApiService {
 
     final response = await _authedGet(uri);
     if (response.statusCode != 200) {
-      throw Exception(_errorMessageFromResponse(response));
+      throw _apiError(response);
     }
 
     final decoded = json.decode(utf8.decode(response.bodyBytes));
@@ -2954,7 +3004,7 @@ class ApiService {
 
     final response = await _authedGet(uri);
     if (response.statusCode != 200) {
-      throw Exception(_errorMessageFromResponse(response));
+      throw _apiError(response);
     }
 
     final decoded = json.decode(utf8.decode(response.bodyBytes));
@@ -2996,9 +3046,7 @@ class ApiService {
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
-      throw Exception(
-        'Failed to load sales vs purchases trend: ${response.body}',
-      );
+      throw _apiError(response);
     }
   }
 
@@ -3038,9 +3086,7 @@ class ApiService {
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
-      throw Exception(
-        'Failed to load customer balances aging report: ${response.body}',
-      );
+      throw _apiError(response);
     }
   }
 
@@ -3072,9 +3118,7 @@ class ApiService {
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
-      throw Exception(
-        'Failed to load gold price history report: ${response.body}',
-      );
+      throw _apiError(response);
     }
   }
 
@@ -3118,7 +3162,7 @@ class ApiService {
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
-      throw Exception('Failed to load gold position report: ${response.body}');
+      throw _apiError(response);
     }
   }
 
@@ -3160,9 +3204,7 @@ class ApiService {
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
-      throw Exception(
-        'Failed to load employee scrap ledger report: ${response.body}',
-      );
+      throw _apiError(response);
     }
   }
 
@@ -3177,7 +3219,7 @@ class ApiService {
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
-      throw Exception('Failed to get next customer code');
+      throw _apiError(response);
     }
   }
 
@@ -3190,7 +3232,7 @@ class ApiService {
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
-      throw Exception('Failed to get next supplier code');
+      throw _apiError(response);
     }
   }
 
@@ -3204,7 +3246,7 @@ class ApiService {
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
-      throw Exception(_errorMessageFromResponse(response));
+      throw _apiError(response);
     }
   }
 
@@ -3216,7 +3258,7 @@ class ApiService {
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
-      throw Exception(_errorMessageFromResponse(response));
+      throw _apiError(response);
     }
   }
 
@@ -3230,7 +3272,7 @@ class ApiService {
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
     }
-    throw Exception(_errorMessageFromResponse(response));
+    throw _apiError(response);
   }
 
   /// مزامنة القيود اليتيمة — ترحيل قيود مرتبطة بفواتير مرحّلة لكنها غير مرحّلة
@@ -3243,7 +3285,7 @@ class ApiService {
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
     }
-    throw Exception(_errorMessageFromResponse(response));
+    throw _apiError(response);
   }
 
   Future<Map<String, dynamic>> updateSettings(Map<String, dynamic> settingsData) async {
@@ -3253,7 +3295,7 @@ class ApiService {
       body: json.encode(settingsData),
     );
     if (response.statusCode != 200) {
-      throw Exception(_errorMessageFromResponse(response));
+      throw _apiError(response);
     }
     return json.decode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
   }
@@ -3266,7 +3308,7 @@ class ApiService {
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
-      throw Exception(_errorMessageFromResponse(response));
+      throw _apiError(response);
     }
   }
 
@@ -3281,7 +3323,7 @@ class ApiService {
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
-      throw Exception(_errorMessageFromResponse(response));
+      throw _apiError(response);
     }
   }
 
@@ -3309,7 +3351,7 @@ class ApiService {
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
-      throw Exception(_errorMessageFromResponse(response));
+      throw _apiError(response);
     }
   }
 
@@ -3320,7 +3362,7 @@ class ApiService {
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
-      throw Exception(_errorMessageFromResponse(response));
+      throw _apiError(response);
     }
   }
 
@@ -3343,7 +3385,7 @@ class ApiService {
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
-      throw Exception(_errorMessageFromResponse(response));
+      throw _apiError(response);
     }
   }
 
@@ -3368,7 +3410,7 @@ class ApiService {
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
-      throw Exception(_errorMessageFromResponse(response));
+      throw _apiError(response);
     }
   }
 
@@ -3380,7 +3422,7 @@ class ApiService {
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
-      throw Exception(_errorMessageFromResponse(response));
+      throw _apiError(response);
     }
   }
 
@@ -3392,7 +3434,7 @@ class ApiService {
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
-      throw Exception(_errorMessageFromResponse(response));
+      throw _apiError(response);
     }
   }
 
@@ -3470,7 +3512,7 @@ class ApiService {
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
-      throw Exception('Failed to load vouchers');
+      throw _apiError(response);
     }
   }
 
@@ -3503,7 +3545,7 @@ class ApiService {
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
-      throw Exception('Failed to load voucher');
+      throw _apiError(response);
     }
   }
 
@@ -3519,7 +3561,7 @@ class ApiService {
     if (response.statusCode == 201) {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
-      throw Exception('Failed to create voucher: ${response.body}');
+      throw _apiError(response);
     }
   }
 
@@ -3542,7 +3584,7 @@ class ApiService {
         json.decode(utf8.decode(response.bodyBytes)) as Map,
       );
     }
-    throw Exception(_errorMessageFromResponse(response));
+    throw _apiError(response);
   }
 
   /// The saved vouchers that look like [voucherData] -- the same party, type
@@ -3562,7 +3604,7 @@ class ApiService {
           if (row is Map) Map<String, dynamic>.from(row),
       ];
     }
-    throw Exception(_errorMessageFromResponse(response));
+    throw _apiError(response);
   }
 
   /// Approve a pending voucher (creates journal entry on backend)
@@ -3578,7 +3620,7 @@ class ApiService {
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
-      throw Exception('Failed to approve voucher: ${response.body}');
+      throw _apiError(response);
     }
   }
 
@@ -3601,7 +3643,7 @@ class ApiService {
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
     }
-    throw Exception('Failed to load gold shift summary: ${response.body}');
+    throw _apiError(response);
   }
 
   /// Update existing voucher
@@ -3617,7 +3659,7 @@ class ApiService {
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
-      throw Exception('Failed to update voucher: ${response.body}');
+      throw _apiError(response);
     }
   }
 
@@ -3627,7 +3669,7 @@ class ApiService {
       Uri.parse('$_baseUrl/vouchers/$voucherId'),
     );
     if (response.statusCode != 200) {
-      throw Exception('Failed to delete voucher');
+      throw _apiError(response);
     }
   }
 
@@ -3644,7 +3686,7 @@ class ApiService {
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
-      throw Exception(_errorMessageFromResponse(response));
+      throw _apiError(response);
     }
   }
 
@@ -3654,7 +3696,7 @@ class ApiService {
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
-      throw Exception('Failed to load vouchers stats');
+      throw _apiError(response);
     }
   }
 
@@ -3671,7 +3713,7 @@ class ApiService {
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
-      throw Exception('Failed to load payment methods');
+      throw _apiError(response);
     }
   }
 
@@ -3690,7 +3732,7 @@ class ApiService {
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
-      throw Exception('Failed to load active payment methods');
+      throw _apiError(response);
     }
   }
 
@@ -3719,7 +3761,7 @@ class ApiService {
     );
     final data = json.decode(utf8.decode(response.bodyBytes));
     if (response.statusCode == 200) return data as Map<String, dynamic>;
-    throw Exception(
+    throw ApiException.text(
       (data is Map ? data['message'] ?? data['error'] : null) ??
           'Failed to correct payment method',
     );
@@ -3748,7 +3790,7 @@ class ApiService {
     );
     final data = json.decode(utf8.decode(response.bodyBytes));
     if (response.statusCode == 200) return data as Map<String, dynamic>;
-    throw Exception(
+    throw ApiException.text(
       (data is Map ? data['message'] ?? data['error'] : null) ??
           'Failed to split payment method',
     );
@@ -3763,7 +3805,7 @@ class ApiService {
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
-      throw Exception('Failed to load bank accounts');
+      throw _apiError(response);
     }
   }
 
@@ -3776,7 +3818,7 @@ class ApiService {
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
-      throw Exception('Failed to load payment invoice types: ${response.body}');
+      throw _apiError(response);
     }
   }
 
@@ -3845,7 +3887,7 @@ class ApiService {
     if (response.statusCode == 201) {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
-      throw Exception('Failed to create payment method: ${response.body}');
+      throw _apiError(response);
     }
   }
 
@@ -3925,7 +3967,7 @@ class ApiService {
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
-      throw Exception('Failed to update payment method: ${response.body}');
+      throw _apiError(response);
     }
   }
 
@@ -3942,7 +3984,7 @@ class ApiService {
     );
     final body = json.decode(utf8.decode(response.bodyBytes));
     if (response.statusCode == 200 && body is Map<String, dynamic>) return body;
-    throw Exception(
+    throw ApiException.text(
       (body is Map ? body['message'] : null) ?? 'تعذّرت معاينة الجدول',
     );
   }
@@ -3951,7 +3993,7 @@ class ApiService {
   Future<List<Map<String, dynamic>>> getPublicHolidays() async {
     final response = await _authedGet(Uri.parse('$_baseUrl/public-holidays'));
     if (response.statusCode != 200) {
-      throw Exception('تعذّر تحميل الإجازات');
+      throw ApiException.text('تعذّر تحميل الإجازات');
     }
     final body = json.decode(utf8.decode(response.bodyBytes));
     return ((body['holidays'] as List?) ?? const [])
@@ -3969,7 +4011,7 @@ class ApiService {
     );
     final body = json.decode(utf8.decode(response.bodyBytes));
     if (response.statusCode == 201) return body['holiday'] as Map<String, dynamic>;
-    throw Exception(
+    throw ApiException.text(
       (body is Map ? body['message'] : null) ?? 'تعذّرت إضافة الإجازة',
     );
   }
@@ -3979,7 +4021,7 @@ class ApiService {
       Uri.parse('$_baseUrl/public-holidays/$id'),
     );
     if (response.statusCode != 200) {
-      throw Exception('تعذّر حذف الإجازة');
+      throw ApiException.text('تعذّر حذف الإجازة');
     }
   }
 
@@ -3998,13 +4040,7 @@ class ApiService {
       return <String, dynamic>{};
     }
 
-    String details = response.body;
-    try {
-      details = utf8.decode(response.bodyBytes);
-    } catch (_) {
-      // ignore
-    }
-    throw Exception('Failed to delete payment method: $details');
+    throw _apiError(response);
   }
 
   /// حفظ ترتيب طرق الدفع
@@ -4026,9 +4062,7 @@ class ApiService {
     );
 
     if (response.statusCode != 200) {
-      throw Exception(
-        'Failed to update payment methods order: ${response.body}',
-      );
+      throw _apiError(response);
     }
   }
 
@@ -4042,7 +4076,7 @@ class ApiService {
     if (response.statusCode == 200) {
       return json.decode(response.body) as List<dynamic>;
     } else {
-      throw Exception('Failed to load payment types');
+      throw _apiError(response);
     }
   }
 
@@ -4098,7 +4132,7 @@ class ApiService {
       return json.decode(utf8.decode(response.bodyBytes))
           as Map<String, dynamic>;
     }
-    throw Exception('Failed to load app config: ${response.body}');
+    throw _apiError(response);
   }
 
   // ---------------------------------------------------------------------------
@@ -4154,7 +4188,7 @@ class ApiService {
         'per_page': raw['per_page'] ?? perPage,
       };
     } else {
-      throw Exception('Failed to load employees: ${response.body}');
+      throw _apiError(response);
     }
   }
 
@@ -4170,7 +4204,7 @@ class ApiService {
         json.decode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>,
       );
     } else {
-      throw Exception('Failed to load employee: ${response.body}');
+      throw _apiError(response);
     }
   }
 
@@ -4187,7 +4221,7 @@ class ApiService {
         json.decode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>,
       );
     } else {
-      throw Exception(_errorMessageFromResponse(response));
+      throw _apiError(response);
     }
   }
 
@@ -4207,7 +4241,7 @@ class ApiService {
         json.decode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>,
       );
     } else {
-      throw Exception('Failed to update employee: ${response.body}');
+      throw _apiError(response);
     }
   }
 
@@ -4221,7 +4255,7 @@ class ApiService {
       body: json.encode({'photo': photoBase64}),
     );
     if (response.statusCode != 200) {
-      throw Exception('فشل تحديث الصورة: ${response.body}');
+      throw _apiError(response, fallback: 'فشل تحديث الصورة');
     }
   }
 
@@ -4234,7 +4268,7 @@ class ApiService {
       body: json.encode({'photo': photoBase64}),
     );
     if (response.statusCode != 200) {
-      throw Exception('فشل تحديث صورة الموظف: ${response.body}');
+      throw _apiError(response, fallback: 'فشل تحديث صورة الموظف');
     }
   }
 
@@ -4264,7 +4298,7 @@ class ApiService {
         json.decode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>,
       );
     } else {
-      throw Exception(_errorMessageFromResponse(response));
+      throw _apiError(response);
     }
   }
 
@@ -4278,7 +4312,7 @@ class ApiService {
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
     } else {
-      throw Exception(_errorMessageFromResponse(response));
+      throw _apiError(response);
     }
   }
 
@@ -4289,7 +4323,7 @@ class ApiService {
       headers: _jsonHeaders(token: token),
     );
     if (response.statusCode != 200) {
-      throw Exception('Failed to delete employee: ${response.body}');
+      throw _apiError(response);
     }
   }
 
@@ -4304,7 +4338,7 @@ class ApiService {
           json.decode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
       return raw['is_active'] as bool? ?? false;
     } else {
-      throw Exception('Failed to toggle employee status: ${response.body}');
+      throw _apiError(response);
     }
   }
 
@@ -4337,7 +4371,7 @@ class ApiService {
     } else {
       final error =
           json.decode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
-      throw Exception(
+      throw ApiException.text(
         error['message'] ?? 'Failed to create user from employee',
       );
     }
@@ -4355,7 +4389,7 @@ class ApiService {
           .map((e) => PayrollModel.fromJson(e as Map<String, dynamic>))
           .toList();
     } else {
-      throw Exception('Failed to load employee payroll: ${response.body}');
+      throw _apiError(response);
     }
   }
 
@@ -4387,7 +4421,7 @@ class ApiService {
           .map((e) => AttendanceModel.fromJson(e as Map<String, dynamic>))
           .toList();
     } else {
-      throw Exception('Failed to load attendance: ${response.body}');
+      throw _apiError(response);
     }
   }
 
@@ -4439,14 +4473,14 @@ class ApiService {
                     ))
                 as List<dynamic>;
       } else {
-        throw Exception('Unexpected users response format');
+        throw ApiException.text('Unexpected users response format');
       }
 
       return rawList
           .map((e) => AppUserModel.fromJson(e as Map<String, dynamic>))
           .toList();
     } else {
-      throw Exception('Failed to load users: ${response.body}');
+      throw _apiError(response);
     }
   }
 
@@ -4464,7 +4498,9 @@ class ApiService {
       }
       return AppUserModel.fromJson(Map<String, dynamic>.from(raw as Map));
     }
-    throw Exception(_readApiErrorMessage(response, 'فشل في جلب حساب الموظف'));
+    throw ApiException.text(
+      _readApiErrorMessage(response, 'فشل في جلب حساب الموظف'),
+    );
   }
 
   Future<AppUserModel> createUser(Map<String, dynamic> payload) async {
@@ -4482,10 +4518,12 @@ class ApiService {
           return AppUserModel.fromJson(raw);
         }
       }
-      throw Exception('Unexpected create user response format');
+      throw ApiException.text('Unexpected create user response format');
     }
 
-    throw Exception(_readApiErrorMessage(response, 'فشل في إنشاء المستخدم'));
+    throw ApiException.text(
+      _readApiErrorMessage(response, 'فشل في إنشاء المستخدم'),
+    );
   }
 
   Future<AppUserModel> updateUser(
@@ -4506,10 +4544,12 @@ class ApiService {
           return AppUserModel.fromJson(raw);
         }
       }
-      throw Exception('Unexpected update user response format');
+      throw ApiException.text('Unexpected update user response format');
     }
 
-    throw Exception(_readApiErrorMessage(response, 'فشل في تحديث المستخدم'));
+    throw ApiException.text(
+      _readApiErrorMessage(response, 'فشل في تحديث المستخدم'),
+    );
   }
 
   Future<Map<String, dynamic>> deleteUser(int userId) async {
@@ -4523,7 +4563,9 @@ class ApiService {
       }
       return <String, dynamic>{'success': true};
     }
-    throw Exception(_readApiErrorMessage(response, 'فشل في حذف المستخدم'));
+    throw ApiException.text(
+      _readApiErrorMessage(response, 'فشل في حذف المستخدم'),
+    );
   }
 
   Future<bool> toggleUserActive(int userId) async {
@@ -4546,7 +4588,7 @@ class ApiService {
       return isActive ?? false;
     }
 
-    throw Exception(
+    throw ApiException.text(
       _readApiErrorMessage(response, 'فشل في تغيير حالة المستخدم'),
     );
   }
@@ -4558,7 +4600,7 @@ class ApiService {
     );
 
     if (response.statusCode != 200) {
-      throw Exception(
+      throw ApiException.text(
         _readApiErrorMessage(response, 'فشل في إعادة تعيين كلمة المرور'),
       );
     }
@@ -4577,9 +4619,9 @@ class ApiService {
       if (raw['user'] is Map<String, dynamic>) {
         return AppUserModel.fromJson(raw['user'] as Map<String, dynamic>);
       }
-      throw Exception('Unexpected login response');
+      throw ApiException.text('Unexpected login response');
     } else {
-      throw Exception('Login failed: ${response.body}');
+      throw _apiError(response);
     }
   }
 
@@ -4593,7 +4635,7 @@ class ApiService {
       return json.decode(utf8.decode(response.bodyBytes))
           as Map<String, dynamic>;
     } else {
-      throw Exception('Check setup failed: ${response.body}');
+      throw _apiError(response);
     }
   }
 
@@ -4622,10 +4664,10 @@ class ApiService {
     }
 
     if (decoded is Map && decoded['message'] is String) {
-      throw Exception(decoded['message']);
+      throw ApiException.text(decoded['message']);
     }
 
-    throw Exception('فشل تهيئة النظام');
+    throw ApiException.text('فشل تهيئة النظام');
   }
 
   // ---------------------------------------------------------------------------
@@ -4658,9 +4700,11 @@ class ApiService {
     if (decoded is Map<String, dynamic>) {
       if (response.statusCode == 200) return decoded;
       final msg = decoded['message']?.toString();
-      throw Exception(msg?.isNotEmpty == true ? msg : 'فشل اختبار الاتصال');
+      throw ApiException.text(
+        msg?.isNotEmpty == true ? msg : 'فشل اختبار الاتصال',
+      );
     }
-    throw Exception('فشل اختبار الاتصال');
+    throw ApiException.text('فشل اختبار الاتصال');
   }
 
   Future<Map<String, dynamic>> saveStoreSettings({
@@ -4687,9 +4731,11 @@ class ApiService {
     if (decoded is Map<String, dynamic>) {
       if (response.statusCode == 200) return decoded;
       final msg = decoded['message']?.toString();
-      throw Exception(msg?.isNotEmpty == true ? msg : 'فشل حفظ إعدادات المتجر');
+      throw ApiException.text(
+        msg?.isNotEmpty == true ? msg : 'فشل حفظ إعدادات المتجر',
+      );
     }
-    throw Exception('فشل حفظ إعدادات المتجر');
+    throw ApiException.text('فشل حفظ إعدادات المتجر');
   }
 
   Future<Map<String, dynamic>> writeEnvProduction({
@@ -4722,11 +4768,11 @@ class ApiService {
     if (decoded is Map<String, dynamic>) {
       if (response.statusCode == 200) return decoded;
       final msg = decoded['message']?.toString();
-      throw Exception(
+      throw ApiException.text(
         msg?.isNotEmpty == true ? msg : 'فشل إنشاء ملف الإعدادات',
       );
     }
-    throw Exception('فشل إنشاء ملف الإعدادات');
+    throw ApiException.text('فشل إنشاء ملف الإعدادات');
   }
 
   // ---------------------------------------------------------------------------
@@ -4750,21 +4796,21 @@ class ApiService {
 
     if (response.statusCode == 200) {
       if (decoded is Map<String, dynamic>) return decoded;
-      throw Exception('Unexpected leaderboard response');
+      throw ApiException.text('Unexpected leaderboard response');
     }
 
     try {
       if (decoded is Map<String, dynamic>) {
         final msg = decoded['message']?.toString();
         final err = decoded['error']?.toString();
-        throw Exception(
+        throw ApiException.text(
           msg?.isNotEmpty == true ? msg : (err ?? 'فشل تحميل لوحة الصدارة'),
         );
       }
     } catch (_) {
       // fallthrough
     }
-    throw Exception('Failed to load leaderboard: ${response.body}');
+    throw _apiError(response);
   }
 
   Future<Map<String, dynamic>> getSalesRaceConfig() async {
@@ -4774,7 +4820,7 @@ class ApiService {
     if (response.statusCode == 200 && decoded is Map<String, dynamic>) {
       return decoded;
     }
-    throw Exception('فشل تحميل إعدادات سباق المبيعات');
+    throw ApiException.text('فشل تحميل إعدادات سباق المبيعات');
   }
 
   Future<Map<String, dynamic>> updateSalesRaceConfig(
@@ -4786,8 +4832,10 @@ class ApiService {
     if (response.statusCode == 200 && decoded is Map<String, dynamic>) {
       return decoded;
     }
-    final msg = decoded is Map ? (decoded['message'] ?? decoded['error']) : null;
-    throw Exception(msg?.toString() ?? 'فشل حفظ إعدادات سباق المبيعات');
+    final msg = decoded is Map
+        ? (decoded['message'] ?? decoded['error'])
+        : null;
+    throw ApiException.text(msg?.toString() ?? 'فشل حفظ إعدادات سباق المبيعات');
   }
 
   // ---------------------------------------------------------------------------
@@ -4825,7 +4873,7 @@ class ApiService {
           .map((e) => PayrollModel.fromJson(e as Map<String, dynamic>))
           .toList();
     } else {
-      throw Exception('Failed to load payroll: ${response.body}');
+      throw _apiError(response);
     }
   }
 
@@ -4841,7 +4889,7 @@ class ApiService {
         json.decode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>,
       );
     } else {
-      throw Exception('Failed to create payroll entry: ${response.body}');
+      throw _apiError(response);
     }
   }
 
@@ -4860,7 +4908,7 @@ class ApiService {
         json.decode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>,
       );
     } else {
-      throw Exception('Failed to update payroll entry: ${response.body}');
+      throw _apiError(response);
     }
   }
 
@@ -4869,7 +4917,7 @@ class ApiService {
       Uri.parse('$_baseUrl/payroll/$payrollId'),
     );
     if (response.statusCode != 200) {
-      throw Exception('Failed to delete payroll entry: ${response.body}');
+      throw _apiError(response);
     }
   }
 
@@ -4887,14 +4935,14 @@ class ApiService {
         if (decoded is Map<String, dynamic>) {
           final msg = decoded['message']?.toString();
           final err = decoded['error']?.toString();
-          throw Exception(
+          throw ApiException.text(
             msg?.isNotEmpty == true ? msg : (err ?? 'فشل تحميل حسابات الدفع'),
           );
         }
       } catch (_) {
         // fallthrough
       }
-      throw Exception('Failed to fetch payment accounts: ${response.body}');
+      throw _apiError(response);
     }
   }
 
@@ -4931,7 +4979,7 @@ class ApiService {
             (decoded['error'] as String?) ??
             response.body;
       } catch (_) {}
-      throw Exception(msg);
+      throw ApiException.text(msg);
     }
   }
 
@@ -4950,21 +4998,21 @@ class ApiService {
     final decoded = json.decode(utf8.decode(response.bodyBytes));
     if (response.statusCode == 200) {
       if (decoded is Map<String, dynamic>) return decoded;
-      throw Exception('Unexpected response from post-accrual');
+      throw ApiException.text('Unexpected response from post-accrual');
     }
 
     try {
       if (decoded is Map<String, dynamic>) {
         final msg = decoded['message']?.toString();
         final err = decoded['error']?.toString();
-        throw Exception(
+        throw ApiException.text(
           msg?.isNotEmpty == true ? msg : (err ?? 'فشل ترحيل الاستحقاق'),
         );
       }
     } catch (_) {
       // fallthrough
     }
-    throw Exception('Failed to post payroll accrual: ${response.body}');
+    throw _apiError(response);
   }
 
   Future<PayrollModel> clonePayroll(
@@ -4993,7 +5041,7 @@ class ApiService {
         final decoded = json.decode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
         msg = (decoded['message'] as String?) ?? (decoded['error'] as String?) ?? response.body;
       } catch (_) {}
-      throw Exception(msg);
+      throw ApiException.text(msg);
     }
   }
 
@@ -5016,7 +5064,9 @@ class ApiService {
     );
     final decoded = json.decode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
     if (response.statusCode == 200) return decoded;
-    throw Exception((decoded['message'] ?? decoded['error']) ?? response.body);
+    throw ApiException.text(
+      (decoded['message'] ?? decoded['error']) ?? response.body,
+    );
   }
 
   Future<Map<String, dynamic>> bulkCancelPayroll({
@@ -5036,7 +5086,9 @@ class ApiService {
     );
     final decoded = json.decode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
     if (response.statusCode == 200) return decoded;
-    throw Exception((decoded['message'] ?? decoded['error']) ?? response.body);
+    throw ApiException.text(
+      (decoded['message'] ?? decoded['error']) ?? response.body,
+    );
   }
 
   // ---------------------------------------------------------------------------
@@ -5077,7 +5129,7 @@ class ApiService {
           .map((e) => AttendanceModel.fromJson(e as Map<String, dynamic>))
           .toList();
     } else {
-      throw Exception('Failed to load attendance list: ${response.body}');
+      throw _apiError(response);
     }
   }
 
@@ -5093,7 +5145,7 @@ class ApiService {
         json.decode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>,
       );
     } else {
-      throw Exception('Failed to create attendance record: ${response.body}');
+      throw _apiError(response);
     }
   }
 
@@ -5113,7 +5165,7 @@ class ApiService {
         json.decode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>,
       );
     } else {
-      throw Exception('Failed to update attendance record: ${response.body}');
+      throw _apiError(response);
     }
   }
 
@@ -5124,7 +5176,7 @@ class ApiService {
       headers: _jsonHeaders(token: token),
     );
     if (response.statusCode != 200) {
-      throw Exception('Failed to delete attendance record: ${response.body}');
+      throw _apiError(response);
     }
   }
 
@@ -5156,7 +5208,7 @@ class ApiService {
           .map((json) => SafeBoxModel.fromJson(json as Map<String, dynamic>))
           .toList();
     } else {
-      throw Exception('Failed to load safe boxes: ${response.body}');
+      throw _apiError(response);
     }
   }
 
@@ -5180,7 +5232,7 @@ class ApiService {
 
     final response = await _authedGet(uri);
     if (response.statusCode != 200) {
-      throw Exception('Failed to load safe box balances: ${response.body}');
+      throw _apiError(response);
     }
 
     final decoded = json.decode(utf8.decode(response.bodyBytes));
@@ -5208,7 +5260,7 @@ class ApiService {
   Future<SafeBoxesOverview> getSafeBoxesOverview() async {
     final response = await _authedGet(Uri.parse('$_baseUrl/safe-boxes/balances'));
     if (response.statusCode != 200) {
-      throw Exception('تعذّر تحميل الخزائن (${response.statusCode})');
+      throw _apiError(response, fallback: 'تعذّر تحميل الخزائن');
     }
     return SafeBoxesOverview.fromJson(
       json.decode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>,
@@ -5280,9 +5332,7 @@ class ApiService {
           as Map<String, dynamic>;
     }
 
-    throw Exception(
-      'Failed to load safe-box reconciliation: ${response.body}',
-    );
+    throw _apiError(response);
   }
 
   /// إنشاء سند تحويل بين الخزائن (ذهب أو نقدي) وتحديث الـ Ledger فوراً.
@@ -5333,7 +5383,7 @@ class ApiService {
       if (decoded is Map<String, dynamic>) return decoded;
       return <String, dynamic>{'raw': decoded};
     }
-    throw Exception(bodyStr);
+    throw ApiException.text(bodyStr);
   }
 
   Future<Map<String, dynamic>> correctSafeBoxKarat({
@@ -5362,7 +5412,7 @@ class ApiService {
       if (decoded is Map<String, dynamic>) return decoded;
       return <String, dynamic>{'raw': decoded};
     }
-    throw Exception(bodyStr);
+    throw ApiException.text(bodyStr);
   }
 
   Future<Map<String, dynamic>> createSafeBoxTransferVoucher({
@@ -5412,7 +5462,7 @@ class ApiService {
       return <String, dynamic>{'raw': decoded};
     }
 
-    throw Exception(bodyStr);
+    throw ApiException.text(bodyStr);
   }
 
   /// إنشاء تسوية مستحقات تحصيل (Clearing → Bank) مع إثبات العمولة عند التسوية.
@@ -5458,7 +5508,7 @@ class ApiService {
       return <String, dynamic>{'raw': decoded};
     }
 
-    throw Exception(bodyStr);
+    throw ApiException.text(bodyStr);
   }
 
   /// المعاملات المعلّقة للتسوية الفردية
@@ -5481,7 +5531,7 @@ class ApiService {
       return <String, dynamic>{'raw': decoded};
     }
 
-    throw Exception(bodyStr);
+    throw ApiException.text(bodyStr);
   }
 
   Future<Map<String, dynamic>> runAutoClearingSettlementsNow() async {
@@ -5498,7 +5548,7 @@ class ApiService {
       return <String, dynamic>{'raw': decoded};
     }
 
-    throw Exception(bodyStr);
+    throw ApiException.text(bodyStr);
   }
 
   /// الحصول على خزينة محددة
@@ -5517,7 +5567,7 @@ class ApiService {
         json.decode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>,
       );
     } else {
-      throw Exception('Failed to load safe box: ${response.body}');
+      throw _apiError(response);
     }
   }
 
@@ -5534,7 +5584,7 @@ class ApiService {
         json.decode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>,
       );
     } else {
-      throw Exception('Failed to create safe box: ${response.body}');
+      throw _apiError(response);
     }
   }
 
@@ -5551,7 +5601,7 @@ class ApiService {
         json.decode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>,
       );
     } else {
-      throw Exception('Failed to update safe box: ${response.body}');
+      throw _apiError(response);
     }
   }
 
@@ -5568,13 +5618,13 @@ class ApiService {
               (decoded['error'] as String?) ??
               'Failed to delete safe box';
           // Keep full JSON in exception string so callers can parse details if needed.
-          throw Exception('$msg | $bodyStr');
+          throw ApiException.text('$msg | $bodyStr');
         }
       } catch (_) {
         // ignore JSON parsing failures
       }
 
-      throw Exception('Failed to delete safe box: $bodyStr');
+      throw _apiError(response);
     }
   }
 
@@ -5591,7 +5641,7 @@ class ApiService {
         json.decode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>,
       );
     } else {
-      throw Exception('Failed to load default safe box: ${response.body}');
+      throw _apiError(response);
     }
   }
 
@@ -5608,7 +5658,7 @@ class ApiService {
         json.decode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>,
       );
     } else {
-      throw Exception('Failed to load gold safe box: ${response.body}');
+      throw _apiError(response);
     }
   }
 
@@ -5628,7 +5678,7 @@ class ApiService {
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
     }
-    throw Exception('Failed to load safe balance: ${response.body}');
+    throw _apiError(response);
   }
 
   /// ميزان مراجعة الأوزان (مطابقة خزائن الذهب ↔ الحسابات الوزنية المرتبطة)
@@ -5657,7 +5707,7 @@ class ApiService {
       return <String, dynamic>{'raw': decoded};
     }
 
-    throw Exception(bodyStr);
+    throw ApiException.text(bodyStr);
   }
 
   /// الحصول على خزائن الدفع النشطة (نقدي + بنكي + مستحقات تحصيل)
@@ -5709,10 +5759,10 @@ class ApiService {
       if (authed.statusCode == 200) {
         return json.decode(utf8.decode(authed.bodyBytes));
       }
-      throw Exception('GET request failed: ${authed.body}');
+      throw _apiError(authed);
     }
 
-    throw Exception('GET request failed: ${response.body}');
+    throw _apiError(response);
   }
 
   Future<dynamic> post(String endpoint, Map<String, dynamic> data) async {
@@ -5736,10 +5786,10 @@ class ApiService {
       if (authed.statusCode == 200 || authed.statusCode == 201) {
         return json.decode(utf8.decode(authed.bodyBytes));
       }
-      throw Exception('POST request failed: ${authed.body}');
+      throw _apiError(authed);
     }
 
-    throw Exception('POST request failed: ${response.body}');
+    throw _apiError(response);
   }
 
   Future<dynamic> put(String endpoint, Map<String, dynamic> data) async {
@@ -5762,10 +5812,10 @@ class ApiService {
       if (authed.statusCode == 200) {
         return json.decode(utf8.decode(authed.bodyBytes));
       }
-      throw Exception('PUT request failed: ${authed.body}');
+      throw _apiError(authed);
     }
 
-    throw Exception('PUT request failed: ${response.body}');
+    throw _apiError(response);
   }
 
   Future<void> delete(String endpoint) async {
@@ -5776,10 +5826,10 @@ class ApiService {
     if (response.statusCode == 401) {
       final authed = await _authedDelete(uri);
       if (authed.statusCode == 200 || authed.statusCode == 204) return;
-      throw Exception('DELETE request failed: ${authed.body}');
+      throw _apiError(authed);
     }
 
-    throw Exception('DELETE request failed: ${response.body}');
+    throw _apiError(response);
   }
 
   // =========================================
@@ -5795,7 +5845,7 @@ class ApiService {
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
-      throw Exception('Failed to load posting stats');
+      throw _apiError(response);
     }
   }
 
@@ -5804,14 +5854,18 @@ class ApiService {
     final response = await _authedGet(Uri.parse('$_baseUrl/invoices/unposted'));
 
     if (response.statusCode == 401) {
-      throw Exception('انتهت صلاحية الجلسة. الرجاء تسجيل الدخول مرة أخرى');
+      throw ApiException.text(
+        'انتهت صلاحية الجلسة. الرجاء تسجيل الدخول مرة أخرى',
+      );
     } else if (response.statusCode == 403) {
-      throw Exception('ليس لديك صلاحية الوصول لهذه الميزة');
+      throw ApiException.text('ليس لديك صلاحية الوصول لهذه الميزة');
     } else if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
       final errorData = json.decode(utf8.decode(response.bodyBytes));
-      throw Exception(errorData['message'] ?? 'فشل تحميل الفواتير غير المرحلة');
+      throw ApiException.text(
+        errorData['message'] ?? 'فشل تحميل الفواتير غير المرحلة',
+      );
     }
   }
 
@@ -5820,14 +5874,18 @@ class ApiService {
     final response = await _authedGet(Uri.parse('$_baseUrl/invoices/posted'));
 
     if (response.statusCode == 401) {
-      throw Exception('انتهت صلاحية الجلسة. الرجاء تسجيل الدخول مرة أخرى');
+      throw ApiException.text(
+        'انتهت صلاحية الجلسة. الرجاء تسجيل الدخول مرة أخرى',
+      );
     } else if (response.statusCode == 403) {
-      throw Exception('ليس لديك صلاحية الوصول لهذه الميزة');
+      throw ApiException.text('ليس لديك صلاحية الوصول لهذه الميزة');
     } else if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
       final errorData = json.decode(utf8.decode(response.bodyBytes));
-      throw Exception(errorData['message'] ?? 'فشل تحميل الفواتير المرحلة');
+      throw ApiException.text(
+        errorData['message'] ?? 'فشل تحميل الفواتير المرحلة',
+      );
     }
   }
 
@@ -5838,14 +5896,18 @@ class ApiService {
     );
 
     if (response.statusCode == 401) {
-      throw Exception('انتهت صلاحية الجلسة. الرجاء تسجيل الدخول مرة أخرى');
+      throw ApiException.text(
+        'انتهت صلاحية الجلسة. الرجاء تسجيل الدخول مرة أخرى',
+      );
     } else if (response.statusCode == 403) {
-      throw Exception('ليس لديك صلاحية الوصول لهذه الميزة');
+      throw ApiException.text('ليس لديك صلاحية الوصول لهذه الميزة');
     } else if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
       final errorData = json.decode(utf8.decode(response.bodyBytes));
-      throw Exception(errorData['message'] ?? 'فشل تحميل القيود غير المرحلة');
+      throw ApiException.text(
+        errorData['message'] ?? 'فشل تحميل القيود غير المرحلة',
+      );
     }
   }
 
@@ -5856,14 +5918,18 @@ class ApiService {
     );
 
     if (response.statusCode == 401) {
-      throw Exception('انتهت صلاحية الجلسة. الرجاء تسجيل الدخول مرة أخرى');
+      throw ApiException.text(
+        'انتهت صلاحية الجلسة. الرجاء تسجيل الدخول مرة أخرى',
+      );
     } else if (response.statusCode == 403) {
-      throw Exception('ليس لديك صلاحية الوصول لهذه الميزة');
+      throw ApiException.text('ليس لديك صلاحية الوصول لهذه الميزة');
     } else if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
       final errorData = json.decode(utf8.decode(response.bodyBytes));
-      throw Exception(errorData['message'] ?? 'فشل تحميل القيود المرحلة');
+      throw ApiException.text(
+        errorData['message'] ?? 'فشل تحميل القيود المرحلة',
+      );
     }
   }
 
@@ -5891,7 +5957,7 @@ class ApiService {
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
-      throw Exception('Failed to post invoice: ${response.body}');
+      throw _apiError(response);
     }
   }
 
@@ -5907,7 +5973,7 @@ class ApiService {
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
-      throw Exception('Failed to post invoices batch: ${response.body}');
+      throw _apiError(response);
     }
   }
 
@@ -5920,7 +5986,7 @@ class ApiService {
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
-      throw Exception(_errorMessageFromResponse(response));
+      throw _apiError(response);
     }
   }
 
@@ -5933,7 +5999,7 @@ class ApiService {
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
-      throw Exception(_errorMessageFromResponse(response));
+      throw _apiError(response);
     }
   }
 
@@ -5950,24 +6016,15 @@ class ApiService {
     }
 
     if (response.statusCode == 401) {
-      throw Exception('انتهت صلاحية الجلسة. الرجاء تسجيل الدخول مرة أخرى');
+      throw ApiException.text(
+        'انتهت صلاحية الجلسة. الرجاء تسجيل الدخول مرة أخرى',
+      );
     }
     if (response.statusCode == 403) {
-      throw Exception('ليس لديك صلاحية اعتماد وترحيل هذه الفاتورة');
+      throw ApiException.text('ليس لديك صلاحية اعتماد وترحيل هذه الفاتورة');
     }
 
-    Map<String, dynamic>? parsed;
-    try {
-      final decoded = json.decode(utf8.decode(response.bodyBytes));
-      if (decoded is Map<String, dynamic>) {
-        parsed = decoded;
-      }
-    } catch (_) {
-      parsed = null;
-    }
-
-    final msg = parsed?['message']?.toString() ?? 'فشل اعتماد وترحيل الفاتورة';
-    throw Exception('$msg (status: ${response.statusCode})');
+    throw _apiError(response, fallback: 'فشل اعتماد وترحيل الفاتورة');
   }
 
   /// Approve and fully post an invoice that requires manager approval.
@@ -5982,24 +6039,15 @@ class ApiService {
     }
 
     if (response.statusCode == 401) {
-      throw Exception('انتهت صلاحية الجلسة. الرجاء تسجيل الدخول مرة أخرى');
+      throw ApiException.text(
+        'انتهت صلاحية الجلسة. الرجاء تسجيل الدخول مرة أخرى',
+      );
     }
     if (response.statusCode == 403) {
-      throw Exception('ليس لديك صلاحية اعتماد وترحيل هذه الفاتورة');
+      throw ApiException.text('ليس لديك صلاحية اعتماد وترحيل هذه الفاتورة');
     }
 
-    Map<String, dynamic>? parsed;
-    try {
-      final decoded = json.decode(utf8.decode(response.bodyBytes));
-      if (decoded is Map<String, dynamic>) {
-        parsed = decoded;
-      }
-    } catch (_) {
-      parsed = null;
-    }
-
-    final msg = parsed?['message']?.toString() ?? 'فشل اعتماد وترحيل الفاتورة';
-    throw Exception('$msg (status: ${response.statusCode})');
+    throw _apiError(response, fallback: 'فشل اعتماد وترحيل الفاتورة');
   }
 
   Future<Map<String, dynamic>> rejectInvoice(int invoiceId, {String? reason}) async {
@@ -6010,13 +6058,7 @@ class ApiService {
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
     }
-    Map<String, dynamic>? parsed;
-    try {
-      final decoded = json.decode(utf8.decode(response.bodyBytes));
-      if (decoded is Map<String, dynamic>) parsed = decoded;
-    } catch (_) {}
-    final msg = parsed?['message']?.toString() ?? 'فشل رفض الفاتورة';
-    throw Exception('$msg (status: ${response.statusCode})');
+    throw _apiError(response, fallback: 'فشل رفض الفاتورة');
   }
 
   Future<Map<String, dynamic>> getPendingActions() async {
@@ -6044,7 +6086,7 @@ class ApiService {
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
-      throw Exception('Failed to post journal entry: ${response.body}');
+      throw _apiError(response);
     }
   }
 
@@ -6060,7 +6102,7 @@ class ApiService {
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
-      throw Exception('Failed to post journal entries batch: ${response.body}');
+      throw _apiError(response);
     }
   }
 
@@ -6072,7 +6114,7 @@ class ApiService {
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
-      throw Exception('Failed to unpost journal entry: ${response.body}');
+      throw _apiError(response);
     }
   }
 
@@ -6087,9 +6129,7 @@ class ApiService {
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
-      throw Exception(
-        'Failed to unpost journal entries batch: ${response.body}',
-      );
+      throw _apiError(response);
     }
   }
 
@@ -6106,10 +6146,12 @@ class ApiService {
     final response = await _authedDelete(uri);
 
     if (response.statusCode == 401) {
-      throw Exception('انتهت صلاحية الجلسة. الرجاء تسجيل الدخول مرة أخرى');
+      throw ApiException.text(
+        'انتهت صلاحية الجلسة. الرجاء تسجيل الدخول مرة أخرى',
+      );
     }
     if (response.statusCode == 403) {
-      throw Exception('ليس لديك صلاحية حذف القيود');
+      throw ApiException.text('ليس لديك صلاحية حذف القيود');
     }
 
     if (response.statusCode == 200) {
@@ -6118,16 +6160,7 @@ class ApiService {
       return {'success': true};
     }
 
-    Map<String, dynamic>? parsed;
-    try {
-      final decoded = json.decode(utf8.decode(response.bodyBytes));
-      if (decoded is Map<String, dynamic>) parsed = decoded;
-    } catch (_) {
-      parsed = null;
-    }
-
-    final msg = parsed?['message']?.toString() ?? 'فشل حذف القيد';
-    throw Exception('$msg (status: ${response.statusCode})');
+    throw _apiError(response, fallback: 'فشل حذف القيد');
   }
 
   // ==========================================
@@ -6164,7 +6197,7 @@ class ApiService {
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
-      throw Exception('Failed to load audit logs');
+      throw _apiError(response);
     }
   }
 
@@ -6179,7 +6212,7 @@ class ApiService {
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
-      throw Exception('Failed to load audit log detail');
+      throw _apiError(response);
     }
   }
 
@@ -6197,7 +6230,7 @@ class ApiService {
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
-      throw Exception('Failed to load audit logs by entity');
+      throw _apiError(response);
     }
   }
 
@@ -6214,7 +6247,7 @@ class ApiService {
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
-      throw Exception('Failed to load audit logs by user');
+      throw _apiError(response);
     }
   }
 
@@ -6228,7 +6261,7 @@ class ApiService {
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
-      throw Exception('Failed to load failed audit logs');
+      throw _apiError(response);
     }
   }
 
@@ -6238,7 +6271,7 @@ class ApiService {
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
-      throw Exception('Failed to load audit stats');
+      throw _apiError(response);
     }
   }
 
@@ -6262,7 +6295,7 @@ class ApiService {
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
     }
-    throw Exception('Failed to load shift closing summary');
+    throw _apiError(response);
   }
 
   Future<Map<String, dynamic>> submitShiftClosingReport({
@@ -6300,7 +6333,7 @@ class ApiService {
     if (response.statusCode == 201 || response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
     }
-    throw Exception('Failed to submit shift closing report');
+    throw _apiError(response);
   }
 
   // ==========================================
@@ -6364,7 +6397,9 @@ class ApiService {
       return {'message': decoded.toString()};
     }
 
-    throw Exception(_readApiErrorMessage(response, 'فشل استعادة اسم المستخدم'));
+    throw ApiException.text(
+      _readApiErrorMessage(response, 'فشل استعادة اسم المستخدم'),
+    );
   }
 
   /// Password reset request (public). Returns a generic success message.
@@ -6384,7 +6419,7 @@ class ApiService {
       return {'message': decoded.toString()};
     }
 
-    throw Exception(
+    throw ApiException.text(
       _readApiErrorMessage(response, 'فشل إرسال رمز إعادة التعيين'),
     );
   }
@@ -6406,7 +6441,9 @@ class ApiService {
       return {'message': decoded.toString()};
     }
 
-    throw Exception(_readApiErrorMessage(response, 'فشل تأكيد إعادة التعيين'));
+    throw ApiException.text(
+      _readApiErrorMessage(response, 'فشل تأكيد إعادة التعيين'),
+    );
   }
 
   /// Refresh access token using refresh token (rotating).
@@ -6422,7 +6459,7 @@ class ApiService {
     }
 
     final error = json.decode(utf8.decode(response.bodyBytes));
-    throw Exception(error['message'] ?? 'فشل تحديث الجلسة');
+    throw ApiException.text(error['message'] ?? 'فشل تحديث الجلسة');
   }
 
   /// Logout server-side (blacklist access token + revoke refresh token).
@@ -6456,7 +6493,7 @@ class ApiService {
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
-      throw Exception('Failed to get current user');
+      throw _apiError(response);
     }
   }
 
@@ -6482,7 +6519,7 @@ class ApiService {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
       final error = json.decode(utf8.decode(response.bodyBytes));
-      throw Exception(error['message'] ?? 'فشل تغيير كلمة المرور');
+      throw ApiException.text(error['message'] ?? 'فشل تغيير كلمة المرور');
     }
   }
 
@@ -6517,7 +6554,7 @@ class ApiService {
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
-      throw Exception('Failed to load roles');
+      throw _apiError(response);
     }
   }
 
@@ -6545,7 +6582,7 @@ class ApiService {
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
-      throw Exception('Failed to load role');
+      throw _apiError(response);
     }
   }
 
@@ -6590,7 +6627,7 @@ class ApiService {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
       final error = json.decode(utf8.decode(response.bodyBytes));
-      throw Exception(error['message'] ?? 'فشل إنشاء الدور');
+      throw ApiException.text(error['message'] ?? 'فشل إنشاء الدور');
     }
   }
 
@@ -6628,7 +6665,7 @@ class ApiService {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
       final error = json.decode(utf8.decode(response.bodyBytes));
-      throw Exception(error['message'] ?? 'فشل تحديث الدور');
+      throw ApiException.text(error['message'] ?? 'فشل تحديث الدور');
     }
   }
 
@@ -6657,7 +6694,7 @@ class ApiService {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
       final error = json.decode(utf8.decode(response.bodyBytes));
-      throw Exception(error['message'] ?? 'فشل حذف الدور');
+      throw ApiException.text(error['message'] ?? 'فشل حذف الدور');
     }
   }
 
@@ -6693,7 +6730,7 @@ class ApiService {
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
-      throw Exception('Failed to load permissions');
+      throw _apiError(response);
     }
   }
 
@@ -6731,7 +6768,7 @@ class ApiService {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
       final error = json.decode(utf8.decode(response.bodyBytes));
-      throw Exception(error['message'] ?? 'فشل إدارة أدوار المستخدم');
+      throw ApiException.text(error['message'] ?? 'فشل إدارة أدوار المستخدم');
     }
   }
 
@@ -6766,7 +6803,7 @@ class ApiService {
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
-      throw Exception('Failed to load user permissions');
+      throw _apiError(response);
     }
   }
 
@@ -6824,7 +6861,7 @@ class ApiService {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
       final error = json.decode(utf8.decode(response.bodyBytes));
-      throw Exception(error['message'] ?? 'فشل تحميل المستخدمين');
+      throw ApiException.text(error['message'] ?? 'فشل تحميل المستخدمين');
     }
   }
 
@@ -6853,7 +6890,7 @@ class ApiService {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
       final error = json.decode(utf8.decode(response.bodyBytes));
-      throw Exception(error['message'] ?? 'فشل تحميل المستخدم');
+      throw ApiException.text(error['message'] ?? 'فشل تحميل المستخدم');
     }
   }
 
@@ -6901,7 +6938,7 @@ class ApiService {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
       final error = json.decode(utf8.decode(response.bodyBytes));
-      throw Exception(error['message'] ?? 'فشل إنشاء المستخدم');
+      throw ApiException.text(error['message'] ?? 'فشل إنشاء المستخدم');
     }
   }
 
@@ -6946,7 +6983,7 @@ class ApiService {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
       final error = json.decode(utf8.decode(response.bodyBytes));
-      throw Exception(error['message'] ?? 'فشل تحديث المستخدم');
+      throw ApiException.text(error['message'] ?? 'فشل تحديث المستخدم');
     }
   }
 
@@ -6978,7 +7015,7 @@ class ApiService {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
       final error = json.decode(utf8.decode(response.bodyBytes));
-      throw Exception(error['message'] ?? 'فشل حذف المستخدم');
+      throw ApiException.text(error['message'] ?? 'فشل حذف المستخدم');
     }
   }
 
@@ -7010,7 +7047,7 @@ class ApiService {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
       final error = json.decode(utf8.decode(response.bodyBytes));
-      throw Exception(error['message'] ?? 'فشل تغيير حالة المستخدم');
+      throw ApiException.text(error['message'] ?? 'فشل تغيير حالة المستخدم');
     }
   }
 
@@ -7044,7 +7081,7 @@ class ApiService {
       return jwtToken;
     }
 
-    throw Exception(
+    throw ApiException.text(
       'يجب تسجيل الدخول أولاً. الرجاء تسجيل الخروج والدخول مرة أخرى',
     );
   }
@@ -7106,9 +7143,9 @@ class ApiService {
         return parsed['rules'] as List<dynamic>;
       }
       if (parsed is List) return parsed; // توافق مع استجابة قديمة
-      throw Exception('تنسيق غير متوقع لقواعد المكافآت');
+      throw ApiException.text('تنسيق غير متوقع لقواعد المكافآت');
     } else {
-      throw Exception('فشل في تحميل قواعد المكافآت');
+      throw ApiException.text('فشل في تحميل قواعد المكافآت');
     }
   }
 
@@ -7130,7 +7167,7 @@ class ApiService {
       return parsed as Map<String, dynamic>;
     } else {
       final error = json.decode(utf8.decode(response.bodyBytes));
-      throw Exception(
+      throw ApiException.text(
         error is Map<String, dynamic>
             ? (error['error'] ??
                   error['message'] ??
@@ -7149,7 +7186,7 @@ class ApiService {
     );
     if (response.statusCode != 200) {
       final error = json.decode(utf8.decode(response.bodyBytes));
-      throw Exception(
+      throw ApiException.text(
         error is Map<String, dynamic>
             ? (error['error'] ??
                   error['message'] ??
@@ -7166,7 +7203,7 @@ class ApiService {
       headers: _jsonHeaders(token: token),
     );
     if (response.statusCode != 200) {
-      throw Exception('فشل في حذف قاعدة المكافأة');
+      throw ApiException.text('فشل في حذف قاعدة المكافأة');
     }
   }
 
@@ -7225,9 +7262,9 @@ class ApiService {
         return parsed['bonuses'] as List<dynamic>;
       }
       if (parsed is List) return parsed;
-      throw Exception('تنسيق غير متوقع للمكافآت');
+      throw ApiException.text('تنسيق غير متوقع للمكافآت');
     } else {
-      throw Exception('فشل في تحميل المكافآت');
+      throw ApiException.text('فشل في تحميل المكافآت');
     }
   }
 
@@ -7242,7 +7279,9 @@ class ApiService {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
       final error = json.decode(utf8.decode(response.bodyBytes));
-      throw Exception(error['error'] ?? error['message'] ?? 'فشل في إنشاء المكافأة');
+      throw ApiException.text(
+        error['error'] ?? error['message'] ?? 'فشل في إنشاء المكافأة',
+      );
     }
   }
 
@@ -7273,7 +7312,7 @@ class ApiService {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
       final error = json.decode(utf8.decode(response.bodyBytes));
-      throw Exception(error['error'] ?? 'فشل في حساب المكافآت');
+      throw ApiException.text(error['error'] ?? 'فشل في حساب المكافآت');
     }
   }
 
@@ -7295,8 +7334,9 @@ class ApiService {
       } catch (_) {
         // ignore JSON parsing errors
       }
-      throw Exception(
-        cleanMessage ?? (bodyText.isNotEmpty ? bodyText : 'فشل في الموافقة على المكافأة'),
+      throw ApiException.text(
+        cleanMessage ??
+            (bodyText.isNotEmpty ? bodyText : 'فشل في الموافقة على المكافأة'),
       );
     }
   }
@@ -7319,8 +7359,9 @@ class ApiService {
       } catch (_) {
         // ignore JSON parsing errors
       }
-      throw Exception(
-        cleanMessage ?? (bodyText.isNotEmpty ? bodyText : 'فشل في رفض المكافأة'),
+      throw ApiException.text(
+        cleanMessage ??
+            (bodyText.isNotEmpty ? bodyText : 'فشل في رفض المكافأة'),
       );
     }
   }
@@ -7352,8 +7393,9 @@ class ApiService {
       } catch (_) {
         // ignore JSON parsing errors
       }
-      throw Exception(
-        cleanMessage ?? (bodyText.isNotEmpty ? bodyText : 'فشل في صرف المكافأة'),
+      throw ApiException.text(
+        cleanMessage ??
+            (bodyText.isNotEmpty ? bodyText : 'فشل في صرف المكافأة'),
       );
     }
   }
@@ -7367,7 +7409,7 @@ class ApiService {
     );
     if (response.statusCode != 200) {
       final error = json.decode(utf8.decode(response.bodyBytes));
-      throw Exception(error['error'] ?? 'فشل في تحديث المكافأة');
+      throw ApiException.text(error['error'] ?? 'فشل في تحديث المكافأة');
     }
   }
 
@@ -7387,12 +7429,12 @@ class ApiService {
         final decoded = json.decode(bodyText);
         if (decoded is Map) {
           final message = decoded['message'] ?? decoded['error'];
-          if (message != null) throw Exception(message.toString());
+          if (message != null) throw ApiException.text(message.toString());
         }
       } catch (_) {
         // ignore JSON parsing errors and fall back to raw text
       }
-      throw Exception(
+      throw ApiException.text(
         bodyText.isNotEmpty ? bodyText : 'فشل في الموافقة الجماعية',
       );
     }
@@ -7418,12 +7460,14 @@ class ApiService {
         final decoded = json.decode(bodyText);
         if (decoded is Map) {
           final message = decoded['message'] ?? decoded['error'];
-          if (message != null) throw Exception(message.toString());
+          if (message != null) throw ApiException.text(message.toString());
         }
       } catch (_) {
         // ignore JSON parsing errors and fall back to raw text
       }
-      throw Exception(bodyText.isNotEmpty ? bodyText : 'فشل في الرفض الجماعي');
+      throw ApiException.text(
+        bodyText.isNotEmpty ? bodyText : 'فشل في الرفض الجماعي',
+      );
     }
   }
 
@@ -7434,7 +7478,7 @@ class ApiService {
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
     }
-    throw Exception('فشل في تحميل المستحق من الدفاتر');
+    throw ApiException.text('فشل في تحميل المستحق من الدفاتر');
   }
 
   Future<Map<String, dynamic>> getBonusesPayablesReport() async {
@@ -7444,7 +7488,7 @@ class ApiService {
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
-      throw Exception('فشل في تحميل تقرير المكافآت المستحقة');
+      throw ApiException.text('فشل في تحميل تقرير المكافآت المستحقة');
     }
   }
 
@@ -7458,7 +7502,9 @@ class ApiService {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
       final error = json.decode(utf8.decode(response.bodyBytes));
-      throw Exception(error['error'] ?? 'فشل في إعداد المصادقة الثنائية');
+      throw ApiException.text(
+        error['error'] ?? 'فشل في إعداد المصادقة الثنائية',
+      );
     }
   }
 
@@ -7471,7 +7517,7 @@ class ApiService {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
       final error = json.decode(utf8.decode(response.bodyBytes));
-      throw Exception(error['error'] ?? 'رمز التحقق غير صحيح');
+      throw ApiException.text(error['error'] ?? 'رمز التحقق غير صحيح');
     }
   }
 
@@ -7479,7 +7525,9 @@ class ApiService {
     final response = await _authedPost(Uri.parse('$_baseUrl/auth/2fa/disable'));
     if (response.statusCode != 200) {
       final error = json.decode(utf8.decode(response.bodyBytes));
-      throw Exception(error['error'] ?? 'فشل في تعطيل المصادقة الثنائية');
+      throw ApiException.text(
+        error['error'] ?? 'فشل في تعطيل المصادقة الثنائية',
+      );
     }
   }
 
@@ -7490,7 +7538,7 @@ class ApiService {
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
-      throw Exception('فشل في تحميل سياسة كلمات المرور');
+      throw ApiException.text('فشل في تحميل سياسة كلمات المرور');
     }
   }
 
@@ -7501,7 +7549,9 @@ class ApiService {
     );
     if (response.statusCode != 200) {
       final error = json.decode(utf8.decode(response.bodyBytes));
-      throw Exception(error['error'] ?? 'فشل في تحديث سياسة كلمات المرور');
+      throw ApiException.text(
+        error['error'] ?? 'فشل في تحديث سياسة كلمات المرور',
+      );
     }
   }
 
@@ -7513,7 +7563,7 @@ class ApiService {
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
-      throw Exception('فشل في تحميل الجلسات');
+      throw ApiException.text('فشل في تحميل الجلسات');
     }
   }
 
@@ -7522,7 +7572,7 @@ class ApiService {
       Uri.parse('$_baseUrl/auth/sessions/$sessionId'),
     );
     if (response.statusCode != 200) {
-      throw Exception('فشل في إنهاء الجلسة');
+      throw ApiException.text('فشل في إنهاء الجلسة');
     }
   }
 
@@ -7531,7 +7581,7 @@ class ApiService {
       Uri.parse('$_baseUrl/auth/sessions/all'),
     );
     if (response.statusCode != 200) {
-      throw Exception('فشل في إنهاء جميع الجلسات');
+      throw ApiException.text('فشل في إنهاء جميع الجلسات');
     }
   }
 
@@ -7551,7 +7601,7 @@ class ApiService {
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
-      throw Exception('فشل في تحميل البيانات من $endpoint');
+      throw ApiException.text('فشل في تحميل البيانات من $endpoint');
     }
   }
 
@@ -7581,7 +7631,9 @@ class ApiService {
       final data = json.decode(utf8.decode(response.bodyBytes));
       return data['roles'] as List<dynamic>;
     } else {
-      throw Exception(_readApiErrorMessage(response, 'فشل في تحميل الأدوار'));
+      throw ApiException.text(
+        _readApiErrorMessage(response, 'فشل في تحميل الأدوار'),
+      );
     }
   }
 
@@ -7592,7 +7644,9 @@ class ApiService {
       final data = json.decode(utf8.decode(response.bodyBytes));
       return data['categories'] as List<dynamic>;
     } else {
-      throw Exception(_readApiErrorMessage(response, 'فشل في تحميل الصلاحيات'));
+      throw ApiException.text(
+        _readApiErrorMessage(response, 'فشل في تحميل الصلاحيات'),
+      );
     }
   }
 
@@ -7607,7 +7661,7 @@ class ApiService {
       final data = json.decode(utf8.decode(response.bodyBytes));
       return data['role'] as Map<String, dynamic>;
     } else {
-      throw Exception(
+      throw ApiException.text(
         _readApiErrorMessage(response, 'فشل في تحميل صلاحيات الدور'),
       );
     }
@@ -7621,7 +7675,7 @@ class ApiService {
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
-      throw Exception(
+      throw ApiException.text(
         _readApiErrorMessage(response, 'فشل في تحميل صلاحيات المستخدم'),
       );
     }
@@ -7640,7 +7694,7 @@ class ApiService {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
       final error = json.decode(utf8.decode(response.bodyBytes));
-      throw Exception(error['error'] ?? 'فشل في تحديث الصلاحيات');
+      throw ApiException.text(error['error'] ?? 'فشل في تحديث الصلاحيات');
     }
   }
 
@@ -7658,7 +7712,7 @@ class ApiService {
       return json.decode(utf8.decode(response.bodyBytes));
     } else {
       final error = json.decode(utf8.decode(response.bodyBytes));
-      throw Exception(error['error'] ?? 'فشل في تحديث الدور');
+      throw ApiException.text(error['error'] ?? 'فشل في تحديث الدور');
     }
   }
 
@@ -7739,7 +7793,7 @@ class ApiService {
     if (response.statusCode == 200) {
       return json.decode(utf8.decode(response.bodyBytes));
     }
-    throw Exception('فشل تحديث أهداف الموظف: ${response.statusCode}');
+    throw _apiError(response, fallback: 'فشل تحديث أهداف الموظف');
   }
 
   /// 🎯 POST /employees/{id}/goal-check

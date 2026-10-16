@@ -9,6 +9,7 @@ import '../providers/sales_race_refresh_provider.dart';
 import '../widgets/user_avatar_widget.dart';
 import '../providers/settings_provider.dart';
 import '../theme/app_theme.dart';
+import '../widgets/app_feedback.dart';
 
 /// نظام إدارة سباق المبيعات المتكامل.
 /// Tab 1 – لوحة المتابعة (متاح للجميع): الترتيب، هدف الأسبوع، بطل اليوم.
@@ -266,12 +267,11 @@ class _SalesRaceManagementScreenState extends State<SalesRaceManagementScreen> {
   }
 
   void _showSnack(String msg, {bool isError = false}) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(msg),
-        backgroundColor: isError ? Colors.red.shade700 : Colors.green.shade700,
-      ),
-    );
+    if (isError) {
+      AppFeedback.error(context, msg);
+    } else {
+      AppFeedback.success(context, msg);
+    }
   }
 
   // ── Build ─────────────────────────────────────────────────────────────────

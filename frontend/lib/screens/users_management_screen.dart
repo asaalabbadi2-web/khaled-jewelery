@@ -4,6 +4,7 @@ import '../api_service.dart';
 
 import '../models/app_user_model.dart';
 import 'permissions_management_screen.dart';
+import '../widgets/app_feedback.dart';
 
 /// شاشة إدارة المستخدمين (مع JWT)
 class UsersManagementScreen extends StatefulWidget {
@@ -104,12 +105,11 @@ class _UsersManagementScreenState extends State<UsersManagementScreen> {
 
   void _showSnack(String message, {bool isError = false}) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: isError ? Colors.red : const Color(0xFFFFD700),
-      ),
-    );
+    if (isError) {
+      AppFeedback.error(context, message);
+    } else {
+      AppFeedback.success(context, message);
+    }
   }
 
   Widget _buildStatisticsRow(ThemeData theme, ColorScheme colorScheme) {

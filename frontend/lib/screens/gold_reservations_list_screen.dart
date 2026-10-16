@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../api_service.dart';
 import '../providers/settings_provider.dart';
 import '../theme/app_theme.dart';
+import '../widgets/app_feedback.dart';
 
 /// شاشة سجل حجوزات الذهب للمكاتب
 class GoldReservationsListScreen extends StatefulWidget {
@@ -156,12 +157,11 @@ class _GoldReservationsListScreenState
 
   void _showSnack(String message, {bool isError = false}) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: isError ? AppColors.error : AppColors.success,
-      ),
-    );
+    if (isError) {
+      AppFeedback.error(context, message);
+    } else {
+      AppFeedback.success(context, message);
+    }
   }
 
   Future<void> _selectDateRange() async {

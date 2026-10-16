@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 import '../api_service.dart';
 import '../models/supplier_settlement_model.dart';
 import '../providers/auth_provider.dart';
+import '../widgets/app_feedback.dart';
 
 /// حدود تسوية فروقات حسابات الموردين — عرضًا وتعديلًا.
 ///
@@ -307,11 +308,7 @@ class _SupplierSettlementPolicyScreenState
   }
 
   void _showError(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text(message),
-      backgroundColor: Theme.of(context).colorScheme.error,
-      duration: const Duration(seconds: 6),
-    ));
+    AppFeedback.error(context, message);
   }
 
   // ── بناء ─────────────────────────────────────────────────────────────────

@@ -8,6 +8,7 @@ import '../theme/app_theme.dart' as theme;
 import 'audit_log_screen.dart';
 import '../providers/auth_provider.dart';
 import '../utils/currency_utils.dart' as cu;
+import '../widgets/app_feedback.dart';
 
 /// شاشة إدارة الترحيل (Posting Management)
 /// تسمح بترحيل الفواتير والقيود، ومراجعتها قبل التأثير على الحسابات
@@ -895,32 +896,19 @@ class _PostingManagementScreenState extends State<PostingManagementScreen>
 
   void _showSuccess(String message) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: theme.AppColors.success,
-        behavior: SnackBarBehavior.floating,
-      ),
-    );
+    AppFeedback.success(context, message);
   }
 
   void _showError(String message) {
     if (!mounted) return;
-    final cleanMessage = message.replaceFirst(RegExp(r'^Exception:\s*'), '');
+    final said = AppFeedback.messageOf(message);
 
-    if (_isSessionError(cleanMessage)) {
-      _handleSessionExpired(cleanMessage);
+    if (_isSessionError(said)) {
+      _handleSessionExpired(said);
       return;
     }
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(cleanMessage.isEmpty ? message : cleanMessage),
-        backgroundColor: theme.AppColors.error,
-        behavior: SnackBarBehavior.floating,
-        duration: const Duration(seconds: 5),
-      ),
-    );
+    AppFeedback.error(context, said);
   }
 
   bool _isSessionError(String message) {

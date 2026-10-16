@@ -12,6 +12,7 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'support/fake_purchase_api.dart';
+import 'support/shots.dart';
 
 /// PURCHASE-UX-1 (the owner, 6 Oct 2026): the purchase invoice screen says
 /// «ready» only when the server would take the invoice; otherwise it names the
@@ -595,9 +596,7 @@ void main() {
     Color barColor(WidgetTester tester) =>
         tester.widget<AppBar>(find.byType(AppBar)).backgroundColor!;
 
-    testWidgets('a purchase from a supplier has its own color', (
-      tester,
-    ) async {
+    testWidgets('a purchase from a supplier has its own color', (tester) async {
       await open(tester, api: FakePurchaseApi(), saved: draft());
       expect(
         barColor(tester),
@@ -608,11 +607,7 @@ void main() {
     testWidgets('a supplier return has the return color, not the purchase\'s', (
       tester,
     ) async {
-      await open(
-        tester,
-        api: FakePurchaseApi(),
-        supplierReturn: true,
-      );
+      await open(tester, api: FakePurchaseApi(), supplierReturn: true);
       expect(
         barColor(tester),
         AppSemanticColors.light.invoice(InvoiceKind.returned).fg,
@@ -624,5 +619,11 @@ void main() {
       await pressCtrlS(tester);
       expect(find.text('مراجعة فاتورة شراء'), findsOneWidget);
     });
+  });
+
+  testWidgets('a purchase being written draws (SHOT_DIR)', (tester) async {
+    await open(tester, api: FakePurchaseApi(), saved: draft());
+    expect(tester.takeException(), isNull);
+    await shotWidths(tester, 'purchase');
   });
 }

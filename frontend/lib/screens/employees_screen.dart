@@ -9,6 +9,7 @@ import '../providers/auth_provider.dart';
 import '../utils.dart';
 import '../widgets/user_avatar_widget.dart';
 import 'account_statement_screen.dart';
+import '../widgets/app_feedback.dart';
 
 class EmployeesScreen extends StatefulWidget {
   final ApiService api;
@@ -73,22 +74,11 @@ class _EmployeesScreenState extends State<EmployeesScreen> {
   }
 
   void _showSnack(String message, {bool isError = false}) {
-    final isAr = widget.isArabic;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: isError
-            ? Colors.red
-            : Theme.of(context).colorScheme.primary,
-        behavior: SnackBarBehavior.floating,
-        duration: const Duration(seconds: 3),
-        action: SnackBarAction(
-          label: isAr ? 'إغلاق' : 'Close',
-          textColor: Colors.white,
-          onPressed: () {},
-        ),
-      ),
-    );
+    if (isError) {
+      AppFeedback.error(context, message);
+    } else {
+      AppFeedback.success(context, message);
+    }
   }
 
   Future<void> _refresh() async {

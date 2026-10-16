@@ -7,6 +7,7 @@ import '../api_service.dart';
 import '../theme/app_theme.dart';
 import '../utils/arabic_number_formatter.dart';
 import '../widgets/account_picker_sheet.dart';
+import '../widgets/app_feedback.dart';
 
 /// شاشة إضافة/تعديل قالب قيد دوري
 class RecurringTemplateFormScreen extends StatefulWidget {
@@ -223,13 +224,7 @@ class _RecurringTemplateFormScreenState
   }
 
   void _showErrorSnackBar(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: AppColors.error,
-        duration: const Duration(seconds: 3),
-      ),
-    );
+    AppFeedback.error(context, message);
   }
 
   @override

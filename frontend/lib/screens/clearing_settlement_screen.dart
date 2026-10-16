@@ -11,6 +11,7 @@ import '../theme/app_theme.dart' as theme;
 import '../utils.dart';
 import '../widgets/account_picker_sheet.dart';
 import '../widgets/safe_box_picker_dialog.dart';
+import '../widgets/app_feedback.dart';
 
 class ClearingSettlementScreen extends StatefulWidget {
   final int? initialClearingSafeBoxId;
@@ -853,14 +854,11 @@ class _ClearingSettlementScreenState extends State<ClearingSettlementScreen> {
   }
 
   void _showSnack(String msg, {bool error = false}) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(msg),
-        backgroundColor: error
-            ? theme.AppColors.error
-            : theme.AppColors.success,
-      ),
-    );
+    if (error) {
+      AppFeedback.error(context, msg);
+    } else {
+      AppFeedback.success(context, msg);
+    }
   }
 
   /// Load recent clearing settlement vouchers (for admin/manager reversal).

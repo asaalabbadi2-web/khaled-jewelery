@@ -13,6 +13,8 @@ import 'package:frontend/theme/app_theme.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'support/shots.dart';
+
 /// A statement's balance is the server's (10 Oct 2026).
 ///
 /// The screen recomputed each line's balance from the lines left after a
@@ -283,5 +285,11 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('statement-filtered-totals')), findsOneWidget);
     expect(find.textContaining('النتائج: '), findsOneWidget);
+  });
+
+  testWidgets('a statement draws (SHOT_DIR)', (tester) async {
+    await open(tester);
+    expect(tester.takeException(), isNull);
+    await shotWidths(tester, 'statement');
   });
 }

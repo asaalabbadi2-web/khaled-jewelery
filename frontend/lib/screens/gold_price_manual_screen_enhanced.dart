@@ -5,6 +5,7 @@ import '../utils.dart';
 import 'package:provider/provider.dart';
 import '../providers/settings_provider.dart';
 import '../utils/currency_utils.dart' as cu;
+import '../widgets/app_feedback.dart';
 
 /// شاشة تحديث سعر الذهب المحسّنة بتصميم احترافي
 class GoldPriceManualScreenEnhanced extends StatefulWidget {
@@ -281,24 +282,11 @@ class _GoldPriceManualScreenEnhancedState
   }
 
   void _showMessage(String message, {bool isError = false}) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Row(
-          children: [
-            Icon(
-              isError ? Icons.error_outline : Icons.check_circle_outline,
-              color: Colors.white,
-            ),
-            SizedBox(width: 12),
-            Expanded(child: Text(message, style: TextStyle(fontSize: 15))),
-          ],
-        ),
-        backgroundColor: isError ? _errorColor : _successColor,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        duration: Duration(seconds: isError ? 4 : 2),
-      ),
-    );
+    if (isError) {
+      AppFeedback.error(context, message);
+    } else {
+      AppFeedback.success(context, message);
+    }
   }
 
   @override

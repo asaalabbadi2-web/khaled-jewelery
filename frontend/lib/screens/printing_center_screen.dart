@@ -19,6 +19,7 @@ import 'reports/category_weight_audit_report_screen.dart';
 import 'reports/sales_overview_report_screen.dart';
 import 'trial_balance_screen_v2.dart';
 import '../utils/invoice_direct_print.dart';
+import '../widgets/app_feedback.dart';
 
 class PrintingCenterScreen extends StatefulWidget {
   final bool isArabic;
@@ -2399,9 +2400,7 @@ class _PrintingCenterScreenState extends State<PrintingCenterScreen> {
   }
 
   void _showSnack(String message) {
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text(message)));
+    AppFeedback.info(context, message);
   }
 
   Future<void> _showInvoicePickerAndPrint(String action) async {

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../api_service.dart';
 import 'recurring_template_form.dart';
+import '../widgets/app_feedback.dart';
 
 /// شاشة عرض قائمة القوالب الدورية
 class RecurringTemplatesListScreen extends StatefulWidget {
@@ -136,23 +137,11 @@ class _RecurringTemplatesListScreenState
   }
 
   void _showErrorSnackBar(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: Colors.red,
-        duration: Duration(seconds: 3),
-      ),
-    );
+    AppFeedback.error(context, message);
   }
 
   void _showSuccessSnackBar(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: Colors.green,
-        duration: Duration(seconds: 2),
-      ),
-    );
+    AppFeedback.success(context, message);
   }
 
   List<dynamic> get _filteredTemplates {

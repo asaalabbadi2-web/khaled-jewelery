@@ -9,6 +9,7 @@ import '../widgets/user_avatar_widget.dart';
 import 'package:provider/provider.dart';
 
 import 'permissions_management_screen.dart';
+import '../widgets/app_feedback.dart';
 
 class UsersScreen extends StatefulWidget {
   final ApiService api;
@@ -67,15 +68,11 @@ class _UsersScreenState extends State<UsersScreen> {
   }
 
   void _showSnack(String message, {bool isError = false}) {
-    final cleaned = message.replaceFirst(RegExp(r'^Exception:\s*'), '');
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(cleaned),
-        backgroundColor: isError
-            ? Colors.red
-            : Theme.of(context).colorScheme.primary,
-      ),
-    );
+    if (isError) {
+      AppFeedback.error(context, message);
+    } else {
+      AppFeedback.success(context, message);
+    }
   }
 
   IconData _roleIcon(String role) {

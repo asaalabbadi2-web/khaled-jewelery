@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../providers/settings_provider.dart';
+import '../widgets/app_feedback.dart';
 
 class WeightClosingSettingsScreen extends StatefulWidget {
   const WeightClosingSettingsScreen({super.key});
@@ -191,16 +192,11 @@ class _WeightClosingSettingsScreenState
   }
 
   void _showSnack(String message, {bool isError = false}) {
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(
-        SnackBar(
-          content: Text(message, textAlign: TextAlign.center),
-          backgroundColor: isError
-              ? Theme.of(context).colorScheme.error
-              : Theme.of(context).colorScheme.primary,
-        ),
-      );
+    if (isError) {
+      AppFeedback.error(context, message);
+    } else {
+      AppFeedback.success(context, message);
+    }
   }
 
   @override

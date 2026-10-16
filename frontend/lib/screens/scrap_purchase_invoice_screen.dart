@@ -18,6 +18,7 @@ import '../utils/scrap_purchase_readiness.dart';
 import '../widgets/adaptive_invoice_summary_dialog.dart';
 import '../utils/invoice_direct_print.dart';
 import '../utils.dart';
+import '../widgets/app_feedback.dart';
 
 /// شاشة فاتورة شراء الكسر - نسخة مبسطة
 /// ميزات: تصوير الذهب + ملاحظات + دفع نقدي/تحويل فقط + بدون ضريبة
@@ -1530,9 +1531,7 @@ class _ScrapPurchaseInvoiceScreenState
   // ==================== Helpers ====================
   void _showError(String message) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message), backgroundColor: AppColors.error),
-    );
+    AppFeedback.error(context, message);
   }
 
   Map<String, dynamic>? _findCashCustomer() {

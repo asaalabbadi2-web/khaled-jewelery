@@ -7,6 +7,7 @@ import 'weight_closing_settings_screen.dart';
 import '../utils.dart';
 import '../providers/settings_provider.dart';
 import 'package:provider/provider.dart';
+import '../widgets/app_feedback.dart';
 
 /// شاشة التسكير - حجز ذهب خام من مكاتب بيع وشراء الذهب
 class GoldReservationScreen extends StatefulWidget {
@@ -378,12 +379,11 @@ class _GoldReservationScreenState extends State<GoldReservationScreen> {
   }
 
   void _showMessage(String message, {required bool isError}) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: isError ? AppColors.error : AppColors.success,
-      ),
-    );
+    if (isError) {
+      AppFeedback.error(context, message);
+    } else {
+      AppFeedback.success(context, message);
+    }
   }
 
   @override

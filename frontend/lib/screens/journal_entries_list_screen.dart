@@ -13,6 +13,7 @@ import '../utils/currency_utils.dart' as cu;
 import '../widgets/cancelled_vouchers_bar.dart';
 import '../widgets/widgets.dart';
 import 'journal_entry_form.dart';
+import '../widgets/app_feedback.dart';
 
 enum _JournalEntriesListView { table, cards }
 
@@ -846,16 +847,11 @@ class _JournalEntriesListScreenState extends State<JournalEntriesListScreen>
   }
 
   void _showSnackBar(String message, {bool isError = false}) {
-    final theme = Theme.of(context);
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: isError
-            ? theme.colorScheme.error
-            : Colors.green.shade700,
-        behavior: SnackBarBehavior.floating,
-      ),
-    );
+    if (isError) {
+      AppFeedback.error(context, message);
+    } else {
+      AppFeedback.success(context, message);
+    }
   }
 
   Widget _buildSummaryCard({

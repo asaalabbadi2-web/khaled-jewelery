@@ -9,6 +9,7 @@ import '../providers/settings_provider.dart';
 import '../widgets/party_picker_dialog.dart';
 import '../widgets/safe_box_picker_dialog.dart';
 import '../widgets/searchable_picker_field.dart';
+import '../widgets/app_feedback.dart';
 
 /// شاشة إضافة أو تعديل مكتب
 class AddOfficeScreen extends StatefulWidget {
@@ -338,12 +339,11 @@ class _AddOfficeScreenState extends State<AddOfficeScreen> {
   }
 
   void _showMessage(String message, {required bool isError}) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: isError ? AppColors.error : AppColors.success,
-      ),
-    );
+    if (isError) {
+      AppFeedback.error(context, message);
+    } else {
+      AppFeedback.success(context, message);
+    }
   }
 
   @override

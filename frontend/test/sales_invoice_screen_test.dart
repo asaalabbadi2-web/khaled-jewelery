@@ -14,6 +14,7 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'support/fake_sales_api.dart';
+import 'support/shots.dart';
 
 /// SALES-UX-1 (the owner, 7 Oct 2026): the sales screen records what was
 /// typed and sold -- no amount, weight or customer the seller did not mean.
@@ -491,10 +492,7 @@ void main() {
       expect(find.text('مراجعة فاتورة بيع'), findsOneWidget);
       expect(find.textContaining('سلسال'), findsWidgets); // the line
       expect(find.textContaining('مؤسسة الأمل'), findsWidgets);
-      expect(
-        find.textContaining('آجلًا على «مؤسسة الأمل»'),
-        findsOneWidget,
-      );
+      expect(find.textContaining('آجلًا على «مؤسسة الأمل»'), findsOneWidget);
     });
 
     testWidgets('a price far from the market is flagged in the review', (
@@ -504,18 +502,19 @@ void main() {
       await open(
         tester,
         api: FakeSalesApi(),
-        saved: draft(total: 100000, payments: [
-          {...paidInFull.first, 'amount': 100000.0, 'net_amount': 100000.0},
-        ]),
+        saved: draft(
+          total: 100000,
+          payments: [
+            {...paidInFull.first, 'amount': 100000.0, 'net_amount': 100000.0},
+          ],
+        ),
       );
       await pressCtrlS(tester);
 
       expect(find.textContaining('أعلى بكثير من سعر السوق'), findsOneWidget);
     });
 
-    testWidgets('leaving with items in the invoice asks first', (
-      tester,
-    ) async {
+    testWidgets('leaving with items in the invoice asks first', (tester) async {
       final api = FakeSalesApi();
       await open(tester, api: api, saved: draft());
 
@@ -580,7 +579,10 @@ void main() {
       await weigh(tester, '٥٫٢٥');
 
       expect(find.byType(Dialog), findsNothing);
-      expect(find.widgetWithText(TextField, '5.250'), findsOneWidget); // in the table
+      expect(
+        find.widgetWithText(TextField, '5.250'),
+        findsOneWidget,
+      ); // in the table
       expect(find.text('1 صنف'), findsWidgets);
       // The weight is cleared and held for the next line.
       final field = tester.widget<TextField>(
@@ -721,10 +723,7 @@ void main() {
       await open(tester, api: FakeSalesApi(), saved: draft());
 
       expect(find.text('توزيع تلقائي للمبلغ'), findsNothing); // no big button
-      await tester.enterText(
-        find.byKey(const Key('target-amount')),
-        '٢٠٠٠',
-      );
+      await tester.enterText(find.byKey(const Key('target-amount')), '٢٠٠٠');
       await tester.testTextInput.receiveAction(TextInputAction.done);
       await tester.pumpAndSettle();
 
@@ -747,26 +746,60 @@ void main() {
 
   group('one way to pay, any number of methods (stage 4b)', () {
     const methods = [
-      {'id': 1, 'name': 'نقداً', 'payment_type': 'cash', 'commission_rate': 0, 'display_order': 1},
-      {'id': 2, 'name': 'مدى', 'payment_type': 'mada', 'commission_rate': 0, 'display_order': 2},
-      {'id': 3, 'name': 'تمارا', 'payment_type': 'tamara', 'commission_rate': 0, 'display_order': 5},
-      {'id': 4, 'name': 'تحويل', 'payment_type': 'bank_transfer', 'commission_rate': 0, 'display_order': 999},
+      {
+        'id': 1,
+        'name': 'نقداً',
+        'payment_type': 'cash',
+        'commission_rate': 0,
+        'display_order': 1,
+      },
+      {
+        'id': 2,
+        'name': 'مدى',
+        'payment_type': 'mada',
+        'commission_rate': 0,
+        'display_order': 2,
+      },
+      {
+        'id': 3,
+        'name': 'تمارا',
+        'payment_type': 'tamara',
+        'commission_rate': 0,
+        'display_order': 5,
+      },
+      {
+        'id': 4,
+        'name': 'تحويل',
+        'payment_type': 'bank_transfer',
+        'commission_rate': 0,
+        'display_order': 999,
+      },
     ];
 
     Future<void> pay(WidgetTester tester, String amount, int method) async {
       if (amount.isNotEmpty) {
-        await tester.enterText(find.widgetWithText(TextField, 'المبلغ'), amount);
+        await tester.enterText(
+          find.widgetWithText(TextField, 'المبلغ'),
+          amount,
+        );
       }
       await tester.tap(find.byKey(Key('quick-pay-$method')));
       await tester.pumpAndSettle();
     }
 
     testWidgets('the old picker and its add button are gone', (tester) async {
-      await open(tester, api: FakeSalesApi(methods: methods), saved: draft());
+      await open(
+        tester,
+        api: FakeSalesApi(methods: methods),
+        saved: draft(),
+      );
 
       expect(find.text('إضافة وسيلة دفع'), findsNothing);
       expect(find.text('اختر وسيلة الدفع'), findsNothing);
-      expect(find.byType(DropdownButtonFormField<int>), findsOneWidget); // the branch
+      expect(
+        find.byType(DropdownButtonFormField<int>),
+        findsOneWidget,
+      ); // the branch
     });
 
     testWidgets('three methods: two amounts typed, the last takes the rest', (
@@ -798,7 +831,11 @@ void main() {
     });
 
     testWidgets('the same method twice is two payments', (tester) async {
-      await open(tester, api: FakeSalesApi(methods: methods), saved: draft());
+      await open(
+        tester,
+        api: FakeSalesApi(methods: methods),
+        saved: draft(),
+      );
 
       await pay(tester, '600', 2);
       await pay(tester, '', 2);
@@ -807,7 +844,11 @@ void main() {
     });
 
     testWidgets('more than what remains is refused', (tester) async {
-      await open(tester, api: FakeSalesApi(methods: methods), saved: draft());
+      await open(
+        tester,
+        api: FakeSalesApi(methods: methods),
+        saved: draft(),
+      );
 
       await pay(tester, '2000', 1);
 
@@ -818,7 +859,11 @@ void main() {
     testWidgets('the field shows what remains while it is empty', (
       tester,
     ) async {
-      await open(tester, api: FakeSalesApi(methods: methods), saved: draft());
+      await open(
+        tester,
+        api: FakeSalesApi(methods: methods),
+        saved: draft(),
+      );
       await pay(tester, '250', 1);
 
       final field = tester.widget<TextField>(
@@ -829,7 +874,11 @@ void main() {
     });
 
     testWidgets('Alt+1 pays with the first method', (tester) async {
-      await open(tester, api: FakeSalesApi(methods: methods), saved: draft());
+      await open(
+        tester,
+        api: FakeSalesApi(methods: methods),
+        saved: draft(),
+      );
 
       await tester.sendKeyDownEvent(LogicalKeyboardKey.altLeft);
       await tester.sendKeyEvent(LogicalKeyboardKey.digit1);
@@ -862,8 +911,19 @@ void main() {
       final api = FakeSalesApi(
         methods: methods,
         safes: [
-          SafeBoxModel(id: 7, name: 'صندوق الفرع', safeType: 'cash', accountId: 70, isDefault: true),
-          SafeBoxModel(id: 8, name: 'صندوق الموظف', safeType: 'cash', accountId: 80),
+          SafeBoxModel(
+            id: 7,
+            name: 'صندوق الفرع',
+            safeType: 'cash',
+            accountId: 70,
+            isDefault: true,
+          ),
+          SafeBoxModel(
+            id: 8,
+            name: 'صندوق الموظف',
+            safeType: 'cash',
+            accountId: 80,
+          ),
         ],
       );
       await open(tester, api: api, saved: draft(customerId: null));
@@ -962,7 +1022,11 @@ void main() {
         settings: {'main_scrap_gold_safe_box_id': 31},
         scrapSafe: scrapSafe,
       );
-      await open(tester, api: api, saved: draft(payments: paidInFull));
+      await open(
+        tester,
+        api: api,
+        saved: draft(payments: paidInFull),
+      );
 
       final sent = await save(tester, api);
       expect(sent.containsKey('gold_type'), isFalse);
@@ -996,13 +1060,28 @@ void main() {
           'gold_type': 'scrap',
           'safe_box_id': 31,
           'items': [
-            {'name': 'كسر', 'karat': 21, 'weight': 3.0, 'wage': 0,
-             'quantity': 1, 'net': 1200.0, 'tax': 0.0, 'price': 1200.0},
+            {
+              'name': 'كسر',
+              'karat': 21,
+              'weight': 3.0,
+              'wage': 0,
+              'quantity': 1,
+              'net': 1200.0,
+              'tax': 0.0,
+              'price': 1200.0,
+            },
           ],
           'payments': [
-            {'payment_method_id': 1, 'payment_method_name': 'نقداً',
-             'amount': 1200.0, 'commission_rate': 0, 'commission_amount': 0,
-             'commission_vat': 0, 'net_amount': 1200.0, 'settlement_days': 0},
+            {
+              'payment_method_id': 1,
+              'payment_method_name': 'نقداً',
+              'amount': 1200.0,
+              'commission_rate': 0,
+              'commission_amount': 0,
+              'commission_vat': 0,
+              'net_amount': 1200.0,
+              'settlement_days': 0,
+            },
           ],
         },
         customers: [
@@ -1053,9 +1132,7 @@ void main() {
       expect(find.text('مراجعة فاتورة بيع'), findsOneWidget);
     });
 
-    testWidgets('a scrap sale has its own, and says «بيع كسر»', (
-      tester,
-    ) async {
+    testWidgets('a scrap sale has its own, and says «بيع كسر»', (tester) async {
       await open(
         tester,
         api: FakeSalesApi(),
@@ -1069,5 +1146,11 @@ void main() {
       await review(tester);
       expect(find.text('مراجعة فاتورة بيع كسر'), findsOneWidget);
     });
+  });
+
+  testWidgets('a sale being written draws (SHOT_DIR)', (tester) async {
+    await open(tester, api: FakeSalesApi(), saved: draft(total: 2500));
+    expect(tester.takeException(), isNull);
+    await shotWidths(tester, 'sales');
   });
 }

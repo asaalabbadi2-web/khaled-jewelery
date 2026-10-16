@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../api_service.dart';
-import '../theme/app_theme.dart';
+import '../widgets/app_feedback.dart';
 
 class BranchesManagementScreen extends StatefulWidget {
   final bool isArabic;
@@ -199,12 +199,11 @@ class _BranchesManagementScreenState extends State<BranchesManagementScreen> {
 
   void _showSnack(String message, {bool isError = false}) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: isError ? AppColors.warning : AppColors.success,
-      ),
-    );
+    if (isError) {
+      AppFeedback.error(context, message);
+    } else {
+      AppFeedback.success(context, message);
+    }
   }
 
   @override

@@ -8,6 +8,7 @@ import '../api_service.dart';
 import '../models/employee_model.dart';
 import '../models/payroll_model.dart';
 import 'payroll_report_screen.dart';
+import '../widgets/app_feedback.dart';
 
 class PayrollScreen extends StatefulWidget {
   final ApiService api;
@@ -51,14 +52,11 @@ class _PayrollScreenState extends State<PayrollScreen> {
   }
 
   void _showSnack(String message, {bool isError = false}) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: isError
-            ? Colors.red
-            : Theme.of(context).colorScheme.primary,
-      ),
-    );
+    if (isError) {
+      AppFeedback.error(context, message);
+    } else {
+      AppFeedback.success(context, message);
+    }
   }
 
   Future<void> _openForm({PayrollModel? entry}) async {

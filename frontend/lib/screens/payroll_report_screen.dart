@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../api_service.dart';
 import '../models/payroll_model.dart';
+import '../widgets/app_feedback.dart';
 
 /// شاشة تقرير شهري شامل للرواتب
 class PayrollReportScreen extends StatefulWidget {
@@ -86,14 +87,11 @@ class _PayrollReportScreenState extends State<PayrollReportScreen> {
   }
 
   void _showSnack(String message, {bool isError = false}) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: isError
-            ? Colors.red
-            : Theme.of(context).colorScheme.primary,
-      ),
-    );
+    if (isError) {
+      AppFeedback.error(context, message);
+    } else {
+      AppFeedback.success(context, message);
+    }
   }
 
   @override

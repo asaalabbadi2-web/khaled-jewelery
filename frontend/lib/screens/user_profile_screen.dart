@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:intl/intl.dart';
 import '../api_service.dart';
+import '../widgets/app_feedback.dart';
 
 /// شاشة ملف المستخدم - عرض تفاصيل كاملة للمستخدم
 class UserProfileScreen extends StatefulWidget {
@@ -98,12 +99,11 @@ class _UserProfileScreenState extends State<UserProfileScreen>
 
   void _showSnack(String message, {bool isError = false}) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: isError ? Colors.red : const Color(0xFFFFD700),
-      ),
-    );
+    if (isError) {
+      AppFeedback.error(context, message);
+    } else {
+      AppFeedback.success(context, message);
+    }
   }
 
   String _formatDateTime(String? dateStr) {

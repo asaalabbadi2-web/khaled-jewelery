@@ -8,6 +8,8 @@ import 'package:frontend/widgets/goal_achievement_celebration.dart';
 import 'package:frontend/widgets/pending_approvals_dialog.dart';
 import 'package:provider/provider.dart';
 
+import 'support/shots.dart';
+
 /// ثيم-٠: النافذتان اللتان تُفتحان من الشاشة الرئيسية -- «بانتظار الإجراء»
 /// والاحتفال بتحقيق الهدف -- تأخذان ألوانهما من الثيم، فتُرسمان في الوضعين.
 /// الحدّ على الألوان المكتوبة فيهما صفر في `theme_raw_color_ratchet_test.dart`.
@@ -25,19 +27,23 @@ class _PendingApi extends ApiService {
           'created_by_name': 'موظف',
           // Relative to now: a fixed date passed a week on 15 Oct 2026 and the
           // dialog took another path (a formatted date).
-          'created_at': DateTime.now().subtract(const Duration(days: 2)).toIso8601String(),
+          'created_at': DateTime.now()
+              .subtract(const Duration(days: 2))
+              .toIso8601String(),
         },
     ],
     'pending_reservations': [],
     'system_alerts': [
-      {'title': 'المجدول متوقف', 'message': 'رسالة', 'what_to_do': 'أعد التشغيل'},
+      {
+        'title': 'المجدول متوقف',
+        'message': 'رسالة',
+        'what_to_do': 'أعد التشغيل',
+      },
     ],
     'total_pending_invoices': 3,
     'total_pending_reservations': 0,
   };
 }
-
-const dir = String.fromEnvironment('SHOT_DIR');
 
 void main() {
   setUpAll(() async {
@@ -81,12 +87,7 @@ void main() {
       expect(find.text('INV-بيع'), findsOneWidget);
       expect(find.text('المجدول متوقف'), findsOneWidget);
       expect(tester.takeException(), isNull);
-      if (dir.isNotEmpty) {
-        await expectLater(
-          find.byType(MaterialApp),
-          matchesGoldenFile('$dir/approvals_$name.png'),
-        );
-      }
+      await shot(tester, 'approvals_$name');
     });
 
     testWidgets('the goal celebration draws in the $name theme', (
@@ -109,12 +110,7 @@ void main() {
       await tester.pump(const Duration(seconds: 1));
       expect(find.textContaining('سارة'), findsWidgets);
       expect(tester.takeException(), isNull);
-      if (dir.isNotEmpty) {
-        await expectLater(
-          find.byType(MaterialApp),
-          matchesGoldenFile('$dir/celebration_$name.png'),
-        );
-      }
+      await shot(tester, 'celebration_$name');
       // Its own timers: the confetti stops at 5 s, the overlay closes at 15 s.
       await tester.pumpWidget(const SizedBox());
       await tester.pump(const Duration(seconds: 16));

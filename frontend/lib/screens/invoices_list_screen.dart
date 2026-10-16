@@ -20,7 +20,7 @@ import 'sales_invoice_screen_v2.dart';
 import 'scrap_purchase_invoice_screen.dart';
 import 'voucher_details_screen.dart';
 import '../widgets/sale_closing_card.dart';
-// import 'add_invoice_screen.dart'; // TODO: Uncomment when implementing add invoice
+import '../widgets/app_feedback.dart';
 
 /// A sale of scrap gold is saved as «بيع» with gold_type 'scrap'. It is
 /// edited on the screen that made it: the ordinary sale screen sends no
@@ -926,13 +926,11 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
   }
 
   void _showSnackBar(String message, {required bool isError}) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: isError ? Colors.red : Colors.green,
-        behavior: SnackBarBehavior.floating,
-      ),
-    );
+    if (isError) {
+      AppFeedback.error(context, message);
+    } else {
+      AppFeedback.success(context, message);
+    }
   }
 
   void _clearFilters() {

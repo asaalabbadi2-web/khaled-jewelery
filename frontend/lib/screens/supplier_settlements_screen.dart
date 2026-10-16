@@ -9,6 +9,7 @@ import '../models/supplier_settlement_model.dart';
 import '../providers/auth_provider.dart';
 import '../providers/settings_provider.dart';
 import 'supplier_settlement_policy_screen.dart';
+import '../widgets/app_feedback.dart';
 
 /// تسويات فروقات حساب المورد.
 ///
@@ -157,9 +158,7 @@ class _SupplierSettlementsScreenState extends State<SupplierSettlementsScreen> {
 
   void _showSuccess(String message) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message), backgroundColor: Colors.green),
-    );
+    AppFeedback.success(context, message);
   }
 
   // ── إجراءات ──────────────────────────────────────────────────────────────

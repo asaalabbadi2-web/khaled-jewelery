@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../api_service.dart';
 import '../models/safe_box_model.dart';
 import '../theme/app_theme.dart';
+import '../widgets/app_feedback.dart';
 
 class SafeTransferScreen extends StatefulWidget {
   final ApiService api;
@@ -337,13 +338,11 @@ class _SafeTransferScreenState extends State<SafeTransferScreen> {
   }
 
   void _showSnack(String message, {bool isError = false}) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: isError ? Colors.red : Colors.green,
-        behavior: SnackBarBehavior.floating,
-      ),
-    );
+    if (isError) {
+      AppFeedback.error(context, message);
+    } else {
+      AppFeedback.success(context, message);
+    }
   }
 
   double _parseDouble(String value) {

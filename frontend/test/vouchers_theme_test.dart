@@ -12,6 +12,7 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'support/fake_voucher_api.dart';
+import 'support/shots.dart';
 
 /// ثيم-٠ (VOUCHER-UX-1، المرحلة ٤): شاشة إضافة السند وقائمة السندات تأخذان
 /// ألوانهما من الثيم، فتُرسمان في الوضعين. الحدّ على الألوان المكتوبة فيهما في
@@ -68,8 +69,6 @@ class _Clerk extends AuthProvider {
   bool hasPermission(String key) => key.startsWith('vouchers.');
 }
 
-const dir = String.fromEnvironment('SHOT_DIR');
-
 void main() {
   setUpAll(() async {
     final cairo = FontLoader('Cairo');
@@ -101,14 +100,6 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-  }
-
-  Future<void> shot(WidgetTester tester, String name) async {
-    if (dir.isEmpty) return;
-    await expectLater(
-      find.byType(MaterialApp),
-      matchesGoldenFile('$dir/$name.png'),
-    );
   }
 
   for (final (name, theme) in [

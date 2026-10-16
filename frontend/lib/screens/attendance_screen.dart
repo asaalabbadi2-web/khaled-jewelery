@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../api_service.dart';
 import '../models/attendance_model.dart';
 import '../utils.dart';
+import '../widgets/app_feedback.dart';
 
 class AttendanceScreen extends StatefulWidget {
   final ApiService api;
@@ -54,14 +55,11 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
   }
 
   void _showSnack(String message, {bool isError = false}) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: isError
-            ? Colors.red
-            : Theme.of(context).colorScheme.primary,
-      ),
-    );
+    if (isError) {
+      AppFeedback.error(context, message);
+    } else {
+      AppFeedback.success(context, message);
+    }
   }
 
   Future<void> _openForm({AttendanceModel? record}) async {

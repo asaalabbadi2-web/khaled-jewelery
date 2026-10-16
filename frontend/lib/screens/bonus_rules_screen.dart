@@ -8,6 +8,7 @@ import '../models/employee_model.dart';
 import '../models/invoice_type_model.dart';
 import 'package:provider/provider.dart';
 import '../providers/settings_provider.dart';
+import '../widgets/app_feedback.dart';
 
 class BonusRulesScreen extends StatefulWidget {
   final ApiService api;
@@ -54,22 +55,11 @@ class _BonusRulesScreenState extends State<BonusRulesScreen> {
 
   void _showSnack(String message, {bool isError = false}) {
     if (!mounted) return;
-    final isAr = widget.isArabic;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: isError
-            ? Colors.red
-            : Theme.of(context).colorScheme.primary,
-        behavior: SnackBarBehavior.floating,
-        duration: const Duration(seconds: 3),
-        action: SnackBarAction(
-          label: isAr ? 'إغلاق' : 'Close',
-          textColor: Colors.white,
-          onPressed: () {},
-        ),
-      ),
-    );
+    if (isError) {
+      AppFeedback.error(context, message);
+    } else {
+      AppFeedback.success(context, message);
+    }
   }
 
   void _showRuleDialog({BonusRuleModel? rule}) {

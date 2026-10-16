@@ -23,6 +23,7 @@ import 'supplier_settlement_policy_screen.dart';
 import 'weight_closing_settings_screen.dart';
 import '../utils.dart';
 import '../widgets/app_bar_tab_bar.dart';
+import '../widgets/app_feedback.dart';
 
 enum SettingsEntry {
   goldPrice,
@@ -651,14 +652,11 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
   }
 
   void _showSnack(String message, {bool isError = false}) {
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(
-        SnackBar(
-          content: Text(message, textAlign: TextAlign.center),
-          backgroundColor: isError ? _errorColor : _primaryColor,
-        ),
-      );
+    if (isError) {
+      AppFeedback.error(context, message);
+    } else {
+      AppFeedback.success(context, message);
+    }
   }
 
   @override
