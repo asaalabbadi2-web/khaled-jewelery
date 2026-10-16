@@ -101,7 +101,6 @@ from accounting.mappings import (DEFAULT_MAPPING_OPERATION_TYPE, AccountNotMappe
 from services.vat_policy import input_vat_account as _input_vat_account
 
 
-from accounting.weight_closing import _load_weight_closing_settings
 from accounting.safe_boxes import _ensure_safe_box_transactions_for_invoice_je
 from accounting.wages import (
     live_wage_mode,
@@ -121,7 +120,6 @@ from routes import (
     validate_bridge_account_balance,
     _try_process_due_auto_clearing_settlements,
     _ensure_weight_tracking_account,
-    _upsert_weight_closing_order,
     _weight_kwargs_for_karat,
     _weight_kwargs_from_map,
 )
@@ -6666,25 +6664,10 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
             new_invoice.profit_gold = round(profit_gold, 3)
             new_invoice.profit_weight_price_per_gram = round(_direct_price_main, 4)
 
-            try:
-                closing_price = _coerce_float(
-                    data.get('weight_closing_price')
-                    or data.get('close_price_per_gram')
-                    or new_invoice.profit_weight_price_per_gram,
-                    0.0,
-                )
-                if closing_price <= 0:
-                    price_snapshot = get_current_gold_price()
-                    closing_price = price_snapshot.get('price_per_gram_24k', 0.0)
-                if closing_price > 0:
-                    _upsert_weight_closing_order(
-                        new_invoice,
-                        close_price_per_gram=closing_price,
-                        settings=_load_weight_closing_settings(),
-                    )
-            except Exception as exc:
-                print(f"⚠️ Failed to initialize weight closing order for invoice {new_invoice.id}: {exc}")
-        
+            # A sale opens no stored weight-closing order: its riyals waiting to
+            # become gold are derived from the posted books (ADR-048 phase 3,
+            # services/weight_position).
+
         elif invoice_type == 'شراء من عميل':
             # ============================================
             # 2. شراء كسر من عميل - تطبيق القاعدة الذهبية
@@ -7060,127 +7043,9 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
             # عبر _direction_for_invoice_type('مرتجع بيع') → 'out' → voucher_type='payment'
             # ثم _append_safe_transactions_for_voucher. لا حاجة لتكرارها هنا.
 
-            # ─── إلغاء/تعديل أمر تسكير الوزن للفاتورة الأصلية ───
-            # ملاحظة: total_weight_main_karat هو الحقل الذي يجب تقليصه، لا
-            # remaining_weight_main_karat — لأن _auto_consume_weight_closing
-            # يعيد حساب remaining دائماً من (total - executed) عند كل تنفيذ
-            # لاحق، فأي تعديل مباشر عليه فقط يُمحى ولا يدوم.
-            # كما أن أسماء الحالة الصحيحة هي 'open' / 'partially_closed' /
-            # 'closed' (لا 'partial' التي لا تُستخدم في أي مكان آخر بالكود).
-            # إن كان جزء من الكمية المرتجعة قد سُوّي نقدياً مسبقاً (قيد تكلفة
-            # مبيعات COGS عبر تنفيذ تسكير سابق)، يجب عكس ذلك القيد بدلاً من
-            # ترك نقد خارج حساب المخزون المالي لذهب رجع فعلياً للمحل.
-            _orig_inv_id = data.get('original_invoice_id')
-            if _orig_inv_id:
-                try:
-                    # Imported here as the file's other weight-closing paths do:
-                    # without it this block raised NameError, swallowed below,
-                    # and a returned sale's order stayed open (WCO-RETURN-1).
-                    from models import WeightClosingExecution, WeightClosingOrder
-                    _orig_wco = WeightClosingOrder.query.filter_by(
-                        invoice_id=int(_orig_inv_id)
-                    ).first()
-                    if _orig_wco and _orig_wco.status in ('open', 'partially_closed', 'closed'):
-                        _ret_weight_mk = sum(
-                            float(w or 0) * int(k) / (get_main_karat() or 21)
-                            for k, w in gold_by_karat.items()
-                            if float(w or 0) > 0
-                        )
-                        if _ret_weight_mk > 0:
-                            _old_total = float(_orig_wco.total_weight_main_karat or 0.0)
-                            _old_executed = float(_orig_wco.executed_weight_main_karat or 0.0)
-                            _new_total = max(_old_total - _ret_weight_mk, 0.0)
-                            _over_executed = max(_old_executed - _new_total, 0.0)
-
-                            if _over_executed > 0.0001:
-                                _remaining_to_reverse = _over_executed
-                                _cogs_account = db.session.get(Account, require_account('افتراضي', 'gold_cost_of_sales'))
-                                _inv_fin_id = _gold_inventory_account_id(
-                                    _orig_wco.invoice.gold_type if _orig_wco.invoice else 'new')
-                                _past_executions = (
-                                    WeightClosingExecution.query
-                                    .filter_by(order_id=_orig_wco.id)
-                                    .filter(WeightClosingExecution.weight_main_karat > 0)
-                                    .order_by(WeightClosingExecution.created_at.desc(), WeightClosingExecution.id.desc())
-                                    .all()
-                                )
-                                for _exec_row in _past_executions:
-                                    if _remaining_to_reverse <= 0.0001:
-                                        break
-                                    _exec_weight = float(_exec_row.weight_main_karat or 0.0)
-                                    if _exec_weight <= 0:
-                                        continue
-                                    _reverse_chunk = min(_exec_weight, _remaining_to_reverse)
-                                    _exec_price = float(_exec_row.price_per_gram or 0.0)
-                                    _reverse_24k = convert_from_main_karat(_reverse_chunk, 24)
-                                    _reverse_cash = round(_reverse_24k * _exec_price, 2) if _exec_price else 0.0
-
-                                    # Reverse what the execution posted, no more (OFFICE-COGS-1,
-                                    # the owner 16 Oct 2026): a closing in the shop posted its
-                                    # cost of sales; an office's execution is a purchase from the
-                                    # office (512 / the office) and posted none -- its weight is
-                                    # given back in the order below, no entry.
-                                    from models import JournalEntryLine as _ExecLine
-                                    _posted_cost = bool(_cogs_account and _exec_row.journal_entry_id and (
-                                        _ExecLine.query.filter(
-                                            _ExecLine.journal_entry_id == _exec_row.journal_entry_id,
-                                            _ExecLine.account_id == _cogs_account.id,
-                                            _ExecLine.cash_debit > 0).first()))
-                                    if _reverse_cash > 0 and _posted_cost and _inv_fin_id:
-                                        create_dual_journal_entry(
-                                            journal_entry_id=journal_entry.id,
-                                            account_id=_inv_fin_id,
-                                            cash_debit=_reverse_cash,
-                                            description=(
-                                                f"عكس تكلفة مبيعات مُسوّاة سابقاً - مرتجع بيع "
-                                                f"(أمر {_orig_wco.order_number})"
-                                            ),
-                                        )
-                                        create_dual_journal_entry(
-                                            journal_entry_id=journal_entry.id,
-                                            account_id=_cogs_account.id,
-                                            cash_credit=_reverse_cash,
-                                            description=(
-                                                f"عكس تكلفة مبيعات مُسوّاة سابقاً - مرتجع بيع "
-                                                f"(أمر {_orig_wco.order_number})"
-                                            ),
-                                        )
-
-                                    db.session.add(WeightClosingExecution(
-                                        order_id=_orig_wco.id,
-                                        source_invoice_id=new_invoice.id,
-                                        execution_type='sale_return_reversal',
-                                        weight_main_karat=-_reverse_chunk,
-                                        price_per_gram=_exec_price,
-                                        journal_entry_id=journal_entry.id,
-                                        notes=f'عكس جزئي لتنفيذ تسكير سابق بسبب مرتجع بيع #{new_invoice.id}',
-                                    ))
-                                    _remaining_to_reverse -= _reverse_chunk
-
-                            _orig_wco.total_weight_main_karat = round(_new_total, 6)
-                            _orig_wco.executed_weight_main_karat = round(max(_old_executed - _over_executed, 0.0), 6)
-                            _orig_wco.remaining_weight_main_karat = round(
-                                max(_orig_wco.total_weight_main_karat - _orig_wco.executed_weight_main_karat, 0.0), 6
-                            )
-                            if _orig_wco.total_weight_main_karat <= 0.001:
-                                _orig_wco.status = 'cancelled'
-                            elif _orig_wco.remaining_weight_main_karat <= 0.0001:
-                                _orig_wco.status = 'closed'
-                            elif _orig_wco.executed_weight_main_karat > 0:
-                                _orig_wco.status = 'partially_closed'
-                            else:
-                                _orig_wco.status = 'open'
-
-                            if _orig_wco.invoice:
-                                _orig_wco.invoice.weight_closing_status = _orig_wco.status
-                                _orig_wco.invoice.weight_closing_total_weight = _orig_wco.total_weight_main_karat
-                                _orig_wco.invoice.weight_closing_executed_weight = _orig_wco.executed_weight_main_karat
-                                _orig_wco.invoice.weight_closing_remaining_weight = _orig_wco.remaining_weight_main_karat
-
-                        db.session.flush()
-                except Exception as _wco_exc:
-                    print(f"⚠️ WeightClosingOrder update for sale return failed: "
-                          f"{type(_wco_exc).__name__}: {_wco_exc}")
+            # A return takes its riyals and grams off the sale it returns in the
+            # derived weight position (ADR-048 phase 3); no stored order or
+            # execution is adjusted, and no cost of sales is reversed for one.
 
         elif invoice_type == 'مرتجع شراء':
             # 4. مرتجع شراء كسر (عكس الشراء من عميل)

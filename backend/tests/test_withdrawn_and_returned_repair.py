@@ -11,6 +11,8 @@ Run:
 """
 from datetime import datetime
 
+import uuid
+
 import pytest
 
 from app import app as flask_app
@@ -38,8 +40,12 @@ NOW = datetime(2026, 10, 10, 12, 0)
 
 
 def _left_open(sale_id):
-    """As 2821, 3123 and 3303 were left before rejecting cancelled the order."""
-    order = WeightClosingOrder.query.filter_by(invoice_id=sale_id).first()
+    """As 2821, 3123 and 3303 were left before rejecting cancelled the order.
+    Sales open no stored order since ADR-048 phase 3a: the old one is made here."""
+    order = WeightClosingOrder.query.filter_by(invoice_id=sale_id).first() or WeightClosingOrder(
+        invoice_id=sale_id, order_number=f'WCO-{uuid.uuid4().hex[:8]}', main_karat=21,
+        total_weight_main_karat=2.0, executed_weight_main_karat=0.0)
+    db.session.add(order)
     order.status = 'open'
     order.remaining_weight_main_karat = order.total_weight_main_karat
     db.session.flush()

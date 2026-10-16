@@ -21,8 +21,6 @@ from models import (
     Supplier,
     Voucher,
     VoucherAccountLine,
-    WeightClosingExecution,
-    WeightClosingOrder,
 )
 
 from core.number_helpers import _coerce_float
@@ -38,7 +36,7 @@ from accounting.voucher_engine import (
     _generate_journal_entry_number,
 )
 from accounting.mappings import get_account_id_for_mapping
-from accounting.weight_closing import _auto_consume_weight_closing, _load_weight_closing_settings
+from accounting.weight_closing import _load_weight_closing_settings
 from dual_system_helpers import create_dual_journal_entry, verify_dual_balance
 from settlement_state_service import get_settled_amounts
 from services.weight_execution import resolve_weight_profile
@@ -1159,34 +1157,6 @@ def create_bnpl_settlement():
         db.session.rollback()
         return jsonify({'error': f'Failed to create BNPL settlement: {str(exc)}'}), 500
 
-@clearing_bp.route('/weight-closing/cash-settlement', methods=['POST'])
-@require_permission('journal.post')
-def create_weight_closing_cash_settlement():
-    """Consume open weight-closing orders using a cash amount and live gold price."""
-    data = request.get_json(silent=True) or {}
-    cash_amount = _coerce_float(data.get('cash_amount'))
-    if cash_amount <= 0:
-        return jsonify({'error': 'cash_amount must be greater than zero'}), 400
-
-    execution_price = _coerce_float(data.get('price_per_gram'), None)
-    if execution_price is None or execution_price <= 0:
-        price_snapshot = get_current_gold_price()
-        execution_price = price_snapshot.get('price_per_gram_24k', 0.0)
-
-    if execution_price <= 0:
-        return jsonify({'error': 'Unable to determine gold price per gram'}), 400
-
-    summary = _auto_consume_weight_closing(
-        data.get('source_invoice_id'),
-        price_per_gram=execution_price,
-        cash_amount=cash_amount,
-        execution_type=data.get('execution_type', 'expense'),
-        journal_entry_id=data.get('journal_entry_id'),
-        notes=data.get('notes'),
-    )
-    summary['price_per_gram'] = execution_price
-    return jsonify(summary)
-
 @clearing_bp.route('/weight-closing/execute-profile', methods=['POST'])
 @require_permission('journal.post')
 def execute_weight_closing_profile():
@@ -1349,16 +1319,8 @@ def execute_weight_closing_profile():
 
     verify_dual_balance(journal_entry.id)
 
-    consumption = _auto_consume_weight_closing(
-        weight_override=weight_main if weight_main > 0 else None,
-        price_per_gram=price_per_gram,
-        cash_amount=cash_amount,
-        execution_type=profile['meta'].get('execution_type', 'expense'),
-        journal_entry_id=journal_entry.id,
-        notes=description,
-    )
-    consumption['price_per_gram'] = price_per_gram
-
+    # The expense closes its share of the waiting riyals in the derived weight
+    # position, read from this entry (ADR-048 phase 3); no stored order is consumed.
     db.session.commit()
 
     return jsonify(
@@ -1376,7 +1338,6 @@ def execute_weight_closing_profile():
                 'entry_number': journal_entry.entry_number,
                 'date': journal_entry.date.isoformat(),
             },
-            'weight_consumption': consumption,
         }
     )
 

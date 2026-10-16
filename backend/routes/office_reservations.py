@@ -38,11 +38,10 @@ from accounting.voucher_engine import (
     _generate_journal_entry_number,
 )
 from accounting.mappings import get_account_id_for_mapping
-from accounting.weight_closing import _auto_consume_weight_closing, _load_weight_closing_settings
+from accounting.weight_closing import _load_weight_closing_settings
 from accounting.balances import _recalculate_account_balances_for_accounts
 from accounting.safe_boxes import _rebuild_safe_box_transactions_for_journal_entry
 from routes import (
-    _upsert_weight_closing_order,
     _generate_reservation_code,
     _next_invoice_type_id,
     _resolve_account_from_id_or_number,
@@ -430,8 +429,6 @@ def settle_office_reservation(reservation_id: int):
     if execution_price <= 0:
         return jsonify({'error': 'execution_price_per_gram غير صالح'}), 400
 
-    settings = _load_weight_closing_settings()
-
     try:
         legacy_supplier_purchase = 'شراء' + ' من ' + 'مورد'
         next_invoice_type_id = _next_invoice_type_id(['شراء', legacy_supplier_purchase])
@@ -606,23 +603,13 @@ def settle_office_reservation(reservation_id: int):
             gold_entry, [l for l in gold_entry.lines if not getattr(l, 'is_deleted', False)],
             created_by=str(data.get('created_by') or 'system'))
 
-        consumption = _auto_consume_weight_closing(
-            purchase_invoice.id,
-            weight_override=float(reservation.weight_main_karat or 0.0),
-            price_per_gram=execution_price,
-            execution_type='office_reservation',
-            journal_entry_id=gold_entry.id,
-            notes=f'Office reservation #{reservation.reservation_code}',
-        )
-
+        # The purchase closes the riyals waiting since their sales; the weight
+        # position (services/weight_position) reads it from the posted books.
+        # No stored order is consumed (ADR-048 phase 3a).
         weight_main_karat = float(reservation.weight_main_karat or 0.0)
-        weight_consumed = float(consumption.get('weight_consumed') or 0.0)
-
-        # In this workflow, settlement represents a real purchase/receipt of gold.
-        # Weight-closing consumption is an internal matching mechanism and should not block execution.
         reservation.weight_consumed_main_karat = weight_main_karat
         reservation.weight_remaining_main_karat = 0.0
-        reservation.executions_created = int(consumption.get('executions_created') or 0)
+        reservation.executions_created = 0
         reservation.status = 'completed'
         db.session.add(reservation)
 
@@ -641,23 +628,12 @@ def settle_office_reservation(reservation_id: int):
         db.session.commit()
 
         response = _serialize_office_reservation(reservation)
-        response['weight_consumption'] = consumption
         response['purchase_invoice_id'] = reservation.purchase_invoice_id
         response['journal_entry'] = {
             'id': gold_entry.id,
             'entry_number': gold_entry.entry_number,
             'date': gold_entry.date.isoformat() if gold_entry.date else settlement_date.isoformat(),
         }
-        try:
-            eps = 0.0001
-            if weight_consumed + eps < weight_main_karat:
-                response['weight_closing_warning'] = {
-                    'message': 'تم تنفيذ الحجز، لكن لم يتم ربط/استهلاك وزن تسكير كافي (لا توجد أوامر تسكير مفتوحة كفاية).',
-                    'weight_requested': round(weight_main_karat, 6),
-                    'weight_consumed': round(weight_consumed, 6),
-                }
-        except Exception:
-            pass
         return jsonify(response), 200
 
     except Exception as exc:

@@ -39,7 +39,6 @@ from models import (
     WeightClosingOrder,
     db,
 )
-from routes import DEFAULT_WEIGHT_CLOSING_SETTINGS, _upsert_weight_closing_order
 from tests.reservation_world import with_weight_twins
 from tests.voucher_world import stand_posted
 

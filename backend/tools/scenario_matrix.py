@@ -505,6 +505,8 @@ class Matrix:
                 for o in WeightClosingOrder.query.filter(WeightClosingOrder.id.in_(list(held))).all():
                     o.status = held[o.id]
                 db.session.commit()
+            if code == 404:     # gone with the stored engine (ADR-048 phase 3a): the difference is expected
+                return 'removed: ADR-048 phase 3a', {}
             return code, {'consumed': _r(body.get('weight_consumed')), 'executions': body.get('executions_created')}
         self.run('weight_closing_executed_as_purchase', weight_closing_executed)
 

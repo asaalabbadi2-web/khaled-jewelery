@@ -260,75 +260,8 @@ with flask_app.app.test_client() as c:
     else:
         print("  ⏭  Skipped (no supplier invoice)")
 
-    # ─── TEST 7: COGS via weight-closing execution ───────────────────────────
-    section("TEST 7: تكلفة المبيعات (COGS) عبر _auto_consume_weight_closing")
-    with flask_app.app.app_context():
-        from routes import _auto_consume_weight_closing
-
-        # تحقق من وجود حساب 521 وأوامر تسكير مفتوحة
-        cogs_account = Account.query.filter_by(account_number='521').first()
-        open_orders = WeightClosingOrder.query.filter(
-            WeightClosingOrder.status.in_(['open', 'partially_closed'])
-        ).all()
-
-        if not cogs_account:
-            print("  ⏭  Skipped (account 521 not found in DB)")
-        elif not open_orders:
-            print("  ⏭  Skipped (no open weight_closing_orders)")
-        else:
-            # أنشئ قيداً مؤقتاً للاختبار
-            test_je = JournalEntry(
-                entry_number='TEST-COGS-001',
-                date=date.today(),
-                description='اختبار قيد COGS تلقائي',
-                is_posted=True,
-                posted_by='test',
-            )
-            db.session.add(test_je)
-            db.session.flush()
-
-            avail_weight = sum(
-                (o.total_weight_main_karat or 0.0) - (o.executed_weight_main_karat or 0.0)
-                for o in open_orders
-            )
-            consume_w = min(avail_weight, 1.0)  # استهلاك 1 غرام كحد أقصى للاختبار
-
-            summary = _auto_consume_weight_closing(
-                weight_override=consume_w,
-                price_per_gram=open_orders[0].close_price_per_gram or 491.93,
-                execution_type='purchase_scrap',
-                journal_entry_id=test_je.id,
-                notes='E2E COGS test',
-            )
-
-            db.session.flush()
-
-            je_lines = JournalEntryLine.query.filter_by(journal_entry_id=test_je.id).all()
-            cogs_debit_lines = [
-                l for l in je_lines
-                if l.account_id == cogs_account.id and float(l.cash_debit or 0) > 0
-            ]
-            inv_credit_lines = [
-                l for l in je_lines
-                if float(l.cash_credit or 0) > 0 and l.account_id != cogs_account.id
-            ]
-
-            if cogs_debit_lines:
-                total_cogs = sum(float(l.cash_debit or 0) for l in cogs_debit_lines)
-                ok(f"COGS Dr.521 found: {total_cogs:.2f} SAR")
-            else:
-                fail("COGS Dr.521 not found in JE lines")
-
-            # تحقق من توازن الجانب المالي (COGS يجب أن يتوازن ذاتياً)
-            total_cd = sum(float(l.cash_debit or 0) for l in je_lines)
-            total_cc = sum(float(l.cash_credit or 0) for l in je_lines)
-            if abs(total_cd - total_cc) < 0.05:
-                ok(f"JE balanced after COGS: debit={total_cd:.2f} credit={total_cc:.2f}")
-            else:
-                fail(f"JE unbalanced after COGS: debit={total_cd:.2f} credit={total_cc:.2f}")
-
-            # تراجع عن الاختبار (لا نريد أن نؤثر على البيانات)
-            db.session.rollback()
+    # TEST 7 (COGS through _auto_consume_weight_closing) went with the old
+    # engine (ADR-048 phase 3a): a sale's waiting riyals are derived from the books.
 
 # ─── SUMMARY ────────────────────────────────────────────────────────────────
 section("SUMMARY")

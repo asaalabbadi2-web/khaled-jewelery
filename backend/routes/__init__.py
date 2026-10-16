@@ -465,11 +465,6 @@ def get_current_gold_price():
 # (GET /weight-closing/profiles)
 
 # _load_weight_closing_settings → accounting/weight_closing.py (re-exported above)
-def _generate_weight_closing_order_number(prefix='WCO'):
-    timestamp = datetime.now().strftime('%Y%m%d%H%M%S%f')
-    return f"{prefix}-{timestamp}"
-
-
 def _generate_reservation_code(prefix='RES'):
     timestamp = datetime.now().strftime('%Y%m%d%H%M%S')
     total = OfficeReservation.query.count() + 1
@@ -911,7 +906,6 @@ from accounting.mappings import (  # noqa: F401
 from accounting.weight_closing import (  # noqa: F401
     DEFAULT_WEIGHT_CLOSING_SETTINGS,
     _load_weight_closing_settings,
-    _auto_consume_weight_closing,
 )
 
 # Settings Singleton → core/settings.py
@@ -1208,62 +1202,8 @@ from routes.clearing import _compute_clearing_due_amount         # noqa: F401
 # ============================================================================
 
 
-def _upsert_weight_closing_order(invoice: Invoice, close_price_per_gram: float, settings=None):
-    if not invoice:
-        raise ValueError('invoice is required')
-
-    settings = settings or _load_weight_closing_settings()
-    main_karat = settings.get('main_karat') or get_main_karat()
-    close_price = _coerce_float(close_price_per_gram, 0.0)
-    total_weight_main_karat = round(_invoice_weight_in_main_karat(invoice), 6)
-    total_cash_value = round(total_weight_main_karat * close_price, 2)
-
-    order = WeightClosingOrder.query.filter_by(invoice_id=invoice.id).first()
-    if order:
-        order.main_karat = main_karat
-        order.close_price_per_gram = close_price
-        order.price_source = settings.get('price_source', order.price_source)
-        order.gold_value_cash = total_cash_value
-        order.total_cash_value = total_cash_value
-        order.total_weight_main_karat = total_weight_main_karat
-        order.remaining_weight_main_karat = max(
-            total_weight_main_karat - (order.executed_weight_main_karat or 0.0),
-            0.0,
-        )
-    else:
-        order = WeightClosingOrder(
-            invoice_id=invoice.id,
-            order_number=_generate_weight_closing_order_number(settings.get('order_number_prefix', 'WCO')),
-            status='open',
-            main_karat=main_karat,
-            price_source=settings.get('price_source', 'manual'),
-            close_price_per_gram=close_price,
-            gold_value_cash=total_cash_value,
-            total_cash_value=total_cash_value,
-            total_weight_main_karat=total_weight_main_karat,
-            executed_weight_main_karat=0.0,
-            remaining_weight_main_karat=total_weight_main_karat,
-        )
-        db.session.add(order)
-        db.session.flush()
-
-    invoice.weight_closing_status = order.status
-    invoice.weight_closing_main_karat = main_karat
-    invoice.weight_closing_total_weight = total_weight_main_karat
-    invoice.weight_closing_executed_weight = order.executed_weight_main_karat or 0.0
-    invoice.weight_closing_remaining_weight = order.remaining_weight_main_karat or 0.0
-    invoice.weight_closing_close_price = close_price
-    invoice.weight_closing_order_number = order.order_number
-    invoice.weight_closing_price_source = order.price_source
-    db.session.add(invoice)
-    db.session.flush()
-    return order
-
-
-# _auto_consume_weight_closing → accounting/weight_closing.py (re-exported above)
 # Clearing domain → routes/clearing.py (weight-closing routes)
-# (POST /weight-closing/cash-settlement,
-#  POST /weight-closing/execute-profile)
+# (POST /weight-closing/execute-profile)
 
 # Office-reservations domain → routes/office_reservations.py
 # (GET/POST /office-reservations,

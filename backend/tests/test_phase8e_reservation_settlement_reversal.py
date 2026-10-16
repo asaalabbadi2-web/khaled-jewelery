@@ -243,7 +243,8 @@ class TestRejectReversesReservationSettlement:
             client = app.test_client()
             # Capacity matches consumption exactly (no leftover): these tests
             # commit to the real dev DB with no rollback, and
-            # _auto_consume_weight_closing's own FIFO query is global across
+            # the old engine's FIFO query (_auto_consume_weight_closing, gone since
+            # ADR-048 phase 3a) was global across
             # ALL open/partially_closed orders — any leftover capacity here
             # would be silently stolen by a later test's own consumption.
             order = _source_sale_invoice_with_open_order(weight_main_karat=2.5)
@@ -422,7 +423,7 @@ class TestRejectReversesReservationSettlement:
             # Any leftover open/partially_closed order from an earlier test
             # (in this file or another run in the same process) would be
             # consumed ahead of this test's own order by the global FIFO
-            # match in _auto_consume_weight_closing — force a clean pool
+            # match in the old engine's consumption — force a clean pool
             # immediately before the resettle this test is actually
             # asserting on. See the fixture-leakage note further up.
             WeightClosingOrder.query.filter(
@@ -483,11 +484,15 @@ class TestRejectReversesReservationSettlement:
                 "gold_entry_a (kept for audit) + gold_entry_b (the new settlement)"
             )
 
+            # The reject restored what the old engine's execution consumed; the
+            # resettle consumes no stored order -- the purchase closes waiting
+            # riyals in the derived position (ADR-048 phase 3a).
             refreshed_order = WeightClosingOrder.query.get(order.id)
-            assert refreshed_order.executed_weight_main_karat == 2.5, (
-                "weight must be consumed exactly once across reject+resettle, "
+            assert refreshed_order.executed_weight_main_karat == 0.0, (
+                "the rejected settlement's consumption is restored and none is made again, "
                 f"got {refreshed_order.executed_weight_main_karat}"
             )
+            assert WeightClosingExecution.query.filter_by(source_invoice_id=invoice_b_id).count() == 0
 
             refreshed_voucher = Voucher.query.get(state['deposit_voucher_id'])
             assert refreshed_voucher.reference_type == 'invoice'

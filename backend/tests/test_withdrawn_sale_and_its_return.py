@@ -61,6 +61,18 @@ def _rejected_sale(headers, world):
     return sale
 
 
+def _legacy_order(invoice_id):
+    """An order the old engine kept for a sale (sales open none since ADR-048
+    phase 3a; the guards still read the ones left)."""
+    order = WeightClosingOrder(invoice_id=invoice_id, order_number=f'WCO-{uuid.uuid4().hex[:8]}',
+                               status='open', main_karat=21, close_price_per_gram=400.0,
+                               total_weight_main_karat=2.0, executed_weight_main_karat=0.0,
+                               remaining_weight_main_karat=2.0)
+    db.session.add(order)
+    db.session.flush()
+    return order
+
+
 def _executed(order, grams=0.5):
     db.session.add(WeightClosingExecution(order_id=order.id, execution_type='purchase_scrap',
                                           weight_main_karat=grams, price_per_gram=400.0))
@@ -72,7 +84,7 @@ def _executed(order, grams=0.5):
 
 def test_rejecting_a_sale_cancels_its_weight_closing_order(auth_headers, world):
     sale = _create(auth_headers, world, 'sale_on_credit', held=True)
-    assert _order_of(sale['id']).status == 'open'
+    _legacy_order(sale['id'])
 
     _client().post(f"/api/invoices/{sale['id']}/reject", headers=auth_headers, json={'reason': 'x'})
 
@@ -119,7 +131,7 @@ def test_the_one_posting_refuses_a_rejected_invoice_whoever_calls_it(auth_header
 def test_unposting_is_refused_when_gold_was_closed_against_the_sale(auth_headers, unposting_allowed,
                                                                       world, path):
     sale = _create(auth_headers, world, 'sale_on_credit', held=False)
-    _executed(_order_of(sale['id']))
+    _executed(_legacy_order(sale['id']))
     if path == 'batch':
         resp = _client().post('/api/invoices/unpost-batch', headers=auth_headers,
                               json={'invoice_ids': [sale['id']]})
@@ -132,7 +144,7 @@ def test_unposting_is_refused_when_gold_was_closed_against_the_sale(auth_headers
 
 def test_rejecting_is_refused_when_gold_was_closed_against_the_sale(auth_headers, world):
     sale = _create(auth_headers, world, 'sale_on_credit', held=True)
-    _executed(_order_of(sale['id']))
+    _executed(_legacy_order(sale['id']))
     resp = _client().post(f"/api/invoices/{sale['id']}/reject", headers=auth_headers, json={'reason': 'x'})
     assert resp.status_code == 409
     assert resp.get_json()['error'] == 'has_closing_executions'
@@ -140,23 +152,23 @@ def test_rejecting_is_refused_when_gold_was_closed_against_the_sale(auth_headers
     assert db.session.get(Invoice, sale['id']).status != 'rejected'
 
 
-def test_a_purchase_closes_no_gold_against_a_sale_that_does_not_stand(auth_headers, world):
-    """Only orders of posted, standing sales are consumed -- not one awaiting
-    approval, not one rejected -- whatever is older in the queue."""
-    from accounting.weight_closing import _auto_consume_weight_closing
+def test_a_sale_that_does_not_stand_opens_no_riyals_to_close(auth_headers, world):
+    """Only posted, standing sales wait to become gold in the position -- not
+    one awaiting approval, not one rejected (ADR-048: the derived queue, as
+    the old engine's order query was for 2821, 3123, 3303)."""
+    from datetime import timedelta
+    from services.weight_position import collect_events
     held = _create(auth_headers, world, 'sale_on_credit', held=True)
     rejected = _rejected_sale(auth_headers, world)
-    order = _order_of(rejected['id'])
-    order.status = 'open'                      # as 2821, 3123, 3303 were left
-    order.remaining_weight_main_karat = order.total_weight_main_karat
-    db.session.flush()
     standing = _create(auth_headers, world, 'sale_on_credit', held=False)
+    dates = [db.session.get(Invoice, i['id']).date for i in (held, rejected, standing)]
 
-    _auto_consume_weight_closing(None, weight_override=100.0, price_per_gram=400.0)
+    events = collect_events(min(dates) - timedelta(days=1), max(dates) + timedelta(days=1))
 
-    assert float(_order_of(held['id']).executed_weight_main_karat or 0) == 0.0
-    assert float(_order_of(rejected['id']).executed_weight_main_karat or 0) == 0.0
-    assert float(_order_of(standing['id']).executed_weight_main_karat or 0) > 0.0
+    opened = {lot.invoice_id for lot in events.openings}
+    assert standing['id'] in opened
+    assert held['id'] not in opened
+    assert rejected['id'] not in opened
 
 
 # ── a return: its categories ────────────────────────────────────────────
