@@ -75,51 +75,6 @@ REDIS_URL = os.getenv('REDIS_URL', '').strip()
 ENABLE_REDIS_CACHE = _env_bool('ENABLE_REDIS_CACHE', default=bool(REDIS_URL))
 
 
-# The weight closing's support accounts were a list of account numbers here,
-# built at startup and relinked to their twins (WEIGHT_SUPPORT_ACCOUNTS). Gone
-# (CHART-002 step 4c2): the chart is data, imported; a profile's account is the
-# role weight_profile_<support_account_key> (services/weight_execution.py).
-
-
-# ╔════════════════════════════════════════════════════════════╗
-# ║  بروفايلات عمليات الوزن (يتم استخدامها لاحقاً في الخدمات)  ║
-# ╚════════════════════════════════════════════════════════════╝
-# هذه مجرد هيكل مبدئي وسيتم ملؤها خلال مراحل التطوير التالية.
-
-WEIGHT_EXECUTION_PROFILES = {
-	# مثال توضيحي، سيتم استكمال التفاصيل في الخطوات القادمة
-	'cleaning': {
-		'display_name': 'تنظيف الذهب',
-		'support_account_key': 'cleaning',
-		'execution_type': 'expense',
-		'requires_cash_amount': True,
-		'requires_weight': False,
-		'price_strategy': 'live_or_manual',
-	},
-	'melting': {
-		'display_name': 'عمليات الصهر',
-		'support_account_key': 'melting',
-		'execution_type': 'expense',
-		'requires_cash_amount': True,
-		'requires_weight': False,
-		'price_strategy': 'live_or_manual',
-	},
-	'logistics': {
-		'display_name': 'شحن وتغليف',
-		'support_account_key': 'logistics',
-		'execution_type': 'expense',
-		'requires_cash_amount': True,
-		'requires_weight': False,
-		'price_strategy': 'live_or_manual',
-	},
-	'valuation_adjustment': {
-		'display_name': 'تعديل فروقات التقييم',
-		'support_account_key': 'valuation_diff',
-		'execution_type': 'variance',
-		'requires_cash_amount': False,
-		'requires_weight': True,
-		'price_strategy': 'reference_order',
-	},
-}
-
-# يمكن لاحقاً إضافة إعدادات أخرى مثل سعر الأونصة المرجعي
+# The weight-closing profiles (WEIGHT_EXECUTION_PROFILES) went with their execute
+# screen (ADR-048 phase 3c): never run on production; a marked expense's own
+# voucher closes its riyals in the weight position.

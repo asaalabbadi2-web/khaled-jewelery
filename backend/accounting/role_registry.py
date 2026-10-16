@@ -29,7 +29,6 @@ GROUPS = (
     'الأطراف',
     'الموظفون',
     'مجموعات الشجرة (للتقارير)',
-    'تنفيذ التسكير (اختياري)',
     'غير مستعمل',
 )
 
@@ -55,7 +54,7 @@ def _r(key, label, group, purpose, **kw):
     return key, Role(key=key, label=label, group=group, purpose=purpose, **kw)
 
 
-G_CASH, G_TRADE, G_GOLD, G_SUPP, G_PARTY, G_EMP, G_TREE, G_PROFILE, G_OLD = GROUPS
+G_CASH, G_TRADE, G_GOLD, G_SUPP, G_PARTY, G_EMP, G_TREE, G_OLD = GROUPS
 TRADE_OPS = ('بيع', 'شراء من عميل', 'مرتجع بيع', 'مرتجع شراء', 'شراء', 'مرتجع شراء (مورد)')
 
 ROLES: dict[str, Role] = dict((
@@ -166,15 +165,12 @@ ROLES: dict[str, Role] = dict((
     _r('supplier_payables_root', 'مجموعة الموردين (الذمم)', G_TREE, 'رصيد المورد يقرأ ما تحتها.'),
     _r('customer_receivables_root', 'مجموعة العملاء (الذمم)', G_TREE, 'رصيد العميل يقرأ ما تحتها؛ وتوأمها للتكلفة.',
        needs_twin=True),
-    # ── تنفيذ التسكير (اختياري) ──
-    _r('weight_profile_cleaning', 'مصروف تنظيف الذهب', G_PROFILE, 'ملف «تنظيف الذهب» في تنفيذ التسكير.',
-       needs_twin=True),
-    _r('weight_profile_melting', 'مصروف الصهر', G_PROFILE, 'ملف «عمليات الصهر» في تنفيذ التسكير.', needs_twin=True),
-    _r('weight_profile_logistics', 'مصروف الشحن والتغليف', G_PROFILE, 'ملف «شحن وتغليف» في تنفيذ التسكير.',
-       needs_twin=True),
-    _r('weight_profile_valuation_diff', 'فروقات التقييم (تنفيذ التسكير)', G_PROFILE,
-       'ملف «تعديل فروقات التقييم» في تنفيذ التسكير.', needs_twin=True),
     # ── غير مستعمل ──
+    *(_r(f'weight_profile_{k}', label, G_OLD,
+         'لم يعد يطلبه الكود: أُزيل تنفيذ التسكير (ADR-048)؛ المصروف الموسوم يُغلق بسنده.', retired=True, needs_twin=True)
+      for k, label in (('cleaning', 'مصروف تنظيف الذهب (قديم)'), ('melting', 'مصروف الصهر (قديم)'),
+                       ('logistics', 'مصروف الشحن والتغليف (قديم)'),
+                       ('valuation_diff', 'فروقات التقييم (قديم)'))),
     *(_r(f'inventory_{k}k', f'مخزون ذهب عيار {k} (قديم)', G_OLD, 'لم يعد يطلبه الكود: المخزون بدوري الجديد والكسر.',
          retired=True, operations=TRADE_OPS) for k in (18, 21, 22, 24)),
     _r('cost', 'تكلفة البضاعة المباعة (قديم)', G_OLD, 'لم يعد يطلبه الكود: «تكلفة مبيعات الذهب».', retired=True,

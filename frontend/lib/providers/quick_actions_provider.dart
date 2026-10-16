@@ -61,8 +61,11 @@ class QuickActionsProvider extends ChangeNotifier {
 
       if (actionsJson != null && actionsJson.isNotEmpty) {
         final List<dynamic> decoded = json.decode(actionsJson);
+        // A button whose screen is gone (e.g. «تنفيذ التسكير الوزني», ADR-048)
+        // stays saved on the device: drop what the catalog no longer has.
         _actions = decoded
             .map((item) => QuickActionItem.fromMap(item))
+            .where((item) => DefaultQuickActions.findById(item.id) != null)
             .toList();
         debugPrint('✅ تم تحميل ${_actions.length} زر من الإعدادات');
       } else {

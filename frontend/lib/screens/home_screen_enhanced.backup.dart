@@ -53,7 +53,6 @@ import 'offices_screen.dart';
 import 'posting_management_screen.dart';
 import 'audit_log_screen.dart';
 import 'shift_closing_screen.dart';
-import 'weight_closing_execute_screen.dart';
 import 'import_documents_screen.dart';
 import 'reports/gold_price_history_report_screen.dart';
 import 'reports/reports_main_screen.dart';
@@ -3846,12 +3845,6 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
         result = await Navigator.push(
           context,
           MaterialPageRoute(builder: (_) => const AuditLogScreen()),
-        );
-        break;
-      case 'weight_closing_execute':
-        result = await Navigator.push(
-          context,
-          MaterialPageRoute(builder: (_) => const WeightClosingExecuteScreen()),
         );
         break;
       case 'posting_management':

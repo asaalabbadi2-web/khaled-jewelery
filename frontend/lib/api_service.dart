@@ -3275,44 +3275,6 @@ class ApiService {
     }
   }
 
-  /// قائمة بروفايلات التسكير الوزني
-  Future<List<Map<String, dynamic>>> getWeightClosingProfiles() async {
-    final response = await _authedGet(
-      Uri.parse('$_baseUrl/weight-closing/profiles'),
-    );
-
-    if (response.statusCode == 200) {
-      final decoded = json.decode(utf8.decode(response.bodyBytes));
-      final profiles = decoded is Map<String, dynamic>
-          ? (decoded['profiles'] as List<dynamic>? ?? const [])
-          : const <dynamic>[];
-
-      return profiles
-          .whereType<Map>()
-          .map((e) => Map<String, dynamic>.from(e))
-          .toList();
-    }
-
-    throw Exception(_errorMessageFromResponse(response));
-  }
-
-  /// تنفيذ بروفايل التسكير الوزني
-  Future<Map<String, dynamic>> executeWeightClosingProfile(
-    Map<String, dynamic> payload,
-  ) async {
-    final response = await _authedPost(
-      Uri.parse('$_baseUrl/weight-closing/execute-profile'),
-      headers: {'Content-Type': 'application/json; charset=UTF-8'},
-      body: json.encode(payload),
-    );
-
-    if (response.statusCode == 200 || response.statusCode == 201) {
-      return json.decode(utf8.decode(response.bodyBytes));
-    }
-
-    throw Exception(_errorMessageFromResponse(response));
-  }
-
   // System Methods
 
   /// إعادة تهيئة النظام مع دعم خيارات متعددة

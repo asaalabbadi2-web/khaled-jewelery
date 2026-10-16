@@ -85,7 +85,6 @@ from services.gold_allocation_service import (
     create_gold_obligations_for_invoice,
     reverse_gold_allocations_for_invoice,
 )
-from services.weight_execution import list_weight_profiles, resolve_weight_profile
 from settlement_state_service import get_settled_amounts, is_locked
 from utils import normalize_number
 

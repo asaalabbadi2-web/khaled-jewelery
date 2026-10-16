@@ -68,7 +68,6 @@ from core.number_helpers import _coerce_float
 from core.responses import _wrap_api_exceptions
 from auth_decorators import require_permission, require_any_permission
 
-from services.weight_execution import list_weight_profiles
 
 from pricing.karat_service import get_main_karat
 from accounting.voucher_engine import (
@@ -593,11 +592,6 @@ def review_system_alert(alert_id: int):
     row.reviewed_by = user_name
     db.session.commit()
     return jsonify({'success': True, 'alert': row.to_dict()}), 200
-
-@system_bp.route('/weight-closing/profiles', methods=['GET'])
-@require_permission('journal.post')
-def list_weight_closing_profiles():
-    return jsonify({'profiles': list_weight_profiles()})
 
 def _settings_actor() -> str:
     from flask import g

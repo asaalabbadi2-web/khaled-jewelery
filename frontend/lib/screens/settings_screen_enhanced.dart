@@ -21,7 +21,6 @@ import 'backup_restore_screen.dart';
 import 'system_reset_screen.dart';
 import 'supplier_settlement_policy_screen.dart';
 import 'weight_closing_settings_screen.dart';
-import 'weight_closing_execute_screen.dart';
 import '../utils.dart';
 import '../widgets/app_bar_tab_bar.dart';
 
@@ -1975,11 +1974,6 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
                   icon: const Icon(Icons.settings_suggest_outlined),
                   label: const Text('فتح إعدادات التسكير'),
                 ),
-                FilledButton.tonalIcon(
-                  onPressed: _openWeightClosingExecute,
-                  icon: const Icon(Icons.play_circle_outline),
-                  label: const Text('تنفيذ يدوي'),
-                ),
               ],
             ),
           ],
@@ -2213,13 +2207,6 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
       MaterialPageRoute(
         builder: (_) => SupplierSettlementPolicyScreen(api: _apiService),
       ),
-    );
-  }
-
-  Future<void> _openWeightClosingExecute() async {
-    await Navigator.push(
-      context,
-      MaterialPageRoute(builder: (_) => const WeightClosingExecuteScreen()),
     );
   }
 

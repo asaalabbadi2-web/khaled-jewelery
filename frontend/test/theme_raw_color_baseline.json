@@ -94,7 +94,6 @@
   "lib/screens/users_screen.dart": 8,
   "lib/screens/voucher_details_screen.dart": 59,
   "lib/screens/vouchers_list_screen.dart": 2,
-  "lib/screens/weight_closing_execute_screen.dart": 7,
   "lib/screens/weight_closing_settings_screen.dart": 2,
   "lib/statement_pdf_exporter.dart": 7,
   "lib/utils/currency_utils.dart": 4,

@@ -97,7 +97,6 @@ from dual_system_helpers import (
     verify_dual_balance,
     get_account_balances,
 )
-from services.weight_execution import list_weight_profiles, resolve_weight_profile
 from services.live_balances import (
     live_balances_by_account_ids,
     safe_box_balance,
@@ -460,9 +459,6 @@ def get_current_gold_price():
 # accounts from config's numbers -- 1310's twin as 71310000, 7340 renumbered
 # 71340. The chart is data; its pairs are links (account_pair_service).
 
-
-# System domain → routes/system.py
-# (GET /weight-closing/profiles)
 
 # _load_weight_closing_settings → accounting/weight_closing.py (re-exported above)
 def _generate_reservation_code(prefix='RES'):
@@ -1201,9 +1197,6 @@ from routes.clearing import _compute_clearing_due_amount         # noqa: F401
 # Weight Closing Helpers & Office Reservations
 # ============================================================================
 
-
-# Clearing domain → routes/clearing.py (weight-closing routes)
-# (POST /weight-closing/execute-profile)
 
 # Office-reservations domain → routes/office_reservations.py
 # (GET/POST /office-reservations,

@@ -532,16 +532,6 @@ class DefaultQuickActions {
       group: QuickActionGroup.accounting,
     ),
     QuickActionItem(
-      id: 'weight_closing_execute',
-      icon: Icons.scale,
-      label: 'تنفيذ التسكير الوزني',
-      route: 'weight_closing_execute',
-      colorHex: '#C9A227',
-      isActive: true,
-      order: 10,
-      group: QuickActionGroup.accounting,
-    ),
-    QuickActionItem(
       id: 'shift_closing',
       icon: Icons.fact_check,
       label: 'إغلاق اليومية',

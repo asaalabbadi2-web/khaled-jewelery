@@ -1,4 +1,4 @@
-"""Clearing & weight-closing domain routes — clearing_bp registered under /api in app.py."""
+"""Clearing domain routes — clearing_bp registered under /api in app.py."""
 from __future__ import annotations
 
 from datetime import datetime, date, timedelta
@@ -12,40 +12,27 @@ from models import (
     Account,
     Invoice,
     InvoicePayment,
-    JournalEntry,
     PaymentMethod,
     SafeBox,
     SafeBoxTransaction,
     Settings,
     SettlementLine,
-    Supplier,
     Voucher,
     VoucherAccountLine,
 )
 
-from core.number_helpers import _coerce_float
 from auth_decorators import require_permission
 
 from services.live_balances import live_balances_by_account_ids
 
-from pricing.karat_service import convert_from_main_karat, convert_to_main_karat, get_main_karat
 from accounting.voucher_engine import (
     generate_voucher_number,
     post_entry_of_approved_voucher,
     _append_safe_transactions_for_voucher,
-    _generate_journal_entry_number,
 )
 from accounting.mappings import get_account_id_for_mapping
-from accounting.weight_closing import _load_weight_closing_settings
-from dual_system_helpers import create_dual_journal_entry, verify_dual_balance
 from settlement_state_service import get_settled_amounts
-from services.weight_execution import resolve_weight_profile
 from allocation_service import AllocationService
-from routes import (
-    get_current_gold_price,
-    _resolve_account_from_id_or_number,
-    _record_memo_weight_transfer,
-)
 
 clearing_bp = Blueprint('clearing', __name__)
 
@@ -1157,187 +1144,6 @@ def create_bnpl_settlement():
         db.session.rollback()
         return jsonify({'error': f'Failed to create BNPL settlement: {str(exc)}'}), 500
 
-@clearing_bp.route('/weight-closing/execute-profile', methods=['POST'])
-@require_permission('journal.post')
-def execute_weight_closing_profile():
-    data = request.get_json(silent=True) or {}
-    profile_key = data.get('profile_key')
-    if not profile_key:
-        return jsonify({'error': 'profile_key مطلوب'}), 400
 
-    try:
-        profile = resolve_weight_profile(profile_key)
-    except ValueError as exc:
-        return jsonify({'error': str(exc)}), 400
-
-    financial_account = profile.get('financial_account')
-    if not financial_account:
-        return jsonify({'error': 'account_mapping_missing',
-                        'message': f'لا حساب مربوط لهذه العملية (افتراضي / {profile["role"]}): '
-                                   f'يُربط حسابها في «الربط المحاسبي»، ولا تُنفَّذ دونه'}), 400
-
-    settings = _load_weight_closing_settings()
-
-    def _resolve_cash_account_from_safebox_id(safe_box_id: int):
-        if not safe_box_id or safe_box_id <= 0:
-            return None
-        safe_box = SafeBox.query.get(int(safe_box_id))
-        if not safe_box or not safe_box.is_active:
-            return None
-        if (safe_box.safe_type or '').strip().lower() not in {'cash', 'bank'}:
-            return None
-        return Account.query.get(safe_box.account_id) if safe_box.account_id else None
-
-    # SafeBox selection chain:
-    # 1) explicit override in request payload
-    # 2) supplier.default_safe_box_id (when supplier_id provided)
-    # 3) settings.weight_closing_settings.cash_safe_box_id
-    # 4) legacy settings.cash_account_id (id or account_number-like)
-    supplier = None
-    supplier_id = data.get('supplier_id')
-    try:
-        supplier_id_int = int(supplier_id) if supplier_id not in (None, '', False) else None
-    except Exception:
-        supplier_id_int = None
-    if supplier_id_int:
-        supplier = Supplier.query.get(supplier_id_int)
-
-    override_safe_box_id = data.get('cash_safe_box_id')
-    try:
-        override_safe_box_id_int = int(override_safe_box_id) if override_safe_box_id not in (None, '', False) else None
-    except Exception:
-        override_safe_box_id_int = None
-
-    chosen_cash_safe_box_id = None
-    cash_account = None
-    if override_safe_box_id_int:
-        cash_account = _resolve_cash_account_from_safebox_id(override_safe_box_id_int)
-        if not cash_account:
-            return jsonify({
-                'error': 'الخزينة النقدية المختارة غير صالحة',
-                'details': f"cash_safe_box_id={override_safe_box_id_int}",
-            }), 400
-        chosen_cash_safe_box_id = override_safe_box_id_int
-    else:
-        supplier_safe_box_id = getattr(supplier, 'default_safe_box_id', None) if supplier else None
-        if supplier_safe_box_id:
-            cash_account = _resolve_cash_account_from_safebox_id(int(supplier_safe_box_id))
-            if cash_account:
-                chosen_cash_safe_box_id = int(supplier_safe_box_id)
-
-        if not cash_account:
-            settings_safe_box_id = settings.get('cash_safe_box_id')
-            if settings_safe_box_id:
-                cash_account = _resolve_cash_account_from_safebox_id(int(settings_safe_box_id))
-                if cash_account:
-                    chosen_cash_safe_box_id = int(settings_safe_box_id)
-
-        if not cash_account:
-            cash_account_setting = settings.get('cash_account_id', 1100)
-            cash_account = _resolve_account_from_id_or_number(cash_account_setting)
-
-    if not cash_account:
-        return jsonify({
-            'error': 'تعذر تحديد حساب الصندوق/البنك للتسوية',
-            'details': {
-                'supplier_id': supplier_id_int,
-                'supplier_default_safe_box_id': getattr(supplier, 'default_safe_box_id', None) if supplier else None,
-                'settings_cash_safe_box_id': settings.get('cash_safe_box_id'),
-                'cash_account_id': settings.get('cash_account_id', 1100),
-            },
-        }), 400
-
-    price_per_gram = _coerce_float(data.get('price_per_gram'), None)
-    price_strategy = profile['meta'].get('price_strategy', 'manual')
-    if price_strategy in ('live_or_manual', 'live_only'):
-        if price_per_gram is None or price_per_gram <= 0:
-            snapshot = get_current_gold_price()
-            price_per_gram = snapshot.get('price_per_gram_24k', 0.0)
-    if price_per_gram is None or price_per_gram <= 0:
-        return jsonify({'error': 'price_per_gram غير صالح'}), 400
-
-    cash_amount = _coerce_float(data.get('cash_amount'))
-    weight_main = _coerce_float(data.get('weight_main_karat'))
-    if weight_main <= 0 and data.get('weight_grams'):
-        karat = int(data.get('karat') or get_main_karat() or 21)
-        weight_main = convert_to_main_karat(_coerce_float(data.get('weight_grams')), karat)
-
-    if cash_amount <= 0 and weight_main > 0:
-        grams_24k = convert_from_main_karat(weight_main, 24)
-        cash_amount = round(grams_24k * price_per_gram, 2)
-
-    if weight_main <= 0 and cash_amount > 0 and price_per_gram > 0:
-        grams_24k = cash_amount / price_per_gram
-        weight_main = convert_to_main_karat(grams_24k, 24)
-
-    if profile['meta'].get('requires_cash_amount') and cash_amount <= 0:
-        return jsonify({'error': 'هذا البروفايل يتطلب cash_amount أكبر من صفر'}), 400
-    if profile['meta'].get('requires_weight') and weight_main <= 0:
-        return jsonify({'error': 'هذا البروفايل يتطلب إدخال وزن'}), 400
-
-    now = datetime.now()
-    description = data.get('notes') or profile['meta'].get('display_name') or profile_key
-    journal_entry = JournalEntry(
-        entry_number=_generate_journal_entry_number('WXP'),
-        date=now,
-        description=f'تنفيذ بروفايل {profile_key}: {description}',
-        reference_type='weight_profile',
-        reference_id=None,
-        is_posted=True,
-        posted_at=now,
-        posted_by='system',
-    )
-    db.session.add(journal_entry)
-    db.session.flush()
-
-    if cash_amount > 0:
-        create_dual_journal_entry(
-            journal_entry_id=journal_entry.id,
-            account_id=financial_account.id,
-            cash_debit=cash_amount,
-            description=description,
-        )
-        create_dual_journal_entry(
-            journal_entry_id=journal_entry.id,
-            account_id=cash_account.id,
-            cash_credit=cash_amount,
-            description=description,
-        )
-
-    memo_debit_account = Account.query.get(financial_account.memo_account_id) if financial_account.memo_account_id else None
-    # The cash group's weight twin, by its link (71100 on production; CHART-002).
-    from accounting.chart_tree import CASH_ROOT, role_account_id, twin_id
-    _cash_twin = twin_id(role_account_id(CASH_ROOT))
-    memo_credit_account = Account.query.get(_cash_twin) if _cash_twin else None
-    if memo_debit_account and memo_credit_account and weight_main > 0:
-        _record_memo_weight_transfer(
-            journal_entry.id,
-            debit_account_id=memo_debit_account.id,
-            credit_account_id=memo_credit_account.id,
-            weight_main_karat=weight_main,
-        )
-
-    verify_dual_balance(journal_entry.id)
-
-    # The expense closes its share of the waiting riyals in the derived weight
-    # position, read from this entry (ADR-048 phase 3); no stored order is consumed.
-    db.session.commit()
-
-    return jsonify(
-        {
-            'profile': {
-                'key': profile_key,
-                'display_name': profile['meta'].get('display_name', profile_key),
-            },
-            'cash_safe_box_id': chosen_cash_safe_box_id,
-            'cash_amount': cash_amount,
-            'weight_main_karat': weight_main,
-            'price_per_gram': price_per_gram,
-            'journal_entry': {
-                'id': journal_entry.id,
-                'entry_number': journal_entry.entry_number,
-                'date': journal_entry.date.isoformat(),
-            },
-        }
-    )
-
+# POST /weight-closing/execute-profile went with the profiles (ADR-048 phase 3c): a
+# marked expense closes its riyals in the weight position from its own voucher.
