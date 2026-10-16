@@ -37,12 +37,19 @@ def _uid():
     return uuid.uuid4().hex[:6]
 
 
+def _word():
+    """A category name's random part, letters only: a hex uid holding «18»,
+    «22» or «24» names a karat, and the route rightly refuses a name naming
+    another karat than its category's (1 run in ~10 failed on it)."""
+    return _uid().translate(str.maketrans('0123456789', 'ghijklmnop'))
+
+
 def _client():
     return flask_app.test_client()
 
 
 def _category(name=None, karat='21', **kw):
-    c = Category(name=name or f'عقد {_uid()} {karat}', karat=karat, **kw)
+    c = Category(name=name or f'عقد {_word()} {karat}', karat=karat, **kw)
     db.session.add(c)
     db.session.flush()
     return c
@@ -61,11 +68,11 @@ def _used(category):
 class TestTheNameAndTheKarat:
 
     def test_a_category_needs_its_karat(self, app, auth_headers):
-        resp = _client().post('/api/categories', headers=auth_headers, json={'name': f'خاتم {_uid()}'})
+        resp = _client().post('/api/categories', headers=auth_headers, json={'name': f'خاتم {_word()}'})
         assert resp.status_code == 400
 
     def test_digits_are_latin_and_the_name_carries_its_karat(self, app, auth_headers):
-        base = f'خاتم {_uid()}'
+        base = f'خاتم {_word()}'
         resp = _client().post('/api/categories', headers=auth_headers, json={'name': base, 'karat': '٢١'})
         assert resp.status_code == 201, resp.get_data(as_text=True)[:300]
         body = resp.get_json()
@@ -73,11 +80,11 @@ class TestTheNameAndTheKarat:
 
     def test_a_name_naming_another_karat_is_refused(self, app, auth_headers):
         resp = _client().post('/api/categories', headers=auth_headers,
-                              json={'name': f'خاتم {_uid()} ١٨', 'karat': '21'})
+                              json={'name': f'خاتم {_word()} ١٨', 'karat': '21'})
         assert resp.status_code == 400
 
     def test_an_unknown_karat_is_refused(self, app, auth_headers):
-        resp = _client().post('/api/categories', headers=auth_headers, json={'name': f'خاتم {_uid()}', 'karat': '19'})
+        resp = _client().post('/api/categories', headers=auth_headers, json={'name': f'خاتم {_word()}', 'karat': '19'})
         assert resp.status_code == 400
 
     def test_the_karat_of_a_used_category_is_fixed(self, app, auth_headers):
@@ -170,7 +177,7 @@ class TestScrap:
         """POST /purchase-items failed on every call (an unimported barcode
         generator) after creating a karat-less «أصناف الشراء» category."""
         scrap = self._scrap('18')
-        name = f'كسر خواتم {_uid()}'
+        name = f'كسر خواتم {_word()}'
         resp = _client().post('/api/purchase-items', headers=auth_headers, json={'name': name, 'karat': '18'})
         assert resp.status_code == 201, resp.get_data(as_text=True)[:300]
         assert Item.query.filter_by(name=name).one().category_id == scrap.id
