@@ -300,20 +300,29 @@ def collect_events(start: dt.datetime, end: dt.datetime) -> Events:
 
 def purchase_price(until: dt.date, days: int = PURCHASE_PRICE_DAYS):
     """(price per gram of the main karat, where it came from): what the shop
-    paid for customers' gold in the last *days* days -- else its last purchase."""
+    paid for customers' gold on its last *days* days that had a purchase.
+
+    Purchase days, not calendar days: a day with no purchase moves nothing
+    (16 Oct 2026: a quiet day showed -10 g only because an old day left a
+    calendar window). From the invoices alone -- no live feed."""
     from models import Invoice
     from routes import _invoice_weight_in_main_karat
     end = dt.datetime.combine(until, dt.time.max)
-    query = Invoice.query.filter(Invoice.invoice_type == CUSTOMER_BUY, Invoice.is_posted.is_(True),
-                                 Invoice.date <= end)
-    rows = query.filter(Invoice.date >= end - dt.timedelta(days=days)).all()
-    source = f'متوسط شراء الكسر في آخر {days} أيام'
+    rows, seen = [], set()
+    for inv in (Invoice.query.filter(Invoice.invoice_type == CUSTOMER_BUY, Invoice.is_posted.is_(True),
+                                     Invoice.date <= end)
+                .order_by(Invoice.date.desc()).limit(2000)):
+        day = inv.date.date()
+        if day not in seen and len(seen) == days:
+            break
+        seen.add(day)
+        rows.append(inv)
     if not rows:
-        last = query.order_by(Invoice.date.desc()).first()
-        rows, source = ([last], f'آخر شراء ({last.date:%Y-%m-%d})') if last else ([], 'لا شراء')
+        return 0.0, 'لا شراء'
     cash = sum(float(r.total or 0) for r in rows)
     grams = sum(_invoice_weight_in_main_karat(r) for r in rows)
-    return (cash / grams if grams else 0.0), source
+    first, last = min(seen), max(seen)
+    return (cash / grams if grams else 0.0), f'متوسط شراء الكسر في آخر {len(seen)} أيام شراء ({first:%m-%d} إلى {last:%m-%d})'
 
 
 def year_start(day: dt.date) -> dt.datetime:

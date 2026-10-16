@@ -25,6 +25,7 @@ import 'customer_gold_balances_report_screen.dart';
 import '../safe_boxes_screen.dart';
 import 'analytics_dashboard_screen.dart';
 import 'admin_dashboard_screen.dart';
+import 'weight_position_screen.dart';
 
 /// مركز التقارير الموحد - قاعدة البناء لجميع تقارير النظام
 class ReportsMainScreen extends StatefulWidget {
@@ -326,6 +327,9 @@ class _ReportsMainScreenState extends State<ReportsMainScreen> {
           api: widget.api,
           isArabic: widget.isArabic,
         );
+        break;
+      case 'weight_position':
+        destination = WeightPositionScreen(api: widget.api, isArabic: widget.isArabic);
         break;
       case 'reconciliation_findings':
         destination = ReconciliationFindingsScreen(

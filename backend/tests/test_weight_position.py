@@ -260,3 +260,22 @@ def test_gram_profit_is_the_engine_s_five_layers(app):
     whole = (body['trading_profit_weight'] + body['extra_revenue_cash_as_weight'] + body['extra_revenue_weight']
              - body['expense_weight_direct'] - body['expense_cash_as_weight'] + body['price_effect_weight'])
     assert body['net_profit_weight'] == pytest.approx(whole, abs=0.01)
+
+
+def test_a_day_with_no_purchase_moves_no_price(app, auth_headers, world):
+    """The open riyals are valued at the last purchase days, not calendar days:
+    a quiet day showed -10 g only because an old day left a calendar window
+    (16 Oct 2026)."""
+    from services.weight_position import purchase_price
+    for day in ('2031-03-09', '2031-03-11'):
+        _post(auth_headers, {
+            'customer_id': world['customer'].id, 'invoice_type': 'شراء من عميل', 'gold_type': 'scrap',
+            'transaction_type': 'buy', 'employee_id': world['holder'].id,
+            'scrap_holder_employee_id': world['holder'].id, 'safe_box_id': world['pm'].default_safe_box_id,
+            'date': f'{day}T10:00:00', 'total': 100.0, 'total_weight': 1.0, 'total_cost': 100.0, 'total_tax': 0.0,
+            'amount_paid': 100.0, 'payments': [{'payment_method_id': world['pm'].id, 'amount': 100.0}],
+            'items': [{'name': 'كسر', 'karat': 21, 'weight': 1.0, 'standing_weight': 1.0, 'stones_weight': 0.0,
+                       'price': 100.0, 'net': 100.0, 'quantity': 1}]})
+    after = purchase_price(dt.date(2031, 3, 12))
+    weeks_later = purchase_price(dt.date(2031, 3, 30))
+    assert after[0] == pytest.approx(100.0) and weeks_later[0] == pytest.approx(after[0])

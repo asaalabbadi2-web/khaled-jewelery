@@ -2710,6 +2710,31 @@ class ApiService {
     }
   }
 
+  /// «مركز التسكير» (ADR-048): ريالات المبيعات المنتظرة أن تعود ذهبًا، وقيمتها
+  /// بسعر شراء المحل، ولكل بيع مفتوح نصيبه، وآخر التسكير، وأين الريالات.
+  Future<Map<String, dynamic>> getWeightPosition({DateTime? asOf}) async {
+    final uri = Uri.parse('$_baseUrl/reports/weight-position').replace(
+      queryParameters: asOf == null ? null : {'as_of': asOf.toIso8601String().split('T').first},
+    );
+    final response = await _authedGet(uri);
+    if (response.statusCode != 200) _throwSettlementError(response);
+    return json.decode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
+  }
+
+  /// الربح الوزني لفترة بطبقاته الخمس، ولكل شهر منها (ADR-048).
+  Future<Map<String, dynamic>> getWeightPerformance({
+    required DateTime startDate,
+    required DateTime endDate,
+  }) async {
+    final uri = Uri.parse('$_baseUrl/reports/weight-performance').replace(queryParameters: {
+      'start_date': startDate.toIso8601String().split('T').first,
+      'end_date': endDate.toIso8601String().split('T').first,
+    });
+    final response = await _authedGet(uri);
+    if (response.statusCode != 200) _throwSettlementError(response);
+    return json.decode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
+  }
+
   Future<Map<String, dynamic>> getGramProfitReport({
     required DateTime startDate,
     required DateTime endDate,

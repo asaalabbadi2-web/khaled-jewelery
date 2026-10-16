@@ -27,6 +27,20 @@ class ReportCatalog {
             requiresFilters: false,
           ),
           ReportDescriptor(
+            id: 'weight_position',
+            icon: Icons.balance,
+            titleAr: 'مركز التسكير',
+            titleEn: 'Weight Closing Position',
+            descriptionAr:
+                'ريالات المبيعات التي تنتظر أن تعود ذهبًا وقيمتها بسعر شرائك، والربح الوزني بطبقاته الخمس.',
+            descriptionEn:
+                'Sales riyals waiting to become gold again, their worth at your purchase price, and the weight profit in five layers.',
+            route: 'weight_position',
+            type: ReportType.financial,
+            available: true,
+            requiresFilters: false,
+          ),
+          ReportDescriptor(
             id: 'reconciliation_findings',
             icon: Icons.fact_check,
             titleAr: 'نتائج الفحص الليلي',

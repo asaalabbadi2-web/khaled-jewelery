@@ -2,6 +2,7 @@
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'weight_position_screen.dart';
 import 'package:flutter_staggered_animations/flutter_staggered_animations.dart';
 import 'package:intl/intl.dart' hide TextDirection;
 import 'package:provider/provider.dart';
@@ -1585,8 +1586,15 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     }
 
     final profitColor = isProfit ? _tones.ready.fg : _scheme.error;
+    // ⑤ of it: how the riyals still waiting moved with the price (ADR-048).
+    final priceEffect = gd('price_effect_weight');
 
-    return Container(
+    return InkWell(
+      key: const ValueKey('gram-profit-card'),
+      borderRadius: BorderRadius.circular(14),
+      onTap: () => Navigator.of(context).push(MaterialPageRoute(
+          builder: (_) => WeightPositionScreen(api: widget.api, isArabic: isArabic))),
+      child: Container(
       padding: EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: _scheme.surface,
@@ -1775,8 +1783,17 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
               ),
             ],
           ),
+          SizedBox(height: 8),
+          Text(
+            isArabic
+                ? 'منه أثر السعر على ما لم يُسكَّر: ${_formatWeight(priceEffect)} — اضغط لمركز التسكير'
+                : 'Of which the price on what still waits: ${_formatWeight(priceEffect)} — tap for the position',
+            key: const ValueKey('gram-profit-price-effect'),
+            style: TextStyle(fontSize: 11, color: theme.hintColor),
+          ),
         ],
       ),
+    ),
     );
   }
 

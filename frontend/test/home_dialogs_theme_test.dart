@@ -23,7 +23,9 @@ class _PendingApi extends ApiService {
           'party_name': 'عميل',
           'total_amount': 1500.0,
           'created_by_name': 'موظف',
-          'created_at': '2026-10-08T10:00:00',
+          // Relative to now: a fixed date passed a week on 15 Oct 2026 and the
+          // dialog took another path (a formatted date).
+          'created_at': DateTime.now().subtract(const Duration(days: 2)).toIso8601String(),
         },
     ],
     'pending_reservations': [],

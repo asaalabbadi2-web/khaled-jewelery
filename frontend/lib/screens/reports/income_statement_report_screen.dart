@@ -839,7 +839,6 @@ class _IncomeStatementReportScreenState
     final avgSell = val('avg_sell_per_gram');
     final avgBuy = val('avg_buy_per_gram');
     final marginPerGram = val('margin_per_gram');
-    final tradingProfitCash = val('trading_profit_cash');
     final tradingProfitWeight = val('trading_profit_weight');
     final extraRevWDirect = val('extra_revenue_weight');
     final extraRevCash = val('extra_revenue_cash');
@@ -849,6 +848,10 @@ class _IncomeStatementReportScreenState
     final expCashWeight = val('expense_cash_as_weight');
     final netProfit = val('net_profit');
     final netProfitWeight = val('net_profit_weight');
+    // ⑤ and the price every weight layer is shown at in riyals: the shop's own
+    // recent purchase price, as the engine values the waiting riyals (ADR-048).
+    final priceEffectWeight = val('price_effect_weight');
+    final valuationPrice = val('valuation_price_per_gram') > 0 ? val('valuation_price_per_gram') : avgBuy;
     final netMarginPct = val('net_margin_pct');
     final totalSales = val('total_sales_cash');
     final mainKarat = g['main_karat']?.toString() ?? '21';
@@ -918,8 +921,8 @@ class _IncomeStatementReportScreenState
                       ),
                       Text(
                         isArabic
-                            ? '(سعر بيع − سعر شراء) × الوزن − المصاريف'
-                            : '(Sell − Buy) × Weight − Expenses',
+                            ? 'ما اشترته ريالات مبيعاتك من ذهب − ما بعته، وما ينتظر بسعر شرائك'
+                            : 'The gold your sales riyals bought − what you sold; what waits, at your buy price',
                         style: TextStyle(
                           fontSize: 11,
                           color: Colors.grey.shade500,
@@ -1099,9 +1102,9 @@ class _IncomeStatementReportScreenState
                 children: [
                   _ProfitStep(
                     label: isArabic
-                        ? '① ربح المتاجرة (فارق × وزن مباع)'
-                        : '① Trading Profit (margin × sold)',
-                    value: tradingProfitCash,
+                        ? '① المتاجرة: ريالات المُباع التي عادت ذهبًا'
+                        : '① Trading: sales riyals turned back into gold',
+                    value: tradingProfitWeight * valuationPrice,
                     currencySymbol: _currencySymbol,
                     weightEquiv: tradingProfitWeight,
                     isFirst: true,
@@ -1112,7 +1115,7 @@ class _IncomeStatementReportScreenState
                     label: isArabic
                         ? '② إيرادات وزنية مباشرة'
                         : '② Weight Revenue (direct)',
-                    value: extraRevWDirect * avgBuy,
+                    value: extraRevWDirect * valuationPrice,
                     currencySymbol: _currencySymbol,
                     weightEquiv: extraRevWDirect,
                     isSubtract: false,
@@ -1121,8 +1124,8 @@ class _IncomeStatementReportScreenState
                   if (extraRevCash.abs() > 0.01)
                     _ProfitStep(
                       label: isArabic
-                          ? '② إيرادات نقدية (محوّلة)'
-                          : '② Cash Revenue (converted)',
+                          ? '② إيرادات نقدية (ما اشترته ريالاتها)'
+                          : '② Cash Revenue (what its riyals bought)',
                       value: extraRevCash,
                       currencySymbol: _currencySymbol,
                       weightEquiv: extraRevCashW,
@@ -1133,7 +1136,7 @@ class _IncomeStatementReportScreenState
                     label: isArabic
                         ? '③ مصاريف وزنية مباشرة'
                         : '③ Weight Expenses (direct)',
-                    value: expWeightDirect * avgBuy,
+                    value: expWeightDirect * valuationPrice,
                     currencySymbol: _currencySymbol,
                     weightEquiv: expWeightDirect,
                     isSubtract: true,
@@ -1141,12 +1144,22 @@ class _IncomeStatementReportScreenState
                   ),
                   _ProfitStep(
                     label: isArabic
-                        ? '④ مصاريف نقدية (محوّلة)'
-                        : '④ Cash Expenses (converted)',
+                        ? '④ مصاريف نقدية (الغرامات المُباعة التي أنفقت ريالاتها)'
+                        : '④ Cash Expenses (the grams sold whose riyals they spent)',
                     value: expCashTotal,
                     currencySymbol: _currencySymbol,
                     weightEquiv: expCashWeight,
                     isSubtract: true,
+                    isDark: isDark,
+                  ),
+                  _ProfitStep(
+                    label: isArabic
+                        ? '⑤ أثر السعر على المفتوح'
+                        : '⑤ The price on what still waits',
+                    value: priceEffectWeight * valuationPrice,
+                    currencySymbol: _currencySymbol,
+                    weightEquiv: priceEffectWeight,
+                    isSubtract: priceEffectWeight < 0,
                     isDark: isDark,
                   ),
                   const Divider(height: 8),
@@ -1186,8 +1199,8 @@ class _IncomeStatementReportScreenState
                   Expanded(
                     child: Text(
                       isArabic
-                          ? 'الربح الوزني = ربح المتاجرة + إيرادات إضافية − مصاريف وزنية − مصاريف نقدية. الحسابات المشاركة تُحدد من شجرة الحسابات (علم "يدخل في ربح الجرام").'
-                          : 'Weight profit = Trading + Extra Revenue − Weight Expenses − Cash Expenses. Participating accounts are flagged in the Chart of Accounts.',
+                          ? 'الربح الوزني = ① المتاجرة + ② الإيرادات − ③ المصاريف الوزنية − ④ المصاريف النقدية ± ⑤ أثر السعر على ما لم يُسكَّر بعد. ما عاد ذهبًا يُحسب بما اشتراه فعلًا، وما ينتظر بسعر شرائك في آخر 7 أيام شراء. الحسابات المشاركة من شجرة الحسابات (علم "يدخل في ربح الجرام").'
+                          : 'Weight profit = ① trading + ② revenues − ③ weight expenses − ④ cash expenses ± ⑤ the price on what still waits. What became gold counts at what it bought; what waits, at your purchase price of the last 7 purchase days.',
                       style: TextStyle(
                         fontSize: 11,
                         color: Colors.grey.shade600,

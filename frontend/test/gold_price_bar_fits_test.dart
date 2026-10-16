@@ -18,6 +18,7 @@ Future<void> _pump(WidgetTester tester, ThemeData theme, double width) async {
   tester.view.physicalSize = Size(width, 900);
   tester.view.devicePixelRatio = 1.0;
   addTearDown(tester.view.reset);
+  final now = DateTime.now();
   await tester.pumpWidget(
     MaterialApp(
       theme: theme,
@@ -27,11 +28,13 @@ Future<void> _pump(WidgetTester tester, ThemeData theme, double width) async {
           body: GoldPriceBar(
             goldPrice: 4161.86,
             goldPriceOpening: 4160.01,
-            goldPriceDate: DateTime(2026, 10, 14, 9),
+            // Relative to now: a fixed date became «older than a day» on 16
+            // Oct 2026 and the bar took another path (a formatted date).
+            goldPriceDate: now.subtract(const Duration(hours: 1)),
             sparklinePoints: [
-              SparklinePoint(time: DateTime(2026, 10, 13, 9), price: 4160.01),
-              SparklinePoint(time: DateTime(2026, 10, 14, 1), price: 4161.43),
-              SparklinePoint(time: DateTime(2026, 10, 14, 9), price: 4161.86),
+              SparklinePoint(time: now.subtract(const Duration(hours: 25)), price: 4160.01),
+              SparklinePoint(time: now.subtract(const Duration(hours: 9)), price: 4161.43),
+              SparklinePoint(time: now.subtract(const Duration(hours: 1)), price: 4161.86),
             ],
           ),
         ),
