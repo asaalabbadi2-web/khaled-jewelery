@@ -2721,6 +2721,16 @@ class ApiService {
     return json.decode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
   }
 
+  /// بيع واحد في التسكير: ريالاته، وما رُدّ منها وما أُغلق (وبماذا) وما ينتظر
+  /// (ADR-048 المرحلة 3أ). null لما ليس بيعًا مرحَّلًا قائمًا، أو لمن لا يقرأ
+  /// التقارير المالية.
+  Future<Map<String, dynamic>?> getSaleWeightClosing(int invoiceId) async {
+    final response = await _authedGet(Uri.parse('$_baseUrl/reports/weight-position/sale/$invoiceId'));
+    if (response.statusCode == 404 || response.statusCode == 403) return null;
+    if (response.statusCode != 200) _throwSettlementError(response);
+    return json.decode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
+  }
+
   /// الربح الوزني لفترة بطبقاته الخمس، ولكل شهر منها (ADR-048).
   Future<Map<String, dynamic>> getWeightPerformance({
     required DateTime startDate,

@@ -13,7 +13,8 @@ unposting changes the books, and the next reading follows. Three parts:
   collect_events(start, end)  -- the sources and uses, from invoices and the
                                  marked revenue/expense lines;
   replay(events)              -- the queue (pure: no database);
-  position(as_of) / performance(start, end) -- the two views.
+  position(as_of) / performance(start, end) -- the two views;
+  sale_closing(invoice_id, as_of)            -- one sale: where its riyals went.
 """
 from __future__ import annotations
 
@@ -45,6 +46,8 @@ class Lot:
     kind: str = SOLD
     cash_open: float = field(init=False)
     grams_open: float = field(init=False)
+    returned_cash: float = field(init=False, default=0.0)    # what its returns took off the open riyals
+    returned_grams: float = field(init=False, default=0.0)
 
     def __post_init__(self):
         self.cash_open, self.grams_open = self.cash, self.grams
@@ -88,6 +91,7 @@ class Slice:
     grams_out: float
     lot_kind: str = SOLD
     invoice_id: int | None = None                     # the closing's invoice; none for an expense
+    lot_invoice_id: int | None = None                 # the sale whose riyals it took
 
     @property
     def result(self) -> float:
@@ -165,8 +169,11 @@ def replay(events: Events) -> Replay:
             if lot is None or lot.cash_open < item.cash - 0.01:
                 anomalies['a return of a sale already closed, or outside the period'] += 1
             if lot is not None:
+                cash_open, grams_open = lot.cash_open, lot.grams_open
                 lot.cash_open = max(lot.cash_open - item.cash, 0.0)
                 lot.grams_open = max(lot.grams_open - item.grams, 0.0)
+                lot.returned_cash += cash_open - lot.cash_open
+                lot.returned_grams += grams_open - lot.grams_open
         else:
             remaining = item.cash
             for queue in (queues[k] for k in order.get(item.kind, (REVENUE, SOLD))):
@@ -181,7 +188,8 @@ def replay(events: Events) -> Replay:
                     lot.cash_open -= take
                     lot.grams_open -= grams_out
                     remaining -= take
-                    slices.append(Slice(when, item.kind, take, grams_in, grams_out, lot.kind, item.invoice_id))
+                    slices.append(Slice(when, item.kind, take, grams_in, grams_out, lot.kind, item.invoice_id,
+                                         lot.invoice_id))
                     for bucket in (by_month[m], by_kind[item.kind]):
                         bucket['cash'] += take
                         bucket['grams_in'] += grams_in
@@ -197,6 +205,38 @@ def replay(events: Events) -> Replay:
         snapshot(current)
     return Replay(list(events.openings), slices, sorted(events.direct, key=lambda d: d[0]), by_kind, by_month,
                   month_end, unmatched, anomalies)
+
+
+def sale_view(result: Replay, events: Events, invoice_id: int, price: float) -> dict | None:
+    """One sale: its riyals, and where each went -- back with a return, into
+    what closed it (first in, first out), or still waiting. The pairing is the
+    queue's, read from the books each time, not frozen (ADR-048 phase 3a)."""
+    lot = next((lot for lot in result.lots if lot.invoice_id == invoice_id), None)
+    if lot is None:
+        return None
+    returned = [r for r in events.returns if r.original_invoice_id == invoice_id]
+    taken = [piece for piece in result.slices if piece.lot_invoice_id == invoice_id]
+    closed_cash = sum(piece.cash for piece in taken)
+    waiting = lot.cash_open > 0.005
+    status = ('partially_closed' if waiting and taken else 'open' if waiting
+              else 'closed' if taken else 'cancelled')
+    return {
+        'invoice_id': invoice_id, 'date': lot.when.isoformat(), 'status': status,
+        'cash': round(lot.cash, 2), 'grams': round(lot.grams, 3),
+        'expected_at_sale': round(lot.cash / lot.price_at_sale - lot.grams, 3) if lot.price_at_sale else None,
+        # A return takes off what is still open; one after the riyals turned
+        # into gold took none of them, and is shown apart (as 881 on the copy).
+        'returned_cash': round(lot.returned_cash, 2), 'returned_grams': round(lot.returned_grams, 3),
+        'returned_after_closing_cash': round(max(sum(r.cash for r in returned) - lot.returned_cash, 0.0), 2),
+        'closed_cash': round(closed_cash, 2), 'cash_open': round(lot.cash_open, 2),
+        'grams_open': round(lot.grams_open, 3),
+        'closings': [{'date': piece.when.isoformat(), 'kind': piece.kind, 'invoice_id': piece.invoice_id,
+                      'cash': round(piece.cash, 2), 'grams_in': round(piece.grams_in, 3),
+                      'grams_out': round(piece.grams_out, 3), 'result': round(piece.result, 3)}
+                     for piece in taken],
+        'realized': round(sum(piece.result for piece in taken), 3),
+        'unrealized': round(unrealized(lot.cash_open, lot.grams_open, price), 3),
+    }
 
 
 def split_layers(slices, direct) -> dict:
@@ -412,6 +452,28 @@ def position(as_of: dt.date) -> dict:
         'recent_closings': recent,
         'where_the_riyals_are': _where_the_riyals_are(),
     }
+
+
+def sale_closing(invoice_id: int, as_of: dt.date) -> dict | None:
+    """One standing sale, replayed in its own year up to *as_of*; None for
+    anything else (a purchase, a held or rejected sale)."""
+    from models import Invoice, db
+    inv = db.session.get(Invoice, invoice_id)
+    if inv is None or (inv.invoice_type or '').strip() != SALE or inv.date is None:
+        return None
+    until = max(min(as_of, dt.date(inv.date.year, 12, 31)), inv.date.date())
+    events = collect_events(year_start(until), dt.datetime.combine(until, dt.time.max))
+    price, source = purchase_price(until)
+    view = sale_view(replay(events), events, invoice_id, price)
+    if view is None:
+        return None
+    numbers = {i.id: (i.invoice_type_id, i.invoice_type) for i in Invoice.query.filter(
+        Invoice.id.in_({c['invoice_id'] for c in view['closings'] if c['invoice_id']} or {-1}))}
+    for closing in view['closings']:
+        closing['invoice_number'], closing['invoice_type'] = numbers.get(closing['invoice_id'], (None, None))
+    view.update({'as_of': until.isoformat(), 'invoice_number': inv.invoice_type_id,
+                 'purchase_price': round(price, 4), 'purchase_price_source': source})
+    return view
 
 
 def performance_by_month(start: dt.date, end: dt.date) -> list:

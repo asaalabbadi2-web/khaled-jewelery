@@ -3,6 +3,7 @@ import 'package:intl/intl.dart' hide TextDirection;
 
 import '../../api_service.dart';
 import '../../theme/app_semantic_colors.dart';
+import '../../widgets/sale_closing_card.dart';
 
 /// «مركز التسكير» (ADR-048): المحل يقيس نفسه بالذهب، والنقد حالة مؤقتة. هنا
 /// ريالات المبيعات التي تنتظر أن تعود ذهبًا، وما تشتريه الآن بسعر شراء المحل،
@@ -350,9 +351,10 @@ class _WeightPositionScreenState extends State<WeightPositionScreen> {
     showModalBottomSheet<void>(
       context: context,
       showDragHandle: true,
+      isScrollControlled: true,
       builder: (ctx) => Directionality(
         textDirection: TextDirection.rtl,
-        child: Padding(
+        child: SingleChildScrollView(
           padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
           child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
             Text(lot['kind'] == 'revenue' ? '${lot['ref']}' : 'بيع #${lot['invoice_number']} — ${lot['customer'] ?? ''}',
@@ -363,6 +365,7 @@ class _WeightPositionScreenState extends State<WeightPositionScreen> {
             Text('الغرامات المُباعة مقابل المنتظر: ${_g(lot['grams_open'])}'),
             if (lot['expected_at_sale'] != null) Text('المتوقَّع وقت البيع: ${_g(lot['expected_at_sale'], signed: true)}'),
             Text('غير المحقَّق الآن: ${_g(lot['unrealized'], signed: true)}'),
+            if (lot['invoice_id'] is int) SaleClosingCard(api: widget.api, invoiceId: lot['invoice_id'] as int),
           ]),
         ),
       ),

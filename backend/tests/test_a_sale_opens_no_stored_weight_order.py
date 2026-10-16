@@ -54,6 +54,9 @@ def _return_lines_on(return_id, account_id):
 def test_a_sale_opens_no_stored_order(auth_headers, world):
     sale = _paid_sale(auth_headers, world)
     assert _order_of(sale['id']) is None
+    # Nor does its answer carry the stored order's mirror, «not_initialized»
+    # for every sale since: GET /reports/weight-position/sale/<id> answers it.
+    assert not [key for key in sale if key.startswith('weight_closing_')]
 
 
 def test_a_return_of_a_sale_closed_by_the_old_engine_touches_neither_its_order_nor_cost_of_sales(

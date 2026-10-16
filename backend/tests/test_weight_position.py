@@ -76,6 +76,57 @@ def test_a_return_takes_its_riyals_and_grams_off_its_sale():
     assert not result.anomalies
 
 
+# ── one sale: where each of its riyals went ────────────────────────────────
+
+def _one_sale(closings=(), returns=()):
+    from services.weight_position import sale_view
+    events = Events(openings=[_sale(6000, 10, 1, price=500, invoice_id=7)], closings=list(closings),
+                    returns=list(returns))
+    return sale_view(replay(events), events, 7, price=500)
+
+
+def test_every_riyal_of_a_sale_is_returned_closed_or_open():
+    view = _one_sale(closings=[Closing(D(2031, 3, 3), EXPENSE, 600),
+                               Closing(D(2031, 3, 4), CUSTOMER, 2000, 4.0, invoice_id=90)],
+                     returns=[Return(D(2031, 3, 2), 7, 1000, 10 * 1000 / 6000)])
+    assert view['status'] == 'partially_closed'
+    assert (view['returned_cash'], view['closed_cash'], view['cash_open']) == \
+        (pytest.approx(1000), pytest.approx(2600), pytest.approx(2400))
+    assert view['returned_cash'] + view['closed_cash'] + view['cash_open'] == pytest.approx(view['cash'])
+    expense, purchase = view['closings']
+    assert (expense['kind'], expense['cash'], expense['grams_in'], expense['grams_out']) == \
+        (EXPENSE, 600, 0.0, pytest.approx(1.0, abs=0.001))
+    assert (purchase['kind'], purchase['invoice_id'], purchase['grams_in']) == (CUSTOMER, 90, 4.0)
+    assert view['realized'] == pytest.approx(sum(c['result'] for c in view['closings']), abs=0.002)
+    # What waits is valued at the shop's purchase price: 2,400 buy 4.8 g for its 4 g sold.
+    assert view['unrealized'] == pytest.approx(2400 / 500 - view['grams_open'], abs=0.002)
+
+
+def test_a_return_after_the_sale_was_closed_is_shown_apart_not_counted_twice():
+    """Sale 881 on the production copy: closed in full, then returned -- the
+    riyals had already turned into gold; the return took none of them."""
+    view = _one_sale(closings=[Closing(D(2031, 3, 2), CUSTOMER, 6000, 12)],
+                     returns=[Return(D(2031, 3, 5), 7, 6000, 10)])
+    assert view['status'] == 'closed'
+    assert (view['returned_cash'], view['returned_after_closing_cash']) == (0.0, 6000.0)
+    assert view['returned_cash'] + view['closed_cash'] + view['cash_open'] == pytest.approx(view['cash'])
+
+
+@pytest.mark.parametrize('closings, returns, status', [
+    ((), (), 'open'),
+    ([Closing(D(2031, 3, 2), CUSTOMER, 6000, 12)], (), 'closed'),
+    ((), [Return(D(2031, 3, 2), 7, 6000, 10)], 'cancelled'),
+])
+def test_a_sale_reads_as_open_closed_or_returned(closings, returns, status):
+    assert _one_sale(closings, returns)['status'] == status
+
+
+def test_a_sale_not_in_the_queue_has_no_view():
+    from services.weight_position import sale_view
+    events = Events(openings=[_sale(6000, 10, 1, invoice_id=7)])
+    assert sale_view(replay(events), events, 8, price=500) is None
+
+
 def test_riyals_spent_with_no_sale_open_are_set_aside_not_counted():
     result = replay(Events(closings=[Closing(D(2031, 3, 1), CUSTOMER, 1000, 2)]))
     assert result.by_kind == {}
@@ -240,6 +291,37 @@ def test_the_position_and_the_performance_are_served_to_who_reads_the_profits(ap
     assert set(period['layers']) == {'trading', 'revenue_converted', 'revenue_direct', 'expense_direct',
                                      'expense_cash', 'price_effect'}
     assert period['weight_profit'] == pytest.approx(sum(period['layers'].values()), abs=0.01)
+
+
+def test_one_sale_is_served_and_what_is_not_a_standing_sale_is_refused_by_name(app, auth_headers, world):
+    sale_id = _post(auth_headers, {
+        'customer_id': world['customer'].id, 'invoice_type': 'بيع', 'gold_type': 'new',
+        'employee_id': world['holder'].id, 'date': '2034-05-10T10:00:00', 'total': 1000.0, 'total_weight': 2.0,
+        'total_tax': 0.0, 'amount_paid': 1000.0,
+        'payments': [{'payment_method_id': world['pm'].id, 'amount': 1000.0}],
+        'items': [{'name': 'سلسال', 'karat': 21, 'weight': 2.0, 'price': 1000.0, 'net': 1000.0,
+                   'quantity': 1, 'wage': 0, 'selling_price': 1000.0}]})
+    buy_id = _post(auth_headers, {
+        'customer_id': world['customer'].id, 'invoice_type': 'شراء من عميل', 'gold_type': 'scrap',
+        'transaction_type': 'buy', 'employee_id': world['holder'].id,
+        'scrap_holder_employee_id': world['holder'].id, 'safe_box_id': world['pm'].default_safe_box_id,
+        'date': '2034-05-11T10:00:00', 'total': 100.0, 'total_weight': 1.0, 'total_cost': 100.0,
+        'total_tax': 0.0, 'amount_paid': 100.0, 'payments': [{'payment_method_id': world['pm'].id, 'amount': 100.0}],
+        'items': [{'name': 'كسر', 'karat': 21, 'weight': 1.0, 'standing_weight': 1.0, 'stones_weight': 0.0,
+                   'price': 100.0, 'net': 100.0, 'quantity': 1}]})
+
+    resp = _get(f'/api/reports/weight-position/sale/{sale_id}?as_of=2034-05-31', _headers('accountant'))
+    assert resp.status_code == 200, resp.get_data(as_text=True)[:300]
+    body = resp.get_json()
+    assert (body['invoice_id'], body['cash'], body['grams']) == (sale_id, 1000.0, 2.0)
+    assert body['status'] == 'partially_closed'
+    [closing] = [c for c in body['closings'] if c['invoice_id'] == buy_id]
+    assert closing['kind'] == CUSTOMER and closing['invoice_number'] is not None
+    assert body['returned_cash'] + body['closed_cash'] + body['cash_open'] == pytest.approx(1000.0, abs=0.01)
+
+    refused = _get(f'/api/reports/weight-position/sale/{buy_id}', _headers('accountant'))
+    assert refused.status_code == 404 and refused.get_json()['error'] == 'not_a_standing_sale'
+    assert _get(f'/api/reports/weight-position/sale/{sale_id}', _headers('storekeeper')).status_code == 403
 
 
 def test_not_to_a_storekeeper(app):

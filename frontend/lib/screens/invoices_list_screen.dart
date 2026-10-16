@@ -19,6 +19,7 @@ import 'purchase_invoice_screen.dart';
 import 'sales_invoice_screen_v2.dart';
 import 'scrap_purchase_invoice_screen.dart';
 import 'voucher_details_screen.dart';
+import '../widgets/sale_closing_card.dart';
 // import 'add_invoice_screen.dart'; // TODO: Uncomment when implementing add invoice
 
 /// A sale of scrap gold is saved as «بيع» with gold_type 'scrap'. It is
@@ -3765,6 +3766,11 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
 
     final auth = Provider.of<AuthProvider>(sheetContext, listen: false);
     final canSeeLogs = auth.isManager;
+    // A sale's closing, from the weight position (ADR-048 phase 3a): what its
+    // stored order and weight_closing_* fields used to say.
+    final saleClosingId = invoiceType == 'بيع' && auth.hasPermission('reports.financial')
+        ? _tryParseInt(invoice['id'])
+        : null;
 
     final invoiceDate = _tryParseDateTime(invoice['date']);
     final minutesSince = invoiceDate == null
@@ -4391,6 +4397,9 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
                         ),
                       ),
                     ],
+
+                    if (saleClosingId != null)
+                      SaleClosingCard(api: _apiService, invoiceId: saleClosingId),
 
                     if (canSeeLogs) ...[
                       const SizedBox(height: 16),

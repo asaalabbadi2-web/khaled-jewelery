@@ -4015,6 +4015,24 @@ def get_weight_position():
     return jsonify(position(as_of)), 200
 
 
+@reports_bp.route('/reports/weight-position/sale/<int:invoice_id>', methods=['GET'])
+@require_permission('reports.financial')
+def get_sale_weight_closing(invoice_id):
+    """One sale in the position: its riyals returned, closed (by what) and
+    waiting -- what the stored order and the invoice's weight_closing_*
+    fields used to answer (ADR-048 phase 3a)."""
+    from services.weight_position import sale_closing
+    try:
+        as_of = _report_date('as_of', datetime.now().date())
+    except ValueError:
+        return jsonify({'error': 'invalid_date', 'message': 'as_of بصيغة YYYY-MM-DD'}), 400
+    view = sale_closing(invoice_id, as_of)
+    if view is None:
+        return jsonify({'error': 'not_a_standing_sale',
+                        'message': 'ليست فاتورة بيع مرحَّلة قائمة، فلا ريالات لها في التسكير'}), 404
+    return jsonify(view), 200
+
+
 @reports_bp.route('/reports/weight-performance', methods=['GET'])
 @require_permission('reports.financial')
 def get_weight_performance():

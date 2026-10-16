@@ -1296,14 +1296,8 @@ class Invoice(db.Model):
             'settlement_price_per_gram': self.settlement_price_per_gram,
             'settlement_cash_amount': self.settlement_cash_amount,
             'settlement_gold_weight': self.settlement_gold_weight,
-            'weight_closing_status': self.weight_closing_status,
-            'weight_closing_main_karat': self.weight_closing_main_karat,
-            'weight_closing_total_weight': self.weight_closing_total_weight,
-            'weight_closing_executed_weight': self.weight_closing_executed_weight,
-            'weight_closing_remaining_weight': self.weight_closing_remaining_weight,
-            'weight_closing_close_price': self.weight_closing_close_price,
-            'weight_closing_order_number': self.weight_closing_order_number,
-            'weight_closing_price_source': self.weight_closing_price_source,
+            # weight_closing_* (the stored order's mirror) are no longer served:
+            # a sale's closing is GET /reports/weight-position/sale/<id> (ADR-048 phase 3a).
             'profit_cash': self.profit_cash,  # 🆕 الربح النقدي
             'profit_gold': self.profit_gold,  # 🆕 الربح بالذهب
             'profit_weight_price_per_gram': self.profit_weight_price_per_gram,

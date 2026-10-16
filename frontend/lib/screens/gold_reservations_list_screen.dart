@@ -567,12 +567,17 @@ class _GoldReservationsListScreenState
                   label:
                       '${isAr ? 'العيار' : 'Karat'} ${reservation['karat'] ?? 24}',
                 ),
-                _buildChip(
-                  icon: Icons.inventory,
-                  color: AppColors.mediumGold,
-                  label:
-                      '${isAr ? 'تنفيذات' : 'Executions'} ${reservation['executions_created'] ?? 0}',
-                ),
+                // Only an old settlement has stored executions; since ADR-048
+                // phase 3a a settlement closes riyals in the weight position
+                // and stores none, so «0» would read as «not closed».
+                if (((reservation['executions_created'] as num?) ?? 0) > 0)
+                  _buildChip(
+                    key: const ValueKey('reservation-executions'),
+                    icon: Icons.inventory,
+                    color: AppColors.mediumGold,
+                    label:
+                        '${isAr ? 'تنفيذات' : 'Executions'} ${reservation['executions_created']}',
+                  ),
               ],
             ),
             const SizedBox(height: 12),
@@ -633,11 +638,13 @@ class _GoldReservationsListScreenState
   }
 
   Widget _buildChip({
+    Key? key,
     required IconData icon,
     required Color color,
     required String label,
   }) {
     return Chip(
+      key: key,
       avatar: CircleAvatar(
         backgroundColor: color.withValues(alpha: 0.18),
         child: Icon(icon, size: 18, color: color),
