@@ -10,8 +10,8 @@ import uuid
 import pytest
 from flask import g
 
-from services.weight_position import (CUSTOMER, EXPENSE, OFFICE, Closing, Events, Lot, Return, replay,
-                                      unrealized)
+from services.weight_position import (CUSTOMER, EXPENSE, EXPENSE_SIDE, OFFICE, REVENUE, REVENUE_SIDE, Closing,
+                                      Events, Lot, Return, replay, split_layers, unrealized)
 
 D = dt.datetime
 
@@ -83,8 +83,41 @@ def test_riyals_spent_with_no_sale_open_are_set_aside_not_counted():
 
 
 def test_a_weight_line_is_a_result_at_once():
-    result = replay(Events(direct=[(D(2031, 3, 5), -0.5)]))
+    result = replay(Events(direct=[(D(2031, 3, 5), -0.5, EXPENSE_SIDE)]))
     assert result.by_kind['direct']['result'] == pytest.approx(-0.5)
+
+
+# ── the five layers ────────────────────────────────────────────────────────
+
+def _layered(price=500.0):
+    """Sold 10 g for 6,000; a revenue of 500; an expense of 600; a weight
+    loss of 0.3 g; and everything left turned into gold at one *price*."""
+    events = Events(openings=[_sale(6000, 10, 1), Lot('إيرادات', D(2031, 3, 1, 23), 500, 0.0, kind=REVENUE)],
+                    closings=[Closing(D(2031, 3, 2), EXPENSE, 600),
+                              Closing(D(2031, 3, 3), CUSTOMER, 5900, 5900 / price)],
+                    direct=[(D(2031, 3, 4), -0.3, EXPENSE_SIDE), (D(2031, 3, 4), 0.1, REVENUE_SIDE)])
+    result = replay(events)
+    return result, split_layers(result.slices, result.direct)
+
+
+def test_the_layers_add_up_to_the_whole():
+    result, layers = _layered()
+    whole = sum(s.result for s in result.slices) + sum(d[1] for d in result.direct)
+    assert sum(layers.values()) == pytest.approx(whole)
+    assert layers['expense_direct'] == pytest.approx(-0.3)
+    assert layers['revenue_direct'] == pytest.approx(0.1)
+    assert layers['expense_cash'] == pytest.approx(-1.0)          # 600 of the 6,000 for 10 g
+
+
+def test_all_turned_into_gold_at_one_price_five_layers_equal_the_old_four():
+    """The old report: (sales + revenues - expenses) / the average buy price
+    - grams sold, plus the weight lines. With nothing left open and one price,
+    the five layers give the same, to the gram."""
+    for price in (450.0, 500.0, 600.0):
+        result, layers = _layered(price)
+        assert not result.open_lots
+        old_four = (6000 + 500 - 600) / price - 10 + 0.1 - 0.3
+        assert sum(layers.values()) == pytest.approx(old_four), price
 
 
 # ── from the books ─────────────────────────────────────────────────────────
@@ -157,3 +190,73 @@ def test_the_books_open_a_sale_close_a_scrap_purchase_and_a_marked_expense(app, 
     assert (CUSTOMER, 100.0, 1.0) in closings
     assert (EXPENSE, 50.0, 0.0) in closings
     assert buy_id
+
+
+def test_an_expense_spends_what_was_sold_and_a_purchase_turns_a_revenue_into_gold():
+    """A revenue of 500 opened before the sale's riyals are spent: the expense
+    still spends the sale's riyals (④ = the grams sold it spent), the purchase
+    the revenue's (② = what the revenue bought) -- and the whole is the same
+    whichever way the riyals are paired."""
+    events = Events(openings=[Lot('إيرادات', D(2031, 3, 1, 9), 500, 0.0, kind=REVENUE), _sale(6000, 10, 1)],
+                    closings=[Closing(D(2031, 3, 2), EXPENSE, 600), Closing(D(2031, 3, 3), CUSTOMER, 1000, 2)])
+    result = replay(events)
+    layers = split_layers(result.slices, result.direct)
+    assert layers['expense_cash'] == pytest.approx(-1.0)                   # 600 of 6,000 for 10 g
+    assert layers['revenue_converted'] == pytest.approx(1.0)               # 500 at 500
+    assert layers['trading'] == pytest.approx(1.0 - 10 * 500 / 6000)       # the other 500 of the sale
+    open_cash = sum(l.cash_open for l in result.open_lots)
+    open_grams = sum(l.grams_open for l in result.open_lots)
+    whole = sum(layers.values()) + unrealized(open_cash, open_grams, 500)
+    assert whole == pytest.approx((6000 + 500 - 600) / 500 - 10)
+
+
+# ── the routes ─────────────────────────────────────────────────────────────
+
+def _headers(role):
+    from auth_decorators import generate_token
+    from models import AppUser, db
+    user = AppUser(username=f'{role}-{uuid.uuid4().hex[:6]}', role=role, is_active=True, password_hash='x')
+    db.session.add(user)
+    db.session.flush()
+    return {'Authorization': f'Bearer {generate_token(user)}'}
+
+
+def _get(path, headers):
+    from app import app as flask_app
+    g.pop('current_user', None)
+    return flask_app.test_client().get(path, headers=headers)
+
+
+def test_the_position_and_the_performance_are_served_to_who_reads_the_profits(app):
+    position = _get('/api/reports/weight-position?as_of=2031-03-31', _headers('accountant'))
+    assert position.status_code == 200, position.get_data(as_text=True)[:300]
+    body = position.get_json()
+    for key in ('open_cash', 'purchase_price', 'unrealized', 'grams_per_price_percent', 'lots',
+                'recent_closings', 'where_the_riyals_are'):
+        assert key in body, key
+    perf = _get('/api/reports/weight-performance?start_date=2031-03-01&end_date=2031-03-31', _headers('manager'))
+    assert perf.status_code == 200, perf.get_data(as_text=True)[:300]
+    period = perf.get_json()['period']
+    assert set(period['layers']) == {'trading', 'revenue_converted', 'revenue_direct', 'expense_direct',
+                                     'expense_cash', 'price_effect'}
+    assert period['weight_profit'] == pytest.approx(sum(period['layers'].values()), abs=0.01)
+
+
+def test_not_to_a_storekeeper(app):
+    assert _get('/api/reports/weight-position', _headers('storekeeper')).status_code == 403
+    assert _get('/api/reports/weight-performance', _headers('storekeeper')).status_code == 403
+
+
+def test_a_bad_date_is_refused_by_name(app):
+    resp = _get('/api/reports/weight-performance?start_date=2031-04-01&end_date=2031-03-01', _headers('manager'))
+    assert resp.status_code == 400 and resp.get_json()['error'] == 'invalid_range'
+
+
+def test_gram_profit_is_the_engine_s_five_layers(app):
+    resp = _get('/api/reports/gram_profit?start_date=2031-03-01&end_date=2031-03-31', _headers('manager'))
+    assert resp.status_code == 200, resp.get_data(as_text=True)[:300]
+    body = resp.get_json()
+    assert 'price_effect_weight' in body and body['unavailable_reason'] is None
+    whole = (body['trading_profit_weight'] + body['extra_revenue_cash_as_weight'] + body['extra_revenue_weight']
+             - body['expense_weight_direct'] - body['expense_cash_as_weight'] + body['price_effect_weight'])
+    assert body['net_profit_weight'] == pytest.approx(whole, abs=0.01)

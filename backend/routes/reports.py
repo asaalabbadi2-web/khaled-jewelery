@@ -3995,6 +3995,41 @@ def get_income_statement():
 #  صافي الربح الوزني = ① + ② − ③ − ④
 # ══════════════════════════════════════════════════════════════════════════════
 
+def _report_date(name, default=None):
+    raw = request.args.get(name)
+    if not raw:
+        return default
+    return datetime.strptime(raw, '%Y-%m-%d').date()
+
+
+@reports_bp.route('/reports/weight-position', methods=['GET'])
+@require_permission('reports.financial')
+def get_weight_position():
+    """«مركز التسكير»: the riyals of what was sold, waiting to become gold
+    again, and what they would buy at the shop's own purchase price (ADR-048)."""
+    from services.weight_position import position
+    try:
+        as_of = _report_date('as_of', datetime.now().date())
+    except ValueError:
+        return jsonify({'error': 'invalid_date', 'message': 'as_of بصيغة YYYY-MM-DD'}), 400
+    return jsonify(position(as_of)), 200
+
+
+@reports_bp.route('/reports/weight-performance', methods=['GET'])
+@require_permission('reports.financial')
+def get_weight_performance():
+    """The weight profit of a period, in its five layers, and month by month (ADR-048)."""
+    from services.weight_position import performance, performance_by_month
+    try:
+        end = _report_date('end_date', datetime.now().date())
+        start = _report_date('start_date', end.replace(day=1))
+    except ValueError:
+        return jsonify({'error': 'invalid_date', 'message': 'start_date و end_date بصيغة YYYY-MM-DD'}), 400
+    if start > end:
+        return jsonify({'error': 'invalid_range', 'message': 'بداية الفترة بعد نهايتها'}), 400
+    return jsonify({'period': performance(start, end), 'months': performance_by_month(start, end)}), 200
+
+
 @reports_bp.route('/reports/gram_profit', methods=['GET'])
 @require_permission('reports.financial')
 def get_gram_profit_report():
@@ -4319,43 +4354,36 @@ def get_gram_profit_report():
             [x for x in extra_revenue_details if x['type'] == 'cash'],   'cash_amount')
         extra_revenue_details = extra_revenue_details_w + extra_revenue_details_c
 
-        # إجمالي الطبقة ③ مستقلة عن avg_buy
-        total_expense_weight_direct = expense_weight_direct
         # ربح المتاجرة النقدي (مستقل عن avg_buy)
         gross_profit = trading_profit_cash
 
         # ══════════════════════════════════════════════════════════════════
-        # الحقول المشتقة من avg_buy — null عند avg_buy=0  (ADR-024 §D-1)
+        # The weight layers, from the weight position engine (ADR-048, the
+        # owner 16 Oct 2026: five layers). The riyals that became gold count at
+        # what they bought; the riyals still waiting at the shop's own recent
+        # purchase price (⑤). It was each riyal of the period at the period's
+        # average buy price -- no purchases, no figure; a closing late or the
+        # price moving, a wrong one. With everything turned into gold at one
+        # price the two agree to the gram (tests/test_weight_position.py).
         # ══════════════════════════════════════════════════════════════════
-        if avg_buy_per_gram > 0:
-            trading_profit_weight        = trading_profit_cash / avg_buy_per_gram
-            extra_revenue_cash_as_weight = extra_revenue_cash / avg_buy_per_gram
-            expense_cash_as_weight       = expense_cash_total / avg_buy_per_gram
-            total_extra_revenue_weight   = extra_revenue_weight + extra_revenue_cash_as_weight
-            total_expense_cash_weight    = expense_cash_as_weight
-            gross_profit_weight          = trading_profit_weight
-            net_profit_weight            = (
-                trading_profit_weight          # ① ربح المتاجرة
-                + total_extra_revenue_weight   # ② إيرادات إضافية
-                - total_expense_weight_direct  # ③ مصاريف وزنية
-                - total_expense_cash_weight    # ④ مصاريف نقدية (محوّلة)
-            )
-            net_profit_cash      = net_profit_weight * avg_buy_per_gram
-            net_margin_pct       = (net_profit_cash / total_sales_cash * 100) if total_sales_cash > 0 else 0.0
-            total_oper_expenses  = expense_cash_total + expense_weight_direct * avg_buy_per_gram
-            unavailable_reason   = None
-        else:
-            trading_profit_weight        = None
-            extra_revenue_cash_as_weight = None
-            expense_cash_as_weight       = None
-            total_extra_revenue_weight   = None
-            total_expense_cash_weight    = None
-            gross_profit_weight          = None
-            net_profit_weight            = None
-            net_profit_cash              = None
-            net_margin_pct               = None
-            total_oper_expenses          = None
-            unavailable_reason           = 'no_cash_purchases'
+        from services.weight_position import performance as _weight_performance
+        _perf = _weight_performance(start_dt.date(), (end_dt - timedelta(days=1)).date())
+        _layers = _perf['layers']
+        trading_profit_weight        = _layers['trading']                       # ①
+        extra_revenue_cash_as_weight = _layers['revenue_converted']             # ② (riyals)
+        extra_revenue_weight         = _layers['revenue_direct']                # ② (weight lines)
+        total_extra_revenue_weight   = extra_revenue_cash_as_weight + extra_revenue_weight
+        total_expense_weight_direct  = -_layers['expense_direct']               # ③ (a positive cost)
+        total_expense_cash_weight    = -_layers['expense_cash']                 # ④ (a positive cost)
+        price_effect_weight          = _layers['price_effect']                  # ⑤
+        gross_profit_weight          = trading_profit_weight
+        net_profit_weight            = _perf['weight_profit']
+        valuation_price              = _perf['purchase_price'] or avg_buy_per_gram
+        net_profit_cash      = net_profit_weight * valuation_price if valuation_price else None
+        net_margin_pct       = ((net_profit_cash / total_sales_cash * 100)
+                                if net_profit_cash is not None and total_sales_cash > 0 else None)
+        total_oper_expenses  = expense_cash_total + expense_weight_direct * (valuation_price or 0.0)
+        unavailable_reason   = None
 
         def _rn(v, d=3):
             return round(v, d) if v is not None else None
@@ -4399,6 +4427,14 @@ def get_gram_profit_report():
             'expense_cash_total': round(expense_cash_total, 2),
             'expense_cash_as_weight': _rn(total_expense_cash_weight, 3),
             'expense_cash_details': expense_cash_details,
+
+            # الطبقة ⑤ — أثر السعر على المفتوح (ADR-048)
+            'price_effect_weight': _rn(price_effect_weight, 3),
+            'realized_weight': _perf['realized'],
+            'unrealized_start_weight': _perf['unrealized_start'],
+            'unrealized_end_weight': _perf['unrealized_end'],
+            'valuation_price_per_gram': _rn(valuation_price, 4),
+            'valuation_price_source': _perf['purchase_price_source'],
 
             # النتيجة النهائية
             'gross_profit': round(gross_profit, 2),
