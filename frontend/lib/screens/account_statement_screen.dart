@@ -1045,17 +1045,17 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
     final summary = StringBuffer()
       ..writeln('كشف حساب: ${widget.accountName}')
       ..writeln('عيار أساسي: ${statement.mainKarat}')
-      ..writeln('رصيد افتتاحي ذهب: ${period.openingGold.toStringAsFixed(3)}')
-      ..writeln('رصيد افتتاحي نقد: ${period.openingCash.toStringAsFixed(2)}')
-      ..writeln('إجمالي ذهب مدين: ${totals.goldDebit.toStringAsFixed(3)}')
-      ..writeln('إجمالي ذهب دائن: ${totals.goldCredit.toStringAsFixed(3)}')
-      ..writeln('إجمالي نقد مدين: ${totals.cashDebit.toStringAsFixed(2)}')
-      ..writeln('إجمالي نقد دائن: ${totals.cashCredit.toStringAsFixed(2)}')
+      ..writeln('رصيد افتتاحي ذهب: ${cu.formatGrams(period.openingGold)}')
+      ..writeln('رصيد افتتاحي نقد: ${cu.formatAmount(period.openingCash)}')
+      ..writeln('إجمالي ذهب مدين: ${cu.formatGrams(totals.goldDebit)}')
+      ..writeln('إجمالي ذهب دائن: ${cu.formatGrams(totals.goldCredit)}')
+      ..writeln('إجمالي نقد مدين: ${cu.formatAmount(totals.cashDebit)}')
+      ..writeln('إجمالي نقد دائن: ${cu.formatAmount(totals.cashCredit)}')
       ..writeln(
-        'رصيد ختامي ذهب (حسب الكشف): ${(_dateRange == null ? statement.closingBalanceGoldNormalized : period.closingGold).toStringAsFixed(3)}',
+        'رصيد ختامي ذهب (حسب الكشف): ${cu.formatGrams((_dateRange == null ? statement.closingBalanceGoldNormalized : period.closingGold))}',
       )
       ..writeln(
-        'رصيد ختامي نقد (حسب الكشف): ${(_dateRange == null ? statement.closingBalanceCash : period.closingCash).toStringAsFixed(2)}',
+        'رصيد ختامي نقد (حسب الكشف): ${cu.formatAmount((_dateRange == null ? statement.closingBalanceCash : period.closingCash))}',
       );
 
     await Clipboard.setData(ClipboardData(text: summary.toString()));
@@ -2337,10 +2337,8 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
                   if (_viewMode != 2)
                     metricTile(
                       label: 'حركة الذهب',
-                      movement: goldMovement.toStringAsFixed(3),
-                      balance: (line.runningGoldBalance ?? 0).toStringAsFixed(
-                        3,
-                      ),
+                      movement: cu.formatGrams(goldMovement),
+                      balance: cu.formatGrams((line.runningGoldBalance ?? 0)),
                       color: const Color(0xFFD4A017),
                       icon: Icons.auto_awesome_outlined,
                     ),
@@ -2351,10 +2349,8 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
                       label: (_statement?.isMerged ?? false)
                           ? 'حركة القيمة'
                           : 'حركة النقد',
-                      movement: cashMovement.toStringAsFixed(2),
-                      balance: (line.runningCashBalance ?? 0).toStringAsFixed(
-                        2,
-                      ),
+                      movement: cu.formatAmount(cashMovement),
+                      balance: cu.formatAmount((line.runningCashBalance ?? 0)),
                       color: Colors.green,
                       icon: Icons.payments_outlined,
                     ),
@@ -2747,11 +2743,11 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
                     spacing: 10, runSpacing: 4,
                     children: [
                       if (karat.isNotEmpty) _infoTag('عيار', karat),
-                      if (weight != null) _infoTag('الوزن', '${weight.toStringAsFixed(3)} جم'),
-                      if (price != null) _infoTag('السعر', '${price.toStringAsFixed(2)} $currency'),
-                      if (wage > 0) _infoTag('الأجرة', '${wage.toStringAsFixed(2)} $currency'),
-                      if (tax > 0) _infoTag('الضريبة', '${tax.toStringAsFixed(2)} $currency'),
-                      if (lineTotal != null) _infoTag('الإجمالي', '${lineTotal.toStringAsFixed(2)} $currency', bold: true),
+                      if (weight != null) _infoTag('الوزن', '${cu.formatGrams(weight)} جم'),
+                      if (price != null) _infoTag('السعر', '${cu.formatAmount(price)} $currency'),
+                      if (wage > 0) _infoTag('الأجرة', '${cu.formatAmount(wage)} $currency'),
+                      if (tax > 0) _infoTag('الضريبة', '${cu.formatAmount(tax)} $currency'),
+                      if (lineTotal != null) _infoTag('الإجمالي', '${cu.formatAmount(lineTotal)} $currency', bold: true),
                     ],
                   ),
                 ],
@@ -2767,15 +2763,15 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
         Text('الإجماليات', style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13)),
         const SizedBox(height: 8),
         if (totalWeight != null)
-          _summaryRow('إجمالي الوزن', '${totalWeight.toStringAsFixed(3)} جم'),
+          _summaryRow('إجمالي الوزن', '${cu.formatGrams(totalWeight)} جم'),
         if (totalTax > 0)
-          _summaryRow('الضريبة', '${totalTax.toStringAsFixed(2)} $currency'),
-        _summaryRow('الإجمالي الكلي', '${total.toStringAsFixed(2)} $currency', highlight: true),
-        _summaryRow('المدفوع', '${paid.toStringAsFixed(2)} $currency', color: Colors.green),
+          _summaryRow('الضريبة', '${cu.formatAmount(totalTax)} $currency'),
+        _summaryRow('الإجمالي الكلي', '${cu.formatAmount(total)} $currency', highlight: true),
+        _summaryRow('المدفوع', '${cu.formatAmount(paid)} $currency', color: Colors.green),
         if (remaining.abs() > 0.01)
           _summaryRow(
             remaining > 0 ? 'المتبقي' : 'زيادة دفع',
-            '${remaining.abs().toStringAsFixed(2)} $currency',
+            '${cu.formatAmount(remaining.abs())} $currency',
             color: remaining > 0 ? Colors.red : Colors.blue,
           ),
 
@@ -2838,13 +2834,13 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
         if (amountCash > 0)
           _summaryRow(
             'المبلغ النقدي',
-            '${amountCash.toStringAsFixed(2)} $currency',
+            '${cu.formatAmount(amountCash)} $currency',
             highlight: true, color: typeColor,
           ),
         if (amountGold > 0)
           _summaryRow(
             'المبلغ الذهبي',
-            '${amountGold.toStringAsFixed(3)} جم',
+            '${cu.formatGrams(amountGold)} جم',
             highlight: amountCash <= 0, color: typeColor,
           ),
 
@@ -2912,7 +2908,7 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
                     ),
                   ),
                   Text(
-                    '${lineAmount.toStringAsFixed(amtType == 'gold' ? 3 : 2)} $unit',
+                    '${cu.formatAmount(lineAmount, decimals: amtType == 'gold' ? 3 : 2)} $unit',
                     style: TextStyle(
                       fontWeight: FontWeight.w800,
                       fontSize: 13,
@@ -3023,10 +3019,10 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
                   Wrap(
                     spacing: 8, runSpacing: 4,
                     children: [
-                      if (cashD > 0) _infoTag('نقد مدين', '${cashD.toStringAsFixed(2)} $currency', bold: true),
-                      if (cashC > 0) _infoTag('نقد دائن', '${cashC.toStringAsFixed(2)} $currency', bold: true),
-                      if (goldD > 0) _infoTag('ذهب مدين', '${goldD.toStringAsFixed(3)} جم'),
-                      if (goldC > 0) _infoTag('ذهب دائن', '${goldC.toStringAsFixed(3)} جم'),
+                      if (cashD > 0) _infoTag('نقد مدين', '${cu.formatAmount(cashD)} $currency', bold: true),
+                      if (cashC > 0) _infoTag('نقد دائن', '${cu.formatAmount(cashC)} $currency', bold: true),
+                      if (goldD > 0) _infoTag('ذهب مدين', '${cu.formatGrams(goldD)} جم'),
+                      if (goldC > 0) _infoTag('ذهب دائن', '${cu.formatGrams(goldC)} جم'),
                     ],
                   ),
                 ],
@@ -3042,12 +3038,12 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
         Text('ميزان القيد', style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13)),
         const SizedBox(height: 6),
         if (totalDebitCash > 0 || totalCreditCash > 0) ...[
-          _summaryRow('إجمالي نقد مدين', '${totalDebitCash.toStringAsFixed(2)} $currency'),
-          _summaryRow('إجمالي نقد دائن', '${totalCreditCash.toStringAsFixed(2)} $currency'),
+          _summaryRow('إجمالي نقد مدين', '${cu.formatAmount(totalDebitCash)} $currency'),
+          _summaryRow('إجمالي نقد دائن', '${cu.formatAmount(totalCreditCash)} $currency'),
         ],
         if (totalDebitGold > 0 || totalCreditGold > 0) ...[
-          _summaryRow('إجمالي ذهب مدين', '${totalDebitGold.toStringAsFixed(3)} جم'),
-          _summaryRow('إجمالي ذهب دائن', '${totalCreditGold.toStringAsFixed(3)} جم'),
+          _summaryRow('إجمالي ذهب مدين', '${cu.formatGrams(totalDebitGold)} جم'),
+          _summaryRow('إجمالي ذهب دائن', '${cu.formatGrams(totalCreditGold)} جم'),
         ],
       ],
     );
@@ -3200,11 +3196,11 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
                 if (_viewMode != 2) ...[
                   _buildDetailsRow(
                     'ذهب مدين (عيار ${_statement!.mainKarat})',
-                    line.goldDebit.toStringAsFixed(3),
+                    cu.formatGrams(line.goldDebit),
                   ),
                   _buildDetailsRow(
                     'ذهب دائن (عيار ${_statement!.mainKarat})',
-                    line.goldCredit.toStringAsFixed(3),
+                    cu.formatGrams(line.goldCredit),
                   ),
                   const SizedBox(height: 12),
                   Wrap(
@@ -3224,20 +3220,20 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
                 ],
                 if (_viewMode != 1) ...[
                   const Divider(height: 32),
-                  _buildDetailsRow('نقد مدين', line.cashDebit.toStringAsFixed(2)),
-                  _buildDetailsRow('نقد دائن', line.cashCredit.toStringAsFixed(2)),
+                  _buildDetailsRow('نقد مدين', cu.formatAmount(line.cashDebit)),
+                  _buildDetailsRow('نقد دائن', cu.formatAmount(line.cashCredit)),
                 ],
                 if (line.runningCashBalance != null || line.runningGoldBalance != null) ...[
                   const Divider(height: 24),
                   if (line.runningCashBalance != null)
                     _buildDetailsRow(
                       'الرصيد النقدي',
-                      line.runningCashBalance!.toStringAsFixed(2),
+                      cu.formatAmount(line.runningCashBalance!),
                     ),
                   if (line.runningGoldBalance != null)
                     _buildDetailsRow(
                       'الرصيد الذهبي (عيار ${_statement!.mainKarat})',
-                      line.runningGoldBalance!.toStringAsFixed(3),
+                      cu.formatGrams(line.runningGoldBalance!),
                     ),
                 ],
               ],
@@ -3287,7 +3283,7 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
         side: BorderSide(color: base.withValues(alpha: isDark ? 0.55 : 0.35)),
       ),
       label: Text(
-        '$label • مدين ${debit.toStringAsFixed(3)} / دائن ${credit.toStringAsFixed(3)}',
+        '$label • مدين ${cu.formatGrams(debit)} / دائن ${cu.formatGrams(credit)}',
         style: TextStyle(color: base, fontWeight: FontWeight.w700),
       ),
     );
@@ -3302,17 +3298,17 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
     if (_viewMode != 2) {
       buffer
         ..writeln(
-          'ذهب مدين (عيار ${_statement!.mainKarat}): ${line.goldDebit.toStringAsFixed(3)}',
+          'ذهب مدين (عيار ${_statement!.mainKarat}): ${cu.formatGrams(line.goldDebit)}',
         )
         ..writeln(
-          'ذهب دائن (عيار ${_statement!.mainKarat}): ${line.goldCredit.toStringAsFixed(3)}',
+          'ذهب دائن (عيار ${_statement!.mainKarat}): ${cu.formatGrams(line.goldCredit)}',
         );
     }
 
     if (_viewMode != 1) {
       buffer
-        ..writeln('نقد مدين: ${line.cashDebit.toStringAsFixed(2)}')
-        ..writeln('نقد دائن: ${line.cashCredit.toStringAsFixed(2)}');
+        ..writeln('نقد مدين: ${cu.formatAmount(line.cashDebit)}')
+        ..writeln('نقد دائن: ${cu.formatAmount(line.cashCredit)}');
     }
 
     return buffer.toString();

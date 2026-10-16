@@ -21,6 +21,7 @@ import '../utils.dart';
 import '../widgets/account_picker_sheet.dart';
 import '../widgets/party_picker_dialog.dart';
 import '../widgets/searchable_picker_field.dart';
+import '../utils/currency_utils.dart';
 
 class GoldLineEntryModel {
   double amount;
@@ -913,7 +914,7 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
                       if (e.amount > 0)
                         row(
                           _lineAccountLabel(line),
-                          '${e.amount.toStringAsFixed(3)} جم عيار ${(e.karat ?? 0).toStringAsFixed(0)}',
+                          '${formatGrams(e.amount)} جم عيار ${formatAmount(e.karat ?? 0, decimals: 0)}',
                         )
                       else
                         const SizedBox.shrink()
@@ -946,7 +947,7 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
                         for (final v in similar)
                           Text(
                             '${v['voucher_number'] ?? '#${v['id']}'} — ${day(v['date'])} — '
-                            '${((v['amount_cash'] as num?) ?? 0) > 0 ? _formatCash(((v['amount_cash'] as num?) ?? 0).toDouble()) : '${(((v['amount_gold'] as num?) ?? 0).toDouble()).toStringAsFixed(3)} جم'}',
+                            '${((v['amount_cash'] as num?) ?? 0) > 0 ? _formatCash(((v['amount_cash'] as num?) ?? 0).toDouble()) : '${formatGrams(((v['amount_gold'] as num?) ?? 0).toDouble())} جم'}',
                             style: TextStyle(color: tones.warning.onContainer),
                           ),
                       ],
@@ -2833,7 +2834,7 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
       return [
         if (cash > 0) _formatCash(cash),
         for (final g in gold)
-          '${((g['weight'] as num).toDouble()).toStringAsFixed(3)} جم عيار ${((g['karat'] as num).toDouble()).toStringAsFixed(0)}',
+          '${formatGrams((g['weight'] as num).toDouble())} جم عيار ${formatAmount(g['karat'] as num, decimals: 0)}',
       ].join(' • ');
     }
 
@@ -2845,7 +2846,7 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
       if (cashLeft > 0 || goldLeft > 0)
         'يبقى على حساب المورد: ${[
           if (cashLeft > 0) _formatCash(cashLeft),
-          if (goldLeft > 0) '${goldLeft.toStringAsFixed(3)} جم بالعيار الرئيسي',
+          if (goldLeft > 0) '${formatGrams(goldLeft)} جم بالعيار الرئيسي',
         ].join(' و')}',
     ];
   }
@@ -3094,7 +3095,7 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
             ),
             const SizedBox(width: 6),
             Text(
-              '= ${total.toStringAsFixed(2)} ر.س',
+              '= ${formatAmount(total)} ر.س',
               style: theme.textTheme.bodySmall?.copyWith(
                 fontWeight: FontWeight.bold,
                 color: isEarn
@@ -4410,7 +4411,7 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
                     children: [
                       context.read<SettingsProvider>().buildText(
                         bal != null
-                            ? 'الرصيد الفعلي الحالي: ${bal.toStringAsFixed(2)} $_currencySymbol'
+                            ? 'الرصيد الفعلي الحالي: ${formatAmount(bal)} $_currencySymbol'
                             : (isLoadingFallback
                                   ? 'جاري تحميل الرصيد الاحتياطي للخزنة...'
                                   : 'الرصيد الفعلي غير متاح'),
@@ -5009,7 +5010,7 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
     bool includeUnit = true,
   }) {
     final effectiveDecimals = decimals ?? (amount.abs() < 1 ? 3 : 2);
-    final formatted = amount.toStringAsFixed(effectiveDecimals);
+    final formatted = formatGrams(amount, decimals: effectiveDecimals);
     return includeUnit ? '$formatted جم' : formatted;
   }
 }

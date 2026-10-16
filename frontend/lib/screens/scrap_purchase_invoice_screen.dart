@@ -19,6 +19,7 @@ import '../widgets/adaptive_invoice_summary_dialog.dart';
 import '../utils/invoice_direct_print.dart';
 import '../utils.dart';
 import '../widgets/app_feedback.dart';
+import '../utils/currency_utils.dart';
 
 /// شاشة فاتورة شراء الكسر - نسخة مبسطة
 /// ميزات: تصوير الذهب + ملاحظات + دفع نقدي/تحويل فقط + بدون ضريبة
@@ -608,7 +609,7 @@ class _ScrapPurchaseInvoiceScreenState
 
     if (amount > remaining + 0.01) {
       _showError(
-        'المبلغ أكبر من المتبقي (${remaining.toStringAsFixed(2)} ${_settingsProvider.currencySymbolText})',
+        'المبلغ أكبر من المتبقي (${formatAmount(remaining)} ${_settingsProvider.currencySymbolText})',
       );
       return;
     }
@@ -944,7 +945,7 @@ class _ScrapPurchaseInvoiceScreenState
       SnackBar(
         content: _settingsProvider.buildText(
           '✅ تم توزيع $targetTotal ${_settingsProvider.currencySymbolText} على ${adjustableItems.length} صنف\n'
-          'التكاليف: ${totalCosts.toStringAsFixed(2)} • الربح الموزع: ${profitPool.toStringAsFixed(2)}',
+          'التكاليف: ${formatAmount(totalCosts)} • الربح الموزع: ${formatAmount(profitPool)}',
         ),
         backgroundColor: AppColors.success,
         duration: const Duration(seconds: 3),
@@ -1311,8 +1312,8 @@ class _ScrapPurchaseInvoiceScreenState
             final first = items.first;
             parts.add(
               '⚠️ شراء أعلى من السعر المباشر: ${first['name'] ?? 'صنف'} '
-              'بسعر/جرام ${((first['paid_per_gram'] as num?)?.toDouble() ?? 0.0).toStringAsFixed(2)} '
-              'مقابل مباشر ${((first['live_per_gram'] as num?)?.toDouble() ?? 0.0).toStringAsFixed(2)}',
+              'بسعر/جرام ${formatAmount(((first['paid_per_gram'] as num?)?.toDouble() ?? 0.0))} '
+              'مقابل مباشر ${formatAmount(((first['live_per_gram'] as num?)?.toDouble() ?? 0.0))}',
             );
           } else {
             parts.add('⚠️ شراء أعلى من السعر المباشر');
@@ -1448,7 +1449,7 @@ class _ScrapPurchaseInvoiceScreenState
           ).invoice(InvoiceKind.purchaseScrap).fg,
           statusTitle: 'حالة السداد',
           statusMessage: remaining > 0.01
-              ? 'متبقي ${remaining.toStringAsFixed(2)} $currency'
+              ? 'متبقي ${formatAmount(remaining)} $currency'
               : 'تم الدفع بالكامل',
           statusTone: remaining > 0.01
               ? InvoiceSummaryStatusTone.due
@@ -1469,20 +1470,20 @@ class _ScrapPurchaseInvoiceScreenState
             ),
             InvoiceSummaryMetric(
               label: 'الإجمالي',
-              value: '${total.toStringAsFixed(2)} $currency',
+              value: '${formatAmount(total)} $currency',
               icon: Icons.payments_outlined,
               accentColor: AppColors.primaryGold,
               emphasize: true,
             ),
             InvoiceSummaryMetric(
               label: 'المدفوع',
-              value: '${paid.toStringAsFixed(2)} $currency',
+              value: '${formatAmount(paid)} $currency',
               icon: Icons.account_balance_wallet_outlined,
               accentColor: AppColors.success,
             ),
             InvoiceSummaryMetric(
               label: 'المتبقي',
-              value: '${remaining.toStringAsFixed(2)} $currency',
+              value: '${formatAmount(remaining)} $currency',
               icon: Icons.pending_outlined,
               accentColor: remaining > 0.01
                   ? AppColors.error
@@ -1491,7 +1492,7 @@ class _ScrapPurchaseInvoiceScreenState
             if (totalWeight > 0)
               InvoiceSummaryMetric(
                 label: 'إجمالي الوزن',
-                value: '${totalWeight.toStringAsFixed(3)} جم',
+                value: '${formatGrams(totalWeight)} جم',
                 icon: Icons.scale_outlined,
                 accentColor: AppColors.info,
                 fullWidth: true,
@@ -1690,20 +1691,20 @@ class _ScrapPurchaseInvoiceScreenState
               ),
             InvoiceSummaryMetric(
               label: 'الإجمالي',
-              value: '${total.toStringAsFixed(2)} $currency',
+              value: '${formatAmount(total)} $currency',
               icon: Icons.payments_outlined,
               accentColor: AppColors.primaryGold,
               emphasize: true,
             ),
             InvoiceSummaryMetric(
               label: 'المدفوع',
-              value: '${paid.toStringAsFixed(2)} $currency',
+              value: '${formatAmount(paid)} $currency',
               icon: Icons.account_balance_wallet_outlined,
               accentColor: AppColors.success,
             ),
             InvoiceSummaryMetric(
               label: 'المتبقي',
-              value: '${remaining.toStringAsFixed(2)} $currency',
+              value: '${formatAmount(remaining)} $currency',
               icon: Icons.pending_outlined,
               accentColor: remaining > 0.01
                   ? AppColors.error
@@ -1712,7 +1713,7 @@ class _ScrapPurchaseInvoiceScreenState
             if (totalWeight > 0)
               InvoiceSummaryMetric(
                 label: 'إجمالي الوزن',
-                value: '${totalWeight.toStringAsFixed(3)} جم',
+                value: '${formatGrams(totalWeight)} جم',
                 icon: Icons.scale_outlined,
                 accentColor: AppColors.info,
                 fullWidth: true,
@@ -1785,7 +1786,7 @@ class _ScrapPurchaseInvoiceScreenState
         .map(
           (entry) => InvoiceSummaryMetricDetail(
             label: '${entry.key}k',
-            value: '${entry.value.toStringAsFixed(3)} جم',
+            value: '${formatGrams(entry.value)} جم',
             accentColor: AppColors.karatColorFor(entry.key),
           ),
         )
@@ -2098,7 +2099,7 @@ class _ScrapPurchaseInvoiceScreenState
                             ),
                             const SizedBox(width: 4),
                             Text(
-                              'أونصة: \$${(_goldPrice24k * 31.1035 / 3.75).toStringAsFixed(0)}',
+                              'أونصة: \$${formatAmount((_goldPrice24k * 31.1035 / 3.75), decimals: 0)}',
                               style: const TextStyle(
                                 color: Colors.white,
                                 fontSize: 11,
@@ -2121,7 +2122,7 @@ class _ScrapPurchaseInvoiceScreenState
                               return Padding(
                                 padding: const EdgeInsets.only(right: 10),
                                 child: Text(
-                                  '${k}k: ${gp.toStringAsFixed(2)}',
+                                  '${k}k: ${formatAmount(gp)}',
                                   style: TextStyle(
                                     color: isMain ? Colors.amber : Colors.white,
                                     fontSize: 11,
@@ -2294,7 +2295,7 @@ class _ScrapPurchaseInvoiceScreenState
   ];
 
   String _formatCurrency(double amount) =>
-      '${amount.toStringAsFixed(2)} ${_settingsProvider.currencySymbolText}';
+      '${formatAmount(amount)} ${_settingsProvider.currencySymbolText}';
 
   void _saveIfReady() {
     if (_saving) return;
@@ -3128,7 +3129,7 @@ class _ScrapPurchaseInvoiceScreenState
                       ),
                     ),
                     child: Text(
-                      item.karat.toStringAsFixed(0),
+                      formatAmount(item.karat, decimals: 0),
                       style: cellStyle,
                     ),
                   ),
@@ -3154,7 +3155,7 @@ class _ScrapPurchaseInvoiceScreenState
                       ),
                     ),
                     child: Text(
-                      item.standingWeight.toStringAsFixed(2),
+                      formatAmount(item.standingWeight),
                       style: cellStyle,
                     ),
                   ),
@@ -3203,16 +3204,16 @@ class _ScrapPurchaseInvoiceScreenState
                       ),
                     ),
                     child: Text(
-                      item.stonesWeight.toStringAsFixed(2),
+                      formatAmount(item.stonesWeight),
                       style: cellStyle,
                     ),
                   ),
                 ),
               ),
-              DataCell(Text(item.weight.toStringAsFixed(2), style: cellStyle)),
+              DataCell(Text(formatAmount(item.weight), style: cellStyle)),
               DataCell(
                 Text(
-                  item.calculateDirectPurchaseCostPerGram().toStringAsFixed(2),
+                  formatAmount(item.calculateDirectPurchaseCostPerGram()),
                   style: cellStyle,
                 ),
               ),
@@ -3233,7 +3234,7 @@ class _ScrapPurchaseInvoiceScreenState
                       ),
                     ),
                     child: _settingsProvider.buildText(
-                      '${item.totalWithTax.toStringAsFixed(2)} ${_settingsProvider.currencySymbolText}',
+                      '${formatAmount(item.totalWithTax)} ${_settingsProvider.currencySymbolText}',
                       style: cellStyle,
                     ),
                   ),
@@ -3579,22 +3580,22 @@ class _ScrapPurchaseInvoiceScreenState
             ),
             const SizedBox(height: 8),
             _settingsProvider.buildText(
-              '${total.toStringAsFixed(2)} $currency',
+              '${formatAmount(total)} $currency',
               style: theme.textTheme.headlineMedium?.copyWith(
                 fontWeight: FontWeight.bold,
                 color: colorScheme.primary,
               ),
             ),
             Text(
-              '${_items.length} صنف • الوزن الصافي ${weight.toStringAsFixed(3)} جم',
+              '${_items.length} صنف • الوزن الصافي ${formatGrams(weight)} جم',
               style: theme.textTheme.bodySmall,
             ),
             const SizedBox(height: 8),
-            row('المدفوع', '${_totalPayments.toStringAsFixed(2)} $currency'),
+            row('المدفوع', '${formatAmount(_totalPayments)} $currency'),
             if (_totalCommission > 0)
               row(
                 'إجمالي العمولات',
-                '${_totalCommission.toStringAsFixed(2)} $currency',
+                '${formatAmount(_totalCommission)} $currency',
                 color: tones.warning.fg,
               ),
             const Divider(height: 16),
@@ -3603,7 +3604,7 @@ class _ScrapPurchaseInvoiceScreenState
             else if (remaining > 0.01)
               row(
                 'المتبقي',
-                '${remaining.toStringAsFixed(2)} $currency',
+                '${formatAmount(remaining)} $currency',
                 color: tones.blocked.fg,
                 bold: true,
               )
@@ -3877,7 +3878,7 @@ class _ScrapPurchaseInvoiceScreenState
                             Expanded(
                               flex: 2,
                               child: _settingsProvider.buildText(
-                                '${payment.amount.toStringAsFixed(2)} ${_settingsProvider.currencySymbolText}',
+                                '${formatAmount(payment.amount)} ${_settingsProvider.currencySymbolText}',
                                 style: theme.textTheme.titleMedium?.copyWith(
                                   fontWeight: FontWeight.w700,
                                   color: AppColors.success,
@@ -3889,7 +3890,7 @@ class _ScrapPurchaseInvoiceScreenState
                               flex: 2,
                               child: _settingsProvider.buildText(
                                 payment.commissionAmount > 0
-                                    ? '${payment.commissionAmount.toStringAsFixed(2)} ${_settingsProvider.currencySymbolText}'
+                                    ? '${formatAmount(payment.commissionAmount)} ${_settingsProvider.currencySymbolText}'
                                     : '-',
                                 style: theme.textTheme.bodyMedium?.copyWith(
                                   color: payment.commissionAmount > 0
@@ -3903,7 +3904,7 @@ class _ScrapPurchaseInvoiceScreenState
                             Expanded(
                               flex: 2,
                               child: _settingsProvider.buildText(
-                                '${payment.netAmount.toStringAsFixed(2)} ${_settingsProvider.currencySymbolText}',
+                                '${formatAmount(payment.netAmount)} ${_settingsProvider.currencySymbolText}',
                                 style: theme.textTheme.titleMedium?.copyWith(
                                   fontWeight: FontWeight.w700,
                                   color: AppColors.info,
@@ -3943,7 +3944,7 @@ class _ScrapPurchaseInvoiceScreenState
                 methods: _paymentMethods,
                 onPay: _payWith,
                 remainingText: _settingsProvider.buildText(
-                  'المتبقي: ${_remainingAmount.toStringAsFixed(2)} ${_settingsProvider.currencySymbolText}',
+                  'المتبقي: ${formatAmount(_remainingAmount)} ${_settingsProvider.currencySymbolText}',
                 ),
               ),
             ],

@@ -1,0 +1,29 @@
+{
+  "amount_paid": 0.0,
+  "branch_id": 1,
+  "customer_id": 30,
+  "date": "<date>",
+  "invoice_type": "بيع",
+  "items": [
+    {
+      "avg_manufacturing_cost_per_gram": 0.0,
+      "calculated_selling_price_per_gram": 123.45,
+      "cost": 4200.0,
+      "karat": 21.0,
+      "name": "سلسال",
+      "net": 1234.5,
+      "price": 1234.5,
+      "profit": -2965.5,
+      "quantity": 1,
+      "tax": 0.0,
+      "wage": 0.0,
+      "weight": 10.0
+    }
+  ],
+  "payments": [],
+  "total": 1234.5,
+  "total_cost": 4200.0,
+  "total_tax": 0.0,
+  "total_weight": 10.0,
+  "transaction_type": "sell"
+}

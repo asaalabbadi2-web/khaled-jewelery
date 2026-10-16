@@ -12,6 +12,7 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'support/fake_purchase_api.dart';
+import 'support/payload_witness.dart';
 import 'support/shots.dart';
 
 /// PURCHASE-UX-1 (the owner, 6 Oct 2026): the purchase invoice screen says
@@ -522,7 +523,7 @@ void main() {
       await open(tester, api: api, saved: draft());
 
       await pressCtrlS(tester);
-      expect(find.textContaining('علينا له 1500.00'), findsOneWidget);
+      expect(find.textContaining('علينا له 1,500.00'), findsOneWidget);
       expect(find.textContaining('(دائن)'), findsWidgets);
       expect(
         find.textContaining('سيزيد ما علينا للمورد نقدًا'),
@@ -625,5 +626,16 @@ void main() {
     await open(tester, api: FakePurchaseApi(), saved: draft());
     expect(tester.takeException(), isNull);
     await shotWidths(tester, 'purchase');
+  });
+
+  testWidgets('what a purchase on credit sends is what it sent (ADR-049)', (
+    tester,
+  ) async {
+    final api = FakePurchaseApi();
+    await open(tester, api: api, saved: draft());
+    await pressCtrlS(tester);
+    await tester.tap(find.text('حفظ الفاتورة').last);
+    await settle(tester);
+    expectPayload('purchase_credit', api.added.single);
   });
 }

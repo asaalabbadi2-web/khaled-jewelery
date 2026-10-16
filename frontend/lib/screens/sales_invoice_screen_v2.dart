@@ -1057,7 +1057,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
   }
 
   String _formatCurrency(double amount) {
-    return '${amount.toStringAsFixed(2)} ${_settingsProvider.currencySymbolText}';
+    return '${cu.formatAmount(amount)} ${_settingsProvider.currencySymbolText}';
   }
 
   // ignore: unused_element
@@ -1157,7 +1157,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
     if (amount > remaining + 0.01) {
       // إضافة tolerance صغير
       _showError(
-        'المبلغ أكبر من المتبقي (${remaining.toStringAsFixed(2)} ${_settingsProvider.currencySymbolText})',
+        'المبلغ أكبر من المتبقي (${cu.formatAmount(remaining)} ${_settingsProvider.currencySymbolText})',
       );
       return;
     }
@@ -2172,7 +2172,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
       SnackBar(
         content: _settingsProvider.buildText(
           '✅ تم توزيع $targetTotal ${_settingsProvider.currencySymbolText} على ${_items.length} صنف\n'
-          'التكاليف: ${totalCosts.toStringAsFixed(2)} • الربح الموزع: ${profitPool.toStringAsFixed(2)}',
+          'التكاليف: ${cu.formatAmount(totalCosts)} • الربح الموزع: ${cu.formatAmount(profitPool)}',
         ),
         backgroundColor: AppColors.success,
         duration: const Duration(seconds: 3),
@@ -2196,7 +2196,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
     final currency = _settingsProvider.currencySymbolText;
     final warnings = <String>[
       if (remaining > 0.01)
-        'يبقى ${remaining.toStringAsFixed(2)} $currency آجلًا على «$customerLabel»',
+        'يبقى ${cu.formatAmount(remaining)} $currency آجلًا على «$customerLabel»',
     ];
     final priceWarnings = salesPriceWarnings(
       lines: [
@@ -2205,7 +2205,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
       ],
       net: total - totalTax,
       goldPrice24k: _goldPrice24k,
-      formatCash: (v) => '${v.toStringAsFixed(2)} $currency',
+      formatCash: (v) => '${cu.formatAmount(v)} $currency',
     );
     warnings.addAll(priceWarnings);
     if (priceWarnings.isEmpty && totalCost > 0 && total + 0.01 < totalCost) {
@@ -2217,8 +2217,8 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
       for (final item in _items)
         InvoiceSummaryMetricDetail(
           label:
-              '${item.name} • ${item.karat.toStringAsFixed(0)}k • ${item.weight.toStringAsFixed(3)} جم',
-          value: '${item.totalWithTax.toStringAsFixed(2)} $currency',
+              '${item.name} • ${cu.formatAmount(item.karat, decimals: 0)}k • ${cu.formatGrams(item.weight)} جم',
+          value: '${cu.formatAmount(item.totalWithTax)} $currency',
           accentColor: AppSemanticColors.of(context).karat(item.karat.round()).fg,
         ),
     ];
@@ -2233,7 +2233,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
           accentColor: AppSemanticColors.of(context).invoice(_kind).fg,
           statusTitle: 'حالة السداد',
           statusMessage: remaining > 0.01
-              ? 'متبقي ${remaining.toStringAsFixed(2)} $currency'
+              ? 'متبقي ${cu.formatAmount(remaining)} $currency'
               : 'تمت التسوية بالكامل',
           statusTone: remaining > 0.01
               ? InvoiceSummaryStatusTone.due
@@ -2241,7 +2241,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
           metrics: [
             InvoiceSummaryMetric(
               label: 'الإجمالي',
-              value: '${total.toStringAsFixed(2)} $currency',
+              value: '${cu.formatAmount(total)} $currency',
               icon: Icons.payments_outlined,
               accentColor: AppColors.primaryGold,
               emphasize: true,
@@ -2257,7 +2257,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
             if (remaining > 0.01)
               InvoiceSummaryMetric(
                 label: 'المتبقي',
-                value: '${remaining.toStringAsFixed(2)} $currency',
+                value: '${cu.formatAmount(remaining)} $currency',
                 icon: Icons.pending_outlined,
                 accentColor: AppColors.error,
               ),
@@ -2275,7 +2275,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                   for (final p in _payments)
                     InvoiceSummaryMetricDetail(
                       label: p.paymentMethodName,
-                      value: '${p.amount.toStringAsFixed(2)} $currency',
+                      value: '${cu.formatAmount(p.amount)} $currency',
                       accentColor: AppColors.info,
                     ),
                 ],
@@ -2283,7 +2283,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
             if (totalWeight > 0)
               InvoiceSummaryMetric(
                 label: 'إجمالي الوزن',
-                value: '${totalWeight.toStringAsFixed(3)} جم',
+                value: '${cu.formatGrams(totalWeight)} جم',
                 icon: Icons.scale_outlined,
                 accentColor: AppColors.info,
                 fullWidth: true,
@@ -2300,20 +2300,20 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
             if (totalTax > 0)
               InvoiceSummaryMetric(
                 label: 'الضريبة',
-                value: '${totalTax.toStringAsFixed(2)} $currency',
+                value: '${cu.formatAmount(totalTax)} $currency',
                 icon: Icons.receipt_long_outlined,
                 accentColor: AppColors.warning,
               ),
             InvoiceSummaryMetric(
               label: 'المدفوع (نقدي)',
-              value: '${paidCash.toStringAsFixed(2)} $currency',
+              value: '${cu.formatAmount(paidCash)} $currency',
               icon: Icons.account_balance_wallet_outlined,
               accentColor: AppColors.success,
             ),
             if (barterTotal > 0.01)
               InvoiceSummaryMetric(
                 label: 'المقايضة',
-                value: '${barterTotal.toStringAsFixed(2)} $currency',
+                value: '${cu.formatAmount(barterTotal)} $currency',
                 icon: Icons.swap_horiz_rounded,
                 accentColor: AppColors.info,
               ),
@@ -2391,7 +2391,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
 
     if (remaining > 0.01 && !allowPartialPayments) {
       _showError(
-        'المبلغ المتبقي: ${remaining.toStringAsFixed(2)} ${_settingsProvider.currencySymbolText}\nيرجى إكمال الدفع',
+        'المبلغ المتبقي: ${cu.formatAmount(remaining)} ${_settingsProvider.currencySymbolText}\nيرجى إكمال الدفع',
       );
       return;
     }
@@ -2554,7 +2554,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
               ? (below['profit_cash_estimate'] as num).toDouble()
               : double.tryParse('${below['profit_cash_estimate'] ?? 0}') ?? 0.0;
           parts.add(
-            '⚠️ بيع تحت التكلفة: صافي ${saleExVat.toStringAsFixed(2)} مقابل تكلفة ${costCash.toStringAsFixed(2)} (فرق ${profitEst.toStringAsFixed(2)})',
+            '⚠️ بيع تحت التكلفة: صافي ${cu.formatAmount(saleExVat)} مقابل تكلفة ${cu.formatAmount(costCash)} (فرق ${cu.formatAmount(profitEst)})',
           );
         }
         if (approvalReasons.contains('large_discount')) {
@@ -2565,7 +2565,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
               ? (response['threshold_pct'] as num).toDouble()
               : double.tryParse('${response['threshold_pct'] ?? 0}') ?? 0.0;
           parts.add(
-            '⚠️ خصم كبير: ${discountPct.toStringAsFixed(2)}% (الحد ${thresholdPct.toStringAsFixed(2)}%)',
+            '⚠️ خصم كبير: ${cu.formatAmount(discountPct)}% (الحد ${cu.formatAmount(thresholdPct)}%)',
           );
         }
 
@@ -2794,7 +2794,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
           : 'تم حفظ الفاتورة بنجاح',
       statusTitle: 'حالة السداد',
       statusMessage: remaining > 0.01
-          ? 'متبقي ${remaining.toStringAsFixed(2)} $currency'
+          ? 'متبقي ${cu.formatAmount(remaining)} $currency'
           : 'تم الدفع بالكامل',
       statusTone: remaining > 0.01
           ? InvoiceSummaryStatusTone.due
@@ -2816,27 +2816,27 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
           ),
         InvoiceSummaryMetric(
           label: 'الإجمالي',
-          value: '${total.toStringAsFixed(2)} $currency',
+          value: '${cu.formatAmount(total)} $currency',
           icon: Icons.payments_outlined,
           accentColor: AppColors.primaryGold,
         ),
         InvoiceSummaryMetric(
           label: 'المدفوع',
-          value: '${paid.toStringAsFixed(2)} $currency',
+          value: '${cu.formatAmount(paid)} $currency',
           icon: Icons.account_balance_wallet_outlined,
           accentColor: AppColors.success,
           emphasize: true,
         ),
         InvoiceSummaryMetric(
           label: 'المتبقي',
-          value: '${remaining.toStringAsFixed(2)} $currency',
+          value: '${cu.formatAmount(remaining)} $currency',
           icon: Icons.pending_outlined,
           accentColor: remaining > 0.01 ? AppColors.error : AppColors.success,
         ),
         if (totalWeight > 0)
           InvoiceSummaryMetric(
             label: 'إجمالي الوزن',
-            value: '${totalWeight.toStringAsFixed(3)} جم',
+            value: '${cu.formatGrams(totalWeight)} جم',
             icon: Icons.scale_outlined,
             accentColor: AppColors.info,
             fullWidth: true,
@@ -2845,7 +2845,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
         if (totalTax > 0)
           InvoiceSummaryMetric(
             label: 'الضريبة',
-            value: '${totalTax.toStringAsFixed(2)} $currency',
+            value: '${cu.formatAmount(totalTax)} $currency',
             icon: Icons.receipt_long_outlined,
             accentColor: AppColors.warning,
           ),
@@ -2914,7 +2914,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
         .map(
           (entry) => InvoiceSummaryMetricDetail(
             label: '${entry.key}k',
-            value: '${entry.value.toStringAsFixed(3)} جم',
+            value: '${cu.formatGrams(entry.value)} جم',
             accentColor: AppColors.karatColorFor(entry.key),
           ),
         )
@@ -3235,7 +3235,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                                           CrossAxisAlignment.end,
                                       children: [
                                         Text(
-                                          '${weight.toStringAsFixed(3)} جم',
+                                          '${cu.formatGrams(weight)} جم',
                                           style: theme.textTheme.titleSmall
                                               ?.copyWith(
                                                 fontWeight: FontWeight.bold,
@@ -3388,7 +3388,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                             ),
                             const SizedBox(width: 4),
                             Text(
-                              'أونصة: \$${(_goldPrice24k * 31.1035 / 3.75).toStringAsFixed(0)}',
+                              'أونصة: \$${cu.formatAmount((_goldPrice24k * 31.1035 / 3.75), decimals: 0)}',
                               style: const TextStyle(
                                 color: Colors.white,
                                 fontSize: 11,
@@ -3411,7 +3411,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                               return Padding(
                                 padding: const EdgeInsets.only(right: 10),
                                 child: Text(
-                                  '${k}k: ${gp.toStringAsFixed(2)}',
+                                  '${k}k: ${cu.formatAmount(gp)}',
                                   style: TextStyle(
                                     color: isMain ? Colors.amber : Colors.white,
                                     fontSize: 11,
@@ -4370,7 +4370,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                       ),
                     ),
                     child: Text(
-                      item.karat.toStringAsFixed(0),
+                      cu.formatAmount(item.karat, decimals: 0),
                       style: cellStyle,
                     ),
                   ),
@@ -4378,7 +4378,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
               ),
               DataCell(
                 _uiLockPriceEdits
-                    ? Text(item.weight.toStringAsFixed(3), style: cellStyle)
+                    ? Text(cu.formatGrams(item.weight), style: cellStyle)
                     : InlineNumberCell(
                         key: ObjectKey(item),
                         value: item.weight,
@@ -4398,7 +4398,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                               padding: EdgeInsets.only(left: 4),
                               child: Icon(Icons.lock, size: 11),
                             ),
-                          Text(item.wage.toStringAsFixed(2), style: cellStyle),
+                          Text(cu.formatAmount(item.wage), style: cellStyle),
                         ],
                       )
                     : InlineNumberCell(
@@ -4411,15 +4411,15 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
               ),
               DataCell(
                 Text(
-                  item.calculateSellingPricePerGram().toStringAsFixed(2),
+                  cu.formatAmount(item.calculateSellingPricePerGram()),
                   style: cellStyle,
                 ),
               ),
               if (_seesCost)
-                DataCell(Text(item.cost.toStringAsFixed(2), style: cellStyle)),
+                DataCell(Text(cu.formatAmount(item.cost), style: cellStyle)),
               if (!_uiDisableVat) ...[
-                DataCell(Text(item.net.toStringAsFixed(2), style: cellStyle)),
-                DataCell(Text(item.tax.toStringAsFixed(2), style: cellStyle)),
+                DataCell(Text(cu.formatAmount(item.net), style: cellStyle)),
+                DataCell(Text(cu.formatAmount(item.tax), style: cellStyle)),
               ],
               DataCell(
                 InkWell(
@@ -4438,7 +4438,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                       ),
                     ),
                     child: _settingsProvider.buildText(
-                      '${item.totalWithTax.toStringAsFixed(2)} ${_settingsProvider.currencySymbolText}',
+                      '${cu.formatAmount(item.totalWithTax)} ${_settingsProvider.currencySymbolText}',
                       style: cellStyle,
                     ),
                   ),
@@ -4630,40 +4630,40 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
             ),
             const SizedBox(height: 8),
             _settingsProvider.buildText(
-              '${total.toStringAsFixed(2)} $currency',
+              '${cu.formatAmount(total)} $currency',
               style: theme.textTheme.headlineMedium?.copyWith(
                 fontWeight: FontWeight.bold,
                 color: colorScheme.primary,
               ),
             ),
             Text(
-              '${_items.length} صنف • الوزن ${weight.toStringAsFixed(3)} جم • معادل 24: ${weight24.toStringAsFixed(3)} جم',
+              '${_items.length} صنف • الوزن ${cu.formatGrams(weight)} جم • معادل 24: ${cu.formatGrams(weight24)} جم',
               style: theme.textTheme.bodySmall,
             ),
             const SizedBox(height: 8),
             if (!_uiDisableVat)
               row(
                 'ضريبة القيمة المضافة',
-                '${_calculateTotalVAT().toStringAsFixed(2)} $currency',
+                '${cu.formatAmount(_calculateTotalVAT())} $currency',
               ),
             row(
               'المدفوع',
-              '${_totalPayments.toStringAsFixed(2)} $currency',
+              '${cu.formatAmount(_totalPayments)} $currency',
             ),
             if (_barterTotal > 0.01)
               row(
                 'المقايضة',
-                '${_barterTotal.toStringAsFixed(2)} $currency',
+                '${cu.formatAmount(_barterTotal)} $currency',
               ),
             if (_totalCommission > 0) ...[
               row(
                 'إجمالي العمولات',
-                '${_totalCommission.toStringAsFixed(2)} $currency',
+                '${cu.formatAmount(_totalCommission)} $currency',
                 color: tones.warning.fg,
               ),
               row(
                 'صافي المستلم',
-                '${_totalNet.toStringAsFixed(2)} $currency',
+                '${cu.formatAmount(_totalNet)} $currency',
                 color: tones.ready.fg,
               ),
             ],
@@ -4673,7 +4673,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
             else if (remaining > 0.01)
               row(
                 'المتبقي',
-                '${remaining.toStringAsFixed(2)} $currency',
+                '${cu.formatAmount(remaining)} $currency',
                 color: tones.blocked.fg,
                 bold: true,
               )
@@ -5003,7 +5003,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                             Expanded(
                               flex: 2,
                               child: _settingsProvider.buildText(
-                                '${payment.amount.toStringAsFixed(2)} ${_settingsProvider.currencySymbolText}',
+                                '${cu.formatAmount(payment.amount)} ${_settingsProvider.currencySymbolText}',
                                 style: theme.textTheme.titleMedium?.copyWith(
                                   fontWeight: FontWeight.w700,
                                   color: AppColors.success,
@@ -5015,7 +5015,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                               flex: 2,
                               child: _settingsProvider.buildText(
                                 payment.commissionAmount > 0
-                                    ? '${payment.commissionAmount.toStringAsFixed(2)} ${_settingsProvider.currencySymbolText}'
+                                    ? '${cu.formatAmount(payment.commissionAmount)} ${_settingsProvider.currencySymbolText}'
                                     : '-',
                                 style: theme.textTheme.bodyMedium?.copyWith(
                                   color: payment.commissionAmount > 0
@@ -5029,7 +5029,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                             Expanded(
                               flex: 2,
                               child: _settingsProvider.buildText(
-                                '${payment.netAmount.toStringAsFixed(2)} ${_settingsProvider.currencySymbolText}',
+                                '${cu.formatAmount(payment.netAmount)} ${_settingsProvider.currencySymbolText}',
                                 style: theme.textTheme.titleMedium?.copyWith(
                                   fontWeight: FontWeight.w700,
                                   color: AppColors.info,
@@ -5376,13 +5376,13 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
                                 Text(
-                                  'الصافي: ${net.toStringAsFixed(3)} جم',
+                                  'الصافي: ${cu.formatGrams(net)} جم',
                                   style: theme.textTheme.bodyMedium?.copyWith(
                                     fontWeight: FontWeight.w600,
                                   ),
                                 ),
                                 _settingsProvider.buildText(
-                                  'القيمة: ${value.toStringAsFixed(2)} ${_settingsProvider.currencySymbolText}',
+                                  'القيمة: ${cu.formatAmount(value)} ${_settingsProvider.currencySymbolText}',
                                   style: theme.textTheme.bodyMedium?.copyWith(
                                     fontWeight: FontWeight.bold,
                                     color: AppColors.primaryGold,
@@ -5405,7 +5405,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                           ),
                         ),
                         _settingsProvider.buildText(
-                          '${_barterTotal.toStringAsFixed(2)} ${_settingsProvider.currencySymbolText}',
+                          '${cu.formatAmount(_barterTotal)} ${_settingsProvider.currencySymbolText}',
                           style: theme.textTheme.bodyMedium?.copyWith(
                             fontWeight: FontWeight.bold,
                             color: AppColors.primaryGold,
@@ -5437,7 +5437,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
       methods: _paymentMethods,
       onPay: _payWith,
       remainingText: _settingsProvider.buildText(
-        'المتبقي: ${_remainingAmount.toStringAsFixed(2)} $currency',
+        'المتبقي: ${cu.formatAmount(_remainingAmount)} $currency',
       ),
     );
   }

@@ -14,6 +14,7 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'support/fake_sales_api.dart';
+import 'support/payload_witness.dart';
 import 'support/shots.dart';
 
 /// SALES-UX-1 (the owner, 7 Oct 2026): the sales screen records what was
@@ -187,7 +188,7 @@ void main() {
       await tester.tap(addPaymentButton());
       await tester.pumpAndSettle();
 
-      expect(find.textContaining('المتبقي: 1500.00'), findsOneWidget);
+      expect(find.textContaining('المتبقي: 1,500.00'), findsOneWidget);
     });
 
     testWidgets('an amount it cannot read adds nothing, and says so', (
@@ -202,7 +203,7 @@ void main() {
       await tester.tap(addPaymentButton());
       await tester.pumpAndSettle();
 
-      expect(find.textContaining('المتبقي: 1000.00'), findsOneWidget);
+      expect(find.textContaining('المتبقي: 1,000.00'), findsOneWidget);
       expect(find.textContaining('لم يُقرأ المبلغ'), findsOneWidget);
     });
 
@@ -418,7 +419,7 @@ void main() {
     testWidgets('an unpaid sale says what remains', (tester) async {
       await open(tester, api: FakeSalesApi(), saved: draft());
       expect(
-        find.textContaining('غير جاهز للحفظ — أكمل الدفع: يتبقى 1000.00'),
+        find.textContaining('غير جاهز للحفظ — أكمل الدفع: يتبقى 1,000.00'),
         findsOneWidget,
       );
     });
@@ -434,7 +435,7 @@ void main() {
       );
       expect(
         find.textContaining(
-          'غير جاهز للحفظ — البيع الآجل يحتاج عميلًا مسمّى، يتبقى 1000.00',
+          'غير جاهز للحفظ — البيع الآجل يحتاج عميلًا مسمّى، يتبقى 1,000.00',
         ),
         findsOneWidget,
       );
@@ -639,7 +640,7 @@ void main() {
       );
       await weigh(tester, '5');
 
-      expect(find.textContaining('2500.00'), findsWidgets);
+      expect(find.textContaining('2,500.00'), findsWidgets);
     });
 
     testWidgets('a removed line goes at once and can be put back', (
@@ -707,10 +708,10 @@ void main() {
 
       expect(find.text('ملخص الفاتورة'), findsOneWidget);
       // The total is said once in the side column, not in three places.
-      expect(find.textContaining('1000.00 ر.س'), findsWidgets);
+      expect(find.textContaining('1,000.00 ر.س'), findsWidgets);
       expect(find.text('إجمالي الفاتورة:'), findsNothing);
       expect(find.text('الإجمالي الكلي'), findsNothing);
-      expect(find.textContaining('الإجمالي: 1000.00'), findsNothing);
+      expect(find.textContaining('الإجمالي: 1,000.00'), findsNothing);
     });
 
     testWidgets('the cost card is gone', (tester) async {
@@ -727,7 +728,7 @@ void main() {
       await tester.testTextInput.receiveAction(TextInputAction.done);
       await tester.pumpAndSettle();
 
-      expect(find.textContaining('2000.00 ر.س'), findsWidgets);
+      expect(find.textContaining('2,000.00 ر.س'), findsWidgets);
       expect(find.byType(Dialog), findsNothing);
     });
 
@@ -809,7 +810,7 @@ void main() {
       await open(tester, api: api, saved: draft(total: 10000));
 
       await pay(tester, '3000', 1);
-      expect(find.textContaining('المتبقي: 7000.00'), findsOneWidget);
+      expect(find.textContaining('المتبقي: 7,000.00'), findsOneWidget);
       await pay(tester, '٤٠٠٠', 2);
       await pay(tester, '', 3);
 
@@ -853,7 +854,7 @@ void main() {
       await pay(tester, '2000', 1);
 
       expect(find.textContaining('أكبر من المتبقي'), findsOneWidget);
-      expect(find.textContaining('المتبقي: 1000.00'), findsOneWidget);
+      expect(find.textContaining('المتبقي: 1,000.00'), findsOneWidget);
     });
 
     testWidgets('the field shows what remains while it is empty', (
@@ -1152,5 +1153,25 @@ void main() {
     await open(tester, api: FakeSalesApi(), saved: draft(total: 2500));
     expect(tester.takeException(), isNull);
     await shotWidths(tester, 'sales');
+  });
+
+  testWidgets('what a sale on credit sends is what it sent (ADR-049)', (
+    tester,
+  ) async {
+    final api = FakeSalesApi();
+    await open(
+      tester,
+      api: api,
+      saved: draft(total: 1234.5, customerId: 30),
+      customers: [
+        {'id': 30, 'name': 'مؤسسة الأمل'},
+      ],
+      appSettings: {'allow_partial_invoice_payments': true},
+    );
+    await tester.tap(saveButton());
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('حفظ الفاتورة').last);
+    await settle(tester);
+    expectPayload('sales_credit', api.added.single);
   });
 }

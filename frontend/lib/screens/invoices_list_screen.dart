@@ -21,6 +21,7 @@ import 'scrap_purchase_invoice_screen.dart';
 import 'voucher_details_screen.dart';
 import '../widgets/sale_closing_card.dart';
 import '../widgets/app_feedback.dart';
+import '../utils/currency_utils.dart';
 
 /// A sale of scrap gold is saved as «بيع» with gold_type 'scrap'. It is
 /// edited on the screen that made it: the ordinary sale screen sends no
@@ -4541,8 +4542,8 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
             }
             if (sumOfSplits() > currentAmount + 0.005) {
               return isAr
-                  ? 'إجمالي التقسيم أكبر من إجمالي الدفعة (${currentAmount.toStringAsFixed(2)})'
-                  : 'Total split exceeds the full payment (${currentAmount.toStringAsFixed(2)})';
+                  ? 'إجمالي التقسيم أكبر من إجمالي الدفعة (${formatAmount(currentAmount)})'
+                  : 'Total split exceeds the full payment (${formatAmount(currentAmount)})';
             }
             return null;
           }
@@ -4563,8 +4564,8 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
                 children: [
                   Text(
                     isAr
-                        ? 'الوسيلة الحالية: $currentMethodName${currentAmount != null ? ' (${currentAmount.toStringAsFixed(2)})' : ''}'
-                        : 'Current method: $currentMethodName${currentAmount != null ? ' (${currentAmount.toStringAsFixed(2)})' : ''}',
+                        ? 'الوسيلة الحالية: $currentMethodName${currentAmount != null ? ' (${formatAmount(currentAmount)})' : ''}'
+                        : 'Current method: $currentMethodName${currentAmount != null ? ' (${formatAmount(currentAmount)})' : ''}',
                     style: const TextStyle(fontWeight: FontWeight.w600),
                   ),
                   const SizedBox(height: 12),
@@ -4656,8 +4657,8 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
                                   ? 'لن يتبقى شيء تحت $currentMethodName — الدفعة بالكامل تُنقَل لوسائل أخرى'
                                   : 'Nothing stays under $currentMethodName — fully moved to other methods')
                             : (isAr
-                                  ? 'سيبقى ${remaining.toStringAsFixed(2)} تحت $currentMethodName'
-                                  : '${remaining.toStringAsFixed(2)} stays under $currentMethodName'),
+                                  ? 'سيبقى ${formatAmount(remaining)} تحت $currentMethodName'
+                                  : '${formatAmount(remaining)} stays under $currentMethodName'),
                         style: TextStyle(
                           color: remaining < 0
                               ? Colors.red
@@ -4971,8 +4972,8 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
               children: [
                 Text(
                   isAr
-                      ? 'المتبقي: ${remaining.toStringAsFixed(2)}'
-                      : 'Remaining: ${remaining.toStringAsFixed(2)}',
+                      ? 'المتبقي: ${formatAmount(remaining)}'
+                      : 'Remaining: ${formatAmount(remaining)}',
                   style: Theme.of(ctx).textTheme.bodyMedium,
                 ),
                 const SizedBox(height: 12),

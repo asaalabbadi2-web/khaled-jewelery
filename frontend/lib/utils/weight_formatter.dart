@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'currency_utils.dart';
 
 /// Formats weight to display with gram unit after the number
 /// Handles RTL/LTR context correctly for Arabic and English
@@ -6,7 +7,7 @@ class WeightFormatter {
   /// Returns weight string in format: "X.XXX جم"
   /// Suitable for use in regular text contexts
   static String formatWeight(double grams, {int decimals = 3}) {
-    return '${grams.toStringAsFixed(decimals)} جم';
+    return '${formatGrams(grams, decimals: decimals)} جم';
   }
 
   /// Builds a widget that displays weight with proper LTR ordering
@@ -31,7 +32,7 @@ class WeightFormatter {
           ),
           const SizedBox(width: 4),
           Text(
-            grams.toStringAsFixed(decimals),
+            formatGrams(grams, decimals: decimals),
             style: style?.copyWith(
               fontWeight: FontWeight.w800,
             ),

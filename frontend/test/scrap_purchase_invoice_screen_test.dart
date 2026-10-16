@@ -12,6 +12,7 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'support/fake_sales_api.dart';
+import 'support/payload_witness.dart';
 
 /// SALES-UX-9 (the owner, 8 Oct 2026): the scrap purchase from a customer --
 /// 776 of the 6 Oct copy's invoices, 3.9 a day -- records what was typed,
@@ -154,7 +155,7 @@ void main() {
 
       await payWith(tester, '٥٠٠');
 
-      expect(find.textContaining('المتبقي: 3500.00'), findsWidgets);
+      expect(find.textContaining('المتبقي: 3,500.00'), findsWidgets);
     });
 
     testWidgets('more than remains is refused', (tester) async {
@@ -162,7 +163,7 @@ void main() {
 
       await payWith(tester, '9000');
 
-      expect(find.textContaining('المتبقي: 4000.00'), findsWidgets);
+      expect(find.textContaining('المتبقي: 4,000.00'), findsWidgets);
     });
   });
 
@@ -179,7 +180,7 @@ void main() {
     testWidgets('unpaid it says what remains', (tester) async {
       await open(tester, api: FakeSalesApi(), editing: invoice());
       expect(
-        find.textContaining('غير جاهز للحفظ — أكمل الدفع: يتبقى 4000.00'),
+        find.textContaining('غير جاهز للحفظ — أكمل الدفع: يتبقى 4,000.00'),
         findsOneWidget,
       );
     });
@@ -334,7 +335,7 @@ void main() {
       await tester.testTextInput.receiveAction(TextInputAction.done);
       await tester.pumpAndSettle();
 
-      expect(find.textContaining('5000.00'), findsWidgets);
+      expect(find.textContaining('5,000.00'), findsWidgets);
     });
 
     testWidgets('the line\'s actions are in view, not behind a scroll', (
@@ -353,12 +354,27 @@ void main() {
         'kind', (tester) async {
       final api = FakeSalesApi(
         methods: const [
-          {'id': 1, 'name': 'نقداً', 'payment_type': 'cash', 'commission_rate': 0,
-           'applicable_invoice_types': ['بيع', 'شراء من عميل']},
-          {'id': 7, 'name': 'STC Pay', 'payment_type': 'stc_pay', 'commission_rate': 0,
-           'applicable_invoice_types': ['شراء من عميل']},
-          {'id': 10, 'name': 'مدى', 'payment_type': 'mada', 'commission_rate': 0,
-           'applicable_invoice_types': ['بيع']},
+          {
+            'id': 1,
+            'name': 'نقداً',
+            'payment_type': 'cash',
+            'commission_rate': 0,
+            'applicable_invoice_types': ['بيع', 'شراء من عميل'],
+          },
+          {
+            'id': 7,
+            'name': 'STC Pay',
+            'payment_type': 'stc_pay',
+            'commission_rate': 0,
+            'applicable_invoice_types': ['شراء من عميل'],
+          },
+          {
+            'id': 10,
+            'name': 'مدى',
+            'payment_type': 'mada',
+            'commission_rate': 0,
+            'applicable_invoice_types': ['بيع'],
+          },
         ],
       );
       await open(tester, api: api, editing: invoice());
@@ -408,7 +424,7 @@ void main() {
       expect(find.byType(Dialog), findsNothing);
       expect(find.text('12.50'), findsOneWidget); // standing
       expect(find.text('12.00'), findsOneWidget); // net: standing - stones
-      expect(find.textContaining('4800.00'), findsWidgets);
+      expect(find.textContaining('4,800.00'), findsWidgets);
       // Ready for the next one: the weights cleared, back at the standing.
       final standing = tester.widget<TextField>(
         find.byKey(const Key('scrap-entry-standing')),
@@ -424,7 +440,7 @@ void main() {
       await type(tester, 'amount', '1500');
       await enter(tester);
 
-      expect(find.textContaining('1500.00'), findsWidgets);
+      expect(find.textContaining('1,500.00'), findsWidgets);
     });
 
     testWidgets('stones heavier than the piece are refused', (tester) async {
@@ -437,7 +453,7 @@ void main() {
       await enter(tester);
 
       expect(find.text('الأحجار أثقل من الوزن القائم'), findsOneWidget);
-      expect(find.textContaining('2000.00'), findsNothing);
+      expect(find.textContaining('2,000.00'), findsNothing);
     });
 
     testWidgets('without a category nothing is added, and it says so', (
@@ -473,5 +489,24 @@ void main() {
 
       expect(find.text('عيار التصنيف 21'), findsOneWidget);
     });
+  });
+
+  testWidgets('what a paid scrap purchase sends is what it sent (ADR-049)', (
+    tester,
+  ) async {
+    final api = FakeSalesApi();
+    await open(
+      tester,
+      api: api,
+      editing: invoice(total: 4321.75, payments: [paid(4321.75)]),
+    );
+    await pressCtrlS(tester);
+    await tester.tap(find.text('حفظ الفاتورة').last);
+    await settle(tester);
+    if (find.text('متابعة').evaluate().isNotEmpty) {
+      await tester.tap(find.text('متابعة'));
+      await settle(tester);
+    }
+    expectPayload('scrap_purchase_paid', api.updated.single);
   });
 }

@@ -47,12 +47,30 @@ const List<(String label, String value)> kCurrencyOptions = [
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Format a number using the given locale and decimal places.
-String _fmtNum(double amount, {int decimalPlaces = 2, bool isArabic = true}) {
-  final digits = '0' * decimalPlaces;
-  final pattern = '#,##0${decimalPlaces > 0 ? '.$digits' : ''}';
-  return NumberFormat(pattern, isArabic ? 'ar' : 'en').format(amount);
+/// An amount written for reading (ADR-049): thousands separated, [decimals]
+/// places, Western digits, a minus sign before a negative -- «1,500.00»,
+/// «-1,500.00». The one way a screen writes an amount; what is sent to the
+/// server keeps its own form and never goes through here.
+///
+/// A negative carries an invisible left-to-right mark (U+200E) before its
+/// sign, as Arabic number formatting does, so that inside Arabic text the
+/// sign stays before the number and does not jump to its end.
+String formatAmount(num value, {int decimals = 2}) {
+  final pattern = decimals > 0 ? '#,##0.${'0' * decimals}' : '#,##0';
+  final text = NumberFormat(pattern, 'en_US').format(value);
+  if (!text.startsWith('-')) return text;
+  // -0.001 rounds to «-0.00»: zero has no sign.
+  if (RegExp(r'^-[0.,]+$').hasMatch(text)) return text.substring(1);
+  return '‎$text';
 }
+
+/// A weight in grams written for reading: as [formatAmount], three places.
+String formatGrams(num value, {int decimals = 3}) =>
+    formatAmount(value, decimals: decimals);
+
+/// Format a number using the given locale and decimal places.
+String _fmtNum(double amount, {int decimalPlaces = 2, bool isArabic = true}) =>
+    formatAmount(amount, decimals: decimalPlaces);
 
 /// Plain-text format for contexts that cannot render widgets (PDF, clipboard…).
 /// For the new SAR graphic symbol, falls back to 'ر.س'.

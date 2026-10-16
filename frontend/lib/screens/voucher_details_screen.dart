@@ -13,6 +13,7 @@ import '../pdf/voucher_pdf_builder.dart';
 import '../providers/settings_provider.dart';
 import '../theme/app_theme.dart' as theme;
 import '../widgets/app_feedback.dart';
+import '../utils/currency_utils.dart';
 
 Future<bool?> showVoucherDetailsSheet(
   BuildContext context, {
@@ -383,7 +384,7 @@ class _VoucherDetailsScreenState extends State<VoucherDetailsScreen> {
             .map((row) => AttributionExisting(
                   id: (row['id'] as num).toInt(),
                   label: '${_invoiceKnownAs(row)} · '
-                      '${(row['weight'] as num?)?.toStringAsFixed(2) ?? '?'} جم عيار ${row['karat']}',
+                      '${(row['weight'] as num?) == null ? '?' : formatGrams(row['weight'] as num, decimals: 2)} جم عيار ${row['karat']}',
                   amount: (row['weight_main_karat'] as num?)?.toDouble() ?? 0.0,
                   removable: true,
                 ))
@@ -397,7 +398,7 @@ class _VoucherDetailsScreenState extends State<VoucherDetailsScreen> {
                   details: [
                     for (final k in (row['karats'] as List? ?? const []))
                       'عيار ${(k as Map)['karat']}: متبقٍ '
-                          '${((k['attributed_remaining_main_karat'] as num?) ?? 0).toStringAsFixed(2)} جم '
+                          '${formatGrams((k['attributed_remaining_main_karat'] as num?) ?? 0, decimals: 2)} جم '
                           '(بالعيار ${mainKarat.toInt()})',
                   ],
                 ))
@@ -470,7 +471,7 @@ class _VoucherDetailsScreenState extends State<VoucherDetailsScreen> {
           title: Text(otherIsCash ? 'ونقد السند؟' : 'وذهب السند؟'),
           content: Text(
             'السند يحمل ${otherIsCash ? 'نقدًا' : 'ذهبًا'} غير منسوب. '
-            'انسب ${amount.toStringAsFixed(2)} $unit منه إلى $label أيضًا؟',
+            'انسب ${formatAmount(amount)} $unit منه إلى $label أيضًا؟',
           ),
           actions: [
             TextButton(onPressed: () => Navigator.of(c).pop(false), child: const Text('لا')),
@@ -533,7 +534,7 @@ class _VoucherDetailsScreenState extends State<VoucherDetailsScreen> {
     final existing =
         (current['payments'] as List?)?.cast<Map<String, dynamic>>() ??
             const <Map<String, dynamic>>[];
-    String money(num? v) => (v ?? 0).toDouble().toStringAsFixed(2);
+    String money(num? v) => formatAmount(v ?? 0);
 
     await showModalBottomSheet<void>(
       context: context,
@@ -1065,7 +1066,7 @@ class _VoucherDetailsScreenState extends State<VoucherDetailsScreen> {
                           for (final r in (_goldAttribution!['attributions'] as List? ?? const []))
                             AttributionSummaryRow(
                               label: '${_invoiceKnownAs(r as Map)} · '
-                                  '${(r['weight'] as num?)?.toStringAsFixed(2) ?? '?'} جم عيار ${r['karat']}',
+                                  '${(r['weight'] as num?) == null ? '?' : formatGrams(r['weight'] as num, decimals: 2)} جم عيار ${r['karat']}',
                               amount: (r['weight_main_karat'] as num?)?.toDouble() ?? 0,
                               date: DateTime.tryParse('${r['invoice_date'] ?? ''}'),
                             ),
@@ -1138,7 +1139,7 @@ class _VoucherDetailsScreenState extends State<VoucherDetailsScreen> {
                           final amt      = (l['amount'] as num?)?.toDouble() ?? 0.0;
                           final amtType  = l['amount_type']?.toString() ?? 'cash';
                           final unit     = amtType == 'gold' ? 'جم' : currency;
-                          final amtStr   = '${amt.toStringAsFixed(amtType == 'gold' ? 3 : 2)} $unit';
+                          final amtStr   = '${formatAmount(amt, decimals: amtType == 'gold' ? 3 : 2)} $unit';
 
                           return Container(
                             margin: const EdgeInsets.only(bottom: 4),

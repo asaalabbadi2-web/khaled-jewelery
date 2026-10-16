@@ -1,0 +1,46 @@
+{
+  "amount_paid": 4321.75,
+  "branch_id": 1,
+  "customer_id": 500,
+  "date": "<date>",
+  "gold_condition": "جيد",
+  "gold_images_count": 0,
+  "gold_type": "scrap",
+  "invoice_type": "شراء من عميل",
+  "items": [
+    {
+      "calculated_selling_price_per_gram": 432.175,
+      "cost": 0.0,
+      "direct_purchase_price_per_gram": 0.0,
+      "item_id": null,
+      "karat": 21.0,
+      "name": "كسر",
+      "net": 4321.75,
+      "price": 4321.75,
+      "profit": 4321.75,
+      "quantity": 1,
+      "standing_weight": 10.0,
+      "stones_weight": 0.0,
+      "tax": 0.0,
+      "wage": 0.0,
+      "weight": 10.0
+    }
+  ],
+  "notes": "",
+  "payments": [
+    {
+      "amount": 4321.75,
+      "commission_amount": 0.0,
+      "commission_rate": 0.0,
+      "commission_vat": 0.0,
+      "net_amount": 4321.75,
+      "notes": null,
+      "payment_method_id": 1
+    }
+  ],
+  "total": 4321.75,
+  "total_cost": 0.0,
+  "total_tax": 0.0,
+  "total_weight": 10.0,
+  "transaction_type": "buy"
+}

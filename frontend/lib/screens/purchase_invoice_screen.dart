@@ -25,6 +25,7 @@ import '../utils/supplier_position.dart';
 import '../utils/wage_treatment.dart';
 import 'add_supplier_screen.dart';
 import '../utils.dart';
+import '../utils/currency_utils.dart';
 
 enum _PurchaseSettlementMode { credit, barter, partial }
 
@@ -709,7 +710,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
             ),
             const SizedBox(width: 6),
             Text(
-              '= ${total.toStringAsFixed(2)} $currency',
+              '= ${formatAmount(total)} $currency',
               style: theme.textTheme.bodySmall?.copyWith(
                 fontWeight: FontWeight.bold,
                 color: isEarn
@@ -2204,9 +2205,9 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
   }
 
   String _formatCurrency(double value) =>
-      '${value.toStringAsFixed(2)} ${context.read<SettingsProvider>().currencySymbolText}';
+      '${formatAmount(value)} ${context.read<SettingsProvider>().currencySymbolText}';
 
-  String _formatWeight(double value) => '${value.toStringAsFixed(3)} جم';
+  String _formatWeight(double value) => '${formatGrams(value)} جم';
 
   List<InvoiceSummaryMetricDetail> _buildWeightBreakdownLines(
     Iterable<dynamic> rawItems,
@@ -2245,7 +2246,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
         .map(
           (entry) => InvoiceSummaryMetricDetail(
             label: '${entry.key}k',
-            value: '${entry.value.toStringAsFixed(3)} جم',
+            value: '${formatGrams(entry.value)} جم',
             accentColor: AppColors.karatColorFor(entry.key),
           ),
         )
@@ -2598,7 +2599,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
                     InvoiceSummaryMetric(
                       label: 'الإجمالي',
                       value:
-                          '${(invoiceForPrint['total'] ?? 0.0).toStringAsFixed(2)} $currency',
+                          '${formatAmount((invoiceForPrint['total'] ?? 0.0))} $currency',
                       icon: Icons.payments_outlined,
                       accentColor: AppColors.primaryGold,
                       emphasize: true,
@@ -2606,7 +2607,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
                     if (totalWeight > 0)
                       InvoiceSummaryMetric(
                         label: 'إجمالي الوزن',
-                        value: '${totalWeight.toStringAsFixed(3)} جم',
+                        value: '${formatGrams(totalWeight)} جم',
                         icon: Icons.scale_outlined,
                         accentColor: AppColors.info,
                         fullWidth: true,
@@ -2712,8 +2713,8 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
     }
   }
 
-  String _fmtMoney(double value) => value.toStringAsFixed(2);
-  String _fmtWeight(double value) => value.toStringAsFixed(3);
+  String _fmtMoney(double value) => formatAmount(value);
+  String _fmtWeight(double value) => formatGrams(value);
 
   Future<bool> _showPreSaveInvoiceSummary() async {
     if (!mounted) return false;
@@ -2827,13 +2828,13 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
       final pricePerGram = grandTotal / totalWeight;
       if (pricePerGram > gp24k * 2) {
         notices.add(
-          '⚠️ سعر الجرام المحسوب ${pricePerGram.toStringAsFixed(0)} $currency أعلى بكثير من سعر السوق'
-          ' (${gp24k.toStringAsFixed(0)} $currency/جم). تأكد من صحة المبلغ والوزن.',
+          '⚠️ سعر الجرام المحسوب ${formatAmount(pricePerGram, decimals: 0)} $currency أعلى بكثير من سعر السوق'
+          ' (${formatAmount(gp24k, decimals: 0)} $currency/جم). تأكد من صحة المبلغ والوزن.',
         );
       } else if (pricePerGram < gp24k * 0.15) {
         notices.add(
-          '⚠️ سعر الجرام المحسوب ${pricePerGram.toStringAsFixed(0)} $currency أقل بكثير من سعر السوق'
-          ' (${gp24k.toStringAsFixed(0)} $currency/جم). تأكد من صحة المبلغ والوزن.',
+          '⚠️ سعر الجرام المحسوب ${formatAmount(pricePerGram, decimals: 0)} $currency أقل بكثير من سعر السوق'
+          ' (${formatAmount(gp24k, decimals: 0)} $currency/جم). تأكد من صحة المبلغ والوزن.',
         );
       }
     }
@@ -3087,7 +3088,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
                             ),
                             const SizedBox(width: 4),
                             Text(
-                              'أونصة: \$${gpOz.toStringAsFixed(0)}',
+                              'أونصة: \$${formatAmount(gpOz, decimals: 0)}',
                               style: const TextStyle(
                                 color: Colors.white,
                                 fontSize: 11,
@@ -3109,7 +3110,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
                               return Padding(
                                 padding: const EdgeInsets.only(right: 10),
                                 child: Text(
-                                  '${k}k: ${(gp24 * k / 24).toStringAsFixed(2)}',
+                                  '${k}k: ${formatAmount((gp24 * k / 24))}',
                                   style: TextStyle(
                                     color: isMain ? Colors.amber : Colors.white,
                                     fontSize: 11,
@@ -4617,7 +4618,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
             ],
           ),
         ),
-        DataCell(Text(item.karat.toStringAsFixed(0))),
+        DataCell(Text(formatAmount(item.karat, decimals: 0))),
         DataCell(
           InlineNumberCell(
             key: ValueKey('weight-$index'),
@@ -4640,7 +4641,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
           ),
         ),
         DataCell(
-          Text((item.weightGrams * item.wagePerGram).toStringAsFixed(2)),
+          Text(formatAmount((item.weightGrams * item.wagePerGram))),
         ),
         DataCell(Text(item.hasStones ? 'نعم' : '-')),
         DataCell(
@@ -5031,7 +5032,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
                                             (value) => DropdownMenuItem<double>(
                                               value: value,
                                               child: Text(
-                                                value.toStringAsFixed(0),
+                                                formatAmount(value, decimals: 0),
                                               ),
                                             ),
                                           )
@@ -5369,7 +5370,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
                                 ),
                                 _previewRow(
                                   'الأجور/جرام',
-                                  effectiveWagePerGram.toStringAsFixed(2),
+                                  formatAmount(effectiveWagePerGram),
                                 ),
                                 if (hasStones)
                                   _previewRow(
@@ -5636,7 +5637,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
                                             (value) => DropdownMenuItem<double>(
                                               value: value,
                                               child: Text(
-                                                value.toStringAsFixed(0),
+                                                formatAmount(value, decimals: 0),
                                               ),
                                             ),
                                           )
@@ -5721,11 +5722,11 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
                                             : 'أجرة المصنعية (ريال/جرام)',
                                         helperText: wageIsTotal
                                             ? (totalWeight > 0
-                                                  ? 'سيتم تحويلها إلى ${effectiveWagePerGram.toStringAsFixed(2)} ${context.read<SettingsProvider>().currencySymbolText}/جرام'
+                                                  ? 'سيتم تحويلها إلى ${formatAmount(effectiveWagePerGram)} ${context.read<SettingsProvider>().currencySymbolText}/جرام'
                                                   : 'أدخل الأوزان أولاً لحساب ${context.read<SettingsProvider>().currencySymbolText}/جرام')
                                             : (parsedWeights.isEmpty
                                                   ? null
-                                                  : 'إجمالي الأجور: ${computedWageTotal.toStringAsFixed(2)} ${context.read<SettingsProvider>().currencySymbolText}'),
+                                                  : 'إجمالي الأجور: ${formatAmount(computedWageTotal)} ${context.read<SettingsProvider>().currencySymbolText}'),
                                         border: const OutlineInputBorder(),
                                         prefixIcon: const Icon(
                                           Icons.design_services,
@@ -5879,7 +5880,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
                                 ),
                                 _previewRow(
                                   'الأجور/جرام',
-                                  effectiveWagePerGram.toStringAsFixed(2),
+                                  formatAmount(effectiveWagePerGram),
                                 ),
                                 _previewRow(
                                   'التصنيف',

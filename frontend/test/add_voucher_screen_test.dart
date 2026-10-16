@@ -11,6 +11,7 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'support/fake_voucher_api.dart';
+import 'support/payload_witness.dart';
 
 /// VOUCHER-UX-1 (the owner, 9 Oct 2026): a manual voucher -- about two a day
 /// on the 6 Oct copy, 443 payments, 40 receipts -- is read as typed, says what
@@ -83,8 +84,9 @@ void main() {
   }
 
   double cashSent(FakeVoucherApi api) {
-    final lines = (api.created.single['account_lines'] as List)
-        .map((l) => Map<String, dynamic>.from(l as Map));
+    final lines = (api.created.single['account_lines'] as List).map(
+      (l) => Map<String, dynamic>.from(l as Map),
+    );
     return lines
         .where((l) => l['account_id'] == 70)
         .fold<double>(0, (s, l) => s + (l['amount'] as num).toDouble());
@@ -198,7 +200,10 @@ void main() {
       final review = find.byType(AlertDialog);
       expect(find.text('مراجعة سند صرف'), findsOneWidget);
       expect(
-        find.descendant(of: review, matching: find.textContaining('مورد الذهب')),
+        find.descendant(
+          of: review,
+          matching: find.textContaining('مورد الذهب'),
+        ),
         findsWidgets,
       );
       expect(
@@ -212,8 +217,9 @@ void main() {
       expect(api.created, isEmpty);
     });
 
-    testWidgets('back from the review sends nothing and keeps what was typed',
-        (tester) async {
+    testWidgets('back from the review sends nothing and keeps what was typed', (
+      tester,
+    ) async {
       final api = await open(tester);
       await ready(tester);
       await askToSave(tester);
@@ -276,8 +282,18 @@ void main() {
 
   group('paid to the invoices chosen, oldest first (VOUCHER-ATTR-1)', () {
     const openCash = [
-      {'invoice_id': 12, 'invoice_number': 'PI-0012', 'date': '2026-09-02T00:00:00', 'open_cash': 800.0},
-      {'invoice_id': 11, 'invoice_number': 'PI-0011', 'date': '2026-09-01T00:00:00', 'open_cash': 700.0},
+      {
+        'invoice_id': 12,
+        'invoice_number': 'PI-0012',
+        'date': '2026-09-02T00:00:00',
+        'open_cash': 800.0,
+      },
+      {
+        'invoice_id': 11,
+        'invoice_number': 'PI-0011',
+        'date': '2026-09-01T00:00:00',
+        'open_cash': 700.0,
+      },
     ];
     const plan = {
       'cash': [
@@ -288,8 +304,16 @@ void main() {
       'cash_on_account': 0.0,
       'gold_on_account_main_karat': 0.0,
       'invoices': [
-        {'invoice_id': 11, 'invoice_number': 'PI-0011', 'date': '2026-09-01T00:00:00'},
-        {'invoice_id': 12, 'invoice_number': 'PI-0012', 'date': '2026-09-02T00:00:00'},
+        {
+          'invoice_id': 11,
+          'invoice_number': 'PI-0011',
+          'date': '2026-09-01T00:00:00',
+        },
+        {
+          'invoice_id': 12,
+          'invoice_number': 'PI-0012',
+          'date': '2026-09-02T00:00:00',
+        },
       ],
     };
 
@@ -319,7 +343,9 @@ void main() {
       await open(tester, api: FakeVoucherApi(openCash: openCash));
 
       final first = tester.getTopLeft(find.byKey(const Key('invoice-pick-11')));
-      final second = tester.getTopLeft(find.byKey(const Key('invoice-pick-12')));
+      final second = tester.getTopLeft(
+        find.byKey(const Key('invoice-pick-12')),
+      );
       expect(first.dy, lessThan(second.dy));
       expect(find.textContaining('PI-0011'), findsWidgets);
       expect(find.textContaining('700.00'), findsWidgets);
@@ -402,19 +428,21 @@ void main() {
       expect(description(tester), 'دفعة متفق عليها');
     });
 
-    testWidgets('it is saved with the chosen invoices, the server spreading it',
-        (tester) async {
-      final api = FakeVoucherApi(openCash: openCash, plan: plan);
-      await open(tester, api: api);
-      await ready(tester);
-      await choose(tester, 12);
-      await choose(tester, 11);
-      await save(tester);
+    testWidgets(
+      'it is saved with the chosen invoices, the server spreading it',
+      (tester) async {
+        final api = FakeVoucherApi(openCash: openCash, plan: plan);
+        await open(tester, api: api);
+        await ready(tester);
+        await choose(tester, 12);
+        await choose(tester, 11);
+        await save(tester);
 
-      final sent = api.created.single;
-      expect((sent['invoice_ids'] as List).toSet(), {11, 12});
-      expect(sent.containsKey('reference_id'), isFalse);
-    });
+        final sent = api.created.single;
+        expect((sent['invoice_ids'] as List).toSet(), {11, 12});
+        expect(sent.containsKey('reference_id'), isFalse);
+      },
+    );
 
     testWidgets('the review shows each invoice\'s share and what stays on '
         'account', (tester) async {
@@ -458,8 +486,9 @@ void main() {
       expect(api.created.single.containsKey('invoice_ids'), isFalse);
     });
 
-    testWidgets('the amount can be filled with what the chosen invoices owe',
-        (tester) async {
+    testWidgets('the amount can be filled with what the chosen invoices owe', (
+      tester,
+    ) async {
       final api = FakeVoucherApi(openCash: openCash, plan: plan);
       await open(tester, api: api);
       await pickSafe(tester);
@@ -485,42 +514,70 @@ void main() {
         },
     ];
 
-    Size card(WidgetTester tester, Key key) =>
-        tester.getSize(find.ancestor(of: find.byKey(key), matching: find.byType(Card)).first);
+    Size card(WidgetTester tester, Key key) => tester.getSize(
+      find.ancestor(of: find.byKey(key), matching: find.byType(Card)).first,
+    );
 
-    testWidgets('the invoice card is no taller than the party card beside it', (tester) async {
+    testWidgets('the invoice card is no taller than the party card beside it', (
+      tester,
+    ) async {
       await open(tester, api: FakeVoucherApi(openCash: many));
       await tester.pumpAndSettle();
 
-      final party = tester.getSize(find.byKey(const Key('voucher-party-card')).first);
+      final party = tester.getSize(
+        find.byKey(const Key('voucher-party-card')).first,
+      );
       final invoices = card(tester, const Key('invoice-count'));
-      expect(invoices.height, lessThanOrEqualTo(party.height + 1),
-          reason: 'forty invoices must scroll inside their card, not stretch the page');
+      expect(
+        invoices.height,
+        lessThanOrEqualTo(party.height + 1),
+        reason:
+            'forty invoices must scroll inside their card, not stretch the page',
+      );
       expect(find.byKey(const Key('invoice-count')), findsOneWidget);
       expect(find.text('مختار 0 من 40'), findsOneWidget);
     });
 
-    testWidgets('the list can be searched by number, and the count follows the choice', (tester) async {
-      await open(tester, api: FakeVoucherApi(openCash: many));
-      await tester.pumpAndSettle();
+    testWidgets(
+      'the list can be searched by number, and the count follows the choice',
+      (tester) async {
+        await open(tester, api: FakeVoucherApi(openCash: many));
+        await tester.pumpAndSettle();
 
-      await tester.enterText(find.byKey(const Key('invoice-search')), '1017');
-      await tester.pumpAndSettle();
-      expect(find.byKey(const Key('invoice-pick-117')), findsOneWidget);
-      expect(find.byKey(const Key('invoice-pick-118')), findsNothing);
+        await tester.enterText(find.byKey(const Key('invoice-search')), '1017');
+        await tester.pumpAndSettle();
+        expect(find.byKey(const Key('invoice-pick-117')), findsOneWidget);
+        expect(find.byKey(const Key('invoice-pick-118')), findsNothing);
 
-      await tester.tap(find.byKey(const Key('invoice-pick-117')));
-      await tester.pumpAndSettle();
-      expect(find.text('مختار 1 من 40'), findsOneWidget);
-    });
+        await tester.tap(find.byKey(const Key('invoice-pick-117')));
+        await tester.pumpAndSettle();
+        expect(find.text('مختار 1 من 40'), findsOneWidget);
+      },
+    );
 
     testWidgets('the save button is wide enough to be found', (tester) async {
       await open(tester);
       final size = tester.getSize(
-        find.ancestor(of: find.text('حفظ السند'), matching: find.byWidgetPredicate((w) => w is ElevatedButton)).first,
+        find
+            .ancestor(
+              of: find.text('حفظ السند'),
+              matching: find.byWidgetPredicate((w) => w is ElevatedButton),
+            )
+            .first,
       );
       expect(size.width, greaterThanOrEqualTo(240));
       expect(size.height, greaterThanOrEqualTo(56));
     });
+  });
+
+  testWidgets('what a cash payment sends is what it sent (ADR-049)', (
+    tester,
+  ) async {
+    final api = await open(tester);
+    await pickSafe(tester);
+    await tester.enterText(cashAmount(), '1500.5');
+    await tester.pumpAndSettle();
+    await save(tester);
+    expectPayload('voucher_payment_cash', api.created.single);
   });
 }

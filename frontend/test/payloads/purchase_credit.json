@@ -1,0 +1,62 @@
+{
+  "amount_paid": 0.0,
+  "apply_gold_tax": false,
+  "branch_id": 1,
+  "date": "<date>",
+  "gold_subtotal": 4593.75,
+  "gold_tax": 0.0,
+  "gold_tax_total": 0.0,
+  "gold_type": "new",
+  "inline_items_summary": {
+    "count": 1,
+    "total_wage_cash": 225.0,
+    "total_weight": 12.5
+  },
+  "inline_items_weight_by_karat": {
+    "21": 12.5
+  },
+  "invoice_type": "شراء",
+  "items": [
+    {
+      "create_inline": true,
+      "has_stones": false,
+      "karat": 21.0,
+      "manufacturing_wage_per_gram": 18.0,
+      "name": "خاتم",
+      "stones_value": 0.0,
+      "stones_weight": 0.0,
+      "wage_per_gram": 18.0,
+      "wage_total": 225.0,
+      "weight": 12.5
+    }
+  ],
+  "manufacturing_wage_cash": 225.0,
+  "settlement_method": "credit",
+  "supplier_gold_lines": [
+    {
+      "karat": 21.0,
+      "weight": 12.5
+    }
+  ],
+  "supplier_gold_weights": {
+    "21": 12.5
+  },
+  "supplier_id": 1,
+  "total": 4852.5,
+  "total_cost": 4818.75,
+  "total_tax": 33.75,
+  "total_weight": 12.5,
+  "valuation": {
+    "cash_total": 4593.75,
+    "wage_total": 225.0,
+    "weight_by_karat": {
+      "21": 12.5
+    }
+  },
+  "valuation_cash_total": 4593.75,
+  "vat_applied": true,
+  "wage_cash": 225.0,
+  "wage_subtotal": 225.0,
+  "wage_tax": 33.75,
+  "wage_tax_total": 33.75
+}
