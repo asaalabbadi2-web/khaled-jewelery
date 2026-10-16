@@ -14,6 +14,7 @@ import '../../providers/settings_provider.dart';
 import '../../utils/currency_utils.dart' as cu;
 import '../../theme/app_semantic_colors.dart';
 import '../../theme/app_theme.dart';
+import '../../widgets/weight_position_summary_card.dart';
 import '../safe_boxes_screen.dart';
 import 'gold_price_history_report_screen.dart';
 import 'safe_box_hero_details_screen.dart';
@@ -42,6 +43,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
   AppSemanticColors get _tones => AppSemanticColors.of(context);
 
   Map<String, dynamic>? _response;
+  int _positionEpoch = 0;
   bool _isLoading = false;
   String? _error;
 
@@ -197,6 +199,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     setState(() {
       _isLoading = true;
       _error = null;
+      _positionEpoch++;   // the «التسكير الآن» card reloads with the dashboard
     });
 
     try {
@@ -347,6 +350,18 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
               globalSnapshot,
               valuation,
               series,
+            ),
+          ),
+
+          // === 1b. «التسكير الآن»: what waits now, not a range (ADR-048) ===
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+              child: WeightPositionSummaryCard(
+                key: ValueKey('wps-$_positionEpoch'),
+                api: widget.api,
+                isArabic: widget.isArabic,
+              ),
             ),
           ),
 

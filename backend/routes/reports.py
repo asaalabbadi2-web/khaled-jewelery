@@ -4015,6 +4015,19 @@ def get_weight_position():
     return jsonify(position(as_of)), 200
 
 
+@reports_bp.route('/reports/weight-position/summary', methods=['GET'])
+@require_permission('reports.financial')
+def get_weight_position_summary():
+    """The manager's card: what waits, what it buys, the price's grip, the oldest
+    sale's wait against the owner's alert days, and the month realized (ADR-048)."""
+    from services.weight_position import summary
+    try:
+        as_of = _report_date('as_of', datetime.now().date())
+    except ValueError:
+        return jsonify({'error': 'invalid_date', 'message': 'as_of بصيغة YYYY-MM-DD'}), 400
+    return jsonify(summary(as_of)), 200
+
+
 @reports_bp.route('/reports/weight-position/sale/<int:invoice_id>', methods=['GET'])
 @require_permission('reports.financial')
 def get_sale_weight_closing(invoice_id):

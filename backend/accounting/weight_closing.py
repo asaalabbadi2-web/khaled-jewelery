@@ -23,6 +23,9 @@ DEFAULT_WEIGHT_CLOSING_SETTINGS = {
     'reservation_code_prefix': 'RES',
     'cash_safe_box_id': None,
     'cash_account_id': 1100,
+    # The manager's card raises an alert when the oldest sale waits longer than
+    # this (the owner, 16 Oct 2026: 7 days; policy -- his to change).
+    'position_oldest_alert_days': 7,
 }
 
 

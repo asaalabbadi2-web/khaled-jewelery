@@ -519,6 +519,14 @@ def update_weight_closing_settings():
             float(_coerce_float(payload.get('shift_close_gold_pure_deficit_threshold_grams'), 0.10)),
         )
 
+    if 'position_oldest_alert_days' in payload:
+        raw = payload.get('position_oldest_alert_days')
+        days = raw if isinstance(raw, int) and not isinstance(raw, bool) else None
+        if days is None or not 1 <= days <= 365:
+            return jsonify({'error': 'invalid_alert_days',
+                            'message': 'أيام التنبيه عدد صحيح من 1 إلى 365'}), 400
+        merged['position_oldest_alert_days'] = days
+
     # The cash account ID. The gold inventory is no setting: its accounts are
     # the mapped roles gold_inventory_new / gold_inventory_scrap (CHART-002).
     for key in ('cash_account_id',):

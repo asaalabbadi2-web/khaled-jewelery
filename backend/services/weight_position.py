@@ -482,6 +482,35 @@ def position(as_of: dt.date) -> dict:
     }
 
 
+def summary(as_of: dt.date) -> dict:
+    """The manager's card: what waits on *as_of*, what it buys at the shop's
+    price, the price's grip on it, how long the oldest has waited -- with the
+    owner's alert past his days (policy) -- and the month realized so far."""
+    from accounting.weight_closing import _load_weight_closing_settings
+    hi = dt.datetime.combine(as_of, dt.time.max)
+    events = collect_events(year_start(as_of), hi)
+    prices = purchase_prices(as_of)
+    lots = sorted(replay(_until(events, hi)).open_lots, key=lambda lot: lot.when)
+    cash = sum(lot.cash_open for lot in lots)
+    grams = sum(lot.grams_open for lot in lots)
+    price, source = prices(as_of)
+    oldest_days = (hi - lots[0].when).days if lots else None
+    limit = int(_load_weight_closing_settings().get('position_oldest_alert_days') or 7)
+    month = performance(as_of.replace(day=1), as_of, events, prices)
+    return {
+        'as_of': as_of.isoformat(),
+        'open_cash': round(cash, 2), 'open_count': len(lots),
+        'buys_now_grams': round(cash / price, 3) if price else None,
+        'purchase_price': round(price, 4), 'purchase_price_source': source,
+        'unrealized': round(unrealized(cash, grams, price), 3),
+        'grams_per_price_percent': round((cash / price - cash / (price * 1.01)) if price else 0.0, 3),
+        'oldest_date': lots[0].when.isoformat() if lots else None, 'oldest_age_days': oldest_days,
+        'alert': {'oldest_over_days': limit, 'raised': oldest_days is not None and oldest_days > limit},
+        # What the month turned back into gold so far: realized and the weight lines, not ⑤.
+        'month_realized': round(month['realized'] + month['direct'], 3),
+    }
+
+
 def sale_closing(invoice_id: int, as_of: dt.date) -> dict | None:
     """One standing sale, replayed in its own year up to *as_of*; None for
     anything else (a purchase, a held or rejected sale)."""

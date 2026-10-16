@@ -56,6 +56,10 @@ final _dashboard = <String, dynamic>{
 class _Api extends ApiService {
   int invoiceCalls = 0;
 
+  // «التسكير الآن» has its own test (weight_position_summary_card_test.dart).
+  @override
+  Future<Map<String, dynamic>?> getWeightPositionSummary() async => null;
+
   @override
   Future<Map<String, dynamic>> getAdminDashboard() async =>
       jsonDecode(jsonEncode(_dashboard)) as Map<String, dynamic>;

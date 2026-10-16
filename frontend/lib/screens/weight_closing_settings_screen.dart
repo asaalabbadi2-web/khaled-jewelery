@@ -25,6 +25,9 @@ class _WeightClosingSettingsScreenState
   double _goldPureDeficitThresholdGrams = 0.10;
 
   late final TextEditingController _cashThresholdController;
+  late final TextEditingController _alertDaysController;
+  // «التسكير الآن»: alert when the oldest sale waits longer (policy, ADR-048).
+  int _oldestAlertDays = 7;
   late final TextEditingController _goldThresholdController;
 
   static const Map<String, IconData> _priceSourceIcons = {
@@ -50,6 +53,7 @@ class _WeightClosingSettingsScreenState
     super.initState();
     _cashThresholdController = TextEditingController();
     _goldThresholdController = TextEditingController();
+    _alertDaysController = TextEditingController(text: '$_oldestAlertDays');
     _hydrateFromProvider();
     WidgetsBinding.instance.addPostFrameCallback((_) => _loadSettings());
   }
@@ -58,6 +62,7 @@ class _WeightClosingSettingsScreenState
   void dispose() {
     _cashThresholdController.dispose();
     _goldThresholdController.dispose();
+    _alertDaysController.dispose();
     super.dispose();
   }
 
@@ -104,7 +109,7 @@ class _WeightClosingSettingsScreenState
       config['shift_close_gold_pure_deficit_threshold_grams'],
       fallback: 0.10,
     );
-
+    final alertDays = (config['position_oldest_alert_days'] as num?)?.toInt() ?? 7;
 
     if (shouldSetState) {
       setState(() {
@@ -115,6 +120,7 @@ class _WeightClosingSettingsScreenState
         _goldPureDeficitThresholdGrams = goldThreshold < 0
             ? 0.0
             : goldThreshold;
+        _oldestAlertDays = alertDays;
       });
     } else {
       _autoCloseEnabled = enabled;
@@ -122,7 +128,9 @@ class _WeightClosingSettingsScreenState
       _allowOverride = allowOverride;
       _cashDeficitThreshold = cashThreshold < 0 ? 0.0 : cashThreshold;
       _goldPureDeficitThresholdGrams = goldThreshold < 0 ? 0.0 : goldThreshold;
+      _oldestAlertDays = alertDays;
     }
+    _alertDaysController.text = '$_oldestAlertDays';
 
     _cashThresholdController.text = _cashDeficitThreshold.toStringAsFixed(2);
     _goldThresholdController.text = _goldPureDeficitThresholdGrams
@@ -148,6 +156,11 @@ class _WeightClosingSettingsScreenState
 
   Future<void> _saveSettings() async {
     if (_isSaving) return;
+    final alertDays = int.tryParse(_alertDaysController.text.trim());
+    if (alertDays == null || alertDays < 1 || alertDays > 365) {
+      _showSnack('أيام تنبيه التسكير عدد صحيح من 1 إلى 365', isError: true);
+      return;
+    }
     setState(() => _isSaving = true);
 
     final payload = {
@@ -157,6 +170,7 @@ class _WeightClosingSettingsScreenState
       'shift_close_cash_deficit_threshold': _cashDeficitThreshold,
       'shift_close_gold_pure_deficit_threshold_grams':
           _goldPureDeficitThresholdGrams,
+      'position_oldest_alert_days': alertDays,
     };
 
     try {
@@ -225,6 +239,8 @@ class _WeightClosingSettingsScreenState
                   _buildOverrideCard(theme),
                   const SizedBox(height: 16),
                   _buildSecurityThresholds(theme),
+                  const SizedBox(height: 16),
+                  _buildPositionAlertCard(theme),
                   const SizedBox(height: 16),
                   _buildChecklist(theme),
                   const SizedBox(height: 24),
@@ -420,6 +436,40 @@ class _WeightClosingSettingsScreenState
               ? 'يمكن للمستخدم تغيير سعر الإغلاق قبل الاعتماد.'
               : 'لن يمكن لأي مستخدم تغيير السعر الذي يحدده النظام.',
           style: theme.textTheme.bodySmall,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPositionAlertCard(ThemeData theme) {
+    return Card(
+      key: const ValueKey('wc-position-alert'),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'تنبيه التسكير',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'تنبّهك بطاقة «التسكير الآن» في لوحة المدير إذا انتظر أقدم بيع أن تعود ريالاته ذهبًا أكثر من هذه الأيام.',
+              style: theme.textTheme.bodySmall,
+            ),
+            const SizedBox(height: 14),
+            TextField(
+              key: const ValueKey('wc-alert-days'),
+              controller: _alertDaysController,
+              keyboardType: TextInputType.number,
+              decoration: const InputDecoration(
+                labelText: 'أقدم بيع ينتظر أكثر من (يوم)',
+                hintText: 'مثال: 7',
+                prefixIcon: Icon(Icons.schedule),
+              ),
+            ),
+          ],
         ),
       ),
     );

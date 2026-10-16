@@ -2721,6 +2721,16 @@ class ApiService {
     return json.decode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
   }
 
+  /// «التسكير الآن» للوحة المدير (ADR-048): المنتظر وما يشتريه، وأثر السعر،
+  /// وانتظار أقدم بيع مع تنبيه المالك، ومحقَّق الشهر. null لمن لا يقرأ التقارير
+  /// المالية.
+  Future<Map<String, dynamic>?> getWeightPositionSummary() async {
+    final response = await _authedGet(Uri.parse('$_baseUrl/reports/weight-position/summary'));
+    if (response.statusCode == 403) return null;
+    if (response.statusCode != 200) _throwSettlementError(response);
+    return json.decode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
+  }
+
   /// بيع واحد في التسكير: ريالاته، وما رُدّ منها وما أُغلق (وبماذا) وما ينتظر
   /// (ADR-048 المرحلة 3أ). null لما ليس بيعًا مرحَّلًا قائمًا، أو لمن لا يقرأ
   /// التقارير المالية.

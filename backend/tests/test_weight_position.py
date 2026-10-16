@@ -324,6 +324,50 @@ def test_one_sale_is_served_and_what_is_not_a_standing_sale_is_refused_by_name(a
     assert _get(f'/api/reports/weight-position/sale/{sale_id}', _headers('storekeeper')).status_code == 403
 
 
+def _put_settings(body):
+    return _put('/api/weight-closing/settings', body, _headers('system_admin'))
+
+
+def _put(path, body, headers):
+    from app import app as flask_app
+    g.pop('current_user', None)
+    return flask_app.test_client().put(path, headers=headers, json=body)
+
+
+def test_the_summary_says_what_waits_and_raises_the_owner_s_alert_past_his_days(app):
+    """The manager's card (the owner, 16 Oct 2026): what waits, what it buys,
+    the price's grip, and an alert when the oldest sale waits longer than the
+    days he set (policy, default 7)."""
+    from models import Invoice, InvoiceItem, db
+    inv = Invoice(invoice_type='بيع', invoice_type_id=10**8 + uuid.uuid4().int % 10**8, date=D(2036, 5, 1, 10),
+                  total=1000.0, total_tax=0.0, is_posted=True, status='paid')
+    db.session.add(inv)
+    db.session.flush()
+    db.session.add(InvoiceItem(invoice_id=inv.id, name='سلسال', quantity=1, price=1000.0, karat=21.0, weight=2.0))
+    db.session.flush()
+
+    assert _put_settings({'position_oldest_alert_days': 7}).status_code == 200
+    body = _get('/api/reports/weight-position/summary?as_of=2036-05-10', _headers('accountant')).get_json()
+    assert (body['open_cash'], body['open_count'], body['oldest_age_days']) == (1000.0, 1, 9)
+    for key in ('buys_now_grams', 'purchase_price', 'unrealized', 'grams_per_price_percent', 'month_realized'):
+        assert key in body, key
+    assert body['alert'] == {'oldest_over_days': 7, 'raised': True}
+
+    assert _put_settings({'position_oldest_alert_days': 10}).status_code == 200
+    body = _get('/api/reports/weight-position/summary?as_of=2036-05-10', _headers('accountant')).get_json()
+    assert body['alert'] == {'oldest_over_days': 10, 'raised': False}
+
+
+@pytest.mark.parametrize('days', [0, -3, 'سبعة', 400])
+def test_the_alert_days_are_a_whole_number_of_days_or_refused(app, days):
+    resp = _put_settings({'position_oldest_alert_days': days})
+    assert resp.status_code == 400 and resp.get_json()['error'] == 'invalid_alert_days'
+
+
+def test_the_summary_is_for_who_reads_the_profits(app):
+    assert _get('/api/reports/weight-position/summary', _headers('storekeeper')).status_code == 403
+
+
 def test_not_to_a_storekeeper(app):
     assert _get('/api/reports/weight-position', _headers('storekeeper')).status_code == 403
     assert _get('/api/reports/weight-performance', _headers('storekeeper')).status_code == 403
