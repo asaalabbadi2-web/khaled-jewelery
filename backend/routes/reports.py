@@ -4037,7 +4037,8 @@ def get_sale_weight_closing(invoice_id):
 @require_permission('reports.financial')
 def get_weight_performance():
     """The weight profit of a period, in its five layers, and month by month (ADR-048)."""
-    from services.weight_position import performance, performance_by_month
+    from services.weight_position import (collect_events, performance, performance_by_month,
+                                          purchase_prices, year_start)
     try:
         end = _report_date('end_date', datetime.now().date())
         start = _report_date('start_date', end.replace(day=1))
@@ -4045,7 +4046,11 @@ def get_weight_performance():
         return jsonify({'error': 'invalid_date', 'message': 'start_date و end_date بصيغة YYYY-MM-DD'}), 400
     if start > end:
         return jsonify({'error': 'invalid_range', 'message': 'بداية الفترة بعد نهايتها'}), 400
-    return jsonify({'period': performance(start, end), 'months': performance_by_month(start, end)}), 200
+    # The year's books and purchase prices read once, for the period and its months.
+    events = collect_events(year_start(end), datetime.combine(end, datetime.max.time()))
+    prices = purchase_prices(end)
+    return jsonify({'period': performance(start, end, events, prices),
+                    'months': performance_by_month(start, end, events, prices)}), 200
 
 
 @reports_bp.route('/reports/gram_profit', methods=['GET'])

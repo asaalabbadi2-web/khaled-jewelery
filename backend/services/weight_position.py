@@ -357,31 +357,40 @@ def collect_events(start: dt.datetime, end: dt.datetime) -> Events:
     return events
 
 
-def purchase_price(until: dt.date, days: int = PURCHASE_PRICE_DAYS):
-    """(price per gram of the main karat, where it came from): what the shop
-    paid for customers' gold on its last *days* days that had a purchase.
+def purchase_prices(until: dt.date, days: int = PURCHASE_PRICE_DAYS):
+    """price_on(day) -> (price per gram of the main karat, where it came from),
+    for any day up to *until*: what the shop paid for customers' gold on its
+    last *days* days that had a purchase, from one reading of the purchases.
 
     Purchase days, not calendar days: a day with no purchase moves nothing
     (16 Oct 2026: a quiet day showed -10 g only because an old day left a
     calendar window). From the invoices alone -- no live feed."""
+    import bisect
     from models import Invoice
     from routes import _invoice_weight_in_main_karat
     end = dt.datetime.combine(until, dt.time.max)
-    rows, seen = [], set()
+    per_day = collections.defaultdict(list)                  # day -> [(cash, grams)], latest first
     for inv in (_with_weight_lines(Invoice.query).filter(Invoice.invoice_type == CUSTOMER_BUY,
                                                          Invoice.is_posted.is_(True), Invoice.date <= end)
-                .order_by(Invoice.date.desc()).limit(2000)):
-        day = inv.date.date()
-        if day not in seen and len(seen) == days:
-            break
-        seen.add(day)
-        rows.append(inv)
-    if not rows:
-        return 0.0, 'لا شراء'
-    cash = sum(float(r.total or 0) for r in rows)
-    grams = sum(_invoice_weight_in_main_karat(r) for r in rows)
-    first, last = min(seen), max(seen)
-    return (cash / grams if grams else 0.0), f'متوسط شراء الكسر في آخر {len(seen)} أيام شراء ({first:%m-%d} إلى {last:%m-%d})'
+                .order_by(Invoice.date.desc())):
+        per_day[inv.date.date()].append((float(inv.total or 0), _invoice_weight_in_main_karat(inv)))
+    ordered = sorted(per_day)
+
+    def price_on(day: dt.date):
+        at = bisect.bisect_right(ordered, day)
+        window = ordered[max(at - days, 0):at]
+        if not window:
+            return 0.0, 'لا شراء'
+        rows = [row for d in reversed(window) for row in per_day[d]]
+        cash, grams = sum(r[0] for r in rows), sum(r[1] for r in rows)
+        return ((cash / grams if grams else 0.0),
+                f'متوسط شراء الكسر في آخر {len(window)} أيام شراء ({window[0]:%m-%d} إلى {window[-1]:%m-%d})')
+    return price_on
+
+
+def purchase_price(until: dt.date, days: int = PURCHASE_PRICE_DAYS):
+    """(price, where it came from) on *until* -- see purchase_prices."""
+    return purchase_prices(until, days)(until)
 
 
 def year_start(day: dt.date) -> dt.datetime:
@@ -495,9 +504,13 @@ def sale_closing(invoice_id: int, as_of: dt.date) -> dict | None:
     return view
 
 
-def performance_by_month(start: dt.date, end: dt.date) -> list:
-    """Each month of *start*..*end*: its five layers, from one replay."""
-    result = _replayed(end)
+def performance_by_month(start: dt.date, end: dt.date, events: Events = None, prices=None) -> list:
+    """Each month of *start*..*end*: its five layers, from one replay.
+    *events* / *prices*: the year's books and purchase prices already read."""
+    hi = dt.datetime.combine(end, dt.time.max)
+    events = events if events is not None else collect_events(year_start(end), hi)
+    prices = prices or purchase_prices(end)
+    result = replay(_until(events, hi))
     rows, previous_u = [], 0.0
     first_month = dt.date(start.year, start.month, 1)
     for m in sorted(result.by_month):
@@ -505,7 +518,7 @@ def performance_by_month(start: dt.date, end: dt.date) -> list:
         month_start = dt.date(year, mon, 1)
         month_last = min(dt.date(year + mon // 12, mon % 12 + 1, 1) - dt.timedelta(days=1), end)
         cash_m, grams_m = result.month_end.get(m, (0.0, 0.0))
-        price, _ = purchase_price(month_last)
+        price, _ = prices(month_last)
         u = unrealized(cash_m, grams_m, price)
         if month_start >= first_month:
             lo, hi = dt.datetime.combine(month_start, dt.time.min), dt.datetime.combine(month_last, dt.time.max)
@@ -519,12 +532,13 @@ def performance_by_month(start: dt.date, end: dt.date) -> list:
     return rows
 
 
-def performance(start: dt.date, end: dt.date) -> dict:
+def performance(start: dt.date, end: dt.date, events: Events = None, prices=None) -> dict:
     """The weight profit of *start*..*end* (inclusive): what was realized in
     it, the weight lines in it, and how the unrealized moved -- from the end
     of the day before *start* (nothing before the year) to the end of *end*."""
     lo, hi = dt.datetime.combine(start, dt.time.min), dt.datetime.combine(end, dt.time.max)
-    events = collect_events(year_start(end), hi)
+    events = events if events is not None else collect_events(year_start(end), hi)
+    prices = prices or purchase_prices(end)
     result = replay(_until(events, hi))
     taken = [s for s in result.slices if lo <= s.when <= hi]
     by_kind = collections.Counter()
@@ -539,14 +553,14 @@ def performance(start: dt.date, end: dt.date) -> dict:
         if day < year_start(end).date():
             return 0.0
         lots = replay(_until(events, dt.datetime.combine(day, dt.time.max))).open_lots
-        price, _ = purchase_price(day)
+        price, _ = prices(day)
         return unrealized(sum(lot.cash_open for lot in lots), sum(lot.grams_open for lot in lots), price)
 
     before = unrealized_on(start - dt.timedelta(days=1))
     after = unrealized_on(end)
     # ⑤ the price on what waits: how the open riyals' worth in grams moved
     layers['price_effect'] = after - before
-    price, source = purchase_price(end)
+    price, source = prices(end)
     return {
         'start': start.isoformat(), 'end': end.isoformat(),
         'realized': round(realized, 3), 'direct': round(direct, 3),

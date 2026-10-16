@@ -350,7 +350,7 @@ def test_the_books_are_read_in_queries_that_do_not_grow_with_the_invoices(app):
     many invoices the year holds."""
     from sqlalchemy import event
     from models import Invoice, InvoiceItem, db
-    from services.weight_position import performance
+    from services.weight_position import performance, performance_by_month
 
     def add_sales(n):
         for _ in range(n):
@@ -370,6 +370,7 @@ def test_the_books_are_read_in_queries_that_do_not_grow_with_the_invoices(app):
         try:
             with app.test_request_context():
                 performance(dt.date(2035, 6, 1), dt.date(2035, 6, 30))
+                performance_by_month(dt.date(2035, 1, 1), dt.date(2035, 6, 30))
         finally:
             event.remove(db.engine, 'before_cursor_execute', listener)
         return len(seen)
