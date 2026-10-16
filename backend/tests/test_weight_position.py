@@ -344,6 +344,43 @@ def test_gram_profit_is_the_engine_s_five_layers(app):
     assert body['net_profit_weight'] == pytest.approx(whole, abs=0.01)
 
 
+def test_the_books_are_read_in_queries_that_do_not_grow_with_the_invoices(app):
+    """A day's gram profit read each invoice's lines on its own -- 8,073 queries,
+    3 s on the production copy (16 Oct 2026). The count stays the same however
+    many invoices the year holds."""
+    from sqlalchemy import event
+    from models import Invoice, InvoiceItem, db
+    from services.weight_position import performance
+
+    def add_sales(n):
+        for _ in range(n):
+            inv = Invoice(invoice_type='بيع', invoice_type_id=10**8 + uuid.uuid4().int % 10**8,
+                          date=D(2035, 6, 10, 10), total=1000.0, total_tax=0.0, is_posted=True, status='paid')
+            db.session.add(inv)
+            db.session.flush()
+            db.session.add(InvoiceItem(invoice_id=inv.id, name='سلسال', quantity=1, price=1000.0,
+                                       karat=21.0, weight=2.0))
+        db.session.flush()
+        db.session.expire_all()
+
+    def statements():
+        seen = []
+        listener = lambda *a: seen.append(1)
+        event.listen(db.engine, 'before_cursor_execute', listener)
+        try:
+            with app.test_request_context():
+                performance(dt.date(2035, 6, 1), dt.date(2035, 6, 30))
+        finally:
+            event.remove(db.engine, 'before_cursor_execute', listener)
+        return len(seen)
+
+    add_sales(2)
+    statements()                      # the first reading warms what is read once (mappings, the chart)
+    few = statements()
+    add_sales(20)
+    assert statements() == few
+
+
 def test_a_day_with_no_purchase_moves_no_price(app, auth_headers, world):
     """The open riyals are valued at the last purchase days, not calendar days:
     a quiet day showed -10 g only because an old day left a calendar window

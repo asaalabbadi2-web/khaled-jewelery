@@ -264,6 +264,25 @@ def unrealized(cash_open: float, grams_open: float, price: float) -> float:
 
 # ── the books ─────────────────────────────────────────────────────────────
 
+def _with_weight_lines(query):
+    """An invoice's weight is read from its karat lines or items: load them with
+    the invoices, not one query per invoice (8,073 of them made a day's gram
+    profit take 3 s on the production copy, 16 Oct 2026)."""
+    from sqlalchemy.orm import selectinload
+    from models import Invoice
+    return query.options(selectinload(Invoice.karat_lines), selectinload(Invoice.items))
+
+
+def _until(events: Events, moment: dt.datetime) -> Events:
+    """The events up to *moment*, as fresh lots: the queue replays them again
+    without reading the books again (replay consumes its lots)."""
+    import dataclasses
+    return Events(openings=[dataclasses.replace(lot) for lot in events.openings if lot.when <= moment],
+                  closings=[c for c in events.closings if c.when <= moment],
+                  returns=[r for r in events.returns if r.when <= moment],
+                  direct=[d for d in events.direct if d[0] <= moment])
+
+
 def collect_events(start: dt.datetime, end: dt.datetime) -> Events:
     """Sources and uses from the posted books between *start* and *end*."""
     from accounting.balances import counted_line_filters
@@ -275,7 +294,7 @@ def collect_events(start: dt.datetime, end: dt.datetime) -> Events:
     from services.sales_vat import posted_sales_vat
 
     events = Events()
-    invoices = (Invoice.query
+    invoices = (_with_weight_lines(Invoice.query)
                 .filter(Invoice.is_posted.is_(True), Invoice.date >= start, Invoice.date <= end)
                 .filter(db.func.coalesce(Invoice.status, '').notin_(list(RETRACTED_INVOICE_STATUSES)))
                 .order_by(Invoice.date, Invoice.id).all())
@@ -349,8 +368,8 @@ def purchase_price(until: dt.date, days: int = PURCHASE_PRICE_DAYS):
     from routes import _invoice_weight_in_main_karat
     end = dt.datetime.combine(until, dt.time.max)
     rows, seen = [], set()
-    for inv in (Invoice.query.filter(Invoice.invoice_type == CUSTOMER_BUY, Invoice.is_posted.is_(True),
-                                     Invoice.date <= end)
+    for inv in (_with_weight_lines(Invoice.query).filter(Invoice.invoice_type == CUSTOMER_BUY,
+                                                         Invoice.is_posted.is_(True), Invoice.date <= end)
                 .order_by(Invoice.date.desc()).limit(2000)):
         day = inv.date.date()
         if day not in seen and len(seen) == days:
@@ -500,18 +519,13 @@ def performance_by_month(start: dt.date, end: dt.date) -> list:
     return rows
 
 
-def open_on(day: dt.date):
-    """(open riyals, their grams sold) at the end of *day*."""
-    lots = _replayed(day).open_lots
-    return sum(lot.cash_open for lot in lots), sum(lot.grams_open for lot in lots)
-
-
 def performance(start: dt.date, end: dt.date) -> dict:
     """The weight profit of *start*..*end* (inclusive): what was realized in
     it, the weight lines in it, and how the unrealized moved -- from the end
     of the day before *start* (nothing before the year) to the end of *end*."""
-    result = _replayed(end)
     lo, hi = dt.datetime.combine(start, dt.time.min), dt.datetime.combine(end, dt.time.max)
+    events = collect_events(year_start(end), hi)
+    result = replay(_until(events, hi))
     taken = [s for s in result.slices if lo <= s.when <= hi]
     by_kind = collections.Counter()
     for piece in taken:
@@ -524,9 +538,9 @@ def performance(start: dt.date, end: dt.date) -> dict:
     def unrealized_on(day: dt.date) -> float:
         if day < year_start(end).date():
             return 0.0
-        cash, grams = open_on(day)
+        lots = replay(_until(events, dt.datetime.combine(day, dt.time.max))).open_lots
         price, _ = purchase_price(day)
-        return unrealized(cash, grams, price)
+        return unrealized(sum(lot.cash_open for lot in lots), sum(lot.grams_open for lot in lots), price)
 
     before = unrealized_on(start - dt.timedelta(days=1))
     after = unrealized_on(end)
