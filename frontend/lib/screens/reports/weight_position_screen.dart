@@ -361,11 +361,13 @@ class _WeightPositionScreenState extends State<WeightPositionScreen> {
                 style: Theme.of(ctx).textTheme.titleMedium),
             const SizedBox(height: 8),
             Text('التاريخ: ${'${lot['date']}'.split('T').first} (منذ ${lot['age_days']} يوم)'),
-            Text('ثمنه: ${_money.format(_d(lot['cash']))} ر.س، والمنتظر منه ${_money.format(_d(lot['cash_open']))}'),
-            Text('الغرامات المُباعة مقابل المنتظر: ${_g(lot['grams_open'])}'),
-            if (lot['expected_at_sale'] != null) Text('المتوقَّع وقت البيع: ${_g(lot['expected_at_sale'], signed: true)}'),
-            Text('غير المحقَّق الآن: ${_g(lot['unrealized'], signed: true)}'),
-            if (lot['invoice_id'] is int) SaleClosingCard(api: widget.api, invoiceId: lot['invoice_id'] as int),
+            // A sale: its card says the rest (price, bar, results, what closed it).
+            if (lot['invoice_id'] is int)
+              SaleClosingCard(api: widget.api, invoiceId: lot['invoice_id'] as int)
+            else ...[
+              Text('المبلغ: ${_money.format(_d(lot['cash']))}، والمنتظر منه ${_money.format(_d(lot['cash_open']))}'),
+              Text('غير المحقَّق الآن: ${_g(lot['unrealized'], signed: true)}'),
+            ],
           ]),
         ),
       ),

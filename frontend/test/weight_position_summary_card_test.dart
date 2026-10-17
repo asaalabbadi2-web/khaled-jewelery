@@ -1,17 +1,28 @@
 // «التسكير الآن» في لوحة المدير (ADR-048): البطاقة تعرض ما يقوله الخادم --
 // المنتظر وما يشتريه، وأثر السعر، وانتظار أقدم بيع وتنبيه المالك، ومحقَّق
 // الشهر -- ولا تحسب شيئًا، ولا تظهر لمن لا يقرأ التقارير المالية.
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:frontend/api_service.dart';
+import 'package:frontend/providers/settings_provider.dart';
+import 'package:frontend/utils/currency_utils.dart' as cu;
 import 'package:frontend/screens/reports/weight_position_screen.dart';
 import 'package:frontend/widgets/weight_position_summary_card.dart';
+import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 Map<String, dynamic> _summary({bool raised = true, int count = 51}) => {
       'as_of': '2026-10-16', 'open_cash': 261822.43, 'open_count': count, 'buys_now_grams': 619.378,
       'purchase_price': 422.7182, 'purchase_price_source': 'متوسط شراء الكسر في آخر 7 أيام شراء',
       'unrealized': 148.869, 'grams_per_price_percent': 6.132, 'oldest_date': '2026-10-08T19:37:30',
       'oldest_age_days': 8, 'alert': {'oldest_over_days': raised ? 7 : 10, 'raised': raised},
+      'age_buckets': [
+        {'key': 'recent', 'from_days': 0, 'to_days': 3, 'cash': 160000.0, 'count': 30, 'share': 0.611},
+        {'key': 'aging', 'from_days': 4, 'to_days': 7, 'cash': 70000.0, 'count': 15, 'share': 0.2674},
+        {'key': 'late', 'from_days': 8, 'to_days': null, 'cash': 31822.43, 'count': 6, 'share': 0.1215},
+      ],
       'month_realized': 254.378,
     };
 
@@ -52,33 +63,83 @@ Future<void> _pump(WidgetTester tester, ApiService api) async {
   await tester.pumpAndSettle();
 }
 
-String _text(WidgetTester tester, String key) => tester.widget<Text>(find.byKey(ValueKey(key))).data!;
+String _text(WidgetTester tester, String key) {
+  final at = find.byKey(ValueKey(key));
+  final text = find.descendant(of: at, matching: find.byType(Text), matchRoot: true);
+  return tester.widget<Text>(text.first).data!;
+}
 
 void main() {
-  testWidgets('what waits, what it buys, the price\'s grip and the month -- as the server says', (tester) async {
+  testWidgets('what waits is the headline; what it buys, the price\'s grip and the month are its tiles', (tester) async {
     await _pump(tester, _Api(() async => _summary()));
-    expect(_text(tester, 'wps-open'), 'ينتظر \u2066261,822\u2069 ر.س من \u206651\u2069 بيعًا');
-    expect(find.text('يشتري الآن \u2066619.4\u2069 غ بسعرك \u2066422.72\u2069'), findsOneWidget);
-    expect(find.text('غير المحقَّق \u2066+148.9\u2069 غ'), findsOneWidget);
-    expect(find.text('كل \u20661%\u2069 صعود في السعر = \u2066−6.1\u2069 غ'), findsOneWidget);
-    expect(_text(tester, 'wps-month'), 'المحقَّق هذا الشهر \u2066+254.4\u2069 غ');
+    expect(_text(tester, 'wps-open'), '\u2066261,822\u2069 ر.س');
+    expect(_text(tester, 'wps-count'), 'من \u206651\u2069 بيعًا');
+    expect(_text(tester, 'wps-buys'), 'يشتري الآن \u2066619.4\u2069 غ بسعرك \u2066422.72\u2069');
+    expect(find.descendant(of: find.byKey(const ValueKey('wps-unrealized')), matching: find.text('\u2066+148.9\u2069 غ')),
+        findsOneWidget);
+    expect(find.descendant(of: find.byKey(const ValueKey('wps-grip')), matching: find.text('\u2066−6.1\u2069 غ')),
+        findsOneWidget);
+    expect(find.descendant(of: find.byKey(const ValueKey('wps-month')), matching: find.text('\u2066+254.4\u2069 غ')),
+        findsOneWidget);
+  });
+
+  testWidgets('what waits, by age: the server\'s three parts and their shares', (tester) async {
+    await _pump(tester, _Api(() async => _summary()));
+    expect(find.byKey(const ValueKey('wps-ages')), findsOneWidget);
+    expect(find.text('حتى \u20663\u2069 أيام  \u206661%\u2069'), findsOneWidget);
+    expect(find.text('\u20664–7\u2069 أيام  \u206627%\u2069'), findsOneWidget);
+    expect(find.text('أكثر من \u20667\u2069 أيام  \u206612%\u2069'), findsOneWidget);
   });
 
   testWidgets('the owner\'s alert shows when the server raises it, and only then', (tester) async {
     await _pump(tester, _Api(() async => _summary(raised: true)));
     expect(_text(tester, 'wps-oldest-text'), 'أقدم بيع ينتظر منذ \u20668\u2069 أيام — تجاوز \u20667\u2069');
-    expect(find.byIcon(Icons.warning_amber_rounded), findsOneWidget);
 
     await _pump(tester, _Api(() async => _summary(raised: false)));
-    expect(_text(tester, 'wps-oldest-text'), 'أقدم بيع ينتظر منذ \u20668\u2069 أيام');
-    expect(find.byIcon(Icons.warning_amber_rounded), findsNothing);
+    expect(find.byKey(const ValueKey('wps-oldest')), findsNothing);
   });
 
   testWidgets('nothing waiting says so, and keeps the month', (tester) async {
     await _pump(tester, _Api(() async => _summary(count: 0)));
     expect(find.byKey(const ValueKey('wps-nothing')), findsOneWidget);
-    expect(find.byKey(const ValueKey('wps-oldest')), findsNothing);
+    expect(find.byKey(const ValueKey('wps-ages')), findsNothing);
     expect(find.byKey(const ValueKey('wps-month')), findsOneWidget);
+  });
+
+  testWidgets('a phone\'s width: everything still fits', (tester) async {
+    tester.view.physicalSize = const Size(380, 1600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(MaterialApp(
+      home: Directionality(
+        textDirection: TextDirection.rtl,
+        child: Scaffold(body: SingleChildScrollView(child: WeightPositionSummaryCard(api: _Api(() async => _summary())))),
+      ),
+    ));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    expect(find.byKey(const ValueKey('wps-ages')), findsOneWidget);
+  });
+
+  testWidgets('the riyals in the shop\'s own currency: the new SAR graphic when it is set', (tester) async {
+    SharedPreferences.setMockInitialValues({'app_settings': jsonEncode({'currency_symbol': cu.kSarNewSymbol})});
+    final settings = SettingsProvider();
+    await settings.loadSettings(fetchRemote: false);
+    tester.view.physicalSize = const Size(1200, 1600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(ChangeNotifierProvider<SettingsProvider>.value(
+      value: settings,
+      child: MaterialApp(
+        home: Directionality(
+          textDirection: TextDirection.rtl,
+          child: Scaffold(body: WeightPositionSummaryCard(api: _Api(() async => _summary()))),
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+    expect(find.descendant(of: find.byKey(const ValueKey('wps-open')), matching: find.byType(cu.SarSymbolImage)),
+        findsOneWidget);
   });
 
   testWidgets('not for this reader: no card at all', (tester) async {

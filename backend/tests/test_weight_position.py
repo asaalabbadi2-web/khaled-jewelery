@@ -93,6 +93,10 @@ def test_every_riyal_of_a_sale_is_returned_closed_or_open():
     assert (view['returned_cash'], view['closed_cash'], view['cash_open']) == \
         (pytest.approx(1000), pytest.approx(2600), pytest.approx(2400))
     assert view['returned_cash'] + view['closed_cash'] + view['cash_open'] == pytest.approx(view['cash'])
+    # The card's bar: each part's share of the sale's riyals, from the server.
+    assert view['shares'] == {'closed': pytest.approx(2600 / 6000, abs=1e-4),
+                              'returned': pytest.approx(1000 / 6000, abs=1e-4),
+                              'open': pytest.approx(2400 / 6000, abs=1e-4)}
     expense, purchase = view['closings']
     assert (expense['kind'], expense['cash'], expense['grams_in'], expense['grams_out']) == \
         (EXPENSE, 600, 0.0, pytest.approx(1.0, abs=0.001))
@@ -352,6 +356,11 @@ def test_the_summary_says_what_waits_and_raises_the_owner_s_alert_past_his_days(
     for key in ('buys_now_grams', 'purchase_price', 'unrealized', 'grams_per_price_percent', 'month_realized'):
         assert key in body, key
     assert body['alert'] == {'oldest_over_days': 7, 'raised': True}
+    # What waits, by age -- the card's bar: the server cuts it at 3 days and at
+    # the owner's alert days, and gives each part its share of the riyals.
+    assert [(b['key'], b['from_days'], b['to_days'], b['cash'], b['count'], b['share'])
+            for b in body['age_buckets']] == [('recent', 0, 3, 0.0, 0, 0.0), ('aging', 4, 7, 0.0, 0, 0.0),
+                                              ('late', 8, None, 1000.0, 1, 1.0)]
 
     assert _put_settings({'position_oldest_alert_days': 10}).status_code == 200
     body = _get('/api/reports/weight-position/summary?as_of=2036-05-10', _headers('accountant')).get_json()

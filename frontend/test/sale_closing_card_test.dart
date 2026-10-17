@@ -19,6 +19,7 @@ Map<String, dynamic> _view() => {
       'cash': 6000.0, 'grams': 10.0, 'expected_at_sale': 2.0,
       'returned_cash': 1000.0, 'returned_grams': 1.667, 'returned_after_closing_cash': 0.0,
       'closed_cash': 2600.0, 'cash_open': 2400.0, 'grams_open': 4.0,
+      'shares': {'closed': 0.4333, 'returned': 0.1667, 'open': 0.4},
       'realized': -0.333, 'unrealized': 0.8,
       'closings': [
         {'date': '2026-10-03T10:00:00', 'kind': 'expense', 'invoice_id': null, 'invoice_number': null,
@@ -51,16 +52,39 @@ Future<void> _pump(WidgetTester tester, ApiService api) async {
 }
 
 void main() {
-  testWidgets('a sale\'s riyals: returned, closed by what, and waiting -- as the server says', (tester) async {
+  testWidgets('a sale\'s riyals in one bar -- closed, returned, waiting -- as the server says', (tester) async {
     await _pump(tester, _Api(() async => _view()));
     expect(find.text('مُسكَّر جزئيًّا'), findsOneWidget);
-    expect(find.textContaining('رُدّ بمرتجع \u20661,000.00\u2069 ر.س'), findsOneWidget);
-    final closed = tester.widget<Text>(find.byKey(const ValueKey('sale-closing-closed')));
-    expect(closed.data, 'أُغلق \u20662,600.00\u2069 ر.س، نتيجته \u2066−0.333\u2069 غ');
+    expect(find.text('\u206643%\u2069 أُغلق'), findsOneWidget);
+    expect(find.text('أُغلق \u20662,600.00\u2069 ر.س'), findsOneWidget);
+    expect(find.text('رُدّ \u20661,000.00\u2069 ر.س'), findsOneWidget);
+    expect(find.text('ينتظر \u20662,400.00\u2069 ر.س'), findsOneWidget);
+    expect(find.descendant(of: find.byKey(const ValueKey('sale-closing-closed')), matching: find.text('\u2066−0.333\u2069 غ')),
+        findsOneWidget);
     expect(find.byKey(const ValueKey('sale-closing-open')), findsOneWidget);
-    expect(find.text('مصروف · \u20662026-10-03\u2069'), findsOneWidget);
+  });
+
+  testWidgets('what closed it, in time order, each with its result', (tester) async {
+    await _pump(tester, _Api(() async => _view()));
+    expect(find.text('مصروفات · \u20662026-10-03\u2069'), findsOneWidget);
     expect(find.text('شراء كسر من عميل #812 · \u20662026-10-04\u2069'), findsOneWidget);
     expect(find.text('\u2066+0.667\u2069 غ'), findsOneWidget);
+    expect(find.text('\u2066−1.000\u2069 غ'), findsOneWidget);
+  });
+
+  testWidgets('a phone\'s width: the bar, the tiles and the steps still fit', (tester) async {
+    tester.view.physicalSize = const Size(360, 1800);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(MaterialApp(
+      home: Directionality(
+        textDirection: TextDirection.rtl,
+        child: Scaffold(body: SingleChildScrollView(child: SaleClosingCard(api: _Api(() async => _view()), invoiceId: 3280))),
+      ),
+    ));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    expect(find.byKey(const ValueKey('sale-closing-bar')), findsOneWidget);
   });
 
   testWidgets('a fully closed sale shows nothing waiting', (tester) async {
@@ -73,7 +97,7 @@ void main() {
     await _pump(tester, _Api(() async => {..._view(), 'status': 'closed', 'returned_cash': 0.0,
                                          'returned_after_closing_cash': 3000.0, 'cash_open': 0.0}));
     expect(find.byKey(const ValueKey('sale-closing-returned-after')), findsOneWidget);
-    expect(find.textContaining('رُدّ بمرتجع'), findsNothing);
+    expect(find.byKey(const ValueKey('sale-closing-part-returned')), findsNothing);
   });
 
   testWidgets('a sale nothing closed yet says only what waits', (tester) async {

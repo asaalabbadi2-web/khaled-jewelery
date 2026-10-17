@@ -32,6 +32,7 @@ SOLD, REVENUE = 'sold', 'revenue'
 # A weight line's side.
 REVENUE_SIDE, EXPENSE_SIDE = 'revenue', 'expense'
 PURCHASE_PRICE_DAYS = 7          # the window the open riyals are valued at (the owner, 16 Oct 2026)
+RECENT_DAYS = 3                  # the manager's card: what waits up to 3 days is recent
 
 
 @dataclass
@@ -229,6 +230,9 @@ def sale_view(result: Replay, events: Events, invoice_id: int, price: float) -> 
         'returned_cash': round(lot.returned_cash, 2), 'returned_grams': round(lot.returned_grams, 3),
         'returned_after_closing_cash': round(max(sum(r.cash for r in returned) - lot.returned_cash, 0.0), 2),
         'closed_cash': round(closed_cash, 2), 'cash_open': round(lot.cash_open, 2),
+        # Each part's share of the sale's riyals -- the card's bar.
+        'shares': {name: (round(part / lot.cash, 4) if lot.cash else 0.0) for name, part in
+                   (('closed', closed_cash), ('returned', lot.returned_cash), ('open', lot.cash_open))},
         'grams_open': round(lot.grams_open, 3),
         'closings': [{'date': piece.when.isoformat(), 'kind': piece.kind, 'invoice_id': piece.invoice_id,
                       'cash': round(piece.cash, 2), 'grams_in': round(piece.grams_in, 3),
@@ -497,6 +501,16 @@ def summary(as_of: dt.date) -> dict:
     oldest_days = (hi - lots[0].when).days if lots else None
     limit = int(_load_weight_closing_settings().get('position_oldest_alert_days') or 7)
     month = performance(as_of.replace(day=1), as_of, events, prices)
+    # What waits, by age, cut at 3 days and at the owner's alert days.
+    recent_to = min(RECENT_DAYS, limit)
+    cuts = [('recent', 0, recent_to)] + ([('aging', recent_to + 1, limit)] if limit > recent_to else []) \
+        + [('late', limit + 1, None)]
+    buckets = []
+    for key, lo, hi_days in cuts:
+        part = [lot for lot in lots if lo <= (hi - lot.when).days and (hi_days is None or (hi - lot.when).days <= hi_days)]
+        part_cash = sum(lot.cash_open for lot in part)
+        buckets.append({'key': key, 'from_days': lo, 'to_days': hi_days, 'cash': round(part_cash, 2),
+                        'count': len(part), 'share': round(part_cash / cash, 4) if cash else 0.0})
     return {
         'as_of': as_of.isoformat(),
         'open_cash': round(cash, 2), 'open_count': len(lots),
@@ -506,6 +520,7 @@ def summary(as_of: dt.date) -> dict:
         'grams_per_price_percent': round((cash / price - cash / (price * 1.01)) if price else 0.0, 3),
         'oldest_date': lots[0].when.isoformat() if lots else None, 'oldest_age_days': oldest_days,
         'alert': {'oldest_over_days': limit, 'raised': oldest_days is not None and oldest_days > limit},
+        'age_buckets': buckets,
         # What the month turned back into gold so far: realized and the weight lines, not ⑤.
         'month_realized': round(month['realized'] + month['direct'], 3),
     }
