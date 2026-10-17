@@ -27,6 +27,7 @@ import '../utils/bidi.dart';
 import '../utils/currency_utils.dart' as cu;
 import '../providers/settings_provider.dart';
 import '../theme/app_theme.dart' as app_theme;
+import '../widgets/app_state_views.dart';
 
 enum _StatementDisplayMode { table, cards }
 
@@ -1209,100 +1210,23 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
 
   /// The page's shape while it loads -- the summary cards, the toolbar and a
   /// few rows -- instead of a lone spinner (the statement took 11 s once).
-  Widget _buildLoadingSkeleton() {
-    final scheme = Theme.of(context).colorScheme;
-    Widget block(double height, {double? width}) => Container(
-          height: height,
-          width: width,
-          decoration: BoxDecoration(
-            color: scheme.surfaceContainerHighest.withValues(alpha: 0.7),
-            borderRadius: BorderRadius.circular(10),
-          ),
-        );
-    return Padding(
-      key: const Key('statement-skeleton'),
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Row(children: [
-            for (var i = 0; i < 3; i++) ...[
-              if (i > 0) const SizedBox(width: 12),
-              Expanded(child: block(92)),
-            ],
-          ]),
-          const SizedBox(height: 16),
-          block(52),
-          const SizedBox(height: 16),
-          for (var i = 0; i < 6; i++) ...[block(44), const SizedBox(height: 8)],
-          const SizedBox(height: 4),
-          const LinearProgressIndicator(minHeight: 2),
-        ],
-      ),
-    );
-  }
+  Widget _buildLoadingSkeleton() =>
+      const AppLoadingView(key: Key('statement-skeleton'));
 
   /// A failed load says it failed and offers to try again -- it used to read
   /// «لا توجد سجلات», as if the account had no movement.
-  Widget _buildLoadErrorState() {
-    final theme = Theme.of(context);
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          key: const Key('statement-load-error'),
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.cloud_off_outlined, size: 56, color: theme.colorScheme.error),
-            const SizedBox(height: 12),
-            Text('تعذّر تحميل الكشف', style: theme.textTheme.titleMedium),
-            const SizedBox(height: 6),
-            Text(
-              _loadError ?? '',
-              textAlign: TextAlign.center,
-              style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
-            ),
-            const SizedBox(height: 16),
-            FilledButton.icon(
-              onPressed: _fetchAccountStatement,
-              icon: const Icon(Icons.refresh),
-              label: const Text('إعادة المحاولة'),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
+  Widget _buildLoadErrorState() => AppErrorView(
+    key: const Key('statement-load-error'),
+    title: 'تعذّر تحميل الكشف',
+    error: _loadError,
+    onRetry: _fetchAccountStatement,
+  );
 
-  Widget _buildEmptyLinesState() {
-    final theme = Theme.of(context);
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(
-            Icons.receipt_long_outlined,
-            size: 64,
-            color: theme.colorScheme.primary.withValues(alpha: 0.35),
-          ),
-          const SizedBox(height: 16),
-          Text(
-            'لا توجد حركات مطابقة',
-            style: theme.textTheme.titleMedium?.copyWith(
-              color: theme.colorScheme.onSurface.withValues(alpha: 0.72),
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'عدّل الفلاتر أو ابحث بمعايير أخرى لإظهار النتائج',
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: theme.colorScheme.onSurface.withValues(alpha: 0.56),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
+  Widget _buildEmptyLinesState() => const AppEmptyView(
+    icon: Icons.receipt_long_outlined,
+    title: 'لا توجد حركات مطابقة',
+    hint: 'عدّل الفلاتر أو ابحث بمعايير أخرى لإظهار النتائج',
+  );
 
   /// What the filtered lines add up to -- only while a filter works: without
   /// one it repeated the summary's movement in seven chips.
@@ -1337,24 +1261,12 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
     );
   }
 
-  Widget _buildEmptyState() {
-    return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Icon(Icons.inbox_outlined, size: 56, color: Colors.grey),
-          const SizedBox(height: 12),
-          const Text('لا توجد سجلات لهذا الحساب'),
-          const SizedBox(height: 12),
-          ElevatedButton.icon(
-            onPressed: _fetchAccountStatement,
-            icon: const Icon(Icons.refresh),
-            label: const Text('تحديث'),
-          ),
-        ],
-      ),
-    );
-  }
+  Widget _buildEmptyState() => AppEmptyView(
+    title: 'لا توجد سجلات لهذا الحساب',
+    actionLabel: 'تحديث',
+    actionIcon: Icons.refresh,
+    onAction: _fetchAccountStatement,
+  );
 
   static final NumberFormat _cashFmt = NumberFormat('#,##0.00', 'en_US');
   static final NumberFormat _goldFmt = NumberFormat('#,##0.000', 'en_US');

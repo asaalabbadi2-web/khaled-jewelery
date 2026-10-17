@@ -22,6 +22,7 @@ import 'voucher_details_screen.dart';
 import '../widgets/sale_closing_card.dart';
 import '../widgets/app_feedback.dart';
 import '../utils/currency_utils.dart';
+import '../widgets/app_state_views.dart';
 
 /// A sale of scrap gold is saved as «بيع» with gold_type 'scrap'. It is
 /// edited on the screen that made it: the ordinary sale screen sends no
@@ -93,6 +94,10 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
   List<dynamic> _invoices = [];
   List<dynamic> _filteredInvoices = [];
   bool _isLoading = false;
+
+  /// Why the last load failed, until a load succeeds (ADR-049): the list says
+  /// it failed and offers to try again -- it used to read «لا توجد فواتير».
+  Object? _loadError;
   List<Map<String, dynamic>>? _cachedCustomers;
   List<Map<String, dynamic>>? _cachedSuppliers;
   List<Map<String, dynamic>> _availableEmployees = const [];
@@ -390,11 +395,12 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
       _invoiceQueryCache[cacheKey] = Map<String, dynamic>.from(data);
 
       setState(() {
+        _loadError = null;
         _applyInvoiceResponse(data, targetPage);
       });
     } catch (e) {
       if (mounted) {
-        _showSnackBar('خطأ في تحميل الفواتير: ${e.toString()}', isError: true);
+        setState(() => _loadError = e);
       }
       debugPrint('❌ Error loading invoices: $e');
     } finally {
@@ -1475,10 +1481,13 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
         _buildPinnedFilterToolbarSliver(),
       ],
       body: _isLoading
-          ? Center(
-              child: CircularProgressIndicator(
-                valueColor: AlwaysStoppedAnimation<Color>(primary),
-              ),
+          ? const AppLoadingView(summaryBlocks: 0)
+          : _loadError != null
+          ? AppErrorView(
+              key: const Key('invoices-load-error'),
+              title: 'تعذّر تحميل الفواتير',
+              error: _loadError,
+              onRetry: () => _loadInvoices(forceRefresh: true),
             )
           : _buildTabContent(
               _getTabFilteredInvoices(
@@ -3522,34 +3531,10 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
 
   Widget _buildEmptyState() {
     final isAr = widget.isArabic;
-    final colorScheme = Theme.of(context).colorScheme;
-    final textTheme = Theme.of(context).textTheme;
-
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(
-            Icons.receipt_long,
-            size: 80,
-            color: colorScheme.onSurface.withValues(alpha: 0.2),
-          ),
-          const SizedBox(height: 16),
-          Text(
-            isAr ? 'لا توجد فواتير' : 'No Invoices',
-            style: textTheme.titleMedium?.copyWith(
-              color: colorScheme.onSurface.withValues(alpha: 0.7),
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            isAr ? 'ابدأ بإضافة فاتورة جديدة' : 'Start by adding a new invoice',
-            style: textTheme.bodySmall?.copyWith(
-              color: colorScheme.onSurface.withValues(alpha: 0.5),
-            ),
-          ),
-        ],
-      ),
+    return AppEmptyView(
+      icon: Icons.receipt_long,
+      title: isAr ? 'لا توجد فواتير' : 'No Invoices',
+      hint: isAr ? 'ابدأ بإضافة فاتورة جديدة' : 'Start by adding a new invoice',
     );
   }
 

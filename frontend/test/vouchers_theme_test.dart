@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:frontend/api_service.dart';
 import 'package:frontend/providers/auth_provider.dart';
 import 'package:frontend/providers/settings_provider.dart';
 import 'package:frontend/screens/add_voucher_screen.dart';
@@ -61,6 +62,33 @@ class _ListApi extends FakeVoucherApi {
     'current_page': 1,
     'per_page': 20,
   };
+}
+
+/// A server that refuses the list (ADR-049: the list must say so).
+class _FailingListApi extends FakeVoucherApi {
+  var asked = 0;
+
+  @override
+  Future<Map<String, dynamic>> getVouchers({
+    int page = 1,
+    int perPage = 20,
+    String? type,
+    String? status,
+    String? dateFrom,
+    String? dateTo,
+    String? search,
+    String? searchType,
+    String? creator,
+    String? party,
+    String? sortBy,
+    String? sortOrder,
+    String? referenceType,
+    int? referenceId,
+    bool includeCancelled = false,
+  }) async {
+    asked++;
+    throw ApiException.text('تعذّر الوصول إلى الخادم.');
+  }
 }
 
 /// A user who may see and add vouchers.
@@ -155,6 +183,22 @@ void main() {
       expect(find.textContaining('RV-2026-00010'), findsWidgets);
       expect(tester.takeException(), isNull);
       await shot(tester, 'voucher_list_$name');
+    });
+
+    testWidgets('a list that failed to load says so and tries again, never '
+        '«no vouchers» ($name)', (tester) async {
+      final api = _FailingListApi();
+      await pump(tester, theme, VouchersListScreen(apiService: api));
+
+      expect(find.text('تعذّر تحميل السندات'), findsOneWidget);
+      expect(find.text('تعذّر الوصول إلى الخادم.'), findsOneWidget);
+      expect(find.text('لا توجد سندات مطابقة'), findsNothing);
+      await shot(tester, 'voucher_list_error_$name');
+
+      final before = api.asked;
+      await tester.tap(find.text('إعادة المحاولة'));
+      await tester.pumpAndSettle();
+      expect(api.asked, greaterThan(before));
     });
   }
 }

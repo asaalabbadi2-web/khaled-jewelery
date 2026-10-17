@@ -22,6 +22,7 @@ import '../providers/auth_provider.dart';
 import '../widgets/cancelled_vouchers_bar.dart';
 import '../widgets/widgets.dart';
 import 'package:provider/provider.dart';
+import '../widgets/app_state_views.dart';
 
 class VouchersListScreen extends StatefulWidget {
   /// The server; a test hands its own.
@@ -694,7 +695,7 @@ class _VouchersListScreenState extends State<VouchersListScreen>
 
   Widget _buildBodyContent(ThemeData themeData) {
     if (_isLoading && _vouchers.isEmpty) {
-      return const Center(child: CircularProgressIndicator());
+      return const AppLoadingView(summaryBlocks: 4);
     }
 
     if (_error != null) {
@@ -820,41 +821,11 @@ class _VouchersListScreenState extends State<VouchersListScreen>
     );
   }
 
-  Widget _buildErrorState(ThemeData themeData) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 32),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.error_outline, size: 52, color: _tone.blocked.fg),
-            const SizedBox(height: 16),
-            Text(
-              'حدث خطأ أثناء تحميل السندات',
-              style: themeData.textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.w700,
-              ),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 8),
-            Text(
-              _error ?? '',
-              style: themeData.textTheme.bodyMedium?.copyWith(
-                color: _withAlpha(themeData.colorScheme.onSurface, 0.65),
-              ),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 20),
-            ElevatedButton.icon(
-              onPressed: _refresh,
-              icon: const Icon(Icons.refresh),
-              label: const Text('إعادة المحاولة'),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
+  Widget _buildErrorState(ThemeData themeData) => AppErrorView(
+    title: 'تعذّر تحميل السندات',
+    error: _error,
+    onRetry: _refresh,
+  );
 
   Widget _buildHeaderSection(ThemeData themeData) {
     return Container(
@@ -2781,60 +2752,13 @@ class _VouchersListScreenState extends State<VouchersListScreen>
     );
   }
 
-  Widget _buildEmptyState(ThemeData themeData) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(24, 48, 24, 24),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
-        decoration: BoxDecoration(
-          color: themeData.colorScheme.surface,
-          borderRadius: BorderRadius.circular(28),
-          boxShadow: [
-            BoxShadow(
-              color: _withAlpha(_cs.shadow, 0.08),
-              blurRadius: 18,
-              offset: const Offset(0, 12),
-            ),
-          ],
-        ),
-        child: Column(
-          children: [
-            Icon(
-              Icons.receipt_long_outlined,
-              size: 58,
-              color: _tone.gold.fg,
-            ),
-            const SizedBox(height: 16),
-            Text(
-              'لا توجد سندات مطابقة',
-              style: themeData.textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'يمكنك تعديل إعدادات البحث أو إنشاء سند جديد فوراً.',
-              textAlign: TextAlign.center,
-              style: themeData.textTheme.bodyMedium?.copyWith(
-                color: _withAlpha(themeData.colorScheme.onSurface, 0.65),
-              ),
-            ),
-            const SizedBox(height: 18),
-            OutlinedButton.icon(
-              onPressed: () => _navigateToAddVoucher('receipt'),
-              icon: const Icon(Icons.add),
-              label: const Text('إنشاء سند'),
-              style: OutlinedButton.styleFrom(
-                foregroundColor: _tone.gold.fg,
-                backgroundColor: _tone.gold.container,
-                side: BorderSide.none,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
+  Widget _buildEmptyState(ThemeData themeData) => AppEmptyView(
+    icon: Icons.receipt_long_outlined,
+    title: 'لا توجد سندات مطابقة',
+    hint: 'يمكنك تعديل إعدادات البحث أو إنشاء سند جديد فوراً.',
+    actionLabel: 'إنشاء سند',
+    onAction: () => _navigateToAddVoucher('receipt'),
+  );
 
   Widget _buildBottomQuickActions(ThemeData themeData) {
     return SafeArea(
