@@ -8,7 +8,6 @@ import 'package:pdf/pdf.dart';
 import 'package:excel/excel.dart' as excel;
 import 'package:path_provider/path_provider.dart';
 import 'dart:io';
-import 'dart:math' as math;
 import 'dart:ui' as ui;
 import 'package:share_plus/share_plus.dart';
 import '../api_service.dart';
@@ -26,6 +25,7 @@ import '../widgets/app_state_views.dart';
 import '../widgets/voucher_actions.dart';
 import '../widgets/app_feedback.dart';
 import '../widgets/app_period_picker.dart';
+import '../widgets/app_table.dart';
 
 class VouchersListScreen extends StatefulWidget {
   /// The server; a test hands its own.
@@ -1457,88 +1457,33 @@ class _VouchersListScreenState extends State<VouchersListScreen>
     return _buildVoucherTable(themeData);
   }
 
-  Widget _buildVoucherTable(ThemeData themeData) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final widths = <String, double>{
-          'number': 138,
-          'party': 168,
-          'creator': 112,
-          'date': 116,
-          'type': 100,
-          'cash': 146,
-          'gold': 156,
-          'status': 108,
-          'reference': 146,
-          'actions': 56,
-        };
-        final viewportWidth = constraints.maxWidth.isFinite
-            ? constraints.maxWidth
-            : MediaQuery.sizeOf(context).width - 36;
-        final tableContentWidth = widths.values.fold<double>(
-          0,
-          (sum, width) => sum + width,
-        );
-        final tableWidth = math.max(viewportWidth, tableContentWidth);
-        final extraWidth = tableWidth - tableContentWidth;
-        if (extraWidth > 0) {
-          widths['party'] = widths['party']! + (extraWidth * 0.45);
-          widths['reference'] = widths['reference']! + (extraWidth * 0.35);
-          widths['creator'] = widths['creator']! + (extraWidth * 0.20);
-        }
+  /// The columns: each its least width, and its share of spare room.
+  static const _voucherColumns = {
+    'number': AppTableColumn(138),
+    'party': AppTableColumn(168, grow: 0.45),
+    'creator': AppTableColumn(112, grow: 0.20),
+    'date': AppTableColumn(116),
+    'type': AppTableColumn(100),
+    'cash': AppTableColumn(146),
+    'gold': AppTableColumn(156),
+    'status': AppTableColumn(108),
+    'reference': AppTableColumn(146, grow: 0.35),
+    'actions': AppTableColumn(56),
+  };
 
-        final tableHeight = constraints.maxHeight.isFinite
-            ? constraints.maxHeight
-            : 480.0;
-
-        return Container(
-          decoration: BoxDecoration(
-            color: themeData.colorScheme.surface,
-            borderRadius: BorderRadius.circular(18),
-            border: Border.all(
-              color: themeData.colorScheme.outline.withValues(alpha: 0.12),
-            ),
-          ),
-          child: SingleChildScrollView(
-            controller: _voucherTableHorizontalController,
-            scrollDirection: Axis.horizontal,
-            child: SizedBox(
-              width: tableWidth,
-              height: tableHeight,
-              child: Column(
-                children: [
-                  _buildVoucherStickyHeader(themeData, widths),
-                  Expanded(
-                    child: RefreshIndicator(
-                      onRefresh: _refresh,
-                      color: _cs.primary,
-                      child: ListView.builder(
-                        primary: true,
-                        padding: EdgeInsets.zero,
-                        physics: const AlwaysScrollableScrollPhysics(),
-                        itemCount: _vouchers.length,
-                        itemBuilder: (context, rowIndex) {
-                          final voucher = Map<String, dynamic>.from(
-                            _vouchers[rowIndex] as Map,
-                          );
-                          return _buildVoucherStickyRow(
-                            themeData: themeData,
-                            voucher: voucher,
-                            rowIndex: rowIndex,
-                            widths: widths,
-                          );
-                        },
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        );
-      },
-    );
-  }
+  Widget _buildVoucherTable(ThemeData themeData) => AppTableFrame(
+    columns: _voucherColumns,
+    horizontalController: _voucherTableHorizontalController,
+    header: (widths) => _buildVoucherStickyHeader(themeData, widths),
+    rowCount: _vouchers.length,
+    row: (context, rowIndex, widths) => _buildVoucherStickyRow(
+      themeData: themeData,
+      voucher: Map<String, dynamic>.from(_vouchers[rowIndex] as Map),
+      rowIndex: rowIndex,
+      widths: widths,
+    ),
+    onRefresh: _refresh,
+  );
 
   Widget _buildVoucherStickyHeader(
     ThemeData themeData,

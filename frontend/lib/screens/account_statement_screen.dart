@@ -29,6 +29,7 @@ import '../providers/settings_provider.dart';
 import '../theme/app_theme.dart' as app_theme;
 import '../widgets/app_state_views.dart';
 import '../widgets/app_period_picker.dart';
+import '../widgets/app_table.dart';
 
 enum _StatementDisplayMode { table, cards }
 
@@ -1617,32 +1618,32 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
     );
   }
 
-  Widget _buildStatementTable() {
+  /// The table in the room it is given (the card's 4-point margin aside) --
+  /// not the screen's width less a guess (ADR-049).
+  Widget _buildStatementTable() => LayoutBuilder(
+    builder: (context, constraints) =>
+        _buildStatementTableIn(constraints.maxWidth - 8),
+  );
+
+  Widget _buildStatementTableIn(double available) {
     final theme = Theme.of(context);
     final mainKarat = (_statement?.mainKarat ?? 21).toDouble();
     final cashLabel = (_statement?.isMerged ?? false) ? 'القيمة' : 'النقد';
-    final viewportWidth = MediaQuery.sizeOf(context).width - 48;
-    final widths = <String, double>{
-      'date': 120,
-      'description': 340,
-      if (_viewMode != 2) 'gold_debit': 115,
-      if (_viewMode != 2) 'gold_credit': 115,
-      if (_viewMode != 2) 'gold_balance': 160,
-      if (_viewMode != 1) 'cash_debit': 125,
-      if (_viewMode != 1) 'cash_credit': 125,
-      if (_viewMode != 1) 'cash_balance': 170,
-      if (_includeBreakdown && _viewMode != 2) 'breakdown': 64,
-      'actions': 56,
-    };
-    final baseWidth = widths.values.fold<double>(
-      0,
-      (sum, width) => sum + width,
-    );
-    final tableWidth = viewportWidth > baseWidth ? viewportWidth : baseWidth;
-    final extraWidth = tableWidth - baseWidth;
-    if (extraWidth > 0) {
-      widths['description'] = (widths['description'] ?? 0) + extraWidth;
-    }
+    final fit = fitTableColumns({
+      'date': const AppTableColumn(120),
+      'description': const AppTableColumn(340, grow: 1),
+      if (_viewMode != 2) 'gold_debit': const AppTableColumn(115),
+      if (_viewMode != 2) 'gold_credit': const AppTableColumn(115),
+      if (_viewMode != 2) 'gold_balance': const AppTableColumn(160),
+      if (_viewMode != 1) 'cash_debit': const AppTableColumn(125),
+      if (_viewMode != 1) 'cash_credit': const AppTableColumn(125),
+      if (_viewMode != 1) 'cash_balance': const AppTableColumn(170),
+      if (_includeBreakdown && _viewMode != 2)
+        'breakdown': const AppTableColumn(64),
+      'actions': const AppTableColumn(56),
+    }, available);
+    final widths = fit.widths;
+    final tableWidth = fit.width;
 
     Widget headerCell({
       required String label,

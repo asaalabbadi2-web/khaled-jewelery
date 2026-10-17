@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'dart:async';
 import 'dart:convert';
-import 'dart:math' as math;
 import 'package:intl/intl.dart' hide TextDirection;
 import 'package:pdf/pdf.dart';
 import 'package:printing/printing.dart';
@@ -25,6 +24,7 @@ import '../utils/currency_utils.dart';
 import '../widgets/app_state_views.dart';
 import '../widgets/confirm_financial_action.dart';
 import '../widgets/app_period_picker.dart';
+import '../widgets/app_table.dart';
 
 /// A sale of scrap gold is saved as «بيع» with gold_type 'scrap'. It is
 /// edited on the screen that made it: the ordinary sale screen sends no
@@ -2032,83 +2032,38 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
     );
   }
 
+  /// The columns: each its least width, and its share of spare room.
+  static const _invoiceColumns = {
+    'number': AppTableColumn(118),
+    'customer': AppTableColumn(172, grow: 0.40),
+    'creator': AppTableColumn(110, grow: 0.12),
+    'date': AppTableColumn(110, grow: 0.08),
+    'type': AppTableColumn(104, grow: 0.08),
+    'karat': AppTableColumn(70),
+    'weight': AppTableColumn(124, grow: 0.06),
+    'amount': AppTableColumn(168, grow: 0.14),
+    'status': AppTableColumn(140, grow: 0.12),
+    'actions': AppTableColumn(52),
+  };
+
   Widget _buildInvoiceTable(List<dynamic> invoices) {
     final isAr = widget.isArabic;
     final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
     final idx = _tabController.index;
-    final viewportWidth = MediaQuery.sizeOf(context).width - 36;
-    const tableContentWidth = 1168.0;
-    final tableMinWidth = math.max(viewportWidth, tableContentWidth);
-    final extraWidth = math.max(0.0, tableMinWidth - tableContentWidth);
-    final widths = <String, double>{
-      'number': 118,
-      'customer': 172 + (extraWidth * 0.40),
-      'creator': 110 + (extraWidth * 0.12),
-      'date': 110 + (extraWidth * 0.08),
-      'type': 104 + (extraWidth * 0.08),
-      'karat': 70,
-      'weight': 124 + (extraWidth * 0.06),
-      'amount': 168 + (extraWidth * 0.14),
-      'status': 140 + (extraWidth * 0.12),
-      'actions': 52,
-    };
-
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final tableHeight = constraints.maxHeight.isFinite
-            ? constraints.maxHeight
-            : 480.0;
-
-        return Container(
-          decoration: BoxDecoration(
-            color: colorScheme.surface,
-            borderRadius: BorderRadius.circular(18),
-            border: Border.all(
-              color: colorScheme.outline.withValues(alpha: 0.12),
-            ),
-          ),
-          child: SingleChildScrollView(
-            controller: _invoiceTableHorizontalController,
-            scrollDirection: Axis.horizontal,
-            child: SizedBox(
-              width: tableMinWidth,
-              height: tableHeight,
-              child: Column(
-                children: [
-                  _buildInvoiceStickyHeader(theme, isAr, idx, widths),
-                  Expanded(
-                    child: RefreshIndicator(
-                      onRefresh: () => _loadInvoices(page: _currentPage),
-                      color: theme.colorScheme.primary,
-                      backgroundColor: theme.colorScheme.surface,
-                      child: ListView.builder(
-                        primary: true,
-                        padding: EdgeInsets.zero,
-                        physics: const AlwaysScrollableScrollPhysics(),
-                        itemCount: invoices.length,
-                        itemBuilder: (context, rowIndex) {
-                          final invoice = Map<String, dynamic>.from(
-                            invoices[rowIndex],
-                          );
-                          return _buildInvoiceStickyRow(
-                            invoice: invoice,
-                            rowIndex: rowIndex,
-                            isAr: isAr,
-                            theme: theme,
-                            colorScheme: colorScheme,
-                            widths: widths,
-                          );
-                        },
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        );
-      },
+    return AppTableFrame(
+      columns: _invoiceColumns,
+      horizontalController: _invoiceTableHorizontalController,
+      header: (widths) => _buildInvoiceStickyHeader(theme, isAr, idx, widths),
+      rowCount: invoices.length,
+      row: (context, rowIndex, widths) => _buildInvoiceStickyRow(
+        invoice: Map<String, dynamic>.from(invoices[rowIndex]),
+        rowIndex: rowIndex,
+        isAr: isAr,
+        theme: theme,
+        colorScheme: theme.colorScheme,
+        widths: widths,
+      ),
+      onRefresh: () => _loadInvoices(page: _currentPage),
     );
   }
 
