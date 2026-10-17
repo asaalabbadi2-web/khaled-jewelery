@@ -25,6 +25,7 @@ import '../widgets/app_state_views.dart';
 import '../widgets/confirm_financial_action.dart';
 import '../widgets/app_period_picker.dart';
 import '../widgets/app_table.dart';
+import '../theme/app_theme.dart';
 
 /// A sale of scrap gold is saved as «بيع» with gold_type 'scrap'. It is
 /// edited on the screen that made it: the ordinary sale screen sends no
@@ -86,6 +87,12 @@ class InvoicesListScreen extends StatefulWidget {
 
 class _InvoicesListScreenState extends State<InvoicesListScreen>
     with TickerProviderStateMixin {
+  // ADR-049: colors from the theme, so the list reads in both modes.
+  ColorScheme get _cs => Theme.of(context).colorScheme;
+  AppSemanticColors get _tone => AppSemanticColors.of(context);
+  Color get _onBar =>
+      Theme.of(context).appBarTheme.foregroundColor ?? _cs.onPrimary;
+
   final ApiService _apiService = ApiService();
   final ScrollController _invoiceTableHorizontalController = ScrollController();
   final ScrollController _invoiceContentScrollController = ScrollController();
@@ -1242,10 +1249,7 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
                         },
                         child: Text(
                           isAr ? 'مسح الكل' : 'Clear All',
-                          style: TextStyle(
-                            color: colorScheme.error,
-                            fontSize: 13,
-                          ),
+                          style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: colorScheme.error,),
                         ),
                       ),
                     ],
@@ -1470,11 +1474,7 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
                         padding: const EdgeInsetsDirectional.only(start: 16),
                         child: Text(
                           isAr ? 'الفواتير' : 'Invoices',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 16,
-                          ),
+                          style: Theme.of(context).textTheme.titleLarge?.copyWith(color: _onBar, fontWeight: FontWeight.bold,),
                         ),
                       ),
                       const Spacer(),
@@ -1559,14 +1559,14 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
       controller: _tabController,
       onTap: _handleTabTap,
       isScrollable: true,
-      labelColor: Colors.white,
-      unselectedLabelColor: Colors.white.withValues(alpha: 0.65),
+      labelColor: _onBar,
+      unselectedLabelColor: _onBar.withValues(alpha: 0.65),
       indicatorSize: TabBarIndicatorSize.tab,
       dividerColor: Colors.transparent,
       indicator: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.16),
+        color: _cs.shadow.withValues(alpha: 0.16),
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.18)),
+        border: Border.all(color: _onBar.withValues(alpha: 0.18)),
       ),
       tabs: List.generate(tabLabels.length, (index) {
         return Tab(
@@ -1632,17 +1632,17 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
                 quickStatusChip(
                   value: 'paid',
                   label: isAr ? 'مدفوعة' : 'Paid',
-                  color: Colors.green,
+                  color: _tone.ready.fg,
                 ),
                 quickStatusChip(
                   value: 'remaining',
                   label: isAr ? 'متبقي' : 'Remaining',
-                  color: Colors.redAccent,
+                  color: _cs.error,
                 ),
                 quickStatusChip(
                   value: 'partially_paid',
                   label: isAr ? 'جزئي' : 'Partial',
-                  color: Colors.orange,
+                  color: _tone.warning.fg,
                 ),
               ],
             ),
@@ -2140,7 +2140,7 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
             unit: isAr ? 'غ' : 'g',
             width: widths['weight']!,
             icon: Icons.scale_outlined,
-            color: const Color(0xFFD4A017),
+            color: _tone.gold.fg,
             onTap: () => _changeSort(
               'weight',
               !(_tabSort[idx] == 'weight' && _tabSortAsc[idx]),
@@ -2153,7 +2153,7 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
             unit: isAr ? 'ر.س' : 'SAR',
             width: widths['amount']!,
             icon: Icons.payments_outlined,
-            color: const Color(0xFF2F80ED),
+            color: _tone.cash.fg,
             onTap: () => _changeSort(
               'amount',
               !(_tabSort[idx] == 'amount' && _tabSortAsc[idx]),
@@ -2276,7 +2276,7 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
                     ? NumberFormat('#,##0.###', isAr ? 'ar' : 'en').format(rawWeight)
                     : null,
                 icon: Icons.scale_outlined,
-                color: const Color(0xFFD4A017),
+                color: _tone.gold.fg,
                 emphasize: true,
               ),
               _buildInvoiceMetricValueCell(
@@ -2284,7 +2284,7 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
                 value:
                     '${NumberFormat('#,##0.00', isAr ? 'ar' : 'en').format(amount)} ${isAr ? 'ر.س' : 'SAR'}',
                 icon: Icons.payments_outlined,
-                color: const Color(0xFF2F80ED),
+                color: _tone.cash.fg,
                 emphasize: false,
               ),
               _buildStickyBodyCell(
@@ -2394,7 +2394,7 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
                     textAlign: TextAlign.center,
                     style: theme.textTheme.labelMedium?.copyWith(
                       fontWeight: FontWeight.w800,
-                      color: isActive ? color : Colors.grey.shade800,
+                      color: isActive ? color : _cs.onSurfaceVariant,
                       height: 1.0,
                     ),
                   ),
@@ -2492,8 +2492,7 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
                       overflow: TextOverflow.ellipsis,
                       textAlign: TextAlign.center,
                       style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                        color: Colors.grey.shade500,
-                        fontSize: 9,
+                        color: _cs.onSurfaceVariant,
                       ),
                     ),
                 ],
@@ -2524,7 +2523,7 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
         .toLowerCase();
     final isScrap = rawType == 'scrap';
     final label = isScrap ? (isAr ? 'كسر' : 'Scrap') : (isAr ? 'جديد' : 'New');
-    final color = isScrap ? Colors.blueGrey : const Color(0xFFD4A017);
+    final color = isScrap ? _tone.sectionSlate.fg : _tone.gold.fg;
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
@@ -2550,11 +2549,11 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
 
     switch (status) {
       case 'paid':
-        color = Colors.green;
+        color = _tone.ready.fg;
         icon = Icons.check_circle;
         break;
       case 'partially_paid':
-        color = Colors.orange;
+        color = _tone.warning.fg;
         icon = Icons.timelapse;
         break;
       case 'cancelled':
@@ -2562,7 +2561,7 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
         icon = Icons.block;
         break;
       default:
-        color = Colors.redAccent;
+        color = _cs.error;
         icon = Icons.pending_actions;
         break;
     }
@@ -2721,7 +2720,7 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
       context: context,
       builder: (ctx) => AlertDialog(
         title: Row(children: [
-          const Icon(Icons.check_circle_outline, color: Colors.green),
+          Icon(Icons.check_circle_outline, color: _tone.ready.fg),
           const SizedBox(width: 8),
           Text(isAr ? 'تأكيد الترحيل' : 'Confirm Post'),
         ]),
@@ -2733,13 +2732,12 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: Text(isAr ? 'إلغاء' : 'Cancel'),
+            child: Text(isAr ? 'تراجع' : 'Back'),
           ),
-          ElevatedButton(
+          FilledButton(
             onPressed: () => Navigator.pop(ctx, true),
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
-            child: Text(isAr ? 'ترحيل' : 'Post',
-                style: const TextStyle(color: Colors.white)),
+            style: AppButtonStyles.primary(context, _tone.ready),
+            child: Text(isAr ? 'ترحيل' : 'Post'),
           ),
         ],
       ),
@@ -2749,18 +2747,12 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
     try {
       await _apiService.postInvoice(invoiceId, postedBy);
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(isAr ? 'تم الترحيل بنجاح' : 'Invoice posted successfully'),
-        backgroundColor: Colors.green,
-      ));
+      AppFeedback.success(context, isAr ? 'تم الترحيل بنجاح' : 'Invoice posted successfully');
       AppEvents.notifyVaultChanged();
       _loadInvoices();
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(isAr ? 'فشل الترحيل: ${e.toString()}' : 'Post failed: ${e.toString()}'),
-        backgroundColor: Colors.red,
-      ));
+      AppFeedback.error(context, e, title: isAr ? 'فشل الترحيل' : 'Post failed');
     }
   }
 
@@ -2773,7 +2765,7 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
       context: context,
       builder: (ctx) => AlertDialog(
         title: Row(children: [
-          const Icon(Icons.cancel_outlined, color: Colors.orange),
+          Icon(Icons.cancel_outlined, color: _tone.warning.fg),
           const SizedBox(width: 8),
           Text(isAr ? 'تأكيد إلغاء الترحيل' : 'Confirm Unpost'),
         ]),
@@ -2785,13 +2777,12 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: Text(isAr ? 'إلغاء' : 'Cancel'),
+            child: Text(isAr ? 'تراجع' : 'Back'),
           ),
-          ElevatedButton(
+          FilledButton(
             onPressed: () => Navigator.pop(ctx, true),
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.orange),
-            child: Text(isAr ? 'إلغاء الترحيل' : 'Unpost',
-                style: const TextStyle(color: Colors.white)),
+            style: AppButtonStyles.primary(context, _tone.warning),
+            child: Text(isAr ? 'إلغاء الترحيل' : 'Unpost'),
           ),
         ],
       ),
@@ -2801,19 +2792,12 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
     try {
       await _apiService.unpostInvoice(invoiceId);
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(isAr ? 'تم إلغاء الترحيل بنجاح' : 'Invoice unposted successfully'),
-        backgroundColor: Colors.orange,
-      ));
+      AppFeedback.success(context, isAr ? 'تم إلغاء الترحيل بنجاح' : 'Invoice unposted successfully');
       AppEvents.notifyVaultChanged();
       _loadInvoices();
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(
-          isAr ? 'فشل إلغاء الترحيل: ${e.toString()}' : 'Unpost failed: ${e.toString()}'),
-        backgroundColor: Colors.red,
-      ));
+      AppFeedback.error(context, e, title: isAr ? 'فشل إلغاء الترحيل' : 'Unpost failed');
     }
   }
 
@@ -2830,9 +2814,7 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
 
     if (!mounted) return;
     if (empList.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(isAr ? 'لا يوجد موظفون' : 'No employees')),
-      );
+      AppFeedback.info(context, isAr ? 'لا يوجد موظفون' : 'No employees');
       return;
     }
 
@@ -2845,7 +2827,7 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setState) => AlertDialog(
           title: Row(children: [
-            const Icon(Icons.person_outlined, color: Colors.orange),
+            Icon(Icons.person_outlined, color: _tone.warning.fg),
             const SizedBox(width: 8),
             Text(isAr ? 'تغيير المنشئ' : 'Change Creator'),
           ]),
@@ -2857,12 +2839,12 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
               children: [
                 Text(
                   '${isAr ? 'الفاتورة' : 'Invoice'}: ${invoice['invoice_number'] ?? invoiceId}',
-                  style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600,),
                 ),
                 const SizedBox(height: 4),
                 Text(
                   '${isAr ? 'المنشئ الحالي' : 'Current'}: ${invoice['employee_name'] ?? invoice['posted_by'] ?? '—'}',
-                  style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(color: _cs.onSurfaceVariant,),
                 ),
                 const SizedBox(height: 16),
                 DropdownButtonFormField<int>(
@@ -2877,7 +2859,7 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
                       .where((e) => e.id != null)
                       .map((e) => DropdownMenuItem(
                             value: e.id!,
-                            child: Text(e.name, style: const TextStyle(fontSize: 13)),
+                            child: Text(e.name, style: Theme.of(context).textTheme.bodyMedium?.copyWith()),
                           ))
                       .toList(),
                   onChanged: (v) => setState(() => selectedId = v),
@@ -2905,17 +2887,11 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
     try {
       await _apiService.reassignInvoiceEmployee(invoiceId, selectedId!);
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(isAr ? 'تم تغيير المنشئ' : 'Creator updated'),
-        backgroundColor: Colors.green,
-      ));
+      AppFeedback.success(context, isAr ? 'تم تغيير المنشئ' : 'Creator updated');
       _loadInvoices(page: _currentPage);
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text('${isAr ? 'خطأ' : 'Error'}: $e'),
-        backgroundColor: Colors.red,
-      ));
+      AppFeedback.error(context, e);
     }
   }
 
@@ -2947,7 +2923,7 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
                   icon: Icons.receipt_long,
                   title: isAr ? 'إجمالي الفواتير' : 'Total Invoices',
                   value: tabStats['total_invoices'].toString(),
-                  highlightColor: Colors.blue,
+                  highlightColor: _tone.info.fg,
                 ),
               ),
               const SizedBox(width: 6),
@@ -2959,7 +2935,7 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
                     '#,##0',
                     isAr ? 'ar' : 'en',
                   ).format(tabStats['total_amount']),
-                  highlightColor: const Color(0xFF2F80ED),
+                  highlightColor: _tone.cash.fg,
                 ),
               ),
               const SizedBox(width: 6),
@@ -3039,10 +3015,9 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
                     Expanded(
                       child: Text(
                         title,
-                        style: textTheme.bodySmall?.copyWith(
+                        style: textTheme.labelSmall?.copyWith(
                           color: colorScheme.onSurface.withValues(alpha: 0.7),
                           fontWeight: FontWeight.w600,
-                          fontSize: 11,
                         ),
                         overflow: TextOverflow.ellipsis,
                       ),
@@ -3055,7 +3030,6 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
                   style: textTheme.titleLarge?.copyWith(
                     color: highlightColor,
                     fontWeight: emphasize ? FontWeight.w900 : FontWeight.bold,
-                    fontSize: 15,
                   ),
                 ),
                 if (sub != null)
@@ -3063,7 +3037,6 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
                     sub,
                     style: textTheme.labelSmall?.copyWith(
                       color: colorScheme.onSurface.withValues(alpha: 0.45),
-                      fontSize: 9,
                     ),
                   ),
               ],
@@ -3106,11 +3079,11 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
       final textTheme = theme.textTheme;
       final statusColor = isCancelled
           ? colorScheme.onSurfaceVariant.withValues(alpha: 0.8)
-          : (isPaid ? Colors.green : Colors.orange);
+          : (isPaid ? _tone.ready.fg : _tone.warning.fg);
       final invoiceType = (invoice['invoice_type'] ?? '').toString();
       final bool isPurchase =
           invoiceType.contains('شراء') || invoiceType.toLowerCase() == 'buy';
-      final Color typeColor = isPurchase ? Colors.blue : colorScheme.primary;
+      final Color typeColor = isPurchase ? _tone.invoice(InvoiceKind.purchase).fg : colorScheme.primary;
       final invoiceDisplayNumber = _getInvoiceDisplayNumber(invoice);
 
       final employeeName = _extractInvoiceEmployeeName(invoice);
@@ -3321,7 +3294,7 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
                       Text(
                         '${NumberFormat('#,##0.00', isAr ? 'ar' : 'en').format(((invoice['total'] ?? 0) as num).toDouble())} ${isAr ? 'ريال' : 'SAR'}',
                         style: textTheme.titleLarge?.copyWith(
-                          color: const Color(0xFF2F80ED),
+                          color: _tone.cash.fg,
                           fontWeight: FontWeight.bold,
                         ),
                       ),
@@ -3362,14 +3335,14 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
       // Return simple error card
       return Card(
         margin: const EdgeInsets.only(bottom: 12),
-        color: Colors.red.withValues(alpha: 0.15),
+        color: _tone.blocked.container,
         child: Padding(
           padding: const EdgeInsets.all(16),
           child: Text(
             'خطأ في عرض الفاتورة $invoiceDisplayNumber',
             style: Theme.of(
               context,
-            ).textTheme.bodyMedium?.copyWith(color: Colors.red),
+            ).textTheme.bodyMedium?.copyWith(color: _tone.blocked.fg),
           ),
         ),
       );
@@ -3505,11 +3478,10 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
         loaderVisible = false;
       }
       if (mounted) {
-        _showSnackBar(
-          widget.isArabic
-              ? 'فشل طباعة/تصدير الفاتورة: $e'
-              : 'Failed to print/export invoice: $e',
-          isError: true,
+        AppFeedback.error(
+          context,
+          e,
+          title: widget.isArabic ? 'فشل طباعة/تصدير الفاتورة' : 'Failed to print/export invoice',
         );
       }
     }
@@ -3563,11 +3535,10 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
         loaderVisible = false;
       }
       if (mounted) {
-        _showSnackBar(
-          widget.isArabic
-              ? 'فشل تحميل تفاصيل الفاتورة: $e'
-              : 'Failed to load invoice details: $e',
-          isError: true,
+        AppFeedback.error(
+          context,
+          e,
+          title: widget.isArabic ? 'فشل تحميل تفاصيل الفاتورة' : 'Failed to load invoice details',
         );
       }
     }
@@ -4503,7 +4474,7 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
                             ),
                             if (splitRows.length > 1)
                               IconButton(
-                                icon: const Icon(Icons.remove_circle_outline, color: Colors.red),
+                                icon: Icon(Icons.remove_circle_outline, color: _cs.error),
                                 tooltip: isAr ? 'حذف' : 'Remove',
                                 onPressed: () => setState(() => splitRows.removeAt(i)),
                               ),
@@ -4530,7 +4501,7 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
                                   : '${formatAmount(remaining)} stays under $currentMethodName'),
                         style: TextStyle(
                           color: remaining < 0
-                              ? Colors.red
+                              ? _cs.error
                               : Theme.of(ctx).colorScheme.primary,
                           fontWeight: FontWeight.w600,
                         ),
@@ -4540,7 +4511,7 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
                       const SizedBox(height: 4),
                       Text(
                         overallSplitError()!,
-                        style: const TextStyle(color: Colors.red, fontSize: 12),
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(color: _cs.error,),
                       ),
                     ],
                   ],
@@ -4592,32 +4563,12 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
                           }
                           final wasPartial = result['is_partial'] == true;
                           if (mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text(
-                                  isAr
-                                      ? (wasPartial
-                                            ? 'تم تقسيم الدفعة وتصحيحها بنجاح'
-                                            : 'تم تصحيح وسيلة الدفع بنجاح')
-                                      : (wasPartial
-                                            ? 'Payment split and corrected successfully'
-                                            : 'Payment method corrected successfully'),
-                                ),
-                                backgroundColor: Colors.green,
-                              ),
-                            );
+                            AppFeedback.success(context, isAr ? (wasPartial ? 'تم تقسيم الدفعة وتصحيحها بنجاح' : 'تم تصحيح وسيلة الدفع بنجاح') : (wasPartial ? 'Payment split and corrected successfully' : 'Payment method corrected successfully'));
                             _loadInvoices();
                           }
                         } catch (e) {
                           if (mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text(
-                                  isAr ? 'خطأ: $e' : 'Error: $e',
-                                ),
-                                backgroundColor: Colors.red,
-                              ),
-                            );
+                            AppFeedback.error(context, e, title: isAr ? 'خطأ' : 'Error');
                           }
                         }
                       },
@@ -4714,9 +4665,10 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
         loaderVisible = false;
       }
       if (mounted) {
-        _showSnackBar(
-          isAr ? 'فشل فتح السند: $e' : 'Failed to open voucher: $e',
-          isError: true,
+        AppFeedback.error(
+          context,
+          e,
+          title: isAr ? 'فشل فتح السند' : 'Failed to open voucher',
         );
       }
     }
@@ -4936,12 +4888,11 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
                   );
                   Navigator.of(ctx).pop(true);
                 } catch (e) {
-                  _showSnackBar(
-                    isAr
-                        ? 'فشل تسجيل الدفعة: $e'
-                        : 'Failed to record payment: $e',
-                    isError: true,
-                  );
+                  AppFeedback.error(
+          context,
+          e,
+          title: isAr ? 'فشل تسجيل الدفعة' : 'Failed to record payment',
+        );
                 }
               },
               child: Text(isAr ? 'تأكيد' : 'Confirm'),
@@ -5057,11 +5008,10 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
       }
     } catch (e) {
       if (mounted) {
-        _showSnackBar(
-          isAr
-              ? 'فشل تحميل بيانات الفاتورة: $e'
-              : 'Failed to load invoice data: $e',
-          isError: true,
+        AppFeedback.error(
+          context,
+          e,
+          title: isAr ? 'فشل تحميل بيانات الفاتورة' : 'Failed to load invoice data',
         );
       }
     }
@@ -5138,7 +5088,7 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
           {
             'target': _InvoiceCreationTarget.sales,
             'icon': Icons.point_of_sale,
-            'color': Colors.green,
+            'color': _tone.invoice(InvoiceKind.sale).fg,
             'title': isAr ? 'فاتورة بيع' : 'Sales Invoice',
             'subtitle': isAr
                 ? 'بيع ذهب جديد أو مستعمل'
@@ -5147,7 +5097,7 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
           {
             'target': _InvoiceCreationTarget.scrapSale,
             'icon': Icons.recycling,
-            'color': Colors.orange,
+            'color': _tone.invoice(InvoiceKind.saleScrap).fg,
             'title': isAr ? 'بيع ذهب كسر' : 'Scrap Gold Sale',
             'subtitle': isAr
                 ? 'تصفية الذهب المستعمل'
@@ -5156,7 +5106,7 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
           {
             'target': _InvoiceCreationTarget.scrapPurchase,
             'icon': Icons.shopping_basket,
-            'color': Colors.blue,
+            'color': _tone.invoice(InvoiceKind.purchaseScrap).fg,
             'title': isAr ? 'شراء كسر من عميل' : 'Buy Scrap from Customer',
             'subtitle': isAr
                 ? 'استلام ذهب من عملاء'
@@ -5165,28 +5115,28 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
           {
             'target': _InvoiceCreationTarget.supplierPurchase,
             'icon': Icons.business_center,
-            'color': Colors.purple,
+            'color': _tone.invoice(InvoiceKind.purchase).fg,
             'title': isAr ? 'شراء' : 'Supplier Purchase',
             'subtitle': isAr ? 'توريدات من التجار' : 'Bulk supplier orders',
           },
           {
             'target': _InvoiceCreationTarget.salesReturn,
             'icon': Icons.keyboard_return,
-            'color': Colors.red.shade300,
+            'color': _tone.invoice(InvoiceKind.returned).fg,
             'title': isAr ? 'مرتجع بيع' : 'Sales Return',
             'subtitle': isAr ? 'استرجاع مبيعات' : 'Return sold items',
           },
           {
             'target': _InvoiceCreationTarget.scrapReturn,
             'icon': Icons.undo,
-            'color': Colors.deepOrange.shade300,
+            'color': _tone.invoice(InvoiceKind.returned).fg,
             'title': isAr ? 'مرتجع شراء كسر' : 'Scrap Purchase Return',
             'subtitle': isAr ? 'إرجاع مشتريات الكسر' : 'Return scrap purchases',
           },
           {
             'target': _InvoiceCreationTarget.supplierReturn,
             'icon': Icons.assignment_return,
-            'color': Colors.teal,
+            'color': _tone.invoice(InvoiceKind.returned).fg,
             'title': isAr ? 'مرتجع شراء (مورد)' : 'Supplier Purchase Return',
             'subtitle': isAr ? 'إرجاع مورد' : 'Supplier returns',
           },

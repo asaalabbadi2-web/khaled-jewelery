@@ -28,7 +28,6 @@
   "lib/screens/inventory_audit_screen.dart": 17,
   "lib/screens/inventory_balance_screen.dart": 9,
   "lib/screens/inventory_count_screen.dart": 55,
-  "lib/screens/invoices_list_screen.dart": 10,
   "lib/screens/items_screen_enhanced.dart": 3,
   "lib/screens/journal_entries_list_screen.dart": 12,
   "lib/screens/journal_entry_print_screen.dart": 24,

@@ -22,7 +22,6 @@
   "lib/screens/import_documents_screen.dart": 3,
   "lib/screens/initial_setup_screen.dart": 2,
   "lib/screens/inventory_count_screen.dart": 6,
-  "lib/screens/invoices_list_screen.dart": 9,
   "lib/screens/items_screen_enhanced.dart": 11,
   "lib/screens/journal_entry_form.dart": 6,
   "lib/screens/journal_entry_print_screen.dart": 2,
