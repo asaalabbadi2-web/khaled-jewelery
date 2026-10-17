@@ -7,6 +7,7 @@ import '../utils/bidi.dart';
 import '../utils/currency_utils.dart';
 import '../widgets/app_feedback.dart';
 import '../widgets/confirm_financial_action.dart';
+import 'voucher_details_screen.dart';
 
 class SafeTransferScreen extends StatefulWidget {
   final ApiService api;
@@ -196,9 +197,10 @@ class _SafeTransferScreenState extends State<SafeTransferScreen> {
     } catch (e) {
       if (!mounted) return;
       setState(() => _isLoadingSafes = false);
-      _showSnack(
-        widget.isArabic ? 'فشل تحميل الخزائن: $e' : 'Failed to load safes: $e',
-        isError: true,
+      AppFeedback.error(
+        context,
+        e,
+        title: widget.isArabic ? 'فشل تحميل الخزائن' : 'Failed to load safes',
       );
     }
   }
@@ -469,6 +471,28 @@ class _SafeTransferScreenState extends State<SafeTransferScreen> {
   String _gramsText(double grams) =>
       ltrIsolate('${formatGrams(grams)} ${widget.isArabic ? 'جم' : 'g'}');
 
+  /// Says the voucher is posted, its number, and «عرض السند» to open it
+  /// (ADR-050, خ٢) -- in place of a dialog that listed what was just typed.
+  void _announcePosted(Map<String, dynamic>? voucher, String done) {
+    final number = (voucher?['voucher_number'] ?? '').toString();
+    final id = voucher?['id'];
+    final navigator = Navigator.of(context);
+    AppFeedback.success(
+      context,
+      number.isEmpty ? done : '$done: ${ltrIsolate(number)}',
+      action: id is int
+          ? (
+              label: widget.isArabic ? 'عرض السند' : 'View voucher',
+              onPressed: () => navigator.push(
+                MaterialPageRoute(
+                  builder: (_) => VoucherDetailsScreen(voucherId: id),
+                ),
+              ),
+            )
+          : null,
+    );
+  }
+
   /// Asks before a voucher that posts at once (ADR-050, خ١); true to go on.
   Future<bool> _confirmPosting({
     required String title,
@@ -557,63 +581,21 @@ class _SafeTransferScreenState extends State<SafeTransferScreen> {
         );
 
         if (!mounted) return;
-        _showSnack(
-          widget.isArabic ? 'تم تصحيح العيار بنجاح' : 'Karat corrected',
-        );
         setState(() {
           _fromSafeId = null;
           _corrWeightController.clear();
           _notesController.clear();
         });
-
-        final voucher = result['voucher'] as Map<String, dynamic>?;
-        final correction = result['correction'] as Map<String, dynamic>?;
-        await showDialog<void>(
-          context: context,
-          builder: (ctx) => AlertDialog(
-            title: Text(
-              widget.isArabic ? 'تم تصحيح العيار' : 'Karat Corrected',
-            ),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  widget.isArabic
-                      ? 'رقم السند: ${voucher?['voucher_number'] ?? '-'}'
-                      : 'Voucher: ${voucher?['voucher_number'] ?? '-'}',
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  widget.isArabic
-                      ? 'الخزينة:  ${correction?['safe_name'] ?? '-'}'
-                      : 'Safe: ${correction?['safe_name'] ?? '-'}',
-                ),
-                Text(
-                  widget.isArabic
-                      ? 'من عيار:  ${correction?['from_karat']}k → إلى عيار: ${correction?['to_karat']}k'
-                      : 'From: ${correction?['from_karat']}k → To: ${correction?['to_karat']}k',
-                ),
-                Text(
-                  widget.isArabic
-                      ? 'الوزن:  ${correction?['weight']} جم'
-                      : 'Weight: ${correction?['weight']} g',
-                ),
-              ],
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(ctx),
-                child: Text(widget.isArabic ? 'حسناً' : 'OK'),
-              ),
-            ],
-          ),
+        _announcePosted(
+          result['voucher'] as Map<String, dynamic>?,
+          widget.isArabic ? 'صُحِّح العيار' : 'Karat corrected',
         );
       } catch (e) {
         if (!mounted) return;
-        _showSnack(
-          widget.isArabic ? 'فشل تصحيح العيار: $e' : 'Failed: $e',
-          isError: true,
+        AppFeedback.error(
+          context,
+          e,
+          title: widget.isArabic ? 'فشل تصحيح العيار' : 'Karat correction failed',
         );
       } finally {
         if (mounted) setState(() => _isSubmitting = false);
@@ -818,12 +800,6 @@ class _SafeTransferScreenState extends State<SafeTransferScreen> {
 
       if (!mounted) return;
 
-      _showSnack(
-        widget.isArabic
-            ? 'تم إنشاء سند التحويل بنجاح'
-            : 'Transfer voucher created',
-      );
-
       // Reset
       setState(() {
         _fromSafeId = null;
@@ -840,78 +816,9 @@ class _SafeTransferScreenState extends State<SafeTransferScreen> {
         _notesController.clear();
       });
 
-      await showDialog<void>(
-        context: context,
-        builder: (context) {
-          final voucher = result['voucher'] as Map<String, dynamic>?;
-          final transfer = result['transfer'] as Map<String, dynamic>?;
-          return AlertDialog(
-            title: Text(
-              widget.isArabic
-                  ? 'تم إنشاء سند التحويل'
-                  : 'Transfer Voucher Created',
-            ),
-            content: SingleChildScrollView(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    widget.isArabic
-                        ? 'رقم السند: ${voucher?['voucher_number'] ?? '-'}'
-                        : 'Voucher: ${voucher?['voucher_number'] ?? '-'}',
-                  ),
-                  const SizedBox(height: 8),
-                  if (_mode == 'cash')
-                    Text(
-                      widget.isArabic
-                          ? 'المبلغ: ${transfer?['amount_cash'] ?? '-'} ر.س'
-                          : 'Amount: ${transfer?['amount_cash'] ?? '-'}',
-                    ),
-                  if (_mode == 'gold') ...[
-                    Text(widget.isArabic ? 'الأوزان:' : 'Weights:'),
-                    const SizedBox(height: 4),
-                    Text(
-                      '24k: ${(transfer?['weights']?['24k'] ?? 0).toString()}',
-                    ),
-                    Text(
-                      '22k: ${(transfer?['weights']?['22k'] ?? 0).toString()}',
-                    ),
-                    Text(
-                      '21k: ${(transfer?['weights']?['21k'] ?? 0).toString()}',
-                    ),
-                    Text(
-                      '18k: ${(transfer?['weights']?['18k'] ?? 0).toString()}',
-                    ),
-                    if ((transfer?['stones'] as Map<String, dynamic>?)?.isNotEmpty ?? false) ...[
-                      const SizedBox(height: 8),
-                      Text(widget.isArabic ? 'الفصوص:' : 'Stones:'),
-                      const SizedBox(height: 4),
-                      Text(
-                        '24k: ${(transfer?['stones']?['24k'] ?? 0).toString()}',
-                      ),
-                      Text(
-                        '22k: ${(transfer?['stones']?['22k'] ?? 0).toString()}',
-                      ),
-                      Text(
-                        '21k: ${(transfer?['stones']?['21k'] ?? 0).toString()}',
-                      ),
-                      Text(
-                        '18k: ${(transfer?['stones']?['18k'] ?? 0).toString()}',
-                      ),
-                    ],
-                  ],
-                ],
-              ),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: Text(widget.isArabic ? 'حسناً' : 'OK'),
-              ),
-            ],
-          );
-        },
+      _announcePosted(
+        result['voucher'] as Map<String, dynamic>?,
+        widget.isArabic ? 'أُنشئ سند التحويل' : 'Transfer voucher created',
       );
 
       if (widget.popOnSuccess && mounted) {
@@ -919,11 +826,12 @@ class _SafeTransferScreenState extends State<SafeTransferScreen> {
       }
     } catch (e) {
       if (!mounted) return;
-      _showSnack(
-        widget.isArabic
-            ? 'فشل إنشاء سند التحويل: $e'
-            : 'Failed to create transfer: $e',
-        isError: true,
+      AppFeedback.error(
+        context,
+        e,
+        title: widget.isArabic
+            ? 'فشل إنشاء سند التحويل'
+            : 'Failed to create transfer',
       );
     } finally {
       if (mounted) setState(() => _isSubmitting = false);
@@ -948,7 +856,7 @@ class _SafeTransferScreenState extends State<SafeTransferScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(isAr ? 'إدارة الخزائن' : 'Safe Management'),
+        title: Text(isAr ? 'التحويل بين الخزائن' : 'Transfer between safes'),
         backgroundColor: AppColors.darkGold,
       ),
       body: _isLoadingSafes

@@ -5,6 +5,10 @@ import '../models/safe_box_model.dart';
 import '../utils.dart';
 import 'package:provider/provider.dart';
 import '../providers/settings_provider.dart';
+import '../utils/bidi.dart';
+import '../utils/currency_utils.dart';
+import '../widgets/app_feedback.dart';
+import 'voucher_details_screen.dart';
 
 // ═══════════════════════════════════════════════════════════════════
 //  الشاشة الرئيسية
@@ -189,7 +193,7 @@ class _OperationFormState extends State<_OperationForm> {
     } catch (e) {
       if (mounted) {
         setState(() => _loading = false);
-        _snack('خطأ في تحميل البيانات: $e', error: true);
+        AppFeedback.error(context, e, title: 'تعذّر تحميل الخزائن والحسابات');
       }
     }
   }
@@ -354,19 +358,48 @@ class _OperationFormState extends State<_OperationForm> {
             : null,
         notes: notes,
       );
-      final number =
-          (res['voucher'] as Map?)?['voucher_number']?.toString() ?? '';
+      final voucher = res['voucher'] as Map?;
+      final number = (voucher?['voucher_number'] ?? '').toString();
+      final id = voucher?['id'];
+      // The server says when the stones' entries were not posted (their
+      // accounts unset); the screen dropped it.
+      final warning = (res['warning'] ?? '').toString();
 
       final prefs = await SharedPreferences.getInstance();
       await prefs.setInt(_prefFrom, _fromSafeId!);
       await prefs.setInt(_prefTo, _toSafeId!);
 
       if (!mounted) return;
-      _snack('تم بنجاح${number.isNotEmpty ? ": $number" : ""}');
+      final navigator = Navigator.of(context);
+      final done = _isMelting ? 'سُجِّل التكسير' : 'سُجِّل التجديد';
+      final say = warning.isEmpty ? AppFeedback.success : AppFeedback.warning;
+      say(
+        context,
+        [
+          number.isEmpty ? done : '$done: ${ltrIsolate(number)}',
+          if (warning.isNotEmpty) warning,
+        ].join('\n'),
+        action: id is int
+            ? (
+                label: 'عرض السند',
+                onPressed: () => navigator.push(
+                  MaterialPageRoute(
+                    builder: (_) => VoucherDetailsScreen(voucherId: id),
+                  ),
+                ),
+              )
+            : null,
+      );
       _reset();
       _load();
     } catch (e) {
-      if (mounted) _snack('فشل: $e', error: true);
+      if (mounted) {
+        AppFeedback.error(
+          context,
+          e,
+          title: _isMelting ? 'لم يُسجَّل التكسير' : 'لم يُسجَّل التجديد',
+        );
+      }
     } finally {
       if (mounted) setState(() => _submitting = false);
     }
@@ -465,12 +498,7 @@ class _OperationFormState extends State<_OperationForm> {
 
   void _snack(String msg, {bool error = false}) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(msg),
-        backgroundColor: error ? Colors.red[700] : Colors.green[700],
-      ),
-    );
+    error ? AppFeedback.error(context, msg) : AppFeedback.success(context, msg);
   }
 
   // ── بناء الواجهة ──────────────────────────────────────────────
@@ -815,7 +843,9 @@ class _WeightLineRowState extends State<_WeightLineRow> {
                       vertical: 12,
                     ),
                     isDense: true,
-                    errorText: over ? '>${avail.toStringAsFixed(2)}' : null,
+                    errorText: over
+                        ? 'أكثر من المتاح ${ltrIsolate(formatGrams(avail))}'
+                        : null,
                     errorStyle: const TextStyle(fontSize: 10),
                   ),
                   validator: (v) {

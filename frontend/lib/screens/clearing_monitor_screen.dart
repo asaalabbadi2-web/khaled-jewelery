@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../providers/settings_provider.dart';
 import '../theme/app_theme.dart' as theme;
 import 'clearing_settlement_screen.dart';
+import '../widgets/app_feedback.dart';
 import '../widgets/app_state_views.dart';
 import '../widgets/confirm_financial_action.dart';
 import '../utils/currency_utils.dart' as cu;
@@ -182,24 +183,12 @@ class _ClearingMonitorScreenState extends State<ClearingMonitorScreen> {
         detail =
             '$msg\nتجاوز: $reasons${skipped.length > 3 ? ' (و${skipped.length - 3} أخرى)' : ''}';
       }
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(detail),
-          backgroundColor: hasSkipped
-              ? theme.AppColors.warning
-              : theme.AppColors.success,
-          duration: Duration(seconds: hasSkipped ? 6 : 4),
-        ),
-      );
+      // Skipped methods are a thing to heed, not a failure.
+      (hasSkipped ? AppFeedback.warning : AppFeedback.success)(context, detail);
       await _loadData();
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('خطأ: $e'),
-          backgroundColor: theme.AppColors.error,
-        ),
-      );
+      AppFeedback.error(context, e, title: 'لم تُشغَّل التسوية التلقائية');
     } finally {
       if (mounted) setState(() => _runningAutoSettle = false);
     }
@@ -299,7 +288,7 @@ class _ClearingMonitorScreenState extends State<ClearingMonitorScreen> {
       child: Scaffold(
         backgroundColor: const Color(0xFFF5F5F5),
         appBar: AppBar(
-          title: const Text('مراقبة تسوية المقاصة'),
+          title: const Text('تسوية المقاصة'),
           backgroundColor: theme.AppColors.primaryGold,
           foregroundColor: Colors.black,
           elevation: 0,

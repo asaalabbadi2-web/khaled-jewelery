@@ -13,6 +13,10 @@ import '../utils.dart';
 import '../widgets/account_picker_sheet.dart';
 import '../widgets/safe_box_picker_dialog.dart';
 import '../widgets/app_feedback.dart';
+import 'voucher_details_screen.dart';
+import '../utils/bidi.dart';
+import '../widgets/confirm_financial_action.dart';
+import '../widgets/app_state_views.dart';
 
 class ClearingSettlementScreen extends StatefulWidget {
   final int? initialClearingSafeBoxId;
@@ -65,7 +69,7 @@ class _ClearingSettlementScreenState extends State<ClearingSettlementScreen> {
 
   bool _loading = true;
   bool _submitting = false;
-  String? _error;
+  Object? _error;
 
   bool _autoCalcFee = true;
   bool _updatingFee = false;
@@ -358,7 +362,7 @@ class _ClearingSettlementScreenState extends State<ClearingSettlementScreen> {
       _recomputeFeeIfNeeded();
     } catch (e) {
       setState(() {
-        _error = e.toString();
+        _error = e;
         _loading = false;
       });
     }
@@ -808,46 +812,33 @@ class _ClearingSettlementScreenState extends State<ClearingSettlementScreen> {
   }
 
   /// Reverse a clearing settlement voucher after admin confirmation.
+  /// Reverse a clearing settlement voucher after admin confirmation.
   Future<void> _reverseSettlement(
     int voucherId,
     String voucherNumber,
+    double amount,
   ) async {
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('عكس التسوية'),
-        content: Text(
-          'هل تريد عكس سند التسوية رقم $voucherNumber؟\n'
-          'سيتم إنشاء قيد محاسبي عكسي وإلغاء السند.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('إلغاء'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(context, true),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.red,
-            ),
-            child: const Text(
-              'عكس',
-              style: TextStyle(color: Colors.white),
-            ),
-          ),
-        ],
-      ),
+    final go = await confirmFinancialAction(
+      context,
+      title: 'عكس التسوية؟',
+      effect:
+          'يُلغى سند التسوية ويُنشأ قيد عكسي له: يعود المبلغ إلى خزينة المستحقات، وتعود دفعاته معلّقة.',
+      confirmLabel: 'عكس التسوية',
+      facts: [
+        ('السند', ltrIsolate(voucherNumber)),
+        ('المبلغ', _formatMoney(amount)),
+      ],
     );
-    if (confirm != true) return;
+    if (go == null || !mounted) return;
 
     try {
       await _api.cancelVoucher(voucherId, 'عكس تسوية مقاصة');
       if (!mounted) return;
-      _showSnack('تم عكس التسوية بنجاح');
+      _showSnack('عُكست التسوية');
       _loadHistory();
     } catch (e) {
       if (!mounted) return;
-      _showSnack(e.toString(), error: true);
+      AppFeedback.error(context, e, title: 'لم تُعكس التسوية');
     }
   }
 
@@ -981,41 +972,26 @@ class _ClearingSettlementScreenState extends State<ClearingSettlementScreen> {
 
       if (!mounted) return;
 
-      await showDialog<void>(
-        context: context,
-        builder: (_) => AlertDialog(
-          title: const Text('تمت التسوية بنجاح'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              if (voucherNumber.isNotEmpty) Text('رقم السند: $voucherNumber'),
-              const SizedBox(height: theme.AppSpace.sm),
-              // The lines the server previewed are the lines it posted
-              // (ADR-050), not a VAT and a net worked out here.
-              for (final l
-                  in (preview['lines'] as List? ?? const [])
-                      .whereType<Map<String, dynamic>>())
-                Padding(
-                  padding: const EdgeInsets.only(bottom: theme.AppSpace.xs),
-                  child: _journalLine(
-                    l,
-                    AppSemanticColors.of(context),
-                    Theme.of(context).textTheme,
+      // The voucher's number and «عرض السند»; its lines were shown, as the
+      // server built them, before it was saved (ADR-050).
+      final id = voucher is Map<String, dynamic> ? voucher['id'] : null;
+      final navigator = Navigator.of(context);
+      AppFeedback.success(
+        context,
+        voucherNumber.isEmpty
+            ? 'سُجِّلت التسوية'
+            : 'سُجِّلت التسوية: ${ltrIsolate(voucherNumber)}',
+        action: id is int
+            ? (
+                label: 'عرض السند',
+                onPressed: () => navigator.push(
+                  MaterialPageRoute(
+                    builder: (_) => VoucherDetailsScreen(voucherId: id),
                   ),
                 ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('حسناً'),
-            ),
-          ],
-        ),
+              )
+            : null,
       );
-
-      _showSnack('تم إنشاء سند التسوية');
       Navigator.of(context).pop(true);
     } catch (e) {
       if (!mounted) return;
@@ -1135,14 +1111,18 @@ class _ClearingSettlementScreenState extends State<ClearingSettlementScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('تسوية مستحقات تحصيل'),
+        title: const Text('تسوية مستحقات التحصيل'),
         backgroundColor: theme.AppColors.primaryGold,
         foregroundColor: isLight ? Colors.black : Colors.white,
       ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : (_error != null)
-          ? _ErrorState(message: _error!, onRetry: _load)
+          ? AppErrorView(
+              title: 'تعذّر تحميل التسوية',
+              error: _error,
+              onRetry: _load,
+            )
           : ListView(
               padding: const EdgeInsets.all(16),
               children: [
@@ -1611,6 +1591,7 @@ class _ClearingSettlementScreenState extends State<ClearingSettlementScreen> {
                                         onPressed: () => _reverseSettlement(
                                           voucherId,
                                           voucherNumber,
+                                          totalCash,
                                         ),
                                         style: OutlinedButton.styleFrom(
                                           foregroundColor: Colors.red,
@@ -2019,40 +2000,3 @@ class _PickerTile extends StatelessWidget {
   }
 }
 
-class _ErrorState extends StatelessWidget {
-  final String message;
-  final VoidCallback onRetry;
-
-  const _ErrorState({required this.message, required this.onRetry});
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(
-              Icons.error_outline,
-              size: 48,
-              color: theme.AppColors.error,
-            ),
-            const SizedBox(height: 10),
-            Text(
-              message,
-              textAlign: TextAlign.center,
-              style: TextStyle(color: Colors.grey.shade700),
-            ),
-            const SizedBox(height: 12),
-            OutlinedButton.icon(
-              onPressed: onRetry,
-              icon: const Icon(Icons.refresh),
-              label: const Text('إعادة المحاولة'),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}

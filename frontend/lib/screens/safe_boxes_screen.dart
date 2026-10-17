@@ -12,6 +12,9 @@ import '../theme/app_semantic_colors.dart';
 import '../utils/arabic_search.dart';
 import '../utils/bidi.dart';
 import '../widgets/account_management.dart';
+import '../widgets/app_feedback.dart';
+import '../widgets/app_state_views.dart';
+import '../widgets/confirm_financial_action.dart';
 import 'account_statement_screen.dart';
 import 'add_voucher_screen.dart';
 import 'clearing_settlement_screen.dart';
@@ -63,7 +66,7 @@ SemanticTone _typeTone(AppSemanticColors tones, String type) => switch (type) {
   _ => tones.sectionSlate,
 };
 
-String _message(Object e) => e.toString().replaceFirst('Exception: ', '');
+String _message(Object e) => AppFeedback.messageOf(e);
 
 final _money = NumberFormat('#,##0.00', 'en');
 final _grams = NumberFormat('#,##0.000', 'en');
@@ -155,17 +158,9 @@ class _SafeBoxesScreenState extends State<SafeBoxesScreen> {
   String _amount(double v) => ltrIsolate('${_money.format(v)} $_symbol');
   String _weight(double v) => ltrIsolate('${_grams.format(v)} جم');
 
-  void _say(String text, {bool error = false}) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          text,
-          style: error ? TextStyle(color: _scheme.onError) : null,
-        ),
-        backgroundColor: error ? _scheme.error : null,
-      ),
-    );
-  }
+  void _say(String text, {bool error = false}) => error
+      ? AppFeedback.error(context, text)
+      : AppFeedback.success(context, text);
 
   // ── what is shown ──
 
@@ -286,28 +281,15 @@ class _SafeBoxesScreenState extends State<SafeBoxesScreen> {
   }
 
   Future<void> _delete(SafeBoxModel sb) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('حذف الخزينة'),
-        content: Text('هل تريد حذف «${sb.name}»؟'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('إلغاء'),
-          ),
-          FilledButton(
-            style: FilledButton.styleFrom(
-              backgroundColor: _scheme.error,
-              foregroundColor: _scheme.onError,
-            ),
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('حذف'),
-          ),
-        ],
-      ),
+    final confirmed = await confirmFinancialAction(
+      context,
+      title: 'حذف الخزينة؟',
+      effect:
+          'تُحذف الخزينة من القائمة، ولا يُحذف حسابها ولا قيوده. خزينة مستعملة لا تُحذف: أوقفها بدل حذفها.',
+      confirmLabel: 'حذف الخزينة',
+      facts: [('الخزينة', sb.name)],
     );
-    if (confirmed != true) return;
+    if (confirmed == null || !mounted) return;
     try {
       await widget.api.deleteSafeBox(sb.id!);
       _say('حُذفت الخزينة');
@@ -369,24 +351,10 @@ class _SafeBoxesScreenState extends State<SafeBoxesScreen> {
       return const Center(child: CircularProgressIndicator());
     }
     if (_error != null && _overview == null) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.cloud_off_outlined, size: 40, color: _scheme.error),
-              const SizedBox(height: 12),
-              Text('تعذّر تحميل الخزائن: $_error', textAlign: TextAlign.center),
-              const SizedBox(height: 12),
-              FilledButton.icon(
-                onPressed: _load,
-                icon: const Icon(Icons.refresh),
-                label: const Text('إعادة المحاولة'),
-              ),
-            ],
-          ),
-        ),
+      return AppErrorView(
+        title: 'تعذّر تحميل الخزائن',
+        error: _error,
+        onRetry: _load,
       );
     }
 

@@ -76,8 +76,9 @@ void main() {
   /// returns what reached `/melting-renewal`.
   Future<List<Map<String, dynamic>>> run(
     WidgetTester tester,
-    Future<void> Function() steps,
-  ) async {
+    Future<void> Function() steps, {
+    String? warning,
+  }) async {
     SharedPreferences.setMockInitialValues({
       'jwt_token': 'token',
       'app_settings': jsonEncode({'main_karat': 21}),
@@ -112,7 +113,8 @@ void main() {
           sent.add(jsonDecode(request.body) as Map<String, dynamic>);
           return http.Response(
             jsonEncode({
-              'voucher': {'voucher_number': 'ADJ-2026-00042'},
+              'voucher': {'id': 42, 'voucher_number': 'ADJ-2026-00042'},
+              'warning': ?warning,
             }),
             201,
             headers: {'content-type': 'application/json; charset=utf-8'},
@@ -179,6 +181,8 @@ void main() {
 
     expect(sent, hasLength(1), reason: 'one operation, one request');
     expectPayload('melting_two_karats', sent.single);
+    expect(find.textContaining('ADJ-2026-00042'), findsOneWidget);
+    expect(find.text('عرض السند'), findsOneWidget);
   });
 
   testWidgets('a wage without its account is not sent', (tester) async {
@@ -217,5 +221,23 @@ void main() {
 
     expect(sent, isEmpty);
     expect(find.textContaining('عيار 21k'), findsOneWidget);
+  });
+
+  testWidgets('the server\'s warning is said, not dropped', (tester) async {
+    // A renewal whose stones' accounts are unset posts no stones entry, and
+    // the server says so; the screen showed «تم بنجاح» alone.
+    const warning = 'لم تُسجَّل قيود الفصوص المحاسبية';
+    final sent = await run(warning: warning, tester, () async {
+      await tester.enterText(
+        find.widgetWithText(TextFormField, '0.000').first,
+        '2',
+      );
+      await execute(tester);
+      await tester.tap(find.widgetWithText(FilledButton, 'تأكيد التكسير'));
+      await tester.pumpAndSettle();
+    });
+
+    expect(sent, hasLength(1));
+    expect(find.textContaining(warning), findsOneWidget);
   });
 }

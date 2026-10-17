@@ -123,7 +123,7 @@ void main() {
         if (request.method == 'POST') {
           sent.add(jsonDecode(request.body) as Map<String, dynamic>);
           return json({
-            'voucher': {'voucher_number': 'AV-2026-00900'},
+            'voucher': {'id': 900, 'voucher_number': 'AV-2026-00900'},
             'transfer': {'amount_cash': 1500.0},
           }, 201);
         }
@@ -157,6 +157,12 @@ void main() {
     });
 
     expect(sent, hasLength(1));
+    // خ٢: the screen says its own name, and the voucher posted, with a way
+    // to open it -- in place of a dialog that listed what was just typed.
+    expect(find.text('التحويل بين الخزائن'), findsOneWidget);
+    expect(find.textContaining('أُنشئ سند التحويل'), findsOneWidget);
+    expect(find.textContaining('AV-2026-00900'), findsOneWidget);
+    expect(find.text('عرض السند'), findsOneWidget);
     expect(sent.single['amount_cash'], 1500.0);
     expect(sent.single['from_safe_box_id'], 1);
     expect(sent.single['to_safe_box_id'], 2);
