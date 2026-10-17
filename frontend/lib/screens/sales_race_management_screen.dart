@@ -54,7 +54,7 @@ class _SalesRaceManagementScreenState extends State<SalesRaceManagementScreen> {
   bool _allowFallback = true;
   bool _showInvoiceCount = true;
   bool _showChampion = true;
-  Map<String, Map<String, String>> _periodVisibility = {
+  final Map<String, Map<String, String>> _periodVisibility = {
     'today': {'amounts': 'all', 'points': 'all', 'share': 'all', 'team_summary': 'all'},
     'week':  {'amounts': 'all', 'points': 'all', 'share': 'all', 'team_summary': 'all'},
     'month': {'amounts': 'all', 'points': 'all', 'share': 'all', 'team_summary': 'all'},

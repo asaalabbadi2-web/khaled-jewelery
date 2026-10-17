@@ -222,8 +222,9 @@ class _AccountFormState extends State<_AccountForm> {
         _type = (parent['type'] ?? _type).toString();
       });
     } catch (e) {
-      if (mounted)
+      if (mounted) {
         _say(context, 'تعذّر اقتراح رقم الحساب: ${_message(e)}', error: true);
+      }
     } finally {
       if (mounted) setState(() => _suggesting = false);
     }
@@ -244,12 +245,13 @@ class _AccountFormState extends State<_AccountForm> {
           excludeAccountId: _editing ? widget.editing!['id'] as int : null,
         );
         if (v['is_valid'] != true) {
-          if (mounted)
+          if (mounted) {
             _say(
               context,
               v['message']?.toString() ?? 'رقم الحساب غير صالح',
               error: true,
             );
+          }
           return;
         }
       }
@@ -543,8 +545,9 @@ Future<void> exportAccountsFlow(
       ),
     );
   } catch (e) {
-    if (context.mounted)
+    if (context.mounted) {
       _say(context, 'تعذّر التصدير: ${_message(e)}', error: true);
+    }
   }
 }
 
@@ -580,8 +583,9 @@ Future<bool> importAccountsFlow(
                 final content = await web_io.pickJsonFile();
                 if (content != null) input.text = content;
               } catch (e) {
-                if (context.mounted)
+                if (context.mounted) {
                   _say(context, 'فشل تحميل الملف: ${_message(e)}', error: true);
+                }
               }
             },
             child: const Text('اختر ملفًا'),
@@ -606,8 +610,9 @@ Future<bool> importAccountsFlow(
                 'استُورد: ${res['created'] ?? 0} جديد، ${res['updated'] ?? 0} محدَّث',
               );
             } catch (e) {
-              if (context.mounted)
+              if (context.mounted) {
                 _say(context, 'فشل الاستيراد: ${_message(e)}', error: true);
+              }
             }
           },
           child: const Text('استيراد'),

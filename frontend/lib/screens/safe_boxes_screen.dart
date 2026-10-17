@@ -176,8 +176,9 @@ class _SafeBoxesScreenState extends State<SafeBoxesScreen> {
       ...safeTypeLabels.keys.where(present.contains),
       ...present.where((t) => !safeTypeLabels.containsKey(t)),
     ];
-    if (widget.lockFilterType && _type != 'all')
+    if (widget.lockFilterType && _type != 'all') {
       return ordered.where((t) => t == _type).toList();
+    }
     return ordered;
   }
 
@@ -364,8 +365,9 @@ class _SafeBoxesScreenState extends State<SafeBoxesScreen> {
   }
 
   Widget _body() {
-    if (_loading && _overview == null)
+    if (_loading && _overview == null) {
       return const Center(child: CircularProgressIndicator());
+    }
     if (_error != null && _overview == null) {
       return Center(
         child: Padding(
@@ -853,8 +855,9 @@ class _SafeBoxesScreenState extends State<SafeBoxesScreen> {
         case 'edit':
           _edit(sb);
         case 'settlement':
-          if (sb.id != null)
+          if (sb.id != null) {
             _push(ClearingSettlementScreen(initialClearingSafeBoxId: sb.id));
+          }
         case 'delete':
           _delete(sb);
       }
@@ -951,13 +954,15 @@ class _SafeBoxFormState extends State<_SafeBoxForm> {
           setState(() {
             _accounts = accounts;
             final id = widget.editing?.accountId;
-            if (id != null)
+            if (id != null) {
               _account = accounts.where((a) => a['id'] == id).firstOrNull;
+            }
           });
         })
         .catchError((Object e) {
-          if (mounted)
+          if (mounted) {
             setState(() => _error = 'تعذّر تحميل الحسابات: ${_message(e)}');
+          }
         });
   }
 
@@ -1060,8 +1065,9 @@ class _SafeBoxFormState extends State<_SafeBoxForm> {
                       : (v) => setState(() {
                           _type = v ?? _type;
                           if (_type == 'gold' &&
-                              _account?['tracks_weight'] != true)
+                              _account?['tracks_weight'] != true) {
                             _account = null;
+                          }
                         }),
                 ),
                 const SizedBox(height: 12),
