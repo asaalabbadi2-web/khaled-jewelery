@@ -13,6 +13,8 @@ import '../utils.dart';
 import '../widgets/account_picker_sheet.dart';
 import '../widgets/safe_box_picker_dialog.dart';
 import '../widgets/app_feedback.dart';
+import '../widgets/app_shortcuts.dart';
+import '../widgets/app_leave_guard.dart';
 import 'voucher_details_screen.dart';
 import '../utils/bidi.dart';
 import '../utils/currency_utils.dart';
@@ -1098,8 +1100,25 @@ class _ClearingSettlementScreenState extends State<ClearingSettlementScreen> {
     );
   }
 
+  /// The employee typed in the form: leaving asks first (ADR-050, خ٤). The
+  /// screen fills the due, the fee and the count itself as it loads -- what
+  /// it wrote is not the employee's to lose, so only typing counts.
+  bool _typed = false;
+  void _typedByHand(String _) => _typed = true;
+
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => AppLeaveGuard(
+    controllers: const [],
+    isDirty: () => _typed,
+    child: AppDocumentShortcuts(
+      onSave: () {
+        if (!_submitting && !_loading) _submit();
+      },
+      child: _buildScreen(context),
+    ),
+  );
+
+  Widget _buildScreen(BuildContext context) {
     context.watch<SettingsProvider>();
 
     final gross = _parseAmount(_grossController.text);
@@ -1258,6 +1277,7 @@ class _ClearingSettlementScreenState extends State<ClearingSettlementScreen> {
                         TextField(
                           key: const ValueKey('clearing.gross'),
                           controller: _grossController,
+                          onChanged: _typedByHand,
                           keyboardType: const TextInputType.numberWithOptions(
                             decimal: true,
                           ),
@@ -1308,6 +1328,7 @@ class _ClearingSettlementScreenState extends State<ClearingSettlementScreen> {
                                     child: TextField(
                                       key: const ValueKey('clearing.fee_rate'),
                                       controller: _rateController,
+                                      onChanged: _typedByHand,
                                       keyboardType:
                                           const TextInputType.numberWithOptions(
                                             decimal: true,
@@ -1329,6 +1350,7 @@ class _ClearingSettlementScreenState extends State<ClearingSettlementScreen> {
                                         'clearing.fee_fixed_per_tx',
                                       ),
                                       controller: _fixedFeeController,
+                                      onChanged: _typedByHand,
                                       keyboardType:
                                           const TextInputType.numberWithOptions(
                                             decimal: true,
@@ -1349,6 +1371,7 @@ class _ClearingSettlementScreenState extends State<ClearingSettlementScreen> {
                               TextField(
                                 key: const ValueKey('clearing.tx_count'),
                                 controller: _txCountController,
+                                onChanged: _typedByHand,
                                 keyboardType: TextInputType.number,
                                 inputFormatters: [NormalizeNumberFormatter()],
                                 decoration: const InputDecoration(
@@ -1365,6 +1388,7 @@ class _ClearingSettlementScreenState extends State<ClearingSettlementScreen> {
                           TextField(
                             key: const ValueKey('clearing.fee_manual'),
                             controller: _feeController,
+                            onChanged: _typedByHand,
                             keyboardType: const TextInputType.numberWithOptions(
                               decimal: true,
                             ),
@@ -1444,6 +1468,7 @@ class _ClearingSettlementScreenState extends State<ClearingSettlementScreen> {
                         const SizedBox(height: 10),
                         TextField(
                           controller: _referenceController,
+                          onChanged: _typedByHand,
                           decoration: const InputDecoration(
                             labelText: 'رقم مرجعي (اختياري)',
                             prefixIcon: Icon(Icons.tag),
@@ -1453,6 +1478,7 @@ class _ClearingSettlementScreenState extends State<ClearingSettlementScreen> {
                         const SizedBox(height: 10),
                         TextField(
                           controller: _descriptionController,
+                          onChanged: _typedByHand,
                           decoration: const InputDecoration(
                             labelText: 'وصف (اختياري)',
                             prefixIcon: Icon(Icons.notes),
@@ -1463,6 +1489,7 @@ class _ClearingSettlementScreenState extends State<ClearingSettlementScreen> {
                         const SizedBox(height: 10),
                         TextField(
                           controller: _notesController,
+                          onChanged: _typedByHand,
                           decoration: const InputDecoration(
                             labelText: 'ملاحظات (اختياري)',
                             prefixIcon: Icon(Icons.sticky_note_2_outlined),

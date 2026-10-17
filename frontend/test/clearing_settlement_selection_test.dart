@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:frontend/providers/auth_provider.dart';
 import 'package:frontend/providers/settings_provider.dart';
@@ -29,6 +30,7 @@ void main() {
     double? due,
     ThemeData? theme,
     Size size = const Size(1200, 2400),
+    bool overAPage = false,
   }) async {
     tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1;
@@ -42,18 +44,44 @@ void main() {
         ],
         child: MaterialApp(
           theme: theme,
-          home: ClearingSettlementScreen(
-            initialClearingSafeBoxId: 32,
-            initialBankSafeBoxId: 37,
-            initialDueAmount: due,
-            initialInvoicePaymentIds: selected,
-            initialTxCount: selected?.length,
-            apiService: api,
-          ),
+          home: overAPage
+              ? Builder(
+                  builder: (context) => Scaffold(
+                    body: Center(
+                      child: TextButton(
+                        onPressed: () => Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => ClearingSettlementScreen(
+                              initialClearingSafeBoxId: 32,
+                              initialBankSafeBoxId: 37,
+                              initialDueAmount: due,
+                              initialInvoicePaymentIds: selected,
+                              initialTxCount: selected?.length,
+                              apiService: api,
+                            ),
+                          ),
+                        ),
+                        child: const Text('open'),
+                      ),
+                    ),
+                  ),
+                )
+              : ClearingSettlementScreen(
+                  initialClearingSafeBoxId: 32,
+                  initialBankSafeBoxId: 37,
+                  initialDueAmount: due,
+                  initialInvoicePaymentIds: selected,
+                  initialTxCount: selected?.length,
+                  apiService: api,
+                ),
         ),
       ),
     );
     await tester.pumpAndSettle();
+    if (overAPage) {
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+    }
     return api;
   }
 
@@ -170,4 +198,47 @@ void main() {
       expectNoLightSurfaceOnDark(tester);
     });
   }
+
+  // خ٤ (ADR-050): Ctrl+S, and a form that asks before what the employee
+  // typed is lost -- not what the screen filled in itself as it loaded.
+  Future<void> press(
+    WidgetTester tester,
+    LogicalKeyboardKey key, {
+    bool control = false,
+  }) async {
+    final focus = FocusManager.instance.primaryFocus;
+    if (focus != null && focus is! FocusScopeNode) focus.unfocus();
+    await tester.pump();
+    if (control) await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+    await tester.sendKeyEvent(key);
+    if (control) await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+    await tester.pumpAndSettle();
+  }
+
+  testWidgets('Ctrl+S asks the server for the journal, as the button does', (
+    tester,
+  ) async {
+    final api = await open(tester);
+    await press(tester, LogicalKeyboardKey.keyS, control: true);
+    expect(api.previews, hasLength(1));
+    expect(find.byKey(const Key('clearing-journal-preview')), findsOneWidget);
+  });
+
+  testWidgets('opened and left at once, it does not ask -- what it filled '
+      'itself is not lost typing', (tester) async {
+    await open(tester, selected: [3526], due: 330, overAPage: true);
+    await press(tester, LogicalKeyboardKey.escape);
+    expect(find.text('الخروج دون حفظ؟'), findsNothing);
+    expect(find.byType(ClearingSettlementScreen), findsNothing);
+  });
+
+  testWidgets('a reference typed, Esc asks first', (tester) async {
+    await open(tester, overAPage: true);
+    await tester.enterText(
+      find.widgetWithText(TextField, 'رقم مرجعي (اختياري)'),
+      'BANK-123',
+    );
+    await press(tester, LogicalKeyboardKey.escape);
+    expect(find.text('الخروج دون حفظ؟'), findsOneWidget);
+  });
 }

@@ -92,9 +92,11 @@ class _FakeApi extends ApiService {
   _FakeApi({this.failFirst = false});
   bool failFirst;
   final created = <SafeBoxModel>[];
+  int loads = 0;
 
   @override
   Future<SafeBoxesOverview> getSafeBoxesOverview() async {
+    loads++;
     if (failFirst) {
       failFirst = false;
       throw Exception('انقطع الاتصال');
@@ -353,4 +355,26 @@ void main() {
       },
     );
   }
+
+  // خ٤ (ADR-050): the keys of every list -- Ctrl+F to search, F5 to load.
+  testWidgets('Ctrl+F puts the cursor in the search; F5 loads again', (
+    tester,
+  ) async {
+    final api = await _open(tester);
+    final loads = api.loads;
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyF);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+    await tester.pumpAndSettle();
+    final search = tester.widget<TextField>(
+      find.widgetWithText(TextField, 'ابحث باسم الخزينة أو الحساب أو رقمه'),
+    );
+    expect(search.focusNode?.hasFocus, isTrue);
+
+    FocusManager.instance.primaryFocus?.unfocus();
+    await tester.pump();
+    await tester.sendKeyEvent(LogicalKeyboardKey.f5);
+    await tester.pumpAndSettle();
+    expect(api.loads, loads + 1);
+  });
 }

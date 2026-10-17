@@ -82,6 +82,7 @@ void main() {
     String? warning,
     ThemeData? theme,
     Size size = const Size(1200, 2400),
+    bool overAPage = false,
   }) async {
     SharedPreferences.setMockInitialValues({
       'jwt_token': 'token',
@@ -103,12 +104,32 @@ void main() {
               theme: theme ?? LightTheme.theme,
               home: Directionality(
                 textDirection: TextDirection.rtl,
-                child: MeltingRenewalScreen(api: ApiService()),
+                child: overAPage
+                    ? Builder(
+                        builder: (context) => Scaffold(
+                          body: Center(
+                            child: TextButton(
+                              onPressed: () => Navigator.of(context).push(
+                                MaterialPageRoute(
+                                  builder: (_) =>
+                                      MeltingRenewalScreen(api: ApiService()),
+                                ),
+                              ),
+                              child: const Text('open'),
+                            ),
+                          ),
+                        ),
+                      )
+                    : MeltingRenewalScreen(api: ApiService()),
               ),
             ),
           ),
         );
         await tester.pumpAndSettle();
+        if (overAPage) {
+          await tester.tap(find.text('open'));
+          await tester.pumpAndSettle();
+        }
         await steps();
       },
       () => MockClient((request) async {
@@ -265,4 +286,66 @@ void main() {
       });
     });
   }
+
+  // خ٤ (ADR-050): the keys of every document screen, and a form that asks
+  // before what was typed in it is lost.
+  Future<void> press(
+    WidgetTester tester,
+    LogicalKeyboardKey key, {
+    bool control = false,
+  }) async {
+    // Out of a field, as the employee leaves it with Tab -- not out of the
+    // screen's own scope, where its keys are heard.
+    final focus = FocusManager.instance.primaryFocus;
+    if (focus != null && focus is! FocusScopeNode) focus.unfocus();
+    await tester.pump();
+    if (control) await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+    await tester.sendKeyEvent(key);
+    if (control) await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+    await tester.pumpAndSettle();
+  }
+
+  testWidgets('Ctrl+Enter adds a karat line; Ctrl+S asks to execute', (
+    tester,
+  ) async {
+    final sent = await run(tester, () async {
+      await tester.enterText(
+        find.widgetWithText(TextFormField, '0.000').first,
+        '2',
+      );
+      final lines = find.widgetWithText(TextFormField, '0.000');
+      final before = lines.evaluate().length;
+      await press(tester, LogicalKeyboardKey.enter, control: true);
+      expect(lines.evaluate().length, before + 1);
+      await tester.enterText(
+        find.widgetWithText(TextFormField, '0.000').last,
+        '1',
+      );
+      await press(tester, LogicalKeyboardKey.keyS, control: true);
+      expect(find.text('تأكيد التكسير'), findsWidgets);
+    });
+    expect(sent, isEmpty, reason: 'asked, not yet sent');
+  });
+
+  testWidgets('Esc asks before a typed weight is lost', (tester) async {
+    await run(overAPage: true, tester, () async {
+      await tester.enterText(
+        find.widgetWithText(TextFormField, '0.000').first,
+        '2',
+      );
+      await press(tester, LogicalKeyboardKey.escape);
+      expect(find.text('الخروج دون حفظ؟'), findsOneWidget);
+      await tester.tap(find.text('البقاء'));
+      await tester.pumpAndSettle();
+      expect(find.byType(MeltingRenewalScreen), findsOneWidget);
+    });
+  });
+
+  testWidgets('Esc on an untouched form leaves at once', (tester) async {
+    await run(overAPage: true, tester, () async {
+      await press(tester, LogicalKeyboardKey.escape);
+      expect(find.text('الخروج دون حفظ؟'), findsNothing);
+      expect(find.byType(MeltingRenewalScreen), findsNothing);
+    });
+  });
 }

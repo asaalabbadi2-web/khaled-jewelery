@@ -8,6 +8,7 @@ import '../theme/app_theme.dart' as theme;
 import '../utils/bidi.dart';
 import 'clearing_settlement_screen.dart';
 import '../widgets/app_feedback.dart';
+import '../widgets/app_shortcuts.dart';
 import '../widgets/app_state_views.dart';
 import '../widgets/confirm_financial_action.dart';
 import '../utils/currency_utils.dart' as cu;
@@ -294,8 +295,17 @@ class _ClearingMonitorScreenState extends State<ClearingMonitorScreen> {
   String get _currency => context.read<SettingsProvider>().currencySymbolText;
   bool get _newSar => context.read<SettingsProvider>().currencyIsNewSar;
 
+  /// F5 loads again (ADR-050, خ٤); it has no search.
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => AppListShortcuts(
+    searchFocus: null,
+    onRefresh: () {
+      if (!_loading) _loadData();
+    },
+    child: _buildScreen(context),
+  );
+
+  Widget _buildScreen(BuildContext context) {
     context.watch<SettingsProvider>();
 
     // Arabic only, right-to-left in either language of the app.

@@ -13,6 +13,7 @@ import '../utils/arabic_search.dart';
 import '../utils/bidi.dart';
 import '../widgets/account_management.dart';
 import '../widgets/app_feedback.dart';
+import '../widgets/app_shortcuts.dart';
 import '../widgets/app_state_views.dart';
 import '../widgets/confirm_financial_action.dart';
 import 'account_statement_screen.dart';
@@ -101,6 +102,7 @@ class _SafeBoxesScreenState extends State<SafeBoxesScreen> {
       : widget.initialFilterType!.trim();
   String _query = '';
   final _search = TextEditingController();
+  final _searchFocus = FocusNode();
   final _open = <int>{};
 
   ColorScheme get _scheme => Theme.of(context).colorScheme;
@@ -122,6 +124,7 @@ class _SafeBoxesScreenState extends State<SafeBoxesScreen> {
   void dispose() {
     AppEvents.vaultRefreshSignal.removeListener(_onVaultRefresh);
     _search.dispose();
+    _searchFocus.dispose();
     super.dispose();
   }
 
@@ -323,8 +326,15 @@ class _SafeBoxesScreenState extends State<SafeBoxesScreen> {
 
   // ── building ──
 
+  /// Ctrl+F to search, F5 to load again (ADR-049 م٦, ADR-050 خ٤).
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => AppListShortcuts(
+    searchFocus: _searchFocus,
+    onRefresh: _load,
+    child: _buildScreen(context),
+  );
+
+  Widget _buildScreen(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: Text(widget.titleOverride ?? 'إدارة الخزائن'),
@@ -522,6 +532,7 @@ class _SafeBoxesScreenState extends State<SafeBoxesScreen> {
 
   Widget _searchField() => TextField(
     controller: _search,
+    focusNode: _searchFocus,
     onChanged: (v) => setState(() => _query = v),
     decoration: InputDecoration(
       hintText: 'ابحث باسم الخزينة أو الحساب أو رقمه',

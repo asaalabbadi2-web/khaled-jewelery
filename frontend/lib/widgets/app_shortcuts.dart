@@ -72,7 +72,8 @@ class AppDocumentShortcuts extends StatelessWidget {
 }
 
 /// The keys of a list screen: Ctrl/⌘+F puts the cursor in [searchFocus], F5
-/// loads again, F1 says them.
+/// loads again, F1 says them. A list with no search (the clearing monitor)
+/// has F5 and F1.
 class AppListShortcuts extends StatelessWidget {
   const AppListShortcuts({
     super.key,
@@ -81,7 +82,7 @@ class AppListShortcuts extends StatelessWidget {
     required this.child,
   });
 
-  final FocusNode searchFocus;
+  final FocusNode? searchFocus;
   final VoidCallback onRefresh;
   final Widget child;
 
@@ -93,14 +94,20 @@ class AppListShortcuts extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    void search() => searchFocus.requestFocus();
+    final focus = searchFocus;
+    void search() => focus?.requestFocus();
     return CallbackShortcuts(
       bindings: {
-        const SingleActivator(LogicalKeyboardKey.keyF, control: true): search,
-        const SingleActivator(LogicalKeyboardKey.keyF, meta: true): search,
+        if (focus != null) ...{
+          const SingleActivator(LogicalKeyboardKey.keyF, control: true):
+              search,
+          const SingleActivator(LogicalKeyboardKey.keyF, meta: true): search,
+        },
         const SingleActivator(LogicalKeyboardKey.f5): onRefresh,
-        const SingleActivator(LogicalKeyboardKey.f1): () =>
-            showShortcutsHelp(context, help),
+        const SingleActivator(LogicalKeyboardKey.f1): () => showShortcutsHelp(
+          context,
+          focus == null ? help.skip(1).toList() : help,
+        ),
       },
       child: FocusScope(autofocus: true, child: child),
     );

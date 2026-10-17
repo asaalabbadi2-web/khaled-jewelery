@@ -10,6 +10,9 @@ import '../theme/app_button_styles.dart';
 import '../utils/bidi.dart';
 import '../utils/currency_utils.dart';
 import '../widgets/app_feedback.dart';
+import '../widgets/app_leave_guard.dart';
+import '../widgets/app_shortcuts.dart';
+import '../widgets/app_state_views.dart';
 import 'voucher_details_screen.dart';
 
 /// Grams as Arabic reads them: the number whole and left-to-right, then its
@@ -513,11 +516,39 @@ class _OperationFormState extends State<_OperationForm> {
     error ? AppFeedback.error(context, msg) : AppFeedback.success(context, msg);
   }
 
+  /// Something typed that leaving would lose (ADR-050, خ٤). The lines come
+  /// and go as the employee works, so the guard asks the form, not a list of
+  /// fields taken when it opened.
+  bool get _typed =>
+      _lines.length > 1 ||
+      _lines.any(
+        (l) =>
+            l.goldCtrl.text.trim().isNotEmpty ||
+            l.stonesCtrl.text.trim().isNotEmpty,
+      ) ||
+      _wageCtrl.text.trim().isNotEmpty ||
+      _notesCtrl.text.trim().isNotEmpty;
+
   // ── بناء الواجهة ──────────────────────────────────────────────
+  /// Ctrl+S executes, Ctrl+Enter adds a karat line, Esc asks before typing
+  /// is lost -- the keys of every document screen (ADR-049 م٦).
   @override
   Widget build(BuildContext context) {
-    if (_loading) return const Center(child: CircularProgressIndicator());
+    if (_loading) return const AppLoadingView(summaryBlocks: 2, rows: 3);
+    return AppLeaveGuard(
+      controllers: const [],
+      isDirty: () => _typed,
+      child: AppDocumentShortcuts(
+        onSave: () {
+          if (!_submitting) _submit();
+        },
+        onAddLine: _addLine,
+        child: _buildForm(context),
+      ),
+    );
+  }
 
+  Widget _buildForm(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     final opColor = _isMelting
         ? AppSemanticColors.of(context).warning.fg

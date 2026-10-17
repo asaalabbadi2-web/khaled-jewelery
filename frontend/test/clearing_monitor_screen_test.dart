@@ -27,6 +27,9 @@ Map<String, dynamic> _box(int id, String name) => {
   'balance': {'cash': 0.0},
 };
 
+/// How many times the monitor asked for its boxes.
+var loads = 0;
+
 void main() {
   setUpAll(() async {
     final cairo = FontLoader('Cairo');
@@ -56,6 +59,7 @@ void main() {
     await settings.loadSettings(fetchRemote: false);
 
     final posted = <String>[];
+    loads = 0;
     http.Response json(Object body, [int status = 200]) => http.Response(
       jsonEncode(body),
       status,
@@ -82,6 +86,7 @@ void main() {
           return json({'message': 'تم', 'skipped': []});
         }
         if (path.endsWith('/safe-boxes')) {
+          loads++;
           return json([_box(32, 'مدى'), _box(33, 'تمارا'), _box(34, 'فيزا')]);
         }
         if (path.endsWith('/payment-methods/active')) {
@@ -201,4 +206,17 @@ void main() {
       );
     });
   }
+
+  // خ٤ (ADR-050): F5 loads the monitor again; it has no search.
+  testWidgets('F5 loads again', (tester) async {
+    await open(
+      tester,
+      steps: () async {
+        final before = loads;
+        await tester.sendKeyEvent(LogicalKeyboardKey.f5);
+        await tester.pumpAndSettle();
+        expect(loads, before + 1);
+      },
+    );
+  });
 }
