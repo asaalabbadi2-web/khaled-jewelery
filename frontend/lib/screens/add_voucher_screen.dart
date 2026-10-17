@@ -21,6 +21,7 @@ import '../widgets/account_picker_sheet.dart';
 import '../widgets/party_picker_dialog.dart';
 import '../widgets/searchable_picker_field.dart';
 import '../utils/currency_utils.dart';
+import '../widgets/app_feedback.dart';
 
 class GoldLineEntryModel {
   double amount;
@@ -104,8 +105,7 @@ class _CommissionToggleButton extends StatelessWidget {
         ),
         child: Text(
           label,
-          style: TextStyle(
-            fontSize: 11,
+          style: Theme.of(context).textTheme.labelSmall?.copyWith(
             fontWeight: selected ? FontWeight.bold : FontWeight.normal,
             color: selected ? effectiveColor : theme.colorScheme.onSurfaceVariant,
           ),
@@ -444,9 +444,7 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
     await prefs.setString(_localDraftKey(), jsonEncode(payload));
 
     if (showToast && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('تم حفظ السند لإكماله لاحقاً')),
-      );
+      AppFeedback.success(context, 'تم حفظ السند لإكماله لاحقاً');
     }
   }
 
@@ -1024,9 +1022,7 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
 
   Future<void> _pickFiles() async {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('ميزة إرفاق الملفات غير متاحة حالياً.')),
-    );
+    AppFeedback.info(context, 'ميزة إرفاق الملفات غير متاحة حالياً.');
   }
 
   Map<String, dynamic>? _findById(List<Map<String, dynamic>> items, int? id) {
@@ -1216,9 +1212,7 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
     } catch (e) {
       setState(() => _isLoading = false);
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('خطأ في تحميل البيانات: $e')));
+        AppFeedback.error(context, e, title: 'خطأ في تحميل البيانات');
       }
     }
   }
@@ -1948,13 +1942,7 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
     // بعد تطبيق النموذج نُطلق التوليد الذكي ليُضمّن اسم الطرف إن كان محدداً
     _smartFillDescriptionAndReceiver(force: true);
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: const Text('تم تطبيق القالب بنجاح'),
-        duration: const Duration(seconds: 2),
-        backgroundColor: _cs.primary,
-      ),
-    );
+    AppFeedback.success(context, 'تم تطبيق القالب بنجاح');
   }
 
   // ════════════════════════════════════════════════════════════════════════════
@@ -2121,9 +2109,8 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
             const SizedBox(height: 4),
             Text(
               subtitle,
-              style: TextStyle(
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
                 color: color.withValues(alpha: 0.85),
-                fontSize: 12,
                 height: 1.4,
               ),
             ),
@@ -2278,19 +2265,17 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
           ),
           title: Text(
             'مؤشرات السند',
-            style: TextStyle(
+            style: Theme.of(context).textTheme.titleLarge?.copyWith(
               color: _tone.gold.fg,
               fontWeight: FontWeight.bold,
-              fontSize: 16,
             ),
           ),
           subtitle: Padding(
             padding: const EdgeInsets.only(top: 4),
             child: Text(
               statusSummary,
-              style: TextStyle(
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
                 color: Theme.of(context).textTheme.bodySmall?.color,
-                fontSize: 12,
               ),
             ),
           ),
@@ -2511,9 +2496,11 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
               children: [
                 Icon(Icons.group_outlined, color: _cs.primary),
                 const SizedBox(width: 8),
-                const Text(
+                Text(
                   'الطرف',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  style: Theme.of(
+                    context,
+                  ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
                 ),
               ],
             ),
@@ -2991,9 +2978,8 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
               hasAttachments
                   ? 'تم إرفاق ${_attachedFileNames.length} ملف/ملفات'
                   : 'أضف صور الفواتير، إيصالات البنك أو أي مستندات داعمة عند الحاجة',
-              style: TextStyle(
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
                 color: Theme.of(context).textTheme.bodySmall?.color,
-                fontSize: 12,
               ),
             ),
           ),
@@ -3087,8 +3073,7 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
                   border: const OutlineInputBorder(),
                   isDense: true,
                   suffixText: 'ر.س',
-                  labelStyle: TextStyle(
-                    fontSize: 11,
+                  labelStyle: Theme.of(context).textTheme.labelSmall?.copyWith(
                     color: isEarn
                         ? theme.colorScheme.tertiary
                         : theme.colorScheme.error,
@@ -3119,8 +3104,7 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
       children: [
         Text(
           'سطور الحسابات',
-          style: TextStyle(
-            fontSize: 18,
+          style: Theme.of(context).textTheme.headlineSmall?.copyWith(
             fontWeight: FontWeight.bold,
             color: _tone.gold.fg,
           ),
@@ -3251,9 +3235,8 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
               hasNotes
                   ? 'تمت إضافة ملاحظات للسند'
                   : 'احفظ تفاصيل داخلية بدون إظهارها في الطباعة',
-              style: TextStyle(
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
                 color: Theme.of(context).textTheme.bodySmall?.color,
-                fontSize: 12,
               ),
             ),
           ),
@@ -3406,8 +3389,7 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
           const SizedBox(width: 8),
           Text(
             'سريع:',
-            style: TextStyle(
-              fontSize: 14,
+            style: Theme.of(context).textTheme.bodyLarge?.copyWith(
               fontWeight: FontWeight.bold,
               color: _tone.gold.fg,
             ),
@@ -3454,13 +3436,13 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
                               const SizedBox(width: 6),
                               Text(
                                 template['title'] as String,
-                                style: TextStyle(
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w600,
-                                  color: isSelected
-                                      ? _cs.surfaceContainerLowest
-                                      : _tone.gold.fg,
-                                ),
+                                style: Theme.of(context).textTheme.bodyMedium
+                                    ?.copyWith(
+                                      fontWeight: FontWeight.w600,
+                                      color: isSelected
+                                          ? _cs.surfaceContainerLowest
+                                          : _tone.gold.fg,
+                                    ),
                               ),
                             ],
                           ),
@@ -3563,7 +3545,9 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
             const SizedBox(height: 8),
             Text(
               name,
-              style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+              style: Theme.of(
+                context,
+              ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w600),
             ),
             if (phone != null && phone.isNotEmpty) ...[
               const SizedBox(height: 4),
@@ -3571,7 +3555,10 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
                 children: [
                   const Icon(Icons.phone_outlined, size: 16),
                   const SizedBox(width: 6),
-                  Text(phone, style: const TextStyle(fontSize: 13)),
+                  Text(
+                    phone,
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(),
+                  ),
                 ],
               ),
             ],
@@ -3581,7 +3568,10 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
                 children: [
                   const Icon(Icons.credit_card_outlined, size: 16),
                   const SizedBox(width: 6),
-                  Text(idNumber, style: const TextStyle(fontSize: 13)),
+                  Text(
+                    idNumber,
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(),
+                  ),
                 ],
               ),
             ],
@@ -3743,10 +3733,9 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
           Expanded(
             child: Text(
               message,
-              style: TextStyle(
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                 color: textColor,
                 fontWeight: FontWeight.w600,
-                fontSize: 13,
                 height: 1.4,
               ),
             ),
@@ -3783,11 +3772,7 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
         _accountLines.removeAt(index);
       });
     } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('يجب أن يحتوي السند على سطر واحد على الأقل'),
-        ),
-      );
+      AppFeedback.error(context, 'يجب أن يحتوي السند على سطر واحد على الأقل');
     }
   }
 
@@ -3798,27 +3783,19 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
 
     // Validate party - مطلوب دائماً لأن سطر الطرف يتم إضافته تلقائياً
     if (_partyType == 'customer' && _selectedCustomerId == null) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('يجب اختيار عميل')));
+      AppFeedback.error(context, 'يجب اختيار عميل');
       return;
     }
     if (_partyType == 'supplier' && _selectedSupplierId == null) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('يجب اختيار مورد')));
+      AppFeedback.error(context, 'يجب اختيار مورد');
       return;
     }
     if (_partyType == 'employee' && _selectedEmployeeId == null) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('يجب اختيار موظف')));
+      AppFeedback.error(context, 'يجب اختيار موظف');
       return;
     }
     if (_partyType == 'other' && _selectedOtherAccountId == null) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('يجب اختيار حساب')));
+      AppFeedback.error(context, 'يجب اختيار حساب');
       return;
     }
     setState(() => _isSaving = true);
@@ -3937,19 +3914,16 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
       // سند صرف: الخزائن دائنة (نصرف منها)
       for (var line in _accountLines) {
         if (line.accountId == null) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('يجب اختيار حساب لجميع السطور')),
-          );
+          AppFeedback.error(context, 'يجب اختيار حساب لجميع السطور');
           setState(() => _isSaving = false);
           return;
         }
 
         if (line.amountType == 'cash') {
           if (line.amount <= 0) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('يجب إدخال مبلغ أكبر من صفر لجميع السطور'),
-              ),
+            AppFeedback.error(
+              context,
+              'يجب إدخال مبلغ أكبر من صفر لجميع السطور',
             );
             setState(() => _isSaving = false);
             return;
@@ -3970,20 +3944,14 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
         ).where((entry) => entry.amount > 0).toList();
 
         if (entries.isEmpty) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('يجب إدخال وزن أكبر من صفر في سطور الذهب'),
-            ),
-          );
+          AppFeedback.error(context, 'يجب إدخال وزن أكبر من صفر في سطور الذهب');
           setState(() => _isSaving = false);
           return;
         }
 
         final hasMissingKarat = entries.any((entry) => entry.karat == null);
         if (hasMissingKarat) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('يجب اختيار العيار لكل حقل ذهب')),
-          );
+          AppFeedback.error(context, 'يجب اختيار العيار لكل حقل ذهب');
           setState(() => _isSaving = false);
           return;
         }
@@ -3994,33 +3962,25 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
           final grossWeight = entry.grossWeight ?? (netWeight + stonesWeight);
 
           if (netWeight <= 0) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('الوزن الصافي يجب أن يكون أكبر من صفر'),
-              ),
-            );
+            AppFeedback.error(context, 'الوزن الصافي يجب أن يكون أكبر من صفر');
             setState(() => _isSaving = false);
             return;
           }
 
           if (entry.netWeight != null &&
               (netWeight - entry.amount).abs() > 0.001) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('وزن السطر المحاسبي يجب أن يساوي الوزن الصافي'),
-              ),
+            AppFeedback.error(
+              context,
+              'وزن السطر المحاسبي يجب أن يساوي الوزن الصافي',
             );
             setState(() => _isSaving = false);
             return;
           }
 
           if (stonesWeight < 0 || grossWeight + 0.001 < netWeight) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text(
-                  'الوزن القائم يجب أن يكون أكبر من أو يساوي الصافي، ووزن الأحجار غير سالب',
-                ),
-              ),
+            AppFeedback.error(
+              context,
+              'الوزن القائم يجب أن يكون أكبر من أو يساوي الصافي، ووزن الأحجار غير سالب',
             );
             setState(() => _isSaving = false);
             return;
@@ -4225,27 +4185,23 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
             .toList();
 
         // show success message and return to list
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              widget.existingVoucher != null
-                  ? 'تم تعديل السند بنجاح'
-                  : 'تم إنشاء السند بنجاح',
-            ),
-            action: SnackBarAction(
-              label: 'معاينة',
-              textColor: _cs.primary,
-              onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => VoucherPreviewScreen(
-                      voucherData: voucherData,
-                      voucherType: widget.voucherType,
-                    ),
-                  ),
-                );
-              },
+        // The navigator is taken now: the screen closes just below, and the
+        // message's «معاينة» opens the voucher after it has.
+        final navigator = Navigator.of(context);
+        AppFeedback.success(
+          context,
+          widget.existingVoucher != null
+              ? 'تم تعديل السند بنجاح'
+              : 'تم إنشاء السند بنجاح',
+          action: (
+            label: 'معاينة',
+            onPressed: () => navigator.push(
+              MaterialPageRoute(
+                builder: (context) => VoucherPreviewScreen(
+                  voucherData: voucherData,
+                  voucherType: widget.voucherType,
+                ),
+              ),
             ),
           ),
         );
@@ -4266,9 +4222,7 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
     } catch (e) {
       setState(() => _isSaving = false);
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('خطأ في الحفظ: $e')));
+        AppFeedback.error(context, e, title: 'خطأ في الحفظ');
       }
     }
   }
@@ -4324,8 +4278,7 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
                   ),
                   child: Text(
                     'السطر ${index + 1}',
-                    style: TextStyle(
-                      fontSize: 16,
+                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
                       fontWeight: FontWeight.bold,
                       color: _tone.gold.fg,
                     ),

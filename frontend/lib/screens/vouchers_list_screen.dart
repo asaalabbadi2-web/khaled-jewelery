@@ -321,15 +321,11 @@ class _VouchersListScreenState extends State<VouchersListScreen>
     try {
       await _apiService.approveVoucher(id);
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('تم اعتماد السند')));
+      AppFeedback.success(context, 'تم اعتماد السند');
       _refresh();
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('خطأ في اعتماد السند: $e')));
+      AppFeedback.error(context, e, title: 'خطأ في اعتماد السند');
     }
   }
 
@@ -341,9 +337,7 @@ class _VouchersListScreenState extends State<VouchersListScreen>
 
     if (pending.isEmpty) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('لا توجد سندات معلقة للاعتماد')),
-      );
+      AppFeedback.info(context, 'لا توجد سندات معلقة للاعتماد');
       return;
     }
 
@@ -407,13 +401,15 @@ class _VouchersListScreenState extends State<VouchersListScreen>
     if (mounted) Navigator.pop(context);
 
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          'تم اعتماد $success من ${pending.length} سند. فشل: $failed',
-        ),
-      ),
-    );
+    failed == 0
+        ? AppFeedback.success(
+            context,
+            'تم اعتماد $success من ${pending.length} سند.',
+          )
+        : AppFeedback.error(
+            context,
+            'تم اعتماد $success من ${pending.length} سند. فشل: $failed',
+          );
 
     _refresh();
   }
@@ -2916,11 +2912,7 @@ class _VouchersListScreenState extends State<VouchersListScreen>
     final status = (voucher['status'] ?? '').toString();
     if (status == 'approved' || status == 'cancelled' || status == 'voided') {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('لا يمكن تعديل هذا السند في حالته الحالية.'),
-        ),
-      );
+      AppFeedback.error(context, 'لا يمكن تعديل هذا السند في حالته الحالية.');
       return;
     }
     final result = await Navigator.push(
@@ -2947,9 +2939,7 @@ class _VouchersListScreenState extends State<VouchersListScreen>
   Future<void> _exportToPdf() async {
     if (_vouchers.isEmpty) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('لا توجد بيانات لتصديرها')),
-        );
+        AppFeedback.info(context, 'لا توجد بيانات لتصديرها');
       }
       return;
     }
@@ -3030,18 +3020,14 @@ class _VouchersListScreenState extends State<VouchersListScreen>
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('خطأ في تصدير PDF: $e')));
+        AppFeedback.error(context, e, title: 'خطأ في تصدير PDF');
       }
     }
   }
 
   Future<void> _exportToExcel() async {
     if (_vouchers.isEmpty) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('لا توجد بيانات لتصديرها')));
+      AppFeedback.info(context, 'لا توجد بيانات لتصديرها');
       return;
     }
 
@@ -3135,9 +3121,7 @@ class _VouchersListScreenState extends State<VouchersListScreen>
       }
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('خطأ في تصدير Excel: $e')));
+      AppFeedback.error(context, e, title: 'خطأ في تصدير Excel');
     }
   }
 }

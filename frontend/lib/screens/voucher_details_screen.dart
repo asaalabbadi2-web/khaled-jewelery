@@ -52,6 +52,10 @@ class VoucherDetailsScreen extends StatefulWidget {
 }
 
 class _VoucherDetailsScreenState extends State<VoucherDetailsScreen> {
+  // ADR-049: every color from the theme, so the screen reads in dark mode too.
+  ColorScheme get _cs => Theme.of(context).colorScheme;
+  theme.AppSemanticColors get _tone => theme.AppSemanticColors.of(context);
+
   final ApiService _apiService = ApiService();
 
   Map<String, dynamic>? _voucher;
@@ -162,7 +166,7 @@ class _VoucherDetailsScreenState extends State<VoucherDetailsScreen> {
           TextButton(
             onPressed: () => Navigator.pop(context, true),
             style: TextButton.styleFrom(
-              foregroundColor: theme.AppColors.primaryGold,
+              foregroundColor: _cs.primary,
             ),
             child: const Text('اعتماد'),
           ),
@@ -179,7 +183,7 @@ class _VoucherDetailsScreenState extends State<VoucherDetailsScreen> {
       _loadVoucher();
     } catch (e) {
       if (!mounted) return;
-      _showSnack('خطأ في اعتماد السند: $e', error: true);
+      AppFeedback.error(context, e, title: 'لم يُعتمد السند');
     }
   }
 
@@ -289,9 +293,7 @@ class _VoucherDetailsScreenState extends State<VoucherDetailsScreen> {
     if (voucher == null) return;
     final supplierId = voucher['supplier_id'];
     if (supplierId is! int) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('النسب متاح لسندات الموردين فقط')),
-      );
+      AppFeedback.info(context, 'النسب متاح لسندات الموردين فقط');
       return;
     }
 
@@ -302,9 +304,7 @@ class _VoucherDetailsScreenState extends State<VoucherDetailsScreen> {
       candidates = await _apiService.getSupplierOpenGoldObligations(supplierId);
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('تعذّر جلب بيانات النسب: $e')),
-      );
+      AppFeedback.error(context, e, title: 'تعذّر جلب بيانات النسب');
       return;
     }
     if (!mounted) return;
@@ -436,7 +436,7 @@ class _VoucherDetailsScreenState extends State<VoucherDetailsScreen> {
       await _loadVoucher();
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('تعذّر نسب الجانب الآخر: $e')));
+      AppFeedback.error(context, e, title: 'تعذّر نسب الجانب الآخر');
     }
   }
 
@@ -455,9 +455,7 @@ class _VoucherDetailsScreenState extends State<VoucherDetailsScreen> {
     if (voucher == null) return;
     final supplierId = voucher['supplier_id'];
     if (supplierId is! int) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('النسب متاح لسندات الموردين فقط')),
-      );
+      AppFeedback.info(context, 'النسب متاح لسندات الموردين فقط');
       return;
     }
 
@@ -468,9 +466,7 @@ class _VoucherDetailsScreenState extends State<VoucherDetailsScreen> {
       candidates = await _apiService.getSupplierOpenCashObligations(supplierId);
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('تعذّر جلب بيانات النسب: $e')),
-      );
+      AppFeedback.error(context, e, title: 'تعذّر جلب بيانات النسب');
       return;
     }
     if (!mounted) return;
@@ -550,8 +546,8 @@ class _VoucherDetailsScreenState extends State<VoucherDetailsScreen> {
 
     if (_isLoading) {
       return widget.asSheet
-          ? const Material(
-              color: Colors.white,
+          ? Material(
+              color: _cs.surfaceContainerLowest,
               child: Center(child: CircularProgressIndicator()),
             )
           : Scaffold(
@@ -565,7 +561,7 @@ class _VoucherDetailsScreenState extends State<VoucherDetailsScreen> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.error_outline, size: 64, color: Colors.red[300]),
+            Icon(Icons.error_outline, size: 64, color: _cs.error),
             const SizedBox(height: 16),
             Text('خطأ: $_error'),
             const SizedBox(height: 16),
@@ -578,7 +574,7 @@ class _VoucherDetailsScreenState extends State<VoucherDetailsScreen> {
       );
 
       return widget.asSheet
-          ? Material(color: Colors.white, child: errorBody)
+          ? Material(color: _cs.surfaceContainerLowest, child: errorBody)
           : Scaffold(
               appBar: AppBar(title: const Text('تفاصيل السند')),
               body: errorBody,
@@ -613,12 +609,12 @@ class _VoucherDetailsScreenState extends State<VoucherDetailsScreen> {
         typeText = 'سند صرف';
         break;
       case 'adjustment':
-        typeColor = Colors.orange;
+        typeColor = _tone.warning.fg;
         typeIcon = Icons.balance;
         typeText = 'سند تسوية';
         break;
       default:
-        typeColor = Colors.grey;
+        typeColor = _cs.onSurfaceVariant;
         typeIcon = Icons.help;
         typeText = 'غير محدد';
     }
@@ -704,13 +700,13 @@ class _VoucherDetailsScreenState extends State<VoucherDetailsScreen> {
                           children: [
                             Text(
                               voucherNumber,
-                              style: TextStyle(
-                                fontSize: 22,
-                                fontWeight: FontWeight.w800,
-                                decoration: isCancelled
-                                    ? TextDecoration.lineThrough
-                                    : null,
-                              ),
+                              style: Theme.of(context).textTheme.headlineMedium
+                                  ?.copyWith(
+                                    fontWeight: FontWeight.w800,
+                                    decoration: isCancelled
+                                        ? TextDecoration.lineThrough
+                                        : null,
+                                  ),
                             ),
                             const SizedBox(height: 4),
                             Text(
@@ -753,19 +749,19 @@ class _VoucherDetailsScreenState extends State<VoucherDetailsScreen> {
                       width: double.infinity,
                       padding: const EdgeInsets.all(12),
                       decoration: BoxDecoration(
-                        color: Colors.red.withValues(alpha: 0.08),
+                        color: _tone.blocked.container,
                         borderRadius: BorderRadius.circular(10),
                         border: Border.all(
-                          color: Colors.red.withValues(alpha: 0.3),
+                          color: _tone.blocked.fg.withValues(alpha: 0.3),
                         ),
                       ),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text(
+                          Text(
                             'السند ملغى',
                             style: TextStyle(
-                              color: Colors.red,
+                              color: _tone.blocked.fg,
                               fontWeight: FontWeight.w800,
                             ),
                           ),
@@ -774,7 +770,7 @@ class _VoucherDetailsScreenState extends State<VoucherDetailsScreen> {
                               padding: const EdgeInsets.only(top: 6),
                               child: Text(
                                 'السبب: ${voucher['cancellation_reason']}',
-                                style: const TextStyle(color: Colors.black87),
+                                style: TextStyle(color: _cs.onSurface),
                               ),
                             ),
                         ],
@@ -789,7 +785,7 @@ class _VoucherDetailsScreenState extends State<VoucherDetailsScreen> {
             _buildSectionCard(
               title: 'المبلغ والوزن',
               icon: Icons.account_balance_wallet_outlined,
-              accentColor: theme.AppColors.primaryGold,
+              accentColor: _cs.primary,
               child: Column(
                 children: [
                   if (cashText != null)
@@ -797,21 +793,21 @@ class _VoucherDetailsScreenState extends State<VoucherDetailsScreen> {
                       'المبلغ النقدي',
                       cashText,
                       Icons.payments_outlined,
-                      theme.AppColors.success,
+                      _tone.ready.fg,
                     ),
                   if (goldText != null)
                     _buildAmountRow(
                       'وزن الذهب',
                       goldText,
                       Icons.scale_outlined,
-                      theme.AppColors.darkGold,
+                      _tone.gold.fg,
                     ),
                   if (equivalentGoldText != null)
                     _buildAmountRow(
                       'الوزن المكافئ',
                       equivalentGoldText,
                       Icons.auto_awesome,
-                      const Color(0xFFB8860B),
+                      _tone.gold.fg,
                     ),
                   if (goldBreakdownLines.isNotEmpty)
                     Padding(
@@ -820,20 +816,20 @@ class _VoucherDetailsScreenState extends State<VoucherDetailsScreen> {
                         width: double.infinity,
                         padding: const EdgeInsets.all(12),
                         decoration: BoxDecoration(
-                          color: Colors.amber.withValues(alpha: 0.08),
+                          color: _tone.warning.container,
                           borderRadius: BorderRadius.circular(10),
                           border: Border.all(
-                            color: Colors.amber.withValues(alpha: 0.24),
+                            color: _tone.warning.fg.withValues(alpha: 0.24),
                           ),
                         ),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Text(
+                            Text(
                               'تفصيل العيارات',
                               style: TextStyle(
                                 fontWeight: FontWeight.w700,
-                                color: Colors.black87,
+                                color: _cs.onSurface,
                               ),
                             ),
                             const SizedBox(height: 6),
@@ -853,11 +849,11 @@ class _VoucherDetailsScreenState extends State<VoucherDetailsScreen> {
                       ),
                     ),
                   if (cashText == null && goldText == null)
-                    const Padding(
-                      padding: EdgeInsets.only(top: 4),
+                    Padding(
+                      padding: const EdgeInsets.only(top: 4),
                       child: Text(
                         'لا توجد قيم مالية أو وزنية مسجلة.',
-                        style: TextStyle(color: Colors.black54),
+                        style: TextStyle(color: _cs.onSurfaceVariant),
                       ),
                     ),
                 ],
@@ -890,7 +886,7 @@ class _VoucherDetailsScreenState extends State<VoucherDetailsScreen> {
                   _buildSectionCard(
                     title: 'الطرف',
                     icon: Icons.groups_outlined,
-                    accentColor: Colors.blueGrey,
+                    accentColor: _tone.sectionSlate.fg,
                     child: Column(
                       children: [
                         if (partyType != null)
@@ -933,12 +929,11 @@ class _VoucherDetailsScreenState extends State<VoucherDetailsScreen> {
               _buildSectionCard(
                 title: 'البيان',
                 icon: Icons.description_outlined,
-                accentColor: Colors.indigo,
+                accentColor: _tone.sectionIndigo.fg,
                 child: Text(
                   voucher['description'],
-                  style: const TextStyle(
-                    fontSize: 16,
-                    color: Colors.black87,
+                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                    color: _cs.onSurface,
                     height: 1.5,
                   ),
                 ),
@@ -950,7 +945,7 @@ class _VoucherDetailsScreenState extends State<VoucherDetailsScreen> {
               _buildSectionCard(
                 title: 'المرجع',
                 icon: Icons.link_outlined,
-                accentColor: Colors.teal,
+                accentColor: _tone.sectionTeal.fg,
                 child: Column(
                   children: [
                     _buildInfoRow(
@@ -981,7 +976,7 @@ class _VoucherDetailsScreenState extends State<VoucherDetailsScreen> {
               _buildSectionCard(
                 title: 'الفواتير التي يسددها السند',
                 icon: Icons.receipt_long_outlined,
-                accentColor: Colors.deepOrange,
+                accentColor: _tone.sectionOrange.fg,
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -1034,12 +1029,11 @@ class _VoucherDetailsScreenState extends State<VoucherDetailsScreen> {
               _buildSectionCard(
                 title: 'ملاحظات',
                 icon: Icons.sticky_note_2_outlined,
-                accentColor: Colors.brown,
+                accentColor: _tone.gold.fg,
                 child: Text(
                   '${voucher['note_text'] ?? voucher['notes']}',
-                  style: const TextStyle(
-                    fontSize: 14,
-                    color: Colors.black87,
+                  style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                    color: _cs.onSurface,
                     height: 1.45,
                   ),
                 ),
@@ -1056,24 +1050,60 @@ class _VoucherDetailsScreenState extends State<VoucherDetailsScreen> {
                   _buildSectionCard(
                     title: 'القيد المحاسبي',
                     icon: Icons.account_tree_outlined,
-                    accentColor: Colors.indigo,
+                    accentColor: _tone.sectionIndigo.fg,
                     child: Column(
                       children: [
                         // رأس الجدول
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
                           decoration: BoxDecoration(
-                            color: Colors.grey.shade100,
+                            color: _cs.surfaceContainerHigh,
                             borderRadius: BorderRadius.circular(6),
                           ),
                           child: Row(
                             children: [
-                              const Expanded(flex: 5, child: Text('الحساب', style: TextStyle(fontWeight: FontWeight.w700, fontSize: 12))),
-                              const SizedBox(width: 6,
-                                child: Text('', style: TextStyle(fontSize: 11))),
-                              const Expanded(flex: 3, child: Text('مدين', textAlign: TextAlign.end, style: TextStyle(fontWeight: FontWeight.w700, fontSize: 12, color: Colors.red))),
+                              Expanded(
+                                flex: 5,
+                                child: Text(
+                                  'الحساب',
+                                  style: Theme.of(context).textTheme.bodySmall
+                                      ?.copyWith(fontWeight: FontWeight.w700),
+                                ),
+                              ),
+                              SizedBox(
+                                width: 6,
+                                child: Text(
+                                  '',
+                                  style: Theme.of(
+                                    context,
+                                  ).textTheme.labelSmall?.copyWith(),
+                                ),
+                              ),
+                              Expanded(
+                                flex: 3,
+                                child: Text(
+                                  'مدين',
+                                  textAlign: TextAlign.end,
+                                  style: Theme.of(context).textTheme.bodySmall
+                                      ?.copyWith(
+                                        fontWeight: FontWeight.w700,
+                                        color: _tone.debit.fg,
+                                      ),
+                                ),
+                              ),
                               const SizedBox(width: 4),
-                              const Expanded(flex: 3, child: Text('دائن', textAlign: TextAlign.end, style: TextStyle(fontWeight: FontWeight.w700, fontSize: 12, color: Colors.green))),
+                              Expanded(
+                                flex: 3,
+                                child: Text(
+                                  'دائن',
+                                  textAlign: TextAlign.end,
+                                  style: Theme.of(context).textTheme.bodySmall
+                                      ?.copyWith(
+                                        fontWeight: FontWeight.w700,
+                                        color: _tone.credit.fg,
+                                      ),
+                                ),
+                              ),
                             ],
                           ),
                         ),
@@ -1095,12 +1125,12 @@ class _VoucherDetailsScreenState extends State<VoucherDetailsScreen> {
                             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 7),
                             decoration: BoxDecoration(
                               color: isDebit
-                                  ? Colors.red.shade50
-                                  : Colors.green.shade50,
+                                  ? _tone.debit.container
+                                  : _tone.credit.container,
                               borderRadius: BorderRadius.circular(7),
                               border: Border(
                                 right: BorderSide(
-                                  color: isDebit ? Colors.red.shade300 : Colors.green.shade300,
+                                  color: isDebit ? _tone.debit.fg.withValues(alpha: 0.5) : _tone.credit.fg.withValues(alpha: 0.5),
                                   width: 3,
                                 ),
                               ),
@@ -1112,9 +1142,25 @@ class _VoucherDetailsScreenState extends State<VoucherDetailsScreen> {
                                   child: Column(
                                     crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
-                                      Text(accName, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12)),
+                                      Text(
+                                        accName,
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .bodySmall
+                                            ?.copyWith(
+                                              fontWeight: FontWeight.w700,
+                                            ),
+                                      ),
                                       if (accNum.isNotEmpty)
-                                        Text(accNum, style: TextStyle(fontSize: 10, color: Colors.grey.shade600)),
+                                        Text(
+                                          accNum,
+                                          style: Theme.of(context)
+                                              .textTheme
+                                              .labelSmall
+                                              ?.copyWith(
+                                                color: _cs.onSurfaceVariant,
+                                              ),
+                                        ),
                                     ],
                                   ),
                                 ),
@@ -1124,7 +1170,11 @@ class _VoucherDetailsScreenState extends State<VoucherDetailsScreen> {
                                   child: Text(
                                     isDebit ? amtStr : '',
                                     textAlign: TextAlign.end,
-                                    style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12, color: Colors.red),
+                                    style: Theme.of(context).textTheme.bodySmall
+                                        ?.copyWith(
+                                          fontWeight: FontWeight.w700,
+                                          color: _tone.debit.fg,
+                                        ),
                                   ),
                                 ),
                                 const SizedBox(width: 4),
@@ -1133,7 +1183,11 @@ class _VoucherDetailsScreenState extends State<VoucherDetailsScreen> {
                                   child: Text(
                                     !isDebit ? amtStr : '',
                                     textAlign: TextAlign.end,
-                                    style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12, color: Colors.green),
+                                    style: Theme.of(context).textTheme.bodySmall
+                                        ?.copyWith(
+                                          fontWeight: FontWeight.w700,
+                                          color: _tone.credit.fg,
+                                        ),
                                   ),
                                 ),
                               ],
@@ -1151,7 +1205,7 @@ class _VoucherDetailsScreenState extends State<VoucherDetailsScreen> {
             _buildSectionCard(
               title: 'معلومات إضافية',
               icon: Icons.info_outline,
-              accentColor: Colors.blueGrey,
+              accentColor: _tone.sectionSlate.fg,
               child: Column(
                 children: [
                   _buildInfoRow(
@@ -1194,7 +1248,7 @@ class _VoucherDetailsScreenState extends State<VoucherDetailsScreen> {
               _buildSectionCard(
                 title: 'سجل التعديلات',
                 icon: Icons.history,
-                accentColor: const Color(0xFFFFB300),
+                accentColor: _tone.sectionAmber.fg,
                 child: Column(
                   children: [
                     ...voucher['audit_log'].map<Widget>(
@@ -1204,7 +1258,7 @@ class _VoucherDetailsScreenState extends State<VoucherDetailsScreen> {
                           width: double.infinity,
                           padding: const EdgeInsets.all(10),
                           decoration: BoxDecoration(
-                            color: const Color(0xFFFFF8E1),
+                            color: _tone.sectionAmber.container,
                             borderRadius: BorderRadius.circular(10),
                           ),
                           child: Row(
@@ -1213,7 +1267,7 @@ class _VoucherDetailsScreenState extends State<VoucherDetailsScreen> {
                               Icon(
                                 Icons.person,
                                 size: 18,
-                                color: Colors.grey[700],
+                                color: _cs.onSurfaceVariant,
                               ),
                               const SizedBox(width: 6),
                               Expanded(
@@ -1229,10 +1283,10 @@ class _VoucherDetailsScreenState extends State<VoucherDetailsScreen> {
                                     const SizedBox(height: 2),
                                     Text(
                                       _formatDateTime(entry['timestamp']),
-                                      style: TextStyle(
-                                        color: Colors.grey[700],
-                                        fontSize: 12,
-                                      ),
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .bodySmall
+                                          ?.copyWith(color: _cs.onSurfaceVariant),
                                     ),
                                   ],
                                 ),
@@ -1240,10 +1294,8 @@ class _VoucherDetailsScreenState extends State<VoucherDetailsScreen> {
                               if (entry['action'] != null)
                                 Text(
                                   '(${entry['action']})',
-                                  style: const TextStyle(
-                                    fontSize: 12,
-                                    color: Colors.black54,
-                                  ),
+                                  style: Theme.of(context).textTheme.bodySmall
+                                      ?.copyWith(color: _cs.onSurfaceVariant),
                                 ),
                             ],
                           ),
@@ -1261,7 +1313,7 @@ class _VoucherDetailsScreenState extends State<VoucherDetailsScreen> {
 
     if (widget.asSheet) {
       return Material(
-        color: Colors.white,
+        color: _cs.surfaceContainerLowest,
         child: Column(
           children: [
             Container(
@@ -1279,7 +1331,7 @@ class _VoucherDetailsScreenState extends State<VoucherDetailsScreen> {
                       width: 44,
                       height: 5,
                       decoration: BoxDecoration(
-                        color: Colors.black.withValues(alpha: 0.18),
+                        color: _cs.shadow.withValues(alpha: 0.18),
                         borderRadius: BorderRadius.circular(100),
                       ),
                     ),
@@ -1298,15 +1350,13 @@ class _VoucherDetailsScreenState extends State<VoucherDetailsScreen> {
                           children: [
                             Text(
                               typeText,
-                              style: const TextStyle(
-                                fontSize: 18,
-                                fontWeight: FontWeight.w800,
-                              ),
+                              style: Theme.of(context).textTheme.headlineSmall
+                                  ?.copyWith(fontWeight: FontWeight.w800),
                             ),
                             Text(
                               voucherNumber,
                               style: TextStyle(
-                                color: Colors.black.withValues(alpha: 0.65),
+                                color: _cs.scrim.withValues(alpha: 0.65),
                                 fontWeight: FontWeight.w600,
                               ),
                             ),
@@ -1411,13 +1461,13 @@ class _VoucherDetailsScreenState extends State<VoucherDetailsScreen> {
   Color _getStatusColor(String status) {
     switch (status) {
       case 'approved':
-        return theme.AppColors.success;
+        return _tone.ready.fg;
       case 'cancelled':
       case 'voided':
-        return theme.AppColors.error;
+        return _tone.blocked.fg;
       case 'active':
       default:
-        return const Color(0xFF607D8B);
+        return _cs.onSurfaceVariant;
     }
   }
 
@@ -1430,7 +1480,7 @@ class _VoucherDetailsScreenState extends State<VoucherDetailsScreen> {
     return Container(
       width: double.infinity,
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: _cs.surfaceContainerLowest,
         borderRadius: BorderRadius.circular(14),
         border: Border.all(color: accentColor.withValues(alpha: 0.18)),
       ),
@@ -1445,8 +1495,7 @@ class _VoucherDetailsScreenState extends State<VoucherDetailsScreen> {
                 const SizedBox(width: 6),
                 Text(
                   title,
-                  style: TextStyle(
-                    fontSize: 17,
+                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                     fontWeight: FontWeight.w800,
                     color: accentColor,
                   ),
@@ -1466,7 +1515,7 @@ class _VoucherDetailsScreenState extends State<VoucherDetailsScreen> {
       padding: const EdgeInsets.symmetric(vertical: 8),
       child: Row(
         children: [
-          Icon(icon, size: 20, color: Colors.grey[600]),
+          Icon(icon, size: 20, color: _cs.onSurfaceVariant),
           const SizedBox(width: 8),
           Expanded(
             child: Column(
@@ -1474,14 +1523,15 @@ class _VoucherDetailsScreenState extends State<VoucherDetailsScreen> {
               children: [
                 Text(
                   label,
-                  style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                  style: Theme.of(
+                    context,
+                  ).textTheme.bodySmall?.copyWith(color: _cs.onSurfaceVariant),
                 ),
                 Text(
                   value,
-                  style: const TextStyle(
-                    fontSize: 16,
+                  style: Theme.of(context).textTheme.titleLarge?.copyWith(
                     fontWeight: FontWeight.w500,
-                    color: Colors.black87,
+                    color: _cs.onSurface,
                   ),
                 ),
               ],
@@ -1510,12 +1560,13 @@ class _VoucherDetailsScreenState extends State<VoucherDetailsScreen> {
               children: [
                 Text(
                   label,
-                  style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                  style: Theme.of(
+                    context,
+                  ).textTheme.bodySmall?.copyWith(color: _cs.onSurfaceVariant),
                 ),
                 Text(
                   value,
-                  style: TextStyle(
-                    fontSize: 18,
+                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                     fontWeight: FontWeight.bold,
                     color: color,
                   ),

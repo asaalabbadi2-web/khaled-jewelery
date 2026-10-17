@@ -56,11 +56,18 @@ abstract final class AppFeedback {
     return text.replaceAll(_exceptionWord, '').trim();
   }
 
-  static void success(BuildContext context, String message) =>
-      _show(context, _Kind.success, message);
+  /// [action]: at most one thing to do from the message (e.g. «معاينة»).
+  static void success(
+    BuildContext context,
+    String message, {
+    FeedbackAction? action,
+  }) => _show(context, _Kind.success, message, action: action);
 
-  static void info(BuildContext context, String message) =>
-      _show(context, _Kind.info, message);
+  static void info(
+    BuildContext context,
+    String message, {
+    FeedbackAction? action,
+  }) => _show(context, _Kind.info, message, action: action);
 
   /// [error] is an exception or a text; [title] a short heading above it.
   static void error(BuildContext context, Object error, {String? title}) =>
@@ -71,6 +78,7 @@ abstract final class AppFeedback {
     _Kind kind,
     String message, {
     String? title,
+    FeedbackAction? action,
   }) {
     final messenger = ScaffoldMessenger.maybeOf(context);
     if (messenger == null) return;
@@ -116,6 +124,13 @@ abstract final class AppFeedback {
           duration: shown,
           showCloseIcon: kind == _Kind.error,
           closeIconColor: foreground,
+          action: action == null
+              ? null
+              : SnackBarAction(
+                  label: action.label,
+                  textColor: foreground,
+                  onPressed: action.onPressed,
+                ),
           content: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -143,3 +158,6 @@ abstract final class AppFeedback {
 }
 
 enum _Kind { success, info, error }
+
+/// The one thing a message offers to do.
+typedef FeedbackAction = ({String label, VoidCallback onPressed});

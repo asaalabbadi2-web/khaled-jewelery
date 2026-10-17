@@ -30,6 +30,7 @@ void main() {
   Future<FakeVoucherApi> open(
     WidgetTester tester, {
     FakeVoucherApi? api,
+    bool overAPage = false,
   }) async {
     api ??= FakeVoucherApi();
     SharedPreferences.setMockInitialValues({
@@ -51,16 +52,39 @@ void main() {
           theme: LightTheme.theme,
           home: Directionality(
             textDirection: TextDirection.rtl,
-            child: AddVoucherScreen(
-              voucherType: 'payment',
-              initialSupplierId: 5,
-              apiService: api,
-            ),
+            child: overAPage
+                ? Builder(
+                    builder: (context) => Scaffold(
+                      body: Center(
+                        child: TextButton(
+                          onPressed: () => Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => AddVoucherScreen(
+                                voucherType: 'payment',
+                                initialSupplierId: 5,
+                                apiService: api,
+                              ),
+                            ),
+                          ),
+                          child: const Text('open'),
+                        ),
+                      ),
+                    ),
+                  )
+                : AddVoucherScreen(
+                    voucherType: 'payment',
+                    initialSupplierId: 5,
+                    apiService: api,
+                  ),
           ),
         ),
       ),
     );
     await tester.pumpAndSettle();
+    if (overAPage) {
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+    }
     return api;
   }
 
@@ -579,5 +603,19 @@ void main() {
     await tester.pumpAndSettle();
     await save(tester);
     expectPayload('voucher_payment_cash', api.created.single);
+  });
+
+  testWidgets('saved, it says so on the page beneath and offers to open the '
+      'voucher (ADR-049)', (tester) async {
+    final api = await open(tester, overAPage: true);
+    await pickSafe(tester);
+    await tester.enterText(cashAmount(), '500');
+    await tester.pumpAndSettle();
+    await save(tester);
+
+    expect(api.created, hasLength(1));
+    expect(find.byType(AddVoucherScreen), findsNothing);
+    expect(find.text('تم إنشاء السند بنجاح'), findsOneWidget);
+    expect(find.widgetWithText(SnackBarAction, 'معاينة'), findsOneWidget);
   });
 }
