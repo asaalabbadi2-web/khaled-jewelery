@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../providers/settings_provider.dart';
 import '../theme/app_semantic_colors.dart';
 import '../theme/app_theme.dart' as theme;
+import '../utils/arabic_search.dart';
 import '../utils/bidi.dart';
 import 'clearing_settlement_screen.dart';
 import '../widgets/app_feedback.dart';
@@ -37,6 +38,18 @@ class _ClearingMonitorScreenState extends State<ClearingMonitorScreen> {
   /// The payment methods did not load: whether a box settles itself is not
   /// known, and is said so, not shown as «not automatic».
   bool _methodsFailed = false;
+
+  /// The box chosen in the wide table, and its payments' search.
+  int? _selectedBoxId;
+  final _paySearch = TextEditingController();
+  final _paySearchFocus = FocusNode();
+
+  @override
+  void dispose() {
+    _paySearch.dispose();
+    _paySearchFocus.dispose();
+    super.dispose();
+  }
 
   List<SafeBoxModel> _clearingSafes = [];
   // safe_box_id -> pending transactions list
@@ -295,10 +308,11 @@ class _ClearingMonitorScreenState extends State<ClearingMonitorScreen> {
   String get _currency => context.read<SettingsProvider>().currencySymbolText;
   bool get _newSar => context.read<SettingsProvider>().currencyIsNewSar;
 
-  /// F5 loads again (ADR-050, خ٤); it has no search.
+  /// F5 loads again (ADR-050, خ٤); on the wide screen Ctrl+F searches the
+  /// chosen box's payments -- the cards have no search.
   @override
   Widget build(BuildContext context) => AppListShortcuts(
-    searchFocus: null,
+    searchFocus: _wide(context) ? _paySearchFocus : null,
     onRefresh: () {
       if (!_loading) _loadData();
     },
@@ -350,6 +364,8 @@ class _ClearingMonitorScreenState extends State<ClearingMonitorScreen> {
                 title: 'لا توجد خزائن مستحقات تحصيل',
                 hint: 'أضف خزينة من نوع «مقاصة» في إدارة الخزائن.',
               )
+            : _wide(context)
+            ? _wideBody()
             : RefreshIndicator(
                 onRefresh: _loadData,
                 child: ListView(
@@ -374,6 +390,513 @@ class _ClearingMonitorScreenState extends State<ClearingMonitorScreen> {
                   ],
                 ),
               ),
+      ),
+    );
+  }
+
+  // ── the wide screen: the boxes' table beside the chosen box's payments
+  // (ADR-050 خ٥: «جدولًا على الشاشة العريضة بدل البطاقات التي تُفتح واحدة
+  // واحدة»). A narrow screen keeps the cards.
+
+  static const double _wideFrom = 1100;
+  bool _wide(BuildContext context) =>
+      MediaQuery.sizeOf(context).width >= _wideFrom;
+
+  /// The box shown beside the table: the one chosen, else the first owing.
+  SafeBoxModel? get _shownBox {
+    final boxes = _clearingSafes.where((b) => b.id != null).toList();
+    if (boxes.isEmpty) return null;
+    for (final b in boxes) {
+      if (b.id == _selectedBoxId) return b;
+    }
+    return boxes.firstWhere(
+      (b) => (_dueAmountByBox[b.id!] ?? 0) > 0,
+      orElse: () => boxes.first,
+    );
+  }
+
+  /// What the server's due amount says, in a word and a tone.
+  (SemanticTone, String) _statusOf(SafeBoxModel sb) {
+    if (_failedBoxes.contains(sb.id)) {
+      return (_tone.blocked, 'تعذّر تحميل المعلّق');
+    }
+    final due = _dueAmountByBox[sb.id] ?? 0.0;
+    if (due > 0) return (_tone.warning, 'يحتاج تسوية');
+    if (due < 0) return (_tone.blocked, 'تسوية زائدة');
+    return (_tone.ready, 'لا شيء معلّق');
+  }
+
+  Widget _wideBody() {
+    final shown = _shownBox;
+    return Padding(
+      padding: const EdgeInsets.all(theme.AppSpace.lg),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (_loading) const LinearProgressIndicator(),
+          if (_failedBoxes.isNotEmpty)
+            _notice(
+              key: const Key('clearing-boxes-failed'),
+              text:
+                  'تعذّر تحميل المعلّق في ${_failedBoxes.length} من الخزائن — المجاميع أدناه بدونها.',
+            ),
+          if (_methodsFailed)
+            _notice(
+              key: const Key('clearing-methods-failed'),
+              text:
+                  'تعذّر تحميل وسائل الدفع — لا يُعرف أيّ الخزائن تُسوّى تلقائيًا.',
+            ),
+          _buildSummaryRow(),
+          const SizedBox(height: theme.AppSpace.lg),
+          Expanded(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                SizedBox(width: 520, child: _boxesTable(shown)),
+                const SizedBox(width: theme.AppSpace.lg),
+                Expanded(
+                  child: shown == null
+                      ? const SizedBox.shrink()
+                      : _boxDetail(shown),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  TextStyle? get _head => _text.labelMedium?.copyWith(
+    color: _cs.onSurfaceVariant,
+    fontWeight: FontWeight.w700,
+  );
+
+  TextStyle? get _number => _text.bodyMedium?.copyWith(
+    fontFeatures: const [FontFeature.tabularFigures()],
+  );
+
+  Widget _boxesTable(SafeBoxModel? shown) {
+    final boxes = _clearingSafes.where((b) => b.id != null).toList();
+    return Card.outlined(
+      margin: EdgeInsets.zero,
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Container(
+            color: _cs.surfaceContainerHigh,
+            padding: const EdgeInsets.symmetric(
+              horizontal: theme.AppSpace.md,
+              vertical: theme.AppSpace.sm,
+            ),
+            child: Row(
+              children: [
+                Expanded(flex: 3, child: Text('الخزينة', style: _head)),
+                Expanded(
+                  flex: 2,
+                  child: Text('المستحق ($_currency)', style: _head),
+                ),
+                Expanded(child: Text('الدفعات', style: _head)),
+                Expanded(flex: 3, child: Text('الحالة', style: _head)),
+              ],
+            ),
+          ),
+          Expanded(
+            child: ListView(
+              children: [
+                for (final b in boxes) _boxRow(b, selected: b.id == shown?.id),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _boxRow(SafeBoxModel sb, {required bool selected}) {
+    final failed = _failedBoxes.contains(sb.id);
+    final due = _dueAmountByBox[sb.id!] ?? 0.0;
+    final count = (_pendingByBox[sb.id!] ?? const []).length;
+    final (tone, label) = _statusOf(sb);
+    final auto = _matchedPm(sb)?['auto_settlement_enabled'] == true;
+    final onRow = selected ? _tone.gold.onContainer : null;
+    return Material(
+      key: Key('clearing-row-${sb.id}'),
+      color: selected ? _tone.gold.container : Colors.transparent,
+      child: InkWell(
+        onTap: () => setState(() => _selectedBoxId = sb.id),
+        child: Container(
+          constraints: const BoxConstraints(minHeight: 52),
+          padding: const EdgeInsets.symmetric(horizontal: theme.AppSpace.md),
+          decoration: BoxDecoration(
+            border: BorderDirectional(
+              bottom: BorderSide(color: _cs.outlineVariant),
+              start: BorderSide(
+                color: selected ? _tone.gold.fg : Colors.transparent,
+                width: 4,
+              ),
+            ),
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                flex: 3,
+                child: Row(
+                  children: [
+                    Flexible(
+                      child: Text(
+                        sb.name,
+                        overflow: TextOverflow.ellipsis,
+                        style: _text.bodyMedium?.copyWith(
+                          fontWeight: FontWeight.w700,
+                          color: onRow,
+                        ),
+                      ),
+                    ),
+                    if (auto) ...[
+                      const SizedBox(width: theme.AppSpace.xs),
+                      Tooltip(
+                        message: 'تسوية تلقائية',
+                        child: Icon(
+                          Icons.autorenew,
+                          size: 16,
+                          color: _tone.ready.fg,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              Expanded(
+                flex: 2,
+                child: Text(
+                  failed ? '—' : _formatAmount(due),
+                  style: _number?.copyWith(
+                    fontWeight: FontWeight.w700,
+                    color: failed
+                        ? onRow
+                        : due > 0
+                        ? (selected ? onRow : _tone.warning.fg)
+                        : due < 0
+                        ? _cs.error
+                        : (onRow ?? _cs.onSurfaceVariant),
+                  ),
+                ),
+              ),
+              Expanded(
+                child: Text(
+                  failed ? '—' : '$count',
+                  style: _number?.copyWith(color: onRow),
+                ),
+              ),
+              Expanded(
+                flex: 3,
+                child: Align(
+                  alignment: AlignmentDirectional.centerStart,
+                  child: _infoTag(label, tone),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// The chosen box's pending payments: who, which invoice, when, how much.
+  Widget _boxDetail(SafeBoxModel sb) {
+    final id = sb.id!;
+    final failed = _failedBoxes.contains(id);
+    final txs = _pendingByBox[id] ?? const <Map<String, dynamic>>[];
+    final q = normalizeForSearch(_paySearch.text);
+    final rows = q.isEmpty
+        ? txs
+        : txs
+              .where(
+                (t) => normalizeForSearch(
+                  '${t['invoice_number'] ?? ''} ${t['customer_name'] ?? ''}',
+                ).contains(q),
+              )
+              .toList();
+    final selection = _selectionFor(id);
+    final pm = _matchedPm(sb);
+    final due = _dueAmountByBox[id] ?? 0.0;
+    final allIds = txs
+        .map((t) => t['invoice_payment_id'] as int?)
+        .whereType<int>()
+        .toSet();
+
+    return Card.outlined(
+      margin: EdgeInsets.zero,
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(theme.AppSpace.lg),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '${sb.name} — الدفعات المعلّقة',
+                        style: _text.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const SizedBox(height: theme.AppSpace.xs),
+                      Wrap(
+                        spacing: theme.AppSpace.xs,
+                        runSpacing: theme.AppSpace.xs,
+                        children: [
+                          if (pm?['auto_settlement_enabled'] == true)
+                            _infoTag(
+                              'تلقائي: ${(pm?['schedule_summary'] ?? '').toString().isEmpty ? '—' : pm!['schedule_summary']}',
+                              _tone.ready,
+                            )
+                          else if (pm != null)
+                            _infoTag('تسوية يدوية', _tone.info),
+                          if (pm != null)
+                            _infoTag(
+                              'عمولة: ${ltrIsolate('${(pm['commission_rate'] as num?)?.toDouble() ?? 0.0}%')}',
+                              _tone.info,
+                            ),
+                          _infoTag(
+                            'رصيد الخزينة: ${_formatAmount(sb.cashBalance)} $_currency',
+                            _tone.info,
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: theme.AppSpace.md),
+                SizedBox(
+                  width: 260,
+                  child: TextField(
+                    key: const Key('clearing-pay-search'),
+                    controller: _paySearch,
+                    focusNode: _paySearchFocus,
+                    onChanged: (_) => setState(() {}),
+                    decoration: InputDecoration(
+                      isDense: true,
+                      prefixIcon: const Icon(Icons.search),
+                      hintText: 'رقم الفاتورة أو العميل',
+                      suffixIcon: _paySearch.text.isEmpty
+                          ? null
+                          : IconButton(
+                              tooltip: 'مسح',
+                              icon: const Icon(Icons.close),
+                              onPressed: () =>
+                                  setState(() => _paySearch.clear()),
+                            ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: theme.AppSpace.sm),
+                IconButton(
+                  tooltip: 'تحديث',
+                  onPressed: _loadingBox[id] == true
+                      ? null
+                      : () async {
+                          setState(() => _loadingBox[id] = true);
+                          await _loadBox(id);
+                          if (mounted) {
+                            setState(() => _loadingBox[id] = false);
+                          }
+                        },
+                  icon: const Icon(Icons.refresh),
+                ),
+              ],
+            ),
+          ),
+          Container(
+            color: _cs.surfaceContainerHigh,
+            padding: const EdgeInsets.symmetric(
+              horizontal: theme.AppSpace.sm,
+              vertical: theme.AppSpace.xs,
+            ),
+            child: Row(
+              children: [
+                SizedBox(
+                  width: 40,
+                  child: Checkbox(
+                    key: const Key('clearing-select-all'),
+                    tristate: true,
+                    value: allIds.isNotEmpty && selection.containsAll(allIds)
+                        ? true
+                        : selection.isEmpty
+                        ? false
+                        : null,
+                    onChanged: allIds.isEmpty
+                        ? null
+                        : (_) => _toggleSelectAll(id),
+                  ),
+                ),
+                Expanded(flex: 3, child: Text('الفاتورة', style: _head)),
+                Expanded(flex: 3, child: Text('العميل', style: _head)),
+                Expanded(flex: 3, child: Text('التاريخ', style: _head)),
+                Expanded(
+                  flex: 2,
+                  child: Text(
+                    'المبلغ ($_currency)',
+                    textAlign: TextAlign.end,
+                    style: _head,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: failed
+                ? AppErrorView(
+                    title: 'تعذّر تحميل الدفعات المعلّقة لهذه الخزينة',
+                    error: null,
+                    onRetry: () => _loadBox(id),
+                  )
+                : txs.isEmpty
+                ? const AppEmptyView(
+                    title: 'لا توجد دفعات معلّقة',
+                    icon: Icons.check_circle_outline,
+                  )
+                : rows.isEmpty
+                ? const AppEmptyView(
+                    title: 'لا دفعات مطابقة',
+                    icon: Icons.search_off,
+                  )
+                : ListView.builder(
+                    itemCount: rows.length,
+                    itemBuilder: (context, i) =>
+                        _payRow(id, rows[i], i, selection),
+                  ),
+          ),
+          Container(
+            decoration: BoxDecoration(
+              color: _cs.surfaceContainer,
+              border: Border(top: BorderSide(color: _cs.outlineVariant)),
+            ),
+            padding: const EdgeInsets.all(theme.AppSpace.md),
+            child: Row(
+              children: [
+                Expanded(
+                  child: cu.SarAwareText(
+                    selection.isEmpty
+                        ? 'المستحق: ${_formatAmount(due)} $_currency'
+                        : 'محدد: ${selection.length} · ${_formatAmount(_selectedAmount(id))} $_currency   من   ${_formatAmount(due)} $_currency',
+                    isNewSar: _newSar,
+                    key: const Key('clearing-selection-summary'),
+                    style: _text.bodyLarge?.copyWith(
+                      fontWeight: FontWeight.w700,
+                      fontFeatures: const [FontFeature.tabularFigures()],
+                    ),
+                  ),
+                ),
+                if (txs.isNotEmpty)
+                  OutlinedButton.icon(
+                    key: const Key('clearing-settle-all'),
+                    onPressed: () => _openSettlementScreen(sb),
+                    icon: const Icon(Icons.swap_horiz, size: 18),
+                    label: const Text('تسوية الكل'),
+                  ),
+                if (selection.isNotEmpty) ...[
+                  const SizedBox(width: theme.AppSpace.sm),
+                  FilledButton.icon(
+                    key: const Key('clearing-settle-selected'),
+                    onPressed: () => _openSettlementScreen(
+                      sb,
+                      selectedIds: selection.toList(),
+                    ),
+                    icon: const Icon(Icons.done_all, size: 18),
+                    label: Text('تسوية المحددة (${selection.length})'),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _payRow(
+    int boxId,
+    Map<String, dynamic> tx,
+    int index,
+    Set<int> selection,
+  ) {
+    final txId = tx['invoice_payment_id'] as int?;
+    final picked = txId != null && selection.contains(txId);
+    final on = picked ? _tone.gold.onContainer : null;
+    final amount = (tx['amount'] as num?)?.toDouble() ?? 0.0;
+    return Material(
+      key: Key('clearing-pay-${txId ?? index}'),
+      color: picked
+          ? _tone.gold.container
+          : index.isEven
+          ? _cs.surfaceContainerLow
+          : _cs.surface,
+      child: InkWell(
+        onTap: txId == null ? null : () => _toggleTx(boxId, txId),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(
+            horizontal: theme.AppSpace.sm,
+            vertical: theme.AppSpace.xs,
+          ),
+          child: Row(
+            children: [
+              SizedBox(
+                width: 40,
+                child: Checkbox(
+                  value: picked,
+                  onChanged: txId == null
+                      ? null
+                      : (_) => _toggleTx(boxId, txId),
+                ),
+              ),
+              Expanded(
+                flex: 3,
+                child: Text(
+                  (tx['invoice_number'] ?? '—').toString(),
+                  style: _text.bodyMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                    color: on,
+                  ),
+                ),
+              ),
+              Expanded(
+                flex: 3,
+                child: Text(
+                  (tx['customer_name'] ?? '—').toString(),
+                  overflow: TextOverflow.ellipsis,
+                  style: _text.bodyMedium?.copyWith(color: on),
+                ),
+              ),
+              Expanded(
+                flex: 3,
+                child: Text(
+                  _formatDate(tx['date']?.toString()),
+                  style: _text.bodySmall?.copyWith(
+                    color: on ?? _cs.onSurfaceVariant,
+                  ),
+                ),
+              ),
+              Expanded(
+                flex: 2,
+                child: Text(
+                  _formatAmount(amount),
+                  textAlign: TextAlign.end,
+                  style: _number?.copyWith(
+                    fontWeight: FontWeight.w700,
+                    color: on,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -513,21 +1036,7 @@ class _ClearingMonitorScreenState extends State<ClearingMonitorScreen> {
     // The server's due amount, said as it is: owed, over-settled, or nothing.
     // («مبلغ بسيط معلّق» under 100 was a rule of this screen alone; ADR-050.)
     final failed = _failedBoxes.contains(sb.id!);
-    final SemanticTone status;
-    final String statusLabel;
-    if (failed) {
-      status = _tone.blocked;
-      statusLabel = 'تعذّر تحميل المعلّق';
-    } else if (dueAmount > 0) {
-      status = _tone.warning;
-      statusLabel = 'يحتاج تسوية';
-    } else if (dueAmount < 0) {
-      status = _tone.blocked;
-      statusLabel = 'تسوية زائدة';
-    } else {
-      status = _tone.ready;
-      statusLabel = 'لا شيء معلّق';
-    }
+    final (status, statusLabel) = _statusOf(sb);
     final selection = _selectionFor(sb.id!);
 
     return Card.outlined(
@@ -794,7 +1303,9 @@ class _ClearingMonitorScreenState extends State<ClearingMonitorScreen> {
                                             CrossAxisAlignment.start,
                                         children: [
                                           Text(
-                                            'فاتورة: $invNum',
+                                            tx['customer_name'] == null
+                                                ? 'فاتورة: $invNum'
+                                                : 'فاتورة: $invNum · ${tx['customer_name']}',
                                             style: _text.bodyMedium?.copyWith(
                                               fontWeight: FontWeight.w600,
                                               color: isSelected

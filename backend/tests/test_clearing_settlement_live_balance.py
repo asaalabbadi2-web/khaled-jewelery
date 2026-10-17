@@ -177,3 +177,15 @@ def test_a_commission_vat_with_no_account_is_refused_by_name(auth_headers, mada,
             clearing_safe_box_id=mada['box'].id, bank_safe_box_id=mada['bank'].id,
             gross_amount=250.0, fee_amount=2.0, fee_account_id=fee_account.id,
             settlement_dt=datetime.now(), created_by='pytest', invoice_payment_ids=[ip.id])
+
+
+def test_a_pending_payment_says_whose_it_is(auth_headers, mada):
+    """The monitor's table shows the customer beside the invoice (ADR-050):
+    a payment is matched to the bank's statement by both."""
+    ip = _sale_paid_by_mada(auth_headers, mada, 250.0)
+
+    (tx,) = _pending(auth_headers, mada['box'].id)['transactions']
+
+    assert tx['invoice_payment_id'] == ip.id
+    assert tx['customer_name'] == ip.invoice.customer.name
+

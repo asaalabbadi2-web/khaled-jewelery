@@ -5,6 +5,8 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:frontend/providers/settings_provider.dart';
 import 'package:frontend/screens/clearing_monitor_screen.dart';
+import 'package:frontend/screens/clearing_settlement_screen.dart';
+import 'package:frontend/utils/currency_utils.dart';
 import 'package:frontend/theme/app_theme.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -109,9 +111,18 @@ void main() {
             'transactions': id == '32'
                 ? [
                     {
+                      'tx_id': 3520,
+                      'invoice_payment_id': 3520,
+                      'invoice_number': 'SELL-2026-1593',
+                      'customer_name': 'أحمد السبيعي',
+                      'amount': 3050.0,
+                      'date': '2026-10-05T14:45:46',
+                    },
+                    {
                       'tx_id': 3526,
                       'invoice_payment_id': 3526,
                       'invoice_number': 'SELL-2026-1596',
+                      'customer_name': 'نورة القحطاني',
                       'amount': 330.0,
                       'date': '2026-10-05T15:52:33',
                     },
@@ -218,5 +229,118 @@ void main() {
         expect(loads, before + 1);
       },
     );
+  });
+
+  // خ٥ (ADR-050): on a wide screen, the boxes' table beside the chosen box's
+  // payments -- the cards opened one by one.
+  group('the wide screen', () {
+    const wide = Size(1440, 1000);
+
+    testWidgets('a row a box; the first owing is shown with its payments', (
+      tester,
+    ) async {
+      await open(
+        tester,
+        size: wide,
+        steps: () async {
+          for (final id in [32, 33, 34]) {
+            expect(find.byKey(Key('clearing-row-$id')), findsOneWidget);
+          }
+          expect(find.text('مدى — الدفعات المعلّقة'), findsOneWidget);
+          expect(find.text('أحمد السبيعي'), findsOneWidget);
+          expect(find.text('نورة القحطاني'), findsOneWidget);
+
+          await tester.tap(find.byKey(const Key('clearing-row-34')));
+          await tester.pumpAndSettle();
+          expect(
+            find.text('تعذّر تحميل الدفعات المعلّقة لهذه الخزينة'),
+            findsOneWidget,
+          );
+        },
+      );
+    });
+
+    testWidgets('the search finds a payment by its customer or its invoice', (
+      tester,
+    ) async {
+      await open(
+        tester,
+        size: wide,
+        steps: () async {
+          await tester.enterText(
+            find.byKey(const Key('clearing-pay-search')),
+            'نوره',
+          );
+          await tester.pumpAndSettle();
+          expect(find.byKey(const Key('clearing-pay-3526')), findsOneWidget);
+          expect(find.byKey(const Key('clearing-pay-3520')), findsNothing);
+
+          await tester.enterText(
+            find.byKey(const Key('clearing-pay-search')),
+            '1593',
+          );
+          await tester.pumpAndSettle();
+          expect(find.byKey(const Key('clearing-pay-3520')), findsOneWidget);
+          expect(find.byKey(const Key('clearing-pay-3526')), findsNothing);
+        },
+      );
+    });
+
+    testWidgets('chosen payments are counted, and settled as chosen', (
+      tester,
+    ) async {
+      await open(
+        tester,
+        size: wide,
+        steps: () async {
+          await tester.tap(find.byKey(const Key('clearing-pay-3526')));
+          await tester.pumpAndSettle();
+          expect(
+            tester
+                .widget<SarAwareText>(
+                  find.byKey(const Key('clearing-selection-summary')),
+                )
+                .text,
+            contains('330.00'),
+          );
+          await tester.tap(find.byKey(const Key('clearing-settle-selected')));
+          await tester.pump();
+          await tester.pump(const Duration(milliseconds: 400));
+          final settlement = tester.widget<ClearingSettlementScreen>(
+            find.byType(ClearingSettlementScreen),
+          );
+          expect(settlement.initialInvoicePaymentIds, [3526]);
+          expect(settlement.initialClearingSafeBoxId, 32);
+        },
+      );
+    });
+
+    testWidgets('Ctrl+F searches the payments', (tester) async {
+      await open(
+        tester,
+        size: wide,
+        steps: () async {
+          await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+          await tester.sendKeyEvent(LogicalKeyboardKey.keyF);
+          await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+          await tester.pumpAndSettle();
+          final search = tester.widget<TextField>(
+            find.byKey(const Key('clearing-pay-search')),
+          );
+          expect(search.focusNode?.hasFocus, isTrue);
+        },
+      );
+    });
+
+    testWidgets('a narrow screen keeps the cards', (tester) async {
+      await open(
+        tester,
+        size: tabletSize,
+        steps: () async {
+          expect(find.byKey(const Key('clearing-row-32')), findsNothing);
+          expect(find.text('مدى'), findsOneWidget);
+        },
+      );
+    });
   });
 }

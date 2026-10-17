@@ -853,12 +853,16 @@ def get_pending_settlement_transactions():
         if remaining <= 0.005:
             continue
         invoice_number = None
+        # Whose payment it is: the monitor matches a payment to the bank's
+        # statement by the customer as much as by the invoice (ADR-050).
+        customer_name = None
         invoice_id = ip.invoice_id
         if invoice_id:
             try:
                 inv = Invoice.query.get(invoice_id)
                 if inv:
                     invoice_number = inv.invoice_number
+                    customer_name = inv.customer.name if inv.customer else None
             except Exception:
                 pass
         pending.append({
@@ -866,6 +870,7 @@ def get_pending_settlement_transactions():
             'invoice_payment_id': ip.id,
             'invoice_id': invoice_id,
             'invoice_number': invoice_number,
+            'customer_name': customer_name,
             'amount': remaining,
             'date': ip.created_at.isoformat() if ip.created_at else None,
             'type': 'invoice_payment',
