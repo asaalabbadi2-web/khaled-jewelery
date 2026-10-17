@@ -9,6 +9,7 @@ import 'package:frontend/providers/settings_provider.dart';
 import 'package:frontend/screens/add_voucher_screen.dart';
 import 'package:frontend/screens/vouchers_list_screen.dart';
 import 'package:frontend/theme/app_theme.dart';
+import 'package:frontend/widgets/app_period_picker.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -19,6 +20,9 @@ import 'support/shots.dart';
 /// ألوانهما من الثيم، فتُرسمان في الوضعين. الحدّ على الألوان المكتوبة فيهما في
 /// `theme_raw_color_ratchet_test.dart` (صفر، واثنان للقائمة: لونا ورق PDF).
 class _ListApi extends FakeVoucherApi {
+  /// The period each load asked for, as sent.
+  final periods = <(String?, String?)>[];
+
   @override
   Future<Map<String, dynamic>> getVouchers({
     int page = 1,
@@ -36,32 +40,35 @@ class _ListApi extends FakeVoucherApi {
     String? referenceType,
     int? referenceId,
     bool includeCancelled = false,
-  }) async => {
-    'vouchers': [
-      for (final (n, t, st, cash, gold) in [
-        ('RV-2026-00010', 'receipt', 'approved', 1500.0, 0.0),
-        ('PV-2026-00011', 'payment', 'pending', 0.0, 12.5),
-        ('AV-2026-00012', 'adjustment', 'cancelled', 300.0, 0.0),
-      ])
-        {
-          'id': n.hashCode & 0xffff,
-          'voucher_number': n,
-          'voucher_type': t,
-          'status': st,
-          'date': '2026-10-08T10:00:00',
-          'party_name': 'مورد الذهب',
-          'party_type': 'supplier',
-          'amount_cash': cash,
-          'amount_gold': gold,
-          'description': 'دفعة',
-          'created_by': 'موظف',
-        },
-    ],
-    'total': 3,
-    'pages': 1,
-    'current_page': 1,
-    'per_page': 20,
-  };
+  }) async {
+    periods.add((dateFrom, dateTo));
+    return {
+      'vouchers': [
+        for (final (n, t, st, cash, gold) in [
+          ('RV-2026-00010', 'receipt', 'approved', 1500.0, 0.0),
+          ('PV-2026-00011', 'payment', 'pending', 0.0, 12.5),
+          ('AV-2026-00012', 'adjustment', 'cancelled', 300.0, 0.0),
+        ])
+          {
+            'id': n.hashCode & 0xffff,
+            'voucher_number': n,
+            'voucher_type': t,
+            'status': st,
+            'date': '2026-10-08T10:00:00',
+            'party_name': 'مورد الذهب',
+            'party_type': 'supplier',
+            'amount_cash': cash,
+            'amount_gold': gold,
+            'description': 'دفعة',
+            'created_by': 'موظف',
+          },
+      ],
+      'total': 3,
+      'pages': 1,
+      'current_page': 1,
+      'per_page': 20,
+    };
+  }
 }
 
 /// A server that refuses the list (ADR-049: the list must say so).
@@ -223,5 +230,24 @@ void main() {
     await tester.tap(confirm);
     await tester.pumpAndSettle();
     expect(api.cancelled, [(id, 'مكرر')]);
+  });
+
+  testWidgets('a ready period is one tap, and the list asks the server for '
+      'it (ADR-049)', (tester) async {
+    final api = _ListApi();
+    await pump(tester, LightTheme.theme, VouchersListScreen(apiService: api));
+    expect(find.text('كل الفترات'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('vouchers-period')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('الشهر الماضي').last);
+    await tester.pumpAndSettle();
+
+    final month = periodRange(AppPeriod.lastMonth, DateTime.now());
+    expect(api.periods.last, (
+      month.start.toIso8601String(),
+      month.end.toIso8601String(),
+    ));
+    expect(find.text(periodLabel(month)), findsOneWidget);
   });
 }

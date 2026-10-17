@@ -25,6 +25,7 @@ import 'package:provider/provider.dart';
 import '../widgets/app_state_views.dart';
 import '../widgets/voucher_actions.dart';
 import '../widgets/app_feedback.dart';
+import '../widgets/app_period_picker.dart';
 
 class VouchersListScreen extends StatefulWidget {
   /// The server; a test hands its own.
@@ -1363,37 +1364,19 @@ class _VouchersListScreenState extends State<VouchersListScreen>
                   },
                 ),
               ),
-              OutlinedButton.icon(
-                style: OutlinedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 12,
-                  ),
-                  minimumSize: const Size(0, 44),
-                ),
-                onPressed: () async {
-                  final picked = await showDateRangePicker(
-                    context: context,
-                    firstDate: DateTime(2020),
-                    lastDate: DateTime.now().add(const Duration(days: 365)),
-                    initialDateRange: _dateFrom != null && _dateTo != null
-                        ? DateTimeRange(start: _dateFrom!, end: _dateTo!)
-                        : null,
-                  );
-                  if (picked == null) return;
+              AppPeriodPicker(
+                key: const Key('vouchers-period'),
+                range: _dateFrom == null || _dateTo == null
+                    ? null
+                    : DateTimeRange(start: _dateFrom!, end: _dateTo!),
+                onChanged: (range) async {
                   setState(() {
-                    _dateFrom = picked.start;
-                    _dateTo = picked.end;
+                    _dateFrom = range?.start;
+                    _dateTo = range?.end;
                     _currentPage = 1;
                   });
                   await _loadVouchers(page: 1);
                 },
-                icon: const Icon(Icons.date_range_outlined, size: 18),
-                label: Text(
-                  _dateFrom == null || _dateTo == null
-                      ? 'من - إلى'
-                      : '${DateFormat('dd/MM/yyyy').format(_dateFrom!)} - ${DateFormat('dd/MM/yyyy').format(_dateTo!)}',
-                ),
               ),
               OutlinedButton.icon(
                 style: OutlinedButton.styleFrom(

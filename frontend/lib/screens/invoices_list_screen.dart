@@ -24,6 +24,7 @@ import '../widgets/app_feedback.dart';
 import '../utils/currency_utils.dart';
 import '../widgets/app_state_views.dart';
 import '../widgets/confirm_financial_action.dart';
+import '../widgets/app_period_picker.dart';
 
 /// A sale of scrap gold is saved as «بيع» with gold_type 'scrap'. It is
 /// edited on the screen that made it: the ordinary sale screen sends no
@@ -1251,61 +1252,11 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
                   ),
                   const SizedBox(height: 12),
                   // Date range
-                  OutlinedButton.icon(
-                    icon: Icon(
-                      Icons.date_range,
-                      size: 18,
-                      color: tempDate != null
-                          ? colorScheme.primary
-                          : colorScheme.onSurface.withValues(alpha: 0.6),
-                    ),
-                    label: Text(
-                      tempDate == null
-                          ? (isAr ? 'اختر نطاق تاريخ' : 'Select date range')
-                          : '${DateFormat('dd/MM/yy').format(tempDate!.start)}  →  ${DateFormat('dd/MM/yy').format(tempDate!.end)}',
-                      style: textTheme.bodySmall?.copyWith(
-                        color: tempDate != null ? colorScheme.primary : null,
-                        fontWeight: tempDate != null ? FontWeight.w600 : null,
-                      ),
-                    ),
-                    style: OutlinedButton.styleFrom(
-                      alignment: AlignmentDirectional.centerStart,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 14,
-                        vertical: 12,
-                      ),
-                      side: BorderSide(
-                        color: tempDate != null
-                            ? colorScheme.primary.withValues(alpha: 0.5)
-                            : colorScheme.outline.withValues(alpha: 0.3),
-                      ),
-                      shape: RoundedRectangleBorder(borderRadius: bdRadius),
-                    ),
-                    onPressed: () async {
-                      final picked = await showDateRangePicker(
-                        context: context,
-                        firstDate: DateTime(2020),
-                        lastDate: DateTime.now().add(const Duration(days: 365)),
-                        initialDateRange: tempDate,
-                      );
-                      if (picked != null) setSS(() => tempDate = picked);
-                    },
+                  AppPeriodPicker(
+                    key: const Key('invoices-sheet-period'),
+                    range: tempDate,
+                    onChanged: (range) => setSS(() => tempDate = range),
                   ),
-                  if (tempDate != null)
-                    Align(
-                      alignment: AlignmentDirectional.centerEnd,
-                      child: TextButton.icon(
-                        onPressed: () => setSS(() => tempDate = null),
-                        icon: const Icon(Icons.close, size: 14),
-                        label: Text(isAr ? 'مسح التاريخ' : 'Clear date'),
-                        style: TextButton.styleFrom(
-                          foregroundColor: colorScheme.onSurface.withValues(
-                            alpha: 0.55,
-                          ),
-                          visualDensity: VisualDensity.compact,
-                        ),
-                      ),
-                    ),
                   const SizedBox(height: 10),
                   Row(
                     children: [
@@ -2040,40 +1991,17 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
                   },
                 ),
               ),
-              OutlinedButton.icon(
-                onPressed: () async {
-                  final picked = await showDateRangePicker(
-                    context: context,
-                    firstDate: DateTime(2020),
-                    lastDate: DateTime.now().add(const Duration(days: 365)),
-                    initialDateRange: dateRange,
-                  );
-                  if (picked == null) return;
+              AppPeriodPicker(
+                key: const Key('invoices-period'),
+                range: dateRange,
+                onChanged: (range) async {
                   setState(() {
-                    _tabDateRange[idx] = picked;
+                    _tabDateRange[idx] = range;
                     _currentPage = 1;
                   });
                   await _loadInvoices(page: 1);
                 },
-                icon: const Icon(Icons.date_range, size: 18),
-                label: Text(
-                  dateRange == null
-                      ? (isAr ? 'من - إلى' : 'From - To')
-                      : '${DateFormat('dd/MM/yyyy').format(dateRange.start)} - ${DateFormat('dd/MM/yyyy').format(dateRange.end)}',
-                ),
               ),
-              if (dateRange != null)
-                OutlinedButton.icon(
-                  onPressed: () async {
-                    setState(() {
-                      _tabDateRange[idx] = null;
-                      _currentPage = 1;
-                    });
-                    await _loadInvoices(page: 1);
-                  },
-                  icon: const Icon(Icons.close, size: 18),
-                  label: Text(isAr ? 'مسح التاريخ' : 'Clear Date'),
-                ),
             ],
           ),
     );

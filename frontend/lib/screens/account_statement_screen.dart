@@ -28,6 +28,7 @@ import '../utils/currency_utils.dart' as cu;
 import '../providers/settings_provider.dart';
 import '../theme/app_theme.dart' as app_theme;
 import '../widgets/app_state_views.dart';
+import '../widgets/app_period_picker.dart';
 
 enum _StatementDisplayMode { table, cards }
 
@@ -284,24 +285,6 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
     } catch (_) {
       // Not remembered on this device; the choice holds for this statement.
     }
-  }
-
-  /// Ready periods, so a month is one tap and not a calendar.
-  void _setPeriod(String key) {
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
-    final DateTimeRange? range = switch (key) {
-      'today' => DateTimeRange(start: today, end: today),
-      'this_month' => DateTimeRange(start: DateTime(now.year, now.month, 1), end: today),
-      'last_month' => DateTimeRange(
-          start: DateTime(now.year, now.month - 1, 1),
-          end: DateTime(now.year, now.month, 0),
-        ),
-      'this_year' => DateTimeRange(start: DateTime(now.year, 1, 1), end: today),
-      _ => null,
-    };
-    setState(() => _dateRange = range);
-    _filterLines();
   }
 
   Future<void> _fetchAccountStatement() async {
@@ -570,36 +553,6 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
     }
 
     return false;
-  }
-
-  Future<void> _pickDateRange() async {
-    final initialDateRange =
-        _dateRange ??
-        DateTimeRange(
-          start: DateTime.now().subtract(const Duration(days: 30)),
-          end: DateTime.now(),
-        );
-
-    final picked = await showDateRangePicker(
-      context: context,
-      initialDateRange: initialDateRange,
-      firstDate: DateTime.now().subtract(const Duration(days: 365 * 5)),
-      lastDate: DateTime.now().add(const Duration(days: 365)),
-      saveText: 'تطبيق',
-      builder: (context, child) {
-        return Directionality(
-          textDirection: ui.TextDirection.rtl,
-          child: child!,
-        );
-      },
-    );
-
-    if (picked != null) {
-      setState(() {
-        _dateRange = picked;
-      });
-      _filterLines();
-    }
   }
 
   void _showExportSheet() {
@@ -1431,13 +1384,6 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
   int get _panelFiltersCount =>
       (_filterType != 'all' ? 1 : 0) + (_filterKarat != null ? 1 : 0) + (_showOnlyMovement ? 1 : 0);
 
-  String get _periodLabel {
-    final r = _dateRange;
-    if (r == null) return 'كل الفترات';
-    final f = DateFormat('dd/MM/yyyy');
-    return r.start == r.end ? f.format(r.start) : '${f.format(r.start)} – ${f.format(r.end)}';
-  }
-
   Widget _buildToolbar(double maxWidth) {
     final isNarrow = maxWidth < 500;
     final isCompact = maxWidth < 700;
@@ -1485,27 +1431,13 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
                 ),
               ),
               // One control for the period: the ready ones, or a range.
-              PopupMenuButton<String>(
+              AppPeriodPicker(
                 key: const Key('statement-periods'),
-                tooltip: 'الفترة',
-                onSelected: (key) => key == 'custom' ? _pickDateRange() : _setPeriod(key),
-                itemBuilder: (_) => const [
-                  PopupMenuItem(value: 'today', child: Text('اليوم')),
-                  PopupMenuItem(value: 'this_month', child: Text('هذا الشهر')),
-                  PopupMenuItem(value: 'last_month', child: Text('الشهر الماضي')),
-                  PopupMenuItem(value: 'this_year', child: Text('هذه السنة')),
-                  PopupMenuDivider(),
-                  PopupMenuItem(value: 'custom', child: Text('نطاق مخصص…')),
-                  PopupMenuItem(value: 'all', child: Text('كل الفترات')),
-                ],
-                child: IgnorePointer(
-                  child: OutlinedButton.icon(
-                    onPressed: () {},
-                    style: OutlinedButton.styleFrom(visualDensity: VisualDensity.compact),
-                    icon: const Icon(Icons.event_note, size: 18),
-                    label: Text(_periodLabel, overflow: TextOverflow.ellipsis),
-                  ),
-                ),
+                range: _dateRange,
+                onChanged: (range) {
+                  setState(() => _dateRange = range);
+                  _filterLines();
+                },
               ),
               SegmentedButton<bool>(
                 key: const Key('statement-order'),
