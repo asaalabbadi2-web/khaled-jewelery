@@ -58,7 +58,7 @@
   "lib/screens/username_recovery_screen.dart": 2,
   "lib/screens/users_screen.dart": 1,
   "lib/screens/voucher_details_screen.dart": 5,
-  "lib/screens/vouchers_list_screen.dart": 14,
+  "lib/screens/vouchers_list_screen.dart": 9,
   "lib/widgets/account_management.dart": 1,
   "lib/widgets/add_customer_dialog.dart": 1,
   "lib/widgets/alerts_dialog.dart": 3,

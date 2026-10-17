@@ -14,6 +14,7 @@ import '../providers/settings_provider.dart';
 import '../theme/app_theme.dart' as theme;
 import '../widgets/app_feedback.dart';
 import '../utils/currency_utils.dart';
+import '../widgets/voucher_actions.dart';
 
 Future<bool?> showVoucherDetailsSheet(
   BuildContext context, {
@@ -117,87 +118,31 @@ class _VoucherDetailsScreenState extends State<VoucherDetailsScreen> {
   }
 
   Future<void> _deleteVoucher() async {
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('تأكيد الحذف'),
-        content: const Text(
-          'هل أنت متأكد من حذف هذا السند؟\nلا يمكن التراجع عن هذا الإجراء.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('إلغاء'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, true),
-            style: TextButton.styleFrom(foregroundColor: theme.AppColors.error),
-            child: const Text('حذف'),
-          ),
-        ],
-      ),
-    );
-
-    if (confirm == true) {
-      try {
-        await _apiService.deleteVoucher(widget.voucherId);
-        if (!mounted) return;
-        _showSnack('تم حذف السند بنجاح');
-        Navigator.pop(context, true);
-      } catch (e) {
-        if (!mounted) return;
-        _showSnack('خطأ في الحذف: $e', error: true);
-      }
+    final voucher = _voucher ?? {'id': widget.voucherId};
+    if (!await confirmDeleteVoucher(context, voucher) || !mounted) return;
+    try {
+      await _apiService.deleteVoucher(widget.voucherId);
+      if (!mounted) return;
+      _showSnack('تم حذف السند');
+      Navigator.pop(context, true);
+    } catch (e) {
+      if (!mounted) return;
+      AppFeedback.error(context, e, title: 'لم يُحذف السند');
     }
   }
 
   Future<void> _cancelVoucher() async {
-    String? reason;
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('إلغاء السند'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text('الرجاء إدخال سبب الإلغاء:'),
-            const SizedBox(height: 16),
-            TextField(
-              decoration: const InputDecoration(
-                hintText: 'سبب الإلغاء',
-                border: OutlineInputBorder(),
-              ),
-              maxLines: 3,
-              onChanged: (value) => reason = value,
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('إلغاء'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, true),
-            style: TextButton.styleFrom(foregroundColor: theme.AppColors.error),
-            child: const Text('إلغاء السند'),
-          ),
-        ],
-      ),
-    );
-
-    if (confirm == true && reason != null && reason!.isNotEmpty) {
-      try {
-        await _apiService.cancelVoucher(widget.voucherId, reason!);
-        if (!mounted) return;
-        _showSnack('تم إلغاء السند بنجاح');
-        _loadVoucher();
-      } catch (e) {
-        if (!mounted) return;
-        _showSnack('خطأ في الإلغاء: $e', error: true);
-      }
-    } else if (confirm == true) {
-      _showSnack('يجب إدخال سبب الإلغاء', error: true);
+    final voucher = _voucher ?? {'id': widget.voucherId};
+    final reason = await confirmCancelVoucher(context, voucher);
+    if (reason == null || !mounted) return;
+    try {
+      await _apiService.cancelVoucher(widget.voucherId, reason);
+      if (!mounted) return;
+      _showSnack('تم إلغاء السند');
+      _loadVoucher();
+    } catch (e) {
+      if (!mounted) return;
+      AppFeedback.error(context, e, title: 'لم يُلغَ السند');
     }
   }
 

@@ -10,6 +10,8 @@ import 'app_tokens.dart';
 ///   theme's color -- or [primary] in its document's tone;
 /// - secondary actions: `FilledButton.tonal` -- a light fill, dark text -- or
 ///   [tonal] in a tone (add a line, a new customer, a quick action);
+/// - an act that cannot be taken back (delete, cancel, reverse): [danger],
+///   and only in the dialog that confirms it;
 /// - the rest: `OutlinedButton` / `TextButton`.
 ///
 /// Every pair here is a tested 4.5:1 one (theme_contrast_test): a tone's
@@ -33,6 +35,17 @@ abstract final class AppButtonStyles {
       elevation: 0,
       minimumSize: const Size(160, 48),
       padding: const EdgeInsets.symmetric(horizontal: AppSpace.xl),
+    );
+  }
+
+  /// The confirm button of an act that cannot be taken back: the theme's
+  /// error color with its own text (tested 4.5:1 in both modes).
+  static ButtonStyle danger(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return FilledButton.styleFrom(
+      backgroundColor: scheme.error,
+      foregroundColor: scheme.onError,
+      elevation: 0,
     );
   }
 }

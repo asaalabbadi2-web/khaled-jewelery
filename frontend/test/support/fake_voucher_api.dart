@@ -111,11 +111,20 @@ class FakeVoucherApi extends ApiService {
     required double cash,
     required List<Map<String, dynamic>> gold,
   }) async {
-    planAsked.add({'supplier_id': supplierId, 'invoice_ids': invoiceIds,
-                   'cash': cash, 'gold': gold});
+    planAsked.add({
+      'supplier_id': supplierId,
+      'invoice_ids': invoiceIds,
+      'cash': cash,
+      'gold': gold,
+    });
     return plan ??
-        {'cash': [], 'gold': [], 'cash_on_account': cash,
-         'gold_on_account_main_karat': 0.0, 'invoices': []};
+        {
+          'cash': [],
+          'gold': [],
+          'cash_on_account': cash,
+          'gold_on_account_main_karat': 0.0,
+          'invoices': [],
+        };
   }
 
   @override
@@ -133,5 +142,17 @@ class FakeVoucherApi extends ApiService {
     created.add(voucherData);
     if (hold != null) await hold!.future;
     return {'id': 900 + created.length, ...voucherData};
+  }
+
+  /// Vouchers cancelled, with the reason given (ADR-049: one is asked).
+  final cancelled = <(int, String)>[];
+
+  @override
+  Future<Map<String, dynamic>> cancelVoucher(
+    int voucherId,
+    String reason,
+  ) async {
+    cancelled.add((voucherId, reason));
+    return {'id': voucherId, 'status': 'cancelled'};
   }
 }

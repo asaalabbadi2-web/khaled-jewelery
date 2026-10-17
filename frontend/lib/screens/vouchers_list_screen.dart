@@ -23,6 +23,8 @@ import '../widgets/cancelled_vouchers_bar.dart';
 import '../widgets/widgets.dart';
 import 'package:provider/provider.dart';
 import '../widgets/app_state_views.dart';
+import '../widgets/voucher_actions.dart';
+import '../widgets/app_feedback.dart';
 
 class VouchersListScreen extends StatefulWidget {
   /// The server; a test hands its own.
@@ -259,99 +261,36 @@ class _VouchersListScreenState extends State<VouchersListScreen>
     await _loadVouchers();
   }
 
-  Future<void> _cancelVoucher(int id) async {
-    String? reason;
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('إلغاء السند'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text('الرجاء إدخال سبب الإلغاء:'),
-            const SizedBox(height: 16),
-            TextField(
-              decoration: const InputDecoration(
-                hintText: 'سبب الإلغاء',
-                border: OutlineInputBorder(),
-              ),
-              maxLines: 3,
-              onChanged: (value) => reason = value,
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('إلغاء'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, true),
-            style: TextButton.styleFrom(foregroundColor: _tone.blocked.fg),
-            child: const Text('إلغاء السند'),
-          ),
-        ],
-      ),
-    );
+  Map<String, dynamic> _voucherById(int id) => _vouchers
+      .cast<Map<String, dynamic>>()
+      .firstWhere((v) => v['id'] == id, orElse: () => {'id': id});
 
-    if (confirm == true && reason != null && reason!.isNotEmpty) {
-      try {
-        await _apiService.cancelVoucher(id, reason!);
-        if (!mounted) return;
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('تم إلغاء السند بنجاح')));
-        _refresh();
-      } catch (e) {
-        if (!mounted) return;
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('خطأ في الإلغاء: $e')));
-      }
-    } else if (confirm == true) {
+  Future<void> _cancelVoucher(int id) async {
+    final reason = await confirmCancelVoucher(context, _voucherById(id));
+    if (reason == null || !mounted) return;
+    try {
+      await _apiService.cancelVoucher(id, reason);
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('يجب إدخال سبب الإلغاء')));
+      AppFeedback.success(context, 'تم إلغاء السند');
+      _refresh();
+    } catch (e) {
+      if (!mounted) return;
+      AppFeedback.error(context, e, title: 'لم يُلغَ السند');
     }
   }
 
   Future<void> _deleteVoucher(int id) async {
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('حذف السند'),
-        content: const Text(
-          'هل أنت متأكد من رغبتك في حذف هذا السند نهائياً؟ هذا الإجراء لا يمكن التراجع عنه.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('إلغاء'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, true),
-            style: TextButton.styleFrom(foregroundColor: _tone.blocked.fg),
-            child: const Text('حذف'),
-          ),
-        ],
-      ),
-    );
-
-    if (confirm == true) {
-      try {
-        await _apiService.deleteVoucher(id);
-        if (!mounted) return;
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('تم حذف السند بنجاح')));
-        _refresh();
-      } catch (e) {
-        if (!mounted) return;
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('خطأ في الحذف: $e')));
-      }
+    if (!await confirmDeleteVoucher(context, _voucherById(id)) || !mounted) {
+      return;
+    }
+    try {
+      await _apiService.deleteVoucher(id);
+      if (!mounted) return;
+      AppFeedback.success(context, 'تم حذف السند');
+      _refresh();
+    } catch (e) {
+      if (!mounted) return;
+      AppFeedback.error(context, e, title: 'لم يُحذف السند');
     }
   }
 
@@ -2061,6 +2000,7 @@ class _VouchersListScreenState extends State<VouchersListScreen>
     final voucherId = (voucher['id'] as num).toInt();
 
     return PopupMenuButton<String>(
+      key: Key('voucher-actions-$voucherId'),
       tooltip: 'إجراءات',
       onSelected: (value) {
         switch (value) {
@@ -2091,8 +2031,11 @@ class _VouchersListScreenState extends State<VouchersListScreen>
         if (canApprove)
           const PopupMenuItem<String>(value: 'approve', child: Text('اعتماد')),
         if (status != 'cancelled')
-          const PopupMenuItem<String>(value: 'cancel', child: Text('إلغاء')),
-        const PopupMenuItem<String>(value: 'delete', child: Text('حذف')),
+          const PopupMenuItem<String>(
+            value: 'cancel',
+            child: Text('إلغاء السند'),
+          ),
+        const PopupMenuItem<String>(value: 'delete', child: Text('حذف السند')),
       ],
     );
   }

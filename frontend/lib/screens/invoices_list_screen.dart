@@ -23,6 +23,7 @@ import '../widgets/sale_closing_card.dart';
 import '../widgets/app_feedback.dart';
 import '../utils/currency_utils.dart';
 import '../widgets/app_state_views.dart';
+import '../widgets/confirm_financial_action.dart';
 
 /// A sale of scrap gold is saved as «بيع» with gold_type 'scrap'. It is
 /// edited on the screen that made it: the ordinary sale screen sends no
@@ -5185,50 +5186,32 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
 
   Future<void> _deleteInvoice(Map<String, dynamic> invoice) async {
     final isAr = widget.isArabic;
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
     final invoiceDisplayNumber = _getInvoiceDisplayNumber(invoice);
+    final total = double.tryParse('${invoice['total'] ?? ''}');
+    final party =
+        '${invoice['customer_name'] ?? invoice['supplier_name'] ?? ''}'.trim();
 
-    // Show confirmation dialog
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Row(
-          children: [
-            Icon(Icons.warning_amber_rounded, color: Colors.orange),
-            const SizedBox(width: 8),
-            Text(
-              isAr ? 'تأكيد الحذف' : 'Confirm Delete',
-              style: theme.textTheme.titleMedium?.copyWith(
-                color: colorScheme.primary,
-              ),
-            ),
+    // The server deletes only an unposted invoice without financial history
+    // (routes/invoices.py delete_unposted_invoice), with what hangs on it.
+    final confirmed =
+        await confirmFinancialAction(
+          context,
+          title: isAr ? 'حذف الفاتورة' : 'Delete invoice',
+          facts: [
+            (isAr ? 'الفاتورة' : 'Invoice', invoiceDisplayNumber),
+            if (total != null)
+              (isAr ? 'الإجمالي' : 'Total', formatAmount(total)),
+            if (party.isNotEmpty) (isAr ? 'الطرف' : 'Party', party),
           ],
-        ),
-        content: Text(
-          isAr
-              ? 'هل أنت متأكد من حذف الفاتورة رقم $invoiceDisplayNumber؟'
-              : 'Are you sure you want to delete invoice $invoiceDisplayNumber?',
-          style: theme.textTheme.bodyMedium,
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: Text(
-              isAr ? 'إلغاء' : 'Cancel',
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: colorScheme.onSurface.withValues(alpha: 0.7),
-              ),
-            ),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(context, true),
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-            child: Text(isAr ? 'حذف' : 'Delete'),
-          ),
-        ],
-      ),
-    );
+          effect: isAr
+              ? 'تُحذف الفاتورة وما يتبعها نهائيًّا. لا يقبل الخادم حذف '
+                    'فاتورة مرحّلة أو لها حركة مالية.'
+              : 'The invoice and what hangs on it are deleted for good. The '
+                    'server refuses a posted invoice or one with payments.',
+          confirmLabel: isAr ? 'حذف الفاتورة' : 'Delete invoice',
+          backLabel: isAr ? 'تراجع' : 'Back',
+        ) !=
+        null;
 
     if (confirmed == true) {
       try {
@@ -5253,11 +5236,11 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
         _invalidateInvoiceCache();
         await _loadInvoices(forceRefresh: true);
       } catch (e) {
-        _showSnackBar(
-          isAr
-              ? 'فشل حذف الفاتورة: ${e.toString()}'
-              : 'Failed to delete: ${e.toString()}',
-          isError: true,
+        if (!mounted) return;
+        AppFeedback.error(
+          context,
+          e,
+          title: isAr ? 'لم تُحذف الفاتورة' : 'Not deleted',
         );
       }
     }

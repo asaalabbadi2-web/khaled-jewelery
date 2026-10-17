@@ -201,4 +201,27 @@ void main() {
       expect(api.asked, greaterThan(before));
     });
   }
+
+  testWidgets('cancelling a voucher names it, asks why before it can be '
+      'confirmed, and sends the reason (ADR-049)', (tester) async {
+    final api = _ListApi();
+    await pump(tester, LightTheme.theme, VouchersListScreen(apiService: api));
+    final id = 'PV-2026-00011'.hashCode & 0xffff;
+
+    await tester.tap(find.byKey(Key('voucher-actions-$id')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('إلغاء السند').last);
+    await tester.pumpAndSettle();
+
+    expect(find.text('PV-2026-00011'), findsWidgets);
+    expect(find.text('تراجع'), findsOneWidget);
+    final confirm = find.byKey(const Key('confirm-action'));
+    expect(tester.widget<FilledButton>(confirm).onPressed, isNull);
+
+    await tester.enterText(find.byKey(const Key('confirm-reason')), 'مكرر');
+    await tester.pump();
+    await tester.tap(confirm);
+    await tester.pumpAndSettle();
+    expect(api.cancelled, [(id, 'مكرر')]);
+  });
 }
