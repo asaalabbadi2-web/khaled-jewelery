@@ -102,4 +102,50 @@ void main() {
       expect(api.settlements.single.ids, [3520, 3526, 3527]);
     },
   );
+
+  // ADR-050: the journal shown before saving is the server's.
+  testWidgets('the journal shown before saving is the one the server builds', (
+    tester,
+  ) async {
+    final api = await open(tester);
+    await tester.ensureVisible(find.text('تنفيذ التسوية'));
+    await tester.tap(find.text('تنفيذ التسوية'));
+    await tester.pumpAndSettle();
+
+    expect(api.previews, [3470]);
+    final journal = find.byKey(const Key('clearing-journal-preview'));
+    for (final l in FakeClearingApi.previewLines) {
+      expect(
+        find.descendant(
+          of: journal,
+          matching: find.text('${l['account_number']} - ${l['account_name']}'),
+        ),
+        findsOneWidget,
+      );
+    }
+    expect(find.textContaining('vat_receivable'), findsNothing);
+    expect(
+      api.settlements,
+      isEmpty,
+      reason: 'nothing saved before «تأكيد الحفظ»',
+    );
+  });
+
+  testWidgets('a preview the server refuses saves nothing and says why', (
+    tester,
+  ) async {
+    final api = await open(tester);
+    api.refusePreview =
+        '{"error": "no_due_amount", "message": "لا يوجد مبلغ مستحق للتسوية في هذه الخزينة"}';
+    await tester.ensureVisible(find.text('تنفيذ التسوية'));
+    await tester.tap(find.text('تنفيذ التسوية'));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('clearing-journal-preview')), findsNothing);
+    expect(
+      find.text('لا يوجد مبلغ مستحق للتسوية في هذه الخزينة'),
+      findsOneWidget,
+    );
+    expect(api.settlements, isEmpty);
+  });
 }

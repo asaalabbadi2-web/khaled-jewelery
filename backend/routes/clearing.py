@@ -480,6 +480,24 @@ def _create_clearing_settlement_voucher(
 @clearing_bp.route('/clearing/settlements', methods=['POST'])
 @require_permission('vouchers.create')
 def create_clearing_settlement():
+    return _settle_from_request(preview=False)
+
+
+@clearing_bp.route('/clearing/settlements/preview', methods=['POST'])
+@require_permission('vouchers.create')
+def preview_clearing_settlement():
+    """The voucher a settlement would post, not posted (ADR-050).
+
+    The same body as POST /clearing/settlements, through the same function:
+    the voucher is built, its lines read, and all of it rolled back. The
+    screen showed a summary it computed itself -- 15% VAT until the settings
+    came, and the receivable VAT account where ADR-043 posts the commission's
+    VAT to the non-recoverable one; now it shows what will be posted.
+    """
+    return _settle_from_request(preview=True)
+
+
+def _settle_from_request(*, preview: bool):
     """Create a clearing settlement voucher and update balances.
 
     Best practice flow:
@@ -546,6 +564,8 @@ def create_clearing_settlement():
             notes=(data.get('notes') or ''),
             invoice_payment_ids=data.get('invoice_payment_ids'),
         )
+        if preview:
+            return _preview_of(result)
         db.session.commit()
         return jsonify(result), 201
 
@@ -621,6 +641,45 @@ def create_clearing_settlement():
     except Exception as exc:
         db.session.rollback()
         return jsonify({'error': f'Failed to create clearing settlement: {str(exc)}'}), 500
+
+def _preview_of(result):
+    """The lines of the voucher just built in this request, then nothing of
+    it kept: the session is rolled back before the answer leaves."""
+    try:
+        voucher_id = (result.get('voucher') or {}).get('id')
+        rows = (
+            db.session.query(VoucherAccountLine, Account)
+            .join(Account, Account.id == VoucherAccountLine.account_id)
+            .filter(VoucherAccountLine.voucher_id == voucher_id)
+            .order_by(VoucherAccountLine.id.asc())
+            .all()
+        ) if voucher_id else []
+        lines = [
+            {
+                'account_id': account.id,
+                'account_number': account.account_number,
+                'account_name': account.name,
+                'side': line.line_type,
+                'amount': round(float(line.amount or 0.0), 2),
+                'description': line.description,
+            }
+            for line, account in rows
+        ]
+    finally:
+        db.session.rollback()
+        db.session.info.pop('_voucher_number_seq_cache', None)
+
+    debit = round(sum(l['amount'] for l in lines if l['side'] == 'debit'), 2)
+    credit = round(sum(l['amount'] for l in lines if l['side'] == 'credit'), 2)
+    return jsonify({
+        'preview': True,
+        'lines': lines,
+        'debit_total': debit,
+        'credit_total': credit,
+        'balanced': abs(debit - credit) < 0.005,
+        'skipped': bool(result.get('skipped')),
+    }), 200
+
 
 @clearing_bp.route('/clearing/settlements/pending-transactions', methods=['GET'])
 @require_permission('vouchers.create')

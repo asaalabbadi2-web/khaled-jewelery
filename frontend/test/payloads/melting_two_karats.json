@@ -1,0 +1,17 @@
+{
+  "damage_wage_account_id": 51,
+  "damage_wage_amount": 100.0,
+  "from_safe_box_id": 1,
+  "lines": [
+    {
+      "gold_weight": 2.0,
+      "karat": 21
+    },
+    {
+      "gold_weight": 1.5,
+      "karat": 18
+    }
+  ],
+  "operation_type": "melting",
+  "to_safe_box_id": 2
+}

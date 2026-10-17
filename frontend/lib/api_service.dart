@@ -92,6 +92,9 @@ String _resolveApiBaseUrl() {
   return 'http://127.0.0.1:8001/api';
 }
 
+/// One karat line of a melting or renewal (ADR-050).
+typedef MeltingRenewalLine = ({int karat, double goldWeight, double stonesWeight});
+
 class ApiException implements Exception {
   final int statusCode;
   final String code;
@@ -5344,14 +5347,13 @@ class ApiService {
 
   /// تسجيل عملية تكسير أو تجديد.
   /// Endpoint: POST /melting-renewal
+  /// One melting or renewal: all its [lines] in one voucher, its damage wage
+  /// posted once (ADR-050).
   Future<Map<String, dynamic>> createMeltingRenewal({
     required String operationType, // 'melting' | 'renewal'
     required int fromSafeBoxId,
     required int toSafeBoxId,
-    required int fromKarat,
-    int? toKarat,
-    required double goldWeight,
-    double? stonesWeight,
+    required List<MeltingRenewalLine> lines,
     int? stonesRevenueAccountId,
     int? stonesExpenseAccountId,
     double? damageWageAmount,
@@ -5362,10 +5364,14 @@ class ApiService {
       'operation_type': operationType,
       'from_safe_box_id': fromSafeBoxId,
       'to_safe_box_id': toSafeBoxId,
-      'from_karat': fromKarat,
-      if (toKarat != null) 'to_karat': toKarat,
-      'gold_weight': goldWeight,
-      if (stonesWeight != null && stonesWeight > 0) 'stones_weight': stonesWeight,
+      'lines': [
+        for (final l in lines)
+          {
+            'karat': l.karat,
+            'gold_weight': l.goldWeight,
+            if (l.stonesWeight > 0) 'stones_weight': l.stonesWeight,
+          },
+      ],
       if (stonesRevenueAccountId != null) 'stones_revenue_account_id': stonesRevenueAccountId,
       if (stonesExpenseAccountId != null) 'stones_expense_account_id': stonesExpenseAccountId,
       if (damageWageAmount != null && damageWageAmount > 0) 'damage_wage_amount': damageWageAmount,
@@ -5479,24 +5485,86 @@ class ApiService {
     String? description,
     String? createdBy,
     List<int>? invoicePaymentIds,
-  }) async {
-    final payload = <String, dynamic>{
-      'clearing_safe_box_id': clearingSafeBoxId,
-      'bank_safe_box_id': bankSafeBoxId,
-      'gross_amount': grossAmount,
-      'fee_amount': feeAmount,
-      if (feeAccountId != null) 'fee_account_id': feeAccountId,
-      if (settlementDate != null)
-        'settlement_date': settlementDate.toIso8601String(),
-      if (referenceNumber != null) 'reference_number': referenceNumber,
-      if (notes != null) 'notes': notes,
-      if (description != null) 'description': description,
-      if (createdBy != null) 'created_by': createdBy,
-      if (invoicePaymentIds != null) 'invoice_payment_ids': invoicePaymentIds,
-    };
+  }) => _postClearingSettlement(
+    '/clearing/settlements',
+    _clearingSettlementPayload(
+      clearingSafeBoxId: clearingSafeBoxId,
+      bankSafeBoxId: bankSafeBoxId,
+      grossAmount: grossAmount,
+      feeAmount: feeAmount,
+      feeAccountId: feeAccountId,
+      settlementDate: settlementDate,
+      referenceNumber: referenceNumber,
+      notes: notes,
+      description: description,
+      createdBy: createdBy,
+      invoicePaymentIds: invoicePaymentIds,
+    ),
+  );
 
+  /// The voucher a settlement would post, not posted (ADR-050): the same body
+  /// as [createClearingSettlement], through the server's own settlement.
+  /// Endpoint: POST /clearing/settlements/preview
+  Future<Map<String, dynamic>> previewClearingSettlement({
+    required int clearingSafeBoxId,
+    required int bankSafeBoxId,
+    required double grossAmount,
+    double feeAmount = 0.0,
+    int? feeAccountId,
+    DateTime? settlementDate,
+    String? referenceNumber,
+    String? notes,
+    String? description,
+    List<int>? invoicePaymentIds,
+  }) => _postClearingSettlement(
+    '/clearing/settlements/preview',
+    _clearingSettlementPayload(
+      clearingSafeBoxId: clearingSafeBoxId,
+      bankSafeBoxId: bankSafeBoxId,
+      grossAmount: grossAmount,
+      feeAmount: feeAmount,
+      feeAccountId: feeAccountId,
+      settlementDate: settlementDate,
+      referenceNumber: referenceNumber,
+      notes: notes,
+      description: description,
+      invoicePaymentIds: invoicePaymentIds,
+    ),
+  );
+
+  Map<String, dynamic> _clearingSettlementPayload({
+    required int clearingSafeBoxId,
+    required int bankSafeBoxId,
+    required double grossAmount,
+    required double feeAmount,
+    int? feeAccountId,
+    DateTime? settlementDate,
+    String? referenceNumber,
+    String? notes,
+    String? description,
+    String? createdBy,
+    List<int>? invoicePaymentIds,
+  }) => <String, dynamic>{
+    'clearing_safe_box_id': clearingSafeBoxId,
+    'bank_safe_box_id': bankSafeBoxId,
+    'gross_amount': grossAmount,
+    'fee_amount': feeAmount,
+    if (feeAccountId != null) 'fee_account_id': feeAccountId,
+    if (settlementDate != null)
+      'settlement_date': settlementDate.toIso8601String(),
+    if (referenceNumber != null) 'reference_number': referenceNumber,
+    if (notes != null) 'notes': notes,
+    if (description != null) 'description': description,
+    if (createdBy != null) 'created_by': createdBy,
+    if (invoicePaymentIds != null) 'invoice_payment_ids': invoicePaymentIds,
+  };
+
+  Future<Map<String, dynamic>> _postClearingSettlement(
+    String path,
+    Map<String, dynamic> payload,
+  ) async {
     final response = await _authedPost(
-      Uri.parse('$_baseUrl/clearing/settlements'),
+      Uri.parse('$_baseUrl$path'),
       headers: {'Content-Type': 'application/json; charset=UTF-8'},
       body: json.encode(payload),
     );

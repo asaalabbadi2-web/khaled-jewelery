@@ -10,6 +10,45 @@ class FakeClearingApi extends ApiService {
   /// Every createClearingSettlement call: the ids sent, and the gross.
   final settlements = <({List<int>? ids, double gross})>[];
 
+  /// Every previewClearingSettlement call's gross; [refusePreview], when set,
+  /// is the body the server refuses the preview with.
+  final previews = <double>[];
+  String? refusePreview;
+
+  /// The voucher the server builds for a gross of 3,470 and a commission of
+  /// 10: its VAT on the non-recoverable account (ADR-043), as the server
+  /// posts it -- not where the screen used to guess.
+  static const previewLines = <Map<String, dynamic>>[
+    {
+      'account_id': 790,
+      'account_number': '1120',
+      'account_name': 'بنك الرياض',
+      'side': 'debit',
+      'amount': 3458.5,
+    },
+    {
+      'account_id': 541,
+      'account_number': '5410',
+      'account_name': 'عمولات التحصيل',
+      'side': 'debit',
+      'amount': 10.0,
+    },
+    {
+      'account_id': 540,
+      'account_number': '5400',
+      'account_name': 'ضريبة مدخلات غير قابلة للاسترداد',
+      'side': 'debit',
+      'amount': 1.5,
+    },
+    {
+      'account_id': 777,
+      'account_number': '1150',
+      'account_name': 'مستحقات مدى',
+      'side': 'credit',
+      'amount': 3470.0,
+    },
+  ];
+
   static const pending = <Map<String, dynamic>>[
     {
       'tx_id': 3520,
@@ -116,6 +155,31 @@ class FakeClearingApi extends ApiService {
     settlements.add((ids: invoicePaymentIds, gross: grossAmount));
     return {
       'voucher': {'voucher_number': 'AV-TEST'},
+    };
+  }
+
+  @override
+  Future<Map<String, dynamic>> previewClearingSettlement({
+    required int clearingSafeBoxId,
+    required int bankSafeBoxId,
+    required double grossAmount,
+    double feeAmount = 0.0,
+    int? feeAccountId,
+    DateTime? settlementDate,
+    String? referenceNumber,
+    String? notes,
+    String? description,
+    List<int>? invoicePaymentIds,
+  }) async {
+    previews.add(grossAmount);
+    final refusal = refusePreview;
+    if (refusal != null) throw ApiException.text(refusal);
+    return {
+      'preview': true,
+      'lines': previewLines,
+      'debit_total': 3470.0,
+      'credit_total': 3470.0,
+      'balanced': true,
     };
   }
 }

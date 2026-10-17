@@ -2754,6 +2754,9 @@ def create_melting_renewal():
         damage_wage_weight         : float — مبلغ المصنعية التالفة (نقد) [اختياري، تكسير فقط]
         damage_wage_account_id     : int   — حساب مصروف المصنعية التالفة [اختياري، تكسير فقط]
         notes            : str — ملاحظات       [اختياري]
+        lines            : list — بدل from_karat/to_karat/gold_weight/stones_weight:
+                           [{karat, to_karat?, gold_weight, stones_weight?}, ...]
+                           سند واحد لكل الأسطر، والمصنعية التالفة مرة واحدة (ADR-050)
     """
     data = request.get_json(silent=True) or {}
 
@@ -2769,24 +2772,51 @@ def create_melting_renewal():
     except (KeyError, TypeError, ValueError):
         return jsonify({'error': 'missing_safe_box_ids'}), 400
 
+    # One operation is one voucher (ADR-050): `lines` carries every karat the
+    # screen holds, and the operation's damage wage is posted once for all of
+    # them. The screen sent one request per line, the wage with each -- three
+    # lines posted it three times, and a refused second line left the first
+    # posted. A body without `lines` is one line, as before.
+    raw_lines = data.get('lines')
+    if raw_lines is None:
+        raw_lines = [{
+            'karat': data.get('from_karat', 21),
+            'to_karat': data.get('to_karat'),
+            'gold_weight': data.get('gold_weight'),
+            'stones_weight': data.get('stones_weight'),
+        }]
+    if not isinstance(raw_lines, list) or not raw_lines:
+        return jsonify({'error': 'invalid_lines'}), 400
+
+    op_lines = []
     try:
-        from_karat = int(data.get('from_karat', 21))
-        to_karat   = int(data.get('to_karat') or from_karat)
-    except (TypeError, ValueError):
+        for raw in raw_lines:
+            karat = int(raw.get('karat', 21))
+            op_lines.append({
+                'karat': karat,
+                'to_karat': int(raw.get('to_karat') or karat),
+            })
+    except (AttributeError, TypeError, ValueError):
         return jsonify({'error': 'invalid_karat'}), 400
 
-    if from_karat not in _valid_karats or to_karat not in _valid_karats:
+    if any(l['karat'] not in _valid_karats or l['to_karat'] not in _valid_karats for l in op_lines):
         return jsonify({'error': 'invalid_karat', 'allowed': list(_valid_karats)}), 400
 
     try:
-        gold_weight        = float(data.get('gold_weight') or 0)
-        stones_weight      = float(data.get('stones_weight') or 0)
+        for line, raw in zip(op_lines, raw_lines):
+            line['gold_weight'] = float(raw.get('gold_weight') or 0)
+            line['stones_weight'] = float(raw.get('stones_weight') or 0)
         damage_wage_amount = float(data.get('damage_wage_amount') or data.get('damage_wage_weight') or 0)
     except (TypeError, ValueError):
         return jsonify({'error': 'invalid_weight'}), 400
 
-    if gold_weight <= 0:
+    if any(l['gold_weight'] <= 0 for l in op_lines):
         return jsonify({'error': 'invalid_gold_weight'}), 400
+
+    from_karat = op_lines[0]['karat']
+    to_karat = op_lines[0]['to_karat']
+    gold_weight = sum(l['gold_weight'] for l in op_lines)
+    stones_weight = sum(l['stones_weight'] for l in op_lines)
 
     stones_rev_account_id  = data.get('stones_revenue_account_id')
     stones_exp_account_id  = data.get('stones_expense_account_id')
@@ -2817,15 +2847,21 @@ def create_melting_renewal():
         # Gold from the ledger -- the balance the screen shows (BALANCE-001 B2);
         # stones have no ledger weight and stay on the safe-box rows below.
         from services.live_balances import safe_gold_available
-        available = round(safe_gold_available(from_safe, from_karat), 6)
         q_src = SafeBoxTransaction.query.filter_by(safe_box_id=from_safe_id)
 
-        if gold_weight > available + 1e-6:
-            return jsonify({
-                'error': 'insufficient_balance',
-                'karat': from_karat,
-                'available': round(available, 3),
-            }), 400
+        # Per karat, all the operation's lines of it together: two lines of
+        # 21k each within the balance may not be within it together.
+        asked_by_karat = {}
+        for line in op_lines:
+            asked_by_karat[line['karat']] = asked_by_karat.get(line['karat'], 0.0) + line['gold_weight']
+        for karat, asked in asked_by_karat.items():
+            available = round(safe_gold_available(from_safe, karat), 6)
+            if asked > available + 1e-6:
+                return jsonify({
+                    'error': 'insufficient_balance',
+                    'karat': karat,
+                    'available': round(available, 3),
+                }), 400
 
         # تحقق من رصيد الفصوص إذا أُدخل وزن فصوص
         if stones_weight > 0:
@@ -2866,7 +2902,7 @@ def create_melting_renewal():
         voucher_number = generate_voucher_number('adjustment', voucher_date=voucher_dt)
 
         desc_parts = [
-            f'{op_label}: {gold_weight:.3f} جم {from_karat}k',
+            f'{op_label}: ' + '، '.join(f"{l['gold_weight']:.3f} جم {l['karat']}k" for l in op_lines),
             f'من: {from_safe.name}',
             f'إلى: {to_safe.name}',
         ]
@@ -2890,19 +2926,20 @@ def create_melting_renewal():
         db.session.add(voucher)
         db.session.flush()
 
-        # قيد ذهبي: دائن خزينة المصدر، مدين خزينة الوجهة
-        for lt, acct_id, karat_val in (
-            ('credit', from_safe.account_id, float(from_karat)),
-            ('debit',  to_safe.account_id,   float(to_karat)),
-        ):
-            db.session.add(VoucherAccountLine(
-                voucher_id=voucher.id,
-                account_id=acct_id,
-                line_type=lt,
-                amount_type='gold',
-                amount=gold_weight,
-                karat=karat_val,
-            ))
+        # قيد ذهبي لكل سطر: دائن خزينة المصدر، مدين خزينة الوجهة
+        for line in op_lines:
+            for lt, acct_id, karat_val in (
+                ('credit', from_safe.account_id, float(line['karat'])),
+                ('debit',  to_safe.account_id,   float(line['to_karat'])),
+            ):
+                db.session.add(VoucherAccountLine(
+                    voucher_id=voucher.id,
+                    account_id=acct_id,
+                    line_type=lt,
+                    amount_type='gold',
+                    amount=line['gold_weight'],
+                    karat=karat_val,
+                ))
 
         # ─── قيد الفصوص عند التجديد فقط ───
         # مدين:  حساب أصول الفصوص  (الفصوص تُسجَّل كأصل)
@@ -2915,24 +2952,28 @@ def create_melting_renewal():
             if not _stones_asset_acc or not _stones_revenue_acc:
                 _stones_je_warning = 'لم تُسجَّل قيود الفصوص المحاسبية — يرجى تعريف حسابَي أصول وإيراد الفصوص في الإعدادات'
             if _stones_asset_acc and _stones_revenue_acc:
-                db.session.add(VoucherAccountLine(
-                    voucher_id=voucher.id,
-                    account_id=_stones_asset_acc,
-                    line_type='debit',
-                    amount_type='gold',
-                    amount=stones_weight,
-                    karat=float(to_karat),
-                    description=f'أصول فصوص — تجديد ({stones_weight:.3f} جم)',
-                ))
-                db.session.add(VoucherAccountLine(
-                    voucher_id=voucher.id,
-                    account_id=_stones_revenue_acc,
-                    line_type='credit',
-                    amount_type='gold',
-                    amount=stones_weight,
-                    karat=float(to_karat),
-                    description=f'إيراد فصوص — تجديد ({stones_weight:.3f} جم)',
-                ))
+                for line in op_lines:
+                    line_stones = line['stones_weight']
+                    if line_stones <= 0:
+                        continue
+                    db.session.add(VoucherAccountLine(
+                        voucher_id=voucher.id,
+                        account_id=_stones_asset_acc,
+                        line_type='debit',
+                        amount_type='gold',
+                        amount=line_stones,
+                        karat=float(line['to_karat']),
+                        description=f'أصول فصوص — تجديد ({line_stones:.3f} جم)',
+                    ))
+                    db.session.add(VoucherAccountLine(
+                        voucher_id=voucher.id,
+                        account_id=_stones_revenue_acc,
+                        line_type='credit',
+                        amount_type='gold',
+                        amount=line_stones,
+                        karat=float(line['to_karat']),
+                        description=f'إيراد فصوص — تجديد ({line_stones:.3f} جم)',
+                    ))
 
         # قيد المصنعية التالفة (تكسير فقط):
         # مدين: حساب مصروف المصنعية التالفة (نقد)
@@ -2992,31 +3033,41 @@ def create_melting_renewal():
         else:
             _stones_kw = {}
 
-        # SafeBoxTransaction: خروج من المصدر (وزن صافي + فصوص معلوماتي)
-        db.session.add(SafeBoxTransaction(
-            safe_box_id=from_safe_id,
-            direction='out',
-            ref_type='voucher',
-            ref_id=voucher.id,
-            created_by=created_by,
-            notes=f'{op_label} — خروج {from_karat}k',
-            amount_cash=0.0,
-            **{f'weight_{from_karat}k': round(gold_weight, 6)},
-            **_stones_kw,
-        ))
+        for line in op_lines:
+            # A body of `lines` carries each line's stones; the one-line body
+            # keeps its own (the `stones` map or `stones_weight`).
+            if 'lines' in data:
+                line_stones_kw = (
+                    {'stones_weight': round(line['stones_weight'], 6)} if line['stones_weight'] > 0 else {}
+                )
+            else:
+                line_stones_kw = _stones_kw
 
-        # SafeBoxTransaction: دخول إلى الوجهة (وزن صافي + فصوص معلوماتي)
-        db.session.add(SafeBoxTransaction(
-            safe_box_id=to_safe_id,
-            direction='in',
-            ref_type='voucher',
-            ref_id=voucher.id,
-            created_by=created_by,
-            notes=f'{op_label} — دخول {to_karat}k',
-            amount_cash=0.0,
-            **{f'weight_{to_karat}k': round(gold_weight, 6)},
-            **_stones_kw,
-        ))
+            # SafeBoxTransaction: خروج من المصدر (وزن صافي + فصوص معلوماتي)
+            db.session.add(SafeBoxTransaction(
+                safe_box_id=from_safe_id,
+                direction='out',
+                ref_type='voucher',
+                ref_id=voucher.id,
+                created_by=created_by,
+                notes=f"{op_label} — خروج {line['karat']}k",
+                amount_cash=0.0,
+                **{f"weight_{line['karat']}k": round(line['gold_weight'], 6)},
+                **line_stones_kw,
+            ))
+
+            # SafeBoxTransaction: دخول إلى الوجهة (وزن صافي + فصوص معلوماتي)
+            db.session.add(SafeBoxTransaction(
+                safe_box_id=to_safe_id,
+                direction='in',
+                ref_type='voucher',
+                ref_id=voucher.id,
+                created_by=created_by,
+                notes=f"{op_label} — دخول {line['to_karat']}k",
+                amount_cash=0.0,
+                **{f"weight_{line['to_karat']}k": round(line['gold_weight'], 6)},
+                **line_stones_kw,
+            ))
 
         db.session.commit()
 
@@ -3032,6 +3083,15 @@ def create_melting_renewal():
                 'gold_weight': round(gold_weight, 3),
                 'stones_weight': round(stones_weight, 3),
                 'damage_wage_amount': round(damage_wage_amount, 2),
+                'lines': [
+                    {
+                        'karat': l['karat'],
+                        'to_karat': l['to_karat'],
+                        'gold_weight': round(l['gold_weight'], 3),
+                        'stones_weight': round(l['stones_weight'], 3),
+                    }
+                    for l in op_lines
+                ],
             },
         }
         if _stones_je_warning:

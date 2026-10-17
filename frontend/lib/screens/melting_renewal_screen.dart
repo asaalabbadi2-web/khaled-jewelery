@@ -294,21 +294,35 @@ class _OperationFormState extends State<_OperationForm> {
 
     // التحقق من الأسطر
     for (int i = 0; i < _lines.length; i++) {
-      final line = _lines[i];
-      final avail = _goldAvailable(_fromSafeId, line.karat);
-      if (line.goldWeight <= 0) {
+      if (_lines[i].goldWeight <= 0) {
         _snack('السطر ${i + 1}: أدخل وزن الذهب', error: true);
         return;
       }
-      if (line.goldWeight > avail + 1e-6) {
+    }
+    // A karat's lines together against its balance, as the server checks.
+    final asked = <int, double>{};
+    for (final line in _lines) {
+      asked[line.karat] = (asked[line.karat] ?? 0) + line.goldWeight;
+    }
+    for (final MapEntry(key: karat, value: weight) in asked.entries) {
+      final avail = _goldAvailable(_fromSafeId, karat);
+      if (weight > avail + 1e-6) {
         _snack(
-          'السطر ${i + 1} (${line.karat}k): '
-          'الوزن ${line.goldWeight.toStringAsFixed(3)} جم '
+          'عيار ${karat}k: '
+          'الوزن ${weight.toStringAsFixed(3)} جم '
           'يتجاوز الرصيد ${avail.toStringAsFixed(3)} جم',
           error: true,
         );
         return;
       }
+    }
+
+    // A wage without its account was dropped by the server unsaid, while the
+    // confirmation showed it.
+    final wageTyped = double.tryParse(_wageCtrl.text.trim()) ?? 0.0;
+    if (_isMelting && wageTyped > 0 && _wageAccountId == null) {
+      _snack('اختر حساب مصروف المصنعية', error: true);
+      return;
     }
 
     final confirmed = await _showConfirm();
@@ -319,37 +333,36 @@ class _OperationFormState extends State<_OperationForm> {
     final notes = _notesCtrl.text.trim().isEmpty
         ? null
         : _notesCtrl.text.trim();
-    final vouchers = <String>[];
-
     try {
-      for (final line in _lines) {
-        final res = await widget.api.createMeltingRenewal(
-          operationType: widget.opType,
-          fromSafeBoxId: _fromSafeId!,
-          toSafeBoxId: _toSafeId!,
-          fromKarat: line.karat,
-          toKarat: line.karat,
-          goldWeight: line.goldWeight,
-          stonesWeight: line.stonesWeight > 0 ? line.stonesWeight : null,
-          damageWageAmount: (_isMelting && wageAmt > 0) ? wageAmt : null,
-          damageWageAccountId: (_isMelting && wageAmt > 0)
-              ? _wageAccountId
-              : null,
-          notes: notes,
-        );
-        final num =
-            (res['voucher'] as Map?)?['voucher_number']?.toString() ?? '';
-        if (num.isNotEmpty) vouchers.add(num);
-      }
+      // All the lines in one request: one voucher, the wage posted once
+      // (ADR-050). One request per line posted the wage per line.
+      final res = await widget.api.createMeltingRenewal(
+        operationType: widget.opType,
+        fromSafeBoxId: _fromSafeId!,
+        toSafeBoxId: _toSafeId!,
+        lines: [
+          for (final line in _lines)
+            (
+              karat: line.karat,
+              goldWeight: line.goldWeight,
+              stonesWeight: line.stonesWeight,
+            ),
+        ],
+        damageWageAmount: (_isMelting && wageAmt > 0) ? wageAmt : null,
+        damageWageAccountId: (_isMelting && wageAmt > 0)
+            ? _wageAccountId
+            : null,
+        notes: notes,
+      );
+      final number =
+          (res['voucher'] as Map?)?['voucher_number']?.toString() ?? '';
 
       final prefs = await SharedPreferences.getInstance();
       await prefs.setInt(_prefFrom, _fromSafeId!);
       await prefs.setInt(_prefTo, _toSafeId!);
 
       if (!mounted) return;
-      _snack(
-        'تم بنجاح${vouchers.isNotEmpty ? ": ${vouchers.join(', ')}" : ""}',
-      );
+      _snack('تم بنجاح${number.isNotEmpty ? ": $number" : ""}');
       _reset();
       _load();
     } catch (e) {

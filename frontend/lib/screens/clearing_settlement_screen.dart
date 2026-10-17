@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 
 import '../api_service.dart';
 import '../models/safe_box_model.dart';
+import '../theme/app_semantic_colors.dart';
 import '../theme/app_theme.dart' as theme;
 import '../utils.dart';
 import '../widgets/account_picker_sheet.dart';
@@ -399,250 +400,169 @@ class _ClearingSettlementScreenState extends State<ClearingSettlementScreen> {
 
   double _round2(double v) => double.tryParse(v.toStringAsFixed(2)) ?? v;
 
-  String _accountNameById(int accountId) {
-    for (final a in _accounts) {
-      final rawId = a['id'];
-      final id = rawId is int ? rawId : int.tryParse(rawId?.toString() ?? '');
-      if (id != null && id == accountId) {
-        final name = (a['name'] ?? '').toString();
-        final number = (a['account_number'] ?? a['accountNumber'] ?? '')
-            .toString();
-        if (number.isNotEmpty) return '$number - $name';
-        return name;
-      }
-    }
-    return 'حساب #$accountId';
-  }
-
   double _computeFeeVat(double fee) {
     if (!_taxEnabled) return 0.0;
     if (fee <= 0) return 0.0;
     return _round2(fee * _taxRate);
   }
 
-  List<Map<String, dynamic>> _buildJournalPreviewLines({
+  /// The voucher the server will post for this settlement, shown before it is
+  /// saved -- its lines as the server builds them (ADR-050), not a summary
+  /// computed here: that one put 15% VAT before the settings came, and the
+  /// commission's VAT on the receivable account where the server, VAT not
+  /// recovered (ADR-043), posts it to the non-recoverable one.
+  Future<bool> _confirmJournal(
+    Map<String, dynamic> preview, {
     required double gross,
     required double fee,
-    required double feeVat,
-    required double net,
-  }) {
-    final lines = <Map<String, dynamic>>[];
-
-    final bank = _bankSafe;
-    final clearing = _clearingSafe;
-
-    if (bank != null && net > 0) {
-      lines.add({
-        'side': 'debit',
-        'label': 'مدين',
-        'account': '${bank.name} — ${_accountNameById(bank.accountId)}',
-        'amount': _round2(net),
-      });
-    }
-
-    if (fee > 0) {
-      final feeAccName = (_feeAccount?['name'] ?? '').toString();
-      lines.add({
-        'side': 'debit',
-        'label': 'مدين',
-        'account': feeAccName.isNotEmpty
-            ? feeAccName
-            : 'مصروف العمولة (غير محدد)',
-        'amount': _round2(fee),
-      });
-    }
-
-    if (feeVat > 0) {
-      lines.add({
-        'side': 'debit',
-        'label': 'مدين',
-        'account': 'ضريبة عمولة التحصيل (commission_vat / vat_receivable)',
-        'amount': _round2(feeVat),
-      });
-    }
-
-    if (clearing != null) {
-      lines.add({
-        'side': 'credit',
-        'label': 'دائن',
-        'account': '${clearing.name} — ${_accountNameById(clearing.accountId)}',
-        'amount': _round2(gross),
-      });
-    }
-
-    return lines;
-  }
-
-  Future<bool> _confirmJournalPreview({
-    required double gross,
-    required double fee,
-    required double feeVat,
-    required double net,
   }) async {
-    final lines = _buildJournalPreviewLines(
-      gross: gross,
-      fee: fee,
-      feeVat: feeVat,
-      net: net,
-    );
-
-    final debitTotal = _round2(
-      lines
-          .where((l) => l['side'] == 'debit')
-          .fold<double>(0.0, (sum, l) => sum + (l['amount'] as double? ?? 0.0)),
-    );
-    final creditTotal = _round2(
-      lines
-          .where((l) => l['side'] == 'credit')
-          .fold<double>(0.0, (sum, l) => sum + (l['amount'] as double? ?? 0.0)),
-    );
-
-    final isBalanced = (debitTotal - creditTotal).abs() <= 0.02;
+    final lines = (preview['lines'] as List? ?? const [])
+        .whereType<Map<String, dynamic>>()
+        .toList();
+    final debit = (preview['debit_total'] as num?)?.toDouble() ?? 0.0;
+    final credit = (preview['credit_total'] as num?)?.toDouble() ?? 0.0;
+    final balanced = preview['balanced'] == true;
 
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('ملخص القيد قبل الحفظ'),
-        content: SizedBox(
-          width: 520,
-          child: SingleChildScrollView(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: theme.AppColors.primaryGold.withValues(alpha: 0.10),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                      color: Colors.black.withValues(alpha: 0.06),
+      builder: (context) {
+        final tones = AppSemanticColors.of(context);
+        final cs = Theme.of(context).colorScheme;
+        final text = Theme.of(context).textTheme;
+        return AlertDialog(
+          title: const Text('القيد الذي سيُحفظ'),
+          content: SizedBox(
+            width: 560,
+            child: SingleChildScrollView(
+              child: Column(
+                key: const Key('clearing-journal-preview'),
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    'الإجمالي ${_formatMoney(gross)} — العمولة ${_formatMoney(fee)}',
+                    style: text.bodyMedium?.copyWith(
+                      color: cs.onSurfaceVariant,
                     ),
                   ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                  const SizedBox(height: theme.AppSpace.md),
+                  for (final l in lines)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: theme.AppSpace.sm),
+                      child: _journalLine(l, tones, text),
+                    ),
+                  const Divider(),
+                  Row(
                     children: [
-                      Text('الإجمالي: ${_formatMoney(gross)}'),
-                      Text('العمولة: ${_formatMoney(fee)}'),
-                      if (feeVat > 0)
-                        Text(
-                          'ضريبة العمولة: ${_formatMoney(feeVat)}'
-                          '${_settingsLoaded ? '' : ' (تقديري)'}',
+                      Expanded(
+                        child: Text(
+                          'إجمالي المدين ${_formatMoney(debit)}',
+                          style: text.bodyMedium?.copyWith(
+                            fontWeight: FontWeight.w700,
+                          ),
                         ),
-                      Text('الصافي إلى البنك: ${_formatMoney(net)}'),
-                      const SizedBox(height: 6),
-                      Text(
-                        'ملاحظة: سيتم تسجيل العمولة أثناء التسوية.',
-                        style: TextStyle(
-                          color: Colors.grey.shade700,
-                          fontSize: 12,
+                      ),
+                      Expanded(
+                        child: Text(
+                          'إجمالي الدائن ${_formatMoney(credit)}',
+                          style: text.bodyMedium?.copyWith(
+                            fontWeight: FontWeight.w700,
+                          ),
                         ),
                       ),
                     ],
                   ),
-                ),
-                const SizedBox(height: 12),
-                const Text(
-                  'سطور القيد:',
-                  style: TextStyle(fontWeight: FontWeight.w800),
-                ),
-                const SizedBox(height: 8),
-                ...lines.map((l) {
-                  final side = (l['label'] ?? '').toString();
-                  final account = (l['account'] ?? '').toString();
-                  final amount = (l['amount'] as double? ?? 0.0);
-                  return Padding(
-                    padding: const EdgeInsets.only(bottom: 8),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 10,
-                            vertical: 4,
-                          ),
-                          decoration: BoxDecoration(
-                            color:
-                                (side == 'مدين'
-                                        ? theme.AppColors.success
-                                        : theme.AppColors.error)
-                                    .withValues(alpha: 0.12),
-                            borderRadius: BorderRadius.circular(999),
-                          ),
-                          child: Text(
-                            side,
-                            style: TextStyle(
-                              fontWeight: FontWeight.w800,
-                              color: side == 'مدين'
-                                  ? theme.AppColors.success
-                                  : theme.AppColors.error,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: Text(
-                            account,
-                            style: const TextStyle(fontWeight: FontWeight.w600),
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        Text(
-                          _formatMoney(amount),
-                          style: const TextStyle(fontWeight: FontWeight.w800),
-                        ),
-                      ],
-                    ),
-                  );
-                }),
-                const SizedBox(height: 6),
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        'إجمالي المدين: ${_formatMoney(debitTotal)}',
-                        style: const TextStyle(fontWeight: FontWeight.w700),
+                  const SizedBox(height: theme.AppSpace.sm),
+                  Row(
+                    children: [
+                      Icon(
+                        balanced ? Icons.check_circle_outline : Icons.error_outline,
+                        size: 18,
+                        color: balanced ? tones.ready.fg : cs.error,
                       ),
-                    ),
-                    Expanded(
-                      child: Text(
-                        'إجمالي الدائن: ${_formatMoney(creditTotal)}',
-                        style: const TextStyle(fontWeight: FontWeight.w700),
+                      const SizedBox(width: theme.AppSpace.sm),
+                      Text(
+                        balanced ? 'القيد متوازن' : 'القيد غير متوازن — لا يُحفظ',
+                        style: text.bodyMedium?.copyWith(
+                          fontWeight: FontWeight.w700,
+                          color: balanced ? tones.ready.fg : cs.error,
+                        ),
                       ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  isBalanced ? 'القيد متوازن ✅' : 'تنبيه: القيد غير متوازن ⚠️',
-                  style: TextStyle(
-                    fontWeight: FontWeight.w800,
-                    color: isBalanced
-                        ? theme.AppColors.success
-                        : theme.AppColors.error,
+                    ],
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('إلغاء'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            style: FilledButton.styleFrom(
-              backgroundColor: theme.AppColors.primaryGold,
-              foregroundColor: Colors.black,
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('رجوع'),
             ),
-            child: const Text('تأكيد الحفظ'),
-          ),
-        ],
-      ),
+            FilledButton(
+              key: const Key('clearing-journal-confirm'),
+              onPressed: balanced
+                  ? () => Navigator.of(context).pop(true)
+                  : null,
+              child: const Text('تأكيد الحفظ'),
+            ),
+          ],
+        );
+      },
     );
 
     return confirmed ?? false;
+  }
+
+  /// One line of the voucher: its side, its account (number and name, as the
+  /// server names it), its amount.
+  Widget _journalLine(
+    Map<String, dynamic> line,
+    AppSemanticColors tones,
+    TextTheme text,
+  ) {
+    final isDebit = line['side'] == 'debit';
+    final tone = isDebit ? tones.debit : tones.credit;
+    final number = (line['account_number'] ?? '').toString();
+    final name = (line['account_name'] ?? '').toString();
+    final amount = (line['amount'] as num?)?.toDouble() ?? 0.0;
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          padding: const EdgeInsets.symmetric(
+            horizontal: theme.AppSpace.sm,
+            vertical: theme.AppSpace.xs,
+          ),
+          decoration: BoxDecoration(
+            color: tone.container,
+            borderRadius: BorderRadius.circular(theme.AppRadius.pill),
+          ),
+          child: Text(
+            isDebit ? 'مدين' : 'دائن',
+            style: text.labelMedium?.copyWith(
+              fontWeight: FontWeight.w700,
+              color: tone.onContainer,
+            ),
+          ),
+        ),
+        const SizedBox(width: theme.AppSpace.sm),
+        Expanded(
+          child: Text(
+            number.isEmpty ? name : '$number - $name',
+            style: text.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
+          ),
+        ),
+        const SizedBox(width: theme.AppSpace.sm),
+        Text(
+          _formatMoney(amount),
+          style: text.bodyMedium?.copyWith(
+            fontWeight: FontWeight.w700,
+            fontFeatures: const [FontFeature.tabularFigures()],
+          ),
+        ),
+      ],
+    );
   }
 
   Future<void> _pickDate() async {
@@ -997,43 +917,57 @@ class _ClearingSettlementScreenState extends State<ClearingSettlementScreen> {
       return;
     }
 
-    // Journal preview confirmation before saving
-    final ok = await _confirmJournalPreview(
-      gross: gross,
-      fee: fee,
-      feeVat: feeVat,
-      net: net,
-    );
-    if (!ok) return;
+    // The chosen payments, exactly; only without a choice, the box's
+    // pending payments (the server settles those oldest-first).
+    final ipIds =
+        _chosenPaymentIds ??
+        _pendingTransactions
+            .map((tx) => tx['invoice_payment_id'] as int?)
+            .whereType<int>()
+            .toList();
+    String? typed(TextEditingController c) =>
+        c.text.trim().isEmpty ? null : c.text.trim();
+    final feeAccountId = fee > 0 ? (_feeAccount?['id'] as int?) : null;
+
+    // The voucher as the server will post it, before it is posted (ADR-050).
+    setState(() => _submitting = true);
+    final Map<String, dynamic> preview;
+    try {
+      preview = await _api.previewClearingSettlement(
+        clearingSafeBoxId: clearingId,
+        bankSafeBoxId: bankId,
+        grossAmount: gross,
+        feeAmount: fee,
+        feeAccountId: feeAccountId,
+        settlementDate: _settlementDate,
+        referenceNumber: typed(_referenceController),
+        notes: typed(_notesController),
+        description: typed(_descriptionController),
+        invoicePaymentIds: ipIds.isNotEmpty ? ipIds : null,
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _submitting = false);
+      _showSnack(_settlementError(e), error: true);
+      return;
+    }
+    if (!mounted) return;
+    setState(() => _submitting = false);
+    final ok = await _confirmJournal(preview, gross: gross, fee: fee);
+    if (!ok || !mounted) return;
 
     setState(() => _submitting = true);
-
     try {
-      // The chosen payments, exactly; only without a choice, the box's
-      // pending payments (the server settles those oldest-first).
-      final ipIds =
-          _chosenPaymentIds ??
-          _pendingTransactions
-              .map((tx) => tx['invoice_payment_id'] as int?)
-              .whereType<int>()
-              .toList();
-
       final res = await _api.createClearingSettlement(
         clearingSafeBoxId: clearingId,
         bankSafeBoxId: bankId,
         grossAmount: gross,
         feeAmount: fee,
-        feeAccountId: fee > 0 ? (_feeAccount?['id'] as int?) : null,
+        feeAccountId: feeAccountId,
         settlementDate: _settlementDate,
-        referenceNumber: _referenceController.text.trim().isEmpty
-            ? null
-            : _referenceController.text.trim(),
-        notes: _notesController.text.trim().isEmpty
-            ? null
-            : _notesController.text.trim(),
-        description: _descriptionController.text.trim().isEmpty
-            ? null
-            : _descriptionController.text.trim(),
+        referenceNumber: typed(_referenceController),
+        notes: typed(_notesController),
+        description: typed(_descriptionController),
         invoicePaymentIds: ipIds.isNotEmpty ? ipIds : null,
       );
 
@@ -1056,11 +990,20 @@ class _ClearingSettlementScreenState extends State<ClearingSettlementScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               if (voucherNumber.isNotEmpty) Text('رقم السند: $voucherNumber'),
-              const SizedBox(height: 8),
-              Text('الإجمالي: ${_formatMoney(gross)}'),
-              Text('العمولة: ${_formatMoney(fee)}'),
-              if (feeVat > 0) Text('ضريبة العمولة: ${_formatMoney(feeVat)}'),
-              Text('الصافي: ${_formatMoney(net)}'),
+              const SizedBox(height: theme.AppSpace.sm),
+              // The lines the server previewed are the lines it posted
+              // (ADR-050), not a VAT and a net worked out here.
+              for (final l
+                  in (preview['lines'] as List? ?? const [])
+                      .whereType<Map<String, dynamic>>())
+                Padding(
+                  padding: const EdgeInsets.only(bottom: theme.AppSpace.xs),
+                  child: _journalLine(
+                    l,
+                    AppSemanticColors.of(context),
+                    Theme.of(context).textTheme,
+                  ),
+                ),
             ],
           ),
           actions: [
@@ -1076,41 +1019,44 @@ class _ClearingSettlementScreenState extends State<ClearingSettlementScreen> {
       Navigator.of(context).pop(true);
     } catch (e) {
       if (!mounted) return;
-      String msg = e.toString();
-      // Backend sometimes returns JSON as string.
-      try {
-        if (msg.startsWith('Exception:')) {
-          msg = msg.substring('Exception:'.length).trim();
-        }
-        final decoded = json.decode(msg);
-        if (decoded is Map<String, dynamic>) {
-          final err = (decoded['error'] ?? decoded['message'] ?? '').toString();
-          if (err == 'Clearing balance is insufficient for settlement') {
-            final cb = (decoded['clearing_balance'] as num?)?.toDouble();
-            final ga = (decoded['gross_amount'] as num?)?.toDouble();
-            if (cb != null && ga != null) {
-              msg =
-                  'الرصيد المتاح في خزينة المستحقات ${_formatMoney(cb)} ولا يمكن تسوية مبلغ إجمالي ${_formatMoney(ga)}';
-            } else {
-              msg = 'الرصيد المتاح في خزينة المستحقات غير كافٍ لتنفيذ التسوية';
-            }
-          } else if (err == 'no_due_amount') {
-            msg =
-                decoded['message']?.toString() ?? 'لا يوجد مبلغ مستحق للتسوية';
-          } else if (err == 'exceeds_due_amount') {
-            msg =
-                decoded['message']?.toString() ??
-                'المبلغ المطلوب يتجاوز المبلغ المستحق للتسوية';
-          } else {
-            msg = (decoded['message'] ?? decoded['error'] ?? msg).toString();
-          }
-        }
-      } catch (_) {}
-
-      _showSnack(msg, error: true);
+      _showSnack(_settlementError(e), error: true);
     } finally {
       if (mounted) setState(() => _submitting = false);
     }
+  }
+
+  /// The server's refusal of a settlement, or of its preview, in words.
+  String _settlementError(Object e) {
+    var msg = e.toString();
+    // Backend sometimes returns JSON as string.
+    try {
+      if (msg.startsWith('Exception:')) {
+        msg = msg.substring('Exception:'.length).trim();
+      }
+      final decoded = json.decode(msg);
+      if (decoded is Map<String, dynamic>) {
+        final err = (decoded['error'] ?? decoded['message'] ?? '').toString();
+        if (err == 'Clearing balance is insufficient for settlement') {
+          final cb = (decoded['clearing_balance'] as num?)?.toDouble();
+          final ga = (decoded['gross_amount'] as num?)?.toDouble();
+          if (cb != null && ga != null) {
+            msg =
+                'الرصيد المتاح في خزينة المستحقات ${_formatMoney(cb)} ولا يمكن تسوية مبلغ إجمالي ${_formatMoney(ga)}';
+          } else {
+            msg = 'الرصيد المتاح في خزينة المستحقات غير كافٍ لتنفيذ التسوية';
+          }
+        } else if (err == 'no_due_amount') {
+          msg = decoded['message']?.toString() ?? 'لا يوجد مبلغ مستحق للتسوية';
+        } else if (err == 'exceeds_due_amount') {
+          msg =
+              decoded['message']?.toString() ??
+              'المبلغ المطلوب يتجاوز المبلغ المستحق للتسوية';
+        } else {
+          msg = (decoded['message'] ?? decoded['error'] ?? msg).toString();
+        }
+      }
+    } catch (_) {}
+    return msg;
   }
 
   /// Which payments this settlement settles, shown before it is saved.
