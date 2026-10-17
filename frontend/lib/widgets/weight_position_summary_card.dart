@@ -160,7 +160,7 @@ class _WeightPositionSummaryCardState extends State<WeightPositionSummaryCard> {
           child: cu.SarAwareText('${_ltr(_money.format(_d(s['open_cash'])))} ر.س',
               key: const ValueKey('wps-open'),
               isNewSar: _newSar(context),
-              style: theme.textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.bold, color: accent, fontSize: 30)),
+              style: theme.textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.bold, color: accent)),
         ),
         const SizedBox(height: 2),
         Text('من ${_ltr('$count')} بيعًا', key: const ValueKey('wps-count'),
