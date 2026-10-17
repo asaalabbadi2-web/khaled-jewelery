@@ -1,0 +1,10 @@
+{
+  "body": {
+    "amount_cash": 1500.0,
+    "date": "<date>",
+    "from_safe_box_id": 1,
+    "notes": "ملاحظة",
+    "to_safe_box_id": 2
+  },
+  "path": "/safe-boxes/transfer-voucher"
+}

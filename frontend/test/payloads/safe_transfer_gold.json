@@ -1,0 +1,16 @@
+{
+  "body": {
+    "date": "<date>",
+    "from_safe_box_id": 30,
+    "notes": "ملاحظة",
+    "stones": {
+      "21k": 1.0
+    },
+    "to_safe_box_id": 31,
+    "weights": {
+      "18k": 2.0,
+      "21k": 5.7
+    }
+  },
+  "path": "/safe-boxes/transfer-voucher"
+}
