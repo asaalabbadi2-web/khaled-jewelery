@@ -74,7 +74,7 @@
   "lib/screens/reports/widgets/vaults_section.dart": 13,
   "lib/screens/roles_management_screen.dart": 21,
   "lib/screens/safe_transfer_screen.dart": 43,
-  "lib/screens/sales_invoice_screen_v2.dart": 96,
+  "lib/screens/sales_invoice_screen_v2.dart": 9,
   "lib/screens/sales_race_management_screen.dart": 80,
   "lib/screens/scrap_purchase_invoice_screen.dart": 86,
   "lib/screens/security_sessions_screen.dart": 1,

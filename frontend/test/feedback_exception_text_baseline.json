@@ -50,7 +50,6 @@
   "lib/screens/reports/invoice_approval_screen.dart": 2,
   "lib/screens/reports/weight_position_screen.dart": 1,
   "lib/screens/safe_transfer_screen.dart": 6,
-  "lib/screens/sales_invoice_screen_v2.dart": 10,
   "lib/screens/scrap_purchase_invoice_screen.dart": 12,
   "lib/screens/security_sessions_screen.dart": 3,
   "lib/screens/settings_screen_enhanced.dart": 8,

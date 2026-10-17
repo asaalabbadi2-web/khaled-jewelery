@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:frontend/providers/auth_provider.dart';
@@ -83,6 +84,7 @@ void main() {
     bool scrap = false,
     int? editId,
     Map<String, dynamic>? editData,
+    ThemeData? theme,
   }) async {
     SharedPreferences.setMockInitialValues({
       if (saved != null) draftKey: jsonEncode(saved),
@@ -108,7 +110,7 @@ void main() {
           ChangeNotifierProvider(create: (_) => SalesRaceRefreshProvider()),
         ],
         child: MaterialApp(
-          theme: LightTheme.theme,
+          theme: theme ?? LightTheme.theme,
           home: Directionality(
             textDirection: TextDirection.rtl,
             child: Builder(
@@ -1173,5 +1175,27 @@ void main() {
     await tester.tap(find.text('حفظ الفاتورة').last);
     await settle(tester);
     expectPayload('sales_credit', api.added.single);
+  });
+
+  testWidgets('a sale reads in the dark theme: no text near-black on it '
+      '(ADR-049)', (tester) async {
+    await open(
+      tester,
+      api: FakeSalesApi(),
+      saved: draft(total: 2500),
+      theme: DarkTheme.theme,
+    );
+    expect(tester.takeException(), isNull);
+    final dark = <String>[];
+    for (final p in tester.renderObjectList<RenderParagraph>(
+      find.byType(RichText),
+    )) {
+      final color = p.text.style?.color;
+      if (color != null && color.a > 0.5 && color.computeLuminance() < 0.05) {
+        dark.add(p.text.toPlainText());
+      }
+    }
+    expect(dark, isEmpty, reason: 'text that vanishes on dark');
+    await shotWidths(tester, 'sales_dark');
   });
 }

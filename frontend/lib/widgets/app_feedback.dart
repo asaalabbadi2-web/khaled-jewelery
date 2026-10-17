@@ -69,6 +69,14 @@ abstract final class AppFeedback {
     FeedbackAction? action,
   }) => _show(context, _Kind.info, message, action: action);
 
+  /// Something to heed that is not a failure (e.g. «awaits a manager's
+  /// approval»).
+  static void warning(
+    BuildContext context,
+    String message, {
+    FeedbackAction? action,
+  }) => _show(context, _Kind.warning, message, action: action);
+
   /// [error] is an exception or a text; [title] a short heading above it.
   static void error(BuildContext context, Object error, {String? title}) =>
       _show(context, _Kind.error, messageOf(error), title: title);
@@ -101,6 +109,12 @@ abstract final class AppFeedback {
         tone.info.onContainer,
         Icons.info_outline,
         const Duration(seconds: 4),
+      ),
+      _Kind.warning => (
+        tone.warning.container,
+        tone.warning.onContainer,
+        Icons.warning_amber_rounded,
+        const Duration(seconds: 6),
       ),
       _Kind.error => (
         cs.errorContainer,
@@ -157,7 +171,7 @@ abstract final class AppFeedback {
   }
 }
 
-enum _Kind { success, info, error }
+enum _Kind { success, info, warning, error }
 
 /// The one thing a message offers to do.
 typedef FeedbackAction = ({String label, VoidCallback onPressed});

@@ -66,6 +66,10 @@ class SalesInvoiceScreenV2 extends StatefulWidget {
 }
 
 class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
+  // ADR-049: colors from the theme, so the screen reads in both modes.
+  ColorScheme get _cs => Theme.of(context).colorScheme;
+  AppSemanticColors get _tone => AppSemanticColors.of(context);
+
   late final ApiService _api = widget.apiService ?? ApiService();
 
   // Where each readiness reason is fixed, to bring it into view.
@@ -276,9 +280,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
       jsonEncode(_buildLocalDraftPayload()),
     );
     if (showToast && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('تم حفظ الفاتورة لإكمالها لاحقاً')),
-      );
+      AppFeedback.success(context, 'تم حفظ الفاتورة لإكمالها لاحقاً');
     }
   }
 
@@ -689,7 +691,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
       });
       _applyGoldPriceToItems();
     } catch (e) {
-      _showError('فشل تحميل سعر الذهب: $e');
+      _showError(e, title: 'فشل تحميل سعر الذهب');
     }
   }
 
@@ -809,7 +811,8 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
     } catch (e) {
       if (mounted) {
         setState(() {
-          _itemsLoadingError = 'فشل تحميل الأصناف: $e';
+          _itemsLoadingError =
+              'فشل تحميل الأصناف: ${AppFeedback.messageOf(e)}';
         });
       }
     } finally {
@@ -862,7 +865,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
             null; // لا توجد وسيلة دفع افتراضية — يجب على الموظف الاختيار يدوياً
       });
     } catch (e) {
-      _showError('فشل تحميل وسائل الدفع: $e');
+      _showError(e, title: 'فشل تحميل وسائل الدفع');
     }
   }
 
@@ -1009,7 +1012,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
         }
       });
     } catch (e) {
-      _showError('فشل تحميل الخزائن: $e');
+      _showError(e, title: 'فشل تحميل الخزائن');
     }
   }
 
@@ -1088,7 +1091,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
               Container(
                 padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
-                  color: Colors.white.withValues(
+                  color: _cs.surfaceContainerLowest.withValues(
                     alpha: theme.brightness == Brightness.dark ? 0.08 : 0.85,
                   ),
                   borderRadius: BorderRadius.circular(10),
@@ -1418,19 +1421,13 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
         _smartInputFocus.requestFocus();
 
         if (added && mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('✅ تمت إضافة: ${foundItem['name']}'),
-              backgroundColor: AppColors.success,
-              duration: const Duration(seconds: 2),
-            ),
-          );
+          AppFeedback.success(context, 'تمت إضافة: ${foundItem['name']}');
         }
       } else {
         _showError('⚠️ لم يتم العثور على الصنف');
       }
     } catch (e) {
-      _showError('خطأ في البحث: $e');
+      _showError(e, title: 'خطأ في البحث');
     }
   }
 
@@ -1864,12 +1861,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
 
 
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: const Text('✅ تمت إضافة صنف يدوي إلى الفاتورة'),
-          backgroundColor: AppColors.success,
-        ),
-      );
+      AppFeedback.success(context, 'تمت إضافة صنف يدوي إلى الفاتورة');
     }
   }
 
@@ -2116,20 +2108,17 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
       _items.removeAt(index);
     });
 
-    final messenger = ScaffoldMessenger.of(context);
-    messenger.hideCurrentSnackBar();
-    messenger.showSnackBar(
-      SnackBar(
-        content: Text('حُذف «${removed.name}»'),
-        action: SnackBarAction(
-          label: 'تراجع',
-          onPressed: () {
-            if (!mounted) return;
-            setState(() {
-              _items.insert(math.min(index, _items.length), removed);
-            });
-          },
-        ),
+    AppFeedback.info(
+      context,
+      'حُذف «${removed.name}»',
+      action: (
+        label: 'تراجع',
+        onPressed: () {
+          if (!mounted) return;
+          setState(() {
+            _items.insert(math.min(index, _items.length), removed);
+          });
+        },
       ),
     );
   }
@@ -2168,15 +2157,10 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
       }
     });
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: _settingsProvider.buildText(
-          '✅ تم توزيع $targetTotal ${_settingsProvider.currencySymbolText} على ${_items.length} صنف\n'
-          'التكاليف: ${cu.formatAmount(totalCosts)} • الربح الموزع: ${cu.formatAmount(profitPool)}',
-        ),
-        backgroundColor: AppColors.success,
-        duration: const Duration(seconds: 3),
-      ),
+    AppFeedback.success(
+      context,
+      'تم توزيع $targetTotal ${_settingsProvider.currencySymbolText} على ${_items.length} صنف\n'
+      'التكاليف: ${cu.formatAmount(totalCosts)} • الربح الموزع: ${cu.formatAmount(profitPool)}',
     );
   }
 
@@ -2243,14 +2227,14 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
               label: 'الإجمالي',
               value: '${cu.formatAmount(total)} $currency',
               icon: Icons.payments_outlined,
-              accentColor: AppColors.primaryGold,
+              accentColor: _tone.gold.fg,
               emphasize: true,
             ),
             InvoiceSummaryMetric(
               label: 'الأصناف',
               value: '$itemsCount',
               icon: Icons.inventory_2_outlined,
-              accentColor: AppColors.info,
+              accentColor: _tone.info.fg,
               fullWidth: true,
               details: lineDetails,
             ),
@@ -2259,7 +2243,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                 label: 'المتبقي',
                 value: '${cu.formatAmount(remaining)} $currency',
                 icon: Icons.pending_outlined,
-                accentColor: AppColors.error,
+                accentColor: _cs.error,
               ),
             if (_payments.isNotEmpty)
               InvoiceSummaryMetric(
@@ -2268,7 +2252,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                     ? _payments.first.paymentMethodName
                     : '${_payments.length} وسائل دفع',
                 icon: Icons.credit_card_outlined,
-                accentColor: AppColors.info,
+                accentColor: _tone.info.fg,
                 fullWidth: true,
                 highlightCard: true,
                 details: [
@@ -2276,7 +2260,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                     InvoiceSummaryMetricDetail(
                       label: p.paymentMethodName,
                       value: '${cu.formatAmount(p.amount)} $currency',
-                      accentColor: AppColors.info,
+                      accentColor: _tone.info.fg,
                     ),
                 ],
               ),
@@ -2285,7 +2269,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                 label: 'إجمالي الوزن',
                 value: '${cu.formatGrams(totalWeight)} جم',
                 icon: Icons.scale_outlined,
-                accentColor: AppColors.info,
+                accentColor: _tone.info.fg,
                 fullWidth: true,
                 details: weightBreakdown,
               ),
@@ -2295,27 +2279,27 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                 label: 'العميل',
                 value: customerLabel.trim(),
                 icon: Icons.person_outline_rounded,
-                accentColor: AppColors.info,
+                accentColor: _tone.info.fg,
               ),
             if (totalTax > 0)
               InvoiceSummaryMetric(
                 label: 'الضريبة',
                 value: '${cu.formatAmount(totalTax)} $currency',
                 icon: Icons.receipt_long_outlined,
-                accentColor: AppColors.warning,
+                accentColor: _tone.warning.fg,
               ),
             InvoiceSummaryMetric(
               label: 'المدفوع (نقدي)',
               value: '${cu.formatAmount(paidCash)} $currency',
               icon: Icons.account_balance_wallet_outlined,
-              accentColor: AppColors.success,
+              accentColor: _tone.ready.fg,
             ),
             if (barterTotal > 0.01)
               InvoiceSummaryMetric(
                 label: 'المقايضة',
                 value: '${cu.formatAmount(barterTotal)} $currency',
                 icon: Icons.swap_horiz_rounded,
-                accentColor: AppColors.info,
+                accentColor: _tone.info.fg,
               ),
           ],
           notices: warnings,
@@ -2574,14 +2558,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
             : '⚠️ تم حفظ الفاتورة لكن تحتاج اعتماد مدير قبل الترحيل.';
 
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(approvalWarning),
-              backgroundColor: AppSemanticColors.of(context).warning.fg,
-              behavior: SnackBarBehavior.floating,
-              duration: const Duration(seconds: 6),
-            ),
-          );
+          AppFeedback.warning(context, approvalWarning);
         }
       }
 
@@ -2600,7 +2577,9 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
         } catch (e) {
           if (mounted) {
             _showError(
-              'تم حفظ فاتورة البيع، لكن فشل إنشاء فاتورة شراء الكسر للمقايضة: $e',
+              e,
+              title:
+                  'حُفظت فاتورة البيع، لكن لم تُنشأ فاتورة شراء الكسر للمقايضة',
             );
           }
         }
@@ -2641,7 +2620,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
           );
         } catch (e) {
           if (!mounted) return;
-          _showError('تعذر فتح الطباعة: $e');
+          _showError(e, title: 'تعذر فتح الطباعة');
         }
       } else if (shouldPrint == 'share') {
         try {
@@ -2653,7 +2632,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
           );
         } catch (e) {
           if (!mounted) return;
-          _showError('تعذر مشاركة الفاتورة: $e');
+          _showError(e, title: 'تعذر مشاركة الفاتورة');
         }
       }
 
@@ -2662,12 +2641,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
       if (_isEditMode) {
         // In edit mode, navigate back with success result
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: const Text('تم تعديل الفاتورة بنجاح'),
-              backgroundColor: AppSemanticColors.of(context).ready.fg,
-            ),
-          );
+          AppFeedback.success(context, 'تم تعديل الفاتورة بنجاح');
           Navigator.of(context).pop(true);
         }
       } else if (shouldPrint == 'new_invoice') {
@@ -2677,7 +2651,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
         if (mounted) Navigator.of(context).popUntil((route) => route.isFirst);
       }
     } catch (e) {
-      _showError('فشل حفظ الفاتورة: $e');
+      _showError(e, title: 'فشل حفظ الفاتورة');
     }
   }
 
@@ -2692,9 +2666,11 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
   }
 
   // ==================== Helpers ====================
-  void _showError(String message) {
+  /// [error]: a text, or the exception itself with a [title] -- shown in the
+  /// user's words, never as «Exception: ...» (ADR-049).
+  void _showError(Object error, {String? title}) {
     if (!mounted) return;
-    AppFeedback.error(context, message);
+    AppFeedback.error(context, error, title: title);
   }
 
   /// The company's one cash customer, as the server picks it (routes/
@@ -2743,7 +2719,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
       });
       return response;
     } catch (e) {
-      _showError('فشل إنشاء عميل نقدي: $e');
+      _showError(e, title: 'فشل إنشاء عميل نقدي');
       return null;
     }
   }
@@ -2788,7 +2764,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
       icon: approvalRequired
           ? Icons.pending_actions_rounded
           : Icons.check_circle,
-      accentColor: approvalRequired ? AppColors.warning : AppColors.success,
+      accentColor: approvalRequired ? _tone.warning.fg : _tone.ready.fg,
       highlightMessage: approvalRequired
           ? 'تم حفظ الفاتورة وتنتظر الاعتماد'
           : 'تم حفظ الفاتورة بنجاح',
@@ -2805,40 +2781,40 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
             label: 'رقم الفاتورة',
             value: '#$invoiceId',
             icon: Icons.tag_rounded,
-            accentColor: AppColors.primaryGold,
+            accentColor: _tone.gold.fg,
           ),
         if (customerName.isNotEmpty)
           InvoiceSummaryMetric(
             label: 'العميل',
             value: customerName,
             icon: Icons.person_outline_rounded,
-            accentColor: AppColors.info,
+            accentColor: _tone.info.fg,
           ),
         InvoiceSummaryMetric(
           label: 'الإجمالي',
           value: '${cu.formatAmount(total)} $currency',
           icon: Icons.payments_outlined,
-          accentColor: AppColors.primaryGold,
+          accentColor: _tone.gold.fg,
         ),
         InvoiceSummaryMetric(
           label: 'المدفوع',
           value: '${cu.formatAmount(paid)} $currency',
           icon: Icons.account_balance_wallet_outlined,
-          accentColor: AppColors.success,
+          accentColor: _tone.ready.fg,
           emphasize: true,
         ),
         InvoiceSummaryMetric(
           label: 'المتبقي',
           value: '${cu.formatAmount(remaining)} $currency',
           icon: Icons.pending_outlined,
-          accentColor: remaining > 0.01 ? AppColors.error : AppColors.success,
+          accentColor: remaining > 0.01 ? _cs.error : _tone.ready.fg,
         ),
         if (totalWeight > 0)
           InvoiceSummaryMetric(
             label: 'إجمالي الوزن',
             value: '${cu.formatGrams(totalWeight)} جم',
             icon: Icons.scale_outlined,
-            accentColor: AppColors.info,
+            accentColor: _tone.info.fg,
             fullWidth: true,
             details: weightBreakdown,
           ),
@@ -2847,7 +2823,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
             label: 'الضريبة',
             value: '${cu.formatAmount(totalTax)} $currency',
             icon: Icons.receipt_long_outlined,
-            accentColor: AppColors.warning,
+            accentColor: _tone.warning.fg,
           ),
       ],
       notices: notices,
@@ -2915,7 +2891,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
           (entry) => InvoiceSummaryMetricDetail(
             label: '${entry.key}k',
             value: '${cu.formatGrams(entry.value)} جم',
-            accentColor: AppColors.karatColorFor(entry.key),
+            accentColor: _tone.karat(double.tryParse(entry.key)?.round() ?? 0).fg,
           ),
         )
         .toList();
@@ -3371,7 +3347,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
             bottom: PreferredSize(
               preferredSize: const Size.fromHeight(26.0),
               child: Container(
-                color: Colors.black.withValues(alpha: 0.20),
+                color: _cs.shadow.withValues(alpha: 0.20),
                 padding: const EdgeInsets.symmetric(
                   horizontal: 12,
                   vertical: 4,
@@ -3381,28 +3357,21 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                   child: _goldPrice24k > 0
                       ? Row(
                           children: [
-                            const Icon(
+                            Icon(
                               Icons.monetization_on_outlined,
                               size: 12,
-                              color: Colors.amber,
+                              color: invoiceBar.foreground,
                             ),
                             const SizedBox(width: 4),
                             Text(
                               'أونصة: \$${cu.formatAmount((_goldPrice24k * 31.1035 / 3.75), decimals: 0)}',
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 11,
-                                fontWeight: FontWeight.w700,
-                              ),
+                              style: Theme.of(context).textTheme.labelSmall?.copyWith(color: invoiceBar.foreground, fontWeight: FontWeight.w700,),
                             ),
-                            const Padding(
+                            Padding(
                               padding: EdgeInsets.symmetric(horizontal: 5),
                               child: Text(
                                 '|',
-                                style: TextStyle(
-                                  color: Colors.white38,
-                                  fontSize: 10,
-                                ),
+                                style: Theme.of(context).textTheme.labelSmall?.copyWith(color: invoiceBar.foreground.withValues(alpha: 0.55),),
                               ),
                             ),
                             ...([24, 22, 21, 18].map((k) {
@@ -3412,29 +3381,22 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                                 padding: const EdgeInsets.only(right: 10),
                                 child: Text(
                                   '${k}k: ${cu.formatAmount(gp)}',
-                                  style: TextStyle(
-                                    color: isMain ? Colors.amber : Colors.white,
-                                    fontSize: 11,
-                                    fontWeight: isMain
+                                  style: Theme.of(context).textTheme.labelSmall?.copyWith(color: invoiceBar.foreground, decoration: isMain ? TextDecoration.underline : null, fontWeight: isMain
                                         ? FontWeight.w800
-                                        : FontWeight.w500,
-                                  ),
+                                        : FontWeight.w500,),
                                 ),
                               );
                             }).toList()),
                             cu.SarAwareText(
                               '${context.read<SettingsProvider>().currencySymbolText}/جم',
               isNewSar: context.read<SettingsProvider>().currencyIsNewSar,
-                              style: TextStyle(
-                                color: Colors.white54,
-                                fontSize: 10,
-                              ),
+                              style: Theme.of(context).textTheme.labelSmall?.copyWith(color: invoiceBar.foreground.withValues(alpha: 0.7),),
                             ),
                           ],
                         )
-                      : const Text(
+                      : Text(
                           'جاري تحميل سعر الذهب...',
-                          style: TextStyle(color: Colors.white54, fontSize: 11),
+                          style: Theme.of(context).textTheme.labelSmall?.copyWith(color: invoiceBar.foreground.withValues(alpha: 0.7),),
                         ),
                 ),
               ),
@@ -3452,25 +3414,21 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                       vertical: 4,
                     ),
                     decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: 0.18),
+                      color: invoiceBar.foreground.withValues(alpha: 0.18),
                       borderRadius: BorderRadius.circular(20),
                     ),
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        const Icon(
+                        Icon(
                           Icons.person_outline,
                           size: 14,
-                          color: Colors.white,
+                          color: invoiceBar.foreground,
                         ),
                         const SizedBox(width: 4),
                         Text(
                           auth.fullName,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
-                          ),
+                          style: Theme.of(context).textTheme.bodySmall?.copyWith(color: invoiceBar.foreground, fontWeight: FontWeight.w600,),
                         ),
                       ],
                     ),
@@ -3764,7 +3722,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
     return Card(
       elevation: isDark ? 2 : 4,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      shadowColor: Colors.black.withValues(alpha: isDark ? 0.25 : 0.08),
+      shadowColor: _cs.shadow.withValues(alpha: isDark ? 0.25 : 0.08),
       child: Padding(
         padding: const EdgeInsets.all(20),
         child: Column(
@@ -4029,21 +3987,21 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
               ),
               _buildQuickButton(
                 Icons.camera_alt,
-                AppColors.info,
+                _tone.info.fg,
                 'كاميرا',
                 _openCameraScanner,
               ),
               const SizedBox(width: 8),
               _buildQuickButton(
                 Icons.list_alt,
-                AppColors.success,
+                _tone.ready.fg,
                 'قائمة',
                 _showItemSelectionDialog,
               ),
               const SizedBox(width: 8),
               _buildQuickButton(
                 Icons.edit_note,
-                allowManualItems ? AppColors.warning : theme.disabledColor,
+                allowManualItems ? _tone.warning.fg : theme.disabledColor,
                 allowManualItems
                     ? 'إضافة صنف يدوي'
                     : 'فعّل من الإعدادات لإضافة صنف يدوي',
@@ -4054,7 +4012,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
               const SizedBox(width: 8),
               _buildQuickButton(
                 Icons.category,
-                allowManualItems ? AppColors.primaryGold : theme.disabledColor,
+                allowManualItems ? _tone.gold.fg : theme.disabledColor,
                 allowManualItems
                     ? 'سطر تصنيف'
                     : 'فعّل من الإعدادات لإضافة سطر تصنيف',
@@ -4071,8 +4029,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
             controller: _smartInputController,
             focusNode: _smartInputFocus,
             autofocus: true,
-            style: theme.textTheme.bodyLarge?.copyWith(
-              fontSize: 16,
+            style: theme.textTheme.titleLarge?.copyWith(
               fontWeight: FontWeight.w500,
             ),
             decoration: InputDecoration(
@@ -4130,7 +4087,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
               child: Text(
                 _itemsLoadingError!,
                 style: theme.textTheme.bodySmall?.copyWith(
-                  color: AppColors.error,
+                  color: _cs.error,
                   fontWeight: FontWeight.w600,
                 ),
               ),
@@ -4181,7 +4138,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
         border: Border.all(color: dividerColor.withValues(alpha: 0.6)),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(
+            color: _cs.shadow.withValues(
               alpha: theme.brightness == Brightness.dark ? 0.3 : 0.06,
             ),
             blurRadius: 8,
@@ -4270,12 +4227,8 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
             const SizedBox(height: 16),
             Text(
               'لم تتم إضافة أصناف بعد',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-                color:
-                    theme.textTheme.titleLarge?.color ?? colorScheme.onSurface,
-              ),
+              style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold, color:
+                    theme.textTheme.titleLarge?.color ?? colorScheme.onSurface,),
             ),
             const SizedBox(height: 8),
             Text(
@@ -4352,10 +4305,10 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                       vertical: 6,
                     ),
                     decoration: BoxDecoration(
-                      color: AppColors.info.withValues(alpha: 0.15),
+                      color: _tone.info.fg.withValues(alpha: 0.15),
                       borderRadius: BorderRadius.circular(6),
                       border: Border.all(
-                        color: AppColors.info.withValues(alpha: 0.3),
+                        color: _tone.info.fg.withValues(alpha: 0.3),
                       ),
                     ),
                     child: Text(
@@ -4420,10 +4373,10 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                       vertical: 6,
                     ),
                     decoration: BoxDecoration(
-                      color: AppColors.karat24.withValues(alpha: 0.15),
+                      color: _tone.karat24.fg.withValues(alpha: 0.15),
                       borderRadius: BorderRadius.circular(6),
                       border: Border.all(
-                        color: AppColors.karat24.withValues(alpha: 0.3),
+                        color: _tone.karat24.fg.withValues(alpha: 0.3),
                       ),
                     ),
                     child: _settingsProvider.buildText(
@@ -4437,10 +4390,10 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                 Row(
                   children: [
                     IconButton(
-                      icon: const Icon(
+                      icon: Icon(
                         Icons.delete,
                         size: 22,
-                        color: AppColors.error,
+                        color: _cs.error,
                       ),
                       onPressed: () => _removeItem(index),
                       tooltip: 'حذف',
@@ -4796,7 +4749,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                             colorScheme.primary.withValues(
                               alpha: isDark ? 0.25 : 0.3,
                             ),
-                            AppColors.lightGold.withValues(
+                            _tone.gold.container.withValues(
                               alpha: isDark ? 0.2 : 0.35,
                             ),
                           ],
@@ -4814,11 +4767,11 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                               'الوسيلة',
                               style: theme.textTheme.titleSmall?.copyWith(
                                 fontWeight: FontWeight.bold,
-                                color: isDark ? Colors.white : Colors.black87,
+                                color: _cs.onSurface,
                                 shadows: !isDark
                                     ? [
                                         Shadow(
-                                          color: Colors.white.withValues(
+                                          color: _cs.surfaceContainerLowest.withValues(
                                             alpha: 0.8,
                                           ),
                                           blurRadius: 2,
@@ -4834,11 +4787,11 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                               'المبلغ',
                               style: theme.textTheme.titleSmall?.copyWith(
                                 fontWeight: FontWeight.bold,
-                                color: isDark ? Colors.white : Colors.black87,
+                                color: _cs.onSurface,
                                 shadows: !isDark
                                     ? [
                                         Shadow(
-                                          color: Colors.white.withValues(
+                                          color: _cs.surfaceContainerLowest.withValues(
                                             alpha: 0.8,
                                           ),
                                           blurRadius: 2,
@@ -4855,11 +4808,11 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                               'عمولة',
                               style: theme.textTheme.titleSmall?.copyWith(
                                 fontWeight: FontWeight.bold,
-                                color: isDark ? Colors.white : Colors.black87,
+                                color: _cs.onSurface,
                                 shadows: !isDark
                                     ? [
                                         Shadow(
-                                          color: Colors.white.withValues(
+                                          color: _cs.surfaceContainerLowest.withValues(
                                             alpha: 0.8,
                                           ),
                                           blurRadius: 2,
@@ -4876,11 +4829,11 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                               'صافي',
                               style: theme.textTheme.titleSmall?.copyWith(
                                 fontWeight: FontWeight.bold,
-                                color: isDark ? Colors.white : Colors.black87,
+                                color: _cs.onSurface,
                                 shadows: !isDark
                                     ? [
                                         Shadow(
-                                          color: Colors.white.withValues(
+                                          color: _cs.surfaceContainerLowest.withValues(
                                             alpha: 0.8,
                                           ),
                                           blurRadius: 2,
@@ -4897,11 +4850,11 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                               'حذف',
                               style: theme.textTheme.titleSmall?.copyWith(
                                 fontWeight: FontWeight.bold,
-                                color: isDark ? Colors.white : Colors.black87,
+                                color: _cs.onSurface,
                                 shadows: !isDark
                                     ? [
                                         Shadow(
-                                          color: Colors.white.withValues(
+                                          color: _cs.surfaceContainerLowest.withValues(
                                             alpha: 0.8,
                                           ),
                                           blurRadius: 2,
@@ -4971,17 +4924,16 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                                         vertical: 3,
                                       ),
                                       decoration: BoxDecoration(
-                                        color: AppColors.warning.withValues(
+                                        color: _tone.warning.fg.withValues(
                                           alpha: isDark ? 0.2 : 0.25,
                                         ),
                                         borderRadius: BorderRadius.circular(6),
                                       ),
                                       child: Text(
                                         'عمولة ${payment.commissionRate}%',
-                                        style: theme.textTheme.bodySmall
+                                        style: theme.textTheme.labelSmall
                                             ?.copyWith(
-                                              fontSize: 11,
-                                              color: AppColors.warning,
+                                              color: _tone.warning.fg,
                                               fontWeight: FontWeight.bold,
                                             ),
                                       ),
@@ -4995,7 +4947,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                                 '${cu.formatAmount(payment.amount)} ${_settingsProvider.currencySymbolText}',
                                 style: theme.textTheme.titleMedium?.copyWith(
                                   fontWeight: FontWeight.w700,
-                                  color: AppColors.success,
+                                  color: _tone.ready.fg,
                                 ),
                                 textAlign: TextAlign.center,
                               ),
@@ -5008,7 +4960,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                                     : '-',
                                 style: theme.textTheme.bodyMedium?.copyWith(
                                   color: payment.commissionAmount > 0
-                                      ? AppColors.error
+                                      ? _cs.error
                                       : theme.disabledColor,
                                   fontWeight: FontWeight.w600,
                                 ),
@@ -5021,7 +4973,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                                 '${cu.formatAmount(payment.netAmount)} ${_settingsProvider.currencySymbolText}',
                                 style: theme.textTheme.titleMedium?.copyWith(
                                   fontWeight: FontWeight.w700,
-                                  color: AppColors.info,
+                                  color: _tone.info.fg,
                                 ),
                                 textAlign: TextAlign.center,
                               ),
@@ -5033,7 +4985,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                                   Icons.delete_forever,
                                   size: 22,
                                 ),
-                                color: AppColors.error,
+                                color: _cs.error,
                                 tooltip: 'حذف',
                                 padding: EdgeInsets.zero,
                                 constraints: const BoxConstraints(),
@@ -5055,12 +5007,12 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
             Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
-                color: AppColors.primaryGold.withValues(
+                color: _tone.gold.fg.withValues(
                   alpha: isDark ? 0.12 : 0.10,
                 ),
                 borderRadius: BorderRadius.circular(12),
                 border: Border.all(
-                  color: AppColors.primaryGold.withValues(alpha: 0.35),
+                  color: _tone.gold.fg.withValues(alpha: 0.35),
                   width: 2,
                 ),
               ),
@@ -5074,7 +5026,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                         children: [
                           Icon(
                             Icons.swap_horiz,
-                            color: AppColors.primaryGold,
+                            color: _tone.gold.fg,
                             size: 22,
                           ),
                           const SizedBox(width: 8),
@@ -5181,12 +5133,12 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                           vertical: 10,
                         ),
                         decoration: BoxDecoration(
-                          color: AppColors.warning.withValues(
+                          color: _tone.warning.fg.withValues(
                             alpha: isDark ? 0.18 : 0.12,
                           ),
                           borderRadius: BorderRadius.circular(10),
                           border: Border.all(
-                            color: AppColors.warning.withValues(alpha: 0.35),
+                            color: _tone.warning.fg.withValues(alpha: 0.35),
                           ),
                         ),
                         child: Row(
@@ -5194,7 +5146,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                             Icon(
                               Icons.warning_amber_rounded,
                               size: 18,
-                              color: AppColors.warning,
+                              color: _tone.warning.fg,
                             ),
                             const SizedBox(width: 8),
                             Expanded(
@@ -5231,7 +5183,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                           color: theme.colorScheme.surface,
                           borderRadius: BorderRadius.circular(12),
                           border: Border.all(
-                            color: AppColors.primaryGold.withValues(
+                            color: _tone.gold.fg.withValues(
                               alpha: 0.25,
                             ),
                           ),
@@ -5270,7 +5222,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                                       ? null
                                       : () => _removeBarterLine(index),
                                   icon: const Icon(Icons.delete_outline),
-                                  color: AppColors.error,
+                                  color: _cs.error,
                                 ),
                               ],
                             ),
@@ -5374,7 +5326,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                                   'القيمة: ${cu.formatAmount(value)} ${_settingsProvider.currencySymbolText}',
                                   style: theme.textTheme.bodyMedium?.copyWith(
                                     fontWeight: FontWeight.bold,
-                                    color: AppColors.primaryGold,
+                                    color: _tone.gold.fg,
                                   ),
                                 ),
                               ],
@@ -5397,7 +5349,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                           '${cu.formatAmount(_barterTotal)} ${_settingsProvider.currencySymbolText}',
                           style: theme.textTheme.bodyMedium?.copyWith(
                             fontWeight: FontWeight.bold,
-                            color: AppColors.primaryGold,
+                            color: _tone.gold.fg,
                           ),
                         ),
                       ],
@@ -5666,6 +5618,10 @@ class _CategoryLineDialog extends StatefulWidget {
 }
 
 class _CategoryLineDialogState extends State<_CategoryLineDialog> {
+  // ADR-049: colors from the theme, so the screen reads in both modes.
+  ColorScheme get _cs => Theme.of(context).colorScheme;
+  AppSemanticColors get _tone => AppSemanticColors.of(context);
+
   final _formKey = GlobalKey<FormState>();
   final _categorySearchController = TextEditingController();
   final _weightController = TextEditingController(text: '1.0');
@@ -5822,8 +5778,8 @@ class _CategoryLineDialogState extends State<_CategoryLineDialog> {
                 decoration: BoxDecoration(
                   gradient: LinearGradient(
                     colors: [
-                      const Color(0xFFD4AF37).withValues(alpha: 0.15),
-                      const Color(0xFFD4AF37).withValues(alpha: 0.05),
+                      _tone.gold.fg.withValues(alpha: 0.15),
+                      _tone.gold.fg.withValues(alpha: 0.05),
                     ],
                     begin: Alignment.topRight,
                     end: Alignment.bottomLeft,
@@ -5837,39 +5793,34 @@ class _CategoryLineDialogState extends State<_CategoryLineDialog> {
                     Container(
                       padding: const EdgeInsets.all(10),
                       decoration: BoxDecoration(
-                        color: const Color(0xFFD4AF37),
+                        color: _tone.gold.container,
                         borderRadius: BorderRadius.circular(12),
                         boxShadow: [
                           BoxShadow(
-                            color: const Color(
-                              0xFFD4AF37,
-                            ).withValues(alpha: 0.3),
+                            color: _tone.gold.fg.withValues(alpha: 0.3),
                             blurRadius: 8,
                             offset: const Offset(0, 2),
                           ),
                         ],
                       ),
-                      child: const Icon(
+                      child: Icon(
                         Icons.category,
-                        color: Colors.white,
+                        color: _tone.gold.onContainer,
                         size: 26,
                       ),
                     ),
                     const SizedBox(width: 16),
-                    const Column(
+                    Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
                           'إضافة سطر تصنيف',
-                          style: TextStyle(
-                            fontSize: 22,
-                            fontWeight: FontWeight.bold,
-                          ),
+                          style: Theme.of(context).textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.bold,),
                         ),
                         SizedBox(height: 2),
                         Text(
                           'اختر تصنيفاً وحدد التفاصيل',
-                          style: TextStyle(fontSize: 13, color: Colors.black54),
+                          style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: _cs.onSurfaceVariant,),
                         ),
                       ],
                     ),
@@ -6035,9 +5986,7 @@ class _CategoryLineDialogState extends State<_CategoryLineDialog> {
                                                       ),
                                                   decoration: BoxDecoration(
                                                     color: isSelected
-                                                        ? const Color(
-                                                            0xFFD4AF37,
-                                                          ).withValues(
+                                                        ? _tone.gold.fg.withValues(
                                                             alpha: 0.2,
                                                           )
                                                         : theme
@@ -6048,9 +5997,7 @@ class _CategoryLineDialogState extends State<_CategoryLineDialog> {
                                                               ),
                                                     border: Border.all(
                                                       color: isSelected
-                                                          ? const Color(
-                                                              0xFFD4AF37,
-                                                            )
+                                                          ? _tone.gold.fg
                                                           : Colors.transparent,
                                                       width: 2,
                                                     ),
@@ -6068,9 +6015,7 @@ class _CategoryLineDialogState extends State<_CategoryLineDialog> {
                                                             ),
                                                         decoration: BoxDecoration(
                                                           color: isSelected
-                                                              ? const Color(
-                                                                  0xFFD4AF37,
-                                                                ).withValues(
+                                                              ? _tone.gold.fg.withValues(
                                                                   alpha: 0.3,
                                                                 )
                                                               : theme
@@ -6085,9 +6030,7 @@ class _CategoryLineDialogState extends State<_CategoryLineDialog> {
                                                           Icons.label,
                                                           size: 18,
                                                           color: isSelected
-                                                              ? const Color(
-                                                                  0xFFD4AF37,
-                                                                )
+                                                              ? _tone.gold.fg
                                                               : theme
                                                                     .iconTheme
                                                                     .color,
@@ -6097,20 +6040,16 @@ class _CategoryLineDialogState extends State<_CategoryLineDialog> {
                                                       Expanded(
                                                         child: Text(
                                                           name,
-                                                          style: TextStyle(
-                                                            fontSize: 15,
-                                                            fontWeight:
+                                                          style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight:
                                                                 isSelected
                                                                 ? FontWeight
                                                                       .bold
                                                                 : FontWeight
-                                                                      .w500,
-                                                            color: isSelected
+                                                                      .w500, color: isSelected
                                                                 ? theme
                                                                       .colorScheme
                                                                       .onSurface
-                                                                : null,
-                                                          ),
+                                                                : null,),
                                                         ),
                                                       ),
                                                       if (isSelected)
@@ -6120,16 +6059,13 @@ class _CategoryLineDialogState extends State<_CategoryLineDialog> {
                                                                 2,
                                                               ),
                                                           decoration:
-                                                              const BoxDecoration(
-                                                                color: Color(
-                                                                  0xFFD4AF37,
-                                                                ),
-                                                                shape: BoxShape
-                                                                    .circle,
+                                                              BoxDecoration(
+                                                                color: _tone.gold.container,
+                                                                shape: BoxShape.circle,
                                                               ),
-                                                          child: const Icon(
+                                                          child: Icon(
                                                             Icons.check,
-                                                            color: Colors.white,
+                                                            color: _tone.gold.onContainer,
                                                             size: 18,
                                                           ),
                                                         ),
@@ -6186,10 +6122,7 @@ class _CategoryLineDialogState extends State<_CategoryLineDialog> {
                           helperText: _karatLockedByCategory
                               ? 'محدد من التصنيف'
                               : null,
-                          helperStyle: TextStyle(
-                            color: theme.colorScheme.primary,
-                            fontSize: 11,
-                          ),
+                          helperStyle: Theme.of(context).textTheme.labelSmall?.copyWith(color: theme.colorScheme.primary,),
                         ),
                         items: const [18, 21, 22, 24]
                             .map(
@@ -6295,10 +6228,7 @@ class _CategoryLineDialogState extends State<_CategoryLineDialog> {
                                 helperText: _wageLockedByCategory
                                     ? 'محدد من التصنيف'
                                     : null,
-                                helperStyle: TextStyle(
-                                  color: theme.colorScheme.primary,
-                                  fontSize: 11,
-                                ),
+                                helperStyle: Theme.of(context).textTheme.labelSmall?.copyWith(color: theme.colorScheme.primary,),
                               ),
                             ),
                           ),
@@ -6373,14 +6303,10 @@ class _CategoryLineDialogState extends State<_CategoryLineDialog> {
                       Container(
                         padding: const EdgeInsets.all(14),
                         decoration: BoxDecoration(
-                          color: const Color(
-                            0xFFD4AF37,
-                          ).withValues(alpha: 0.08),
+                          color: _tone.gold.fg.withValues(alpha: 0.08),
                           borderRadius: BorderRadius.circular(12),
                           border: Border.all(
-                            color: const Color(
-                              0xFFD4AF37,
-                            ).withValues(alpha: 0.2),
+                            color: _tone.gold.fg.withValues(alpha: 0.2),
                           ),
                         ),
                         child: Row(
@@ -6388,23 +6314,20 @@ class _CategoryLineDialogState extends State<_CategoryLineDialog> {
                             Container(
                               padding: const EdgeInsets.all(6),
                               decoration: BoxDecoration(
-                                color: const Color(
-                                  0xFFD4AF37,
-                                ).withValues(alpha: 0.2),
+                                color: _tone.gold.fg.withValues(alpha: 0.2),
                                 borderRadius: BorderRadius.circular(8),
                               ),
-                              child: const Icon(
+                              child: Icon(
                                 Icons.info_outline,
                                 size: 18,
-                                color: Color(0xFFD4AF37),
+                                color: _tone.gold.fg,
                               ),
                             ),
                             const SizedBox(width: 12),
                             Expanded(
                               child: Text(
                                 'لا يتطلب باركود • يُستخدم للتتبع حسب التصنيف فقط',
-                                style: theme.textTheme.bodySmall?.copyWith(
-                                  fontSize: 13,
+                                style: theme.textTheme.bodyMedium?.copyWith(
                                   height: 1.4,
                                 ),
                               ),
@@ -6551,9 +6474,9 @@ class _BarcodeScannerPlaceholderState
                 color: Colors.black87,
                 borderRadius: BorderRadius.circular(12),
               ),
-              child: const Text(
+              child: Text(
                 '🎯 وجّه الكاميرا نحو الباركود',
-                style: TextStyle(color: Colors.white, fontSize: 16),
+                style: Theme.of(context).textTheme.titleLarge?.copyWith(color: Colors.white,),
                 textAlign: TextAlign.center,
               ),
             ),
