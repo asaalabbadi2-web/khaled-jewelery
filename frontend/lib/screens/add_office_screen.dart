@@ -10,6 +10,7 @@ import '../widgets/party_picker_dialog.dart';
 import '../widgets/safe_box_picker_dialog.dart';
 import '../widgets/searchable_picker_field.dart';
 import '../widgets/app_feedback.dart';
+import '../widgets/app_leave_guard.dart';
 
 /// شاشة إضافة أو تعديل مكتب
 class AddOfficeScreen extends StatefulWidget {
@@ -346,8 +347,14 @@ class _AddOfficeScreenState extends State<AddOfficeScreen> {
     }
   }
 
+  /// Asks before what was typed is lost (ADR-049).
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => AppLeaveGuard(
+    controllers: [_openingCashController, _openingGoldMainController, _nameController, _phoneController, _emailController, _contactPersonController, _addressLine1Controller, _addressLine2Controller, _cityController, _stateController, _postalCodeController, _licenseNumberController, _taxNumberController, _notesController],
+    child: _buildForm(context),
+  );
+
+  Widget _buildForm(BuildContext context) {
     context.watch<SettingsProvider>();
 
     final isAr = widget.isArabic;

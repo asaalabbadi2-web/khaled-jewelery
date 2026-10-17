@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:frontend/api_service.dart';
 import 'package:frontend/providers/settings_provider.dart';
 import 'package:intl/intl.dart' hide TextDirection;
@@ -15,6 +14,7 @@ import '../utils/journal_readiness.dart';
 import '../utils/bidi.dart';
 import '../widgets/account_picker_sheet.dart';
 import '../widgets/journal_balance_row.dart';
+import '../widgets/app_shortcuts.dart';
 
 // --- Data Models ---
 class JournalLine {
@@ -1179,19 +1179,11 @@ class _AddEditJournalEntryScreenState extends State<AddEditJournalEntryScreen> {
       onPopInvokedWithResult: (didPop, _) {
         if (!didPop) _confirmLeave();
       },
-      child: CallbackShortcuts(
-        bindings: {
-          const SingleActivator(LogicalKeyboardKey.keyS, control: true):
-              _onSavePressed,
-          const SingleActivator(LogicalKeyboardKey.keyS, meta: true):
-              _onSavePressed,
-          const SingleActivator(LogicalKeyboardKey.enter, control: true):
-              _addLine,
-          const SingleActivator(LogicalKeyboardKey.enter, meta: true): _addLine,
-        },
-        child: Focus(
-          autofocus: true,
-          child: Scaffold(
+      child: AppDocumentShortcuts(
+        onSave: _onSavePressed,
+        onAddLine: _addLine,
+        child: Builder(
+          builder: (context) => Scaffold(
             appBar: AppBar(
               title: Text(isNew ? 'إضافة قيد يومية' : 'تعديل قيد يومية'),
               actions: [

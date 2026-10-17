@@ -280,4 +280,28 @@ void main() {
     await tester.pumpAndSettle();
     expect(frame(), tones.voucher(VoucherKind.receipt).fg);
   });
+
+  testWidgets('a list\'s keys: Ctrl+F puts the cursor in the search, F5 '
+      'asks the server again (ADR-049)', (tester) async {
+    final api = _ListApi();
+    await pump(tester, LightTheme.theme, VouchersListScreen(apiService: api));
+    EditableText search() => tester.widget<EditableText>(
+      find.descendant(
+        of: find.byType(TextField).first,
+        matching: find.byType(EditableText),
+      ),
+    );
+    expect(search().focusNode.hasFocus, isFalse);
+
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyF);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+    await tester.pumpAndSettle();
+    expect(search().focusNode.hasFocus, isTrue);
+
+    final before = api.periods.length;
+    await tester.sendKeyEvent(LogicalKeyboardKey.f5);
+    await tester.pumpAndSettle();
+    expect(api.periods.length, greaterThan(before));
+  });
 }

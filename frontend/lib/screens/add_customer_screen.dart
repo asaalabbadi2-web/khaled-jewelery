@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../api_service.dart';
 import '../utils.dart';
+import '../widgets/app_leave_guard.dart';
 
 class AddCustomerScreen extends StatefulWidget {
   final ApiService api;
@@ -553,7 +554,7 @@ class _AddCustomerScreenState extends State<AddCustomerScreen> {
                 borderRadius: BorderRadius.circular(14),
               ),
             ),
-            onPressed: () => Navigator.pop(context),
+            onPressed: () => Navigator.maybePop(context),
             child: Text(isAr ? 'إلغاء' : 'Cancel'),
           ),
         ),
@@ -578,8 +579,14 @@ class _AddCustomerScreenState extends State<AddCustomerScreen> {
     );
   }
 
+  /// Asks before what was typed is lost (ADR-049).
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => AppLeaveGuard(
+    controllers: [nameController, phoneController, emailController, streetController, buildingController, districtController, cityController, postalController, countryController, notesController, idController, birthDateController, idVersionNumberController],
+    child: _buildForm(context),
+  );
+
+  Widget _buildForm(BuildContext context) {
     final isAr = widget.isArabic;
     final primary = const Color(0xFFD4AF37);
     final isDark = Theme.of(context).brightness == Brightness.dark;

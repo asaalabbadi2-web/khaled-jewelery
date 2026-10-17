@@ -8,6 +8,7 @@ import '../theme/app_theme.dart';
 import '../utils/arabic_number_formatter.dart';
 import '../widgets/account_picker_sheet.dart';
 import '../widgets/app_feedback.dart';
+import '../widgets/app_leave_guard.dart';
 
 /// شاشة إضافة/تعديل قالب قيد دوري
 class RecurringTemplateFormScreen extends StatefulWidget {
@@ -44,6 +45,21 @@ class _RecurringTemplateFormScreenState
   bool _autoCreate = true;
   List<Map<String, dynamic>> _accounts = [];
   List<RecurringTemplateLine> _lines = [];
+
+  /// The lines as the form opened, to tell a change from none (ADR-049).
+  late String _linesAtOpen;
+
+  String _linesFingerprint() => [
+    for (final l in _lines)
+      [
+        l.accountId,
+        l.cashDebitController.text,
+        l.cashCreditController.text,
+        l.goldDebitController.text,
+        l.goldCreditController.text,
+        l.descriptionController.text,
+      ].join('|'),
+  ].join(';');
   bool _isLoading = false;
 
   @override
@@ -90,6 +106,7 @@ class _RecurringTemplateFormScreenState
     }
 
     _fetchAccounts();
+    _linesAtOpen = _linesFingerprint();
   }
 
   @override
@@ -227,8 +244,22 @@ class _RecurringTemplateFormScreenState
     AppFeedback.error(context, message);
   }
 
+  /// Asks before what was typed is lost (ADR-049).
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => AppLeaveGuard(
+    controllers: [
+      _nameController,
+      _descriptionController,
+      _startDateController,
+      _endDateController,
+      _intervalController,
+      _preferredDayController,
+    ],
+    isDirty: () => _linesFingerprint() != _linesAtOpen,
+    child: _buildForm(context),
+  );
+
+  Widget _buildForm(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
     final textTheme = theme.textTheme;

@@ -31,6 +31,7 @@ import '../widgets/app_state_views.dart';
 import '../widgets/app_period_picker.dart';
 import '../widgets/app_table.dart';
 import '../widgets/app_feedback.dart';
+import '../widgets/app_shortcuts.dart';
 
 enum _StatementDisplayMode { table, cards }
 
@@ -255,6 +256,7 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
 
   @override
   void dispose() {
+    _searchFocus.dispose();
     // Dispose controllers to avoid leaks
     _searchController.dispose();
     _horizontalController.dispose();
@@ -1021,8 +1023,17 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
 
   // Removed unused _exportToPdf
 
+  /// Ctrl/⌘+F to search, F5 to load again, F1 to list them (ADR-049).
+  final FocusNode _searchFocus = FocusNode();
+
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => AppListShortcuts(
+    searchFocus: _searchFocus,
+    onRefresh: _fetchAccountStatement,
+    child: _buildScreen(context),
+  );
+
+  Widget _buildScreen(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: Text(_statementTitle()),
@@ -1414,6 +1425,7 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
                 width: isNarrow ? 180 : (isCompact ? 240 : 420),
                 child: TextField(
                   controller: _searchController,
+                  focusNode: _searchFocus,
                   decoration: InputDecoration(
                     prefixIcon: const Icon(Icons.search),
                     suffixIcon: _searchController.text.isEmpty

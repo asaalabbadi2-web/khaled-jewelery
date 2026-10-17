@@ -20,6 +20,7 @@ import '../utils/invoice_direct_print.dart';
 import '../utils.dart';
 import '../widgets/app_feedback.dart';
 import '../utils/currency_utils.dart';
+import '../widgets/app_shortcuts.dart';
 
 /// شاشة فاتورة شراء الكسر - نسخة مبسطة
 /// ميزات: تصوير الذهب + ملاحظات + دفع نقدي/تحويل فقط + بدون ضريبة
@@ -2182,21 +2183,17 @@ class _ScrapPurchaseInvoiceScreenState
           onPopInvokedWithResult: (didPop, _) {
             if (!didPop) _confirmLeave();
           },
-          child: CallbackShortcuts(
-            bindings: {
-              const SingleActivator(LogicalKeyboardKey.keyS, control: true):
-                  _saveIfReady,
-              const SingleActivator(LogicalKeyboardKey.keyS, meta: true):
-                  _saveIfReady,
+          child: AppDocumentShortcuts(
+            onSave: _saveIfReady,
+            extra: {
               for (var n = 1; n <= 9; n++)
                 SingleActivator(
                   LogicalKeyboardKey(LogicalKeyboardKey.digit0.keyId + n),
                   alt: true,
                 ): () => _payWithShortcut(n),
             },
-            // A scope, so a field left with Enter hands focus back under the
-            // shortcuts -- not to the route, where Ctrl+S is not heard.
-            child: FocusScope(autofocus: true, child: scaffold),
+            extraHelp: const [(keys: 'Alt+1 … Alt+9', what: 'الدفع بوسيلة')],
+            child: scaffold,
           ),
         );
       },

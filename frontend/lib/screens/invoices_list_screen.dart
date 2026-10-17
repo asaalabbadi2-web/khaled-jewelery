@@ -26,6 +26,7 @@ import '../widgets/confirm_financial_action.dart';
 import '../widgets/app_period_picker.dart';
 import '../widgets/app_table.dart';
 import '../theme/app_theme.dart';
+import '../widgets/app_shortcuts.dart';
 
 /// A sale of scrap gold is saved as «بيع» with gold_type 'scrap'. It is
 /// edited on the screen that made it: the ordinary sale screen sends no
@@ -246,6 +247,7 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
 
   @override
   void dispose() {
+    _searchFocus.dispose();
     _invoiceTableHorizontalController.dispose();
     _invoiceContentScrollController.dispose();
     _tabController.dispose();
@@ -1366,8 +1368,17 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
     );
   }
 
+  /// Ctrl/⌘+F to search, F5 to load again, F1 to list them (ADR-049).
+  final FocusNode _searchFocus = FocusNode();
+
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => AppListShortcuts(
+    searchFocus: _searchFocus,
+    onRefresh: () => _loadInvoices(forceRefresh: true),
+    child: _buildScreen(context),
+  );
+
+  Widget _buildScreen(BuildContext context) {
     final isAr = widget.isArabic;
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
@@ -1733,6 +1744,7 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
                 width: 470,
                 child: TextField(
                   controller: searchController,
+                  focusNode: _searchFocus,
                   textInputAction: TextInputAction.search,
                   onChanged: (_) => _scheduleSearch(),
                   onSubmitted: (_) {

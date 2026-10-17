@@ -27,6 +27,7 @@ import 'add_supplier_screen.dart';
 import '../utils.dart';
 import '../utils/currency_utils.dart';
 import '../widgets/app_feedback.dart';
+import '../widgets/app_shortcuts.dart';
 
 enum _PurchaseSettlementMode { credit, barter, partial }
 
@@ -2980,23 +2981,13 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
       onPopInvokedWithResult: (didPop, _) {
         if (!didPop) _confirmLeave();
       },
-      child: CallbackShortcuts(
-        bindings: {
-          const SingleActivator(LogicalKeyboardKey.keyS, control: true):
-              _saveInvoice,
-          const SingleActivator(LogicalKeyboardKey.keyS, meta: true):
-              _saveInvoice,
-        },
-        // A scope, so a field left with Enter hands focus back here, under
-        // the shortcuts -- not to the route, where Ctrl+S is not heard.
-        child: FocusScope(
-          autofocus: true,
-          child: _buildScaffold(
-            readiness,
-            isWideLayout,
-            leftColumn,
-            rightColumn,
-          ),
+      child: AppDocumentShortcuts(
+        onSave: _saveInvoice,
+        child: _buildScaffold(
+          readiness,
+          isWideLayout,
+          leftColumn,
+          rightColumn,
         ),
       ),
     );

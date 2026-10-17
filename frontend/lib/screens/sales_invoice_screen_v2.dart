@@ -26,6 +26,7 @@ import '../utils/invoice_direct_print.dart';
 import '../utils/currency_utils.dart' as cu;
 import '../utils/sales_readiness.dart';
 import '../widgets/app_feedback.dart';
+import '../widgets/app_shortcuts.dart';
 
 /// شاشة فاتورة البيع - النسخة الهجينة المحسّنة
 /// تجمع بين Smart Input (Progressive) و DataTable (Professional)
@@ -3493,21 +3494,17 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
           onPopInvokedWithResult: (didPop, _) {
             if (!didPop) _confirmLeave();
           },
-          child: CallbackShortcuts(
-            bindings: {
-              const SingleActivator(LogicalKeyboardKey.keyS, control: true):
-                  _saveOrExplain,
-              const SingleActivator(LogicalKeyboardKey.keyS, meta: true):
-                  _saveOrExplain,
+          child: AppDocumentShortcuts(
+            onSave: _saveOrExplain,
+            extra: {
               for (var n = 1; n <= 9; n++)
                 SingleActivator(
                   LogicalKeyboardKey(LogicalKeyboardKey.digit0.keyId + n),
                   alt: true,
                 ): () => _payWithShortcut(n),
             },
-            // A scope, so a field left with Enter hands focus back under
-            // the shortcuts -- not to the route, where Ctrl+S is not heard.
-            child: FocusScope(autofocus: true, child: scaffold),
+            extraHelp: const [(keys: 'Alt+1 … Alt+9', what: 'الدفع بوسيلة')],
+            child: scaffold,
           ),
         );
       },

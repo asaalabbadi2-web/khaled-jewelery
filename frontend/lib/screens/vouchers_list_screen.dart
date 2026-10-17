@@ -26,6 +26,7 @@ import '../widgets/voucher_actions.dart';
 import '../widgets/app_feedback.dart';
 import '../widgets/app_period_picker.dart';
 import '../widgets/app_table.dart';
+import '../widgets/app_shortcuts.dart';
 
 class VouchersListScreen extends StatefulWidget {
   /// The server; a test hands its own.
@@ -112,6 +113,7 @@ class _VouchersListScreenState extends State<VouchersListScreen>
 
   @override
   void dispose() {
+    _searchFocus.dispose();
     _tabController.dispose();
     _scrollController.dispose();
     _voucherTableHorizontalController.dispose();
@@ -435,8 +437,17 @@ class _VouchersListScreenState extends State<VouchersListScreen>
     _refresh();
   }
 
+  /// Ctrl/⌘+F to search, F5 to load again, F1 to list them (ADR-049).
+  final FocusNode _searchFocus = FocusNode();
+
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => AppListShortcuts(
+    searchFocus: _searchFocus,
+    onRefresh: _refresh,
+    child: _buildScreen(context),
+  );
+
+  Widget _buildScreen(BuildContext context) {
     final themeData = Theme.of(context);
 
     return Scaffold(
@@ -775,6 +786,7 @@ class _VouchersListScreenState extends State<VouchersListScreen>
       width: 430,
       child: TextField(
         controller: _searchController,
+        focusNode: _searchFocus,
         textInputAction: TextInputAction.search,
         onSubmitted: (_) {
           _debounce?.cancel();

@@ -1,7 +1,6 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import '../widgets/inline_number_cell.dart';
 import '../widgets/supplier_invoice_picker.dart';
 import '../utils/voucher_readiness.dart';
@@ -22,6 +21,7 @@ import '../widgets/party_picker_dialog.dart';
 import '../widgets/searchable_picker_field.dart';
 import '../utils/currency_utils.dart';
 import '../widgets/app_feedback.dart';
+import '../widgets/app_shortcuts.dart';
 
 class GoldLineEntryModel {
   double amount;
@@ -4876,16 +4876,11 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
       onPopInvokedWithResult: (didPop, _) {
         if (!didPop) _confirmLeave();
       },
-      child: CallbackShortcuts(
-        bindings: {
-          const SingleActivator(LogicalKeyboardKey.keyS, control: true):
-              _saveIfReady,
-          const SingleActivator(LogicalKeyboardKey.keyS, meta: true):
-              _saveIfReady,
-        },
-        child: FocusScope(
-          autofocus: true,
-          child: Scaffold(
+      child: AppDocumentShortcuts(
+        onSave: _saveIfReady,
+        onAddLine: _addNewLine,
+        child: Builder(
+          builder: (context) => Scaffold(
       bottomNavigationBar: _isLoading ? null : _buildFooter(accentColor),
       appBar: AppBar(
         title: Text(title),

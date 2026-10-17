@@ -9,6 +9,7 @@ import '../services/data_sync_bus.dart';
 import 'barcode_print_screen.dart';
 import 'quick_add_items_screen.dart';
 import '../theme/app_semantic_colors.dart';
+import '../widgets/app_leave_guard.dart';
 
 /// The theme's colours (ADR-038): the scheme and the semantic tones.
 ColorScheme _cs(BuildContext context) => Theme.of(context).colorScheme;
@@ -114,8 +115,11 @@ class _AddItemScreenEnhancedState extends State<AddItemScreenEnhanced> {
     });
   }
 
+  int _guardRound = 0;
+
   void _resetSingleEntryAfterAdd({Map<String, dynamic>? response}) {
     setState(() {
+      _guardRound++;
       // بعد الحفظ نُصفّر كود/رقم الصنف حتى لا يبقى ظاهرًا للمدخل التالي
       _itemCode = null;
       _nameController.clear();
@@ -355,8 +359,16 @@ class _AddItemScreenEnhancedState extends State<AddItemScreenEnhanced> {
     );
   }
 
+  /// Asks before what was typed is lost (ADR-049).
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => AppLeaveGuard(
+    // A new snapshot after each add: the form stays open for the next item.
+    key: ValueKey(_guardRound),
+    controllers: [_nameController, _barcodeController, _karatController, _weightController, _countController, _wageController, _descriptionController, _stockController],
+    child: _buildForm(context),
+  );
+
+  Widget _buildForm(BuildContext context) {
     final bool quickModeAvailable = !_isEditMode;
     final bool isQuickMode =
         quickModeAvailable && _entryMode == _AddItemEntryMode.quick;
