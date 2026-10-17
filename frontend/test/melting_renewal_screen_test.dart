@@ -12,7 +12,9 @@ import 'package:http/testing.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'support/dark_text.dart';
 import 'support/payload_witness.dart';
+import 'support/shots.dart';
 
 /// ADR-050: a melting of several karats is one request -- one voucher, its
 /// damage wage posted once. The screen sent a request per line, the wage
@@ -78,12 +80,14 @@ void main() {
     WidgetTester tester,
     Future<void> Function() steps, {
     String? warning,
+    ThemeData? theme,
+    Size size = const Size(1200, 2400),
   }) async {
     SharedPreferences.setMockInitialValues({
       'jwt_token': 'token',
       'app_settings': jsonEncode({'main_karat': 21}),
     });
-    tester.view.physicalSize = const Size(1200, 2400);
+    tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
     final settings = SettingsProvider();
@@ -96,7 +100,7 @@ void main() {
           ChangeNotifierProvider.value(
             value: settings,
             child: MaterialApp(
-              theme: LightTheme.theme,
+              theme: theme ?? LightTheme.theme,
               home: Directionality(
                 textDirection: TextDirection.rtl,
                 child: MeltingRenewalScreen(api: ApiService()),
@@ -240,4 +244,25 @@ void main() {
     expect(sent, hasLength(1));
     expect(find.textContaining(warning), findsOneWidget);
   });
+
+  // خ٣ (ADR-050): the screen reads in the dark theme; its numbers are the
+  // app's (thousands, a minus kept whole).
+  for (final (name, size) in [
+    ('desktop', const Size(1440, 1400)),
+    ('tablet', tabletSize),
+  ]) {
+    testWidgets('it reads in the dark theme on a $name', (tester) async {
+      await run(theme: DarkTheme.theme, size: size, tester, () async {
+        await tester.enterText(
+          find.widgetWithText(TextFormField, '0.000').first,
+          '2',
+        );
+        await typeWage(tester);
+        expect(tester.takeException(), isNull);
+        await shot(tester, 'melting_dark_$name');
+        expectNoTextVanishesOnDark(tester);
+        expectNoLightSurfaceOnDark(tester);
+      });
+    });
+  }
 }

@@ -3,7 +3,9 @@ import '../api_service.dart';
 import '../models/safe_box_model.dart';
 import 'package:provider/provider.dart';
 import '../providers/settings_provider.dart';
+import '../theme/app_semantic_colors.dart';
 import '../theme/app_theme.dart' as theme;
+import '../utils/bidi.dart';
 import 'clearing_settlement_screen.dart';
 import '../widgets/app_feedback.dart';
 import '../widgets/app_state_views.dart';
@@ -236,7 +238,10 @@ class _ClearingMonitorScreenState extends State<ClearingMonitorScreen> {
 
   // ── Open settlement screen with optional selected IDs ────────────────────
 
-  Future<void> _openSettlementScreen(SafeBoxModel clearing, {List<int>? selectedIds}) async {
+  Future<void> _openSettlementScreen(
+    SafeBoxModel clearing, {
+    List<int>? selectedIds,
+  }) async {
     int? bankSafeId;
     final pm = _matchedPm(clearing);
     if (pm != null) {
@@ -245,7 +250,8 @@ class _ClearingMonitorScreenState extends State<ClearingMonitorScreen> {
     }
 
     // إذا كانت هناك عمليات محددة، استخدم مجموعها — وإلا استخدم المبلغ الكلي
-    final dueAmount = (selectedIds != null && selectedIds.isNotEmpty && clearing.id != null)
+    final dueAmount =
+        (selectedIds != null && selectedIds.isNotEmpty && clearing.id != null)
         ? _selectedAmount(clearing.id!)
         : (clearing.id != null ? _dueAmountByBox[clearing.id!] : null);
 
@@ -268,7 +274,8 @@ class _ClearingMonitorScreenState extends State<ClearingMonitorScreen> {
     }
   }
 
-  String _formatAmount(double v) => v.toStringAsFixed(2);
+  /// Money as the app writes it: thousands, and a minus Arabic keeps whole.
+  String _formatAmount(double v) => cu.formatAmount(v);
   String _formatDate(String? iso) {
     if (iso == null) return '—';
     try {
@@ -279,39 +286,39 @@ class _ClearingMonitorScreenState extends State<ClearingMonitorScreen> {
     }
   }
 
+  // خ٣ (ADR-050): colours and type from the theme, so the screen reads in
+  // both modes -- its background, cards and text were written light.
+  ColorScheme get _cs => Theme.of(context).colorScheme;
+  TextTheme get _text => Theme.of(context).textTheme;
+  AppSemanticColors get _tone => AppSemanticColors.of(context);
+  String get _currency => context.read<SettingsProvider>().currencySymbolText;
+  bool get _newSar => context.read<SettingsProvider>().currencyIsNewSar;
+
   @override
   Widget build(BuildContext context) {
     context.watch<SettingsProvider>();
 
+    // Arabic only, right-to-left in either language of the app.
     return Directionality(
       textDirection: TextDirection.rtl,
       child: Scaffold(
-        backgroundColor: const Color(0xFFF5F5F5),
         appBar: AppBar(
           title: const Text('تسوية المقاصة'),
-          backgroundColor: theme.AppColors.primaryGold,
-          foregroundColor: Colors.black,
-          elevation: 0,
           actions: [
             if (_runningAutoSettle)
               const Padding(
-                padding: EdgeInsets.all(14),
+                padding: EdgeInsets.all(theme.AppSpace.md),
                 child: SizedBox(
                   width: 20,
                   height: 20,
-                  child: CircularProgressIndicator(
-                    strokeWidth: 2,
-                    color: Colors.black,
-                  ),
+                  child: CircularProgressIndicator(strokeWidth: 2),
                 ),
               )
             else
-              Tooltip(
-                message: 'تشغيل التسوية التلقائية الآن',
-                child: IconButton(
-                  icon: const Icon(Icons.play_circle_outline),
-                  onPressed: _clearingSafes.isEmpty ? null : _runAutoSettle,
-                ),
+              IconButton(
+                tooltip: 'تشغيل التسوية التلقائية الآن',
+                icon: const Icon(Icons.play_circle_outline),
+                onPressed: _clearingSafes.isEmpty ? null : _runAutoSettle,
               ),
             IconButton(
               icon: const Icon(Icons.refresh),
@@ -336,7 +343,7 @@ class _ClearingMonitorScreenState extends State<ClearingMonitorScreen> {
             : RefreshIndicator(
                 onRefresh: _loadData,
                 child: ListView(
-                  padding: const EdgeInsets.all(16),
+                  padding: const EdgeInsets.all(theme.AppSpace.lg),
                   children: [
                     if (_loading) const LinearProgressIndicator(),
                     if (_failedBoxes.isNotEmpty)
@@ -352,7 +359,7 @@ class _ClearingMonitorScreenState extends State<ClearingMonitorScreen> {
                             'تعذّر تحميل وسائل الدفع — لا يُعرف أيّ الخزائن تُسوّى تلقائيًا.',
                       ),
                     _buildSummaryRow(),
-                    const SizedBox(height: 16),
+                    const SizedBox(height: theme.AppSpace.lg),
                     ..._clearingSafes.map(_buildClearingCard),
                   ],
                 ),
@@ -363,12 +370,11 @@ class _ClearingMonitorScreenState extends State<ClearingMonitorScreen> {
 
   /// A load that did not complete, said above the totals, with a retry.
   Widget _notice({required Key key, required String text}) {
-    final cs = Theme.of(context).colorScheme;
     return Padding(
       key: key,
       padding: const EdgeInsets.only(bottom: theme.AppSpace.md),
       child: Material(
-        color: cs.errorContainer,
+        color: _cs.errorContainer,
         borderRadius: BorderRadius.circular(theme.AppRadius.control),
         child: Padding(
           padding: const EdgeInsets.symmetric(
@@ -377,18 +383,20 @@ class _ClearingMonitorScreenState extends State<ClearingMonitorScreen> {
           ),
           child: Row(
             children: [
-              Icon(Icons.cloud_off_outlined, color: cs.onErrorContainer),
+              Icon(Icons.cloud_off_outlined, color: _cs.onErrorContainer),
               const SizedBox(width: theme.AppSpace.sm),
               Expanded(
                 child: Text(
                   text,
-                  style: TextStyle(color: cs.onErrorContainer),
+                  style: _text.bodyMedium?.copyWith(
+                    color: _cs.onErrorContainer,
+                  ),
                 ),
               ),
               TextButton(
                 onPressed: _loading ? null : _loadData,
                 style: TextButton.styleFrom(
-                  foregroundColor: cs.onErrorContainer,
+                  foregroundColor: _cs.onErrorContainer,
                 ),
                 child: const Text('إعادة المحاولة'),
               ),
@@ -415,32 +423,27 @@ class _ClearingMonitorScreenState extends State<ClearingMonitorScreen> {
         Expanded(
           child: _summaryChip(
             label: 'إجمالي المستحق',
-            value:
-                '${_formatAmount(totalDue)} ${context.read<SettingsProvider>().currencySymbolText}',
+            value: '${_formatAmount(totalDue)} $_currency',
             icon: Icons.pending_actions,
-            color: totalDue > 0
-                ? theme.AppColors.warning
-                : theme.AppColors.success,
+            tone: totalDue > 0 ? _tone.warning : _tone.ready,
           ),
         ),
-        const SizedBox(width: 12),
+        const SizedBox(width: theme.AppSpace.md),
         Expanded(
           child: _summaryChip(
             label: 'دفعات غير مُسوّاة',
             value: '$totalTxCount دفعة',
             icon: Icons.receipt_long,
-            color: totalTxCount > 0
-                ? theme.AppColors.info
-                : theme.AppColors.success,
+            tone: totalTxCount > 0 ? _tone.info : _tone.ready,
           ),
         ),
-        const SizedBox(width: 12),
+        const SizedBox(width: theme.AppSpace.md),
         Expanded(
           child: _summaryChip(
             label: 'خزائن مقاصة',
             value: '${_clearingSafes.length}',
             icon: Icons.account_balance_wallet,
-            color: theme.AppColors.primaryGold,
+            tone: _tone.gold,
           ),
         ),
       ],
@@ -451,40 +454,35 @@ class _ClearingMonitorScreenState extends State<ClearingMonitorScreen> {
     required String label,
     required String value,
     required IconData icon,
-    required Color color,
+    required SemanticTone tone,
   }) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      padding: const EdgeInsets.symmetric(
+        horizontal: theme.AppSpace.md,
+        vertical: theme.AppSpace.md,
+      ),
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: color.withValues(alpha: 0.35)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.04),
-            blurRadius: 6,
-            offset: const Offset(0, 2),
-          ),
-        ],
+        color: _cs.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(theme.AppRadius.card),
+        border: Border.all(color: _cs.outlineVariant),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(icon, size: 22, color: color),
-          const SizedBox(height: 6),
+          Icon(icon, size: 22, color: tone.fg),
+          const SizedBox(height: theme.AppSpace.xs),
           cu.SarAwareText(
             value,
-            isNewSar: context.read<SettingsProvider>().currencyIsNewSar,
-            style: TextStyle(
+            isNewSar: _newSar,
+            style: _text.titleMedium?.copyWith(
               fontWeight: FontWeight.w800,
-              fontSize: 15,
-              color: color,
+              color: tone.fg,
+              fontFeatures: const [FontFeature.tabularFigures()],
             ),
           ),
-          const SizedBox(height: 2),
           Text(
             label,
-            style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+            style: _text.labelMedium?.copyWith(color: _cs.onSurfaceVariant),
           ),
         ],
       ),
@@ -505,60 +503,50 @@ class _ClearingMonitorScreenState extends State<ClearingMonitorScreen> {
     // The server's due amount, said as it is: owed, over-settled, or nothing.
     // («مبلغ بسيط معلّق» under 100 was a rule of this screen alone; ADR-050.)
     final failed = _failedBoxes.contains(sb.id!);
-    Color statusColor;
-    String statusLabel;
+    final SemanticTone status;
+    final String statusLabel;
     if (failed) {
-      statusColor = theme.AppColors.error;
+      status = _tone.blocked;
       statusLabel = 'تعذّر تحميل المعلّق';
     } else if (dueAmount > 0) {
-      statusColor = theme.AppColors.warning;
+      status = _tone.warning;
       statusLabel = 'يحتاج تسوية';
     } else if (dueAmount < 0) {
-      statusColor = theme.AppColors.error;
+      status = _tone.blocked;
       statusLabel = 'تسوية زائدة';
     } else {
-      statusColor = theme.AppColors.success;
+      status = _tone.ready;
       statusLabel = 'لا شيء معلّق';
     }
+    final selection = _selectionFor(sb.id!);
 
-    return Container(
-      margin: const EdgeInsets.only(bottom: 14),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.06),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
+    return Card.outlined(
+      margin: const EdgeInsets.only(bottom: theme.AppSpace.md),
+      clipBehavior: Clip.antiAlias,
       child: Column(
         children: [
           // ─── Header ──────────────────────────────────────────────────────
           InkWell(
             onTap: () => setState(() => _expandedBox[sb.id!] = !(isExpanded)),
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
             child: Padding(
-              padding: const EdgeInsets.all(16),
+              padding: const EdgeInsets.all(theme.AppSpace.lg),
               child: Row(
                 children: [
                   Container(
                     width: 44,
                     height: 44,
                     decoration: BoxDecoration(
-                      color: theme.AppColors.primaryGold.withValues(
-                        alpha: 0.15,
+                      color: _tone.gold.container,
+                      borderRadius: BorderRadius.circular(
+                        theme.AppRadius.control,
                       ),
-                      borderRadius: BorderRadius.circular(12),
                     ),
                     child: Icon(
                       Icons.account_balance_wallet,
-                      color: theme.AppColors.primaryGold,
+                      color: _tone.gold.onContainer,
                     ),
                   ),
-                  const SizedBox(width: 12),
+                  const SizedBox(width: theme.AppSpace.md),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -567,98 +555,55 @@ class _ClearingMonitorScreenState extends State<ClearingMonitorScreen> {
                           children: [
                             Text(
                               sb.name,
-                              style: const TextStyle(
+                              style: _text.titleSmall?.copyWith(
                                 fontWeight: FontWeight.w800,
-                                fontSize: 15,
                               ),
                             ),
-                            const SizedBox(width: 8),
-                            if (autoEnabled)
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 7,
-                                  vertical: 2,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: theme.AppColors.success.withValues(
-                                    alpha: 0.12,
-                                  ),
-                                  borderRadius: BorderRadius.circular(999),
-                                ),
-                                child: Text(
-                                  'تلقائي',
-                                  style: TextStyle(
-                                    fontSize: 10,
-                                    color: theme.AppColors.success,
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                                ),
-                              ),
+                            const SizedBox(width: theme.AppSpace.sm),
+                            if (autoEnabled) _infoTag('تلقائي', _tone.ready),
                           ],
                         ),
-                        const SizedBox(height: 4),
-                        Row(
+                        const SizedBox(height: theme.AppSpace.xs),
+                        Wrap(
+                          spacing: theme.AppSpace.xs,
+                          runSpacing: theme.AppSpace.xs,
                           children: [
                             _infoTag(
-                              'رصيد الخزينة: ${_formatAmount(liveBalance)} ${context.read<SettingsProvider>().currencySymbolText}',
-                              theme.AppColors.info,
+                              'رصيد الخزينة: ${_formatAmount(liveBalance)} $_currency',
+                              _tone.info,
                             ),
-                            const SizedBox(width: 6),
-                            _infoTag(statusLabel, statusColor),
+                            _infoTag(statusLabel, status),
                           ],
                         ),
                       ],
                     ),
                   ),
                   // Due amount badge
-                  if (dueAmount > 0)
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      children: [
-                        Text(
-                          _formatAmount(dueAmount),
-                          style: TextStyle(
-                            fontWeight: FontWeight.w800,
-                            fontSize: 16,
-                            color: theme.AppColors.warning,
-                          ),
-                        ),
-                        cu.SarAwareText(
-                          '${context.read<SettingsProvider>().currencySymbolText} مستحق',
-              isNewSar: context.read<SettingsProvider>().currencyIsNewSar,
-                          style: TextStyle(
-                            fontSize: 10,
-                            color: Colors.grey.shade500,
-                          ),
-                        ),
-                      ],
-                    )
-                  else if (dueAmount < 0)
+                  if (dueAmount != 0)
                     Column(
                       crossAxisAlignment: CrossAxisAlignment.end,
                       children: [
                         Text(
                           _formatAmount(dueAmount.abs()),
-                          style: TextStyle(
+                          style: _text.titleMedium?.copyWith(
                             fontWeight: FontWeight.w800,
-                            fontSize: 16,
-                            color: theme.AppColors.error,
+                            color: dueAmount > 0 ? _tone.warning.fg : _cs.error,
+                            fontFeatures: const [FontFeature.tabularFigures()],
                           ),
                         ),
                         cu.SarAwareText(
-                          '${context.read<SettingsProvider>().currencySymbolText} تسوية زائدة',
-              isNewSar: context.read<SettingsProvider>().currencyIsNewSar,
-                          style: TextStyle(
-                            fontSize: 10,
-                            color: Colors.grey.shade500,
+                          '$_currency ${dueAmount > 0 ? 'مستحق' : 'تسوية زائدة'}',
+                          isNewSar: _newSar,
+                          style: _text.labelSmall?.copyWith(
+                            color: _cs.onSurfaceVariant,
                           ),
                         ),
                       ],
                     ),
-                  const SizedBox(width: 8),
+                  const SizedBox(width: theme.AppSpace.sm),
                   Icon(
                     isExpanded ? Icons.expand_less : Icons.expand_more,
-                    color: Colors.grey.shade500,
+                    color: _cs.onSurfaceVariant,
                   ),
                 ],
               ),
@@ -669,13 +614,13 @@ class _ClearingMonitorScreenState extends State<ClearingMonitorScreen> {
           if (isExpanded) ...[
             const Divider(height: 1),
             Padding(
-              padding: const EdgeInsets.all(16),
+              padding: const EdgeInsets.all(theme.AppSpace.lg),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   // PM info row
                   if (pm != null) _buildPmInfoRow(pm),
-                  if (pm != null) const SizedBox(height: 12),
+                  if (pm != null) const SizedBox(height: theme.AppSpace.md),
 
                   // Pending transactions list
                   Row(
@@ -689,22 +634,26 @@ class _ClearingMonitorScreenState extends State<ClearingMonitorScreen> {
                               width: 24,
                               height: 24,
                               child: Checkbox(
-                                value: _selectionFor(sb.id!).length == txs.length && txs.isNotEmpty
+                                value:
+                                    selection.length == txs.length &&
+                                        txs.isNotEmpty
                                     ? true
-                                    : _selectionFor(sb.id!).isEmpty
-                                        ? false
-                                        : null,
+                                    : selection.isEmpty
+                                    ? false
+                                    : null,
                                 tristate: true,
-                                activeColor: theme.AppColors.primaryGold,
                                 onChanged: (_) => _toggleSelectAll(sb.id!),
-                                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                materialTapTargetSize:
+                                    MaterialTapTargetSize.shrinkWrap,
                               ),
                             ),
-                            const SizedBox(width: 6),
+                            const SizedBox(width: theme.AppSpace.sm),
                           ],
                           Text(
                             'دفعات غير مُسوّاة (${txs.length})',
-                            style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
+                            style: _text.titleSmall?.copyWith(
+                              fontWeight: FontWeight.w700,
+                            ),
                           ),
                         ],
                       ),
@@ -725,35 +674,32 @@ class _ClearingMonitorScreenState extends State<ClearingMonitorScreen> {
                                 ),
                               )
                             : const Icon(Icons.refresh, size: 16),
-                        label: const Text(
-                          'تحديث',
-                          style: TextStyle(fontSize: 12),
-                        ),
-                        style: TextButton.styleFrom(
-                          padding: EdgeInsets.zero,
-                          visualDensity: VisualDensity.compact,
-                        ),
+                        label: const Text('تحديث'),
                       ),
                     ],
                   ),
-                  const SizedBox(height: 8),
+                  const SizedBox(height: theme.AppSpace.sm),
 
                   if (failed)
                     Padding(
                       key: Key('clearing-box-failed-${sb.id}'),
-                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      padding: const EdgeInsets.symmetric(
+                        vertical: theme.AppSpace.sm,
+                      ),
                       child: Row(
                         children: [
                           Icon(
                             Icons.cloud_off_outlined,
-                            color: theme.AppColors.error,
+                            color: _cs.error,
                             size: 18,
                           ),
-                          const SizedBox(width: 6),
+                          const SizedBox(width: theme.AppSpace.sm),
                           Expanded(
                             child: Text(
                               'تعذّر تحميل الدفعات المعلّقة لهذه الخزينة — اضغط «تحديث»',
-                              style: TextStyle(color: theme.AppColors.error),
+                              style: _text.bodyMedium?.copyWith(
+                                color: _cs.error,
+                              ),
                             ),
                           ),
                         ],
@@ -761,52 +707,62 @@ class _ClearingMonitorScreenState extends State<ClearingMonitorScreen> {
                     )
                   else if (txs.isEmpty)
                     Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      padding: const EdgeInsets.symmetric(
+                        vertical: theme.AppSpace.sm,
+                      ),
                       child: Row(
                         children: [
                           Icon(
                             Icons.check_circle_outline,
-                            color: theme.AppColors.success,
+                            color: _tone.ready.fg,
                             size: 18,
                           ),
-                          const SizedBox(width: 6),
+                          const SizedBox(width: theme.AppSpace.sm),
                           Text(
                             'لا توجد دفعات معلّقة',
-                            style: TextStyle(color: theme.AppColors.success),
+                            style: _text.bodyMedium?.copyWith(
+                              color: _tone.ready.fg,
+                            ),
                           ),
                         ],
                       ),
                     )
                   else
                     Container(
+                      clipBehavior: Clip.antiAlias,
                       decoration: BoxDecoration(
-                        border: Border.all(color: Colors.grey.shade200),
-                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: _cs.outlineVariant),
+                        borderRadius: BorderRadius.circular(
+                          theme.AppRadius.control,
+                        ),
                       ),
                       child: Column(
-                        children: txs.take(20).toList().asMap().entries.map((e) {
+                        children: txs.take(20).toList().asMap().entries.map((
+                          e,
+                        ) {
                           final idx = e.key;
                           final tx = e.value;
                           final amt = (tx['amount'] as num?)?.toDouble() ?? 0.0;
                           final invNum = tx['invoice_number'] ?? '—';
                           final txDate = _formatDate(tx['date']?.toString());
                           final txId = tx['invoice_payment_id'] as int?;
-                          final isSelected = txId != null && _selectionFor(sb.id!).contains(txId);
-                          return InkWell(
-                            onTap: txId != null ? () => _toggleTx(sb.id!, txId) : null,
-                            child: Container(
-                              decoration: BoxDecoration(
-                                color: isSelected
-                                    ? theme.AppColors.primaryGold.withValues(alpha: 0.07)
-                                    : idx.isEven ? Colors.grey.shade50 : Colors.white,
-                                borderRadius: idx == 0
-                                    ? const BorderRadius.vertical(top: Radius.circular(9))
-                                    : idx == txs.length - 1
-                                        ? const BorderRadius.vertical(bottom: Radius.circular(9))
-                                        : null,
-                              ),
+                          final isSelected =
+                              txId != null && selection.contains(txId);
+                          return Material(
+                            color: isSelected
+                                ? _tone.gold.container
+                                : idx.isEven
+                                ? _cs.surfaceContainerLow
+                                : _cs.surface,
+                            child: InkWell(
+                              onTap: txId != null
+                                  ? () => _toggleTx(sb.id!, txId)
+                                  : null,
                               child: Padding(
-                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: theme.AppSpace.sm,
+                                  vertical: theme.AppSpace.sm,
+                                ),
                                 child: Row(
                                   children: [
                                     SizedBox(
@@ -814,35 +770,50 @@ class _ClearingMonitorScreenState extends State<ClearingMonitorScreen> {
                                       height: 24,
                                       child: Checkbox(
                                         value: isSelected,
-                                        activeColor: theme.AppColors.primaryGold,
-                                        onChanged: txId != null ? (_) => _toggleTx(sb.id!, txId) : null,
-                                        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                        onChanged: txId != null
+                                            ? (_) => _toggleTx(sb.id!, txId)
+                                            : null,
+                                        materialTapTargetSize:
+                                            MaterialTapTargetSize.shrinkWrap,
                                       ),
                                     ),
-                                    const SizedBox(width: 8),
+                                    const SizedBox(width: theme.AppSpace.sm),
                                     Expanded(
                                       child: Column(
-                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
                                         children: [
                                           Text(
                                             'فاتورة: $invNum',
-                                            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                                            style: _text.bodyMedium?.copyWith(
+                                              fontWeight: FontWeight.w600,
+                                              color: isSelected
+                                                  ? _tone.gold.onContainer
+                                                  : null,
+                                            ),
                                           ),
                                           Text(
                                             txDate,
-                                            style: TextStyle(fontSize: 11, color: Colors.grey.shade500),
+                                            style: _text.bodySmall?.copyWith(
+                                              color: isSelected
+                                                  ? _tone.gold.onContainer
+                                                  : _cs.onSurfaceVariant,
+                                            ),
                                           ),
                                         ],
                                       ),
                                     ),
                                     cu.SarAwareText(
-                                      '${_formatAmount(amt)} ${context.read<SettingsProvider>().currencySymbolText}',
-                                      isNewSar: context.read<SettingsProvider>().currencyIsNewSar,
-                                      style: TextStyle(
+                                      '${_formatAmount(amt)} $_currency',
+                                      isNewSar: _newSar,
+                                      style: _text.bodyMedium?.copyWith(
                                         fontWeight: FontWeight.w700,
                                         color: isSelected
-                                            ? theme.AppColors.primaryGold
-                                            : theme.AppColors.warning,
+                                            ? _tone.gold.onContainer
+                                            : _tone.warning.fg,
+                                        fontFeatures: const [
+                                          FontFeature.tabularFigures(),
+                                        ],
                                       ),
                                     ),
                                   ],
@@ -856,44 +827,55 @@ class _ClearingMonitorScreenState extends State<ClearingMonitorScreen> {
 
                   if (txs.length > 20)
                     Padding(
-                      padding: const EdgeInsets.only(top: 6),
+                      padding: const EdgeInsets.only(top: theme.AppSpace.xs),
                       child: Text(
                         'و${txs.length - 20} دفعة أخرى...',
-                        style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
+                        style: _text.bodySmall?.copyWith(
+                          color: _cs.onSurfaceVariant,
+                        ),
                       ),
                     ),
 
                   // ── شريط ملخص التحديد ──────────────────────────────
-                  if (_selectionFor(sb.id!).isNotEmpty) ...[
-                    const SizedBox(height: 10),
+                  if (selection.isNotEmpty) ...[
+                    const SizedBox(height: theme.AppSpace.md),
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: theme.AppSpace.md,
+                        vertical: theme.AppSpace.sm,
+                      ),
                       decoration: BoxDecoration(
-                        color: theme.AppColors.primaryGold.withValues(alpha: 0.1),
-                        borderRadius: BorderRadius.circular(10),
-                        border: Border.all(color: theme.AppColors.primaryGold.withValues(alpha: 0.35)),
+                        color: _tone.gold.container,
+                        borderRadius: BorderRadius.circular(
+                          theme.AppRadius.control,
+                        ),
                       ),
                       child: Row(
                         children: [
-                          Icon(Icons.check_circle, color: theme.AppColors.primaryGold, size: 18),
-                          const SizedBox(width: 8),
+                          Icon(
+                            Icons.check_circle,
+                            color: _tone.gold.onContainer,
+                            size: 18,
+                          ),
+                          const SizedBox(width: theme.AppSpace.sm),
                           Expanded(
                             child: Text(
-                              '${_selectionFor(sb.id!).length} عملية محددة',
-                              style: TextStyle(
-                                fontSize: 13,
+                              '${selection.length} عملية محددة',
+                              style: _text.bodyMedium?.copyWith(
                                 fontWeight: FontWeight.w700,
-                                color: theme.AppColors.darkGold,
+                                color: _tone.gold.onContainer,
                               ),
                             ),
                           ),
                           cu.SarAwareText(
-                            'الإجمالي: ${_formatAmount(_selectedAmount(sb.id!))} ${context.read<SettingsProvider>().currencySymbolText}',
-                            isNewSar: context.read<SettingsProvider>().currencyIsNewSar,
-                            style: TextStyle(
-                              fontSize: 13,
+                            'الإجمالي: ${_formatAmount(_selectedAmount(sb.id!))} $_currency',
+                            isNewSar: _newSar,
+                            style: _text.bodyMedium?.copyWith(
                               fontWeight: FontWeight.w800,
-                              color: theme.AppColors.darkGold,
+                              color: _tone.gold.onContainer,
+                              fontFeatures: const [
+                                FontFeature.tabularFigures(),
+                              ],
                             ),
                           ),
                         ],
@@ -901,36 +883,29 @@ class _ClearingMonitorScreenState extends State<ClearingMonitorScreen> {
                     ),
                   ],
 
-                  const SizedBox(height: 12),
+                  const SizedBox(height: theme.AppSpace.md),
 
                   // ── أزرار الإجراءات ─────────────────────────────────
                   Row(
                     children: [
-                      if (txs.isNotEmpty) Expanded(
-                        child: OutlinedButton.icon(
-                          onPressed: () => _openSettlementScreen(sb),
-                          icon: const Icon(Icons.swap_horiz, size: 18),
-                          label: const Text('تسوية الكل'),
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: theme.AppColors.primaryGold,
-                            side: BorderSide(color: theme.AppColors.primaryGold),
+                      if (txs.isNotEmpty)
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: () => _openSettlementScreen(sb),
+                            icon: const Icon(Icons.swap_horiz, size: 18),
+                            label: const Text('تسوية الكل'),
                           ),
                         ),
-                      ),
-                      if (_selectionFor(sb.id!).isNotEmpty) ...[
-                        const SizedBox(width: 8),
+                      if (selection.isNotEmpty) ...[
+                        const SizedBox(width: theme.AppSpace.sm),
                         Expanded(
                           child: FilledButton.icon(
                             onPressed: () => _openSettlementScreen(
                               sb,
-                              selectedIds: _selectionFor(sb.id!).toList(),
+                              selectedIds: selection.toList(),
                             ),
                             icon: const Icon(Icons.done_all, size: 18),
-                            label: Text('تسوية ${_selectionFor(sb.id!).length} محددة'),
-                            style: FilledButton.styleFrom(
-                              backgroundColor: theme.AppColors.primaryGold,
-                              foregroundColor: Colors.white,
-                            ),
+                            label: Text('تسوية ${selection.length} محددة'),
                           ),
                         ),
                       ],
@@ -954,38 +929,46 @@ class _ClearingMonitorScreenState extends State<ClearingMonitorScreen> {
     final scheduleLabel = autoEnabled && summary.isNotEmpty ? summary : '—';
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      padding: const EdgeInsets.symmetric(
+        horizontal: theme.AppSpace.md,
+        vertical: theme.AppSpace.sm,
+      ),
       decoration: BoxDecoration(
-        color: Colors.grey.shade50,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: Colors.grey.shade200),
+        color: _cs.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(theme.AppRadius.control),
+        border: Border.all(color: _cs.outlineVariant),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              Icon(Icons.credit_card, size: 16, color: Colors.grey.shade600),
-              const SizedBox(width: 6),
+              Icon(Icons.credit_card, size: 16, color: _cs.onSurfaceVariant),
+              const SizedBox(width: theme.AppSpace.sm),
               Text(
                 'وسيلة الدفع: $name',
-                style: const TextStyle(
-                  fontWeight: FontWeight.w700,
-                  fontSize: 12,
-                ),
+                style: _text.bodyMedium?.copyWith(fontWeight: FontWeight.w700),
               ),
             ],
           ),
-          const SizedBox(height: 6),
+          const SizedBox(height: theme.AppSpace.xs),
           Wrap(
-            spacing: 8,
-            runSpacing: 4,
+            spacing: theme.AppSpace.sm,
+            runSpacing: theme.AppSpace.xs,
             children: [
-              _infoTag('عمولة: $rate%', Colors.deepPurple),
+              // The rate kept whole, left-to-right: «0.8%», not «%0.8».
+              _infoTag('عمولة: ${ltrIsolate('$rate%')}', _tone.info),
               if (autoEnabled)
-                _infoTag('تلقائي: $scheduleLabel', theme.AppColors.success)
+                _infoTag('تلقائي: $scheduleLabel', _tone.ready)
               else
-                _infoTag('تسوية يدوية', Colors.grey),
+                _infoTag(
+                  'تسوية يدوية',
+                  SemanticTone(
+                    _cs.onSurfaceVariant,
+                    _cs.surfaceContainerHighest,
+                    _cs.onSurfaceVariant,
+                  ),
+                ),
             ],
           ),
         ],
@@ -993,19 +976,21 @@ class _ClearingMonitorScreenState extends State<ClearingMonitorScreen> {
     );
   }
 
-  Widget _infoTag(String text, Color color) {
+  Widget _infoTag(String text, SemanticTone tone) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      padding: const EdgeInsets.symmetric(
+        horizontal: theme.AppSpace.sm,
+        vertical: 2,
+      ),
       decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(999),
+        color: tone.container,
+        borderRadius: BorderRadius.circular(theme.AppRadius.pill),
       ),
       child: cu.SarAwareText(
         text,
-        isNewSar: context.read<SettingsProvider>().currencyIsNewSar,
-        style: TextStyle(
-          fontSize: 11,
-          color: color,
+        isNewSar: _newSar,
+        style: _text.labelMedium?.copyWith(
+          color: tone.onContainer,
           fontWeight: FontWeight.w600,
         ),
       ),

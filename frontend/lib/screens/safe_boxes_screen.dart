@@ -104,6 +104,7 @@ class _SafeBoxesScreenState extends State<SafeBoxesScreen> {
   final _open = <int>{};
 
   ColorScheme get _scheme => Theme.of(context).colorScheme;
+  TextTheme get _text => Theme.of(context).textTheme;
   AppSemanticColors get _tones => AppSemanticColors.of(context);
 
   @override
@@ -463,8 +464,7 @@ class _SafeBoxesScreenState extends State<SafeBoxesScreen> {
                       ),
                       Text(
                         sub,
-                        style: TextStyle(
-                          fontSize: 12,
+                        style: _text.bodySmall?.copyWith(
                           color: _scheme.onSurfaceVariant,
                         ),
                       ),
@@ -476,10 +476,9 @@ class _SafeBoxesScreenState extends State<SafeBoxesScreen> {
                     alignment: AlignmentDirectional.centerStart,
                     child: Text(
                       value,
-                      style: const TextStyle(
-                        fontSize: 18,
+                      style: _text.titleMedium?.copyWith(
                         fontWeight: FontWeight.w800,
-                        fontFeatures: [FontFeature.tabularFigures()],
+                        fontFeatures: const [FontFeature.tabularFigures()],
                       ),
                     ),
                   ),
@@ -556,7 +555,7 @@ class _SafeBoxesScreenState extends State<SafeBoxesScreen> {
             const SizedBox(width: 6),
             Text(
               safeTypeLabels[type] ?? type,
-              style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 15),
+              style: _text.titleSmall?.copyWith(fontWeight: FontWeight.w800),
             ),
             const SizedBox(width: 6),
             Text(
@@ -590,8 +589,7 @@ class _SafeBoxesScreenState extends State<SafeBoxesScreen> {
     ),
     child: Text(
       text,
-      style: TextStyle(
-        fontSize: 11,
+      style: _text.labelSmall?.copyWith(
         fontWeight: FontWeight.w700,
         color: tone.onContainer,
       ),
@@ -657,9 +655,8 @@ class _SafeBoxesScreenState extends State<SafeBoxesScreen> {
                               sb.name.trim(),
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
+                              style: _text.titleSmall?.copyWith(
                                 fontWeight: FontWeight.w700,
-                                fontSize: 15,
                                 color: _scheme.onSurface,
                               ),
                             ),
@@ -681,8 +678,7 @@ class _SafeBoxesScreenState extends State<SafeBoxesScreen> {
                 const SizedBox(height: 4),
                 Text(
                   gold ? _weight(balance) : _amount(balance),
-                  style: TextStyle(
-                    fontSize: 20,
+                  style: _text.titleLarge?.copyWith(
                     fontWeight: FontWeight.w800,
                     color: _balanceColor(balance),
                     fontFeatures: const [FontFeature.tabularFigures()],
@@ -706,8 +702,7 @@ class _SafeBoxesScreenState extends State<SafeBoxesScreen> {
                   const SizedBox(height: 4),
                   Text(
                     'فصوص: ${_weight(stones)}',
-                    style: TextStyle(
-                      fontSize: 12,
+                    style: _text.bodySmall?.copyWith(
                       color: _scheme.onSurfaceVariant,
                     ),
                   ),
@@ -716,7 +711,7 @@ class _SafeBoxesScreenState extends State<SafeBoxesScreen> {
                   const SizedBox(height: 6),
                   Text(
                     _pendingText(sb, balance),
-                    style: TextStyle(fontSize: 12, color: _tones.warning.fg),
+                    style: _text.bodySmall?.copyWith(color: _tones.warning.fg),
                   ),
                 ],
                 if (opened) ...[
@@ -726,32 +721,28 @@ class _SafeBoxesScreenState extends State<SafeBoxesScreen> {
                   if (sb.account != null)
                     Text(
                       'الحساب: ${ltrIsolate(sb.account!.accountNumber)} — ${sb.account!.name}',
-                      style: TextStyle(
-                        fontSize: 12,
+                      style: _text.bodySmall?.copyWith(
                         color: _scheme.onSurfaceVariant,
                       ),
                     ),
                   if ((sb.bankName ?? '').trim().isNotEmpty)
                     Text(
                       'البنك: ${sb.bankName}',
-                      style: TextStyle(
-                        fontSize: 12,
+                      style: _text.bodySmall?.copyWith(
                         color: _scheme.onSurfaceVariant,
                       ),
                     ),
                   if ((sb.iban ?? '').trim().isNotEmpty)
                     Text(
                       'الآيبان: ${ltrIsolate(sb.iban!)}',
-                      style: TextStyle(
-                        fontSize: 12,
+                      style: _text.bodySmall?.copyWith(
                         color: _scheme.onSurfaceVariant,
                       ),
                     ),
                   if ((sb.notes ?? '').trim().isNotEmpty)
                     Text(
                       sb.notes!.trim(),
-                      style: TextStyle(
-                        fontSize: 12,
+                      style: _text.bodySmall?.copyWith(
                         color: _scheme.onSurfaceVariant,
                       ),
                     ),

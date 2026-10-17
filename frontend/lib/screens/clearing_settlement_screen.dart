@@ -15,6 +15,7 @@ import '../widgets/safe_box_picker_dialog.dart';
 import '../widgets/app_feedback.dart';
 import 'voucher_details_screen.dart';
 import '../utils/bidi.dart';
+import '../utils/currency_utils.dart';
 import '../widgets/confirm_financial_action.dart';
 import '../widgets/app_state_views.dart';
 
@@ -398,9 +399,12 @@ class _ClearingSettlementScreenState extends State<ClearingSettlementScreen> {
     _updatingFee = false;
   }
 
-  String _formatMoney(double v) {
-    return v.toStringAsFixed(2);
-  }
+  /// Money as the app writes it: thousands, a minus Arabic keeps whole.
+  String _formatMoney(double v) => ltrIsolate(formatAmount(v));
+
+  // خ٣ (ADR-050): colours and type from the theme, in both modes.
+  ColorScheme get _cs => Theme.of(context).colorScheme;
+  TextTheme get _text => Theme.of(context).textTheme;
 
   double _round2(double v) => double.tryParse(v.toStringAsFixed(2)) ?? v;
 
@@ -480,13 +484,17 @@ class _ClearingSettlementScreenState extends State<ClearingSettlementScreen> {
                   Row(
                     children: [
                       Icon(
-                        balanced ? Icons.check_circle_outline : Icons.error_outline,
+                        balanced
+                            ? Icons.check_circle_outline
+                            : Icons.error_outline,
                         size: 18,
                         color: balanced ? tones.ready.fg : cs.error,
                       ),
                       const SizedBox(width: theme.AppSpace.sm),
                       Text(
-                        balanced ? 'القيد متوازن' : 'القيد غير متوازن — لا يُحفظ',
+                        balanced
+                            ? 'القيد متوازن'
+                            : 'القيد غير متوازن — لا يُحفظ',
                         style: text.bodyMedium?.copyWith(
                           fontWeight: FontWeight.w700,
                           color: balanced ? tones.ready.fg : cs.error,
@@ -1039,7 +1047,7 @@ class _ClearingSettlementScreenState extends State<ClearingSettlementScreen> {
   Widget _buildCoveredPaymentsCard() {
     final chosen = _chosenPaymentIds != null;
     final rows = _coveredTransactions;
-    final muted = TextStyle(fontSize: 12, color: Colors.grey.shade700);
+    final muted = _text.bodySmall?.copyWith(color: _cs.onSurfaceVariant);
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(12),
@@ -1074,7 +1082,7 @@ class _ClearingSettlementScreenState extends State<ClearingSettlementScreen> {
                           (tx['invoice_number'] ?? '').toString().isNotEmpty
                               ? 'فاتورة: ${tx['invoice_number']}'
                               : (tx['note'] ?? 'تحويل').toString(),
-                          style: const TextStyle(fontSize: 13),
+                          style: _text.bodyMedium,
                         ),
                       ),
                       Text(
@@ -1094,9 +1102,6 @@ class _ClearingSettlementScreenState extends State<ClearingSettlementScreen> {
   Widget build(BuildContext context) {
     context.watch<SettingsProvider>();
 
-    final themeData = Theme.of(context);
-    final isLight = themeData.brightness == Brightness.light;
-
     final gross = _parseAmount(_grossController.text);
     final fee = _parseAmount(_feeController.text);
     final feeVat = _computeFeeVat(fee);
@@ -1110,13 +1115,9 @@ class _ClearingSettlementScreenState extends State<ClearingSettlementScreen> {
     final exceedsAvailable = effectiveCap > 0 && gross > (effectiveCap + 0.01);
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('تسوية مستحقات التحصيل'),
-        backgroundColor: theme.AppColors.primaryGold,
-        foregroundColor: isLight ? Colors.black : Colors.white,
-      ),
+      appBar: AppBar(title: const Text('تسوية مستحقات التحصيل')),
       body: _loading
-          ? const Center(child: CircularProgressIndicator())
+          ? const AppLoadingView()
           : (_error != null)
           ? AppErrorView(
               title: 'تعذّر تحميل التسوية',
@@ -1136,11 +1137,10 @@ class _ClearingSettlementScreenState extends State<ClearingSettlementScreen> {
                     return Padding(
                       padding: const EdgeInsets.only(top: 8),
                       child: Text(
-                        'ملاحظة: الصافي محسوب بعد خصم ضريبة العمولة (${(_taxRate * 100).toStringAsFixed(0)}%)'
+                        'ملاحظة: الصافي محسوب بعد خصم ضريبة العمولة (${ltrIsolate('${formatAmount(_taxRate * 100, decimals: 0)}%')})'
                         '${_settingsLoaded ? '' : ' (قد تختلف حسب الإعدادات)'}',
-                        style: TextStyle(
-                          color: Colors.grey.shade700,
-                          fontSize: 12,
+                        style: _text.bodySmall?.copyWith(
+                          color: _cs.onSurfaceVariant,
                         ),
                       ),
                     );
@@ -1170,14 +1170,20 @@ class _ClearingSettlementScreenState extends State<ClearingSettlementScreen> {
                                     vertical: 6,
                                   ),
                                   decoration: BoxDecoration(
-                                    color: theme.AppColors.primaryGold
-                                        .withValues(alpha: 0.18),
-                                    borderRadius: BorderRadius.circular(999),
+                                    color: AppSemanticColors.of(
+                                      context,
+                                    ).gold.container,
+                                    borderRadius: BorderRadius.circular(
+                                      theme.AppRadius.pill,
+                                    ),
                                   ),
                                   child: Text(
                                     _formatMoney(availableClearing),
-                                    style: const TextStyle(
+                                    style: _text.bodyMedium?.copyWith(
                                       fontWeight: FontWeight.w800,
+                                      color: AppSemanticColors.of(
+                                        context,
+                                      ).gold.onContainer,
                                     ),
                                   ),
                                 ),
@@ -1232,8 +1238,7 @@ class _ClearingSettlementScreenState extends State<ClearingSettlementScreen> {
                       : const SizedBox.shrink(key: ValueKey(0)),
                 ),
 
-                if (!_loadingPendingTxs &&
-                    _pendingTransactions.isNotEmpty) ...[
+                if (!_loadingPendingTxs && _pendingTransactions.isNotEmpty) ...[
                   const SizedBox(height: 12),
                   _buildCoveredPaymentsCard(),
                 ],
@@ -1290,7 +1295,7 @@ class _ClearingSettlementScreenState extends State<ClearingSettlementScreen> {
                             _autoCalcFee
                                 ? 'سيتم احتساب العمولة تلقائياً وإرسالها كـ fee_amount'
                                 : 'يمكنك إدخال العمولة يدوياً',
-                            style: TextStyle(color: Colors.grey.shade700),
+                            style: TextStyle(color: _cs.onSurfaceVariant),
                           ),
                         ),
                         if (_autoCalcFee)
@@ -1407,7 +1412,9 @@ class _ClearingSettlementScreenState extends State<ClearingSettlementScreen> {
                         const SizedBox(height: 6),
                         Text(
                           'ملاحظة: يلزم تحديد حساب مصروف العمولة فقط إذا كانت العمولة > 0',
-                          style: TextStyle(color: Colors.grey.shade700),
+                          style: _text.bodySmall?.copyWith(
+                            color: _cs.onSurfaceVariant,
+                          ),
                         ),
                       ],
                     ),
@@ -1477,12 +1484,8 @@ class _ClearingSettlementScreenState extends State<ClearingSettlementScreen> {
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
                       : const Icon(Icons.check_circle_outline),
-                  label: Text(
-                    _submitting ? 'جارٍ الحفظ...' : 'تنفيذ التسوية',
-                  ),
+                  label: Text(_submitting ? 'جارٍ الحفظ...' : 'تنفيذ التسوية'),
                   style: FilledButton.styleFrom(
-                    backgroundColor: theme.AppColors.primaryGold,
-                    foregroundColor: Colors.black,
                     padding: const EdgeInsets.symmetric(vertical: 14),
                   ),
                 ),
@@ -1528,13 +1531,12 @@ class _ClearingSettlementScreenState extends State<ClearingSettlementScreen> {
                               padding: const EdgeInsets.symmetric(vertical: 8),
                               child: Text(
                                 'لا توجد تسويات سابقة',
-                                style: TextStyle(color: Colors.grey.shade600),
+                                style: TextStyle(color: _cs.onSurfaceVariant),
                               ),
                             )
                           else
                             ..._settlementHistory.map((v) {
-                              final voucherId =
-                                  (v['id'] as num?)?.toInt() ?? 0;
+                              final voucherId = (v['id'] as num?)?.toInt() ?? 0;
                               final voucherNumber =
                                   v['voucher_number']?.toString() ??
                                   '#$voucherId';
@@ -1544,16 +1546,17 @@ class _ClearingSettlementScreenState extends State<ClearingSettlementScreen> {
                               final displayDate = dateStr.length >= 10
                                   ? dateStr.substring(0, 10)
                                   : dateStr;
-                              final status =
-                                  (v['status'] ?? '').toString();
+                              final status = (v['status'] ?? '').toString();
                               final totalCash =
                                   (v['amount_cash'] as num?)?.toDouble() ??
                                   (v['total_cash'] as num?)?.toDouble() ??
                                   0.0;
-                              final isActive = status == 'active' || status == 'approved';
+                              final isActive =
+                                  status == 'active' || status == 'approved';
                               return Padding(
-                                padding:
-                                    const EdgeInsets.symmetric(vertical: 5),
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 5,
+                                ),
                                 child: Row(
                                   children: [
                                     Expanded(
@@ -1563,17 +1566,15 @@ class _ClearingSettlementScreenState extends State<ClearingSettlementScreen> {
                                         children: [
                                           Text(
                                             'سند: $voucherNumber',
-                                            style: const TextStyle(
-                                              fontSize: 13,
+                                            style: _text.bodyMedium?.copyWith(
                                               fontWeight: FontWeight.w500,
                                             ),
                                           ),
                                           if (displayDate.isNotEmpty)
                                             Text(
                                               displayDate,
-                                              style: TextStyle(
-                                                fontSize: 11,
-                                                color: Colors.grey.shade600,
+                                              style: _text.labelSmall?.copyWith(
+                                                color: _cs.onSurfaceVariant,
                                               ),
                                             ),
                                         ],
@@ -1594,33 +1595,26 @@ class _ClearingSettlementScreenState extends State<ClearingSettlementScreen> {
                                           totalCash,
                                         ),
                                         style: OutlinedButton.styleFrom(
-                                          foregroundColor: Colors.red,
-                                          side: const BorderSide(
-                                            color: Colors.red,
-                                          ),
+                                          foregroundColor: _cs.error,
+                                          side: BorderSide(color: _cs.error),
                                           padding: const EdgeInsets.symmetric(
                                             horizontal: 10,
                                             vertical: 2,
                                           ),
                                           minimumSize: const Size(56, 30),
-                                          tapTargetSize: MaterialTapTargetSize
-                                              .shrinkWrap,
+                                          tapTargetSize:
+                                              MaterialTapTargetSize.shrinkWrap,
                                         ),
-                                        child: const Text(
-                                          'عكس',
-                                          style: TextStyle(fontSize: 12),
-                                        ),
+                                        child: const Text('عكس'),
                                       )
                                     else
                                       Chip(
-                                        label: const Text(
+                                        label: Text(
                                           'ملغي',
-                                          style: TextStyle(
-                                            fontSize: 11,
-                                            color: Colors.grey,
+                                          style: _text.labelSmall?.copyWith(
+                                            color: _cs.onSurfaceVariant,
                                           ),
                                         ),
-                                        backgroundColor: Colors.grey.shade200,
                                         padding: EdgeInsets.zero,
                                         materialTapTargetSize:
                                             MaterialTapTargetSize.shrinkWrap,
@@ -1653,71 +1647,69 @@ class _PaymentMethodInfoCard extends StatelessWidget {
     this.feeAccountName,
   });
 
+  /// A rate or an amount: whole when whole, else two places.
+  static String _plain(double v) =>
+      formatAmount(v, decimals: v == v.truncateToDouble() ? 0 : 2);
+
   @override
   Widget build(BuildContext context) {
-    final themeData = Theme.of(context);
+    final text = Theme.of(context).textTheme;
+    final gold = AppSemanticColors.of(context).gold;
+    final ready = AppSemanticColors.of(context).ready;
     final name = paymentMethod['name']?.toString() ?? '';
     final rate = (paymentMethod['commission_rate'] as num?)?.toDouble() ?? 0.0;
     final fixed =
         (paymentMethod['commission_fixed_amount'] as num?)?.toDouble() ?? 0.0;
 
-
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      padding: const EdgeInsets.symmetric(
+        horizontal: theme.AppSpace.md,
+        vertical: theme.AppSpace.md,
+      ),
       decoration: BoxDecoration(
-        color: theme.AppColors.primaryGold.withValues(alpha: 0.10),
-        border: Border.all(
-          color: theme.AppColors.primaryGold.withValues(alpha: 0.40),
-        ),
-        borderRadius: BorderRadius.circular(14),
+        color: gold.container,
+        borderRadius: BorderRadius.circular(theme.AppRadius.card),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              const Icon(
+              Icon(
                 Icons.credit_card_outlined,
                 size: 18,
-                color: theme.AppColors.darkGold,
+                color: gold.onContainer,
               ),
-              const SizedBox(width: 6),
+              const SizedBox(width: theme.AppSpace.sm),
               Expanded(
                 child: Text(
                   'وسيلة الدفع: $name',
-                  style: themeData.textTheme.bodyMedium?.copyWith(
+                  style: text.bodyMedium?.copyWith(
                     fontWeight: FontWeight.w800,
+                    color: gold.onContainer,
                   ),
                 ),
               ),
               if (autoSettlementEnabled)
                 Container(
                   padding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 3,
+                    horizontal: theme.AppSpace.sm,
+                    vertical: 2,
                   ),
                   decoration: BoxDecoration(
-                    color: Colors.green.withValues(alpha: 0.15),
-                    borderRadius: BorderRadius.circular(99),
-                    border: Border.all(
-                      color: Colors.green.withValues(alpha: 0.45),
-                    ),
+                    color: ready.container,
+                    borderRadius: BorderRadius.circular(theme.AppRadius.pill),
                   ),
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Icon(
-                        Icons.autorenew,
-                        size: 13,
-                        color: Colors.green.shade700,
-                      ),
-                      const SizedBox(width: 4),
+                      Icon(Icons.autorenew, size: 13, color: ready.onContainer),
+                      const SizedBox(width: theme.AppSpace.xs),
                       Text(
                         'تسوية تلقائية',
-                        style: TextStyle(
-                          fontSize: 11,
+                        style: text.labelSmall?.copyWith(
                           fontWeight: FontWeight.w700,
-                          color: Colors.green.shade700,
+                          color: ready.onContainer,
                         ),
                       ),
                     ],
@@ -1725,35 +1717,27 @@ class _PaymentMethodInfoCard extends StatelessWidget {
                 ),
             ],
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: theme.AppSpace.sm),
           Wrap(
-            spacing: 8,
-            runSpacing: 6,
+            spacing: theme.AppSpace.sm,
+            runSpacing: theme.AppSpace.xs,
             children: [
               if (rate > 0)
                 _InfoChip(
-                  label:
-                      'نسبة ${rate.toStringAsFixed(rate == rate.truncateToDouble() ? 0 : 2)}%',
-                  color: Colors.blue.shade700,
+                  label: 'نسبة ${ltrIsolate('${_plain(rate)}%')}',
                   icon: Icons.percent,
                 ),
               if (fixed > 0)
                 _InfoChip(
                   label:
-                      'ثابت ${fixed.toStringAsFixed(fixed == fixed.truncateToDouble() ? 0 : 2)} ${context.read<SettingsProvider>().currencySymbolText}/عملية',
-                  color: Colors.purple.shade700,
+                      'ثابت ${ltrIsolate(_plain(fixed))} ${context.read<SettingsProvider>().currencySymbolText}/عملية',
                   icon: Icons.attach_money,
                 ),
               if (scheduleInfo != null)
-                _InfoChip(
-                  label: scheduleInfo!,
-                  color: Colors.teal.shade700,
-                  icon: Icons.event_repeat,
-                ),
+                _InfoChip(label: scheduleInfo!, icon: Icons.event_repeat),
               if (feeAccountName != null)
                 _InfoChip(
                   label: 'مصروف العمولة: $feeAccountName',
-                  color: Colors.indigo.shade700,
                   icon: Icons.account_tree_outlined,
                 ),
             ],
@@ -1764,37 +1748,37 @@ class _PaymentMethodInfoCard extends StatelessWidget {
   }
 }
 
+/// One fact of the payment method, on the theme's surface. The four colours
+/// it had (blue, purple, teal, indigo) said nothing.
 class _InfoChip extends StatelessWidget {
   final String label;
-  final Color color;
   final IconData icon;
 
-  const _InfoChip({
-    required this.label,
-    required this.color,
-    required this.icon,
-  });
+  const _InfoChip({required this.label, required this.icon});
 
   @override
   Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      padding: const EdgeInsets.symmetric(
+        horizontal: theme.AppSpace.sm,
+        vertical: theme.AppSpace.xs,
+      ),
       decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.10),
-        borderRadius: BorderRadius.circular(99),
-        border: Border.all(color: color.withValues(alpha: 0.35)),
+        color: cs.surface,
+        borderRadius: BorderRadius.circular(theme.AppRadius.pill),
+        border: Border.all(color: cs.outlineVariant),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 12, color: color),
-          const SizedBox(width: 4),
+          Icon(icon, size: 12, color: cs.onSurfaceVariant),
+          const SizedBox(width: theme.AppSpace.xs),
           Text(
             label,
-            style: TextStyle(
-              fontSize: 11,
+            style: Theme.of(context).textTheme.labelSmall?.copyWith(
               fontWeight: FontWeight.w700,
-              color: color,
+              color: cs.onSurface,
             ),
           ),
         ],
@@ -1819,22 +1803,31 @@ class _SummaryCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final themeData = Theme.of(context);
-    final bool isLight = themeData.brightness == Brightness.light;
+    final cs = themeData.colorScheme;
+    final tones = AppSemanticColors.of(context);
+    final settings = context.read<SettingsProvider>();
 
-    Color chipColor(double value) {
-      if (value < 0) return theme.AppColors.error;
-      if (value == 0) return Colors.grey;
-      return theme.AppColors.success;
+    SemanticTone chipTone(double value) {
+      if (value < 0) return tones.blocked;
+      if (value == 0) {
+        return SemanticTone(
+          cs.onSurfaceVariant,
+          cs.surfaceContainerHighest,
+          cs.onSurfaceVariant,
+        );
+      }
+      return tones.ready;
     }
 
     Widget metric(String label, double value) {
+      final tone = chipTone(value);
       return Expanded(
         child: Container(
-          padding: const EdgeInsets.all(12),
+          padding: const EdgeInsets.all(theme.AppSpace.md),
           decoration: BoxDecoration(
-            color: isLight ? Colors.white : themeData.colorScheme.surface,
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: Colors.black.withValues(alpha: 0.06)),
+            color: cs.surface,
+            borderRadius: BorderRadius.circular(theme.AppRadius.card),
+            border: Border.all(color: cs.outlineVariant),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -1842,33 +1835,35 @@ class _SummaryCard extends StatelessWidget {
               Text(
                 label,
                 style: themeData.textTheme.bodyMedium?.copyWith(
-                  color: Colors.grey.shade700,
+                  color: cs.onSurfaceVariant,
                   fontWeight: FontWeight.w600,
                 ),
               ),
-              const SizedBox(height: 8),
-              Row(
+              const SizedBox(height: theme.AppSpace.sm),
+              Wrap(
+                spacing: theme.AppSpace.sm,
+                crossAxisAlignment: WrapCrossAlignment.center,
                 children: [
                   Text(
-                    value.toStringAsFixed(2),
+                    ltrIsolate(formatAmount(value)),
                     style: themeData.textTheme.titleLarge?.copyWith(
                       fontWeight: FontWeight.w800,
+                      fontFeatures: const [FontFeature.tabularFigures()],
                     ),
                   ),
-                  const SizedBox(width: 8),
                   Container(
                     padding: const EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 4,
+                      horizontal: theme.AppSpace.sm,
+                      vertical: theme.AppSpace.xs,
                     ),
                     decoration: BoxDecoration(
-                      color: chipColor(value).withValues(alpha: 0.12),
-                      borderRadius: BorderRadius.circular(99),
+                      color: tone.container,
+                      borderRadius: BorderRadius.circular(theme.AppRadius.pill),
                     ),
-                    child: context.read<SettingsProvider>().buildText(
-                      context.read<SettingsProvider>().currencySymbolText,
+                    child: settings.buildText(
+                      settings.currencySymbolText,
                       style: TextStyle(
-                        color: chipColor(value),
+                        color: tone.onContainer,
                         fontWeight: FontWeight.w700,
                       ),
                     ),
@@ -1881,21 +1876,13 @@ class _SummaryCard extends StatelessWidget {
       );
     }
 
-    return DecoratedBox(
+    return Container(
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [
-            theme.AppColors.lightGold.withValues(alpha: 0.35),
-            theme.AppColors.primaryGold.withValues(alpha: 0.18),
-          ],
-          begin: Alignment.topRight,
-          end: Alignment.bottomLeft,
-        ),
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: Colors.black.withValues(alpha: 0.06)),
+        color: tones.gold.container,
+        borderRadius: BorderRadius.circular(theme.AppRadius.card),
       ),
       child: Padding(
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.all(theme.AppSpace.md),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -1903,24 +1890,25 @@ class _SummaryCard extends StatelessWidget {
               'ملخص التسوية',
               style: themeData.textTheme.titleMedium?.copyWith(
                 fontWeight: FontWeight.w800,
+                color: tones.gold.onContainer,
               ),
             ),
-            const SizedBox(height: 10),
+            const SizedBox(height: theme.AppSpace.sm),
             Row(
               children: [
                 metric('الإجمالي', gross),
-                const SizedBox(width: 10),
+                const SizedBox(width: theme.AppSpace.sm),
                 metric('العمولة', fee),
-                const SizedBox(width: 10),
+                const SizedBox(width: theme.AppSpace.sm),
                 metric('الصافي', net),
               ],
             ),
             if (feeVat > 0) ...[
-              const SizedBox(height: 10),
-              context.read<SettingsProvider>().buildText(
-                'ضريبة العمولة: ${feeVat.toStringAsFixed(2)} ${context.read<SettingsProvider>().currencySymbolText}',
+              const SizedBox(height: theme.AppSpace.sm),
+              settings.buildText(
+                'ضريبة العمولة: ${ltrIsolate(formatAmount(feeVat))} ${settings.currencySymbolText}',
                 style: themeData.textTheme.bodyMedium?.copyWith(
-                  color: Colors.grey.shade800,
+                  color: tones.gold.onContainer,
                   fontWeight: FontWeight.w700,
                 ),
               ),
@@ -1957,11 +1945,11 @@ class _PickerTile extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: Colors.black.withValues(alpha: 0.08)),
+          border: Border.all(color: themeData.colorScheme.outlineVariant),
         ),
         child: Row(
           children: [
-            Icon(icon, color: theme.AppColors.darkGold),
+            Icon(icon, color: AppSemanticColors.of(context).gold.fg),
             const SizedBox(width: 10),
             Expanded(
               child: Column(
@@ -1980,7 +1968,7 @@ class _PickerTile extends StatelessWidget {
                         : value!,
                     style: themeData.textTheme.bodyMedium?.copyWith(
                       color: (value == null || value!.trim().isEmpty)
-                          ? Colors.grey.shade700
+                          ? themeData.colorScheme.onSurfaceVariant
                           : themeData.colorScheme.onSurface,
                     ),
                     maxLines: 2,
@@ -1999,4 +1987,3 @@ class _PickerTile extends StatelessWidget {
     );
   }
 }
-

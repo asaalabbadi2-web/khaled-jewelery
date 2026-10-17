@@ -344,6 +344,7 @@ void main() {
             await type(tester, 'transfer-weight-21', '5');
             expect(tester.takeException(), isNull);
             expectNoTextVanishesOnDark(tester);
+            expectNoLightSurfaceOnDark(tester);
           },
           theme: DarkTheme.theme,
           size: size,

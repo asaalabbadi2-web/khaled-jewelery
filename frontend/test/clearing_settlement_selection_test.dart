@@ -6,7 +6,11 @@ import 'package:frontend/screens/clearing_settlement_screen.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:frontend/theme/app_theme.dart';
+
+import 'support/dark_text.dart';
 import 'support/fake_clearing_api.dart';
+import 'support/shots.dart';
 
 /// CLEARING-SEL-1: a settlement settles the payments chosen for it.
 ///
@@ -23,8 +27,10 @@ void main() {
     WidgetTester tester, {
     List<int>? selected,
     double? due,
+    ThemeData? theme,
+    Size size = const Size(1200, 2400),
   }) async {
-    tester.view.physicalSize = const Size(1200, 2400);
+    tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
     final api = FakeClearingApi();
@@ -35,6 +41,7 @@ void main() {
           ChangeNotifierProvider(create: (_) => AuthProvider()),
         ],
         child: MaterialApp(
+          theme: theme,
           home: ClearingSettlementScreen(
             initialClearingSafeBoxId: 32,
             initialBankSafeBoxId: 37,
@@ -148,4 +155,19 @@ void main() {
     );
     expect(api.settlements, isEmpty);
   });
+
+  // خ٣ (ADR-050): the settlement reads in the dark theme -- its summary,
+  // tiles and buttons were written in light colours.
+  for (final (name, size) in [
+    ('desktop', const Size(1440, 2200)),
+    ('tablet', tabletSize),
+  ]) {
+    testWidgets('it reads in the dark theme on a $name', (tester) async {
+      await open(tester, theme: DarkTheme.theme, size: size);
+      expect(tester.takeException(), isNull);
+      await shot(tester, 'clearing_settlement_dark_$name');
+      expectNoTextVanishesOnDark(tester);
+      expectNoLightSurfaceOnDark(tester);
+    });
+  }
 }

@@ -10,6 +10,7 @@ import 'package:frontend/screens/safe_boxes_screen.dart';
 import 'package:frontend/theme/app_theme.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'support/dark_text.dart';
 
 /// «إدارة الخزائن» (the analysis of 12 Oct 2026, SAFES-UI-1): the screen
 /// summed the safes itself and converted gold with a fixed 21; one «إجمالي
@@ -347,6 +348,8 @@ void main() {
           onSurface,
           reason: 'not a fixed near-black on a dark card',
         );
+        expectNoTextVanishesOnDark(tester);
+        expectNoLightSurfaceOnDark(tester);
       },
     );
   }

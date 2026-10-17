@@ -11,6 +11,9 @@ import 'package:http/testing.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'support/dark_text.dart';
+import 'support/shots.dart';
+
 /// ADR-050 (خ١): the clearing monitor says what it knows. A box whose pending
 /// payments did not load was shown «لا شيء معلّق» in green; a due amount
 /// under 100 was «مبلغ بسيط معلّق», a rule of this screen alone; and «تشغيل
@@ -39,12 +42,14 @@ void main() {
     WidgetTester tester, {
     bool methodsFail = false,
     Future<void> Function()? steps,
+    ThemeData? theme,
+    Size size = const Size(1200, 2400),
   }) async {
     SharedPreferences.setMockInitialValues({
       'jwt_token': 'token',
       'app_settings': jsonEncode({'main_karat': 21}),
     });
-    tester.view.physicalSize = const Size(1200, 2400);
+    tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
     final settings = SettingsProvider();
@@ -62,7 +67,7 @@ void main() {
           ChangeNotifierProvider.value(
             value: settings,
             child: MaterialApp(
-              theme: LightTheme.theme,
+              theme: theme ?? LightTheme.theme,
               home: const ClearingMonitorScreen(),
             ),
           ),
@@ -96,7 +101,17 @@ void main() {
           if (id == '34') return json({'error': 'down'}, 500);
           return json({
             'due_amount': id == '32' ? 330.0 : 50.0,
-            'transactions': [],
+            'transactions': id == '32'
+                ? [
+                    {
+                      'tx_id': 3526,
+                      'invoice_payment_id': 3526,
+                      'invoice_number': 'SELL-2026-1596',
+                      'amount': 330.0,
+                      'date': '2026-10-05T15:52:33',
+                    },
+                  ]
+                : [],
           });
         }
         return json(<String, dynamic>{});
@@ -162,4 +177,28 @@ void main() {
     expect(posted, hasLength(1));
     expect(posted.single, endsWith('/clearing/settlements/auto-run'));
   });
+
+  // خ٣ (ADR-050): the monitor reads in the dark theme -- its background and
+  // cards were written light (F5F5F5, white) and its text black.
+  for (final (name, size) in [
+    ('desktop', const Size(1440, 1100)),
+    ('tablet', tabletSize),
+  ]) {
+    testWidgets('it reads in the dark theme on a $name', (tester) async {
+      await open(
+        tester,
+        theme: DarkTheme.theme,
+        size: size,
+        steps: () async {
+          await tester.tap(find.text('مدى'));
+          await tester.pumpAndSettle();
+          expect(find.textContaining('SELL-2026-1596'), findsOneWidget);
+          expect(tester.takeException(), isNull);
+          await shot(tester, 'clearing_monitor_dark_$name');
+          expectNoTextVanishesOnDark(tester);
+          expectNoLightSurfaceOnDark(tester);
+        },
+      );
+    });
+  }
 }

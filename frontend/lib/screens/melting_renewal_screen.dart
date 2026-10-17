@@ -5,10 +5,16 @@ import '../models/safe_box_model.dart';
 import '../utils.dart';
 import 'package:provider/provider.dart';
 import '../providers/settings_provider.dart';
+import '../theme/app_semantic_colors.dart';
+import '../theme/app_button_styles.dart';
 import '../utils/bidi.dart';
 import '../utils/currency_utils.dart';
 import '../widgets/app_feedback.dart';
 import 'voucher_details_screen.dart';
+
+/// Grams as Arabic reads them: the number whole and left-to-right, then its
+/// unit (ADR-050, خ٣).
+String _grams(double v) => '${ltrIsolate(formatGrams(v))} جم';
 
 // ═══════════════════════════════════════════════════════════════════
 //  الشاشة الرئيسية
@@ -109,7 +115,8 @@ class _OperationFormState extends State<_OperationForm> {
 
   // ── بيانات محملة ─────────────────────────────────────────────
   List<SafeBoxModel> _safes = [];
-  Map<int, Map<String, double>> _stonesMap = {}; // safe_box_id → {total, 18, 21, 22, 24}
+  Map<int, Map<String, double>> _stonesMap =
+      {}; // safe_box_id → {total, 18, 21, 22, 24}
   List<Map<String, dynamic>> _wageAccounts = [];
   bool _loading = true;
 
@@ -269,7 +276,8 @@ class _OperationFormState extends State<_OperationForm> {
 
   Map<String, double> _stonesInfoFor(int? safeId) => safeId == null
       ? const {'total': 0.0, '18': 0.0, '21': 0.0, '22': 0.0, '24': 0.0}
-      : (_stonesMap[safeId] ?? const {'total': 0.0, '18': 0.0, '21': 0.0, '22': 0.0, '24': 0.0});
+      : (_stonesMap[safeId] ??
+            const {'total': 0.0, '18': 0.0, '21': 0.0, '22': 0.0, '24': 0.0});
 
   // ── إدارة الأسطر ─────────────────────────────────────────────
   void _addLine() {
@@ -313,8 +321,8 @@ class _OperationFormState extends State<_OperationForm> {
       if (weight > avail + 1e-6) {
         _snack(
           'عيار ${karat}k: '
-          'الوزن ${weight.toStringAsFixed(3)} جم '
-          'يتجاوز الرصيد ${avail.toStringAsFixed(3)} جم',
+          'الوزن ${_grams(weight)} '
+          'يتجاوز الرصيد ${_grams(avail)}',
           error: true,
         );
         return;
@@ -427,15 +435,9 @@ class _OperationFormState extends State<_OperationForm> {
                 (l) => Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    _cRow(
-                      'عيار ${l.karat}k — ذهب',
-                      '${l.goldWeight.toStringAsFixed(3)} جم',
-                    ),
+                    _cRow('عيار ${l.karat}k — ذهب', _grams(l.goldWeight)),
                     if (l.stonesWeight > 0)
-                      _cRow(
-                        'فصوص ${l.karat}k',
-                        '${l.stonesWeight.toStringAsFixed(3)} جم',
-                      ),
+                      _cRow('فصوص ${l.karat}k', _grams(l.stonesWeight)),
                   ],
                 ),
               ),
@@ -443,7 +445,7 @@ class _OperationFormState extends State<_OperationForm> {
                 const Divider(),
                 _cRow(
                   'مصنعية تالفة',
-                  '${wageAmt.toStringAsFixed(2)} ${context.read<SettingsProvider>().currencySymbolText}',
+                  '${ltrIsolate(formatAmount(wageAmt))} ${context.read<SettingsProvider>().currencySymbolText}',
                 ),
               ],
             ],
@@ -457,7 +459,10 @@ class _OperationFormState extends State<_OperationForm> {
           FilledButton(
             onPressed: () => Navigator.pop(ctx, true),
             style: _isMelting
-                ? FilledButton.styleFrom(backgroundColor: Colors.orange[800])
+                ? AppButtonStyles.primary(
+                    context,
+                    AppSemanticColors.of(context).warning,
+                  )
                 : null,
             child: Text('تأكيد $opLabel'),
           ),
@@ -471,10 +476,17 @@ class _OperationFormState extends State<_OperationForm> {
     child: Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        Text(label, style: const TextStyle(color: Colors.grey, fontSize: 13)),
+        Text(
+          label,
+          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+          ),
+        ),
         Text(
           value,
-          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+          style: Theme.of(
+            context,
+          ).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.bold),
         ),
       ],
     ),
@@ -507,7 +519,12 @@ class _OperationFormState extends State<_OperationForm> {
     if (_loading) return const Center(child: CircularProgressIndicator());
 
     final cs = Theme.of(context).colorScheme;
-    final opColor = _isMelting ? Colors.orange[800]! : cs.primary;
+    final opColor = _isMelting
+        ? AppSemanticColors.of(context).warning.fg
+        : cs.primary;
+    final header = Theme.of(
+      context,
+    ).textTheme.labelSmall?.copyWith(color: cs.onSurfaceVariant);
     final wageAmt = double.tryParse(_wageCtrl.text.trim()) ?? 0.0;
 
     return Form(
@@ -575,26 +592,13 @@ class _OperationFormState extends State<_OperationForm> {
                   ),
                   child: Row(
                     children: [
-                      const SizedBox(
+                      SizedBox(
                         width: 110,
-                        child: Text(
-                          'العيار',
-                          style: TextStyle(fontSize: 11, color: Colors.grey),
-                        ),
+                        child: Text('العيار', style: header),
                       ),
-                      const Expanded(
-                        child: Text(
-                          'وزن الذهب (جم)',
-                          style: TextStyle(fontSize: 11, color: Colors.grey),
-                        ),
-                      ),
+                      Expanded(child: Text('وزن الذهب (جم)', style: header)),
                       const SizedBox(width: 8),
-                      const Expanded(
-                        child: Text(
-                          'فصوص (جم)',
-                          style: TextStyle(fontSize: 11, color: Colors.grey),
-                        ),
-                      ),
+                      Expanded(child: Text('فصوص (جم)', style: header)),
                       const SizedBox(width: 32),
                     ],
                   ),
@@ -647,7 +651,7 @@ class _OperationFormState extends State<_OperationForm> {
             _SectionCard(
               title: 'مصنعية تالفة (اختياري)',
               icon: Icons.construction_outlined,
-              color: Colors.deepOrange,
+              color: AppSemanticColors.of(context).warning.fg,
               child: Column(
                 children: [
                   TextFormField(
@@ -724,18 +728,16 @@ class _OperationFormState extends State<_OperationForm> {
                 child: FilledButton.icon(
                   onPressed: _submitting ? null : _submit,
                   style: _isMelting
-                      ? FilledButton.styleFrom(
-                          backgroundColor: Colors.orange[800],
+                      ? AppButtonStyles.primary(
+                          context,
+                          AppSemanticColors.of(context).warning,
                         )
                       : null,
                   icon: _submitting
                       ? const SizedBox(
                           width: 18,
                           height: 18,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: Colors.white,
-                          ),
+                          child: CircularProgressIndicator(strokeWidth: 2),
                         )
                       : Icon(
                           _isMelting ? Icons.recycling : Icons.auto_fix_high,
@@ -846,7 +848,6 @@ class _WeightLineRowState extends State<_WeightLineRow> {
                     errorText: over
                         ? 'أكثر من المتاح ${ltrIsolate(formatGrams(avail))}'
                         : null,
-                    errorStyle: const TextStyle(fontSize: 10),
                   ),
                   validator: (v) {
                     final d = double.tryParse(v?.trim() ?? '');
@@ -890,10 +891,10 @@ class _WeightLineRowState extends State<_WeightLineRow> {
                 child: widget.canRemove
                     ? IconButton(
                         padding: EdgeInsets.zero,
-                        icon: const Icon(
+                        icon: Icon(
                           Icons.remove_circle_outline,
                           size: 20,
-                          color: Colors.red,
+                          color: cs.error,
                         ),
                         onPressed: widget.onRemove,
                       )
@@ -926,8 +927,8 @@ class _WeightLineRowState extends State<_WeightLineRow> {
 class _InlineBalance extends StatelessWidget {
   final int karat;
   final double goldAvail;
-  final double stonesAvail;  // فصوص خاصة بهذا العيار
-  final double stonesTotal;  // إجمالي الفصوص في الخزينة
+  final double stonesAvail; // فصوص خاصة بهذا العيار
+  final double stonesTotal; // إجمالي الفصوص في الخزينة
   final bool over;
   final ColorScheme cs;
 
@@ -943,8 +944,10 @@ class _InlineBalance extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final goldColor = over
-        ? Colors.red[700]!
-        : (goldAvail > 0 ? Colors.green[700]! : cs.outline);
+        ? cs.error
+        : (goldAvail > 0 ? AppSemanticColors.of(context).ready.fg : cs.outline);
+    final small = Theme.of(context).textTheme.labelSmall;
+    final stonesColor = AppSemanticColors.of(context).gold.fg;
 
     return Wrap(
       spacing: 10,
@@ -961,8 +964,8 @@ class _InlineBalance extends StatelessWidget {
             ),
             const SizedBox(width: 3),
             Text(
-              'ذهب ${karat}k: ${goldAvail.toStringAsFixed(3)} جم',
-              style: TextStyle(fontSize: 11, color: goldColor),
+              'ذهب ${karat}k: ${_grams(goldAvail)}',
+              style: small?.copyWith(color: goldColor),
             ),
           ],
         ),
@@ -971,17 +974,14 @@ class _InlineBalance extends StatelessWidget {
           Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Icon(Icons.diamond_outlined, size: 11, color: Color(0xFFB56A2F)),
+              Icon(Icons.diamond_outlined, size: 11, color: stonesColor),
               const SizedBox(width: 3),
               Text(
                 stonesAvail > 0.0001
-                    ? '♦ ${stonesAvail.toStringAsFixed(3)} جم'
-                    : '♦ ${stonesTotal.toStringAsFixed(3)} جم',
-                style: TextStyle(
-                  fontSize: 10.5,
-                  color: stonesAvail > 0.0001
-                      ? const Color(0xFFB56A2F)
-                      : Colors.grey,
+                    ? '♦ ${_grams(stonesAvail)}'
+                    : '♦ ${_grams(stonesTotal)}',
+                style: small?.copyWith(
+                  color: stonesAvail > 0.0001 ? stonesColor : cs.outline,
                 ),
               ),
             ],
@@ -1057,8 +1057,7 @@ class _VaultCard extends StatelessWidget {
                 const SizedBox(width: 6),
                 Text(
                   title,
-                  style: TextStyle(
-                    fontSize: 12,
+                  style: theme.textTheme.labelLarge?.copyWith(
                     fontWeight: FontWeight.bold,
                     color: color,
                   ),
@@ -1088,7 +1087,7 @@ class _VaultCard extends StatelessWidget {
                   child: Text(
                     s.name,
                     style: disabled
-                        ? const TextStyle(color: Colors.grey)
+                        ? TextStyle(color: theme.disabledColor)
                         : null,
                   ),
                 );
@@ -1173,7 +1172,9 @@ class _BalancePanel extends StatelessWidget {
             else
               Text(
                 'لا يوجد رصيد',
-                style: TextStyle(fontSize: 11, color: cs.outline),
+                style: Theme.of(
+                  context,
+                ).textTheme.labelSmall?.copyWith(color: cs.outline),
               ),
 
             // فصوص
@@ -1181,17 +1182,16 @@ class _BalancePanel extends StatelessWidget {
               const SizedBox(height: 6),
               Row(
                 children: [
-                  const Icon(
+                  Icon(
                     Icons.diamond_outlined,
                     size: 13,
-                    color: Colors.purple,
+                    color: AppSemanticColors.of(context).gold.fg,
                   ),
                   const SizedBox(width: 4),
                   Text(
-                    'فصوص: ${stonesBalance.toStringAsFixed(3)} جم',
-                    style: const TextStyle(
-                      fontSize: 11,
-                      color: Colors.purple,
+                    'فصوص: ${_grams(stonesBalance)}',
+                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                      color: AppSemanticColors.of(context).gold.fg,
                       fontWeight: FontWeight.w500,
                     ),
                   ),
@@ -1234,8 +1234,11 @@ class _KaratPill extends StatelessWidget {
         border: highlighted ? Border.all(color: cs.primary, width: 1.5) : null,
       ),
       child: Text(
-        '${karat}k  ${weight.toStringAsFixed(3)}',
-        style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: fg),
+        '${karat}k  ${ltrIsolate(formatGrams(weight))}',
+        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+          fontWeight: FontWeight.w600,
+          color: fg,
+        ),
       ),
     );
   }
@@ -1257,20 +1260,18 @@ class _TotalBadge extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.end,
       children: [
         Text(
-          'إجمالي الذهب: ${goldTotal.toStringAsFixed(3)} جم',
-          style: TextStyle(
-            fontSize: 12,
+          'إجمالي الذهب: ${_grams(goldTotal)}',
+          style: Theme.of(context).textTheme.labelLarge?.copyWith(
             fontWeight: FontWeight.bold,
             color: cs.onSurface,
           ),
         ),
         if (stonesTotal > 0)
           Text(
-            'إجمالي الفصوص: ${stonesTotal.toStringAsFixed(3)} جم',
-            style: const TextStyle(
-              fontSize: 11,
+            'إجمالي الفصوص: ${_grams(stonesTotal)}',
+            style: Theme.of(context).textTheme.labelSmall?.copyWith(
               fontWeight: FontWeight.w500,
-              color: Colors.purple,
+              color: AppSemanticColors.of(context).gold.fg,
             ),
           ),
       ],
@@ -1309,7 +1310,9 @@ class _InfoBanner extends StatelessWidget {
               isMelting
                   ? 'نقل الذهب الصافي من خزينة المعروض إلى صندوق الكسر. يمكن إضافة أكثر من سطر عيار.'
                   : 'نقل الذهب الصافي من المصدر إلى خزينة المعروض. الفصوص تُسجَّل كأصل وإيراد تلقائياً.',
-              style: TextStyle(fontSize: 11, color: color),
+              style: Theme.of(
+                context,
+              ).textTheme.bodySmall?.copyWith(color: color),
             ),
           ),
         ],
@@ -1356,9 +1359,8 @@ class _SectionCard extends StatelessWidget {
                 const SizedBox(width: 8),
                 Text(
                   title,
-                  style: TextStyle(
+                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
                     fontWeight: FontWeight.bold,
-                    fontSize: 13,
                     color: color,
                   ),
                 ),
