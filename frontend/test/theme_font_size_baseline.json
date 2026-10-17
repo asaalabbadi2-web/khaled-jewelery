@@ -2,7 +2,6 @@
   "lib/features/invoice/widgets/barcode_scanner_screen.dart": 1,
   "lib/main.dart": 2,
   "lib/screens/account_ledger_screen.dart": 15,
-  "lib/screens/account_statement_screen.dart": 22,
   "lib/screens/add_customer_screen.dart": 4,
   "lib/screens/add_item_screen_enhanced.dart": 8,
   "lib/screens/add_office_screen.dart": 2,

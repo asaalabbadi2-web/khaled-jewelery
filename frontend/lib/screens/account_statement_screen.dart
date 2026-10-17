@@ -30,6 +30,7 @@ import '../theme/app_theme.dart' as app_theme;
 import '../widgets/app_state_views.dart';
 import '../widgets/app_period_picker.dart';
 import '../widgets/app_table.dart';
+import '../widgets/app_feedback.dart';
 
 enum _StatementDisplayMode { table, cards }
 
@@ -64,6 +65,10 @@ class AccountStatementScreen extends StatefulWidget {
 }
 
 class _AccountStatementScreenState extends State<AccountStatementScreen> {
+  // ADR-049: colors from the theme, so the statement reads in both modes.
+  ColorScheme get _cs => Theme.of(context).colorScheme;
+  app_theme.AppSemanticColors get _tone => app_theme.AppSemanticColors.of(context);
+
   late final ApiService _api = widget.apiService ?? ApiService();
   bool _isLoading = true;
 
@@ -576,7 +581,7 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
                   width: 40,
                   height: 4,
                   decoration: BoxDecoration(
-                    color: Colors.grey.shade300,
+                    color: _cs.outlineVariant,
                     borderRadius: BorderRadius.circular(12),
                   ),
                 ),
@@ -606,9 +611,7 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
                   onTap: () => _handleExport(() async {
                     await _copySummaryToClipboard();
                     if (mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('تم نسخ الملخص')),
-                      );
+                      AppFeedback.success(context, 'تم نسخ الملخص');
                     }
                   }),
                 ),
@@ -629,9 +632,7 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
       debugPrint('Account statement export failed: $e');
       debugPrintStack(stackTrace: st);
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('فشل التصدير: $e')));
+      AppFeedback.error(context, e, title: 'فشل التصدير');
     } finally {
       if (mounted) {
         setState(() => _isExporting = false);
@@ -1969,15 +1970,7 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
                                                     ),
                                                   ),
                                                 );
-                                                ScaffoldMessenger.of(
-                                                  context,
-                                                ).showSnackBar(
-                                                  const SnackBar(
-                                                    content: Text(
-                                                      'تم نسخ ملخص الحركة',
-                                                    ),
-                                                  ),
-                                                );
+                                                AppFeedback.success(context, 'تم نسخ ملخص الحركة');
                                               }
                                             },
                                             itemBuilder: (context) => const [
@@ -2164,9 +2157,7 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
                             text: _buildLineSummary(line, mainKarat),
                           ),
                         );
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('تم نسخ ملخص الحركة')),
-                        );
+                        AppFeedback.success(context, 'تم نسخ ملخص الحركة');
                       }
                     },
                     itemBuilder: (context) => const [
@@ -2184,7 +2175,7 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
                       label: 'حركة الذهب',
                       movement: cu.formatGrams(goldMovement),
                       balance: cu.formatGrams((line.runningGoldBalance ?? 0)),
-                      color: const Color(0xFFD4A017),
+                      color: _tone.gold.fg,
                       icon: Icons.auto_awesome_outlined,
                     ),
                   if (_viewMode != 2 && _viewMode != 1)
@@ -2196,7 +2187,7 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
                           : 'حركة النقد',
                       movement: cu.formatAmount(cashMovement),
                       balance: cu.formatAmount((line.runningCashBalance ?? 0)),
-                      color: Colors.green,
+                      color: _tone.cash.fg,
                       icon: Icons.payments_outlined,
                     ),
                 ],
@@ -2308,10 +2299,7 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
             const SizedBox(width: 4),
             Text(
               subtitle,
-              style: TextStyle(
-                fontSize: 11,
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(color: theme.colorScheme.onSurfaceVariant,),
             ),
           ],
         ),
@@ -2429,7 +2417,7 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
                   height: 4,
                   margin: const EdgeInsets.symmetric(vertical: 10),
                   decoration: BoxDecoration(
-                    color: Colors.grey.shade300,
+                    color: _cs.outlineVariant,
                     borderRadius: BorderRadius.circular(2),
                   ),
                 ),
@@ -2438,15 +2426,12 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
                   padding: const EdgeInsets.fromLTRB(16, 0, 8, 12),
                   child: Row(
                     children: [
-                      Icon(icon, color: app_theme.AppColors.primaryGold, size: 22),
+                      Icon(icon, color: _tone.gold.fg, size: 22),
                       const SizedBox(width: 10),
                       Expanded(
                         child: Text(
                           title,
-                          style: const TextStyle(
-                            fontWeight: FontWeight.w800,
-                            fontSize: 16,
-                          ),
+                          style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800,),
                         ),
                       ),
                       IconButton(
@@ -2472,7 +2457,7 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
                             child: Column(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                const Icon(Icons.error_outline, size: 40, color: Colors.red),
+                                Icon(Icons.error_outline, size: 40, color: _cs.error),
                                 const SizedBox(height: 12),
                                 Text(
                                   'تعذّر تحميل تفاصيل الوثيقة',
@@ -2481,7 +2466,7 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
                                 const SizedBox(height: 6),
                                 Text(
                                   snap.error?.toString() ?? '',
-                                  style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                                  style: Theme.of(context).textTheme.bodySmall?.copyWith(color: _cs.onSurfaceVariant,),
                                   textAlign: TextAlign.center,
                                 ),
                               ],
@@ -2512,7 +2497,7 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
     final invoiceType   = inv['invoice_type']?.toString() ?? '';
     final date          = inv['date']?.toString().substring(0, 10) ?? '—';
     final status        = (inv['is_posted'] == true || inv['status'] == 'posted') ? 'مُرحَّل' : 'مسودة';
-    final statusColor   = status == 'مُرحَّل' ? Colors.green : Colors.orange;
+    final statusColor   = status == 'مُرحَّل' ? _tone.ready.fg : _tone.warning.fg;
     final customerName  = inv['customer_name']?.toString() ?? '';
     final supplierName  = inv['supplier_name']?.toString() ?? '';
     final total         = (inv['total'] as num?)?.toDouble() ?? 0.0;
@@ -2533,11 +2518,11 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
           spacing: 8, runSpacing: 6,
           children: [
             if (invoiceType.isNotEmpty)
-              _docChip(invoiceType, app_theme.AppColors.primaryGold),
-            _docChip('#$invoiceNumber', Colors.blueGrey),
+              _docChip(invoiceType, _tone.gold.fg),
+            _docChip('#$invoiceNumber', _tone.sectionSlate.fg),
             _docChip(status, statusColor),
-            _docChip(date, Colors.blueGrey),
-            if (postedBy.isNotEmpty) _docChip('بواسطة: $postedBy', Colors.blueGrey),
+            _docChip(date, _tone.sectionSlate.fg),
+            if (postedBy.isNotEmpty) _docChip('بواسطة: $postedBy', _tone.sectionSlate.fg),
           ],
         ),
         const SizedBox(height: 14),
@@ -2555,11 +2540,11 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
         // ── الأصناف ─────────────────────────────────────────────────────
         Text(
           'الأصناف (${items.length})',
-          style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13),
+          style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w800,),
         ),
         const SizedBox(height: 8),
         if (items.isEmpty)
-          Text('لا توجد أصناف', style: TextStyle(color: Colors.grey.shade500))
+          Text('لا توجد أصناف', style: TextStyle(color: _cs.onSurfaceVariant))
         else
           ...items.map((rawItem) {
             if (rawItem is! Map) return const SizedBox.shrink();
@@ -2575,9 +2560,9 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
               margin: const EdgeInsets.only(bottom: 8),
               padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
-                color: Colors.grey.shade50,
+                color: _cs.surfaceContainerLow,
                 borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: Colors.grey.shade200),
+                border: Border.all(color: _cs.outlineVariant),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -2605,19 +2590,19 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
         const SizedBox(height: 10),
 
         // ── الإجماليات ──────────────────────────────────────────────────
-        Text('الإجماليات', style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13)),
+        Text('الإجماليات', style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w800,)),
         const SizedBox(height: 8),
         if (totalWeight != null)
           _summaryRow('إجمالي الوزن', '${cu.formatGrams(totalWeight)} جم'),
         if (totalTax > 0)
           _summaryRow('الضريبة', '${cu.formatAmount(totalTax)} $currency'),
         _summaryRow('الإجمالي الكلي', '${cu.formatAmount(total)} $currency', highlight: true),
-        _summaryRow('المدفوع', '${cu.formatAmount(paid)} $currency', color: Colors.green),
+        _summaryRow('المدفوع', '${cu.formatAmount(paid)} $currency', color: _tone.ready.fg),
         if (remaining.abs() > 0.01)
           _summaryRow(
             remaining > 0 ? 'المتبقي' : 'زيادة دفع',
             '${cu.formatAmount(remaining.abs())} $currency',
-            color: remaining > 0 ? Colors.red : Colors.blue,
+            color: remaining > 0 ? _cs.error : _tone.info.fg,
           ),
 
         if (notes.isNotEmpty) ...[
@@ -2654,7 +2639,7 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
     // نوع السند
     final isReceipt = type == 'receipt' || type.contains('قبض') || type.contains('rv') || type.toLowerCase().contains('receipt');
     final typeLabel = isReceipt ? '📥 سند قبض' : '📤 سند صرف';
-    final typeColor = isReceipt ? Colors.green : Colors.red;
+    final typeColor = _tone.voucher(isReceipt ? app_theme.VoucherKind.receipt : app_theme.VoucherKind.payment).fg;
 
     // سطور الحسابات (account_lines) — الهيكل الحقيقي من الـ API
     final accountLines = (v['account_lines'] as List?) ?? [];
@@ -2667,10 +2652,10 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
           spacing: 8, runSpacing: 6,
           children: [
             _docChip(typeLabel, typeColor),
-            if (voucherNum != '—') _docChip('#$voucherNum', Colors.blueGrey),
-            if (date.isNotEmpty) _docChip(date, Colors.blueGrey),
-            if (status.isNotEmpty) _docChip(status, Colors.blueGrey),
-            if (createdBy.isNotEmpty) _docChip('بواسطة: $createdBy', Colors.blueGrey),
+            if (voucherNum != '—') _docChip('#$voucherNum', _tone.sectionSlate.fg),
+            if (date.isNotEmpty) _docChip(date, _tone.sectionSlate.fg),
+            if (status.isNotEmpty) _docChip(status, _tone.sectionSlate.fg),
+            if (createdBy.isNotEmpty) _docChip('بواسطة: $createdBy', _tone.sectionSlate.fg),
           ],
         ),
         const SizedBox(height: 14),
@@ -2704,7 +2689,7 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
           const SizedBox(height: 8),
           Text(
             'سطور السند (${accountLines.length})',
-            style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13),
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w800,),
           ),
           const SizedBox(height: 8),
           ...accountLines.map((l) {
@@ -2725,13 +2710,13 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
               decoration: BoxDecoration(
                 color: isDebit
-                    ? Colors.red.shade50
-                    : Colors.green.shade50,
+                    ? _tone.debit.container
+                    : _tone.credit.container,
                 borderRadius: BorderRadius.circular(8),
                 border: Border.all(
                   color: isDebit
-                      ? Colors.red.shade200
-                      : Colors.green.shade200,
+                      ? _tone.debit.fg.withValues(alpha: 0.4)
+                      : _tone.credit.fg.withValues(alpha: 0.4),
                 ),
               ),
               child: Row(
@@ -2739,41 +2724,33 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
                   Icon(
                     isDebit ? Icons.arrow_circle_down_outlined : Icons.arrow_circle_up_outlined,
                     size: 18,
-                    color: isDebit ? Colors.red.shade600 : Colors.green.shade600,
+                    color: isDebit ? _tone.debit.fg : _tone.credit.fg,
                   ),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(acName, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
+                        Text(acName, style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w700,)),
                         if (lineDesc.isNotEmpty)
-                          Text(lineDesc, style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
+                          Text(lineDesc, style: Theme.of(context).textTheme.labelSmall?.copyWith(color: _cs.onSurfaceVariant,)),
                       ],
                     ),
                   ),
                   Text(
                     '${cu.formatAmount(lineAmount, decimals: amtType == 'gold' ? 3 : 2)} $unit',
-                    style: TextStyle(
-                      fontWeight: FontWeight.w800,
-                      fontSize: 13,
-                      color: isDebit ? Colors.red.shade700 : Colors.green.shade700,
-                    ),
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w800, color: isDebit ? _tone.debit.fg : _tone.credit.fg,),
                   ),
                   const SizedBox(width: 6),
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                     decoration: BoxDecoration(
-                      color: isDebit ? Colors.red.shade100 : Colors.green.shade100,
+                      color: isDebit ? _tone.debit.container : _tone.credit.container,
                       borderRadius: BorderRadius.circular(4),
                     ),
                     child: Text(
                       isDebit ? 'مدين' : 'دائن',
-                      style: TextStyle(
-                        fontSize: 10,
-                        fontWeight: FontWeight.w700,
-                        color: isDebit ? Colors.red.shade700 : Colors.green.shade700,
-                      ),
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(fontWeight: FontWeight.w700, color: isDebit ? _tone.debit.fg : _tone.credit.fg,),
                     ),
                   ),
                 ],
@@ -2812,10 +2789,10 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
         Wrap(
           spacing: 8, runSpacing: 6,
           children: [
-            _docChip('قيد #$entryNum', app_theme.AppColors.primaryGold),
-            _docChip(date, Colors.blueGrey),
-            if (status.isNotEmpty) _docChip(status, Colors.blueGrey),
-            if (createdBy.isNotEmpty) _docChip('بواسطة: $createdBy', Colors.blueGrey),
+            _docChip('قيد #$entryNum', _tone.gold.fg),
+            _docChip(date, _tone.sectionSlate.fg),
+            if (status.isNotEmpty) _docChip(status, _tone.sectionSlate.fg),
+            if (createdBy.isNotEmpty) _docChip('بواسطة: $createdBy', _tone.sectionSlate.fg),
           ],
         ),
         const SizedBox(height: 12),
@@ -2830,11 +2807,11 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
         // ── سطور القيد ───────────────────────────────────────────────
         Text(
           'سطور القيد (${lines.length})',
-          style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13),
+          style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w800,),
         ),
         const SizedBox(height: 8),
         if (lines.isEmpty)
-          Text('لا توجد سطور', style: TextStyle(color: Colors.grey.shade500))
+          Text('لا توجد سطور', style: TextStyle(color: _cs.onSurfaceVariant))
         else
           ...lines.map((l) {
             if (l is! Map) return const SizedBox.shrink();
@@ -2848,17 +2825,17 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
               margin: const EdgeInsets.only(bottom: 6),
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
               decoration: BoxDecoration(
-                color: Colors.grey.shade50,
+                color: _cs.surfaceContainerLow,
                 borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: Colors.grey.shade200),
+                border: Border.all(color: _cs.outlineVariant),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(acName, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
+                  Text(acName, style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w700,)),
                   if (narr.isNotEmpty) ...[
                     const SizedBox(height: 2),
-                    Text(narr, style: TextStyle(fontSize: 11, color: Colors.grey.shade600)),
+                    Text(narr, style: Theme.of(context).textTheme.labelSmall?.copyWith(color: _cs.onSurfaceVariant,)),
                   ],
                   const SizedBox(height: 4),
                   Wrap(
@@ -2880,7 +2857,7 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
         const SizedBox(height: 8),
 
         // ── الميزان ──────────────────────────────────────────────────
-        Text('ميزان القيد', style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 13)),
+        Text('ميزان القيد', style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w800,)),
         const SizedBox(height: 6),
         if (totalDebitCash > 0 || totalCreditCash > 0) ...[
           _summaryRow('إجمالي نقد مدين', '${cu.formatAmount(totalDebitCash)} $currency'),
@@ -2905,11 +2882,7 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
     ),
     child: Text(
       label,
-      style: TextStyle(
-        fontSize: 11.5,
-        fontWeight: FontWeight.w700,
-        color: color.withValues(alpha: 0.85),
-      ),
+      style: Theme.of(context).textTheme.labelSmall?.copyWith(fontWeight: FontWeight.w700, color: color.withValues(alpha: 0.85),),
     ),
   );
 
@@ -2918,13 +2891,13 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
     child: Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Icon(icon, size: 17, color: Colors.grey.shade500),
+        Icon(icon, size: 17, color: _cs.onSurfaceVariant),
         const SizedBox(width: 8),
         SizedBox(
           width: 72,
-          child: Text(label, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+          child: Text(label, style: Theme.of(context).textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w600,)),
         ),
-        Expanded(child: Text(value, style: const TextStyle(fontSize: 13))),
+        Expanded(child: Text(value, style: Theme.of(context).textTheme.bodyMedium?.copyWith())),
       ],
     ),
   );
@@ -2938,19 +2911,12 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
         Expanded(
           child: Text(
             label,
-            style: TextStyle(
-              fontSize: 13,
-              fontWeight: highlight ? FontWeight.w800 : FontWeight.w500,
-            ),
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontWeight: highlight ? FontWeight.w800 : FontWeight.w500,),
           ),
         ),
         Text(
           value,
-          style: TextStyle(
-            fontSize: 13,
-            fontWeight: highlight ? FontWeight.w900 : FontWeight.w600,
-            color: color ?? (highlight ? app_theme.AppColors.primaryGold : null),
-          ),
+          style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontWeight: highlight ? FontWeight.w900 : FontWeight.w600, color: color ?? (highlight ? _tone.gold.fg : null),),
         ),
       ],
     ),
@@ -2959,13 +2925,13 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
   Widget _infoTag(String label, String value, {bool bold = false}) => Container(
     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
     decoration: BoxDecoration(
-      color: Colors.grey.shade100,
+      color: _cs.surfaceContainerHigh,
       borderRadius: BorderRadius.circular(6),
-      border: Border.all(color: Colors.grey.shade300),
+      border: Border.all(color: _cs.outlineVariant),
     ),
     child: RichText(
       text: TextSpan(
-        style: const TextStyle(fontSize: 11.5, color: Colors.black87),
+        style: Theme.of(context).textTheme.labelSmall?.copyWith(color: _cs.onSurface,),
         children: [
           TextSpan(text: '$label: '),
           TextSpan(
@@ -3006,10 +2972,7 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
                     Expanded(
                       child: Text(
                         'تفاصيل الحركة - ${DateFormat('dd/MM/yyyy').format(line.date)}',
-                        style: const TextStyle(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 16,
-                        ),
+                        style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold,),
                       ),
                     ),
                     IconButton(
@@ -3019,9 +2982,7 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
                         await Clipboard.setData(ClipboardData(text: summary));
                         if (mounted) {
                           Navigator.of(context).pop();
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('تم نسخ التفاصيل')),
-                          );
+                          AppFeedback.success(context, 'تم نسخ التفاصيل');
                         }
                       },
                     ),
@@ -3113,23 +3074,24 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
               style: const TextStyle(fontWeight: FontWeight.w600),
             ),
           ),
-          Expanded(child: Text(value, style: const TextStyle(fontSize: 13))),
+          Expanded(child: Text(value, style: Theme.of(context).textTheme.bodyMedium?.copyWith())),
         ],
       ),
     );
   }
 
   Widget _buildKaratChip(String label, double debit, double credit) {
-    final base = app_theme.AppColors.karatColorFor(label);
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final tone = _tone.karat(
+      int.tryParse(label.replaceAll(RegExp(r'[^0-9]'), '')) ?? 0,
+    );
     return Chip(
-      backgroundColor: base.withValues(alpha: isDark ? 0.20 : 0.12),
+      backgroundColor: tone.container,
       shape: StadiumBorder(
-        side: BorderSide(color: base.withValues(alpha: isDark ? 0.55 : 0.35)),
+        side: BorderSide(color: tone.fg.withValues(alpha: 0.35)),
       ),
       label: Text(
         '$label • مدين ${cu.formatGrams(debit)} / دائن ${cu.formatGrams(credit)}',
-        style: TextStyle(color: base, fontWeight: FontWeight.w700),
+        style: TextStyle(color: tone.onContainer, fontWeight: FontWeight.w700),
       ),
     );
   }

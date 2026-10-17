@@ -7,7 +7,6 @@
   "lib/pdf/invoice_pdf_builder.dart": 4,
   "lib/pdf/voucher_pdf_builder.dart": 36,
   "lib/screens/account_ledger_screen.dart": 39,
-  "lib/screens/account_statement_screen.dart": 52,
   "lib/screens/add_customer_screen.dart": 38,
   "lib/screens/add_office_screen.dart": 6,
   "lib/screens/add_return_invoice_screen.dart": 27,

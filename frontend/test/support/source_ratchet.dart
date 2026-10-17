@@ -7,6 +7,19 @@ import 'dart:io';
 ///
 /// بعد تنظيف ملف يُخفَّض حدّه بتشغيل الاختبار و[updateEnv] = 1؛ التحديث
 /// يُخفِّض ولا يرفع.
+/// The baseline after an update: a file may go down or drop out, never up;
+/// and a file not in it stays out -- its limit is zero, and an update does not
+/// write its count in as a limit (it let in another session's work in
+/// progress, 17 Oct 2026).
+Map<String, int> lowerBaseline(
+  Map<String, int> now,
+  Map<String, int> baseline,
+) => {
+  for (final e in now.entries)
+    if (baseline.containsKey(e.key))
+      e.key: e.value <= baseline[e.key]! ? e.value : baseline[e.key]!,
+};
+
 class SourceRatchet {
   const SourceRatchet({
     required this.pattern,
@@ -63,14 +76,7 @@ class SourceRatchet {
         : <String, int>{};
 
     if (Platform.environment[updateEnv] == '1') {
-      // Lowering only: a file may go down or drop out, never up.
-      final lowered = <String, int>{
-        for (final e in now.entries)
-          if (!baseline.containsKey(e.key) || e.value <= baseline[e.key]!)
-            e.key: e.value
-          else
-            e.key: baseline[e.key]!,
-      };
+      final lowered = lowerBaseline(now, baseline);
       file.writeAsStringSync(
         '${const JsonEncoder.withIndent('  ').convert(lowered)}\n',
       );

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:frontend/api_service.dart';
@@ -113,7 +114,7 @@ void main() {
   });
 
   Future<void> open(WidgetTester tester, {_FakeApi? api, String entityType = 'account',
-      Map<String, Object> prefs = const {}, bool settle = true}) async {
+      Map<String, Object> prefs = const {}, bool settle = true, ThemeData? theme}) async {
     final cairo = FontLoader('Cairo');
     for (final w in ['Regular', 'SemiBold', 'Bold']) {
       cairo.addFont(rootBundle.load('assets/fonts/Cairo-$w.ttf'));
@@ -128,7 +129,7 @@ void main() {
     await tester.pumpWidget(ChangeNotifierProvider.value(
       value: settings,
       child: MaterialApp(
-        theme: LightTheme.theme,
+        theme: theme ?? LightTheme.theme,
         home: Directionality(
           textDirection: TextDirection.rtl,
           child: AccountStatementScreen(
@@ -291,5 +292,20 @@ void main() {
     await open(tester);
     expect(tester.takeException(), isNull);
     await shotWidths(tester, 'statement');
+  });
+
+  testWidgets('a statement reads in the dark theme: no text near-black on it '
+      '(ADR-049)', (tester) async {
+    await open(tester, theme: DarkTheme.theme);
+    expect(tester.takeException(), isNull);
+    final dark = <String>[];
+    for (final p in tester.renderObjectList<RenderParagraph>(find.byType(RichText))) {
+      final color = p.text.style?.color;
+      if (color != null && color.a > 0.5 && color.computeLuminance() < 0.05) {
+        dark.add(p.text.toPlainText());
+      }
+    }
+    expect(dark, isEmpty, reason: 'text that vanishes on dark');
+    await shotWidths(tester, 'statement_dark');
   });
 }
