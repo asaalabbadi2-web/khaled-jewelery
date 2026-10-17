@@ -250,4 +250,34 @@ void main() {
     ));
     expect(find.text(periodLabel(month)), findsOneWidget);
   });
+
+  testWidgets('the selected voucher type wears its own color (ADR-049)', (
+    tester,
+  ) async {
+    await pump(
+      tester,
+      LightTheme.theme,
+      VouchersListScreen(apiService: _ListApi()),
+    );
+    Color? frame() =>
+        ((tester.widget<TabBar>(find.byType(TabBar)).indicator
+                        as BoxDecoration?)
+                    ?.border
+                as Border?)
+            ?.top
+            .color;
+    final tones = AppSemanticColors.of(tester.element(find.byType(TabBar)));
+
+    expect(frame(), tones.gold.fg, reason: '«الكل»');
+    await tester.tap(
+      find.descendant(of: find.byType(TabBar), matching: find.text('صرف')),
+    );
+    await tester.pumpAndSettle();
+    expect(frame(), tones.voucher(VoucherKind.payment).fg);
+    await tester.tap(
+      find.descendant(of: find.byType(TabBar), matching: find.text('قبض')),
+    );
+    await tester.pumpAndSettle();
+    expect(frame(), tones.voucher(VoucherKind.receipt).fg);
+  });
 }

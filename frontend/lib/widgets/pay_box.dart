@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../theme/app_button_styles.dart';
 import '../theme/app_semantic_colors.dart';
 import '../utils.dart';
 
@@ -69,7 +70,7 @@ class PayBox extends StatelessWidget {
           runSpacing: 8,
           children: [
             for (var i = 0; i < methods.length; i++)
-              _button(methods[i], prominent: i < 2, shortcut: i + 1),
+              _button(context, methods[i], prominent: i < 2, shortcut: i + 1),
           ],
         ),
         const SizedBox(height: 10),
@@ -92,6 +93,7 @@ class PayBox extends StatelessWidget {
   }
 
   Widget _button(
+    BuildContext context,
     Map<String, dynamic> method, {
     required bool prominent,
     required int shortcut,
@@ -109,20 +111,28 @@ class PayBox extends StatelessWidget {
     );
     final key = Key('quick-pay-${method['id']}');
     void press() => onPay(method['id'] as int);
-    // The methods used most are soft-filled, the rest outlined: they are
-    // choices, not the screen's one strong action (ADR-049).
+    // The ways to pay wear the cash tone, set apart from the screen's other
+    // soft buttons (the owner, 17 Oct 2026: they looked like the rest): the
+    // methods used most filled with its light color and framed in its strong
+    // one, the others framed only. Each pair is tested 4.5:1 (ADR-049).
+    final cash = AppSemanticColors.of(context).cash;
     final button = prominent
         ? FilledButton.tonalIcon(
             key: key,
             onPressed: press,
             icon: icon,
             label: label,
+            style: AppButtonStyles.kind(cash),
           )
         : OutlinedButton.icon(
             key: key,
             onPressed: press,
             icon: icon,
             label: label,
+            style: OutlinedButton.styleFrom(
+              foregroundColor: cash.fg,
+              side: BorderSide(color: cash.fg.withValues(alpha: 0.6)),
+            ),
           );
     return shortcut <= 9
         ? Tooltip(message: 'Alt+$shortcut', child: button)

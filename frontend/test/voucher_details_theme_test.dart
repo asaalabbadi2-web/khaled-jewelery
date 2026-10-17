@@ -1,7 +1,6 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:frontend/providers/auth_provider.dart';
@@ -14,6 +13,7 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'support/shots.dart';
+import 'support/dark_text.dart';
 
 /// UI-5 (ADR-049): a voucher's details read in the dark theme too. Its text
 /// was written black (Colors.black87 / black54) and vanished on the dark
@@ -112,19 +112,7 @@ void main() {
       await shot(tester, 'voucher_details_$name');
 
       if (theme.brightness == Brightness.dark) {
-        // No text painted near-black on the dark theme.
-        final dark = <String>[];
-        for (final p in tester.renderObjectList<RenderParagraph>(
-          find.byType(RichText),
-        )) {
-          final color = p.text.style?.color;
-          if (color != null &&
-              color.a > 0.5 &&
-              color.computeLuminance() < 0.05) {
-            dark.add(p.text.toPlainText());
-          }
-        }
-        expect(dark, isEmpty, reason: 'text that vanishes on dark');
+        expectNoTextVanishesOnDark(tester);
       }
     });
   }

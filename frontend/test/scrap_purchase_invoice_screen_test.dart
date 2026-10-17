@@ -13,6 +13,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'support/fake_sales_api.dart';
 import 'support/payload_witness.dart';
+import 'support/dark_text.dart';
 
 /// SALES-UX-9 (the owner, 8 Oct 2026): the scrap purchase from a customer --
 /// 776 of the 6 Oct copy's invoices, 3.9 a day -- records what was typed,
@@ -65,6 +66,7 @@ void main() {
     required FakeSalesApi api,
     Map<String, dynamic>? editing,
     List<Map<String, dynamic>> customers = const [],
+    ThemeData? theme,
   }) async {
     SharedPreferences.setMockInitialValues({
       'app_settings': jsonEncode({'main_karat': 21}),
@@ -83,7 +85,7 @@ void main() {
           ChangeNotifierProvider.value(value: settings),
         ],
         child: MaterialApp(
-          theme: LightTheme.theme,
+          theme: theme ?? LightTheme.theme,
           home: Directionality(
             textDirection: TextDirection.rtl,
             child: Builder(
@@ -509,4 +511,19 @@ void main() {
     }
     expectPayload('scrap_purchase_paid', api.updated.single);
   });
+
+  testWidgets(
+    'a scrap purchase reads in the dark theme: no text near-black on it '
+    '(ADR-049)',
+    (tester) async {
+      await open(
+        tester,
+        api: FakeSalesApi(),
+        editing: invoice(),
+        theme: DarkTheme.theme,
+      );
+      expect(tester.takeException(), isNull);
+      expectNoTextVanishesOnDark(tester);
+    },
+  );
 }

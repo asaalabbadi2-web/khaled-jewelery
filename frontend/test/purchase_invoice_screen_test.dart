@@ -14,6 +14,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'support/fake_purchase_api.dart';
 import 'support/payload_witness.dart';
 import 'support/shots.dart';
+import 'support/dark_text.dart';
 
 /// PURCHASE-UX-1 (the owner, 6 Oct 2026): the purchase invoice screen says
 /// «ready» only when the server would take the invoice; otherwise it names the
@@ -72,6 +73,7 @@ void main() {
     Map<String, Object> prefs = const {},
     Map<String, dynamic>? editing,
     bool supplierReturn = false,
+    ThemeData? theme,
   }) async {
     SharedPreferences.setMockInitialValues({
       if (saved != null) draftKey: jsonEncode(saved),
@@ -89,7 +91,7 @@ void main() {
           ChangeNotifierProvider(create: (_) => SettingsProvider()),
         ],
         child: MaterialApp(
-          theme: LightTheme.theme,
+          theme: theme ?? LightTheme.theme,
           home: Directionality(
             textDirection: TextDirection.rtl,
             child: Builder(
@@ -637,5 +639,17 @@ void main() {
     await tester.tap(find.text('حفظ الفاتورة').last);
     await settle(tester);
     expectPayload('purchase_credit', api.added.single);
+  });
+
+  testWidgets('a purchase reads in the dark theme: no text near-black on it '
+      '(ADR-049)', (tester) async {
+    await open(
+      tester,
+      api: FakePurchaseApi(),
+      saved: draft(),
+      theme: DarkTheme.theme,
+    );
+    expect(tester.takeException(), isNull);
+    expectNoTextVanishesOnDark(tester);
   });
 }

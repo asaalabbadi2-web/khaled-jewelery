@@ -258,6 +258,27 @@ class _VouchersListScreenState extends State<VouchersListScreen>
     }
   }
 
+  /// The selected type's tone: receipt, payment, adjustment, or all.
+  SemanticTone get _tabTone => switch (_tabController.index) {
+    1 => _tone.voucher(VoucherKind.receipt),
+    2 => _tone.voucher(VoucherKind.payment),
+    3 => _tone.warning,
+    _ => _tone.gold,
+  };
+
+  /// A type tab: its icon beside its name, readable at a glance.
+  Widget _typeTab(IconData icon, String label) => Tab(
+    height: 40,
+    child: Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 18),
+        const SizedBox(width: AppSpace.sm),
+        Text(label),
+      ],
+    ),
+  );
+
   Future<void> _refresh() async {
     await _loadVouchers();
   }
@@ -504,31 +525,20 @@ class _VouchersListScreenState extends State<VouchersListScreen>
               padding: const EdgeInsets.all(3),
               child: TabBar(
                 controller: _tabController,
-                labelColor: _tone.gold.fg,
-                unselectedLabelColor: _withAlpha(_cs.onSurface, 0.68),
+                labelColor: _tabTone.onContainer,
+                unselectedLabelColor: _cs.onSurfaceVariant,
                 labelStyle: themeData.textTheme.bodyMedium?.copyWith(
                   fontWeight: FontWeight.w700,
                 ),
                 unselectedLabelStyle: themeData.textTheme.bodyMedium?.copyWith(
                   fontWeight: FontWeight.w700,
                 ),
+                // The selected type in its own color (ADR-049): the same
+                // look as an action of a kind.
                 indicator: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [
-                      _tone.gold.container,
-                      _tone.gold.fg,
-                    ],
-                    begin: _gradientBegin(),
-                    end: _gradientEnd(),
-                  ),
-                  borderRadius: BorderRadius.circular(24),
-                  boxShadow: [
-                    BoxShadow(
-                      color: _withAlpha(_cs.shadow, 0.08),
-                      blurRadius: 8,
-                      offset: const Offset(0, 4),
-                    ),
-                  ],
+                  color: _tabTone.container,
+                  borderRadius: BorderRadius.circular(AppRadius.pill),
+                  border: Border.all(color: _tabTone.fg, width: 1.5),
                 ),
                 indicatorPadding: const EdgeInsets.symmetric(
                   horizontal: 4,
@@ -538,26 +548,10 @@ class _VouchersListScreenState extends State<VouchersListScreen>
                 dividerColor: Colors.transparent,
                 tabAlignment: TabAlignment.fill,
                 tabs: [
-                  Tab(
-                    icon: Icon(Icons.list_alt, size: 17),
-                    height: 42,
-                    text: 'الكل',
-                  ),
-                  Tab(
-                    icon: Icon(Icons.call_received, size: 17),
-                    height: 42,
-                    text: 'قبض',
-                  ),
-                  Tab(
-                    icon: Icon(Icons.call_made, size: 17),
-                    height: 42,
-                    text: 'صرف',
-                  ),
-                  Tab(
-                    icon: Icon(Icons.balance, size: 17),
-                    height: 42,
-                    text: 'تسوية',
-                  ),
+                  _typeTab(Icons.list_alt, 'الكل'),
+                  _typeTab(Icons.call_received, 'قبض'),
+                  _typeTab(Icons.call_made, 'صرف'),
+                  _typeTab(Icons.balance, 'تسوية'),
                 ],
               ),
             ),
@@ -767,17 +761,6 @@ class _VouchersListScreenState extends State<VouchersListScreen>
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.fromLTRB(14, 8, 14, 10),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [_cs.primary, _cs.secondary],
-          begin: _gradientBegin(),
-          end: _gradientEnd(),
-        ),
-        borderRadius: BorderRadius.only(
-          bottomLeft: Radius.circular(24),
-          bottomRight: Radius.circular(24),
-        ),
-      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [_buildStatusFilters(themeData)],
@@ -923,11 +906,14 @@ class _VouchersListScreenState extends State<VouchersListScreen>
       runSpacing: 8,
       children: statuses.map((status) {
         final bool selected = _selectedStatus == status['value'];
-        // Make the label text gold for all status chips per request.
-        final Color foreground = _tone.gold.fg;
+        // Calm chips on the page (ADR-049): the chosen one in the primary's
+        // light color and its own text, the rest plain.
+        final Color foreground = selected
+            ? _cs.onPrimaryContainer
+            : _cs.onSurfaceVariant;
         final Color background = selected
-            ? _cs.surfaceContainerLowest
-            : _withAlpha(_cs.surfaceContainerLowest, 0.12);
+            ? _cs.primaryContainer
+            : Colors.transparent;
 
         return ChoiceChip(
           label: Row(
@@ -936,9 +922,7 @@ class _VouchersListScreenState extends State<VouchersListScreen>
               Icon(
                 status['icon'] as IconData,
                 size: 16,
-                color: selected
-                    ? _tone.gold.fg
-                    : _withAlpha(_tone.gold.fg, 0.9),
+                color: foreground,
               ),
               const SizedBox(width: 6),
               Text(
@@ -960,13 +944,14 @@ class _VouchersListScreenState extends State<VouchersListScreen>
             _loadVouchers(page: 1);
           },
           backgroundColor: background,
-          selectedColor: _cs.surfaceContainerLowest,
+          selectedColor: _cs.primaryContainer,
+          showCheckmark: false,
           pressElevation: 0,
           elevation: 0,
           labelPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
           shape: StadiumBorder(
             side: BorderSide(
-              color: _withAlpha(_cs.outlineVariant, selected ? 0 : 1),
+              color: selected ? _cs.primary : _cs.outlineVariant,
             ),
           ),
         );
@@ -2694,12 +2679,17 @@ class _VouchersListScreenState extends State<VouchersListScreen>
     // Three side by side: soft, each in its kind's tone (ADR-049) -- not
     // three loud blocks across the bottom of the screen.
     return SizedBox(
-      height: kMinTapHeight,
+      height: 48,
       child: FilledButton.icon(
         onPressed: onPressed,
-        style: AppButtonStyles.tonal(tone).copyWith(
+        style: AppButtonStyles.kind(tone).copyWith(
           padding: const WidgetStatePropertyAll(
             EdgeInsets.symmetric(horizontal: AppSpace.sm),
+          ),
+          textStyle: WidgetStatePropertyAll(
+            Theme.of(context).textTheme.bodyLarge?.copyWith(
+              fontWeight: FontWeight.w700,
+            ),
           ),
         ),
         icon: Icon(icon, size: 18),

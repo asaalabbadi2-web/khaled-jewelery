@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:frontend/providers/auth_provider.dart';
@@ -17,6 +16,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'support/fake_sales_api.dart';
 import 'support/payload_witness.dart';
 import 'support/shots.dart';
+import 'support/dark_text.dart';
 
 /// SALES-UX-1 (the owner, 7 Oct 2026): the sales screen records what was
 /// typed and sold -- no amount, weight or customer the seller did not mean.
@@ -1186,16 +1186,7 @@ void main() {
       theme: DarkTheme.theme,
     );
     expect(tester.takeException(), isNull);
-    final dark = <String>[];
-    for (final p in tester.renderObjectList<RenderParagraph>(
-      find.byType(RichText),
-    )) {
-      final color = p.text.style?.color;
-      if (color != null && color.a > 0.5 && color.computeLuminance() < 0.05) {
-        dark.add(p.text.toPlainText());
-      }
-    }
-    expect(dark, isEmpty, reason: 'text that vanishes on dark');
+    expectNoTextVanishesOnDark(tester);
     await shotWidths(tester, 'sales_dark');
   });
 }

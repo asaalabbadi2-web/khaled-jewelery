@@ -24,6 +24,18 @@ abstract final class AppButtonStyles {
     elevation: 0,
   );
 
+  /// An action of a kind -- a way to pay, a voucher type to create: the
+  /// kind's light container framed in its own strong color, its dark text,
+  /// its icon in the strong color. Set apart from the plain soft buttons
+  /// (the owner, 17 Oct 2026) without the weight of a filled one.
+  static ButtonStyle kind(SemanticTone tone) => FilledButton.styleFrom(
+    backgroundColor: tone.container,
+    foregroundColor: tone.onContainer,
+    iconColor: tone.fg,
+    side: BorderSide(color: tone.fg, width: 1.5),
+    elevation: 0,
+  );
+
   /// The one primary action in [tone]: its color with white text in light
   /// mode; its container with its light text in dark mode, where the color
   /// itself is too light to carry white.

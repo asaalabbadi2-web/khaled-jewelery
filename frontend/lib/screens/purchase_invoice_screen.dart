@@ -26,6 +26,7 @@ import '../utils/wage_treatment.dart';
 import 'add_supplier_screen.dart';
 import '../utils.dart';
 import '../utils/currency_utils.dart';
+import '../widgets/app_feedback.dart';
 
 enum _PurchaseSettlementMode { credit, barter, partial }
 
@@ -82,13 +83,9 @@ class _CommissionToggleButton extends StatelessWidget {
         ),
         child: Text(
           label,
-          style: TextStyle(
-            fontSize: 11,
-            fontWeight: selected ? FontWeight.bold : FontWeight.normal,
-            color: selected
+          style: Theme.of(context).textTheme.labelSmall?.copyWith(fontWeight: selected ? FontWeight.bold : FontWeight.normal, color: selected
                 ? effectiveColor
-                : theme.colorScheme.onSurfaceVariant,
-          ),
+                : theme.colorScheme.onSurfaceVariant,),
         ),
       ),
     );
@@ -120,6 +117,10 @@ class PurchaseInvoiceScreen extends StatefulWidget {
 }
 
 class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
+  // ADR-049: colors from the theme, so the screen reads in both modes.
+  ColorScheme get _cs => Theme.of(context).colorScheme;
+  AppSemanticColors get _tone => AppSemanticColors.of(context);
+
   late final ApiService _api = widget.apiService ?? ApiService();
 
   bool _applyVatOnGold = false;
@@ -696,12 +697,9 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
                   border: const OutlineInputBorder(),
                   isDense: true,
                   suffixText: currency,
-                  labelStyle: TextStyle(
-                    fontSize: 11,
-                    color: isEarn
+                  labelStyle: Theme.of(context).textTheme.labelSmall?.copyWith(color: isEarn
                         ? theme.colorScheme.tertiary
-                        : theme.colorScheme.error,
-                  ),
+                        : theme.colorScheme.error,),
                 ),
                 onChanged: (v) => setState(() {
                   line.commissionPerGram = _toDouble(normalizeNumber(v));
@@ -960,9 +958,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
       jsonEncode(_buildLocalDraftPayload()),
     );
     if (showToast && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('تم حفظ الفاتورة لإكمالها لاحقاً')),
-      );
+      AppFeedback.success(context, 'تم حفظ الفاتورة لإكمالها لاحقاً');
     }
   }
 
@@ -1626,12 +1622,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
       _applySupplierDefaultSafeBoxSelections();
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('فشل تحميل الموردين: $e'),
-          backgroundColor: Colors.red,
-        ),
-      );
+      AppFeedback.error(context, e);
     } finally {
       if (mounted) {
         setState(() {
@@ -1663,13 +1654,11 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
       });
     } catch (e) {
       if (!mounted) return;
-      final message = 'فشل تحميل التصنيفات: $e';
+      final message = 'فشل تحميل التصنيفات: ${AppFeedback.messageOf(e)}';
       setState(() {
         _categoriesError = message;
       });
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(message), backgroundColor: Colors.red),
-      );
+      AppFeedback.error(context, e, title: 'فشل تحميل التصنيفات');
     } finally {
       if (mounted) {
         setState(() {
@@ -1855,12 +1844,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
       });
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('خطأ في تحميل سعر الذهب: $e'),
-          backgroundColor: Colors.red,
-        ),
-      );
+      AppFeedback.error(context, e);
     }
   }
 
@@ -2134,13 +2118,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
       0,
       (sum, item) => sum + item.weightGrams,
     );
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          'تمت إضافة ${newItems.length} وزناً (${_formatWeight(totalWeight)}) للصنف ${result.name}',
-        ),
-      ),
-    );
+    AppFeedback.success(context, 'تمت إضافة ${newItems.length} وزناً (${_formatWeight(totalWeight)}) للصنف ${result.name}');
   }
 
   Future<void> _editInlineItem(int index) async {
@@ -2156,19 +2134,16 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
   void _removeInlineItem(int index) {
     final removed = _inlineItems[index];
     _updateInlineItems([..._inlineItems]..removeAt(index));
-    final messenger = ScaffoldMessenger.of(context);
-    messenger.hideCurrentSnackBar();
-    messenger.showSnackBar(
-      SnackBar(
-        content: Text('حُذف «${removed.name}»'),
-        action: SnackBarAction(
-          label: 'تراجع',
-          onPressed: () {
+    AppFeedback.info(
+      context,
+      'حُذف «${removed.name}»',
+      action: (
+        label: 'تراجع',
+        onPressed: () {
             if (!mounted) return;
             final at = math.min(index, _inlineItems.length);
             _updateInlineItems([..._inlineItems]..insert(at, removed));
-          },
-        ),
+        },
       ),
     );
   }
@@ -2247,7 +2222,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
           (entry) => InvoiceSummaryMetricDetail(
             label: '${entry.key}k',
             value: '${formatGrams(entry.value)} جم',
-            accentColor: AppColors.karatColorFor(entry.key),
+            accentColor: _tone.karat(double.tryParse(entry.key)?.round() ?? 0).fg,
           ),
         )
         .toList();
@@ -2572,7 +2547,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
                       ? 'تم حفظ مرتجع الشراء بنجاح'
                       : 'تم حفظ فاتورة الشراء بنجاح',
                   icon: Icons.check_circle,
-                  accentColor: AppColors.success,
+                  accentColor: _tone.ready.fg,
                   highlightMessage: _isSupplierReturnMode
                       ? 'مرتجع الشراء #${invoiceForPrint['id'] ?? ''}'
                       : 'فاتورة الشراء #${invoiceForPrint['id'] ?? ''}',
@@ -2585,7 +2560,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
                         label: 'رقم الفاتورة',
                         value: '#${invoiceForPrint['id'] ?? ''}',
                         icon: Icons.tag_rounded,
-                        accentColor: AppColors.primaryGold,
+                        accentColor: _tone.gold.fg,
                       ),
                     if ((invoiceForPrint['supplier_name'] ?? '')
                         .toString()
@@ -2594,14 +2569,14 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
                         label: 'المورد',
                         value: invoiceForPrint['supplier_name'] ?? '',
                         icon: Icons.person_outline_rounded,
-                        accentColor: AppColors.info,
+                        accentColor: _tone.info.fg,
                       ),
                     InvoiceSummaryMetric(
                       label: 'الإجمالي',
                       value:
                           '${formatAmount((invoiceForPrint['total'] ?? 0.0))} $currency',
                       icon: Icons.payments_outlined,
-                      accentColor: AppColors.primaryGold,
+                      accentColor: _tone.gold.fg,
                       emphasize: true,
                     ),
                     if (totalWeight > 0)
@@ -2609,7 +2584,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
                         label: 'إجمالي الوزن',
                         value: '${formatGrams(totalWeight)} جم',
                         icon: Icons.scale_outlined,
-                        accentColor: AppColors.info,
+                        accentColor: _tone.info.fg,
                         fullWidth: true,
                         details: weightBreakdown,
                       ),
@@ -2650,12 +2625,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
           );
         } catch (e) {
           if (!mounted) return;
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('تعذر فتح الطباعة: $e'),
-              backgroundColor: Colors.red,
-            ),
-          );
+          AppFeedback.error(context, e);
         }
       } else if (shouldPrint == 'share') {
         try {
@@ -2667,9 +2637,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
           );
         } catch (e) {
           if (!mounted) return;
-          ScaffoldMessenger.of(
-            context,
-          ).showSnackBar(SnackBar(content: Text('تعذر مشاركة الفاتورة: $e')));
+          AppFeedback.error(context, e);
         }
       }
 
@@ -2686,12 +2654,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
       }
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('فشل حفظ الفاتورة: $e'),
-          backgroundColor: Colors.red,
-        ),
-      );
+      AppFeedback.error(context, e);
     } finally {
       if (mounted) {
         setState(() {
@@ -2853,7 +2816,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
               label: 'الإجمالي',
               value: '${_fmtMoney(grandTotal)} $currency',
               icon: Icons.payments_outlined,
-              accentColor: AppColors.primaryGold,
+              accentColor: _tone.gold.fg,
               emphasize: true,
             ),
             InvoiceSummaryMetric(
@@ -2867,7 +2830,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
                 label: 'طريقة السداد',
                 value: '${_fmtMoney(paidCash)} $currency',
                 icon: Icons.credit_card_outlined,
-                accentColor: AppColors.info,
+                accentColor: _tone.info.fg,
                 fullWidth: true,
                 highlightCard: true,
                 details: [
@@ -2881,7 +2844,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
                             .firstOrNull ??
                         'غير محدد',
                     value: '${_fmtMoney(paidCash)} $currency',
-                    accentColor: AppColors.info,
+                    accentColor: _tone.info.fg,
                   ),
                 ],
               ),
@@ -2890,7 +2853,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
                 label: 'إجمالي الوزن',
                 value: '${_fmtWeight(totalWeight)} جم',
                 icon: Icons.scale_outlined,
-                accentColor: AppColors.info,
+                accentColor: _tone.info.fg,
                 fullWidth: true,
               ),
             // ── تفاصيل ثانوية (تظهر بعد الثلاثة الأساسية عند التمرير) ──
@@ -2899,7 +2862,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
                 label: 'المورد',
                 value: supplierName,
                 icon: Icons.person_outline_rounded,
-                accentColor: AppColors.info,
+                accentColor: _tone.info.fg,
               ),
             InvoiceSummaryMetric(
               label: _isSupplierReturnMode
@@ -2907,7 +2870,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
                   : 'نقد علينا بهذه الفاتورة',
               value: '${_fmtMoney(netCashDue)} $currency',
               icon: Icons.money,
-              accentColor: AppColors.success,
+              accentColor: _tone.ready.fg,
             ),
             InvoiceSummaryMetric(
               label: _isSupplierReturnMode
@@ -2915,7 +2878,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
                   : 'ذهب علينا بهذه الفاتورة (عيار $mainKarat)',
               value: '${_fmtWeight(netGoldDueMain)} جم',
               icon: Icons.monitor_weight_outlined,
-              accentColor: AppColors.karat24,
+              accentColor: _tone.karat24.fg,
             ),
             if (currentGoldBalanceMain != null)
               InvoiceSummaryMetric(
@@ -2925,9 +2888,9 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
                   mainKarat: mainKarat,
                 ),
                 icon: Icons.monitor_weight_outlined,
-                accentColor: AppColors.info,
+                accentColor: _tone.info.fg,
                 badgeLabel: 'الحالي',
-                badgeColor: AppColors.info,
+                badgeColor: _tone.info.fg,
               ),
             if (projectedGoldBalanceMain != null)
               InvoiceSummaryMetric(
@@ -2937,9 +2900,9 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
                   mainKarat: mainKarat,
                 ),
                 icon: Icons.monitor_weight_outlined,
-                accentColor: AppColors.primaryGold,
+                accentColor: _tone.gold.fg,
                 badgeLabel: 'بعد الحفظ',
-                badgeColor: AppColors.primaryGold,
+                badgeColor: _tone.gold.fg,
               ),
             if (currentCashBalance != null)
               InvoiceSummaryMetric(
@@ -2949,9 +2912,9 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
                   formatCash: cash,
                 ),
                 icon: Icons.account_balance_outlined,
-                accentColor: AppColors.info,
+                accentColor: _tone.info.fg,
                 badgeLabel: 'الحالي',
-                badgeColor: AppColors.info,
+                badgeColor: _tone.info.fg,
               ),
             if (projectedCashBalance != null)
               InvoiceSummaryMetric(
@@ -2961,9 +2924,9 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
                   formatCash: cash,
                 ),
                 icon: Icons.trending_up_rounded,
-                accentColor: AppColors.primaryGold,
+                accentColor: _tone.gold.fg,
                 badgeLabel: 'بعد الحفظ',
-                badgeColor: AppColors.primaryGold,
+                badgeColor: _tone.gold.fg,
               ),
           ],
           notices: notices,
@@ -3071,7 +3034,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
                   (_goldPrice?['price_usd_per_oz'] as num?)?.toDouble() ?? 0.0;
               final mk = _mainKaratFromSettings();
               return Container(
-                color: Colors.black.withValues(alpha: 0.20),
+                color: _cs.shadow.withValues(alpha: 0.20),
                 padding: const EdgeInsets.symmetric(
                   horizontal: 12,
                   vertical: 4,
@@ -3081,28 +3044,21 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
                   child: gp24 > 0
                       ? Row(
                           children: [
-                            const Icon(
+                            Icon(
                               Icons.monetization_on_outlined,
                               size: 12,
-                              color: Colors.amber,
+                              color: invoiceBar.foreground,
                             ),
                             const SizedBox(width: 4),
                             Text(
                               'أونصة: \$${formatAmount(gpOz, decimals: 0)}',
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 11,
-                                fontWeight: FontWeight.w700,
-                              ),
+                              style: Theme.of(context).textTheme.labelSmall?.copyWith(color: invoiceBar.foreground, fontWeight: FontWeight.w700,),
                             ),
-                            const Padding(
+                            Padding(
                               padding: EdgeInsets.symmetric(horizontal: 5),
                               child: Text(
                                 '|',
-                                style: TextStyle(
-                                  color: Colors.white38,
-                                  fontSize: 10,
-                                ),
+                                style: Theme.of(context).textTheme.labelSmall?.copyWith(color: invoiceBar.foreground.withValues(alpha: 0.55),),
                               ),
                             ),
                             ...([24, 22, 21, 18].map((k) {
@@ -3111,28 +3067,21 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
                                 padding: const EdgeInsets.only(right: 10),
                                 child: Text(
                                   '${k}k: ${formatAmount((gp24 * k / 24))}',
-                                  style: TextStyle(
-                                    color: isMain ? Colors.amber : Colors.white,
-                                    fontSize: 11,
-                                    fontWeight: isMain
+                                  style: Theme.of(context).textTheme.labelSmall?.copyWith(color: invoiceBar.foreground, decoration: isMain ? TextDecoration.underline : null, fontWeight: isMain
                                         ? FontWeight.w800
-                                        : FontWeight.w500,
-                                  ),
+                                        : FontWeight.w500,),
                                 ),
                               );
                             }).toList()),
                             context.read<SettingsProvider>().buildText(
                               '${context.read<SettingsProvider>().currencySymbolText}/جم',
-                              style: const TextStyle(
-                                color: Colors.white54,
-                                fontSize: 10,
-                              ),
+                              style: Theme.of(context).textTheme.labelSmall?.copyWith(color: invoiceBar.foreground.withValues(alpha: 0.7),),
                             ),
                           ],
                         )
-                      : const Text(
+                      : Text(
                           'جاري تحميل سعر الذهب...',
-                          style: TextStyle(color: Colors.white54, fontSize: 11),
+                          style: Theme.of(context).textTheme.labelSmall?.copyWith(color: invoiceBar.foreground.withValues(alpha: 0.7),),
                         ),
                 ),
               );
@@ -3149,25 +3098,21 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
                   vertical: 4,
                 ),
                 decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.18),
+                  color: invoiceBar.foreground.withValues(alpha: 0.18),
                   borderRadius: BorderRadius.circular(20),
                 ),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const Icon(
+                    Icon(
                       Icons.person_outline,
                       size: 14,
-                      color: Colors.white,
+                      color: invoiceBar.foreground,
                     ),
                     const SizedBox(width: 4),
                     Text(
                       auth.fullName,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                      ),
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(color: invoiceBar.foreground, fontWeight: FontWeight.w600,),
                     ),
                   ],
                 ),
@@ -3264,7 +3209,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
     return Card(
       elevation: isDark ? 2 : 4,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      shadowColor: Colors.black.withValues(alpha: isDark ? 0.25 : 0.08),
+      shadowColor: _cs.shadow.withValues(alpha: isDark ? 0.25 : 0.08),
       child: Padding(
         padding: const EdgeInsets.all(20),
         child: Column(
@@ -3418,7 +3363,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
             padding: const EdgeInsets.only(top: 8),
             child: Text(
               _originalInvoiceDetailsError!,
-              style: theme.textTheme.bodySmall?.copyWith(color: Colors.red),
+              style: theme.textTheme.bodySmall?.copyWith(color: _cs.error),
             ),
           ),
       ],
@@ -3487,14 +3432,10 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
     } catch (e) {
       if (!mounted) return;
       setState(() {
-        _originalInvoiceDetailsError = 'خطأ في تحميل تفاصيل الفاتورة: $e';
+        _originalInvoiceDetailsError =
+            'خطأ في تحميل تفاصيل الفاتورة: ${AppFeedback.messageOf(e)}';
       });
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('خطأ في تحميل تفاصيل الفاتورة: $e'),
-          backgroundColor: Colors.red,
-        ),
-      );
+      AppFeedback.error(context, e);
     } finally {
       if (mounted) {
         setState(() {
@@ -3576,7 +3517,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
     return Card(
       elevation: isDark ? 2 : 4,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      shadowColor: Colors.black.withValues(alpha: isDark ? 0.25 : 0.08),
+      shadowColor: _cs.shadow.withValues(alpha: isDark ? 0.25 : 0.08),
       child: Padding(
         padding: const EdgeInsets.all(20),
         child: Column(
@@ -4227,12 +4168,9 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text(
+                      Text(
                         'الأصناف داخل الفاتورة',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                        ),
+                        style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold,),
                       ),
                       const SizedBox(height: 4),
                       Text(
@@ -4592,19 +4530,19 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
               if (item.category?.isNotEmpty ?? false)
                 Text(
                   'تصنيف: ${item.category}',
-                  style: const TextStyle(fontSize: 12),
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(),
                 ),
               if (item.entryType == PurchaseInlineEntryType.item &&
                   (item.itemCode?.isNotEmpty ?? false))
                 Text(
                   'كود: ${item.itemCode}',
-                  style: const TextStyle(fontSize: 12),
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(),
                 ),
               if (item.entryType == PurchaseInlineEntryType.item &&
                   (item.barcode?.isNotEmpty ?? false))
                 Text(
                   'باركود: ${item.barcode}',
-                  style: const TextStyle(fontSize: 12),
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(),
                 ),
             ],
           ),
@@ -4657,7 +4595,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
                 onPressed: () => _editInlineItem(index),
               ),
               IconButton(
-                icon: const Icon(Icons.delete, color: Colors.red),
+                icon: Icon(Icons.delete, color: _cs.error),
                 tooltip: 'حذف',
                 onPressed: () => _removeInlineItem(index),
               ),
@@ -4816,16 +4754,12 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
                   entryType == PurchaseInlineEntryType.category;
 
               if (clampedWeight <= 0) {
-                ScaffoldMessenger.of(
-                  context,
-                ).showSnackBar(const SnackBar(content: Text('الوزن مطلوب')));
+                AppFeedback.error(context, 'الوزن مطلوب');
                 return;
               }
 
               if (!isCategoryOnly && name.isEmpty) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('اسم الصنف مطلوب لإضافة صنف')),
-                );
+                AppFeedback.error(context, 'اسم الصنف مطلوب لإضافة صنف');
                 return;
               }
 
@@ -4833,9 +4767,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
                   (effectiveCategoryId == null ||
                       effectiveCategoryName == null ||
                       effectiveCategoryName.trim().isEmpty)) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('اختر تصنيفاً قبل الحفظ')),
-                );
+                AppFeedback.error(context, 'اختر تصنيفاً قبل الحفظ');
                 return;
               }
 
@@ -5790,8 +5722,8 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
                                           : 'سيتم إضافة ${parsedWeights.length} وزنًا بإجمالي ${_formatWeight(totalWeight)}',
                                       style: TextStyle(
                                         color: parsedWeights.isEmpty
-                                            ? Colors.redAccent
-                                            : Colors.green.shade700,
+                                            ? _cs.error
+                                            : _tone.ready.fg,
                                         fontWeight: FontWeight.w600,
                                       ),
                                     ),
@@ -5916,9 +5848,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
                     );
 
                     if (!isCategoryOnly && name.isEmpty) {
-                      ScaffoldMessenger.of(parentContext).showSnackBar(
-                        const SnackBar(content: Text('اسم الصنف مطلوب')),
-                      );
+                      AppFeedback.error(parentContext, 'اسم الصنف مطلوب');
                       return;
                     }
 
@@ -5926,27 +5856,17 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
                         (effectiveCategoryId == null ||
                             effectiveCategoryName == null ||
                             effectiveCategoryName.trim().isEmpty)) {
-                      ScaffoldMessenger.of(parentContext).showSnackBar(
-                        const SnackBar(content: Text('اختر تصنيفاً قبل الحفظ')),
-                      );
+                      AppFeedback.error(parentContext, 'اختر تصنيفاً قبل الحفظ');
                       return;
                     }
 
                     if (weights.isEmpty) {
-                      ScaffoldMessenger.of(parentContext).showSnackBar(
-                        const SnackBar(
-                          content: Text('أدخل وزناً واحداً على الأقل'),
-                        ),
-                      );
+                      AppFeedback.error(parentContext, 'أدخل وزناً واحداً على الأقل');
                       return;
                     }
 
                     if (wageTotal < 0 || wagePerGram < 0) {
-                      ScaffoldMessenger.of(parentContext).showSnackBar(
-                        const SnackBar(
-                          content: Text('لا يمكن أن تكون أجرة المصنعية سالبة'),
-                        ),
-                      );
+                      AppFeedback.error(parentContext, 'لا يمكن أن تكون أجرة المصنعية سالبة');
                       return;
                     }
 
@@ -6014,7 +5934,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
             value,
             style: TextStyle(
               fontWeight: highlight ? FontWeight.bold : FontWeight.normal,
-              color: highlight ? Colors.green[800] : Colors.black,
+              color: highlight ? _tone.ready.fg : _cs.onSurface,
             ),
           ),
         ],

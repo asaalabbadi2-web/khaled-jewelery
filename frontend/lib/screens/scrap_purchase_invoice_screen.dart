@@ -74,6 +74,10 @@ class ScrapPurchaseInvoiceScreen extends StatefulWidget {
 
 class _ScrapPurchaseInvoiceScreenState
     extends State<ScrapPurchaseInvoiceScreen> {
+  // ADR-049: colors from the theme, so the screen reads in both modes.
+  ColorScheme get _cs => Theme.of(context).colorScheme;
+  AppSemanticColors get _tone => AppSemanticColors.of(context);
+
   late final ApiService _api = widget.apiService ?? ApiService();
   // ==================== State Variables ====================
   final _smartInputController = TextEditingController();
@@ -258,7 +262,8 @@ class _ScrapPurchaseInvoiceScreenState
       setState(() {
         _categories = [];
         _isLoadingCategories = false;
-        _categoriesError = 'فشل تحميل التصنيفات: $e';
+        _categoriesError =
+            'فشل تحميل التصنيفات: ${AppFeedback.messageOf(e)}';
       });
     }
   }
@@ -436,7 +441,7 @@ class _ScrapPurchaseInvoiceScreenState
           _purchaseItems = [];
         });
       }
-      _showError('فشل تحميل أصناف الشراء: $e');
+      _showError(e, title: 'فشل تحميل أصناف الشراء');
     }
   }
 
@@ -474,7 +479,7 @@ class _ScrapPurchaseInvoiceScreenState
         }
       });
     } catch (e) {
-      _showError('فشل تحميل سعر الذهب: $e');
+      _showError(e, title: 'فشل تحميل سعر الذهب');
     }
   }
 
@@ -581,7 +586,7 @@ class _ScrapPurchaseInvoiceScreenState
         }
       });
     } catch (e) {
-      _showError('فشل تحميل وسائل الدفع: $e');
+      _showError(e, title: 'فشل تحميل وسائل الدفع');
     }
   }
 
@@ -748,13 +753,7 @@ class _ScrapPurchaseInvoiceScreenState
         _smartInputFocus.requestFocus();
 
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('✅ تمت إضافة: ${foundItem['name']}'),
-              backgroundColor: AppColors.success,
-              duration: const Duration(seconds: 2),
-            ),
-          );
+          AppFeedback.success(context, 'تمت إضافة: ${foundItem['name']}');
         }
       } else {
         debugPrint('❌ لم يتم العثور على الصنف');
@@ -762,7 +761,7 @@ class _ScrapPurchaseInvoiceScreenState
       }
     } catch (e) {
       debugPrint('🔴 خطأ في البحث: $e');
-      _showError('خطأ في البحث: $e');
+      _showError(e, title: 'خطأ في البحث');
     }
   }
 
@@ -941,15 +940,10 @@ class _ScrapPurchaseInvoiceScreenState
       }
     });
 
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: _settingsProvider.buildText(
-          '✅ تم توزيع $targetTotal ${_settingsProvider.currencySymbolText} على ${adjustableItems.length} صنف\n'
-          'التكاليف: ${formatAmount(totalCosts)} • الربح الموزع: ${formatAmount(profitPool)}',
-        ),
-        backgroundColor: AppColors.success,
-        duration: const Duration(seconds: 3),
-      ),
+    AppFeedback.success(
+      context,
+      'تم توزيع $targetTotal ${_settingsProvider.currencySymbolText} على ${adjustableItems.length} صنف\n'
+      'التكاليف: ${formatAmount(totalCosts)} • الربح الموزع: ${formatAmount(profitPool)}',
     );
   }
 
@@ -975,7 +969,7 @@ class _ScrapPurchaseInvoiceScreenState
         });
       }
     } catch (e) {
-      _showError('فشل التقاط الصورة: ${e.toString()}');
+      _showError(e, title: 'فشل التقاط الصورة');
     }
   }
 
@@ -991,7 +985,7 @@ class _ScrapPurchaseInvoiceScreenState
         });
       }
     } catch (e) {
-      _showError('فشل اختيار الصور: ${e.toString()}');
+      _showError(e, title: 'فشل اختيار الصور');
     }
   }
 
@@ -1325,14 +1319,7 @@ class _ScrapPurchaseInvoiceScreenState
             : '⚠️ تم حفظ الفاتورة لكن تحتاج اعتماد مدير قبل الترحيل.';
 
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(approvalWarning),
-              backgroundColor: Colors.orange.shade800,
-              behavior: SnackBarBehavior.floating,
-              duration: const Duration(seconds: 6),
-            ),
-          );
+          AppFeedback.warning(context, approvalWarning);
         }
       }
 
@@ -1340,9 +1327,7 @@ class _ScrapPurchaseInvoiceScreenState
 
       // Edit mode: back to the invoices list, which reloads on `true`.
       if (_isEditMode) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('تم حفظ التعديل — الفاتورة برقمها وتاريخها')),
-        );
+        AppFeedback.success(context, 'تم حفظ التعديل — الفاتورة برقمها وتاريخها');
         Navigator.of(context).pop(true);
         return;
       }
@@ -1379,7 +1364,7 @@ class _ScrapPurchaseInvoiceScreenState
           );
         } catch (e) {
           if (!mounted) return;
-          _showError('تعذر فتح الطباعة: $e');
+          _showError(e, title: 'تعذر فتح الطباعة');
         }
       } else if (shouldPrint == 'share') {
         try {
@@ -1391,7 +1376,7 @@ class _ScrapPurchaseInvoiceScreenState
           );
         } catch (e) {
           if (!mounted) return;
-          _showError('تعذر مشاركة الفاتورة: $e');
+          _showError(e, title: 'تعذر مشاركة الفاتورة');
         }
       }
 
@@ -1403,7 +1388,7 @@ class _ScrapPurchaseInvoiceScreenState
         Navigator.of(context).popUntil((route) => route.isFirst);
       }
     } catch (e) {
-      _showError('فشل حفظ الفاتورة: $e');
+      _showError(e, title: 'فشل حفظ الفاتورة');
     }
   }
 
@@ -1460,41 +1445,41 @@ class _ScrapPurchaseInvoiceScreenState
                 label: 'العميل',
                 value: customerLabel.trim(),
                 icon: Icons.person_outline_rounded,
-                accentColor: AppColors.info,
+                accentColor: _tone.info.fg,
               ),
             InvoiceSummaryMetric(
               label: 'عدد الأصناف',
               value: itemsCount.toString(),
               icon: Icons.inventory_2_outlined,
-              accentColor: AppColors.info,
+              accentColor: _tone.info.fg,
             ),
             InvoiceSummaryMetric(
               label: 'الإجمالي',
               value: '${formatAmount(total)} $currency',
               icon: Icons.payments_outlined,
-              accentColor: AppColors.primaryGold,
+              accentColor: _tone.gold.fg,
               emphasize: true,
             ),
             InvoiceSummaryMetric(
               label: 'المدفوع',
               value: '${formatAmount(paid)} $currency',
               icon: Icons.account_balance_wallet_outlined,
-              accentColor: AppColors.success,
+              accentColor: _tone.ready.fg,
             ),
             InvoiceSummaryMetric(
               label: 'المتبقي',
               value: '${formatAmount(remaining)} $currency',
               icon: Icons.pending_outlined,
               accentColor: remaining > 0.01
-                  ? AppColors.error
-                  : AppColors.success,
+                  ? _cs.error
+                  : _tone.ready.fg,
             ),
             if (totalWeight > 0)
               InvoiceSummaryMetric(
                 label: 'إجمالي الوزن',
                 value: '${formatGrams(totalWeight)} جم',
                 icon: Icons.scale_outlined,
-                accentColor: AppColors.info,
+                accentColor: _tone.info.fg,
                 fullWidth: true,
                 details: weightBreakdown,
               ),
@@ -1503,7 +1488,7 @@ class _ScrapPurchaseInvoiceScreenState
                 label: 'الصور المرفقة',
                 value: imagesCount.toString(),
                 icon: Icons.image_outlined,
-                accentColor: AppColors.info,
+                accentColor: _tone.info.fg,
               ),
           ],
           notices: notices,
@@ -1530,9 +1515,11 @@ class _ScrapPurchaseInvoiceScreenState
   }
 
   // ==================== Helpers ====================
-  void _showError(String message) {
+  /// [error]: a text, or the exception itself with a [title] -- shown in the
+  /// user's words, never as «Exception: ...» (ADR-049).
+  void _showError(Object error, {String? title}) {
     if (!mounted) return;
-    AppFeedback.error(context, message);
+    AppFeedback.error(context, error, title: title);
   }
 
   Map<String, dynamic>? _findCashCustomer() {
@@ -1590,10 +1577,7 @@ class _ScrapPurchaseInvoiceScreenState
                   child: Text('إلغاء', style: theme.textTheme.bodyMedium),
                 ),
                 FilledButton(
-                  style: FilledButton.styleFrom(
-                    backgroundColor: AppColors.success,
-                    foregroundColor: Colors.white,
-                  ),
+                  style: AppButtonStyles.primary(context, _tone.ready),
                   onPressed: () => Navigator.pop(dialogContext, true),
                   child: const Text('إنشاء عميل نقدي'),
                 ),
@@ -1628,7 +1612,7 @@ class _ScrapPurchaseInvoiceScreenState
       });
       return response;
     } catch (e) {
-      _showError('فشل إنشاء عميل نقدي: $e');
+      _showError(e, title: 'فشل إنشاء عميل نقدي');
       return null;
     }
   }
@@ -1665,7 +1649,7 @@ class _ScrapPurchaseInvoiceScreenState
           title: 'تم حفظ الفاتورة',
           subtitle: 'تم حفظ فاتورة شراء الكسر بنجاح',
           icon: Icons.check_circle,
-          accentColor: AppColors.success,
+          accentColor: _tone.ready.fg,
           highlightMessage: 'فاتورة الشراء #${invoice['id'] ?? ''}',
           statusTitle: 'حالة الفاتورة',
           statusMessage: approvalRequired
@@ -1680,42 +1664,42 @@ class _ScrapPurchaseInvoiceScreenState
                 label: 'رقم الفاتورة',
                 value: '#$invoiceId',
                 icon: Icons.tag_rounded,
-                accentColor: AppColors.primaryGold,
+                accentColor: _tone.gold.fg,
               ),
             if (customerName.isNotEmpty)
               InvoiceSummaryMetric(
                 label: 'العميل',
                 value: customerName,
                 icon: Icons.person_outline_rounded,
-                accentColor: AppColors.info,
+                accentColor: _tone.info.fg,
               ),
             InvoiceSummaryMetric(
               label: 'الإجمالي',
               value: '${formatAmount(total)} $currency',
               icon: Icons.payments_outlined,
-              accentColor: AppColors.primaryGold,
+              accentColor: _tone.gold.fg,
               emphasize: true,
             ),
             InvoiceSummaryMetric(
               label: 'المدفوع',
               value: '${formatAmount(paid)} $currency',
               icon: Icons.account_balance_wallet_outlined,
-              accentColor: AppColors.success,
+              accentColor: _tone.ready.fg,
             ),
             InvoiceSummaryMetric(
               label: 'المتبقي',
               value: '${formatAmount(remaining)} $currency',
               icon: Icons.pending_outlined,
               accentColor: remaining > 0.01
-                  ? AppColors.error
-                  : AppColors.success,
+                  ? _cs.error
+                  : _tone.ready.fg,
             ),
             if (totalWeight > 0)
               InvoiceSummaryMetric(
                 label: 'إجمالي الوزن',
                 value: '${formatGrams(totalWeight)} جم',
                 icon: Icons.scale_outlined,
-                accentColor: AppColors.info,
+                accentColor: _tone.info.fg,
                 fullWidth: true,
                 details: weightBreakdown,
               ),
@@ -1787,7 +1771,7 @@ class _ScrapPurchaseInvoiceScreenState
           (entry) => InvoiceSummaryMetricDetail(
             label: '${entry.key}k',
             value: '${formatGrams(entry.value)} جم',
-            accentColor: AppColors.karatColorFor(entry.key),
+            accentColor: _tone.karat(double.tryParse(entry.key)?.round() ?? 0).fg,
           ),
         )
         .toList();
@@ -1944,9 +1928,7 @@ class _ScrapPurchaseInvoiceScreenState
               onPressed: () async {
                 final name = nameController.text.trim();
                 if (name.isEmpty) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('اسم الصنف مطلوب')),
-                  );
+                  AppFeedback.error(context, 'اسم الصنف مطلوب');
                   return;
                 }
 
@@ -1969,21 +1951,11 @@ class _ScrapPurchaseInvoiceScreenState
                   await _addItemFromData(Map<String, dynamic>.from(created));
 
                   if (mounted) {
-                    ScaffoldMessenger.of(this.context).showSnackBar(
-                      SnackBar(
-                        content: Text('✅ تمت إضافة: ${created['name']}'),
-                        backgroundColor: AppColors.success,
-                      ),
-                    );
+                    AppFeedback.success(this.context, 'تمت إضافة: ${created['name']}');
                   }
                 } catch (e) {
                   if (!mounted) return;
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text('فشل إضافة الصنف: $e'),
-                      backgroundColor: AppColors.error,
-                    ),
-                  );
+                  AppFeedback.error(context, e);
                 }
               },
               child: const Text('حفظ'),
@@ -2082,7 +2054,7 @@ class _ScrapPurchaseInvoiceScreenState
             bottom: PreferredSize(
               preferredSize: const Size.fromHeight(26.0),
               child: Container(
-                color: Colors.black.withValues(alpha: 0.20),
+                color: _cs.shadow.withValues(alpha: 0.20),
                 padding: const EdgeInsets.symmetric(
                   horizontal: 12,
                   vertical: 4,
@@ -2092,28 +2064,21 @@ class _ScrapPurchaseInvoiceScreenState
                   child: _goldPrice24k > 0
                       ? Row(
                           children: [
-                            const Icon(
+                            Icon(
                               Icons.monetization_on_outlined,
                               size: 12,
-                              color: Colors.amber,
+                              color: AppSemanticColors.invoiceBar(context, InvoiceKind.purchaseScrap).foreground,
                             ),
                             const SizedBox(width: 4),
                             Text(
                               'أونصة: \$${formatAmount((_goldPrice24k * 31.1035 / 3.75), decimals: 0)}',
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 11,
-                                fontWeight: FontWeight.w700,
-                              ),
+                              style: Theme.of(context).textTheme.labelSmall?.copyWith(color: AppSemanticColors.invoiceBar(context, InvoiceKind.purchaseScrap).foreground, fontWeight: FontWeight.w700,),
                             ),
-                            const Padding(
+                            Padding(
                               padding: EdgeInsets.symmetric(horizontal: 5),
                               child: Text(
                                 '|',
-                                style: TextStyle(
-                                  color: Colors.white38,
-                                  fontSize: 10,
-                                ),
+                                style: Theme.of(context).textTheme.labelSmall?.copyWith(color: AppSemanticColors.invoiceBar(context, InvoiceKind.purchaseScrap).foreground.withValues(alpha: 0.55),),
                               ),
                             ),
                             ...([24, 22, 21, 18].map((k) {
@@ -2123,28 +2088,21 @@ class _ScrapPurchaseInvoiceScreenState
                                 padding: const EdgeInsets.only(right: 10),
                                 child: Text(
                                   '${k}k: ${formatAmount(gp)}',
-                                  style: TextStyle(
-                                    color: isMain ? Colors.amber : Colors.white,
-                                    fontSize: 11,
-                                    fontWeight: isMain
+                                  style: Theme.of(context).textTheme.labelSmall?.copyWith(color: AppSemanticColors.invoiceBar(context, InvoiceKind.purchaseScrap).foreground, decoration: isMain ? TextDecoration.underline : null, fontWeight: isMain
                                         ? FontWeight.w800
-                                        : FontWeight.w500,
-                                  ),
+                                        : FontWeight.w500,),
                                 ),
                               );
                             }).toList()),
-                            const Text(
+                            Text(
                               '/جم',
-                              style: TextStyle(
-                                color: Colors.white54,
-                                fontSize: 10,
-                              ),
+                              style: Theme.of(context).textTheme.labelSmall?.copyWith(color: AppSemanticColors.invoiceBar(context, InvoiceKind.purchaseScrap).foreground.withValues(alpha: 0.7),),
                             ),
                           ],
                         )
-                      : const Text(
+                      : Text(
                           'جاري تحميل سعر الذهب...',
-                          style: TextStyle(color: Colors.white54, fontSize: 11),
+                          style: Theme.of(context).textTheme.labelSmall?.copyWith(color: AppSemanticColors.invoiceBar(context, InvoiceKind.purchaseScrap).foreground.withValues(alpha: 0.7),),
                         ),
                 ),
               ),
@@ -2162,25 +2120,21 @@ class _ScrapPurchaseInvoiceScreenState
                       vertical: 4,
                     ),
                     decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: 0.18),
+                      color: AppSemanticColors.invoiceBar(context, InvoiceKind.purchaseScrap).foreground.withValues(alpha: 0.18),
                       borderRadius: BorderRadius.circular(20),
                     ),
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        const Icon(
+                        Icon(
                           Icons.person_outline,
                           size: 14,
-                          color: Colors.white,
+                          color: AppSemanticColors.invoiceBar(context, InvoiceKind.purchaseScrap).foreground,
                         ),
                         const SizedBox(width: 4),
                         Text(
                           auth.fullName,
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
-                          ),
+                          style: Theme.of(context).textTheme.bodySmall?.copyWith(color: AppSemanticColors.invoiceBar(context, InvoiceKind.purchaseScrap).foreground, fontWeight: FontWeight.w600,),
                         ),
                       ],
                     ),
@@ -2428,7 +2382,7 @@ class _ScrapPurchaseInvoiceScreenState
     return Card(
       elevation: isDark ? 2 : 4,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      shadowColor: Colors.black.withValues(alpha: isDark ? 0.25 : 0.08),
+      shadowColor: _cs.shadow.withValues(alpha: isDark ? 0.25 : 0.08),
       child: Padding(
         padding: const EdgeInsets.all(20),
         child: Column(
@@ -2466,21 +2420,10 @@ class _ScrapPurchaseInvoiceScreenState
                     ],
                   ),
                 ),
-                FilledButton.icon(
+                FilledButton.tonalIcon(
                   onPressed: _addNewCustomer,
                   icon: const Icon(Icons.person_add_alt_1),
                   label: const Text('عميل جديد'),
-                  style: FilledButton.styleFrom(
-                    backgroundColor: AppColors.success,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 18,
-                      vertical: 12,
-                    ),
-                    textStyle: theme.textTheme.bodyMedium?.copyWith(
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
                 ),
               ],
             ),
@@ -2517,7 +2460,7 @@ class _ScrapPurchaseInvoiceScreenState
                               .toString();
                       final isCashCustomer = name.trim() == 'نقدي';
                       final accentColor = isCashCustomer
-                          ? AppColors.success
+                          ? _tone.ready.fg
                           : colorScheme.primary;
 
                       return DropdownMenuItem<int>(
@@ -2857,21 +2800,21 @@ class _ScrapPurchaseInvoiceScreenState
               ),
               _buildQuickButton(
                 Icons.camera_alt,
-                AppColors.info,
+                _tone.info.fg,
                 'كاميرا',
                 _openCameraScanner,
               ),
               const SizedBox(width: 8),
               _buildQuickButton(
                 Icons.list_alt,
-                AppColors.success,
+                _tone.ready.fg,
                 'قائمة',
                 _showItemSelectionDialog,
               ),
               const SizedBox(width: 8),
               _buildQuickButton(
                 Icons.category_outlined,
-                AppColors.warning,
+                _tone.warning.fg,
                 'سطر تصنيف',
                 _addCategoryLine,
               ),
@@ -2884,8 +2827,7 @@ class _ScrapPurchaseInvoiceScreenState
             controller: _smartInputController,
             focusNode: _smartInputFocus,
             autofocus: true,
-            style: theme.textTheme.bodyLarge?.copyWith(
-              fontSize: 16,
+            style: theme.textTheme.titleLarge?.copyWith(
               fontWeight: FontWeight.w500,
             ),
             decoration: InputDecoration(
@@ -2960,7 +2902,7 @@ class _ScrapPurchaseInvoiceScreenState
         border: Border.all(color: dividerColor.withValues(alpha: 0.6)),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(
+            color: _cs.shadow.withValues(
               alpha: theme.brightness == Brightness.dark ? 0.3 : 0.06,
             ),
             blurRadius: 8,
@@ -3049,12 +2991,8 @@ class _ScrapPurchaseInvoiceScreenState
             const SizedBox(height: 16),
             Text(
               'لم تتم إضافة أصناف بعد',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-                color:
-                    theme.textTheme.titleLarge?.color ?? colorScheme.onSurface,
-              ),
+              style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold, color:
+                    theme.textTheme.titleLarge?.color ?? colorScheme.onSurface,),
             ),
             const SizedBox(height: 8),
             Text(
@@ -3122,10 +3060,10 @@ class _ScrapPurchaseInvoiceScreenState
                       vertical: 6,
                     ),
                     decoration: BoxDecoration(
-                      color: AppColors.info.withValues(alpha: 0.15),
+                      color: _tone.info.fg.withValues(alpha: 0.15),
                       borderRadius: BorderRadius.circular(6),
                       border: Border.all(
-                        color: AppColors.info.withValues(alpha: 0.3),
+                        color: _tone.info.fg.withValues(alpha: 0.3),
                       ),
                     ),
                     child: Text(
@@ -3148,10 +3086,10 @@ class _ScrapPurchaseInvoiceScreenState
                       vertical: 6,
                     ),
                     decoration: BoxDecoration(
-                      color: AppColors.success.withValues(alpha: 0.15),
+                      color: _tone.ready.fg.withValues(alpha: 0.15),
                       borderRadius: BorderRadius.circular(6),
                       border: Border.all(
-                        color: AppColors.success.withValues(alpha: 0.3),
+                        color: _tone.ready.fg.withValues(alpha: 0.3),
                       ),
                     ),
                     child: Text(
@@ -3174,10 +3112,10 @@ class _ScrapPurchaseInvoiceScreenState
                       vertical: 6,
                     ),
                     decoration: BoxDecoration(
-                      color: AppColors.warning.withValues(alpha: 0.15),
+                      color: _tone.warning.fg.withValues(alpha: 0.15),
                       borderRadius: BorderRadius.circular(6),
                       border: Border.all(
-                        color: AppColors.warning.withValues(alpha: 0.3),
+                        color: _tone.warning.fg.withValues(alpha: 0.3),
                       ),
                     ),
                     child: Text(item.quantity.toString(), style: cellStyle),
@@ -3197,10 +3135,10 @@ class _ScrapPurchaseInvoiceScreenState
                       vertical: 6,
                     ),
                     decoration: BoxDecoration(
-                      color: AppColors.info.withValues(alpha: 0.15),
+                      color: _tone.info.fg.withValues(alpha: 0.15),
                       borderRadius: BorderRadius.circular(6),
                       border: Border.all(
-                        color: AppColors.info.withValues(alpha: 0.3),
+                        color: _tone.info.fg.withValues(alpha: 0.3),
                       ),
                     ),
                     child: Text(
@@ -3227,10 +3165,10 @@ class _ScrapPurchaseInvoiceScreenState
                       vertical: 6,
                     ),
                     decoration: BoxDecoration(
-                      color: AppColors.karat24.withValues(alpha: 0.15),
+                      color: _tone.karat24.fg.withValues(alpha: 0.15),
                       borderRadius: BorderRadius.circular(6),
                       border: Border.all(
-                        color: AppColors.karat24.withValues(alpha: 0.3),
+                        color: _tone.karat24.fg.withValues(alpha: 0.3),
                       ),
                     ),
                     child: _settingsProvider.buildText(
@@ -3242,10 +3180,10 @@ class _ScrapPurchaseInvoiceScreenState
               ),
               DataCell(
                 IconButton(
-                  icon: const Icon(
+                  icon: Icon(
                     Icons.delete,
                     size: 22,
-                    color: AppColors.error,
+                    color: _cs.error,
                   ),
                   onPressed: () => _removeItem(index),
                   tooltip: 'حذف',
@@ -3435,7 +3373,8 @@ class _ScrapPurchaseInvoiceScreenState
                               },
                               icon: const Icon(Icons.close, size: 18),
                               style: IconButton.styleFrom(
-                                backgroundColor: Colors.red.shade700,
+                                backgroundColor: _cs.error,
+                                foregroundColor: _cs.onError,
                                 minimumSize: const Size(28, 28),
                                 padding: EdgeInsets.zero,
                               ),
@@ -3703,7 +3642,7 @@ class _ScrapPurchaseInvoiceScreenState
                             colorScheme.primary.withValues(
                               alpha: isDark ? 0.25 : 0.3,
                             ),
-                            AppColors.lightGold.withValues(
+                            _tone.gold.container.withValues(
                               alpha: isDark ? 0.2 : 0.35,
                             ),
                           ],
@@ -3721,11 +3660,11 @@ class _ScrapPurchaseInvoiceScreenState
                               'الوسيلة',
                               style: theme.textTheme.titleSmall?.copyWith(
                                 fontWeight: FontWeight.bold,
-                                color: isDark ? Colors.white : Colors.black87,
+                                color: _cs.onSurface,
                                 shadows: !isDark
                                     ? [
                                         Shadow(
-                                          color: Colors.white.withValues(
+                                          color: _cs.surfaceContainerLowest.withValues(
                                             alpha: 0.8,
                                           ),
                                           blurRadius: 2,
@@ -3741,11 +3680,11 @@ class _ScrapPurchaseInvoiceScreenState
                               'المبلغ',
                               style: theme.textTheme.titleSmall?.copyWith(
                                 fontWeight: FontWeight.bold,
-                                color: isDark ? Colors.white : Colors.black87,
+                                color: _cs.onSurface,
                                 shadows: !isDark
                                     ? [
                                         Shadow(
-                                          color: Colors.white.withValues(
+                                          color: _cs.surfaceContainerLowest.withValues(
                                             alpha: 0.8,
                                           ),
                                           blurRadius: 2,
@@ -3762,11 +3701,11 @@ class _ScrapPurchaseInvoiceScreenState
                               'عمولة',
                               style: theme.textTheme.titleSmall?.copyWith(
                                 fontWeight: FontWeight.bold,
-                                color: isDark ? Colors.white : Colors.black87,
+                                color: _cs.onSurface,
                                 shadows: !isDark
                                     ? [
                                         Shadow(
-                                          color: Colors.white.withValues(
+                                          color: _cs.surfaceContainerLowest.withValues(
                                             alpha: 0.8,
                                           ),
                                           blurRadius: 2,
@@ -3783,11 +3722,11 @@ class _ScrapPurchaseInvoiceScreenState
                               'صافي',
                               style: theme.textTheme.titleSmall?.copyWith(
                                 fontWeight: FontWeight.bold,
-                                color: isDark ? Colors.white : Colors.black87,
+                                color: _cs.onSurface,
                                 shadows: !isDark
                                     ? [
                                         Shadow(
-                                          color: Colors.white.withValues(
+                                          color: _cs.surfaceContainerLowest.withValues(
                                             alpha: 0.8,
                                           ),
                                           blurRadius: 2,
@@ -3804,11 +3743,11 @@ class _ScrapPurchaseInvoiceScreenState
                               'حذف',
                               style: theme.textTheme.titleSmall?.copyWith(
                                 fontWeight: FontWeight.bold,
-                                color: isDark ? Colors.white : Colors.black87,
+                                color: _cs.onSurface,
                                 shadows: !isDark
                                     ? [
                                         Shadow(
-                                          color: Colors.white.withValues(
+                                          color: _cs.surfaceContainerLowest.withValues(
                                             alpha: 0.8,
                                           ),
                                           blurRadius: 2,
@@ -3857,17 +3796,16 @@ class _ScrapPurchaseInvoiceScreenState
                                         vertical: 3,
                                       ),
                                       decoration: BoxDecoration(
-                                        color: AppColors.warning.withValues(
+                                        color: _tone.warning.fg.withValues(
                                           alpha: isDark ? 0.2 : 0.25,
                                         ),
                                         borderRadius: BorderRadius.circular(6),
                                       ),
                                       child: Text(
                                         'عمولة ${payment.commissionRate}%',
-                                        style: theme.textTheme.bodySmall
+                                        style: theme.textTheme.labelSmall
                                             ?.copyWith(
-                                              fontSize: 11,
-                                              color: AppColors.warning,
+                                              color: _tone.warning.fg,
                                               fontWeight: FontWeight.bold,
                                             ),
                                       ),
@@ -3881,7 +3819,7 @@ class _ScrapPurchaseInvoiceScreenState
                                 '${formatAmount(payment.amount)} ${_settingsProvider.currencySymbolText}',
                                 style: theme.textTheme.titleMedium?.copyWith(
                                   fontWeight: FontWeight.w700,
-                                  color: AppColors.success,
+                                  color: _tone.ready.fg,
                                 ),
                                 textAlign: TextAlign.center,
                               ),
@@ -3894,7 +3832,7 @@ class _ScrapPurchaseInvoiceScreenState
                                     : '-',
                                 style: theme.textTheme.bodyMedium?.copyWith(
                                   color: payment.commissionAmount > 0
-                                      ? AppColors.error
+                                      ? _cs.error
                                       : theme.disabledColor,
                                   fontWeight: FontWeight.w600,
                                 ),
@@ -3907,7 +3845,7 @@ class _ScrapPurchaseInvoiceScreenState
                                 '${formatAmount(payment.netAmount)} ${_settingsProvider.currencySymbolText}',
                                 style: theme.textTheme.titleMedium?.copyWith(
                                   fontWeight: FontWeight.w700,
-                                  color: AppColors.info,
+                                  color: _tone.info.fg,
                                 ),
                                 textAlign: TextAlign.center,
                               ),
@@ -3919,7 +3857,7 @@ class _ScrapPurchaseInvoiceScreenState
                                   Icons.delete_forever,
                                   size: 22,
                                 ),
-                                color: AppColors.error,
+                                color: _cs.error,
                                 tooltip: 'حذف',
                                 padding: EdgeInsets.zero,
                                 constraints: const BoxConstraints(),
@@ -4331,7 +4269,7 @@ class _ScrapCategoryLineDialogState extends State<_ScrapCategoryLineDialog> {
                               ? theme.colorScheme.primary.withValues(alpha: 0.07)
                               : null,
                           helperText: _karatLockedByCategory ? 'محدد من التصنيف' : null,
-                          helperStyle: TextStyle(color: theme.colorScheme.primary, fontSize: 11),
+                          helperStyle: Theme.of(context).textTheme.labelSmall?.copyWith(color: theme.colorScheme.primary,),
                         ),
                         items: const [
                           DropdownMenuItem(value: 18, child: Text('18')),
@@ -4754,9 +4692,9 @@ class _BarcodeScannerPlaceholderState
                 color: Colors.black87,
                 borderRadius: BorderRadius.circular(12),
               ),
-              child: const Text(
+              child: Text(
                 '🎯 وجّه الكاميرا نحو الباركود',
-                style: TextStyle(color: Colors.white, fontSize: 16),
+                style: Theme.of(context).textTheme.titleLarge?.copyWith(color: Colors.white,),
                 textAlign: TextAlign.center,
               ),
             ),
