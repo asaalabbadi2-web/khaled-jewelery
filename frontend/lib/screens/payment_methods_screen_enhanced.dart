@@ -169,7 +169,7 @@ class _PaymentMethodsScreenEnhancedState
         },
         {
           'value': 'شراء من عميل',
-          'name_ar': 'شراء كسر من عميل',
+          'name_ar': 'شراء كسر',
           'category': 'pos',
           'description': 'شراء ذهب كسر من العميل',
         },
@@ -187,13 +187,13 @@ class _PaymentMethodsScreenEnhancedState
         },
         {
           'value': 'شراء',
-          'name_ar': 'شراء',
+          'name_ar': 'شراء جديد',
           'category': 'accounting',
           'description': 'شراء ذهب جديد من المورد',
         },
         {
           'value': 'مرتجع شراء (مورد)',
-          'name_ar': 'مرتجع شراء (مورد)',
+          'name_ar': 'مرتجع شراء جديد',
           'category': 'accounting',
           'description': 'استرجاع مشتريات من المورد',
         },

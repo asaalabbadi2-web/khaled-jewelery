@@ -376,7 +376,7 @@ class _WeightPositionScreenState extends State<WeightPositionScreen> {
 
   // ── 5: what closed lately ─────────────────────────────────────────────────
 
-  static const _closingKinds = {'customer': 'شراء كسر من عميل', 'office': 'تسوية مكتب', 'expense': 'مصروفات اليوم'};
+  static const _closingKinds = {'customer': 'شراء كسر', 'office': 'شراء كسر من مكتب', 'expense': 'مصروفات اليوم'};
 
   Widget _recentClosings(BuildContext context) {
     final text = Theme.of(context).textTheme;

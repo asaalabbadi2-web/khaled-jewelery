@@ -66,6 +66,9 @@ class QuickActionsProvider extends ChangeNotifier {
         _actions = decoded
             .map((item) => QuickActionItem.fromMap(item))
             .where((item) => DefaultQuickActions.findById(item.id) != null)
+            // The label is the catalog's: a renamed button (e.g. «شراء جديد»,
+            // 17 Oct 2026) does not keep the name it was saved under.
+            .map((item) => item.copyWith(label: DefaultQuickActions.findById(item.id)!.label))
             .toList();
         debugPrint('✅ تم تحميل ${_actions.length} زر من الإعدادات');
       } else {

@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import '../api_service.dart';
 import '../providers/auth_provider.dart';
 import '../theme/app_theme.dart';
+import '../utils/invoice_type_label.dart';
 
 /// Unified alerts dialog for the admin dashboard.
 /// Replaces the standalone SystemAlertsScreen + InvoiceApprovalScreen flow.
@@ -505,7 +506,7 @@ class _AlertsDialogState extends State<AlertsDialog> {
       title: (alert['title'] ?? (isAr ? 'فاتورة تحتاج اعتماداً' : 'Invoice needs approval'))
           .toString(),
       subtitle: isAr
-          ? 'فاتورة #$invoiceNumber${invoiceType.isNotEmpty ? ' · $invoiceType' : ''}'
+          ? 'فاتورة #$invoiceNumber${invoiceType.isNotEmpty ? ' · ${invoiceTypeLabelOf(invoiceType)}' : ''}'
           : 'Invoice #$invoiceNumber${invoiceType.isNotEmpty ? ' · $invoiceType' : ''}',
       createdBy: createdBy,
       relativeTime: _relativeTime(createdAt),

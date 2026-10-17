@@ -1516,9 +1516,9 @@ class _PendingApprovalsDialogState extends State<PendingApprovalsDialog> {
         return (isAr ? 'بيع كسر' : 'Scrap Sale', _tone.invoiceSaleScrap.fg);
       case 'شراء':
       case 'purchase':
-        return (isAr ? 'شراء' : 'Purchase', _tone.invoicePurchase.fg);
+        return (isAr ? 'شراء جديد' : 'Purchase', _tone.invoicePurchase.fg);
       case 'شراء من عميل':
-        return (isAr ? 'شراء عميل' : 'Cust. Buy', _tone.invoicePurchaseScrap.fg);
+        return (isAr ? 'شراء كسر' : 'Cust. Buy', _tone.invoicePurchaseScrap.fg);
       case 'scrap_purchase':
       case 'شراء خردة':
         return (
@@ -1534,7 +1534,7 @@ class _PendingApprovalsDialogState extends State<PendingApprovalsDialog> {
       case 'مرتجع شراء':
       case 'purchase_return':
         return (
-          isAr ? 'مرتجع شراء' : 'Purch. Ret.',
+          isAr ? 'مرتجع شراء كسر' : 'Purch. Ret.',
           _tone.invoiceReturn.fg
         );
       default:

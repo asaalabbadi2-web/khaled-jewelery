@@ -98,6 +98,7 @@ from accounting.voucher_engine import (
 from accounting.mappings import (DEFAULT_MAPPING_OPERATION_TYPE, AccountNotMapped, get_account_id_by_number,
                                  get_account_id_for_mapping, require_account, require_vat_account)
 from services.vat_policy import input_vat_account as _input_vat_account
+from services.invoice_type_labels import invoice_type_label as _invoice_type_label
 
 
 from accounting.safe_boxes import _ensure_safe_box_transactions_for_invoice_je
@@ -1119,7 +1120,7 @@ def update_unposted_invoice(invoice_id: int):
         return jsonify({
             'error': 'edit_changes_invoice_kind',
             'message': (
-                f'التعديل لا يغيّر نوع الفاتورة: هذه «{invoice.invoice_type}» '
+                f'التعديل لا يغيّر نوع الفاتورة: هذه «{_invoice_type_label(invoice.invoice_type, office_id=invoice.office_id)}» '
                 f'{"كسر" if original_gold_type == "scrap" else "ذهب جديد"}، ولم تتغيّر. '
                 'لتغيير نوعها ارفضها وأنشئ فاتورة من الشاشة الصحيحة.'
             ),
@@ -4140,7 +4141,7 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
             if _pm_types and invoice_type not in _pm_types:
                 return jsonify({
                     'error': 'payment_method_not_for_invoice_type',
-                    'message': f'وسيلة الدفع «{pm_obj.name}» غير مضبوطة لفواتير «{invoice_type}»',
+                    'message': f'وسيلة الدفع «{pm_obj.name}» غير مضبوطة لفواتير «{_invoice_type_label(invoice_type)}»',
                     'payment_method_id': pm_obj.id,
                     'invoice_type': invoice_type,
                 }), 400

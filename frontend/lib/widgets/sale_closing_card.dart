@@ -42,7 +42,7 @@ class _SaleClosingCardState extends State<SaleClosingCard> {
     'closed': 'مُسكَّر',
     'cancelled': 'رُدّ بمرتجع',
   };
-  static const kindLabels = {'customer': 'شراء كسر من عميل', 'office': 'تسوية مكتب', 'expense': 'مصروفات'};
+  static const kindLabels = {'customer': 'شراء كسر', 'office': 'شراء كسر من مكتب', 'expense': 'مصروفات'};
   static const kindIcons = {
     'customer': Icons.shopping_basket_outlined,
     'office': Icons.apartment_outlined,

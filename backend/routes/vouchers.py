@@ -11,6 +11,7 @@ from services.read_scope import refuse_voucher_list_unless_allowed
 from sqlalchemy import String, cast, case, func, or_
 from sqlalchemy.orm import joinedload
 
+from services.invoice_type_labels import label_of as _invoice_type_label_of
 from models import (
     db,
     Account,
@@ -1552,7 +1553,8 @@ def _invoice_known_as(invoice_id):
     inv = Invoice.query.get(invoice_id)
     if inv is None:
         return {}
-    return {'invoice_type': inv.invoice_type, 'invoice_type_id': inv.invoice_type_id,
+    return {'invoice_type': inv.invoice_type, 'invoice_type_label': _invoice_type_label_of(inv),
+            'invoice_type_id': inv.invoice_type_id,
             'invoice_date': inv.date.isoformat() if inv.date else None}
 
 
@@ -1622,7 +1624,7 @@ def list_supplier_open_cash_obligations(supplier_id):
         if open_cash > 0.01:
             rows.append({'invoice_id': inv.id, 'invoice_type_id': inv.invoice_type_id,
                          'invoice_number': inv.invoice_number,
-                         'invoice_type': inv.invoice_type,
+                         'invoice_type': inv.invoice_type, 'invoice_type_label': _invoice_type_label_of(inv),
                          'date': inv.date.isoformat() if inv.date else None,
                          'cash_obligation': round(float(inv.cash_obligation), 2),
                          'paid': round(float(inv.cash_obligation) - open_cash, 2), 'open_cash': open_cash})

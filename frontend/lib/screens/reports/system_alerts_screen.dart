@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../../api_service.dart';
 import '../../providers/auth_provider.dart';
 import 'invoice_approval_screen.dart';
+import '../../utils/invoice_type_label.dart';
 
 class SystemAlertsScreen extends StatefulWidget {
   final ApiService api;
@@ -511,7 +512,7 @@ class _SystemAlertsScreenState extends State<SystemAlertsScreen> {
                 Padding(
                   padding: const EdgeInsets.only(top: 6),
                   child: Text(
-                    isArabic ? 'النوع: $invoiceType' : 'Type: $invoiceType',
+                    isArabic ? 'النوع: ${invoiceTypeLabelOf(invoiceType)}' : 'Type: $invoiceType',
                     style: theme.textTheme.bodyMedium?.copyWith(color: foreground),
                   ),
                 ),

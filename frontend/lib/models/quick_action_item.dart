@@ -293,7 +293,7 @@ class DefaultQuickActions {
     QuickActionItem(
       id: 'purchase_invoice',
       icon: Icons.shopping_cart,
-      label: 'فاتورة شراء',
+      label: 'فاتورة شراء جديد',
       route: 'purchase_invoice',
       colorHex: '#9A7D0A',
       isActive: true,
@@ -333,7 +333,7 @@ class DefaultQuickActions {
     QuickActionItem(
       id: 'return_purchase',
       icon: Icons.undo,
-      label: 'مرتجع شراء',
+      label: 'مرتجع شراء كسر',
       route: 'return_purchase',
       colorHex: '#EF6C00',
       isActive: true,
@@ -343,7 +343,7 @@ class DefaultQuickActions {
     QuickActionItem(
       id: 'return_purchase_supplier',
       icon: Icons.assignment_return,
-      label: 'مرتجع شراء (مورد)',
+      label: 'مرتجع شراء جديد',
       route: 'return_purchase_supplier',
       colorHex: '#FF7043',
       isActive: false,

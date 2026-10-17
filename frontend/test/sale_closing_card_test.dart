@@ -67,7 +67,7 @@ void main() {
   testWidgets('what closed it, in time order, each with its result', (tester) async {
     await _pump(tester, _Api(() async => _view()));
     expect(find.text('مصروفات · \u20662026-10-03\u2069'), findsOneWidget);
-    expect(find.text('شراء كسر من عميل #812 · \u20662026-10-04\u2069'), findsOneWidget);
+    expect(find.text('شراء كسر #812 · \u20662026-10-04\u2069'), findsOneWidget);
     expect(find.text('\u2066+0.667\u2069 غ'), findsOneWidget);
     expect(find.text('\u2066−1.000\u2069 غ'), findsOneWidget);
   });

@@ -1075,7 +1075,7 @@ class SuppliersScreenState extends State<SuppliersScreen> {
       itemBuilder: (context) => [
         PopupMenuItem(
           value: 'purchase',
-          child: Text(widget.isArabic ? 'فاتورة شراء' : 'Purchase invoice'),
+          child: Text(widget.isArabic ? 'فاتورة شراء جديد' : 'Purchase invoice'),
         ),
         PopupMenuItem(
           value: 'voucher',

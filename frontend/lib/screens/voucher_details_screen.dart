@@ -15,6 +15,7 @@ import '../theme/app_theme.dart' as theme;
 import '../widgets/app_feedback.dart';
 import '../utils/currency_utils.dart';
 import '../widgets/voucher_actions.dart';
+import '../utils/invoice_type_label.dart';
 
 Future<bool?> showVoucherDetailsSheet(
   BuildContext context, {
@@ -98,7 +99,7 @@ class _VoucherDetailsScreenState extends State<VoucherDetailsScreen> {
   }
 
   String _invoiceKnownAs(Map row) =>
-      '${row['invoice_type'] ?? 'فاتورة'} #${row['invoice_type_id'] ?? row['invoice_id']}';
+      '${row['invoice_type'] == null ? 'فاتورة' : invoiceTypeLabel(row)} #${row['invoice_type_id'] ?? row['invoice_id']}';
 
   Future<void> _loadVoucher() async {
     setState(() {
@@ -337,7 +338,7 @@ class _VoucherDetailsScreenState extends State<VoucherDetailsScreen> {
         candidates: candidates
             .map((row) => AttributionCandidate(
                   invoiceId: (row['invoice_id'] as num).toInt(),
-                  label: '${row['invoice_type'] ?? 'فاتورة'} #${row['invoice_type_id'] ?? row['invoice_id']}',
+                  label: '${row['invoice_type'] == null ? 'فاتورة' : invoiceTypeLabel(row)} #${row['invoice_type_id'] ?? row['invoice_id']}',
                   date: DateTime.tryParse('${row['date'] ?? ''}'),
                   open: (row['open_main_karat'] as num?)?.toDouble() ?? 0.0,
                   details: [
@@ -497,7 +498,7 @@ class _VoucherDetailsScreenState extends State<VoucherDetailsScreen> {
         candidates: candidates
             .map((row) => AttributionCandidate(
                   invoiceId: (row['invoice_id'] as num).toInt(),
-                  label: '${row['invoice_type'] ?? 'فاتورة'} #${row['invoice_type_id'] ?? row['invoice_id']}',
+                  label: '${row['invoice_type'] == null ? 'فاتورة' : invoiceTypeLabel(row)} #${row['invoice_type_id'] ?? row['invoice_id']}',
                   date: DateTime.tryParse('${row['date'] ?? ''}'),
                   open: (row['open_cash'] as num?)?.toDouble() ?? 0.0,
                   details: [

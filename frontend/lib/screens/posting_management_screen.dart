@@ -9,6 +9,7 @@ import 'audit_log_screen.dart';
 import '../providers/auth_provider.dart';
 import '../utils/currency_utils.dart' as cu;
 import '../widgets/app_feedback.dart';
+import '../utils/invoice_type_label.dart';
 
 /// شاشة إدارة الترحيل (Posting Management)
 /// تسمح بترحيل الفواتير والقيود، ومراجعتها قبل التأثير على الحسابات
@@ -1774,7 +1775,7 @@ class _PostingManagementScreenState extends State<PostingManagementScreen>
                           },
                         ),
                   title: Text(
-                    'فاتورة #$id - $invoiceType',
+                    'فاتورة #$id - ${invoiceTypeLabelOf(invoiceType)}',
                     style: TextStyle(
                       fontWeight: FontWeight.bold,
                       color: isPosted

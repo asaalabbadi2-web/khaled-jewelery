@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import '../../api_service.dart';
 import '../../providers/settings_provider.dart';
 import '../../utils/currency_utils.dart' as cu;
+import '../../utils/invoice_type_label.dart';
 
 class AnalyticsDashboardScreen extends StatefulWidget {
   final ApiService api;
@@ -631,7 +632,8 @@ class _AnalyticsDashboardScreenState extends State<AnalyticsDashboardScreen> {
     for (var i = 0; i < items.length; i++) {
       final raw = items[i];
       if (raw is! Map<String, dynamic>) continue;
-      final label = (raw['group'] ?? '').toString();
+      // A transaction type's group reads by its name (شراء كسر …); other groups as given.
+      final label = invoiceTypeLabelOf(raw['group']);
 
       double value;
       if (_chartMetric == 'amount_cash') {
@@ -1078,7 +1080,7 @@ class _AnalyticsDashboardScreenState extends State<AnalyticsDashboardScreen> {
                     if (raw is Map<String, dynamic>)
                       DataRow(
                         cells: [
-                          DataCell(Text((raw['group'] ?? '').toString())),
+                          DataCell(Text(invoiceTypeLabelOf(raw['group']))),
                           DataCell(
                             Text(_formatWeight(_asDouble(raw['weight_24k']))),
                           ),

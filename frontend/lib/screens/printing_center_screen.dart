@@ -20,6 +20,7 @@ import 'reports/sales_overview_report_screen.dart';
 import 'trial_balance_screen_v2.dart';
 import '../utils/invoice_direct_print.dart';
 import '../widgets/app_feedback.dart';
+import '../utils/invoice_type_label.dart';
 
 class PrintingCenterScreen extends StatefulWidget {
   final bool isArabic;
@@ -2600,7 +2601,7 @@ class _PrintingCenterScreenState extends State<PrintingCenterScreen> {
                       ),
                     ),
                     title: Text(
-                      '${invoice['invoice_type']} — '
+                      '${invoiceTypeLabel(invoice)} — '
                       '${invoice['customer_name'] ?? invoice['supplier_name'] ?? ''}',
                     ),
                     subtitle: Text(
@@ -4116,7 +4117,7 @@ class _PrintingCenterScreenState extends State<PrintingCenterScreen> {
                         ),
                       ),
                       title: Text(
-                        '${invoice['invoice_type']} - ${invoice['customer_name'] ?? invoice['supplier_name'] ?? 'N/A'}',
+                        '${invoiceTypeLabel(invoice)} - ${invoice['customer_name'] ?? invoice['supplier_name'] ?? 'N/A'}',
                         style: const TextStyle(fontWeight: FontWeight.bold),
                       ),
                       subtitle: context.read<SettingsProvider>().buildText(

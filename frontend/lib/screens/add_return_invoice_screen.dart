@@ -579,9 +579,9 @@ class _AddReturnInvoiceScreenState extends State<AddReturnInvoiceScreen> {
       case 'مرتجع بيع':
         return 'مرتجع فاتورة بيع';
       case 'مرتجع شراء':
-        return 'مرتجع فاتورة شراء من عميل';
+        return 'مرتجع فاتورة شراء كسر';
       case 'مرتجع شراء (مورد)':
-        return 'مرتجع فاتورة شراء';
+        return 'مرتجع فاتورة شراء جديد';
       default:
         return widget.returnType;
     }

@@ -9,6 +9,7 @@ import 'package:pdf/widgets.dart' as pw;
 import '../pdf/pdf_sar_cache.dart';
 import '../pdf/pdf_text_utils.dart';
 import '../providers/settings_provider.dart';
+import '../utils/invoice_type_label.dart';
 
 class InvoicePdfOptions {
   final bool isArabic;
@@ -325,7 +326,7 @@ class InvoicePdfBuilder {
 
     pw.Widget buildHeader() {
       final headerTitle = options.isArabic
-          ? ar(invoiceType.isNotEmpty ? 'فاتورة $invoiceType' : 'فاتورة')
+          ? ar(invoiceType.isNotEmpty ? 'فاتورة ${invoiceTypeLabel(invoice)}' : 'فاتورة')
           : (invoiceType.isNotEmpty ? 'Invoice ($invoiceType)' : 'Invoice');
 
       final right = pw.Column(

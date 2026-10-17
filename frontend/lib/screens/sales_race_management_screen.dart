@@ -1762,7 +1762,7 @@ class _SalesRaceManagementScreenState extends State<SalesRaceManagementScreen> {
                           keyboardType: const TextInputType.numberWithOptions(decimal: true),
                           decoration: InputDecoration(
                             labelText: isAr
-                                ? 'نقاط لكل جرام ربح (شراء من عميل)'
+                                ? 'نقاط لكل جرام ربح (شراء كسر)'
                                 : 'Points per profit gram (customer purchases)',
                             suffixText: isAr ? 'نقطة/جم' : 'pts/g',
                             border: const OutlineInputBorder(),

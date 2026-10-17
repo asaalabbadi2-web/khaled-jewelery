@@ -12,6 +12,7 @@ from flask_sqlalchemy import SQLAlchemy
 from werkzeug.security import check_password_hash, generate_password_hash
 from sqlalchemy import event, inspect as sa_inspect, select as sa_select, text
 from sqlalchemy.orm import validates
+from services.invoice_type_labels import invoice_type_label as _invoice_type_label
 
 db = SQLAlchemy()
 
@@ -1271,6 +1272,8 @@ class Invoice(db.Model):
             'date': self.date.isoformat(),
             'total': self.total,
             'invoice_type': invoice_type_value,
+            # What a person reads (the owner, 17 Oct 2026); the stored type above stays.
+            'invoice_type_label': _invoice_type_label(invoice_type_value, office_id=getattr(self, 'office_id', None)),
             'status': self.status,
             'is_posted': self.is_posted,  # 🆕 حالة الترحيل
             'posted_at': self.posted_at.isoformat() if self.posted_at else None,  # 🆕

@@ -27,6 +27,7 @@ import '../widgets/app_period_picker.dart';
 import '../widgets/app_table.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_shortcuts.dart';
+import '../utils/invoice_type_label.dart';
 
 /// A sale of scrap gold is saved as «بيع» with gold_type 'scrap'. It is
 /// edited on the screen that made it: the ordinary sale screen sends no
@@ -125,13 +126,13 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
       icon: Icons.point_of_sale,
     ),
     _InvoiceTabConfig(
-      labelAr: 'شراء من عميل',
+      labelAr: 'شراء كسر',
       labelEn: 'Customer Buyback',
       apiInvoiceTypes: ['شراء من عميل'],
       icon: Icons.person_search,
     ),
     _InvoiceTabConfig(
-      labelAr: 'شراء مورد',
+      labelAr: 'شراء جديد',
       labelEn: 'Supplier Purchase',
       apiInvoiceTypes: ['شراء', 'شراء من مورد'],
       icon: Icons.local_shipping,
@@ -144,13 +145,13 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
       icon: Icons.undo,
     ),
     _InvoiceTabConfig(
-      labelAr: 'مرتجع شراء عميل',
+      labelAr: 'مرتجع شراء كسر',
       labelEn: 'Customer Return',
       apiInvoiceTypes: ['مرتجع شراء', 'مرتجع شراء من عميل'],
       icon: Icons.assignment_return,
     ),
     _InvoiceTabConfig(
-      labelAr: 'مرتجع شراء مورد',
+      labelAr: 'مرتجع شراء جديد',
       labelEn: 'Supplier Return',
       apiInvoiceTypes: ['مرتجع شراء (مورد)', 'مرتجع شراء من مورد'],
       icon: Icons.assignment_returned,
@@ -3675,7 +3676,7 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
                           ),
                           const SizedBox(height: 4),
                           Text(
-                            '$invoiceType • $customerName',
+                            '${invoiceTypeLabel(invoice)} • $customerName',
                             style: textTheme.bodyMedium?.copyWith(
                               color: colorScheme.onSurface.withValues(
                                 alpha: 0.75,
@@ -5119,7 +5120,7 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
             'target': _InvoiceCreationTarget.scrapPurchase,
             'icon': Icons.shopping_basket,
             'color': _tone.invoice(InvoiceKind.purchaseScrap).fg,
-            'title': isAr ? 'شراء كسر من عميل' : 'Buy Scrap from Customer',
+            'title': isAr ? 'شراء كسر' : 'Buy Scrap from Customer',
             'subtitle': isAr
                 ? 'استلام ذهب من عملاء'
                 : 'Accept client scrap gold',
@@ -5149,7 +5150,7 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
             'target': _InvoiceCreationTarget.supplierReturn,
             'icon': Icons.assignment_return,
             'color': _tone.invoice(InvoiceKind.returned).fg,
-            'title': isAr ? 'مرتجع شراء (مورد)' : 'Supplier Purchase Return',
+            'title': isAr ? 'مرتجع شراء جديد' : 'Supplier Purchase Return',
             'subtitle': isAr ? 'إرجاع مورد' : 'Supplier returns',
           },
         ];

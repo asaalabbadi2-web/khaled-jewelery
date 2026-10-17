@@ -316,7 +316,7 @@ def collect_events(start: dt.datetime, end: dt.datetime) -> Events:
             events.openings.append(Lot(f'بيع #{inv.invoice_type_id}', inv.date, cash, grams,
                                        float(inv.profit_weight_price_per_gram or 0) or None, inv.id))
         elif kind == CUSTOMER_BUY_RETURN:      # gold given back for riyals: like a sale
-            events.openings.append(Lot(f'مرتجع شراء #{inv.invoice_type_id}', inv.date, cash, grams, None, inv.id))
+            events.openings.append(Lot(f'مرتجع شراء كسر #{inv.invoice_type_id}', inv.date, cash, grams, None, inv.id))
         elif kind == SALE_RETURN and inv.original_invoice_id:
             events.returns.append(Return(inv.date, inv.original_invoice_id, cash, grams))
         elif kind == CUSTOMER_BUY:

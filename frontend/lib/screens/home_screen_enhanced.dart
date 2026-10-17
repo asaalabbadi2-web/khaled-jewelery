@@ -1095,7 +1095,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
     );
     addDestination(
       icon: Icons.shopping_basket,
-      title: isAr ? 'شراء كسر من عميل' : 'Buy Scrap from Customer',
+      title: isAr ? 'شراء كسر' : 'Buy Scrap from Customer',
       color: _tone.sectionAmber.fg,
       onSelected: () async {
         final result = await Navigator.push(
@@ -1111,7 +1111,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
     );
     addDestination(
       icon: Icons.business,
-      title: isAr ? 'فاتورة شراء' : 'Purchase Invoice',
+      title: isAr ? 'شراء جديد' : 'Purchase Invoice',
       color: _tone.sectionBlue.fg,
       onSelected: () async {
         final result = await Navigator.push(
@@ -1183,7 +1183,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
     );
     addDestination(
       icon: Icons.assignment_return,
-      title: isAr ? 'مرتجع شراء (مورد)' : 'Supplier Return',
+      title: isAr ? 'مرتجع شراء جديد' : 'Supplier Return',
       color: _tone.sectionRed.fg,
       onSelected: () async {
         final result = await Navigator.push(
@@ -4475,7 +4475,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
       case 'return_sales':
         return isAr ? 'مرتجع بيع' : 'Sales return';
       case 'return_purchase':
-        return isAr ? 'مرتجع شراء' : 'Purchase return';
+        return isAr ? 'من عميل' : 'Purchase return';
       case 'return_purchase_supplier':
         return isAr ? 'من مورد' : 'From supplier';
       case 'invoices_list':
