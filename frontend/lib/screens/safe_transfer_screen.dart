@@ -3,7 +3,10 @@ import 'package:flutter/material.dart';
 import '../api_service.dart';
 import '../models/safe_box_model.dart';
 import '../theme/app_theme.dart';
+import '../utils/bidi.dart';
+import '../utils/currency_utils.dart';
 import '../widgets/app_feedback.dart';
+import '../widgets/confirm_financial_action.dart';
 
 class SafeTransferScreen extends StatefulWidget {
   final ApiService api;
@@ -463,6 +466,28 @@ class _SafeTransferScreenState extends State<SafeTransferScreen> {
     return null;
   }
 
+  String _gramsText(double grams) =>
+      ltrIsolate('${formatGrams(grams)} ${widget.isArabic ? 'جم' : 'g'}');
+
+  /// Asks before a voucher that posts at once (ADR-050, خ١); true to go on.
+  Future<bool> _confirmPosting({
+    required String title,
+    required String effect,
+    required String confirmLabel,
+    required List<(String, String)> facts,
+  }) async {
+    final answer = await confirmFinancialAction(
+      context,
+      title: title,
+      effect: effect,
+      confirmLabel: confirmLabel,
+      facts: facts,
+      destructive: false,
+      backLabel: widget.isArabic ? 'تراجع' : 'Back',
+    );
+    return answer != null && mounted;
+  }
+
   Future<void> _submitTransfer() async {
     if (!_formKey.currentState!.validate()) return;
 
@@ -494,6 +519,28 @@ class _SafeTransferScreenState extends State<SafeTransferScreen> {
       }
       if (_corrOverdraftError() != null) {
         _showSnack(_corrOverdraftError()!, isError: true);
+        return;
+      }
+
+      // The correction posts at once: asked first (ADR-050, خ١).
+      if (!await _confirmPosting(
+        title: widget.isArabic ? 'تصحيح العيار؟' : 'Correct the karat?',
+        effect: widget.isArabic
+            ? 'يُنشأ سند معتمد ويُرحَّل قيده الآن: ينقص الوزن من العيار الأصلي ويُضاف إلى العيار المصحَّح في الخزينة نفسها.'
+            : 'An approved voucher is created and posted now: the weight leaves the recorded karat and enters the corrected one, in the same safe.',
+        confirmLabel: widget.isArabic ? 'تصحيح العيار' : 'Correct',
+        facts: [
+          (
+            widget.isArabic ? 'الخزينة' : 'Safe',
+            _safeByIdOrNull(_fromSafeId)?.name ?? '-',
+          ),
+          (
+            widget.isArabic ? 'من عيار ← إلى عيار' : 'From → to karat',
+            ltrIsolate('${_corrFromKarat}k → ${_corrToKarat}k'),
+          ),
+          (widget.isArabic ? 'الوزن' : 'Weight', _gramsText(weight)),
+        ],
+      )) {
         return;
       }
 
@@ -671,6 +718,51 @@ class _SafeTransferScreenState extends State<SafeTransferScreen> {
           }
         }
       }
+    }
+
+    // The transfer posts at once: asked first, with what moves (ADR-050, خ١).
+    final isAr = widget.isArabic;
+    final moving = _mode == 'gold'
+        ? [
+            for (final (k, c) in [
+              ('24', _weight24kController),
+              ('22', _weight22kController),
+              ('21', _weight21kController),
+              ('18', _weight18kController),
+            ])
+              if (_parseDouble(c.text) > 0)
+                (isAr ? 'عيار $k' : '${k}k', _gramsText(_parseDouble(c.text))),
+            for (final (k, c) in [
+              ('24', _stones24kController),
+              ('22', _stones22kController),
+              ('21', _stones21kController),
+              ('18', _stones18kController),
+            ])
+              if (_parseDouble(c.text) > 0)
+                (
+                  isAr ? 'فصوص عيار $k' : '${k}k stones',
+                  _gramsText(_parseDouble(c.text)),
+                ),
+          ]
+        : [
+            (
+              isAr ? 'المبلغ' : 'Amount',
+              ltrIsolate(formatAmount(_parseDouble(_amountCashController.text))),
+            ),
+          ];
+    if (!await _confirmPosting(
+      title: isAr ? 'تنفيذ التحويل؟' : 'Make the transfer?',
+      effect: isAr
+          ? 'يُنشأ سند تحويل معتمد ويُرحَّل قيده الآن: يخرج من خزينة المصدر ويدخل خزينة الوجهة.'
+          : 'An approved transfer voucher is created and posted now: out of the source safe, into the destination.',
+      confirmLabel: isAr ? 'تنفيذ التحويل' : 'Transfer',
+      facts: [
+        (isAr ? 'من' : 'From', _safeByIdOrNull(_fromSafeId)?.name ?? '-'),
+        (isAr ? 'إلى' : 'To', _safeByIdOrNull(_toSafeId)?.name ?? '-'),
+        ...moving,
+      ],
+    )) {
+      return;
     }
 
     setState(() => _isSubmitting = true);

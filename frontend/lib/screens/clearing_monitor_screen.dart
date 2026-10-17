@@ -5,6 +5,8 @@ import 'package:provider/provider.dart';
 import '../providers/settings_provider.dart';
 import '../theme/app_theme.dart' as theme;
 import 'clearing_settlement_screen.dart';
+import '../widgets/app_state_views.dart';
+import '../widgets/confirm_financial_action.dart';
 import '../utils/currency_utils.dart' as cu;
 
 /// شاشة مراقبة تسوية المقاصة
@@ -22,7 +24,15 @@ class _ClearingMonitorScreenState extends State<ClearingMonitorScreen> {
 
   bool _loading = true;
   bool _runningAutoSettle = false;
-  String? _error;
+  Object? _error;
+
+  /// The boxes whose pending payments did not load: shown as not loaded, never
+  /// as «لا شيء معلّق» -- a failed load read as nothing pending, in green.
+  final Set<int> _failedBoxes = {};
+
+  /// The payment methods did not load: whether a box settles itself is not
+  /// known, and is said so, not shown as «not automatic».
+  bool _methodsFailed = false;
 
   List<SafeBoxModel> _clearingSafes = [];
   // safe_box_id -> pending transactions list
@@ -56,50 +66,68 @@ class _ClearingMonitorScreenState extends State<ClearingMonitorScreen> {
           .where((sb) => sb.safeType.trim().toLowerCase() == 'clearing')
           .toList();
 
-      List<Map<String, dynamic>> pms = [];
+      var pms = <Map<String, dynamic>>[];
+      var methodsFailed = false;
       try {
         final raw = await _api.getActivePaymentMethods();
         pms = raw.whereType<Map<String, dynamic>>().toList();
-      } catch (_) {}
-
-      // Load pending tx and due_amount for each clearing safe in parallel
-      final Map<int, List<Map<String, dynamic>>> pending = {};
-      final Map<int, double> dueAmounts = {};
-      await Future.wait(
-        clearingBoxes.map((sb) async {
-          if (sb.id == null) return;
-          try {
-            final res = await _api.getPendingSettlementTransactions(
-              clearingSafeBoxId: sb.id!,
-            );
-            pending[sb.id!] =
-                (res['transactions'] as List?)
-                    ?.whereType<Map<String, dynamic>>()
-                    .toList() ??
-                [];
-            final da = (res['due_amount'] as num?)?.toDouble();
-            if (da != null) dueAmounts[sb.id!] = da;
-          } catch (_) {
-            pending[sb.id!] = [];
-          }
-        }),
-      );
+      } catch (_) {
+        methodsFailed = true;
+      }
 
       if (!mounted) return;
       setState(() {
         _clearingSafes = clearingBoxes;
         _paymentMethods = pms;
+        _methodsFailed = methodsFailed;
         _pendingByBox.clear();
-        _pendingByBox.addAll(pending);
         _dueAmountByBox.clear();
-        _dueAmountByBox.addAll(dueAmounts);
-        _loading = false;
+        _failedBoxes.clear();
       });
+      // Each box's pending payments and due amount, in parallel.
+      await Future.wait([
+        for (final sb in clearingBoxes)
+          if (sb.id != null) _loadBox(sb.id!),
+      ]);
+      if (!mounted) return;
+      setState(() => _loading = false);
     } catch (e) {
       if (!mounted) return;
       setState(() {
-        _error = e.toString();
+        _error = e;
         _loading = false;
+      });
+    }
+  }
+
+  /// One box's pending payments and due amount, from the server; a failure
+  /// marks the box as not loaded.
+  Future<void> _loadBox(int id) async {
+    try {
+      final res = await _api.getPendingSettlementTransactions(
+        clearingSafeBoxId: id,
+      );
+      if (!mounted) return;
+      setState(() {
+        _pendingByBox[id] =
+            (res['transactions'] as List?)
+                ?.whereType<Map<String, dynamic>>()
+                .toList() ??
+            [];
+        final da = (res['due_amount'] as num?)?.toDouble();
+        if (da != null) {
+          _dueAmountByBox[id] = da;
+        } else {
+          _dueAmountByBox.remove(id);
+        }
+        _failedBoxes.remove(id);
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _pendingByBox.remove(id);
+        _dueAmountByBox.remove(id);
+        _failedBoxes.add(id);
       });
     }
   }
@@ -118,6 +146,25 @@ class _ClearingMonitorScreenState extends State<ClearingMonitorScreen> {
   }
 
   Future<void> _runAutoSettle() async {
+    // It posts a settlement voucher for every box due today: asked first
+    // (ADR-050, خ١) -- it was one tap of an icon.
+    final go = await confirmFinancialAction(
+      context,
+      title: 'تشغيل التسوية التلقائية الآن؟',
+      effect:
+          'تُنشأ الآن سندات تسوية معتمدة ومرحَّلة لوسائل الدفع المفعَّلة للتسوية التلقائية التي حلّ موعد مستحقاتها، كما يفعل الجدول.',
+      confirmLabel: 'تشغيل التسوية',
+      facts: [
+        (
+          'وسائل مفعَّلة للتسوية التلقائية',
+          _methodsFailed
+              ? 'غير معروف'
+              : '${_paymentMethods.where((pm) => pm['auto_settlement_enabled'] == true).length}',
+        ),
+      ],
+      destructive: false,
+    );
+    if (go == null || !mounted) return;
     setState(() => _runningAutoSettle = true);
     try {
       final res = await _api.runAutoClearingSettlementsNow();
@@ -284,17 +331,37 @@ class _ClearingMonitorScreenState extends State<ClearingMonitorScreen> {
             ),
           ],
         ),
-        body: _loading
-            ? const Center(child: CircularProgressIndicator())
+        body: _loading && _clearingSafes.isEmpty
+            ? const AppLoadingView()
             : _error != null
-            ? _buildError()
+            ? AppErrorView(
+                title: 'تعذّر تحميل خزائن المقاصة',
+                error: _error,
+                onRetry: _loadData,
+              )
             : _clearingSafes.isEmpty
-            ? _buildEmpty()
+            ? const AppEmptyView(
+                title: 'لا توجد خزائن مستحقات تحصيل',
+                hint: 'أضف خزينة من نوع «مقاصة» في إدارة الخزائن.',
+              )
             : RefreshIndicator(
                 onRefresh: _loadData,
                 child: ListView(
                   padding: const EdgeInsets.all(16),
                   children: [
+                    if (_loading) const LinearProgressIndicator(),
+                    if (_failedBoxes.isNotEmpty)
+                      _notice(
+                        key: const Key('clearing-boxes-failed'),
+                        text:
+                            'تعذّر تحميل المعلّق في ${_failedBoxes.length} من الخزائن — المجاميع أدناه بدونها.',
+                      ),
+                    if (_methodsFailed)
+                      _notice(
+                        key: const Key('clearing-methods-failed'),
+                        text:
+                            'تعذّر تحميل وسائل الدفع — لا يُعرف أيّ الخزائن تُسوّى تلقائيًا.',
+                      ),
                     _buildSummaryRow(),
                     const SizedBox(height: 16),
                     ..._clearingSafes.map(_buildClearingCard),
@@ -305,43 +372,43 @@ class _ClearingMonitorScreenState extends State<ClearingMonitorScreen> {
     );
   }
 
-  Widget _buildError() => Center(
-    child: Padding(
-      padding: const EdgeInsets.all(24),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(Icons.error_outline, size: 48, color: theme.AppColors.error),
-          const SizedBox(height: 12),
-          Text(_error!, textAlign: TextAlign.center),
-          const SizedBox(height: 16),
-          FilledButton.icon(
-            onPressed: _loadData,
-            icon: const Icon(Icons.refresh),
-            label: const Text('إعادة المحاولة'),
-            style: FilledButton.styleFrom(
-              backgroundColor: theme.AppColors.primaryGold,
-              foregroundColor: Colors.black,
-            ),
+  /// A load that did not complete, said above the totals, with a retry.
+  Widget _notice({required Key key, required String text}) {
+    final cs = Theme.of(context).colorScheme;
+    return Padding(
+      key: key,
+      padding: const EdgeInsets.only(bottom: theme.AppSpace.md),
+      child: Material(
+        color: cs.errorContainer,
+        borderRadius: BorderRadius.circular(theme.AppRadius.control),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(
+            horizontal: theme.AppSpace.md,
+            vertical: theme.AppSpace.sm,
           ),
-        ],
-      ),
-    ),
-  );
-
-  Widget _buildEmpty() => Center(
-    child: Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(Icons.inbox_outlined, size: 56, color: Colors.grey.shade400),
-        const SizedBox(height: 12),
-        Text(
-          'لا توجد خزائن مستحقات تحصيل (clearing)',
-          style: TextStyle(color: Colors.grey.shade600, fontSize: 15),
+          child: Row(
+            children: [
+              Icon(Icons.cloud_off_outlined, color: cs.onErrorContainer),
+              const SizedBox(width: theme.AppSpace.sm),
+              Expanded(
+                child: Text(
+                  text,
+                  style: TextStyle(color: cs.onErrorContainer),
+                ),
+              ),
+              TextButton(
+                onPressed: _loading ? null : _loadData,
+                style: TextButton.styleFrom(
+                  foregroundColor: cs.onErrorContainer,
+                ),
+                child: const Text('إعادة المحاولة'),
+              ),
+            ],
+          ),
         ),
-      ],
-    ),
-  );
+      ),
+    );
+  }
 
   Widget _buildSummaryRow() {
     double totalDue = 0;
@@ -446,17 +513,23 @@ class _ClearingMonitorScreenState extends State<ClearingMonitorScreen> {
     final autoEnabled = pm?['auto_settlement_enabled'] == true;
     final liveBalance = sb.cashBalance;
 
+    // The server's due amount, said as it is: owed, over-settled, or nothing.
+    // («مبلغ بسيط معلّق» under 100 was a rule of this screen alone; ADR-050.)
+    final failed = _failedBoxes.contains(sb.id!);
     Color statusColor;
     String statusLabel;
-    if (dueAmount <= 0) {
-      statusColor = theme.AppColors.success;
-      statusLabel = dueAmount < 0 ? 'تسوية زائدة' : 'لا شيء معلّق';
-    } else if (dueAmount < 100) {
-      statusColor = theme.AppColors.info;
-      statusLabel = 'مبلغ بسيط معلّق';
-    } else {
+    if (failed) {
+      statusColor = theme.AppColors.error;
+      statusLabel = 'تعذّر تحميل المعلّق';
+    } else if (dueAmount > 0) {
       statusColor = theme.AppColors.warning;
       statusLabel = 'يحتاج تسوية';
+    } else if (dueAmount < 0) {
+      statusColor = theme.AppColors.error;
+      statusLabel = 'تسوية زائدة';
+    } else {
+      statusColor = theme.AppColors.success;
+      statusLabel = 'لا شيء معلّق';
     }
 
     return Container(
@@ -649,29 +722,9 @@ class _ClearingMonitorScreenState extends State<ClearingMonitorScreen> {
                       TextButton.icon(
                         onPressed: () async {
                           setState(() => _loadingBox[sb.id!] = true);
-                          try {
-                            final res = await _api
-                                .getPendingSettlementTransactions(
-                                  clearingSafeBoxId: sb.id!,
-                                );
-                            final updated =
-                                (res['transactions'] as List?)
-                                    ?.whereType<Map<String, dynamic>>()
-                                    .toList() ??
-                                [];
-                            if (mounted) {
-                              setState(() {
-                                _pendingByBox[sb.id!] = updated;
-                                final da = (res['due_amount'] as num?)
-                                    ?.toDouble();
-                                if (da != null) _dueAmountByBox[sb.id!] = da;
-                              });
-                            }
-                          } catch (_) {
-                          } finally {
-                            if (mounted) {
-                              setState(() => _loadingBox[sb.id!] = false);
-                            }
+                          await _loadBox(sb.id!);
+                          if (mounted) {
+                            setState(() => _loadingBox[sb.id!] = false);
                           }
                         },
                         icon: (_loadingBox[sb.id!] == true)
@@ -696,7 +749,28 @@ class _ClearingMonitorScreenState extends State<ClearingMonitorScreen> {
                   ),
                   const SizedBox(height: 8),
 
-                  if (txs.isEmpty)
+                  if (failed)
+                    Padding(
+                      key: Key('clearing-box-failed-${sb.id}'),
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.cloud_off_outlined,
+                            color: theme.AppColors.error,
+                            size: 18,
+                          ),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: Text(
+                              'تعذّر تحميل الدفعات المعلّقة لهذه الخزينة — اضغط «تحديث»',
+                              style: TextStyle(color: theme.AppColors.error),
+                            ),
+                          ),
+                        ],
+                      ),
+                    )
+                  else if (txs.isEmpty)
                     Padding(
                       padding: const EdgeInsets.symmetric(vertical: 8),
                       child: Row(
