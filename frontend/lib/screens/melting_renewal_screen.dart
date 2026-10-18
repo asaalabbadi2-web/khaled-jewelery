@@ -173,7 +173,10 @@ class _OperationFormState extends State<_OperationForm> {
         SharedPreferences.getInstance(),
       ]);
 
-      final safes = results[0] as List<SafeBoxModel>;
+      // The shop's own gold: a party's is not melted from here (ADR-051).
+      final safes = (results[0] as List<SafeBoxModel>)
+          .where((s) => !s.holdsPartyGold)
+          .toList();
       final stones = results[1] as Map<int, Map<String, double>>;
       final accounts = results[2] as List;
       final prefs = results[3] as SharedPreferences;

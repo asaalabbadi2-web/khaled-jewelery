@@ -4220,7 +4220,14 @@ class SafeBox(db.Model):
     
     # العلاقات
     account = db.relationship('Account', backref='safe_boxes', foreign_keys=[account_id])
-    
+
+    @property
+    def holds_party_gold(self) -> bool:
+        """Gold held with an office or a supplier: a gold safe that is no stock
+        location (ADR-045) -- gold owed, in the party's balance, not the shop's
+        (ADR-051 §5)."""
+        return (self.safe_type or '').strip().lower() == 'gold' and not self.stock_location
+
     def to_dict(self, include_account=False, include_balance=False):
         """تحويل إلى قاموس JSON"""
         result = {
@@ -4231,6 +4238,8 @@ class SafeBox(db.Model):
             'account_id': self.account_id,
             'karat': self.karat,
             'stock_location': self.stock_location,
+            # Its type, or «party_gold» for gold with a party (ADR-051 §5).
+            'group': 'party_gold' if self.holds_party_gold else self.safe_type,
             'bank_name': self.bank_name,
             'iban': self.iban,
             'swift_code': self.swift_code,

@@ -371,6 +371,61 @@ void main() {
     },
   );
 
+  group('a new gold safe says where its gold is (ADR-051)', () {
+    Future<_FakeApi> fill(WidgetTester tester) async {
+      final api = await _open(tester);
+      await tester.tap(find.byType(FloatingActionButton));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byType(DropdownButtonFormField<String>).first);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('ذهب').last);
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const Key('safe-form-name')),
+        'خزنة مكتب',
+      );
+      await tester.enterText(
+        find.byKey(const Key('safe-form-account')),
+        'مخزون الذهب',
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.textContaining('مخزون الذهب').last);
+      await tester.pumpAndSettle();
+      return api;
+    }
+
+    Future<void> choose(WidgetTester tester, String label) async {
+      await tester.tap(find.byKey(const Key('safe-form-place')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(label).last);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('إضافة').last);
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('not said, nothing is sent', (tester) async {
+      final api = await fill(tester);
+      await tester.tap(find.text('إضافة').last);
+      await tester.pumpAndSettle();
+      expect(api.created, isEmpty);
+      expect(find.text('حدّد مكان الذهب'), findsOneWidget);
+    });
+
+    testWidgets('«لدى طرف» is sent as no stock location', (tester) async {
+      final api = await fill(tester);
+      await choose(tester, 'لدى طرف (مكتب أو مورد)');
+      final sent = api.created.single.toJson();
+      expect(sent.containsKey('stock_location'), isTrue);
+      expect(sent['stock_location'], isNull);
+    });
+
+    testWidgets('«معروض» is the showroom', (tester) async {
+      final api = await fill(tester);
+      await choose(tester, 'معروض');
+      expect(api.created.single.toJson()['stock_location'], 'showroom');
+    });
+  });
+
   for (final width in [390.0, 1440.0]) {
     testWidgets(
       'dark theme at $width: lays out, the text on the theme\'s surface',

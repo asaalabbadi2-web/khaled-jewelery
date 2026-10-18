@@ -5389,7 +5389,7 @@ class ApiService {
       if (decoded is Map<String, dynamic>) return decoded;
       return <String, dynamic>{'raw': decoded};
     }
-    throw ApiException.text(bodyStr);
+    throw _apiError(response, fallback: 'تعذّر تسجيل العملية');
   }
 
   Future<Map<String, dynamic>> correctSafeBoxKarat({
@@ -5468,7 +5468,7 @@ class ApiService {
       return <String, dynamic>{'raw': decoded};
     }
 
-    throw ApiException.text(bodyStr);
+    throw _apiError(response, fallback: 'تعذّر إنشاء سند التحويل');
   }
 
   /// إنشاء تسوية مستحقات تحصيل (Clearing → Bank) مع إثبات العمولة عند التسوية.

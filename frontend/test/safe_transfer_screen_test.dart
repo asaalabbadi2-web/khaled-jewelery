@@ -44,6 +44,17 @@ final _goldSafes = [
     '24k': -176.0,
   }),
   _gold(31, 'صندوق الكسر', {'18k': 0.0, '21k': 0.0, '22k': 0.0, '24k': 0.0}),
+  // Gold with a party (ADR-051): moved by a voucher naming it, not here.
+  {
+    ..._gold(32, 'خزنة مكتب الراقي', {
+      '18k': 0.0,
+      '21k': 396.6,
+      '22k': 0.0,
+      '24k': 0.0,
+    }),
+    'group': 'party_gold',
+    'party_side': 'ours',
+  },
 ];
 
 final _cashSafes = [
@@ -164,6 +175,28 @@ void main() {
     await tester.tap(find.byKey(const Key('confirm-action')));
     await tester.pumpAndSettle();
   }
+
+  group('a party\'s gold is not moved by a transfer (ADR-051)', () {
+    Future<void> openFrom(WidgetTester tester) async {
+      await tester.tap(find.byKey(const Key('transfer-from')).first);
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('the gold transfer does not offer it', (tester) async {
+      await run(tester, 'gold', () async {
+        await openFrom(tester);
+        expect(find.text('صندوق الكسر'), findsWidgets);
+        expect(find.textContaining('مكتب الراقي'), findsNothing);
+      });
+    });
+
+    testWidgets('its karats are still corrected in place', (tester) async {
+      await run(tester, 'karat_correction', () async {
+        await openFrom(tester);
+        expect(find.textContaining('مكتب الراقي'), findsWidgets);
+      });
+    });
+  });
 
   group('what is sent is what the screen sent before its redesign', () {
     testWidgets('gold: two karats and stones', (tester) async {

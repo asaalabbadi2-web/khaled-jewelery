@@ -1490,6 +1490,7 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
                         final id = await _ensureSafeBoxForAccount(
                           account: picked,
                           safeType: 'gold',
+                          stockLocation: 'showroom',
                         );
                         if (!mounted) return;
                         if (id != null) {
@@ -1525,6 +1526,7 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
                         final id = await _ensureSafeBoxForAccount(
                           account: picked,
                           safeType: 'gold',
+                          stockLocation: 'scrap',
                         );
                         if (!mounted) return;
                         if (id != null) {
@@ -2953,9 +2955,11 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
     );
   }
 
+  /// [stockLocation]: where a gold safe's gold is (ADR-045, ADR-051).
   Future<int?> _ensureSafeBoxForAccount({
     required Map<String, dynamic> account,
     required String safeType,
+    String? stockLocation,
   }) async {
     final accountId = _accountId(account);
     if (accountId == null) return null;
@@ -2994,6 +2998,7 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
           name: safeName,
           safeType: safeType,
           accountId: accountId,
+          stockLocation: stockLocation,
           isActive: true,
           isDefault: false,
         ),

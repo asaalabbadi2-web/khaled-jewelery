@@ -152,10 +152,8 @@ def list_safe_box_balances():
         # Gold with a party -- an office's or a supplier's safe, no stock location
         # (ADR-045) -- is not the shop's gold: grouped apart, and read as ours (a
         # debit: they hold it) or theirs (a credit: we owe it) (ADR-051).
-        sb_dict['group'] = sb.safe_type
-        if sb.safe_type == 'gold' and not sb.stock_location:
+        if sb.holds_party_gold:
             total = float((balance.get('weight') or {}).get('total') or 0.0)
-            sb_dict['group'] = 'party_gold'
             sb_dict['party_side'] = 'ours' if total > 0.0005 else ('theirs' if total < -0.0005 else 'settled')
         results.append(sb_dict)
 
@@ -650,6 +648,23 @@ def get_safe_box(safe_box_id):
 
     return jsonify(payload)
 
+def _stock_location_of(data, *, required):
+    """(stock_location, refusal): one of STOCK_LOCATIONS, or None -- gold with
+    a party. [required]: the key must be sent, null being a choice."""
+    from models import STOCK_LOCATIONS
+    if 'stock_location' not in data:
+        if not required:
+            return None, None
+        return None, {
+            'error': 'gold_safe_needs_its_place',
+            'message': 'حدّد مكان ذهب هذه الخزينة: معروض أو عهدة أو كسر أو ورشة أو في الطريق، أو لدى طرف (مكتب أو مورد).',
+        }
+    value = data.get('stock_location') or None
+    if value is not None and value not in STOCK_LOCATIONS:
+        return None, {'error': 'invalid_stock_location', 'allowed': list(STOCK_LOCATIONS)}
+    return value, None
+
+
 @safe_boxes_bp.route('/safe-boxes', methods=['POST'])
 @require_permission('safe_boxes.create')
 def create_safe_box():
@@ -695,7 +710,14 @@ def create_safe_box():
                 'error': 'الحساب المرتبط غير مناسب لخزنة الذهب',
                 'details': 'يجب أن يتتبع الوزن (tracks_weight=True)'
             }), 400
-    
+
+    # Where a gold safe's gold is, said when it is made: a stock location, or
+    # null -- with a party (ADR-045, ADR-051 §5ب). Nothing set it, so every new
+    # gold safe was a party's: out of the count, and refused by the transfer.
+    stock_location, refused = _stock_location_of(data, required=data['safe_type'] == 'gold')
+    if refused:
+        return jsonify(refused), 400
+
     try:
         safe_box = SafeBox(
             name=data['name'],
@@ -703,6 +725,7 @@ def create_safe_box():
             safe_type=data['safe_type'],
             account_id=data['account_id'],
             karat=karat if data.get('safe_type') == 'gold' else data.get('karat'),
+            stock_location=stock_location if data['safe_type'] == 'gold' else None,
             bank_name=data.get('bank_name'),
             iban=data.get('iban'),
             swift_code=data.get('swift_code'),
@@ -769,6 +792,12 @@ def update_safe_box(safe_box_id):
         
         if 'safe_type' in data:
             safe_box.safe_type = data['safe_type']
+
+        if 'stock_location' in data and (safe_box.safe_type or '').strip().lower() == 'gold':
+            stock_location, refused = _stock_location_of(data, required=True)
+            if refused:
+                return jsonify(refused), 400
+            safe_box.stock_location = stock_location
         
         if 'account_id' in data:
             account = Account.query.get(data['account_id'])
@@ -1183,6 +1212,13 @@ def create_safe_box_transfer_voucher():
 
     if not bool(getattr(from_safe, 'is_active', True)) or not bool(getattr(to_safe, 'is_active', True)):
         return jsonify({'error': 'safe_box_inactive'}), 400
+
+    # A transfer is between the shop's own safes: gold with a party moves by a
+    # voucher naming the party (ADR-051 §5ب).
+    from services.party_gold import transfer_refusal
+    refused = transfer_refusal(from_safe, to_safe)
+    if refused:
+        return jsonify(refused), 400
 
     # Prevent mixing gold transfer with cash transfer in a single request.
     if ('gold' in {from_type, to_type}) and not (from_type == 'gold' and to_type == 'gold'):

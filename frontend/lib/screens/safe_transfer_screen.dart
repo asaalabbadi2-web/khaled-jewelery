@@ -165,8 +165,14 @@ class _SafeTransferScreenState extends State<SafeTransferScreen> {
           .catchError((_) {});
 
       final usable = rows.where((s) => s.id != null).toList();
+      // A party's gold is not moved by a transfer (ADR-051): a receipt from it
+      // or a payment to it, by a voucher naming it. Its karats are still
+      // corrected in place.
       final filtered = (_mode == 'gold' || _mode == 'karat_correction')
-          ? usable.where((s) => s.safeType.toLowerCase() == 'gold').toList()
+          ? usable
+                .where((s) => s.safeType.toLowerCase() == 'gold')
+                .where((s) => _mode == 'karat_correction' || !s.holdsPartyGold)
+                .toList()
           : usable.where((s) => s.safeType.toLowerCase() != 'gold').toList();
 
       filtered.sort((a, b) {

@@ -14,6 +14,9 @@ class SafeBoxModel {
   // with a party; and whose that gold is -- «ours», «theirs» or «settled».
   final String? group;
   final String? partySide;
+
+  /// Gold with a party: moved by a voucher naming it, never a transfer (ADR-051).
+  bool get holdsPartyGold => group == 'party_gold';
   final String? bankName;
   final String? iban;
   final String? swiftCode;
@@ -132,6 +135,8 @@ class SafeBoxModel {
       'safe_type': safeType,
       'account_id': accountId,
       if (karat != null) 'karat': karat,
+      // A gold safe says where its gold is; null: with a party (ADR-051).
+      if (safeType == 'gold') 'stock_location': stockLocation,
       if (bankName != null) 'bank_name': bankName,
       if (iban != null) 'iban': iban,
       if (swiftCode != null) 'swift_code': swiftCode,

@@ -42,7 +42,8 @@ def _account(prefix, name, **kw):
 
 def _gold_safe(name):
     acc = _account('7', name, type='Asset', tracks_weight=True)
-    box = SafeBox(name=f'{name} {uuid.uuid4().hex[:6]}', safe_type='gold', account_id=acc.id, is_active=True)
+    box = SafeBox(name=f'{name} {uuid.uuid4().hex[:6]}', safe_type='gold', account_id=acc.id, is_active=True,
+                 stock_location='showroom')  # the shop's: a party's moves by voucher (ADR-051)
     db.session.add(box)
     db.session.flush()
     return box

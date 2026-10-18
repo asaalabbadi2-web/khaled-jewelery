@@ -47,6 +47,17 @@ const safeGroupLabels = {...safeTypeLabels, 'party_gold': 'ذهب لدى الأ�
 const _groupOrder = ['cash', 'bank', 'clearing', 'gold', 'party_gold', 'check'];
 
 /// Whose a party's gold is, as the server reads it.
+/// Where a gold safe's gold is (ADR-045); «party»: with an office or a
+/// supplier -- sent as null (ADR-051).
+const stockPlaceLabels = {
+  'showroom': 'معروض',
+  'custody': 'عهدة موظف',
+  'scrap': 'كسر',
+  'workshop': 'ورشة',
+  'transit': 'في الطريق',
+  'party': 'لدى طرف (مكتب أو مورد)',
+};
+
 const _partySideLabels = {'ours': 'لنا', 'theirs': 'علينا', 'settled': 'مسوّى'};
 
 /// One safe's type in the singular, for its badge and the form.
@@ -937,6 +948,9 @@ class _SafeBoxFormState extends State<_SafeBoxForm> {
   late String _type = safeTypeLabels.containsKey(widget.type)
       ? widget.type
       : 'cash';
+  late String? _place = widget.editing == null
+      ? null
+      : (widget.editing!.stockLocation ?? 'party');
   late bool _active = widget.editing?.isActive ?? true;
   late bool _default = widget.editing?.isDefault ?? false;
   List<Map<String, dynamic>>? _accounts;
@@ -1004,6 +1018,7 @@ class _SafeBoxFormState extends State<_SafeBoxForm> {
       iban: bank ? _text(_iban) : null,
       swiftCode: bank ? _text(_swift) : null,
       branch: bank ? _text(_branch) : null,
+      stockLocation: _place == 'party' ? null : _place,
       isActive: _active,
       isDefault: _default,
       notes: _text(_notes),
@@ -1086,6 +1101,22 @@ class _SafeBoxFormState extends State<_SafeBoxForm> {
                         : 'ابحث برقمه أو اسمه',
                     onChanged: (a) => setState(() => _account = a),
                   ),
+                if (_type == 'gold') ...[
+                  const SizedBox(height: 12),
+                  DropdownButtonFormField<String>(
+                    key: const Key('safe-form-place'),
+                    value: _place,
+                    decoration: const InputDecoration(
+                      labelText: 'أين هذا الذهب؟',
+                    ),
+                    items: [
+                      for (final e in stockPlaceLabels.entries)
+                        DropdownMenuItem(value: e.key, child: Text(e.value)),
+                    ],
+                    validator: (v) => v == null ? 'حدّد مكان الذهب' : null,
+                    onChanged: (v) => setState(() => _place = v),
+                  ),
+                ],
                 if (_type == 'bank') ...[
                   const SizedBox(height: 12),
                   TextFormField(

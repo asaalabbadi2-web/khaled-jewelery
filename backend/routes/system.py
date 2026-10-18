@@ -2837,6 +2837,11 @@ def create_melting_renewal():
             return jsonify({'error': 'to_safe_not_found'}), 404
         if from_safe_id == to_safe_id:
             return jsonify({'error': 'same_safe_box'}), 400
+        # Melting and renewal move the shop's own gold: not a party's (ADR-051 §5ب).
+        from services.party_gold import transfer_refusal
+        refused = transfer_refusal(from_safe, to_safe)
+        if refused:
+            return jsonify(refused), 400
 
         # Gold from the ledger -- the balance the screen shows (BALANCE-001 B2);
         # stones have no ledger weight and stay on the safe-box rows below.
