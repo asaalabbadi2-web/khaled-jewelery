@@ -44,7 +44,6 @@ from accounting.safe_boxes import _rebuild_safe_box_transactions_for_journal_ent
 from routes import (
     _generate_reservation_code,
     _next_invoice_type_id,
-    _resolve_account_from_id_or_number,
     _normalize_fk_ref,
 )
 from office_account_service import ensure_office_account
@@ -297,12 +296,15 @@ def create_office_reservation():
                     db.session.rollback()
                     return jsonify({'error': 'لا يمكن تسجيل الدفعة لأن حساب الخزينة غير موجود'}), 400
             else:
-                # Backward-compatible fallback: allow posting against the configured cash account number/id.
-                cash_account_setting = settings.get('cash_account_id', 1100)
-                cash_account = _resolve_account_from_id_or_number(cash_account_setting)
-                if not cash_account:
-                    db.session.rollback()
-                    return jsonify({'error': 'لا يمكن تسجيل الدفعة لأن حساب الصندوق غير موجود/غير مضبوط'}), 400
+                # The money leaves the method's safe or not at all: the old fallback
+                # to the setting «cash_account_id» (1100 -- a parent group on
+                # production) is gone (17 Oct 2026).
+                db.session.rollback()
+                return jsonify({
+                    'error': 'payment_method_has_no_safe',
+                    'message': (f'وسيلة الدفع «{payment_method.name}» غير مربوطة بخزينة نقد أو بنك؛ '
+                                'اربطها بخزينة من شاشة وسائل الدفع ثم أعد المحاولة.'),
+                }), 400
 
             voucher_number = generate_voucher_number('payment', voucher_date=reservation_date)
             voucher = Voucher(

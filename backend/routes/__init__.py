@@ -118,16 +118,6 @@ from core.responses import _wrap_api_exceptions  # noqa: F401
 from core.database import _DB_COLUMN_CACHE  # noqa: F401
 
 
-def _normalize_account_ref(value):
-    """Accept either an account id or account_number-like integer."""
-    if value in (None, '', False, 0, '0'):
-        return None
-    try:
-        return int(str(value).strip())
-    except Exception:
-        return None
-
-
 def _normalize_fk_ref(value):
     """Accept nullable integer FK values (treat 0 as null)."""
     if value in (None, '', False, 0, '0'):
@@ -562,28 +552,6 @@ def _gold_inventory_account_id(kind: str = 'new') -> int:
     """
     return require_account(DEFAULT_MAPPING_OPERATION_TYPE,
                            'gold_inventory_scrap' if kind == 'scrap' else 'gold_inventory_new')
-
-
-def _resolve_account_from_id_or_number(value):
-    """Resolve an account by either internal id or account_number.
-
-    Some deployments store values like `1100` in settings intending an
-    `account_number`, while the code path expects a database primary key.
-    """
-    if value in (None, '', 0, False):
-        return None
-    try:
-        value_int = int(value)
-    except Exception:
-        value_int = None
-
-    if value_int is not None:
-        acc = Account.query.get(value_int)
-        if acc:
-            return acc
-        return Account.query.filter_by(account_number=str(value_int)).first()
-
-    return Account.query.filter_by(account_number=str(value)).first()
 
 
 def _resolve_inventory_account_id_for_invoice(invoice_type: str, gold_type: str) -> int:

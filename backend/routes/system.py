@@ -86,7 +86,6 @@ from services.live_balances import live_balances_by_account_ids
 from core.settings import _get_settings_singleton
 from accounting.balances import _recalculate_account_balances_for_accounts
 from routes import (
-    _normalize_account_ref,
     _normalize_fk_ref,
     _try_process_due_auto_clearing_settlements,
     _get_manufacturing_wage_inventory_account_id,
@@ -527,15 +526,10 @@ def update_weight_closing_settings():
                             'message': 'أيام التنبيه عدد صحيح من 1 إلى 365'}), 400
         merged['position_oldest_alert_days'] = days
 
-    # The cash account ID. The gold inventory is no setting: its accounts are
-    # the mapped roles gold_inventory_new / gold_inventory_scrap (CHART-002).
-    for key in ('cash_account_id',):
-        if key in payload:
-            v = _normalize_account_ref(payload.get(key))
-            if v is None:
-                merged[key] = None
-            elif v > 0:
-                merged[key] = v
+    # No cash account by number: a reservation's payment leaves its payment
+    # method's safe (17 Oct 2026). The gold inventory is no setting either: its
+    # accounts are the mapped roles gold_inventory_new / gold_inventory_scrap.
+    merged.pop('cash_account_id', None)
 
     # Preferred settlement safebox (nullable)
     if 'cash_safe_box_id' in payload:
