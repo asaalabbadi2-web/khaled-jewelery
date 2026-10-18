@@ -40,6 +40,15 @@ const safeTypeLabels = {
   'check': 'الشيكات',
 };
 
+/// The sections, in order: the types, and gold held with a party (an office's
+/// or a supplier's safe) apart from the shop's -- the server's grouping
+/// (ADR-051). Not a type: the create form lists [safeTypeLabels] only.
+const safeGroupLabels = {...safeTypeLabels, 'party_gold': 'ذهب لدى الأطراف'};
+const _groupOrder = ['cash', 'bank', 'clearing', 'gold', 'party_gold', 'check'];
+
+/// Whose a party's gold is, as the server reads it.
+const _partySideLabels = {'ours': 'لنا', 'theirs': 'علينا', 'settled': 'مسوّى'};
+
 /// One safe's type in the singular, for its badge and the form.
 const _safeTypeSingular = {
   'cash': 'نقدية',
@@ -54,6 +63,7 @@ IconData _typeIcon(String type) => switch (type) {
   'bank' => Icons.account_balance_outlined,
   'clearing' => Icons.credit_card_outlined,
   'gold' => Icons.diamond_outlined,
+  'party_gold' => Icons.handshake_outlined,
   'check' => Icons.receipt_long_outlined,
   _ => Icons.account_balance_wallet_outlined,
 };
@@ -63,6 +73,7 @@ SemanticTone _typeTone(AppSemanticColors tones, String type) => switch (type) {
   'bank' => tones.sectionBlue,
   'clearing' => tones.sectionTeal,
   'gold' => tones.gold,
+  'party_gold' => tones.sectionAmber,
   'check' => tones.sectionPurple,
   _ => tones.sectionSlate,
 };
@@ -172,20 +183,24 @@ class _SafeBoxesScreenState extends State<SafeBoxesScreen> {
   List<String> get _types {
     final present = _overview?.totals.keys.toSet() ?? <String>{};
     final ordered = [
-      ...safeTypeLabels.keys.where(present.contains),
-      ...present.where((t) => !safeTypeLabels.containsKey(t)),
+      ..._groupOrder.where(present.contains),
+      ...present.where((t) => !_groupOrder.contains(t)),
     ];
     if (widget.lockFilterType && _type != 'all') {
-      return ordered.where((t) => t == _type).toList();
+      return ordered.where((t) => _shows(t)).toList();
     }
     return ordered;
   }
+
+  /// A filter on gold shows the gold held with parties beside it.
+  bool _shows(String group) =>
+      group == _type || (_type == 'gold' && group == 'party_gold');
 
   List<SafeBoxModel> _rowsOf(String type) {
     final q = normalizeForSearch(_query);
     final rows =
         (_overview?.rows ?? const <SafeBoxModel>[]).where((sb) {
-          if (sb.safeType != type) return false;
+          if ((sb.group ?? sb.safeType) != type) return false;
           if (q.isEmpty) return true;
           return normalizeForSearch(
             [
@@ -206,8 +221,10 @@ class _SafeBoxesScreenState extends State<SafeBoxesScreen> {
 
   bool _isGold(SafeBoxModel sb) => sb.safeType == 'gold';
 
+  bool _isGoldGroup(String group) => group == 'gold' || group == 'party_gold';
+
   String _totalText(String type, SafeTypeTotal t) =>
-      type == 'gold' ? _weight(t.weightMainKarat) : _amount(t.cash);
+      _isGoldGroup(type) ? _weight(t.weightMainKarat) : _amount(t.cash);
 
   // ── actions ──
 
@@ -274,7 +291,7 @@ class _SafeBoxesScreenState extends State<SafeBoxesScreen> {
       builder: (_) => _SafeBoxForm(
         api: widget.api,
         editing: sb,
-        type: sb?.safeType ?? (_type == 'all' ? 'cash' : _type),
+        type: sb?.safeType ?? (_type == 'all' ? 'cash' : (_type == 'party_gold' ? 'gold' : _type)),
         lockType: sb == null && widget.lockFilterType && _type != 'all',
       ),
     );
@@ -371,7 +388,7 @@ class _SafeBoxesScreenState extends State<SafeBoxesScreen> {
 
     final shown = _type == 'all'
         ? _types
-        : _types.where((t) => t == _type).toList();
+        : _types.where(_shows).toList();
     final sections = [
       for (final t in shown)
         if (_rowsOf(t).isNotEmpty) t,
@@ -518,11 +535,11 @@ class _SafeBoxesScreenState extends State<SafeBoxesScreen> {
         for (final t in _types)
           tile(
             t,
-            safeTypeLabels[t] ?? t,
+            safeGroupLabels[t] ?? t,
             _typeIcon(t),
             _typeTone(_tones, t),
             _totalText(t, totals[t]!),
-            t == 'gold'
+            _isGoldGroup(t)
                 ? 'عيار $mainKarat · ${totals[t]!.count}'
                 : '${totals[t]!.count}',
           ),
@@ -565,7 +582,7 @@ class _SafeBoxesScreenState extends State<SafeBoxesScreen> {
             Icon(_typeIcon(type), size: 18, color: tone.fg),
             const SizedBox(width: 6),
             Text(
-              safeTypeLabels[type] ?? type,
+              safeGroupLabels[type] ?? type,
               style: _text.titleSmall?.copyWith(fontWeight: FontWeight.w800),
             ),
             const SizedBox(width: 6),
@@ -679,6 +696,20 @@ class _SafeBoxesScreenState extends State<SafeBoxesScreen> {
                           if (!sb.isActive) ...[
                             const SizedBox(width: 6),
                             _pill('موقوفة', _tones.blocked),
+                          ],
+                          if (_partySideLabels[sb.partySide] != null) ...[
+                            const SizedBox(width: 6),
+                            KeyedSubtree(
+                              key: Key('safe-party-side-${sb.id}'),
+                              child: _pill(
+                                _partySideLabels[sb.partySide]!,
+                                switch (sb.partySide) {
+                                  'ours' => _tones.ready,
+                                  'theirs' => _tones.warning,
+                                  _ => _tones.silver,
+                                },
+                              ),
+                            ),
                           ],
                         ],
                       ),

@@ -46,9 +46,10 @@ def test_the_totals_per_type_are_the_servers_and_are_its_rows(auth_headers, vwor
 
     totals = body['totals']
     assert body['main_karat'] > 0
-    for safe_type in {r['safe_type'] for r in body['rows']}:
-        rows = [r for r in body['rows'] if r['safe_type'] == safe_type]
-        t = totals[safe_type]
+    # Per group: the safe's type, but a party's gold apart from the shop's (ADR-051).
+    for group in {r['group'] for r in body['rows']}:
+        rows = [r for r in body['rows'] if r['group'] == group]
+        t = totals[group]
         assert t['count'] == len(rows)
         assert t['cash'] == round(sum(r['balance']['cash'] for r in rows), 2)
         grams = sum((r['balance'].get('weight') or {}).get('total', 0.0) for r in rows)

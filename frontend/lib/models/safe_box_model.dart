@@ -10,6 +10,10 @@ class SafeBoxModel {
   /// The kind of stock location this gold safe is (ADR-045): showroom,
   /// custody, scrap, workshop, transit -- null: not stock.
   final String? stockLocation;
+  // The server's grouping (ADR-051): the type, or «party_gold» for gold held
+  // with a party; and whose that gold is -- «ours», «theirs» or «settled».
+  final String? group;
+  final String? partySide;
   final String? bankName;
   final String? iban;
   final String? swiftCode;
@@ -44,6 +48,8 @@ class SafeBoxModel {
     required this.accountId,
     this.karat,
     this.stockLocation,
+    this.group,
+    this.partySide,
     this.bankName,
     this.iban,
     this.swiftCode,
@@ -90,6 +96,8 @@ class SafeBoxModel {
       accountId: json['account_id'],
       karat: json['karat'],
       stockLocation: json['stock_location'] as String?,
+      group: json['group'] as String?,
+      partySide: json['party_side'] as String?,
       bankName: json['bank_name'],
       iban: json['iban'],
       swiftCode: json['swift_code'],

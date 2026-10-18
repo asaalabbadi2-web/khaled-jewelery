@@ -89,8 +89,9 @@ final _overview = {
 };
 
 class _FakeApi extends ApiService {
-  _FakeApi({this.failFirst = false});
+  _FakeApi({this.failFirst = false, this.overview});
   bool failFirst;
+  final Map<String, dynamic>? overview;
   final created = <SafeBoxModel>[];
   int loads = 0;
 
@@ -101,7 +102,7 @@ class _FakeApi extends ApiService {
       failFirst = false;
       throw Exception('انقطع الاتصال');
     }
-    return SafeBoxesOverview.fromJson(_overview);
+    return SafeBoxesOverview.fromJson(overview ?? _overview);
   }
 
   @override
@@ -175,7 +176,43 @@ Future<_FakeApi> _open(
   return fake;
 }
 
+/// Gold held with parties (ADR-051): the server groups an office's or a
+/// supplier's gold safe «party_gold», apart from the shop's, and says whose.
+Map<String, dynamic> _withParties() => {
+  'rows': [
+    {..._safe(30, 'خزينة الذهب المعروض للبيع', 'gold', 760, '1300000',
+        weight: {'18k': 0.0, '21k': 10.0, '22k': 0.0, '24k': 0.0, 'total': 9.545}), 'group': 'gold'},
+    {..._safe(47, 'خزنة مكتب الراقي - ذهب', 'gold', 870, '72100017',
+        weight: {'18k': 0.0, '21k': 396.6, '22k': 0.0, '24k': 0.0, 'total': 378.573}),
+      'group': 'party_gold', 'party_side': 'ours'},
+    {..._safe(41, 'حسابنا بشركة الجنيه العربي', 'gold', 889, '72100001',
+        weight: {'18k': 0.0, '21k': -5.0, '22k': 0.0, '24k': 0.0, 'total': -4.773}),
+      'group': 'party_gold', 'party_side': 'theirs'},
+  ],
+  'totals': {
+    'gold': {'count': 1, 'cash': 0.0, 'weight_main_karat': 9.545},
+    'party_gold': {'count': 2, 'cash': 0.0, 'weight_main_karat': 373.8},
+  },
+  'main_karat': 22,
+};
+
 void main() {
+  testWidgets('gold with parties is its own section, and each says whose the gold is', (tester) async {
+    await _open(tester, api: _FakeApi(overview: _withParties()));
+    expect(find.byKey(const Key('safes-section-party_gold')), findsOneWidget);
+    expect(find.text('ذهب لدى الأطراف'), findsWidgets);
+    expect(find.byKey(const Key('safes-tile-party_gold')), findsOneWidget);
+    expect(find.descendant(of: find.byKey(const Key('safe-party-side-47')), matching: find.text('لنا')), findsOneWidget);
+    expect(find.descendant(of: find.byKey(const Key('safe-party-side-41')), matching: find.text('علينا')),
+        findsOneWidget);
+    expect(find.byKey(const Key('safe-party-side-30')), findsNothing);   // the shop's gold is no party's
+  });
+
+  test('a party\'s gold is a section, not a type a safe is created as', () {
+    expect(safeTypeLabels.containsKey('party_gold'), isFalse);
+    expect(safeGroupLabels['party_gold'], 'ذهب لدى الأطراف');
+  });
+
   testWidgets(
     'the summary is the server\'s, one tile per type, the gold in the main karat',
     (tester) async {

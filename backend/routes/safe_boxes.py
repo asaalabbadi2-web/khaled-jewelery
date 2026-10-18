@@ -149,13 +149,21 @@ def list_safe_box_balances():
             balance['weight'] = bal['weight']
         sb_dict['balance'] = balance
         sb_dict['pending'] = pending.get(sb.id) or {'cash': 0.0, 'weight': {}, 'documents': 0}
+        # Gold with a party -- an office's or a supplier's safe, no stock location
+        # (ADR-045) -- is not the shop's gold: grouped apart, and read as ours (a
+        # debit: they hold it) or theirs (a credit: we owe it) (ADR-051).
+        sb_dict['group'] = sb.safe_type
+        if sb.safe_type == 'gold' and not sb.stock_location:
+            total = float((balance.get('weight') or {}).get('total') or 0.0)
+            sb_dict['group'] = 'party_gold'
+            sb_dict['party_side'] = 'ours' if total > 0.0005 else ('theirs' if total < -0.0005 else 'settled')
         results.append(sb_dict)
 
     # The totals per type are the server's (SAFES-UI-1): the screen summed the
     # rows itself and turned grams into the main karat with a fixed 21.
     totals = {}
     for row in results:
-        t = totals.setdefault(row['safe_type'], {'count': 0, 'cash': 0.0, 'weight_main_karat': 0.0})
+        t = totals.setdefault(row['group'], {'count': 0, 'cash': 0.0, 'weight_main_karat': 0.0})
         t['count'] += 1
         t['cash'] += float(row['balance']['cash'] or 0.0)
         t['weight_main_karat'] += float((row['balance'].get('weight') or {}).get('total') or 0.0)
