@@ -218,19 +218,23 @@ class TestDistributeLineUnit:
 class TestDistributeLinesIdempotency:
     """distribute_lines() لا تُكرر التوزيع إذا كان الزوج موجوداً مسبقاً."""
 
-    def test_both_sides_present_no_extra_distribution(self, pair_ids):
-        """كلا الحسابَين مُدرجَان صراحةً → لا توزيع إضافي."""
+    def test_both_sides_present_the_weight_still_leaves_the_cash_account(self, pair_ids):
+        """كلا الحسابَين في القيد، والوزن على النقدي: يُوزَّع مع ذلك (17 أكتوبر 2026).
+
+        كان التوزيع يتوقّف حين يجد الموازي («قرار صريح»)، فبقي وزن قيد المعايرة
+        JE-2026-06478 على الحساب النقدي 2100001. الحساب النقدي لا يحمل وزنًا."""
         with app.app_context():
             lines = [
                 {'account_id': pair_ids['cash_id'], 'cash_debit': 100.0, 'debit_21k': 2.0},
                 {'account_id': pair_ids['gold_id'], 'credit_21k': 2.0},
             ]
             result = distribute_lines(lines)
+            again = distribute_lines(result)
 
-        ids = [r['account_id'] for r in result]
-        assert ids.count(pair_ids['cash_id']) <= 1
-        assert ids.count(pair_ids['gold_id']) <= 1
-        assert len(result) == 2
+        on_cash = [r for r in result if r['account_id'] == pair_ids['cash_id']]
+        assert [r.get('debit_21k', 0) for r in on_cash] == [0]
+        assert sum(r.get('debit_21k', 0) for r in result if r['account_id'] == pair_ids['gold_id']) == 2.0
+        assert len(again) == len(result)        # nothing left to move: idempotent
 
     def test_single_mixed_line_gets_distributed(self, pair_ids):
         """سطر واحد بقيم مختلطة على حساب نقدي → يُوزَّع تلقائياً."""

@@ -132,8 +132,11 @@ def distribute_line(line: dict) -> list[dict]:
 def distribute_lines(lines: list[dict]) -> list[dict]:
     """يطبّق distribute_line() على قائمة أسطر كاملة.
 
-    Idempotent: إذا كان الزوجان موجودَين بالفعل في القائمة (المستخدم أرسلهما
-    يدوياً)، لا يتم توزيع إضافي — يُحترم القرار الصريح للمستخدم.
+    يُوزَّع كل سطر ولو كان الموازي في القائمة: الحساب النقدي لا يحمل وزنًا
+    (ولا الوزني نقدًا)، فلا «قرار صريح» يُحترم بإبقائه عليه. كان التوزيع يتوقّف
+    حين يجد الموازي، فبقيت 1,677.171 غ عيار 21 من قيد المعايرة JE-2026-06478 على
+    الحساب النقدي 2100001 (17 أكتوبر 2026). Idempotent: السطر الموزَّع لا يبقى
+    عليه ما يُنقل.
     """
     existing_ids: set[int] = {
         line['account_id'] for line in lines if line.get('account_id')
@@ -150,8 +153,8 @@ def distribute_lines(lines: list[dict]) -> list[dict]:
 
         from models import Account
         acc = Account.query.get(acc_id)
-        # إذا لا memo، أو الموازي موجود بالفعل في القائمة → لا توزيع
-        if not acc or not acc.memo_account_id or acc.memo_account_id in existing_ids:
+        # لا memo → لا توزيع
+        if not acc or not acc.memo_account_id:
             result.append(line)
             continue
 

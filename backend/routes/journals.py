@@ -429,6 +429,23 @@ def get_journal_entries():
 from dual_distribution_service import distribute_lines as _distribute_lines
 
 
+def _weight_on_cash_refusal(lines):
+    """Grams left on a cash account after the distribution: one with no weight
+    twin to take them. Refused by name -- a cash account carries no grams
+    (17 Oct 2026)."""
+    from dual_distribution_service import GOLD_FIELDS
+    for line in lines:
+        if not any(float(line.get(f) or 0) for f in GOLD_FIELDS):
+            continue
+        acc = db.session.get(Account, line.get('account_id')) if line.get('account_id') else None
+        if acc is not None and not acc.tracks_weight:
+            message = (f'الحساب {acc.account_number} «{acc.name}» مالي لا يحمل وزنًا، ولا حساب وزني مربوط به؛ '
+                       'قيّد الغرامات على حساب وزني.')
+            # The form shows «error» as it is (JE-UX): the words in it, the code beside.
+            return jsonify({'error': message, 'code': 'weight_on_cash_account', 'account_id': acc.id}), 400
+    return None
+
+
 # The three ways a manual entry is refused for its figures, said once for the
 # create and the edit route (JE-UX-1): in Arabic, naming the side and the way out.
 _JE_REFUSAL_LINE_WITHOUT_ACCOUNT = 'يوجد سطر فيه مبالغ بلا حساب. اختر حساباً لكل سطر يحمل قيمة.'
@@ -595,6 +612,10 @@ def add_journal_entry():
         if round(total_gold_debit_normalized, 3) != round(total_gold_credit_normalized, 3):
             return jsonify({'error': _je_refusal_gold_unbalanced(total_gold_debit_normalized, total_gold_credit_normalized)}), 400
         # --- End Balance Validation ---
+
+    refused = _weight_on_cash_refusal(lines_data)
+    if refused:
+        return refused
 
     try:
         new_entry = JournalEntry(
@@ -771,6 +792,10 @@ def update_journal_entry(id):
         if round(total_gold_debit_normalized, 3) != round(total_gold_credit_normalized, 3):
             return jsonify({'error': _je_refusal_gold_unbalanced(total_gold_debit_normalized, total_gold_credit_normalized)}), 400
         # --- End Balance Validation ---
+
+    refused = _weight_on_cash_refusal(incoming_lines)
+    if refused:
+        return refused
 
     try:
         entry.date = datetime.fromisoformat(data['date'])
