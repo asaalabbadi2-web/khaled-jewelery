@@ -7,8 +7,10 @@ from sqlalchemy import func
 from models import db, JournalEntry, JournalEntryLine
 
 
-def live_balances_by_account_ids(account_ids: Iterable[int]) -> Dict[int, dict]:
-    """Compute live balances for multiple accounts from journal lines.
+def live_balances_by_account_ids(account_ids: Iterable[int], *, start=None, end=None) -> Dict[int, dict]:
+    """Compute live balances for multiple accounts from journal lines -- or,
+    with *start* / *end* (datetimes, end exclusive), their movement between the
+    entries' dates.
 
     Canonical source: JournalEntryLine joined to JournalEntry.
 
@@ -54,6 +56,8 @@ def live_balances_by_account_ids(account_ids: Iterable[int]) -> Dict[int, dict]:
         .join(JournalEntry)
         .filter(JournalEntryLine.account_id.in_(ids))
         .filter(*jl_filters)
+        .filter(*([JournalEntry.date >= start] if start is not None else []))
+        .filter(*([JournalEntry.date < end] if end is not None else []))
         .group_by(JournalEntryLine.account_id)
         .all()
     )

@@ -293,11 +293,11 @@ def get_employee_scrap_ledger_report():
     """Legacy report endpoint.
 
     Previously computed scrap custody from invoices.
-    Now backed by gold SafeBox ledger balances (SafeBoxTransaction) to keep a
-    single source of truth after introducing gold safes.
+    Now backed by the gold safes' accounts in the ledger (BALANCE-001, ADR-051)
+    -- not the SafeBoxTransaction rows, a second book that drifted from it.
 
     Query params:
-    - start_date, end_date (YYYY-MM-DD) -> mapped to tx created_at range
+    - start_date, end_date (YYYY-MM-DD) -> the entries' dates
     - include_unassigned (true/false) -> include default/main gold safe bucket
 
     NOTE:
@@ -359,7 +359,13 @@ def get_employee_scrap_ledger_report():
             default_gold_safe = None
 
     def _ledger_balance_for_safe(safe_id: int) -> dict:
-        if not safe_id:
+        """The safe's grams from the ledger -- its account's posted lines, between
+        the entries' dates when a period is given (BALANCE-001, ADR-051); the
+        safe-box rows are a second book that drifted from it."""
+        from accounting.balances import counted_line_filters
+        from services.live_balances import live_balances_by_account_ids
+        safe = SafeBox.query.get(int(safe_id)) if safe_id else None
+        if safe is None or not safe.account_id:
             return {
                 'weights_by_karat': {},
                 'total_weight': 0.0,
@@ -367,39 +373,8 @@ def get_employee_scrap_ledger_report():
                 'first_date': None,
                 'last_date': None,
             }
-
-        q = SafeBoxTransaction.query.filter_by(safe_box_id=safe_id)
-        if start_dt:
-            q = q.filter(SafeBoxTransaction.created_at >= start_dt)
-        if end_dt:
-            q = q.filter(SafeBoxTransaction.created_at < end_dt)
-
-        def _sum(field_name: str, direction: str) -> float:
-            col = getattr(SafeBoxTransaction, field_name)
-            return (
-                q.with_entities(func.coalesce(func.sum(col), 0.0))
-                .filter(SafeBoxTransaction.direction == direction)
-                .scalar()
-                or 0.0
-            )
-
-        w_in = {
-            '18k': float(_sum('weight_18k', 'in')),
-            '21k': float(_sum('weight_21k', 'in')),
-            '22k': float(_sum('weight_22k', 'in')),
-            '24k': float(_sum('weight_24k', 'in')),
-        }
-        w_out = {
-            '18k': float(_sum('weight_18k', 'out')),
-            '21k': float(_sum('weight_21k', 'out')),
-            '22k': float(_sum('weight_22k', 'out')),
-            '24k': float(_sum('weight_24k', 'out')),
-        }
-        w_bal = {
-            k: float(w_in.get(k, 0.0) or 0.0) - float(w_out.get(k, 0.0) or 0.0)
-            for k in ['18k', '21k', '22k', '24k']
-        }
-
+        live = live_balances_by_account_ids([safe.account_id], start=start_dt, end=end_dt)[int(safe.account_id)]
+        w_bal = {k: float(live.get(k) or 0.0) for k in ['18k', '21k', '22k', '24k']}
         total_weight = float(sum(w_bal.values()))
         total_weight_main = 0.0
         try:
@@ -408,10 +383,13 @@ def get_employee_scrap_ledger_report():
                 total_weight_main += float(convert_to_main_karat(float(grams or 0.0), karat))
         except Exception:
             total_weight_main = 0.0
-
-        first_dt_local = q.with_entities(func.min(SafeBoxTransaction.created_at)).scalar()
-        last_dt_local = q.with_entities(func.max(SafeBoxTransaction.created_at)).scalar()
-
+        dates = (db.session.query(func.min(JournalEntry.date), func.max(JournalEntry.date))
+                 .join(JournalEntryLine, JournalEntryLine.journal_entry_id == JournalEntry.id)
+                 .filter(JournalEntryLine.account_id == safe.account_id, *counted_line_filters())
+                 .filter(*([JournalEntry.date >= start_dt] if start_dt else []))
+                 .filter(*([JournalEntry.date < end_dt] if end_dt else []))
+                 .first())
+        first_dt_local, last_dt_local = (dates or (None, None))
         return {
             'weights_by_karat': {k: round_weight(v) for k, v in w_bal.items()},
             'total_weight': round_weight(total_weight),

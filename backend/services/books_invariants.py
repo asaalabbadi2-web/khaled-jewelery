@@ -71,6 +71,7 @@ COMMISSION_NOT_WRITTEN = 'COMMISSION_NOT_WRITTEN'
 ENTRY_WEIGHT_UNBALANCED = 'ENTRY_WEIGHT_UNBALANCED'
 STOCK_ALLOCATION_INVALID = 'STOCK_ALLOCATION_INVALID'
 ROLE_NOT_MAPPED = 'ROLE_NOT_MAPPED'
+CLEARING_DUE_DRIFT = 'CLEARING_DUE_DRIFT'
 
 KINDS = (
     ORPHAN_POSTED_ENTRY,
@@ -84,6 +85,7 @@ KINDS = (
     ENTRY_WEIGHT_UNBALANCED,
     STOCK_ALLOCATION_INVALID,
     ROLE_NOT_MAPPED,
+    CLEARING_DUE_DRIFT,
 )
 
 # An invoice in one of these states is retracted: its entries must not count
@@ -547,6 +549,27 @@ def check_roles_not_mapped() -> list:
             for op, role in unmapped_roles()]
 
 
+def check_clearing_due_drift(threshold: float = DRIFT_THRESHOLD) -> list:
+    """A card's due against its clearing account in the ledger (ADR-051).
+
+    The due a clearing safe is settled by is built from the card payments,
+    their settlement lines and the safe-box rows for transfers -- not from the
+    ledger. On the 16 Oct production copy it equals the account on all five
+    clearing safes; this says so the night it stops. Keyed 'safe_box:<id>';
+    the metric is due minus ledger."""
+    from routes.clearing import _compute_clearing_due_amount
+    from services.live_balances import safe_box_balance
+    facts = []
+    for sb in SafeBox.query.filter_by(safe_type='clearing', is_active=True).order_by(SafeBox.id).all():
+        due = round(float(_compute_clearing_due_amount(sb.id) or 0.0), 2)
+        ledger = round(float(safe_box_balance(sb)['cash'] or 0.0), 2)
+        diff = round(due - ledger, 2)
+        if abs(diff) > threshold:
+            facts.append(Fact(CLEARING_DUE_DRIFT, f'safe_box:{sb.id}', diff,
+                              {'safe_box': sb.name, 'due': due, 'ledger': ledger}))
+    return facts
+
+
 CHECKS = {
     ORPHAN_POSTED_ENTRY: check_orphan_posted_entries,
     UNPOSTED_ENTRY_IN_LIMBO: check_unposted_entries_in_limbo,
@@ -560,6 +583,7 @@ CHECKS = {
     ENTRY_WEIGHT_UNBALANCED: check_entries_weight_unbalanced,
     STOCK_ALLOCATION_INVALID: check_stock_allocations,
     ROLE_NOT_MAPPED: check_roles_not_mapped,
+    CLEARING_DUE_DRIFT: check_clearing_due_drift,
 }
 
 
