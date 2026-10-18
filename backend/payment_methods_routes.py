@@ -157,6 +157,17 @@ def _weekend_value(raw) -> str:
     return format_weekend(parse_weekend(raw))
 
 
+def _clearing_refusal(payment_method):
+    """A card's way to pay receives, never pays out (services/payment_method_policy):
+    a clearing method is set for sales and their returns only -- an empty list
+    is every type, so it is refused too."""
+    from services.payment_method_policy import clearing_pays_out, refusal
+    safe = db.session.get(SafeBox, payment_method.default_safe_box_id) if payment_method.default_safe_box_id else None
+    types = payment_method.applicable_invoice_types or list(PAYMENT_METHOD_ALLOWED_INVOICE_TYPES)
+    bad = clearing_pays_out(safe, types)
+    return (jsonify(refusal(payment_method.name, bad)), 400) if bad else None
+
+
 def _schedule_refusal(pm):
     """A method that settles automatically needs a schedule the one reading can
     read (ADR-037); a 400 with the reason, or None."""
@@ -602,7 +613,7 @@ def create_payment_method():
                 }), 500
             raise
 
-        refused = _schedule_refusal(payment_method)
+        refused = _schedule_refusal(payment_method) or _clearing_refusal(payment_method)
         if refused:
             return refused
         db.session.add(payment_method)
@@ -870,7 +881,7 @@ def update_payment_method(id):
         if 'skip_public_holidays' in data:
             payment_method.skip_public_holidays = bool(data.get('skip_public_holidays'))
         # The whole schedule, as it will be saved, through the one reading (ADR-037).
-        refused = _schedule_refusal(payment_method)
+        refused = _schedule_refusal(payment_method) or _clearing_refusal(payment_method)
         if refused:
             db.session.rollback()
             return refused
