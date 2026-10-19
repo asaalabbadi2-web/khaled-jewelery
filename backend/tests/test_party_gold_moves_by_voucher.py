@@ -111,7 +111,7 @@ def test_a_safe_says_its_group():
     party = _gold_safe(None)
     showroom = _gold_safe('showroom')
     assert party.to_dict()['group'] == 'party_gold'
-    assert showroom.to_dict()['group'] == 'gold'
+    assert showroom.to_dict()['group'] == 'gold_shop'
 
 
 # Where a new gold safe's gold is, said when it is made. Nothing set
@@ -137,7 +137,7 @@ def test_a_new_gold_safe_says_where_its_gold_is(auth_headers):
     assert 'لدى طرف' in body['message']
 
 
-@pytest.mark.parametrize('place, group', [('showroom', 'gold'), ('scrap', 'gold'), (None, 'party_gold')])
+@pytest.mark.parametrize('place, group', [('showroom', 'gold_shop'), ('scrap', 'gold_shop'), (None, 'party_gold')])
 def test_the_place_given_is_kept(auth_headers, place, group):
     status, body = _create(auth_headers, stock_location=place)
     assert status == 201, body

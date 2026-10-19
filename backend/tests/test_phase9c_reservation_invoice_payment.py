@@ -22,6 +22,7 @@ what changed.
 """
 import json
 
+from tests.office_deposit import give_deposit
 import pytest
 import uuid
 from datetime import datetime
@@ -103,6 +104,7 @@ def _office_and_supplier():
     db.session.flush()
     office.supplier_id = supplier.id
     db.session.add(office)
+    give_deposit(supplier)          # where a settlement keeps its gold (ADR-052)
     db.session.commit()
     return office
 

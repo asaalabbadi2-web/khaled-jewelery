@@ -138,6 +138,11 @@ def list_safe_box_balances():
     from services.safe_pending import pending_by_safe
     pending = pending_by_safe()
 
+    # A deposit's office: what we owe it, or it owes us, in riyals -- beside
+    # the gold, as a bank account shows a loan's balance (ADR-052, the owner
+    # 19 Oct 2026: the gold is ours at execution; its price is a debt apart).
+    office_cash = _deposit_office_cash([sb for sb in safes if sb.stock_location == 'deposit'])
+
     results = []
     for sb in safes:
         sb_dict = sb.to_dict(include_account=True, include_balance=False)
@@ -155,6 +160,8 @@ def list_safe_box_balances():
         if sb.holds_party_gold:
             total = float((balance.get('weight') or {}).get('total') or 0.0)
             sb_dict['party_side'] = 'ours' if total > 0.0005 else ('theirs' if total < -0.0005 else 'settled')
+        if sb.id in office_cash:
+            sb_dict['office_cash'] = office_cash[sb.id]
         results.append(sb_dict)
 
     # The totals per type are the server's (SAFES-UI-1): the screen summed the
@@ -647,6 +654,20 @@ def get_safe_box(safe_box_id):
         payload['balance'] = balance
 
     return jsonify(payload)
+
+def _deposit_office_cash(deposits) -> dict:
+    """{deposit safe id: the office's riyals} -- its supplier's ledger cash balance
+    (the one reader, services/party_live_balances): below zero, owed to the
+    office; above, ours with it."""
+    if not deposits:
+        return {}
+    from models import Supplier
+    from services.party_live_balances import compute_live_supplier_balances
+    suppliers = Supplier.query.filter(Supplier.default_safe_box_id.in_([sb.id for sb in deposits])).all()
+    balances = compute_live_supplier_balances(suppliers)
+    return {int(s.default_safe_box_id): round(float((balances.get(s.id) or {}).get('cash') or 0.0), 2)
+            for s in suppliers}
+
 
 def _stock_location_of(data, *, required):
     """(stock_location, refusal): one of STOCK_LOCATIONS, or None -- gold with

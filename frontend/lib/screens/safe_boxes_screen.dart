@@ -40,23 +40,49 @@ const safeTypeLabels = {
   'check': 'الشيكات',
 };
 
-/// The sections, in order: the types, and gold held with a party (an office's
-/// or a supplier's safe) apart from the shop's -- the server's grouping
-/// (ADR-051). Not a type: the create form lists [safeTypeLabels] only.
-const safeGroupLabels = {...safeTypeLabels, 'party_gold': 'ذهب لدى الأطراف'};
-const _groupOrder = ['cash', 'bank', 'clearing', 'gold', 'party_gold', 'check'];
+/// The sections, in order -- the server's grouping: money by its type, gold
+/// by its kind, as cash and the banks are apart (ADR-052): the shop's, the
+/// employees' custody, deposited with offices; and a gold safe with no place,
+/// a party's (ADR-051). Not types: the create form lists [safeTypeLabels].
+const safeGroupLabels = {
+  ...safeTypeLabels,
+  'gold_shop': 'ذهب المحل',
+  'gold_custody': 'عهد الذهب',
+  'gold_deposit': 'ذهب مودع لدى المكاتب',
+  'party_gold': 'ذهب لدى الأطراف',
+};
+const _groupOrder = [
+  'cash',
+  'bank',
+  'clearing',
+  'gold_shop',
+  'gold',
+  'gold_custody',
+  'gold_deposit',
+  'party_gold',
+  'check',
+];
 
-/// Whose a party's gold is, as the server reads it.
+/// A gold group's place, for a new safe made from its section.
+const _groupPlace = {
+  'gold_custody': 'custody',
+  'gold_deposit': 'deposit',
+  'party_gold': 'party',
+};
+
 /// Where a gold safe's gold is (ADR-045); «party»: with an office or a
-/// supplier -- sent as null (ADR-051).
+/// supplier, no place -- sent as null (ADR-051).
 const stockPlaceLabels = {
   'showroom': 'معروض',
   'custody': 'عهدة موظف',
   'scrap': 'كسر',
   'workshop': 'ورشة',
   'transit': 'في الطريق',
+  'deposit': 'مودع لدى مكتب',
   'party': 'لدى طرف (مكتب أو مورد)',
 };
+
+/// Whose a party's gold is, as the server reads it.
 
 const _partySideLabels = {'ours': 'لنا', 'theirs': 'علينا', 'settled': 'مسوّى'};
 
@@ -73,7 +99,9 @@ IconData _typeIcon(String type) => switch (type) {
   'cash' => Icons.payments_outlined,
   'bank' => Icons.account_balance_outlined,
   'clearing' => Icons.credit_card_outlined,
-  'gold' => Icons.diamond_outlined,
+  'gold' || 'gold_shop' => Icons.diamond_outlined,
+  'gold_custody' => Icons.badge_outlined,
+  'gold_deposit' => Icons.savings_outlined,
   'party_gold' => Icons.handshake_outlined,
   'check' => Icons.receipt_long_outlined,
   _ => Icons.account_balance_wallet_outlined,
@@ -83,8 +111,10 @@ SemanticTone _typeTone(AppSemanticColors tones, String type) => switch (type) {
   'cash' => tones.cash,
   'bank' => tones.sectionBlue,
   'clearing' => tones.sectionTeal,
-  'gold' => tones.gold,
-  'party_gold' => tones.sectionAmber,
+  'gold' || 'gold_shop' => tones.gold,
+  'gold_custody' => tones.sectionIndigo,
+  'gold_deposit' => tones.sectionAmber,
+  'party_gold' => tones.sectionOrange,
   'check' => tones.sectionPurple,
   _ => tones.sectionSlate,
 };
@@ -190,9 +220,16 @@ class _SafeBoxesScreenState extends State<SafeBoxesScreen> {
 
   // ── what is shown ──
 
-  /// The types the server reported, in the screen's order; one alone when locked.
+  /// The types the server reported, in the screen's order; one alone when
+  /// locked. A section whose safes are all stopped is not shown -- the
+  /// offices' old safes once their gold became deposits (ADR-052).
   List<String> get _types {
-    final present = _overview?.totals.keys.toSet() ?? <String>{};
+    final rows = _overview?.rows ?? const <SafeBoxModel>[];
+    final present = (_overview?.totals.keys ?? const <String>[])
+        .where(
+          (t) => rows.any((sb) => (sb.group ?? sb.safeType) == t && sb.isActive),
+        )
+        .toSet();
     final ordered = [
       ..._groupOrder.where(present.contains),
       ...present.where((t) => !_groupOrder.contains(t)),
@@ -203,9 +240,9 @@ class _SafeBoxesScreenState extends State<SafeBoxesScreen> {
     return ordered;
   }
 
-  /// A filter on gold shows the gold held with parties beside it.
+  /// A filter on gold (a screen opened on «gold») shows every gold section.
   bool _shows(String group) =>
-      group == _type || (_type == 'gold' && group == 'party_gold');
+      group == _type || (_type == 'gold' && _isGoldGroup(group));
 
   List<SafeBoxModel> _rowsOf(String type) {
     final q = normalizeForSearch(_query);
@@ -232,7 +269,8 @@ class _SafeBoxesScreenState extends State<SafeBoxesScreen> {
 
   bool _isGold(SafeBoxModel sb) => sb.safeType == 'gold';
 
-  bool _isGoldGroup(String group) => group == 'gold' || group == 'party_gold';
+  bool _isGoldGroup(String group) =>
+      group == 'gold' || group.startsWith('gold_') || group == 'party_gold';
 
   String _totalText(String type, SafeTypeTotal t) =>
       _isGoldGroup(type) ? _weight(t.weightMainKarat) : _amount(t.cash);
@@ -302,7 +340,10 @@ class _SafeBoxesScreenState extends State<SafeBoxesScreen> {
       builder: (_) => _SafeBoxForm(
         api: widget.api,
         editing: sb,
-        type: sb?.safeType ?? (_type == 'all' ? 'cash' : (_type == 'party_gold' ? 'gold' : _type)),
+        type:
+            sb?.safeType ??
+            (_type == 'all' ? 'cash' : (_isGoldGroup(_type) ? 'gold' : _type)),
+        place: sb == null ? _groupPlace[_type] : null,
         lockType: sb == null && widget.lockFilterType && _type != 'all',
       ),
     );
@@ -751,6 +792,20 @@ class _SafeBoxesScreenState extends State<SafeBoxesScreen> {
                     ],
                   ),
                 ],
+                // The gold is ours at execution; the office's riyals beside it,
+                // as a bank shows a loan (ADR-052, the owner: option A).
+                if ((sb.officeCash ?? 0).abs() >= 0.005) ...[
+                  const SizedBox(height: 6),
+                  KeyedSubtree(
+                    key: Key('safe-office-cash-${sb.id}'),
+                    child: _pill(
+                      sb.officeCash! < 0
+                          ? 'مستحق للمكتب: ${_amount(-sb.officeCash!)}'
+                          : 'لنا عند المكتب: ${_amount(sb.officeCash!)}',
+                      sb.officeCash! < 0 ? _tones.warning : _tones.info,
+                    ),
+                  ),
+                ],
                 if (gold && stones > 0.0005) ...[
                   const SizedBox(height: 4),
                   Text(
@@ -917,12 +972,16 @@ class _SafeBoxForm extends StatefulWidget {
     required this.type,
     required this.lockType,
     this.editing,
+    this.place,
   });
 
   final ApiService api;
   final SafeBoxModel? editing;
   final String type;
   final bool lockType;
+
+  /// A new gold safe's place, from the section it is made in.
+  final String? place;
 
   @override
   State<_SafeBoxForm> createState() => _SafeBoxFormState();
@@ -949,7 +1008,7 @@ class _SafeBoxFormState extends State<_SafeBoxForm> {
       ? widget.type
       : 'cash';
   late String? _place = widget.editing == null
-      ? null
+      ? widget.place
       : (widget.editing!.stockLocation ?? 'party');
   late bool _active = widget.editing?.isActive ?? true;
   late bool _default = widget.editing?.isDefault ?? false;

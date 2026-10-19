@@ -4176,8 +4176,16 @@ class AccountingMapping(db.Model):
 # The kinds of place stock gold can be (ADR-045): the showroom it is sold from,
 # an employee's custody, scrap, a jeweller's or workshop's (a piece sent for
 # repair stays ours), and in transit between branches. A gold safe of one of
-# these kinds is stock; any other gold safe is not.
-STOCK_LOCATIONS = ('showroom', 'custody', 'scrap', 'workshop', 'transit')
+# these kinds is stock; any other gold safe is not. And deposited with an office
+# (ADR-052): ours, held for us, as money in a bank -- raw gold, read as scrap.
+STOCK_LOCATIONS = ('showroom', 'custody', 'scrap', 'workshop', 'transit', 'deposit')
+
+# The stock gold read as scrap: raw, not pieces (the scrap/new report).
+SCRAP_LOCATIONS = ('scrap', 'deposit')
+
+# The stock no one counts on the shop's floor: a deposit is confirmed by the
+# office's statement, counted on its own -- never zeroed by a count of all.
+UNCOUNTED_WITH_ALL = ('deposit',)
 
 
 class SafeBox(db.Model):
@@ -4228,6 +4236,17 @@ class SafeBox(db.Model):
         (ADR-051 §5)."""
         return (self.safe_type or '').strip().lower() == 'gold' and not self.stock_location
 
+    @property
+    def group(self) -> str:
+        """Where the safes screen shows it: its type; gold by its kind -- the
+        shop's, the employees' custody, deposited with offices (ADR-052) -- and
+        a gold safe with no place, a party's (ADR-051)."""
+        if (self.safe_type or '').strip().lower() != 'gold':
+            return self.safe_type
+        if not self.stock_location:
+            return 'party_gold'
+        return {'custody': 'gold_custody', 'deposit': 'gold_deposit'}.get(self.stock_location, 'gold_shop')
+
     def to_dict(self, include_account=False, include_balance=False):
         """تحويل إلى قاموس JSON"""
         result = {
@@ -4238,8 +4257,7 @@ class SafeBox(db.Model):
             'account_id': self.account_id,
             'karat': self.karat,
             'stock_location': self.stock_location,
-            # Its type, or «party_gold» for gold with a party (ADR-051 §5).
-            'group': 'party_gold' if self.holds_party_gold else self.safe_type,
+            'group': self.group,
             'bank_name': self.bank_name,
             'iban': self.iban,
             'swift_code': self.swift_code,

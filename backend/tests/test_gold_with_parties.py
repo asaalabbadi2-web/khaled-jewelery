@@ -68,7 +68,7 @@ def test_a_party_s_gold_is_its_own_group_and_says_whose(auth_headers):
     rows = {r['id']: r for r in body['rows']}
     assert (rows[ours_there.id]['group'], rows[ours_there.id]['party_side']) == ('party_gold', 'ours')
     assert (rows[owed.id]['group'], rows[owed.id]['party_side']) == ('party_gold', 'theirs')
-    assert rows[showroom.id]['group'] == 'gold' and 'party_side' not in rows[showroom.id]
+    assert rows[showroom.id]['group'] == 'gold_shop' and 'party_side' not in rows[showroom.id]
 
 
 def test_the_shop_s_gold_total_leaves_the_parties_out(auth_headers):
@@ -77,8 +77,8 @@ def test_the_shop_s_gold_total_leaves_the_parties_out(auth_headers):
     _gold_safe('showroom', 10.0)
 
     after = _overview(auth_headers)['totals']
-    gold_before = before.get('gold', {'weight_main_karat': 0.0})
-    assert after['gold']['weight_main_karat'] == pytest.approx(gold_before['weight_main_karat'] + 10.0)
+    gold_before = before.get('gold_shop', {'weight_main_karat': 0.0})
+    assert after['gold_shop']['weight_main_karat'] == pytest.approx(gold_before['weight_main_karat'] + 10.0)
     party_before = before.get('party_gold', {'weight_main_karat': 0.0, 'count': 0})
     assert after['party_gold']['weight_main_karat'] == pytest.approx(party_before['weight_main_karat'] + 40.0)
     assert after['party_gold']['count'] == party_before['count'] + 1

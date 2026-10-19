@@ -15,6 +15,10 @@ class SafeBoxModel {
   final String? group;
   final String? partySide;
 
+  /// A deposit's office, in riyals (ADR-052): below zero owed to it, above
+  /// ours with it -- the server's, from the supplier's ledger.
+  final double? officeCash;
+
   /// Gold with a party: moved by a voucher naming it, never a transfer (ADR-051).
   bool get holdsPartyGold => group == 'party_gold';
   final String? bankName;
@@ -53,6 +57,7 @@ class SafeBoxModel {
     this.stockLocation,
     this.group,
     this.partySide,
+    this.officeCash,
     this.bankName,
     this.iban,
     this.swiftCode,
@@ -101,6 +106,7 @@ class SafeBoxModel {
       stockLocation: json['stock_location'] as String?,
       group: json['group'] as String?,
       partySide: json['party_side'] as String?,
+      officeCash: (json['office_cash'] as num?)?.toDouble(),
       bankName: json['bank_name'],
       iban: json['iban'],
       swiftCode: json['swift_code'],

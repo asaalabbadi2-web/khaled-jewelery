@@ -835,6 +835,6 @@ def test_a_stock_location_is_one_of_the_named_kinds(app):
     """ADR-045 A0: a gold safe is stock only when named one of these kinds --
     an office's safe is gold owed, not stock."""
     from models import STOCK_LOCATIONS
-    assert set(STOCK_LOCATIONS) == {'showroom', 'custody', 'scrap', 'workshop', 'transit'}
+    assert set(STOCK_LOCATIONS) == {'showroom', 'custody', 'scrap', 'workshop', 'transit', 'deposit'}
     assert _gold_safe().stock_location is None, 'a new safe is no stock location until named'
 

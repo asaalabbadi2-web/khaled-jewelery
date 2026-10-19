@@ -114,7 +114,11 @@ class _AddOfficeScreenState extends State<AddOfficeScreen> {
       );
       if (!mounted) return;
       setState(() {
-        _goldSafeBoxes = boxes;
+        // An office's gold safe is its deposit, ours (ADR-052): a safe on a
+        // supplier's account is refused by the server, so it is not offered.
+        _goldSafeBoxes = boxes
+            .where((sb) => sb.stockLocation == 'deposit')
+            .toList();
 
         final currentId = _selectedGoldSafe?.id;
         if (currentId != null) {
@@ -473,8 +477,8 @@ class _AddOfficeScreenState extends State<AddOfficeScreen> {
                         },
                         title: Text(
                           isAr
-                              ? 'ربط بخزنة ذهب موجودة'
-                              : 'Link existing gold safe',
+                              ? 'ربط بوديعة ذهب موجودة'
+                              : 'Link an existing gold deposit',
                         ),
                         contentPadding: EdgeInsets.zero,
                       ),
@@ -490,8 +494,8 @@ class _AddOfficeScreenState extends State<AddOfficeScreen> {
                         },
                         title: Text(
                           isAr
-                              ? 'إنشاء خزنة ذهب جديدة لهذا المكتب'
-                              : 'Create a new gold safe for this office',
+                              ? 'إنشاء وديعة ذهب لهذا المكتب («ذهب مودع لدى …»)'
+                              : 'Create a gold deposit for this office',
                         ),
                         contentPadding: EdgeInsets.zero,
                       ),
@@ -499,11 +503,11 @@ class _AddOfficeScreenState extends State<AddOfficeScreen> {
 
                       if (_goldSafeLinkMode == 'existing') ...[
                         SearchablePickerField(
-                          labelText: isAr ? 'خزنة الذهب' : 'Gold SafeBox',
+                          labelText: isAr ? 'وديعة الذهب' : 'Gold deposit',
                           valueText: _selectedGoldSafe?.name,
                           hintText: isAr
-                              ? 'اضغط لاختيار خزنة ذهب'
-                              : 'Tap to pick gold safe',
+                              ? 'اضغط لاختيار وديعة ذهب'
+                              : 'Tap to pick a gold deposit',
                           helperText: _isLoadingGoldSafeBoxes
                               ? (isAr
                                     ? 'جارٍ تحميل خزائن الذهب...'

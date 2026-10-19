@@ -53,17 +53,14 @@ from dual_system_helpers import create_dual_journal_entry, verify_dual_balance
 
 office_reservations_bp = Blueprint('office_reservations', __name__)
 
-def _office_weight_account_id(office, supplier):
-    """The office's weight account: its financial account's weight twin
-    (account_category -> memo_account_id); a supplier gold safe's account only
-    for an office whose twin was never set."""
-    financial = getattr(office, 'account_category', None)
-    if financial is not None and getattr(financial, 'memo_account_id', None):
-        return financial.memo_account_id
-    safe = getattr(supplier, 'default_safe_box', None)
-    if safe is not None and getattr(safe, 'safe_type', None) == 'gold':
-        return getattr(safe, 'account_id', None)
-    return None
+def _office_deposit_account_id(supplier):
+    """Where the gold a reservation buys is kept: the office's deposit (ADR-052)
+    -- an asset of ours, as money in a bank. It was the office's supplier weight
+    account, a liability, which read our gold as the office's debt. None: the
+    office has no deposit, and the settlement is refused -- no silent fallback."""
+    from services.office_deposits import deposit_of
+    safe = deposit_of(supplier)
+    return safe.account_id if safe is not None else None
 
 
 def _created_with_weight_entry(reservation) -> bool:
@@ -573,26 +570,33 @@ def settle_office_reservation(reservation_id: int):
             description=f'مستحق لمكتب التسكير عيار {karat} - يُسدَّد من خزينة المكتب',
         )
         # The gold bought, by weight, in the same entry (the owner, 1 Oct 2026:
-        # every reservation is a purchase; settled, the gold stays at the office
-        # as our debt): Dr the office's weight account -- our account's safe
-        # there -- / Cr the weight twin of the purchases account debited above.
+        # every reservation is a purchase; settled, the gold stays at the
+        # office): Dr the office's deposit -- ours, held for us (ADR-052) -- /
+        # Cr the weight twin of the purchases account debited above. The
+        # price stays owed on the office's cash account, as a purchase.
         # Not scrap inventory: that moved gold from our scrap and added none.
         if not _created_with_weight_entry(reservation):
-            office_weight_acc_id = _office_weight_account_id(office, supplier)
+            office_weight_acc_id = _office_deposit_account_id(supplier)
+            if not office_weight_acc_id:
+                db.session.rollback()
+                return jsonify({
+                    'error': 'office_has_no_deposit',
+                    'message': (f'لا يمكن تنفيذ الحجز: ليس لـ«{office.name}» وديعة ذهب يُحفظ فيها الذهب المشترى. '
+                                'أنشئ له حساب «ذهب مودع لدى» وخزينته بموقع «مودع لدى مكتب»، '
+                                'واجعلها خزينة المورد الذهبية، ثم أعد التنفيذ.'),
+                }), 400
             purchases_acc = Account.query.get(purchases_acc_id)
             purchases_weight_acc_id = getattr(purchases_acc, 'memo_account_id', None)
-            if not office_weight_acc_id or not purchases_weight_acc_id:
+            if not purchases_weight_acc_id:
                 db.session.rollback()
                 return jsonify({
                     'error': 'reservation_weight_accounts_missing',
-                    'message': ('لا يمكن تسوية الحجز: '
-                                + ('حساب المكتب لا يملك حسابًا وزنيًا' if not office_weight_acc_id
-                                   else 'حساب المشتريات لا يملك حسابًا وزنيًا مقابلًا')
-                                + ' — فلا يُسجَّل الذهب المشترى. اضبط الحساب ثم أعد التسوية.'),
+                    'message': ('لا يمكن تسوية الحجز: حساب المشتريات لا يملك حسابًا وزنيًا مقابلًا'
+                                ' — فلا يُسجَّل الذهب المشترى. اضبط الحساب ثم أعد التسوية.'),
                 }), 400
             db.session.add(JournalEntryLine(
                 journal_entry_id=gold_entry.id, account_id=office_weight_acc_id,
-                description=f'ذهب مشترى بحيازة مكتب التسكير عيار {karat}', **{f'debit_{karat}k': weight_grams}))
+                description=f'ذهب مشترى مودع لدى {office.name} عيار {karat}', **{f'debit_{karat}k': weight_grams}))
             db.session.add(JournalEntryLine(
                 journal_entry_id=gold_entry.id, account_id=purchases_weight_acc_id,
                 description=f'مشتريات ذهب تسكير وزني عيار {karat}', **{f'credit_{karat}k': weight_grams}))

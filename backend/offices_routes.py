@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 """API Routes لإدارة مكاتب تسكير الذهب."""
 
+from accounting.mappings import AccountNotMapped
 from flask import Blueprint, request, jsonify
 from auth_decorators import require_permission
 from models import (
@@ -77,69 +78,23 @@ def _weight_kwargs_for_main_karat(amount: float, side: str) -> dict:
 
 
 def _ensure_office_gold_safe(office: Office, *, created_by: str = 'system') -> SafeBox:
-    """Ensure the office has a dedicated gold SafeBox (multi-karat) linked to its office account."""
-    if not office:
-        raise ValueError('office is required')
-
-    if not office.account_category_id:
-        ensure_office_account(office)
-        db.session.flush()
-
-    office_account_id = int(office.account_category_id)
-    office_account = Account.query.get(office_account_id)
-    if not office_account:
-        raise ValueError('office account not found')
-
-    # ✅ Office gold safe must be linked to the memo (weight) account,
-    # not the office bridge/cash-equivalent account.
-    memo_account_id = getattr(office_account, 'memo_account_id', None)
-    if not memo_account_id:
-        # ensure_office_account() best-effort creates the memo, but guard anyway.
-        ensure_office_account(office)
-        db.session.flush()
-        office_account = Account.query.get(office_account_id)
-        memo_account_id = getattr(office_account, 'memo_account_id', None)
-    if not memo_account_id:
-        raise ValueError('office memo account missing; cannot link gold safe')
-
-    memo_account_id = int(memo_account_id)
-
-    # First: if a correct gold safe already exists on memo, reuse it.
-    existing = SafeBox.query.filter_by(
-        safe_type='gold',
-        karat=None,
-        account_id=memo_account_id,
-    ).first()
-    if existing:
-        return existing
-
-    # Legacy: office gold safe mistakenly linked to office_account_id.
-    legacy = SafeBox.query.filter_by(
-        safe_type='gold',
-        karat=None,
-        account_id=office_account_id,
-    ).first()
-    if legacy:
-        legacy.account_id = memo_account_id
-        db.session.add(legacy)
-        db.session.flush()
-        return legacy
-
-    name = f'خزنة مكتب {office.name} - ذهب'
-    safe = SafeBox(
-        name=name,
-        name_en=None,
-        safe_type='gold',
-        account_id=memo_account_id,
-        karat=None,
-        is_active=True,
-        is_default=False,
-        notes='خزنة ذهب خاصة بمكتب التسكير (متعددة العيارات)',
-        created_by=created_by,
-    )
-    db.session.add(safe)
-    db.session.flush()
+    """The office's gold safe: its deposit -- ours, held for us, as money in a
+    bank (ADR-052) -- made under «ذهب مودع لدى المكاتب» and made its supplier's
+    gold safe. It was a safe on the office's supplier weight account, a
+    liability, which read our gold as the office's debt. The parent unmapped:
+    AccountNotMapped, said to the user."""
+    from services.office_deposits import ensure_deposit
+    safe, _ = ensure_deposit(office, by=created_by)
     return safe
+
+
+def _existing_gold_safe_refusal(sb):
+    """An existing safe chosen as an office's gold safe must be a deposit (ADR-052)."""
+    if not sb or not sb.is_active or str(getattr(sb, 'safe_type', '') or '').strip().lower() != 'gold':
+        return {'error': 'خزنة الذهب غير صالحة'}
+    if sb.stock_location != 'deposit':
+        return {'error': 'خزنة ذهب المكتب يجب أن تكون وديعة بمكان «مودع لدى مكتب»، لا خزينة على حساب المورد (ADR-052)'}
+    return None
 
 
 def _create_opening_entry_for_supplier(
@@ -216,16 +171,17 @@ def _create_opening_entry_for_supplier(
         supplier_side = 'debit' if opening_gold_main >= 0 else 'credit'
         equity_side = 'credit' if supplier_side == 'debit' else 'debit'
         supplier_weight_kwargs = _weight_kwargs_for_main_karat(gold_amt, supplier_side)
+        # Ours with the office is its deposit's, an asset (ADR-052) -- Al-Raqi's
+        # 396.6 g sat on its supplier account from such an opening; owed to it
+        # stays on the supplier account, the trade.
+        from services.office_deposits import deposit_of
+        deposit = deposit_of(supplier) if opening_gold_main > 0 else None
+        gold_line = ({'account_id': int(deposit.account_id), 'description': 'رصيد افتتاحي: ذهبنا المودع لدى المكتب'}
+                     if deposit is not None else
+                     {'account_id': supplier_memo_id, 'supplier_id': int(supplier.id),
+                      'description': 'رصيد افتتاحي ذهب للمورد (مكافئ العيار الرئيسي)'})
 
-        db.session.add(
-            JournalEntryLine(
-                journal_entry_id=entry.id,
-                account_id=supplier_memo_id,
-                supplier_id=int(supplier.id),
-                description='رصيد افتتاحي ذهب للمورد (مكافئ العيار الرئيسي)',
-                **supplier_weight_kwargs,
-            )
-        )
+        db.session.add(JournalEntryLine(journal_entry_id=entry.id, **gold_line, **supplier_weight_kwargs))
 
         if equity_memo_id:
             equity_weight_kwargs = _weight_kwargs_for_main_karat(gold_amt, equity_side)
@@ -477,14 +433,17 @@ def create_office():
             if not gold_safe_box_id:
                 return jsonify({'error': 'يجب اختيار خزنة ذهب موجودة'}), 400
             sb = SafeBox.query.get(int(gold_safe_box_id))
-            if not sb or not sb.is_active or str(getattr(sb, 'safe_type', '') or '').strip().lower() != 'gold':
-                return jsonify({'error': 'خزنة الذهب غير صالحة'}), 400
+            refused = _existing_gold_safe_refusal(sb)
+            if refused:
+                return jsonify(refused), 400
             supplier.default_safe_box_id = sb.id
             db.session.add(supplier)
         else:
-            gold_safe = _ensure_office_gold_safe(office)
-            supplier.default_safe_box_id = gold_safe.id
-            db.session.add(supplier)
+            try:
+                _ensure_office_gold_safe(office)
+            except AccountNotMapped as exc:
+                db.session.rollback()
+                return jsonify({'error': str(exc)}), 400
 
         opening_cash = _to_float_or_zero(data.get('opening_balance_cash'))
         opening_gold_main = _to_float_or_zero(data.get('opening_balance_gold_main_karat'))
@@ -587,14 +546,17 @@ def update_office(office_id):
                 if not gold_safe_box_id:
                     return jsonify({'error': 'يجب اختيار خزنة ذهب موجودة'}), 400
                 sb = SafeBox.query.get(int(gold_safe_box_id))
-                if not sb or not sb.is_active or str(getattr(sb, 'safe_type', '') or '').strip().lower() != 'gold':
-                    return jsonify({'error': 'خزنة الذهب غير صالحة'}), 400
+                refused = _existing_gold_safe_refusal(sb)
+                if refused:
+                    return jsonify(refused), 400
                 office.supplier.default_safe_box_id = sb.id
                 db.session.add(office.supplier)
             elif gold_safe_link_mode in ('new', 'create', 'create_new'):
-                gold_safe = _ensure_office_gold_safe(office)
-                office.supplier.default_safe_box_id = gold_safe.id
-                db.session.add(office.supplier)
+                try:
+                    _ensure_office_gold_safe(office)
+                except AccountNotMapped as exc:
+                    db.session.rollback()
+                    return jsonify({'error': str(exc)}), 400
 
         # Optional: ensure supplier accounts (same default as creation -- see NOTE above)
         if office.supplier and _boolish(data.get('ensure_supplier_accounts'), default=True):

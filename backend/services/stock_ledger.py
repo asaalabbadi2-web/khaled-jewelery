@@ -162,11 +162,13 @@ def _names(model, ids) -> dict:
 
 
 def _location_filter(gold_type):
-    """The old report's gold_type: 'scrap' is the scrap safes, 'new' the rest."""
+    """The old report's gold_type: 'scrap' is the raw gold -- the scrap safes
+    and the deposits with offices (ADR-052) -- 'new' the rest."""
+    from models import SCRAP_LOCATIONS
     if gold_type == 'scrap':
-        return SafeBox.stock_location == 'scrap'
+        return SafeBox.stock_location.in_(SCRAP_LOCATIONS)
     if gold_type == 'new':
-        return SafeBox.stock_location != 'scrap'
+        return SafeBox.stock_location.notin_(SCRAP_LOCATIONS)
     return None
 
 

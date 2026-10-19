@@ -80,7 +80,12 @@ class InventoryCountService:
         from models import SafeBox, db
         if session.safe_box_id is not None:
             return {int(session.safe_box_id)}
-        return {sid for (sid,) in db.session.query(SafeBox.id).filter(SafeBox.stock_location.isnot(None)).all()}
+        # A count of all leaves out what no one counts on the floor: a deposit
+        # with an office, confirmed by its statement on its own (ADR-052) --
+        # zeroed here, the year's opening count would write it off.
+        from models import UNCOUNTED_WITH_ALL
+        return {sid for (sid,) in db.session.query(SafeBox.id).filter(
+            SafeBox.stock_location.isnot(None), SafeBox.stock_location.notin_(UNCOUNTED_WITH_ALL)).all()}
 
     @staticmethod
     def _line(session, safe_box_id, category_id, karat):

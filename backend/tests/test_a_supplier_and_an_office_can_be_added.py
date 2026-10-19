@@ -16,7 +16,8 @@ import pytest
 from flask import g
 
 from app import app as flask_app
-from models import Office, Supplier, db
+from models import Account, Office, SafeBox, Supplier, db
+from tests.office_deposit import map_deposit_parent
 
 
 @pytest.fixture(scope='module')
@@ -47,12 +48,40 @@ def test_a_supplier_is_added(auth_headers):
 
 
 def test_an_office_is_added_with_its_supplier(auth_headers):
+    parent = map_deposit_parent()
     name = f'مكتب {uuid.uuid4().hex[:6]}'
     resp = _post('/api/offices', auth_headers, {'name': name, 'phone': '0500000001'})
     assert resp.status_code in (200, 201), resp.get_data(as_text=True)[:400]
     office = Office.query.filter_by(name=name).one()
     assert office.supplier_id is not None
-    assert db.session.get(Supplier, office.supplier_id).name == name
+    supplier = db.session.get(Supplier, office.supplier_id)
+    assert supplier.name == name
+    # Its gold safe is a deposit, ours (ADR-052) -- not a safe on its supplier account.
+    safe = db.session.get(SafeBox, supplier.default_safe_box_id)
+    assert safe.stock_location == 'deposit' and safe.name == f'ذهب مودع لدى {name}'
+    assert db.session.get(Account, safe.account_id).parent_id == parent.id
+
+
+def test_an_office_s_gold_opening_is_its_deposit(auth_headers):
+    """Al-Raqi's 396.6 g sat on its supplier account from its opening (ADR-052)."""
+    from services.live_balances import live_balances_by_account_ids
+    map_deposit_parent()
+    name = f'مكتب {uuid.uuid4().hex[:6]}'
+    resp = _post('/api/offices', auth_headers, {'name': name, 'opening_balance_gold_main_karat': 50.0})
+    assert resp.status_code in (200, 201), resp.get_data(as_text=True)[:400]
+    supplier = db.session.get(Supplier, Office.query.filter_by(name=name).one().supplier_id)
+    deposit = db.session.get(SafeBox, supplier.default_safe_box_id).account_id
+    held = live_balances_by_account_ids([deposit])[deposit]
+    assert sum(float(held.get(f'{k}k') or 0) for k in (18, 21, 22, 24)) > 0, 'ours: on the deposit'
+
+
+def test_an_office_with_no_deposit_parent_is_refused_by_name(auth_headers):
+    from models import AccountingMapping
+    AccountingMapping.query.filter_by(account_type='office_gold_deposit_parent').delete()
+    db.session.flush()
+    resp = _post('/api/offices', auth_headers, {'name': f'مكتب {uuid.uuid4().hex[:6]}'})
+    assert resp.status_code == 400
+    assert 'office_gold_deposit_parent' in resp.get_json()['error']
 
 
 def test_no_writer_builds_a_supplier_with_a_field_it_does_not_have():

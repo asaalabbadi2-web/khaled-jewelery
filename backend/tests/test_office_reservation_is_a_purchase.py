@@ -12,13 +12,16 @@ scrap to the office and added none -- the scrap inventory group stood near
 
 The laws:
   - creating a reservation moves no gold;
-  - settling it debits the office's weight account and credits the weight
+  - settling it debits the office's deposit -- ours, held for us (ADR-052;
+    it was the office's supplier weight account, a liability) -- and credits the weight
     twin of the purchases account the settlement debits (512 -> 7512), in the
     settlement's own entry -- scrap inventory is not touched; the office safe's
     statement shows the same grams;
   - rejecting the settled invoice takes that gold back off the office;
   - with no weight twin for the purchases account, settlement is refused --
-    a purchase whose gold cannot be recorded is not recorded at all.
+    a purchase whose gold cannot be recorded is not recorded at all;
+  - with no deposit for the office, settlement is refused by name -- no
+    fallback to its supplier weight account.
 
 Run:
     python -m pytest tests/test_office_reservation_is_a_purchase.py -v
@@ -64,8 +67,9 @@ def _acc(number, name, kind, tx='cash', weight=False):
 
 @pytest.fixture
 def rworld():
-    """As in production: the office's financial account carries a weight twin,
-    and our account's safe at the office is on it; 512 carries 7512."""
+    """As in production after ADR-052: the office's financial account carries a
+    weight twin (its supplier account), and the office's deposit -- its
+    supplier's gold safe -- is an asset of ours; 512 carries 7512."""
     purchases = _acc('512', 'مشتريات ذهب كسر', 'Expense')
     twin = _acc('7512', 'مشتريات ذهب كسر وزني', 'Expense', tx='gold', weight=True)
     purchases.memo_account_id = twin.id
@@ -77,15 +81,24 @@ def rworld():
     db.session.add_all([office_cash, office_gold])
     db.session.flush()
     office_cash.memo_account_id = office_gold.id
-    office_safe = SafeBox(name=f'حسابنا بالمكتب {_uid()}', safe_type='gold', account_id=office_gold.id, is_active=True)
-    supplier = Supplier(supplier_code=f'SUPR-{_uid()}', name=f'مورد مكتب {_uid()}')
-    db.session.add_all([office_safe, supplier])
+    deposit = Account(account_number=f'7133{uuid.uuid4().int % 10**5:05d}', name=f'ذهب مودع لدى مكتب {_uid()}',
+                      type='Asset', transaction_type='gold', tracks_weight=True)
+    db.session.add(deposit)
+    db.session.flush()
+    office_safe = SafeBox(name=f'ذهب مودع لدى مكتب {_uid()}', safe_type='gold', account_id=deposit.id,
+                          is_active=True, stock_location='deposit')
+    db.session.add(office_safe)
+    db.session.flush()
+    supplier = Supplier(supplier_code=f'SUPR-{_uid()}', name=f'مورد مكتب {_uid()}',
+                        default_safe_box_id=office_safe.id)
+    db.session.add(supplier)
     db.session.flush()
     office = Office(office_code=f'OFR-{_uid()}', name=f'مكتب تسكير {_uid()}', active=True,
                     account_category_id=office_cash.id, supplier_id=supplier.id)
     db.session.add(office)
     db.session.flush()
-    return {'office': office, 'office_gold': office_gold, 'office_safe': office_safe,
+    return {'office': office, 'office_gold': deposit, 'supplier_gold': office_gold, 'office_safe': office_safe,
+            'supplier': supplier,
             'twin': twin, 'scrap': scrap, 'purchases': purchases}
 
 
@@ -119,6 +132,7 @@ def _statement(safe):
 def _books(w):
     db.session.expire_all()
     return {'office': _grams(w['office_gold']), 'office_safe': _statement(w['office_safe']),
+            'supplier_account': _grams(w['supplier_gold']),
             'purchases_weight': _grams(w['twin']), 'scrap_inventory': _grams(w['scrap'])}
 
 
@@ -135,7 +149,8 @@ def test_settling_adds_the_bought_gold_at_the_office(auth_headers, rworld):
     assert resp.status_code == 200, resp.get_data(as_text=True)[:300]
     after = _books(rworld)
     assert {k: round(after[k] - before[k], 3) for k in after} == {
-        'office': GRAMS, 'office_safe': GRAMS, 'purchases_weight': -GRAMS, 'scrap_inventory': 0.0}
+        'office': GRAMS, 'office_safe': GRAMS, 'supplier_account': 0.0, 'purchases_weight': -GRAMS,
+        'scrap_inventory': 0.0}
 
 
 def test_rejecting_the_settled_invoice_takes_the_gold_back(auth_headers, rworld):
@@ -173,3 +188,19 @@ def test_a_settled_reservation_opens_no_weight_closing_order_for_its_purchase(au
     purchase_id = db.session.get(OfficeReservation, rid).purchase_invoice_id
     assert purchase_id
     assert WeightClosingOrder.query.filter_by(invoice_id=purchase_id).count() == 0
+
+
+def test_an_office_with_no_deposit_is_refused_by_name(auth_headers, rworld):
+    """The gold bought goes to the office's deposit or nowhere (ADR-052): not
+    silently to its supplier weight account, which read it as the office's debt."""
+    rworld['supplier'].default_safe_box_id = None
+    db.session.flush()
+    rid = _create(auth_headers, rworld)
+    before = _books(rworld)
+    resp = _settle(auth_headers, rid)
+    assert resp.status_code == 400, resp.get_data(as_text=True)[:300]
+    assert resp.get_json()['error'] == 'office_has_no_deposit'
+    assert rworld['office'].name in resp.get_json()['message']
+    db.session.expire_all()
+    assert db.session.get(OfficeReservation, rid).purchase_invoice_id is None
+    assert _books(rworld) == before

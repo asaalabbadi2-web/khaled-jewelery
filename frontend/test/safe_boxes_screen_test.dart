@@ -196,6 +196,28 @@ Map<String, dynamic> _withParties() => {
   'main_karat': 22,
 };
 
+/// Gold by its kind, as the server groups it after ADR-052: the shop's, the
+/// employees' custody, and the offices' deposits.
+Map<String, dynamic> _byKind() => {
+  'rows': [
+    {..._safe(30, 'خزينة الذهب المعروض', 'gold', 760, '71300000',
+        weight: {'18k': 0.0, '21k': 10.0, '22k': 0.0, '24k': 0.0, 'total': 10.0}),
+      'group': 'gold_shop', 'stock_location': 'showroom'},
+    {..._safe(39, 'عهدة ذهب صالح العبادي', 'gold', 874, '713100010',
+        weight: {'18k': 0.0, '21k': 2.7, '22k': 0.0, '24k': 0.0, 'total': 2.7}),
+      'group': 'gold_custody', 'stock_location': 'custody'},
+    {..._safe(60, 'ذهب مودع لدى مكتب الراقي', 'gold', 990, '713301',
+        weight: {'18k': 0.0, '21k': 396.6, '22k': 0.0, '24k': 0.0, 'total': 396.6}),
+      'group': 'gold_deposit', 'stock_location': 'deposit', 'office_cash': -4000.0},
+  ],
+  'totals': {
+    'gold_shop': {'count': 1, 'cash': 0.0, 'weight_main_karat': 10.0},
+    'gold_custody': {'count': 1, 'cash': 0.0, 'weight_main_karat': 2.7},
+    'gold_deposit': {'count': 1, 'cash': 0.0, 'weight_main_karat': 396.6},
+  },
+  'main_karat': 21,
+};
+
 void main() {
   testWidgets('gold with parties is its own section, and each says whose the gold is', (tester) async {
     await _open(tester, api: _FakeApi(overview: _withParties()));
@@ -206,6 +228,58 @@ void main() {
     expect(find.descendant(of: find.byKey(const Key('safe-party-side-41')), matching: find.text('علينا')),
         findsOneWidget);
     expect(find.byKey(const Key('safe-party-side-30')), findsNothing);   // the shop's gold is no party's
+  });
+
+  testWidgets('gold is shown by its kind, as the banks are apart from the drawer (ADR-052)', (tester) async {
+    await _open(tester, api: _FakeApi(overview: _byKind()));
+    for (final (group, label) in [
+      ('gold_shop', 'ذهب المحل'),
+      ('gold_custody', 'عهد الذهب'),
+      ('gold_deposit', 'ذهب مودع لدى المكاتب'),
+    ]) {
+      expect(find.byKey(Key('safes-section-$group')), findsOneWidget, reason: label);
+      expect(find.byKey(Key('safes-tile-$group')), findsOneWidget, reason: label);
+      expect(find.text(label), findsWidgets);
+    }
+    final shop = tester.getTopLeft(find.byKey(const Key('safes-section-gold_shop'))).dy;
+    final deposit = tester.getTopLeft(find.byKey(const Key('safes-section-gold_deposit'))).dy;
+    expect(shop, lessThan(deposit), reason: 'the shop\'s gold first');
+    expect(find.byKey(const Key('safe-party-side-60')), findsNothing, reason: 'a deposit is ours: no «لنا/علينا»');
+  });
+
+  testWidgets('a deposit says what is owed to its office, beside its gold (ADR-052, option A)', (tester) async {
+    await _open(tester, api: _FakeApi(overview: _byKind()));
+    final pill = find.byKey(const Key('safe-office-cash-60'));
+    expect(pill, findsOneWidget);
+    expect(find.descendant(of: pill, matching: find.textContaining('مستحق للمكتب')), findsOneWidget);
+    expect(find.descendant(of: pill, matching: find.textContaining('4,000.00')), findsOneWidget);
+    expect(find.byKey(const Key('safe-office-cash-30')), findsNothing, reason: 'the shop\'s gold has no office');
+  });
+
+  testWidgets('a section whose safes are all stopped is not shown', (tester) async {
+    final overview = _byKind();
+    (overview['rows'] as List).add({
+      ..._safe(47, 'خزنة مكتب الراقي - ذهب', 'gold', 870, '72100017',
+          weight: {'18k': 0.0, '21k': 0.0, '22k': 0.0, '24k': 0.0, 'total': 0.0}),
+      'group': 'party_gold', 'party_side': 'settled', 'is_active': false,
+    });
+    (overview['totals'] as Map)['party_gold'] = {'count': 1, 'cash': 0.0, 'weight_main_karat': 0.0};
+    await _open(tester, api: _FakeApi(overview: overview));
+    expect(find.byKey(const Key('safes-section-party_gold')), findsNothing);
+    expect(find.byKey(const Key('safes-tile-party_gold')), findsNothing);
+    expect(find.byKey(const Key('safes-section-gold_deposit')), findsOneWidget);
+  });
+
+  testWidgets('a safe made in the deposits section starts at «مودع لدى مكتب»', (tester) async {
+    await _open(tester, api: _FakeApi(overview: _byKind()));
+    await tester.tap(find.byKey(const Key('safes-tile-gold_deposit')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byType(FloatingActionButton));
+    await tester.pumpAndSettle();
+    expect(
+      find.descendant(of: find.byKey(const Key('safe-form-place')), matching: find.text('مودع لدى مكتب')),
+      findsOneWidget,
+    );
   });
 
   test('a party\'s gold is a section, not a type a safe is created as', () {
