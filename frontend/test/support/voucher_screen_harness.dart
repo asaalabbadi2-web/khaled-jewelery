@@ -29,6 +29,7 @@ Future<FakeVoucherApi> openVoucher(
   String voucherType = 'payment',
   int? supplierId = 5,
   String? partyType,
+  int? otherAccountId,
   Map<String, dynamic>? existing,
   Size size = const Size(1440, 2400),
 }) async {
@@ -61,6 +62,7 @@ Future<FakeVoucherApi> openVoucher(
                         voucherType: voucherType,
                         initialSupplierId: supplierId,
                         initialPartyType: partyType,
+                        initialOtherAccountId: otherAccountId,
                         existingVoucher: existing,
                         apiService: api,
                       ),

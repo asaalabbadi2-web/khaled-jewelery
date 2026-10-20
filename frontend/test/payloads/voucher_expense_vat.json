@@ -1,0 +1,32 @@
+{
+  "account_lines": [
+    {
+      "account_id": 70,
+      "amount": 115.0,
+      "amount_type": "cash",
+      "description": "نقد",
+      "line_type": "credit"
+    },
+    {
+      "account_id": 92,
+      "amount": 115.0,
+      "amount_type": "cash",
+      "description": "نقد",
+      "line_type": "debit"
+    }
+  ],
+  "date": "<date>",
+  "description": "",
+  "expense_vat": {
+    "amount": 15.0,
+    "invoice_date": "<date>",
+    "invoice_number": "F-1009",
+    "supplier_name": "شركة الكهرباء",
+    "supplier_tax_number": "300000000000003"
+  },
+  "notes": null,
+  "party_name": "كهرباء",
+  "party_type": "other",
+  "receiver_name": null,
+  "voucher_type": "payment"
+}

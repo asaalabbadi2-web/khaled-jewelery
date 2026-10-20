@@ -941,6 +941,38 @@ class _VoucherDetailsScreenState extends State<VoucherDetailsScreen> {
               ),
             const SizedBox(height: 12),
 
+            // The tax invoice an operating expense was paid with, and its VAT
+            // (the owner, 20 Oct 2026).
+            if (voucher['expense_vat'] is Map) ...[
+              () {
+                final vat = Map<String, dynamic>.from(voucher['expense_vat'] as Map);
+                final amount = (vat['amount'] as num?)?.toDouble() ?? 0;
+                return _buildSectionCard(
+                  title: 'الفاتورة الضريبية',
+                  icon: Icons.receipt_outlined,
+                  accentColor: _tone.sectionTeal.fg,
+                  child: Column(
+                    children: [
+                      _buildInfoRow('المورد', '${vat['supplier_name'] ?? ''}', Icons.store_outlined),
+                      _buildInfoRow('الرقم الضريبي', '${vat['supplier_tax_number'] ?? ''}', Icons.badge_outlined),
+                      _buildInfoRow(
+                        'رقم الفاتورة وتاريخها',
+                        '${vat['invoice_number'] ?? ''} — ${vat['invoice_date'] ?? ''}',
+                        Icons.tag,
+                      ),
+                      _buildInfoRow(
+                        'الضريبة',
+                        '${formatAmount(amount)} ر.س — '
+                            '${vat['recoverable'] == true ? 'مستردة (ضريبة المدخلات)' : 'غير مستردة (مصروف)'}',
+                        Icons.percent,
+                      ),
+                    ],
+                  ),
+                );
+              }(),
+              const SizedBox(height: 12),
+            ],
+
             if (voucher['reference_type'] != null &&
                 voucher['reference_type'] != 'manual')
               _buildSectionCard(

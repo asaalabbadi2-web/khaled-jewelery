@@ -116,4 +116,61 @@ void main() {
       }
     });
   }
+
+  testWidgets('an expense paid with a tax invoice says its invoice and its VAT '
+      '(the owner, 20 Oct 2026)', (tester) async {
+    SharedPreferences.setMockInitialValues({
+      'jwt_token': 'token',
+      'app_settings': jsonEncode({'main_karat': 21}),
+    });
+    tester.view.physicalSize = const Size(1200, 2600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final settings = SettingsProvider();
+    await settings.loadSettings(fetchRemote: false);
+    final expense = {
+      ..._voucher,
+      'party_type': 'other',
+      'party_name': 'كهرباء',
+      'expense_vat': {
+        'amount': 15.0,
+        'supplier_name': 'شركة الكهرباء',
+        'supplier_tax_number': '300000000000003',
+        'invoice_number': 'F-1009',
+        'invoice_date': '2026-10-19',
+        'recoverable': true,
+      },
+    };
+    await http.runWithClient(
+      () async {
+        await tester.pumpWidget(
+          MultiProvider(
+            providers: [
+              ChangeNotifierProvider(create: (_) => AuthProvider()),
+              ChangeNotifierProvider.value(value: settings),
+            ],
+            child: MaterialApp(
+              theme: LightTheme.theme,
+              home: const Directionality(
+                textDirection: TextDirection.rtl,
+                child: VoucherDetailsScreen(voucherId: 7),
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+      },
+      () => MockClient((request) async => http.Response(
+        request.url.path.endsWith('/vouchers/7') ? jsonEncode(expense) : '{}',
+        200,
+        headers: {'content-type': 'application/json; charset=utf-8'},
+      )),
+    );
+    expect(find.text('الفاتورة الضريبية'), findsOneWidget);
+    expect(find.textContaining('شركة الكهرباء'), findsOneWidget);
+    expect(find.textContaining('300000000000003'), findsOneWidget);
+    expect(find.textContaining('F-1009'), findsOneWidget);
+    expect(find.textContaining('15.00'), findsWidgets);
+    expect(find.textContaining('مستردة'), findsOneWidget);
+  });
 }

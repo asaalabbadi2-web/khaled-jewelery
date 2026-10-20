@@ -638,6 +638,7 @@ def _upsert_voucher_from_payload(voucher, data, *, is_create=False):
         'karat_diff_earn_total',
         'karat_diff_pay_total',
         'invoice_ids',
+        'expense_vat',
     }
     unknown_keys = sorted(set(data.keys()) - allowed_keys)
     if unknown_keys:
@@ -706,6 +707,20 @@ def _upsert_voucher_from_payload(voucher, data, *, is_create=False):
                         break
                 except Exception:
                     pass
+    # An operating expense's tax invoice: its VAT split off on the account the
+    # policy names (the owner, 20 Oct 2026; services/expense_vat.py).
+    expense_vat_invoice = None
+    if data.get('expense_vat'):
+        from accounting.mappings import VatAccountNotMapped
+        from services.expense_vat import ExpenseVatRefused, split_expense_vat
+        try:
+            summary['account_lines'], expense_vat_invoice = split_expense_vat(
+                voucher, summary['account_lines'], data['expense_vat'])
+        except ExpenseVatRefused as exc:
+            return jsonify({'error': exc.code, 'message': exc.message}), 400
+        except VatAccountNotMapped as exc:
+            return jsonify({'error': 'vat_account_not_mapped', 'message': str(exc)}), 400
+
     # The party line is on the party's own account (the voucher screen review).
     from services.voucher_party import stray_party_lines
     stray = stray_party_lines(voucher, summary['account_lines'])
@@ -715,6 +730,7 @@ def _upsert_voucher_from_payload(voucher, data, *, is_create=False):
             'account_ids': sorted({int(ln['account_id']) for ln in stray}),
             'message': 'سطر الطرف ليس على حساب الطرف المختار؛ لم يُحفظ السند.',
         }), 400
+
 
     voucher.amount_cash = summary['amount_cash']
     voucher.amount_gold = summary['amount_gold']
@@ -801,6 +817,9 @@ def _upsert_voucher_from_payload(voucher, data, *, is_create=False):
             stones_weight=_coerce_float(line_data.get('stones_weight'), 0.0),
             description=line_data.get('description'),
         ))
+
+    from services.expense_vat import keep_invoice
+    keep_invoice(voucher, expense_vat_invoice, by=actor(), now=datetime.now())
 
     # عمولة السداد بذهب صافي — قيد العمولة فقط (حركة الوزن مدعومة من سطور السند)
     if data.get('gold24k_settlement') and voucher.voucher_type == 'payment' and voucher.supplier_id:

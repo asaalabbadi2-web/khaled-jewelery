@@ -3203,6 +3203,9 @@ class Voucher(db.Model):
         
         # إضافة سطور الحسابات
         result['account_lines'] = [line.to_dict() for line in self.account_lines.all()]
+        # The tax invoice an expense was paid with, where it carried VAT.
+        _vat = VoucherExpenseVat.query.filter_by(voucher_id=self.id).first() if self.id else None
+        result['expense_vat'] = _vat.to_dict() if _vat else None
         
         # إضافة رقم القيد المحاسبي
         if self.journal_entry:
@@ -3216,6 +3219,39 @@ class Voucher(db.Model):
 
     def __repr__(self):
         return f'<Voucher {self.voucher_number} - {self.voucher_type}>'
+
+
+class VoucherExpenseVat(db.Model):
+    """The tax invoice an operating expense was paid with, and its VAT (the
+    owner, 20 Oct 2026). One per voucher, replaced with it on an edit. The VAT
+    is a line of the voucher on the account the policy says (ADR-043 rule 1):
+    input VAT while it is recovered, else the non-recoverable expense --
+    `recoverable` keeps which, as of the voucher's day. See
+    services/expense_vat.py."""
+    __tablename__ = 'voucher_expense_vat'
+
+    id = db.Column(db.Integer, primary_key=True)
+    voucher_id = db.Column(db.Integer, db.ForeignKey('voucher.id', ondelete='CASCADE'),
+                           nullable=False, unique=True, index=True)
+    amount = db.Column(db.Float, nullable=False)
+    supplier_name = db.Column(db.String(200), nullable=False)
+    supplier_tax_number = db.Column(db.String(15), nullable=False)
+    invoice_number = db.Column(db.String(100), nullable=False)
+    invoice_date = db.Column(db.Date, nullable=False)
+    recoverable = db.Column(db.Boolean, nullable=False)
+    vat_account_id = db.Column(db.Integer, db.ForeignKey('account.id'), nullable=False)
+    created_at = db.Column(db.DateTime, nullable=False)
+    created_by = db.Column(db.String(100), nullable=False)
+
+    def to_dict(self):
+        return {
+            'amount': self.amount,
+            'supplier_name': self.supplier_name,
+            'supplier_tax_number': self.supplier_tax_number,
+            'invoice_number': self.invoice_number,
+            'invoice_date': self.invoice_date.isoformat() if self.invoice_date else None,
+            'recoverable': self.recoverable,
+        }
 
 
 class VoucherAccountLine(db.Model):

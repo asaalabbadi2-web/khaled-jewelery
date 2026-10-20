@@ -240,6 +240,16 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
   final TextEditingController _notesController = TextEditingController();
   final TextEditingController _receiverNameController = TextEditingController();
 
+  // An operating expense's tax invoice (the owner, 20 Oct 2026): its VAT,
+  // suggested at the rate until typed, and the invoice it stands on.
+  bool _expenseVatOn = false;
+  bool _expenseVatTyped = false;
+  final _vatAmountController = TextEditingController();
+  final _vatSupplierController = TextEditingController();
+  final _vatTaxNumberController = TextEditingController();
+  final _vatInvoiceController = TextEditingController();
+  DateTime? _vatInvoiceDate;
+
   final List<AccountLineModel> _accountLines = [];
   final List<String> _attachedFileNames = [];
 
@@ -559,6 +569,16 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
             if (id is num) id.toInt(),
         ]);
       _receiverNameController.text = (v['receiver_name'] ?? '') as String;
+      final vat = v['expense_vat'];
+      if (vat is Map) {
+        _expenseVatOn = true;
+        _expenseVatTyped = true;
+        _vatAmountController.text = '${vat['amount'] ?? ''}';
+        _vatSupplierController.text = '${vat['supplier_name'] ?? ''}';
+        _vatTaxNumberController.text = '${vat['supplier_tax_number'] ?? ''}';
+        _vatInvoiceController.text = '${vat['invoice_number'] ?? ''}';
+        _vatInvoiceDate = DateTime.tryParse('${vat['invoice_date'] ?? ''}');
+      }
 
       final partyType = (v['party_type'] ?? '') as String;
       if (partyType.isNotEmpty) {
@@ -711,6 +731,10 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
     _descriptionController.dispose();
     _notesController.dispose();
     _receiverNameController.dispose();
+    _vatAmountController.dispose();
+    _vatSupplierController.dispose();
+    _vatTaxNumberController.dispose();
+    _vatInvoiceController.dispose();
     super.dispose();
   }
 
@@ -732,6 +756,34 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
   }
 
   /// The first thing in the way of saving, or null (VOUCHER-UX-1).
+  /// What the tax invoice still lacks, once it is asked for.
+  String? get _expenseVatBlocker {
+    if (!_expenseVatOffered || !_expenseVatOn) return null;
+    if (_expenseVatAmount <= 0) return 'أدخل مبلغ الضريبة';
+    if (_vatSupplierController.text.trim().isEmpty) return 'أدخل اسم مورد الفاتورة';
+    if (_vatTaxNumberController.text.trim().length != 15) {
+      return 'أدخل الرقم الضريبي للمورد (15 رقمًا)';
+    }
+    if (_vatInvoiceController.text.trim().isEmpty) return 'أدخل رقم الفاتورة الضريبية';
+    return null;
+  }
+
+  /// A payment to «آخر» on an operating expense: it may carry its VAT.
+  bool get _expenseVatOffered =>
+      widget.voucherType == 'payment' &&
+      _partyType == 'other' &&
+      _selectedOtherAccountId != null &&
+      _expenseIds.contains(_selectedOtherAccountId);
+
+  double get _expenseVatAmount =>
+      readTypedNumber(_vatAmountController.text) ?? 0;
+
+  /// The rate's share of what is paid: 15/115 at 15%.
+  double get _expenseVatSuggested {
+    final rate = context.read<SettingsProvider>().taxRate;
+    return _round2(_totalCash * rate / (1 + rate));
+  }
+
   String? get _blocker {
     final partyChosen = switch (_partyType) {
       'customer' => _selectedCustomerId != null,
@@ -739,7 +791,7 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
       'employee' => _selectedEmployeeId != null,
       _ => _selectedOtherAccountId != null,
     };
-    return voucherReadiness(
+    final base = voucherReadiness(
       VoucherFacts(
         partyType: _partyType,
         partyChosen: partyChosen,
@@ -764,6 +816,7 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
         unbalanced: _balanceDiff > 0.01,
       ),
     );
+    return base ?? _expenseVatBlocker;
   }
 
   /// Something typed that leaving would lose.
@@ -901,6 +954,12 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
                 row('التاريخ', day(_selectedDate.toIso8601String())),
                 const Divider(),
                 for (final (where, what) in _lineSummaries) row(where, what),
+                if (_expenseVatOffered && _expenseVatOn)
+                  row(
+                    'منها ضريبة',
+                    '${_formatCash(_expenseVatAmount)} — فاتورة ${_vatInvoiceController.text.trim()} '
+                        'من ${_vatSupplierController.text.trim()}',
+                  ),
                 if (planLines.isNotEmpty) ...[
                   const Divider(),
                   for (final line in planLines) Text(line),
@@ -2675,6 +2734,110 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
     );
   }
 
+  /// An operating expense paid with a tax invoice: its VAT, split off by the
+  /// server on the account the policy names, and the invoice it stands on.
+  Widget _buildExpenseVatCard() {
+    final theme = Theme.of(context);
+    final rate = context.read<SettingsProvider>().taxRate;
+    if (_expenseVatOn && !_expenseVatTyped) {
+      final suggested = formatAmount(_expenseVatSuggested);
+      if (_vatAmountController.text != suggested) {
+        _vatAmountController.text = suggested;
+      }
+    }
+    InputDecoration box(String label, {String? helper}) => InputDecoration(
+      labelText: label,
+      helperText: helper,
+      border: const OutlineInputBorder(),
+    );
+    return Card(
+      key: const Key('expense-vat'),
+      child: Padding(
+        padding: const EdgeInsets.all(AppSpace.lg),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            SwitchListTile(
+              key: const Key('expense-vat-on'),
+              contentPadding: EdgeInsets.zero,
+              value: _expenseVatOn,
+              title: Text('مدفوع بفاتورة ضريبية', style: theme.textTheme.titleMedium),
+              subtitle: const Text('تُفصل الضريبة عن المصروف في سطر مستقل'),
+              onChanged: (on) => setState(() {
+                _expenseVatOn = on;
+                _vatInvoiceDate ??= _selectedDate;
+              }),
+            ),
+            if (_expenseVatOn) ...[
+              const SizedBox(height: AppSpace.sm),
+              TextFormField(
+                key: const Key('expense-vat-amount'),
+                controller: _vatAmountController,
+                keyboardType: TextInputType.number,
+                inputFormatters: [NormalizeNumberFormatter()],
+                decoration: box(
+                  'مبلغ الضريبة (ريال) *',
+                  helper:
+                      'المقترح ${formatAmount(_expenseVatSuggested)} '
+                      '(${formatAmount(rate * 100, decimals: 0)}%) — صحّحه بما في الفاتورة',
+                ),
+                onChanged: (_) => setState(() => _expenseVatTyped = true),
+              ),
+              const SizedBox(height: AppSpace.md),
+              TextFormField(
+                key: const Key('expense-vat-supplier'),
+                controller: _vatSupplierController,
+                decoration: box('اسم المورد في الفاتورة *'),
+                onChanged: (_) => setState(() {}),
+              ),
+              const SizedBox(height: AppSpace.md),
+              TextFormField(
+                key: const Key('expense-vat-tax-number'),
+                controller: _vatTaxNumberController,
+                keyboardType: TextInputType.number,
+                maxLength: 15,
+                decoration: box('الرقم الضريبي للمورد *', helper: '15 رقمًا، أوله 3 وآخره 3'),
+                onChanged: (_) => setState(() {}),
+              ),
+              const SizedBox(height: AppSpace.sm),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextFormField(
+                      key: const Key('expense-vat-invoice'),
+                      controller: _vatInvoiceController,
+                      decoration: box('رقم الفاتورة الضريبية *'),
+                      onChanged: (_) => setState(() {}),
+                    ),
+                  ),
+                  const SizedBox(width: AppSpace.md),
+                  OutlinedButton.icon(
+                    key: const Key('expense-vat-date'),
+                    icon: const Icon(Icons.event),
+                    label: Text(
+                      ltrIsolate(
+                        DateFormat('yyyy-MM-dd').format(_vatInvoiceDate ?? _selectedDate),
+                      ),
+                    ),
+                    onPressed: () async {
+                      final day = await showDatePicker(
+                        context: context,
+                        initialDate: _vatInvoiceDate ?? _selectedDate,
+                        firstDate: DateTime(2020),
+                        lastDate: DateTime(2030),
+                      );
+                      if (day != null) setState(() => _vatInvoiceDate = day);
+                    },
+                  ),
+                ],
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
   /// The statement, kept in sight; the receiver, the notes and the files
   /// folded under it -- written for the voucher, not needed to save it.
   Widget _buildDetailsCard() {
@@ -2828,7 +2991,8 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
     };
     final isReceipt = widget.voucherType == 'receipt';
     return [
-      '${isReceipt ? 'تقبض' : 'تصرف'} ${amounts.join(' و')}',
+      '${isReceipt ? 'تقبض' : 'تصرف'} ${amounts.join(' و')}'
+          '${_expenseVatOffered && _expenseVatOn && _expenseVatAmount > 0 ? '، منها ضريبة ${_formatCash(_expenseVatAmount)}' : ''}',
       if (places.isNotEmpty) '${isReceipt ? 'في' : 'من'} ${places.join('، ')}',
       if (partyChosen) '${isReceipt ? 'من' : 'إلى'} $_partyLabel',
     ].join(' ');
@@ -3616,6 +3780,18 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
         }
       }
 
+      // The tax invoice an operating expense was paid with: the server splits
+      // its VAT off the expense (services/expense_vat.py).
+      if (_expenseVatOffered && _expenseVatOn) {
+        voucherData['expense_vat'] = {
+          'amount': _round2(_expenseVatAmount),
+          'supplier_name': _vatSupplierController.text.trim(),
+          'supplier_tax_number': _vatTaxNumberController.text.trim(),
+          'invoice_number': _vatInvoiceController.text.trim(),
+          'invoice_date': DateFormat('yyyy-MM-dd').format(_vatInvoiceDate ?? _selectedDate),
+        };
+      }
+
       // Reviewed before it is saved (VOUCHER-UX-1): what is about to be
       // saved, and any saved voucher that looks like it.
       setState(() => _inReview = true);
@@ -3647,7 +3823,11 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
       if (!mounted) return;
       // The page that says it was saved takes the screen's place; the screen
       // that opened this one is told it was saved, as before.
-      final summaries = _lineSummaries;
+      final summaries = [
+        ..._lineSummaries,
+        if (_expenseVatOffered && _expenseVatOn)
+          ('منها ضريبة', _formatCash(_expenseVatAmount)),
+      ];
       final party = _partyLabel;
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(
@@ -4193,6 +4373,10 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
       if (_showInvoicePicker) ...[
         const SizedBox(height: 12),
         _buildInvoicePicker(),
+      ],
+      if (_expenseVatOffered) ...[
+        const SizedBox(height: 12),
+        _buildExpenseVatCard(),
       ],
     ];
 
