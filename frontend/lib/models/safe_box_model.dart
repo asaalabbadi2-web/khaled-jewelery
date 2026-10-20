@@ -245,14 +245,13 @@ class SafeBoxModel {
   double get accountGoldBalance21k => balance?.weight?.karat21 ?? 0.0;
   double get accountGoldBalance18k => balance?.weight?.karat18 ?? 0.0;
 
-  /// الوزن المكافئ بالعيار الرئيسي (21) من رصيد الحساب
-  double get accountTotalWeightMainKarat {
-    const mainKarat = 21.0;
-    return accountGoldBalance18k * 18 / mainKarat +
-        accountGoldBalance21k * 21 / mainKarat +
-        accountGoldBalance22k * 22 / mainKarat +
-        accountGoldBalance24k * 24 / mainKarat;
-  }
+  /// الوزن المكافئ بالعيار الرئيسي -- عيار الإعدادات، لا عيار ثابت (المالك، 20 أكتوبر 2026)
+  double accountTotalWeightIn(int mainKarat) =>
+      (accountGoldBalance18k * 18 +
+          accountGoldBalance21k * 21 +
+          accountGoldBalance22k * 22 +
+          accountGoldBalance24k * 24) /
+      mainKarat;
 
   /// الرصيد الوزني -- يُفضِّل رصيد الحساب (القيد المحاسبي، صحيح دائماً)
   // تماماً كما تفعل cashBalance أعلاه؛ SafeBoxTransaction (ledger) هو فقط

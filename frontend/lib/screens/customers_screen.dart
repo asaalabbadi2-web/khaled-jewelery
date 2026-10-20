@@ -155,7 +155,11 @@ class _CustomersScreenState extends State<CustomersScreen> {
                     final gold22k = toDoubleVal(c['balance_gold_22k']);
                     final gold24k = toDoubleVal(c['balance_gold_24k']);
                     final cashBalance = toDoubleVal(c['balance_cash']);
-                    final mainKarat = 21.0;
+                    // The settings' main karat, never a fixed one.
+                    final mainKarat = context
+                        .read<SettingsProvider>()
+                        .mainKarat
+                        .toDouble();
                     final goldMain =
                         (gold18k * (18.0 / mainKarat)) +
                         (gold21k * (21.0 / mainKarat)) +

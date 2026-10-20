@@ -50,6 +50,7 @@ List<String>? partyBalanceBrief(
   ];
 }
 
-/// Weights by karat as one weight of [mainKarat]: each by its fineness.
-double goldInMainKarat(Map<int, double> byKarat, int mainKarat) => byKarat.entries
-    .fold(0.0, (sum, e) => sum + e.value * e.key / (mainKarat <= 0 ? 21 : mainKarat));
+/// Weights by karat as one weight of [mainKarat] -- the settings' karat,
+/// never a fixed one (the owner, 20 Oct 2026): each by its fineness.
+double goldInMainKarat(Map<int, double> byKarat, int mainKarat) =>
+    byKarat.entries.fold(0.0, (sum, e) => sum + e.value * e.key / mainKarat);

@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
 import '../../api_service.dart';
+import '../../providers/settings_provider.dart';
+import '../../utils/party_balance.dart';
 
 class CustomerGoldBalancesReportScreen extends StatefulWidget {
   final ApiService api;
@@ -64,14 +67,13 @@ class _CustomerGoldBalancesReportScreenState
     return b.values.any((v) => v.abs() > 0.0005);
   }
 
-  double _equiv21k(Map<String, double> b) {
-    // Main karat equivalent (assume 21 as default).
-    // Convert each karat weight into 21k-equivalent: w * (k/21).
-    return (b['18k'] ?? 0) * (18.0 / 21.0) +
-        (b['21k'] ?? 0) +
-        (b['22k'] ?? 0) * (22.0 / 21.0) +
-        (b['24k'] ?? 0) * (24.0 / 21.0);
-  }
+  /// The balance in the settings' main karat -- it assumed 21.
+  double _equiv21k(Map<String, double> b) => goldInMainKarat({
+        18: b['18k'] ?? 0,
+        21: b['21k'] ?? 0,
+        22: b['22k'] ?? 0,
+        24: b['24k'] ?? 0,
+      }, context.read<SettingsProvider>().mainKarat);
 
   String _fmtG(double v) => v.toStringAsFixed(3);
 

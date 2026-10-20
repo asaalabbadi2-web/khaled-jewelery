@@ -314,7 +314,8 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
   bool _checkedLocalDraft = false;
 
   int _currencyDecimalPlaces = 2;
-  int _mainKarat = 21;
+  /// The main karat, the settings' -- never a fixed one (the owner, 20 Oct 2026).
+  int get _mainKarat => context.read<SettingsProvider>().mainKarat;
 
   SettingsProvider? _settingsProvider;
 
@@ -707,12 +708,10 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
     final provider = Provider.of<SettingsProvider>(context);
     if (_settingsProvider != provider ||
         _currencySymbol != provider.currencySymbol ||
-        _currencyDecimalPlaces != provider.decimalPlaces ||
-        _mainKarat != provider.mainKarat) {
+        _currencyDecimalPlaces != provider.decimalPlaces) {
       setState(() {
         _settingsProvider = provider;
         _currencyDecimalPlaces = provider.decimalPlaces;
-        _mainKarat = provider.mainKarat;
       });
     }
   }

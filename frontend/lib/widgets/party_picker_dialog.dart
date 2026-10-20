@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 
+import 'package:provider/provider.dart';
+
+import '../providers/settings_provider.dart';
 import '../utils/party_balance.dart';
 
 /// A customer or supplier picked by name, code or phone (the voucher screen
@@ -13,8 +16,9 @@ class PartyPickerDialog extends StatefulWidget {
   final String emptyText;
   final String currencySymbol;
 
-  /// The karat a party's gold is said in, all its karats as one figure.
-  final int mainKarat;
+  /// The karat a party's gold is said in, all its karats as one figure;
+  /// the settings' when not given -- never a fixed one.
+  final int? mainKarat;
 
   const PartyPickerDialog({
     super.key,
@@ -23,7 +27,7 @@ class PartyPickerDialog extends StatefulWidget {
     this.selectedId,
     this.emptyText = 'لا توجد بيانات',
     this.currencySymbol = 'ر.س',
-    this.mainKarat = 21,
+    this.mainKarat,
   });
 
   @override
@@ -105,7 +109,7 @@ class _PartyPickerDialogState extends State<PartyPickerDialog> {
     final balance = partyBalanceBrief(
       item,
       currencySymbol: widget.currencySymbol,
-      mainKarat: widget.mainKarat,
+      mainKarat: widget.mainKarat ?? context.read<SettingsProvider>().mainKarat,
     );
     return [
       parts.join(' • '),

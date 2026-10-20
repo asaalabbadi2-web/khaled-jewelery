@@ -84,7 +84,9 @@ class _SafeBoxHeroDetailsScreenState extends State<SafeBoxHeroDetailsScreen> {
       'name': m.name,
       'safe_type': m.safeType,
       'weight_balance': m.weightBalance,
-      'total_weight_main_karat': m.accountTotalWeightMainKarat,
+      'total_weight_main_karat': m.accountTotalWeightIn(
+        context.read<SettingsProvider>().mainKarat,
+      ),
       'balance_cash': m.cashBalance,
       'balance_gold_21k': m.goldBalance21k,
       'has_recent_activity': _safeBox['has_recent_activity'] == true,

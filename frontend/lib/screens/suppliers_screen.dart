@@ -190,7 +190,7 @@ class SuppliersScreenState extends State<SuppliersScreen> {
     final b22 = _toDouble(supplier['balance_gold_22k']);
     final b24 = _toDouble(supplier['balance_gold_24k']);
 
-    final main = _mainKarat <= 0 ? 21.0 : _mainKarat.toDouble();
+    final main = _mainKarat.toDouble();
     return (b18 * (18.0 / main)) +
         (b21 * (21.0 / main)) +
         (b22 * (22.0 / main)) +
