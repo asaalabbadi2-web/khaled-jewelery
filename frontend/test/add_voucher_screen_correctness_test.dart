@@ -1,130 +1,19 @@
-import 'dart:convert';
-
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:frontend/providers/auth_provider.dart';
-import 'package:frontend/providers/settings_provider.dart';
 import 'package:frontend/screens/add_voucher_screen.dart';
 import 'package:frontend/screens/voucher_saved_screen.dart';
-import 'package:frontend/theme/app_theme.dart';
-import 'package:provider/provider.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import 'support/fake_voucher_api.dart';
 import 'support/payload_witness.dart';
+import 'support/voucher_screen_harness.dart';
 
 /// The voucher screen review, release 1 (the owner, 20 Oct 2026): what the
 /// screen says is true, and what it sends is what was meant. What it sent
 /// before is kept whole first (ADR-049 UI-2): a gold payment over an invoice
 /// and a cash receipt -- this release changes neither.
 void main() {
-  setUpAll(() async {
-    final cairo = FontLoader('Cairo');
-    for (final w in ['Regular', 'SemiBold', 'Bold']) {
-      cairo.addFont(rootBundle.load('assets/fonts/Cairo-$w.ttf'));
-    }
-    await cairo.load();
-  });
-
-  /// The screen over a page, as the app opens it, so leaving it lands somewhere.
-  Future<FakeVoucherApi> open(
-    WidgetTester tester, {
-    FakeVoucherApi? api,
-    String voucherType = 'payment',
-    int? supplierId = 5,
-    String? partyType,
-    Map<String, dynamic>? existing,
-  }) async {
-    api ??= FakeVoucherApi();
-    SharedPreferences.setMockInitialValues({
-      'app_settings': jsonEncode({'main_karat': 21}),
-    });
-    tester.view.physicalSize = const Size(1440, 2400);
-    tester.view.devicePixelRatio = 1;
-    addTearDown(tester.view.reset);
-    final settings = SettingsProvider();
-    await settings.loadSettings(fetchRemote: false);
-    await tester.pumpWidget(
-      MultiProvider(
-        providers: [
-          ChangeNotifierProvider(create: (_) => AuthProvider()),
-          ChangeNotifierProvider.value(value: settings),
-        ],
-        child: MaterialApp(
-          theme: LightTheme.theme,
-          home: Directionality(
-            textDirection: TextDirection.rtl,
-            child: Builder(
-              builder: (context) => Scaffold(
-                body: Center(
-                  child: TextButton(
-                    onPressed: () => Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (_) => AddVoucherScreen(
-                          voucherType: voucherType,
-                          initialSupplierId: supplierId,
-                          initialPartyType: partyType,
-                          existingVoucher: existing,
-                          apiService: api,
-                        ),
-                      ),
-                    ),
-                    child: const Text('open'),
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('open'));
-    await tester.pumpAndSettle();
-    return api;
-  }
-
-  /// Text that reads [shown], the direction isolates around its numbers set aside.
-  Finder said(String shown) => find.byWidgetPredicate((w) {
-    final text = w is Text
-        ? (w.data ?? w.textSpan?.toPlainText() ?? '')
-        : w is RichText
-        ? w.text.toPlainText()
-        : null;
-    return text != null &&
-        text.replaceAll(RegExp('[\u2066-\u2069]'), '').contains(shown);
-  });
-
-  Finder cashAmount() =>
-      find.widgetWithText(TextFormField, 'المبلغ (ريال) *').first;
-
-  Future<void> pickSafe(WidgetTester tester, String name) async {
-    await tester.tap(find.text('اختر حساب/خزينة').first);
-    await tester.pumpAndSettle();
-    await tester.tap(find.textContaining(name).last);
-    await tester.pumpAndSettle();
-  }
-
-  Future<void> toGold(WidgetTester tester) async {
-    await tester.tap(find.text('ذهب').first);
-    await tester.pumpAndSettle();
-  }
-
-  Future<void> grams(WidgetTester tester, String typed) async {
-    await tester.enterText(
-      find.widgetWithText(TextFormField, 'الوزن (جرام) *').first,
-      typed,
-    );
-    await tester.pumpAndSettle();
-  }
-
-  Future<void> save(WidgetTester tester) async {
-    await tester.tap(find.text('حفظ السند').last);
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const Key('voucher-review-save')));
-    await tester.pumpAndSettle();
-  }
+  setUpAll(loadCairo);
+  final open = openVoucher;
 
   const goldInvoice = [
     {

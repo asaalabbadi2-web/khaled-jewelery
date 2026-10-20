@@ -20,7 +20,11 @@ class FakeVoucherApi extends ApiService {
     this.openCash = const [],
     this.openGold = const [],
     this.plan,
+    this.appConfig = const {},
   });
+
+  /// What /app-config says: the account groups a screen filters by.
+  final Map<String, dynamic> appConfig;
 
   /// The supplier's invoices still owing cash, and gold.
   final List<Map<String, dynamic>> openCash;
@@ -65,10 +69,13 @@ class FakeVoucherApi extends ApiService {
     {'id': 51, 'account_number': '72200001', 'name': 'مورد الذهب وزني'},
     {'id': 70, 'account_number': '1100001', 'name': 'الصندوق'},
     {'id': 80, 'account_number': '1310001', 'name': 'خزينة الذهب'},
+    // Two expenses: the first in the tree, and the one meant.
+    {'id': 91, 'account_number': '5220', 'name': 'خسارة الوزن (الفقد)'},
+    {'id': 92, 'account_number': '5310', 'name': 'كهرباء'},
   ];
 
   @override
-  Future<Map<String, dynamic>> getAppConfig() async => {};
+  Future<Map<String, dynamic>> getAppConfig() async => appConfig;
 
   @override
   Future<List<SafeBoxModel>> getSafeBoxes({

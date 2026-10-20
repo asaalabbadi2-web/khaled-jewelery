@@ -1919,13 +1919,8 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
             amountType: 'cash',
             description: 'مصروف تشغيلي',
           );
-          final expenseAccount = _accounts.firstWhere(
-            (acc) => _expenseIds.contains(_coerceAccountId(acc['id'])),
-            orElse: () => <String, dynamic>{},
-          );
-          if (expenseAccount.isNotEmpty) {
-            _selectedOtherAccountId = expenseAccount['id'] as int?;
-          }
+          // The expense is the employee's to name: the first in the tree
+          // was chosen for them («خسارة الوزن» on production).
           break;
       }
     });
@@ -2065,380 +2060,6 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
     }
   }
 
-  Widget _buildStatusChip({
-    required IconData icon,
-    required Color color,
-    required String label,
-    String? subtitle,
-  }) {
-    return Container(
-      constraints: const BoxConstraints(minWidth: 150),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: color.withValues(alpha: 0.4), width: 1),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(icon, color: color, size: 20),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  label,
-                  style: TextStyle(color: color, fontWeight: FontWeight.w700),
-                ),
-              ),
-            ],
-          ),
-          if (subtitle != null) ...[
-            const SizedBox(height: 4),
-            Text(
-              subtitle,
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: color.withValues(alpha: 0.85),
-                height: 1.4,
-              ),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-
-  /// Reusable cluster of status chips to keep the indicators consistent
-  /// wherever they are rendered (hero header, status board, etc.).
-  Widget _buildStatusChips({
-    required bool partyReady,
-    required bool accountsReady,
-    required bool hasAmounts,
-    required bool hasSafeOverdraft,
-    required String totalGoldText,
-  }) {
-    final theme = Theme.of(context);
-    final Color successColor = _tone.ready.fg;
-    final Color warningColor = _tone.warning.fg;
-    final Color infoColor = _tone.info.fg;
-    final Color neutralColor = theme.colorScheme.outlineVariant;
-
-    return Wrap(
-      spacing: 12,
-      runSpacing: 12,
-      children: [
-        _buildStatusChip(
-          icon: partyReady ? Icons.verified_user : Icons.person_search,
-          color: partyReady ? successColor : warningColor,
-          label: partyReady ? 'الطرف جاهز' : 'الطرف غير محدد',
-          subtitle: partyReady
-              ? 'يمكنك متابعة تعبئة السند.'
-              : 'حدد الطرف المناسب قبل المتابعة.',
-        ),
-        _buildStatusChip(
-          icon: accountsReady ? Icons.check_circle : Icons.list_alt,
-          color: accountsReady ? infoColor : warningColor,
-          label: accountsReady ? 'سطور الحسابات مكتملة' : 'أكمل بيانات السطور',
-          subtitle: accountsReady
-              ? 'كل السطور تحتوي على حساب ومبلغ.'
-              : 'تأكد من اختيار الحساب وإدخال المبلغ لكل سطر.',
-        ),
-        _buildStatusChip(
-          icon: Icons.account_balance_wallet,
-          color: hasAmounts ? infoColor : neutralColor,
-          label: hasAmounts
-              ? 'إجمالي النقد: ${_formatCash(_totalCash)}'
-              : 'لا يوجد مبلغ مُدخل',
-          subtitle: totalGoldText.isNotEmpty ? 'الذهب: $totalGoldText' : null,
-        ),
-        if (hasSafeOverdraft)
-          _buildStatusChip(
-            icon: Icons.warning_amber_rounded,
-            color: _tone.blocked.fg,
-            label: 'تحذير أرصدة الخزائن',
-            subtitle: 'يوجد سطر يتجاوز الرصيد المتاح للخزينة المختارة.',
-          )
-        else
-          _buildStatusChip(
-            icon: Icons.shield_outlined,
-            color: successColor,
-            label: 'الخزائن ضمن الحدود',
-            subtitle: 'لا توجد تجاوزات في أرصدة الخزائن الحالية.',
-          ),
-      ],
-    );
-  }
-
-  Widget _buildStatusBoard() {
-    final bool partyReady =
-        (_partyType == 'customer' && _selectedCustomerId != null) ||
-        (_partyType == 'supplier' && _selectedSupplierId != null) ||
-        (_partyType == 'employee' && _selectedEmployeeId != null) ||
-        (_partyType == 'other' && _selectedOtherAccountId != null);
-
-    final bool accountsReady =
-        _accountLines.isNotEmpty &&
-        _accountLines.every(
-          (line) => line.accountId != null && line.amount > 0,
-        );
-
-    final bool hasAmounts =
-        _totalCash > 0 || _totalGoldByKarat.values.any((value) => value > 0);
-
-    final Map<int, double> outflowBySafeId = {};
-    for (final line in _accountLines) {
-      if (!_isCashOutflowFromSafe(line)) continue;
-      final safe = _findSafeByAccountId(line.accountId);
-      final safeId = safe?.id;
-      if (safe == null || safeId == null) continue;
-      outflowBySafeId[safeId] = (outflowBySafeId[safeId] ?? 0.0) + line.amount;
-    }
-
-    final bool hasSafeOverdraft = outflowBySafeId.entries.any((entry) {
-      final safeId = entry.key;
-      final totalOutflow = entry.value;
-      SafeBoxModel? safe;
-      try {
-        safe = _safeBoxes.firstWhere((s) => s.id == safeId);
-      } catch (_) {
-        safe = null;
-      }
-      if (safe == null) return false;
-      final available = _getAvailableSafeCash(safe);
-      if (available == null) {
-        // Best-effort: if we don't know the available balance, don't block/flag.
-        return false;
-      }
-      return totalOutflow > available + 0.01;
-    });
-
-    final totalGoldText = _totalGoldByKarat.entries
-        .map(
-          (entry) =>
-              '${_formatWeight(entry.value, includeUnit: false)} جم ع ${entry.key.toInt()}',
-        )
-        .join(' • ');
-
-    String statusSummary;
-    if (!partyReady) {
-      statusSummary = 'حدد الطرف لإكمال بيانات السند';
-    } else if (!accountsReady) {
-      statusSummary = 'أكمل تفاصيل السطور المتبقية';
-    } else if (!hasAmounts) {
-      statusSummary = 'أدخل المبالغ النقدية أو الذهبية';
-    } else if (hasSafeOverdraft) {
-      statusSummary = 'تحقق من أرصدة الخزائن قبل الحفظ';
-    } else {
-      statusSummary = 'السند مكتمل وجاهز للحفظ أو الترحيل';
-    }
-
-    return Card(
-      elevation: 2,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
-        side: BorderSide(
-          color: _tone.gold.container.withValues(alpha: 0.6),
-          width: 1.2,
-        ),
-      ),
-      child: Theme(
-        data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
-        child: ExpansionTile(
-          tilePadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-          childrenPadding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
-          maintainState: true,
-          leading: Icon(Icons.dashboard_customize_outlined, color: _cs.primary),
-          title: Text(
-            'مؤشرات السند',
-            style: Theme.of(context).textTheme.titleLarge?.copyWith(
-              color: _tone.gold.fg,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-          subtitle: Padding(
-            padding: const EdgeInsets.only(top: 4),
-            child: Text(
-              statusSummary,
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: Theme.of(context).textTheme.bodySmall?.color,
-              ),
-            ),
-          ),
-          iconColor: _cs.primary,
-          collapsedIconColor: _cs.primary,
-          children: [
-            const SizedBox(height: 8),
-            _buildStatusChips(
-              partyReady: partyReady,
-              accountsReady: accountsReady,
-              hasAmounts: hasAmounts,
-              hasSafeOverdraft: hasSafeOverdraft,
-              totalGoldText: totalGoldText,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildHeroHeader(
-    BuildContext context,
-    bool isReceipt,
-    Color accentColor,
-    IconData icon,
-    String title,
-  ) {
-    final theme = Theme.of(context);
-    final dateText = DateFormat('yyyy-MM-dd').format(_selectedDate);
-    final totalGoldText = _totalGoldByKarat.entries
-        .map(
-          (entry) =>
-              '${_formatWeight(entry.value, includeUnit: false)} جم ع ${entry.key.toInt()}',
-        )
-        .join(' • ');
-
-    Widget buildChip(
-      IconData chipIcon,
-      String label,
-      Color foreground, {
-      Color? background,
-    }) {
-      return Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        decoration: BoxDecoration(
-          color: background ?? foreground.withValues(alpha: 0.12),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: foreground.withValues(alpha: 0.35)),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(chipIcon, color: foreground, size: 18),
-            const SizedBox(width: 6),
-            Text(
-              label,
-              style: TextStyle(color: foreground, fontWeight: FontWeight.w600),
-            ),
-          ],
-        ),
-      );
-    }
-
-    return Card(
-      elevation: 4,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-      shadowColor: accentColor.withValues(alpha: 0.15),
-      child: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(
-                    color: accentColor.withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  child: Icon(icon, color: accentColor, size: 32),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        title,
-                        style: theme.textTheme.headlineSmall?.copyWith(
-                          fontWeight: FontWeight.bold,
-                          color: accentColor,
-                        ),
-                      ),
-                      const SizedBox(height: 6),
-                      Text(
-                        isReceipt
-                            ? 'سجّل عمليات التحصيل النقدي أو الذهب بسهولة مع تتبع الخزائن والعيارات.'
-                            : 'إدارة عمليات الصرف للطرف المستفيد مع مراقبة أرصدة الخزائن والعيارات.',
-                        style: theme.textTheme.bodyMedium?.copyWith(
-                          height: 1.5,
-                        ),
-                      ),
-                      const SizedBox(height: 14),
-                      Wrap(
-                        spacing: 12,
-                        runSpacing: 12,
-                        children: [
-                          buildChip(
-                            Icons.account_balance_wallet,
-                            'نقد: ${_formatCash(_totalCash)}',
-                            accentColor,
-                          ),
-                          if (totalGoldText.isNotEmpty)
-                            buildChip(
-                              Icons.diamond_outlined,
-                              'ذهب: $totalGoldText',
-                              _tone.gold.fg,
-                              background: _tone.gold.container.withValues(
-                                alpha: 0.25,
-                              ),
-                            ),
-                          buildChip(
-                            Icons.list_alt_outlined,
-                            _linesCount(_accountLines.length),
-                            _cs.secondary,
-                            background: _tone.gold.container.withValues(
-                              alpha: 0.25,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    OutlinedButton.icon(
-                      onPressed: () => _selectVoucherDate(context),
-                      icon: const Icon(Icons.event),
-                      label: Text(dateText),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: accentColor,
-                        side: BorderSide(
-                          color: accentColor.withValues(alpha: 0.6),
-                        ),
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 16,
-                          vertical: 12,
-                        ),
-                        textStyle: theme.textTheme.bodyMedium?.copyWith(
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    Text(
-                      isReceipt ? 'نوع السند: تحصيل' : 'نوع السند: صرف',
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: _cs.secondary,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
   Future<void> _selectVoucherDate(BuildContext context) async {
     final date = await showDatePicker(
       context: context,
@@ -2472,11 +2093,21 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
               children: [
                 Icon(Icons.group_outlined, color: _cs.primary),
                 const SizedBox(width: 8),
-                Text(
-                  'الطرف',
-                  style: Theme.of(
-                    context,
-                  ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
+                Expanded(
+                  child: Text(
+                    widget.voucherType == 'receipt' ? 'من' : 'إلى',
+                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+                OutlinedButton.icon(
+                  key: const Key('voucher-date'),
+                  onPressed: () => _selectVoucherDate(context),
+                  icon: const Icon(Icons.event),
+                  label: Text(
+                    ltrIsolate(DateFormat('yyyy-MM-dd').format(_selectedDate)),
+                  ),
                 ),
               ],
             ),
@@ -2566,14 +2197,18 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
                 accounts: _accounts,
                 value: _selectedOtherAccountId,
                 labelText: 'الحساب *',
-                hintText: _selectedTemplateId == 'payment_salary'
+                hintText: _selectedTemplateId == 'payment_expense'
+                    ? 'اختر حساب المصروف'
+                    : _selectedTemplateId == 'payment_salary'
                     ? 'اختر حساب ذمم الموظفين - رواتب'
                     : _selectedTemplateId == 'payment_advance'
                     ? 'اختر حساب الموظف'
                     : 'اختر الحساب المناسب (مصروف، سلفة، إلخ)',
                 title: 'اختيار حساب',
                 isArabic: true,
-                helperText: _selectedTemplateId == 'payment_salary'
+                helperText: _selectedTemplateId == 'payment_expense'
+                    ? 'تُعرض حسابات المصروفات وحدها'
+                    : _selectedTemplateId == 'payment_salary'
                     ? 'سيتم تسجيل الراتب على ذمم الموظفين (رواتب)'
                     : _selectedTemplateId == 'payment_advance'
                     ? 'سيتم تسجيل السلفة على حساب الموظف ضمن الأصول'
@@ -2595,6 +2230,11 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
                   }
                   if (_selectedTemplateId == 'payment_advance') {
                     return _employeePersonalIds.contains(accId);
+                  }
+                  if (_selectedTemplateId == 'payment_expense' &&
+                      _expenseIds.isNotEmpty) {
+                    return _expenseIds.contains(accId) &&
+                        isLeafAccount(a, _parentAccountIds);
                   }
                   if (_selectedTemplateId == 'receipt_safe_transfer') {
                     return safeType == 'cash' ||
@@ -2624,6 +2264,7 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
                   });
                 },
               ),
+            _buildPartyBalance(),
           ],
         ),
       ),
@@ -2839,183 +2480,6 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
     ];
   }
 
-  Widget _buildDescriptionCard() {
-    return Card(
-      elevation: 2,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: _tone.gold.container.withValues(alpha: 0.4)),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(Icons.description_outlined, color: _cs.primary),
-                const SizedBox(width: 8),
-                const Text(
-                  'البيان',
-                  style: TextStyle(fontWeight: FontWeight.bold),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            TextFormField(
-              key: const Key('voucher-description'),
-              controller: _descriptionController,
-              decoration: InputDecoration(
-                hintText: 'أدخل وصف السند أو سبب التحصيل/الصرف',
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(8),
-                  borderSide: BorderSide(
-                    color: _cs.secondary.withValues(alpha: 0.3),
-                  ),
-                ),
-                focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(8),
-                  borderSide: BorderSide(color: _cs.primary, width: 2),
-                ),
-              ),
-              maxLines: 2,
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildReceiverCard() {
-    return Card(
-      elevation: 2,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: _tone.gold.container.withValues(alpha: 0.4)),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(Icons.person_outline, color: _cs.primary),
-                const SizedBox(width: 8),
-                const Text(
-                  'اسم المستلم',
-                  style: TextStyle(fontWeight: FontWeight.bold),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            TextFormField(
-              controller: _receiverNameController,
-              decoration: InputDecoration(
-                hintText: 'اسم الشخص المستلم/المسلم للسند',
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(8),
-                  borderSide: BorderSide(
-                    color: _cs.secondary.withValues(alpha: 0.3),
-                  ),
-                ),
-                focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(8),
-                  borderSide: BorderSide(color: _cs.primary, width: 2),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildAttachmentsCard() {
-    final hasAttachments = _attachedFileNames.isNotEmpty;
-
-    return Card(
-      elevation: 2,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: _tone.gold.container.withValues(alpha: 0.3)),
-      ),
-      color: _tone.gold.container.withValues(alpha: 0.12),
-      child: Theme(
-        data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
-        child: ExpansionTile(
-          tilePadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 20),
-          maintainState: true,
-          initiallyExpanded: hasAttachments,
-          leading: Icon(Icons.attach_file, color: _cs.primary),
-          title: Text(
-            'المرفقات (اختياري)',
-            style: TextStyle(
-              fontWeight: FontWeight.bold,
-              color: Theme.of(context).textTheme.titleLarge?.color,
-            ),
-          ),
-          subtitle: Padding(
-            padding: const EdgeInsets.only(top: 4),
-            child: Text(
-              hasAttachments
-                  ? 'تم إرفاق ${_attachedFileNames.length} ملف/ملفات'
-                  : 'أضف صور الفواتير، إيصالات البنك أو أي مستندات داعمة عند الحاجة',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: Theme.of(context).textTheme.bodySmall?.color,
-              ),
-            ),
-          ),
-          iconColor: _cs.primary,
-          collapsedIconColor: _cs.primary,
-          children: [
-            Align(
-              alignment: Alignment.centerLeft,
-              child: ElevatedButton.icon(
-                icon: const Icon(Icons.add, size: 18),
-                label: const Text('إرفاق مستند'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: _cs.primary,
-                  foregroundColor: _cs.onPrimary,
-                ),
-                onPressed: _pickFiles,
-              ),
-            ),
-            if (hasAttachments)
-              Padding(
-                padding: const EdgeInsets.only(top: 12),
-                child: Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: _attachedFileNames
-                      .map(
-                        (f) => Chip(
-                          label: Text(f),
-                          backgroundColor: Theme.of(context).cardTheme.color,
-                          deleteIcon: const Icon(Icons.close, size: 18),
-                          onDeleted: () {
-                            setState(() {
-                              _attachedFileNames.remove(f);
-                            });
-                          },
-                        ),
-                      )
-                      .toList(),
-                ),
-              ),
-          ],
-        ),
-      ),
-    );
-  }
-
   Widget _buildGoldEntryCommissionRow(GoldLineEntryModel entry) {
     final theme = Theme.of(context);
     final hasCommission = entry.commissionDirection.isNotEmpty;
@@ -3092,101 +2556,111 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
   }
 
   Widget _buildAccountLinesHeader() {
+    final theme = Theme.of(context);
     return Row(
       children: [
+        Expanded(
+          child: Text(
+            widget.voucherType == 'receipt'
+                ? 'ما يُقبض، وأين'
+                : 'ما يُصرف، ومن أين',
+            style: theme.textTheme.titleLarge?.copyWith(
+              fontWeight: FontWeight.bold,
+              color: _tone.gold.fg,
+            ),
+          ),
+        ),
         Text(
-          'سطور الحسابات',
-          style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-            fontWeight: FontWeight.bold,
-            color: _tone.gold.fg,
+          _linesCount(_accountLines.length),
+          style: theme.textTheme.bodyMedium?.copyWith(
+            color: _cs.onSurfaceVariant,
           ),
         ),
       ],
     );
   }
 
-  Widget _buildTotalsCard() {
+  /// The statement, kept in sight; the receiver, the notes and the files
+  /// folded under it -- written for the voucher, not needed to save it.
+  Widget _buildDetailsCard() {
+    final theme = Theme.of(context);
+    final hasAttachments = _attachedFileNames.isNotEmpty;
+    final hasNotes = _notesController.text.trim().isNotEmpty;
+    final receiver = _receiverNameController.text.trim();
+    final folded = [
+      if (receiver.isNotEmpty) 'المستلم: $receiver',
+      if (hasNotes) 'فيه ملاحظات',
+      if (hasAttachments) 'مرفقات: ${_attachedFileNames.length}',
+    ];
     return Card(
-      color: _tone.gold.container.withValues(alpha: 0.3),
-      elevation: 2,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: _cs.primary.withValues(alpha: 0.3), width: 1),
-      ),
+      key: const Key('voucher-details'),
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(AppSpace.lg),
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Row(
-              children: [
-                Icon(Icons.attach_money, color: _tone.gold.fg),
-                const SizedBox(width: 8),
-                Text(
-                  'مجموع النقد: ',
-                  style: TextStyle(
-                    color: _tone.gold.fg,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                Text(
-                  _formatCash(_totalCash),
-                  style: TextStyle(
-                    fontWeight: FontWeight.bold,
-                    color: Theme.of(context).textTheme.bodyLarge?.color,
-                  ),
-                ),
-                const SizedBox(width: 16),
-                Icon(Icons.circle, color: _cs.primary, size: 14),
-                const SizedBox(width: 4),
-                Text(
-                  'مجموع الذهب:',
-                  style: TextStyle(
-                    color: _tone.gold.fg,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                if (_totalGoldByKarat.isEmpty)
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 4),
-                    child: Text(
-                      '0 جم',
-                      style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        color: Theme.of(context).textTheme.bodyLarge?.color,
-                      ),
-                    ),
-                  )
-                else
-                  ..._totalGoldByKarat.entries.map(
-                    (e) => Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 4),
-                      child: Text(
-                        '${_formatWeight(e.value)} ع ${e.key.toInt()}',
-                        style: TextStyle(
-                          fontWeight: FontWeight.bold,
-                          color: Theme.of(context).textTheme.bodyLarge?.color,
-                        ),
-                      ),
-                    ),
-                  ),
-              ],
+            TextFormField(
+              key: const Key('voucher-description'),
+              controller: _descriptionController,
+              decoration: const InputDecoration(
+                labelText: 'البيان',
+                hintText: 'سبب القبض أو الصرف',
+                border: OutlineInputBorder(),
+              ),
+              maxLines: 2,
             ),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                Icon(Icons.check_circle, color: _tone.ready.fg),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    '✅ سيتم إضافة سطر الطرف تلقائياً لتوازن القيد',
-                    style: TextStyle(
-                      color: _tone.ready.fg,
-                      fontWeight: FontWeight.bold,
+            Theme(
+              data: theme.copyWith(dividerColor: Colors.transparent),
+              child: ExpansionTile(
+                tilePadding: EdgeInsets.zero,
+                childrenPadding: const EdgeInsets.only(bottom: AppSpace.sm),
+                initiallyExpanded: hasNotes || hasAttachments,
+                title: Text(
+                  'المستلم والملاحظات والمرفقات',
+                  style: theme.textTheme.titleSmall,
+                ),
+                subtitle: Text(
+                  folded.isEmpty ? 'اختياري' : folded.join(' • '),
+                  style: theme.textTheme.bodySmall,
+                ),
+                children: [
+                  TextFormField(
+                    controller: _receiverNameController,
+                    decoration: const InputDecoration(
+                      labelText: 'اسم المستلم',
+                      border: OutlineInputBorder(),
                     ),
                   ),
-                ),
-              ],
+                  const SizedBox(height: AppSpace.md),
+                  TextFormField(
+                    controller: _notesController,
+                    decoration: const InputDecoration(
+                      labelText: 'ملاحظات داخلية (لا تُطبع)',
+                      border: OutlineInputBorder(),
+                    ),
+                    maxLines: 3,
+                  ),
+                  const SizedBox(height: AppSpace.md),
+                  Wrap(
+                    spacing: AppSpace.sm,
+                    runSpacing: AppSpace.sm,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
+                      OutlinedButton.icon(
+                        icon: const Icon(Icons.attach_file),
+                        label: const Text('إرفاق مستند'),
+                        onPressed: _pickFiles,
+                      ),
+                      for (final f in _attachedFileNames)
+                        Chip(
+                          label: Text(f),
+                          onDeleted: () =>
+                              setState(() => _attachedFileNames.remove(f)),
+                        ),
+                    ],
+                  ),
+                ],
+              ),
             ),
           ],
         ),
@@ -3194,56 +2668,84 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
     );
   }
 
-  Widget _buildNotesCard() {
-    final hasNotes = _notesController.text.isNotEmpty;
-
-    return Card(
-      elevation: 2,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: _tone.gold.container.withValues(alpha: 0.4)),
+  /// What is between us and the chosen customer or supplier, as the ledger
+  /// says it (debit less credit): «لنا عنده» or «علينا له», cash and each karat.
+  Widget _buildPartyBalance() {
+    final party = switch (_partyType) {
+      'customer' => _findById(_customers, _selectedCustomerId),
+      'supplier' => _findById(_suppliers, _selectedSupplierId),
+      _ => null,
+    };
+    if (party == null || !party.containsKey('balance_cash')) {
+      return const SizedBox.shrink();
+    }
+    double read(String key) => (party[key] as num?)?.toDouble() ?? 0.0;
+    String side(double v) => v > 0 ? 'لنا عنده' : 'علينا له';
+    final cash = read('balance_cash');
+    final said = [
+      if (cash.abs() >= 0.005) '${side(cash)} ${_formatCash(cash.abs())}',
+      for (final k in const [24, 22, 21, 18])
+        if (read('balance_gold_${k}k').abs() >= 0.0005)
+          '${side(read('balance_gold_${k}k'))} '
+              '${ltrIsolate(formatGrams(read('balance_gold_${k}k').abs()))} جم عيار $k',
+    ];
+    final theme = Theme.of(context);
+    return Container(
+      key: const Key('voucher-party-balance'),
+      width: double.infinity,
+      margin: const EdgeInsets.only(top: AppSpace.md),
+      padding: const EdgeInsets.all(AppSpace.md),
+      decoration: BoxDecoration(
+        color: _tone.gold.container.withValues(alpha: 0.25),
+        borderRadius: BorderRadius.circular(AppRadius.control),
       ),
-      child: Theme(
-        data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
-        child: ExpansionTile(
-          tilePadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 20),
-          maintainState: true,
-          initiallyExpanded: hasNotes,
-          leading: Icon(Icons.note_alt_outlined, color: _cs.primary),
-          title: Text(
-            'ملاحظات (اختياري)',
-            style: TextStyle(
-              fontWeight: FontWeight.bold,
-              color: Theme.of(context).textTheme.titleLarge?.color,
-            ),
-          ),
-          subtitle: Padding(
-            padding: const EdgeInsets.only(top: 4),
-            child: Text(
-              hasNotes
-                  ? 'تمت إضافة ملاحظات للسند'
-                  : 'احفظ تفاصيل داخلية بدون إظهارها في الطباعة',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: Theme.of(context).textTheme.bodySmall?.color,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('الرصيد بيننا', style: theme.textTheme.labelMedium),
+          const SizedBox(height: AppSpace.xs),
+          if (said.isEmpty)
+            Text('لا رصيد بيننا', style: theme.textTheme.bodyMedium)
+          else
+            for (final line in said)
+              Text(
+                line,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  fontWeight: FontWeight.w700,
+                  fontFeatures: const [FontFeature.tabularFigures()],
+                ),
               ),
-            ),
-          ),
-          iconColor: _cs.primary,
-          collapsedIconColor: _cs.primary,
-          children: [
-            TextFormField(
-              controller: _notesController,
-              decoration: const InputDecoration(
-                hintText: 'أضف تفاصيل إضافية أو ملاحظات داخلية',
-                border: OutlineInputBorder(),
-              ),
-              maxLines: 3,
-            ),
-          ],
-        ),
+        ],
       ),
     );
+  }
+
+  /// The voucher in one sentence: «تصرف 500.00 ر.س من الصندوق إلى مورد
+  /// الذهب». None until something is typed.
+  String? get _summarySentence {
+    final amounts = [
+      if (_totalCash > 0) _formatCash(_totalCash),
+      for (final e in _totalGoldByKarat.entries)
+        if (e.value > 0)
+          '${ltrIsolate(formatGrams(e.value))} جم عيار ${e.key.toInt()}',
+    ];
+    if (amounts.isEmpty) return null;
+    final places = <String>{
+      for (final line in _accountLines)
+        if (line.accountId != null) _lineAccountLabel(line),
+    };
+    final partyChosen = switch (_partyType) {
+      'customer' => _selectedCustomerId != null,
+      'supplier' => _selectedSupplierId != null,
+      'employee' => _selectedEmployeeId != null,
+      _ => _selectedOtherAccountId != null,
+    };
+    final isReceipt = widget.voucherType == 'receipt';
+    return [
+      '${isReceipt ? 'تقبض' : 'تصرف'} ${amounts.join(' و')}',
+      if (places.isNotEmpty) '${isReceipt ? 'في' : 'من'} ${places.join('، ')}',
+      if (partyChosen) '${isReceipt ? 'من' : 'إلى'} $_partyLabel',
+    ].join(' ');
   }
 
   Widget _buildSaveSection(Color accentColor) {
@@ -3283,31 +2785,68 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
         top: false,
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 10),
-          child: Row(
-            children: [
-              Icon(
-                ready ? Icons.check_circle : Icons.error_outline,
-                color: tone.fg,
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  _inReview
-                      ? 'مراجعة السند…'
-                      : _isSaving
-                      ? 'جارٍ الحفظ…'
-                      : ready
-                      ? 'جاهز للحفظ'
-                      : 'غير جاهز للحفظ — $blocker',
-                  style: theme.textTheme.bodyLarge?.copyWith(
+          // A phone stacks the sentence over a save as wide as the screen:
+          // beside it, the sentence was squeezed a word to a line.
+          child: LayoutBuilder(
+            builder: (context, box) {
+              final said = Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(
+                    ready ? Icons.check_circle : Icons.error_outline,
                     color: tone.fg,
-                    fontWeight: FontWeight.w700,
                   ),
-                ),
-              ),
-              const SizedBox(width: 16),
-              _buildSaveButton(accentColor, enabled: ready),
-            ],
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        if (_summarySentence case final sentence?)
+                          Text(
+                            sentence,
+                            key: const Key('voucher-summary'),
+                            style: theme.textTheme.titleMedium?.copyWith(
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        Text(
+                          _inReview
+                              ? 'مراجعة السند…'
+                              : _isSaving
+                              ? 'جارٍ الحفظ…'
+                              : ready
+                              ? 'جاهز للحفظ'
+                              : 'غير جاهز للحفظ — $blocker',
+                          style: theme.textTheme.bodyLarge?.copyWith(
+                            color: tone.fg,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              );
+              if (box.maxWidth < 600) {
+                return Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    said,
+                    const SizedBox(height: AppSpace.sm),
+                    _buildSaveButton(accentColor, enabled: ready),
+                  ],
+                );
+              }
+              return Row(
+                children: [
+                  Expanded(child: said),
+                  const SizedBox(width: 16),
+                  _buildSaveButton(accentColor, enabled: ready),
+                ],
+              );
+            },
           ),
         ),
       ),
@@ -3369,202 +2908,84 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
           ),
         ),
       ),
-      child: Row(
+      // One wrap, the label first: every template in sight at any width.
+      child: Wrap(
+        spacing: 0,
+        runSpacing: AppSpace.sm,
+        crossAxisAlignment: WrapCrossAlignment.center,
         children: [
-          Icon(Icons.flash_on, color: _cs.primary, size: 20),
-          const SizedBox(width: 8),
-          Text(
-            'سريع:',
-            style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-              fontWeight: FontWeight.bold,
-              color: _tone.gold.fg,
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(
-                children: templates.map((template) {
-                  final bool isSelected = template['id'] == _selectedTemplateId;
-                  return Padding(
-                    padding: const EdgeInsets.only(right: 8),
-                    child: Material(
-                      color: Colors.transparent,
-                      child: InkWell(
-                        onTap: () => _applyTemplate(template['id'] as String),
-                        borderRadius: BorderRadius.circular(20),
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 16,
-                            vertical: 8,
-                          ),
-                          decoration: BoxDecoration(
-                            color: isSelected
-                                ? accentColor
-                                : _cs.surfaceContainerLowest,
-                            borderRadius: BorderRadius.circular(20),
-                            border: Border.all(
-                              color: isSelected
-                                  ? accentColor
-                                  : _tone.gold.container.withValues(alpha: 0.5),
-                              width: 1.5,
-                            ),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(
-                                template['icon'] as IconData,
-                                color: isSelected
-                                    ? _cs.surfaceContainerLowest
-                                    : _cs.primary,
-                                size: 18,
-                              ),
-                              const SizedBox(width: 6),
-                              Text(
-                                template['title'] as String,
-                                style: Theme.of(context).textTheme.bodyMedium
-                                    ?.copyWith(
-                                      fontWeight: FontWeight.w600,
-                                      color: isSelected
-                                          ? _cs.surfaceContainerLowest
-                                          : _tone.gold.fg,
-                                    ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                  );
-                }).toList(),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildPartyInfoCard() {
-    String title;
-    String name = '---';
-    String? phone;
-    String? idNumber;
-
-    Map<String, dynamic>? selected;
-
-    switch (_partyType) {
-      case 'customer':
-        selected = _findById(_customers, _selectedCustomerId);
-        title = 'العميل المختار';
-        if (selected != null) {
-          name = selected['name']?.toString() ?? name;
-          phone =
-              selected['mobile']?.toString() ?? selected['phone']?.toString();
-          idNumber = selected['id_number']?.toString();
-        }
-        break;
-      case 'supplier':
-        selected = _findById(_suppliers, _selectedSupplierId);
-        title = 'المورد المختار';
-        if (selected != null) {
-          name = selected['name']?.toString() ?? name;
-          phone = selected['phone']?.toString();
-          idNumber =
-              selected['tax_number']?.toString() ??
-              selected['id_number']?.toString();
-        }
-        break;
-      case 'employee':
-        final employee = _findEmployeeById(_selectedEmployeeId);
-        if (employee == null) {
-          return const SizedBox.shrink();
-        }
-        title = 'الموظف المختار';
-        name = employee.name;
-        phone = employee.phone;
-        idNumber = employee.nationalId;
-        break;
-      case 'other':
-        selected = _findById(_accounts, _selectedOtherAccountId);
-        title = 'الحساب المختار';
-        if (selected != null) {
-          name = selected['name']?.toString() ?? name;
-          phone =
-              selected['mobile']?.toString() ?? selected['phone']?.toString();
-          idNumber = selected['id_number']?.toString();
-        }
-        break;
-      default:
-        return const SizedBox.shrink();
-    }
-
-    if (_partyType != 'employee' && selected == null) {
-      return const SizedBox.shrink();
-    }
-
-    return Card(
-      elevation: 2,
-      margin: const EdgeInsets.only(top: 12),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: _tone.gold.container.withValues(alpha: 0.4)),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
+          Padding(
+            padding: const EdgeInsetsDirectional.only(end: AppSpace.md),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(Icons.info_outline, color: _cs.primary),
+                Icon(Icons.flash_on, color: _cs.primary, size: 20),
                 const SizedBox(width: 8),
                 Text(
-                  title,
-                  style: TextStyle(
+                  'سريع:',
+                  style: Theme.of(context).textTheme.bodyLarge?.copyWith(
                     fontWeight: FontWeight.bold,
                     color: _tone.gold.fg,
                   ),
                 ),
               ],
             ),
-            const SizedBox(height: 8),
-            Text(
-              name,
-              style: Theme.of(
-                context,
-              ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w600),
-            ),
-            if (phone != null && phone.isNotEmpty) ...[
-              const SizedBox(height: 4),
-              Row(
-                children: [
-                  const Icon(Icons.phone_outlined, size: 16),
-                  const SizedBox(width: 6),
-                  Text(
-                    phone,
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(),
+          ),
+          ...templates.map((template) {
+            final bool isSelected = template['id'] == _selectedTemplateId;
+            return Padding(
+              padding: const EdgeInsets.only(right: 8),
+              child: Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  onTap: () => _applyTemplate(template['id'] as String),
+                  borderRadius: BorderRadius.circular(20),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 8,
+                    ),
+                    decoration: BoxDecoration(
+                      color: isSelected
+                          ? accentColor
+                          : _cs.surfaceContainerLowest,
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(
+                        color: isSelected
+                            ? accentColor
+                            : _tone.gold.container.withValues(alpha: 0.5),
+                        width: 1.5,
+                      ),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          template['icon'] as IconData,
+                          color: isSelected
+                              ? _cs.surfaceContainerLowest
+                              : _cs.primary,
+                          size: 18,
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          template['title'] as String,
+                          style: Theme.of(context).textTheme.bodyMedium
+                              ?.copyWith(
+                                fontWeight: FontWeight.w600,
+                                color: isSelected
+                                    ? _cs.surfaceContainerLowest
+                                    : _tone.gold.fg,
+                              ),
+                        ),
+                      ],
+                    ),
                   ),
-                ],
+                ),
               ),
-            ],
-            if (idNumber != null && idNumber.isNotEmpty) ...[
-              const SizedBox(height: 4),
-              Row(
-                children: [
-                  const Icon(Icons.credit_card_outlined, size: 16),
-                  const SizedBox(width: 6),
-                  Text(
-                    idNumber,
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(),
-                  ),
-                ],
-              ),
-            ],
-          ],
-        ),
+            );
+          }),
+        ],
       ),
     );
   }
@@ -4168,6 +3589,63 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
     }
   }
 
+  /// A line made cash or gold: its safe follows when the one it has holds
+  /// the other kind.
+  void _setLineKind(AccountLineModel line, String value) {
+    setState(() {
+      final oldAmountType = line.amountType;
+      line.amountType = value;
+
+      if (value == 'gold') {
+        line.ensureGoldEntries(_mainKarat.toDouble());
+        _syncGoldSummary(line);
+      } else {
+        line.goldEntries.clear();
+        line.karat = null;
+      }
+
+      // If the selected account is a safe-backed account and it no
+      // longer matches the selected amount type, switch to a
+      // suitable default safe (or clear).
+      final existingSafe = _findSafeByAccountId(line.accountId);
+      if (existingSafe != null) {
+        final matches = _safeMatchesAmountType(existingSafe, value);
+        if (!matches) {
+          final def = _defaultSafeForAmountType(
+            lineType: line.lineType,
+            amountType: value,
+          );
+          _autoFill(line, def?.accountId);
+        }
+      } else if (oldAmountType != value &&
+          _shouldShowSafeBoxesForLineType(line.lineType)) {
+        // If this line is expected to point to a safe account,
+        // auto-select a default when switching types.
+        final def = _defaultSafeForAmountType(
+          lineType: line.lineType,
+          amountType: value,
+        );
+        if (def != null) _autoFill(line, def.accountId);
+      }
+
+      // If a gold safe is selected with fixed karat, sync line karat.
+      if (value == 'gold') {
+        final safe = _findSafeByAccountId(line.accountId);
+        final fixed = safe?.karat;
+        if (safe != null &&
+            safe.safeType == 'gold' &&
+            fixed != null &&
+            fixed > 0) {
+          line.ensureGoldEntries(_mainKarat.toDouble());
+          if (line.goldEntries.length == 1) {
+            line.goldEntries.first.karat = fixed.toDouble();
+          }
+          _syncGoldSummary(line);
+        }
+      }
+    });
+  }
+
   Widget _buildAccountLineCard(int index) {
     final line = _accountLines[index];
 
@@ -4204,35 +3682,59 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Header with line number and delete button
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 6,
-                  ),
-                  decoration: BoxDecoration(
-                    color: _tone.gold.container.withValues(alpha: 0.4),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Text(
-                    'السطر ${index + 1}',
-                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                      fontWeight: FontWeight.bold,
-                      color: _tone.gold.fg,
+            // The line's number and its removal, when there is more than one.
+            if (_accountLines.length > 1) ...[
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 6,
+                    ),
+                    decoration: BoxDecoration(
+                      color: _tone.gold.container.withValues(alpha: 0.4),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(
+                      'السطر ${index + 1}',
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.bold,
+                        color: _tone.gold.fg,
+                      ),
                     ),
                   ),
+                  if (_accountLines.length > 1)
+                    IconButton(
+                      icon: Icon(Icons.delete_outline, color: _tone.blocked.fg),
+                      onPressed: () => _removeLine(index),
+                    ),
+                ],
+              ),
+              const Divider(height: 24),
+            ],
+            // Cash or gold first: it decides which safes are offered.
+            SegmentedButton<String>(
+              key: Key('voucher-line-kind-$index'),
+              segments: [
+                ButtonSegment(
+                  value: 'cash',
+                  label: const Text('نقد'),
+                  icon: const Icon(Icons.payments_outlined),
+                  enabled: _lockedAmountTypeForCurrentParty != 'gold',
                 ),
-                if (_accountLines.length > 1)
-                  IconButton(
-                    icon: Icon(Icons.delete_outline, color: _tone.blocked.fg),
-                    onPressed: () => _removeLine(index),
-                  ),
+                ButtonSegment(
+                  value: 'gold',
+                  label: const Text('ذهب'),
+                  icon: const Icon(Icons.diamond_outlined),
+                  enabled: _lockedAmountTypeForCurrentParty != 'cash',
+                ),
               ],
+              selected: {line.amountType},
+              showSelectedIcon: false,
+              onSelectionChanged: (v) => _setLineKind(line, v.first),
             ),
-            const Divider(height: 24),
+            const SizedBox(height: 12),
             AccountPickerFormField(
               context: context,
               key: ValueKey(
@@ -4275,148 +3777,6 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
                   _ensureSafeLedgerBalanceLoaded(safe);
                 }
               },
-            ),
-            const SizedBox(height: 12),
-
-            Builder(
-              builder: (context) {
-                final safe = _findSafeByAccountId(line.accountId);
-                if (safe == null) return const SizedBox.shrink();
-                if (safe.id == null) return const SizedBox.shrink();
-                if (!(safe.safeType == 'cash' ||
-                    safe.safeType == 'bank' ||
-                    safe.safeType == 'clearing')) {
-                  return const SizedBox.shrink();
-                }
-
-                final safeId = safe.id!;
-                final isLoadingFallback = _safeLedgerCashBalanceLoading
-                    .contains(safeId);
-                final bal = _getAvailableSafeCash(safe);
-                final amount = _parseLineAmount(line.amount);
-
-                final isOutflowFromSafe =
-                    widget.voucherType == 'payment' &&
-                    line.lineType == 'credit' &&
-                    line.amountType == 'cash';
-                final insufficient =
-                    isOutflowFromSafe && bal != null && amount > bal + 0.01;
-
-                return Padding(
-                  padding: const EdgeInsets.only(bottom: 12),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      context.read<SettingsProvider>().buildText(
-                        bal != null
-                            ? 'الرصيد الفعلي الحالي: ${formatAmount(bal)} $_currencySymbol'
-                            : (isLoadingFallback
-                                  ? 'جاري تحميل الرصيد الاحتياطي للخزنة...'
-                                  : 'الرصيد الفعلي غير متاح'),
-                        style: TextStyle(
-                          color: insufficient
-                              ? _tone.blocked.fg
-                              : _cs.onSurfaceVariant,
-                          fontWeight: insufficient
-                              ? FontWeight.w600
-                              : FontWeight.normal,
-                        ),
-                      ),
-                      if (insufficient)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 4),
-                          child: Text(
-                            'تنبيه: الرصيد لا يغطي مبلغ الصرف',
-                            style: TextStyle(
-                              color: _tone.blocked.fg,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ),
-                    ],
-                  ),
-                );
-              },
-            ),
-
-            // Amount type (Cash/Gold)
-            RadioGroup<String>(
-              groupValue: line.amountType,
-              onChanged: (value) {
-                if (value == null) {
-                  return;
-                }
-                setState(() {
-                  final oldAmountType = line.amountType;
-                  line.amountType = value;
-
-                  if (value == 'gold') {
-                    line.ensureGoldEntries(_mainKarat.toDouble());
-                    _syncGoldSummary(line);
-                  } else {
-                    line.goldEntries.clear();
-                    line.karat = null;
-                  }
-
-                  // If the selected account is a safe-backed account and it no
-                  // longer matches the selected amount type, switch to a
-                  // suitable default safe (or clear).
-                  final existingSafe = _findSafeByAccountId(line.accountId);
-                  if (existingSafe != null) {
-                    final matches = _safeMatchesAmountType(existingSafe, value);
-                    if (!matches) {
-                      final def = _defaultSafeForAmountType(
-                        lineType: line.lineType,
-                        amountType: value,
-                      );
-                      _autoFill(line, def?.accountId);
-                    }
-                  } else if (oldAmountType != value &&
-                      _shouldShowSafeBoxesForLineType(line.lineType)) {
-                    // If this line is expected to point to a safe account,
-                    // auto-select a default when switching types.
-                    final def = _defaultSafeForAmountType(
-                      lineType: line.lineType,
-                      amountType: value,
-                    );
-                    if (def != null) _autoFill(line, def.accountId);
-                  }
-
-                  // If a gold safe is selected with fixed karat, sync line karat.
-                  if (value == 'gold') {
-                    final safe = _findSafeByAccountId(line.accountId);
-                    final fixed = safe?.karat;
-                    if (safe != null &&
-                        safe.safeType == 'gold' &&
-                        fixed != null &&
-                        fixed > 0) {
-                      line.ensureGoldEntries(_mainKarat.toDouble());
-                      if (line.goldEntries.length == 1) {
-                        line.goldEntries.first.karat = fixed.toDouble();
-                      }
-                      _syncGoldSummary(line);
-                    }
-                  }
-                });
-              },
-              child: Row(
-                children: [
-                  Expanded(
-                    child: RadioListTile<String>(
-                      title: const Text('نقد'),
-                      value: 'cash',
-                      enabled: _lockedAmountTypeForCurrentParty != 'gold',
-                    ),
-                  ),
-                  Expanded(
-                    child: RadioListTile<String>(
-                      title: const Text('ذهب'),
-                      value: 'gold',
-                      enabled: _lockedAmountTypeForCurrentParty != 'cash',
-                    ),
-                  ),
-                ],
-              ),
             ),
             const SizedBox(height: 12),
 
@@ -4489,24 +3849,26 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
                             ),
                             child: Column(
                               children: [
-                                Row(
-                                  children: [
-                                    Icon(
-                                      Icons.diamond_outlined,
-                                      size: 16,
-                                      color: _tone.gold.fg,
-                                    ),
-                                    const SizedBox(width: 6),
-                                    Text(
-                                      'حقل ذهب ${entryIndex + 1} - عيار $karatLabel',
-                                      style: TextStyle(
-                                        fontWeight: FontWeight.w700,
+                                if (entries.length > 1) ...[
+                                  Row(
+                                    children: [
+                                      Icon(
+                                        Icons.diamond_outlined,
+                                        size: 16,
                                         color: _tone.gold.fg,
                                       ),
-                                    ),
-                                  ],
-                                ),
-                                const SizedBox(height: 8),
+                                      const SizedBox(width: 6),
+                                      Text(
+                                        'الوزن ${entryIndex + 1} — عيار $karatLabel',
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.w700,
+                                          color: _tone.gold.fg,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 8),
+                                ],
                                 Row(
                                   children: [
                                     Expanded(
@@ -4665,21 +4027,61 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
                   );
                 },
               ),
-            const SizedBox(height: 12),
+            // What the safe does not cover, under the amount: above the kind
+            // its balance pushed the choice down under the hand.
+            Builder(
+              builder: (context) {
+                final safe = _findSafeByAccountId(line.accountId);
+                if (safe == null) return const SizedBox.shrink();
+                if (safe.id == null) return const SizedBox.shrink();
+                if (!(safe.safeType == 'cash' ||
+                    safe.safeType == 'bank' ||
+                    safe.safeType == 'clearing')) {
+                  return const SizedBox.shrink();
+                }
 
-            // Description (optional)
-            TextFormField(
-              initialValue: line.description,
-              decoration: const InputDecoration(
-                labelText: 'البيان (اختياري)',
-                border: OutlineInputBorder(),
-              ),
-              onChanged: (value) {
-                setState(() {
-                  line.description = value;
-                });
+                final bal = _getAvailableSafeCash(safe);
+                final amount = _parseLineAmount(line.amount);
+
+                final isOutflowFromSafe =
+                    widget.voucherType == 'payment' &&
+                    line.lineType == 'credit' &&
+                    line.amountType == 'cash';
+                final insufficient =
+                    isOutflowFromSafe && bal != null && amount > bal + 0.01;
+
+                // The balance is said once, in the safe's banner below; here
+                // only what it does not cover.
+                if (!insufficient) return const SizedBox.shrink();
+                return Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Text(
+                    'الرصيد لا يغطي مبلغ الصرف',
+                    style: TextStyle(
+                      color: _tone.blocked.fg,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                );
               },
             ),
+            const SizedBox(height: 12),
+
+            // A line's own statement, when the voucher has more than one line;
+            // one line is said by the voucher's statement.
+            if (_accountLines.length > 1)
+              TextFormField(
+                initialValue: line.description,
+                decoration: const InputDecoration(
+                  labelText: 'البيان (اختياري)',
+                  border: OutlineInputBorder(),
+                ),
+                onChanged: (value) {
+                  setState(() {
+                    line.description = value;
+                  });
+                },
+              ),
             _buildSafeBalanceInfo(line),
           ],
         ),
@@ -4690,19 +4092,17 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
   @override
   Widget build(BuildContext context) {
     final size = MediaQuery.of(context).size;
-    final isWideLayout = size.width >= 1100;
+    final isWideLayout = size.width >= 900;
     final isReceipt = widget.voucherType == 'receipt';
     final Color accentColor = _tone
         .voucher(isReceipt ? VoucherKind.receipt : VoucherKind.payment)
         .fg;
     final String title = isReceipt ? 'سند قبض' : 'سند صرف';
-    final IconData icon = isReceipt ? Icons.south : Icons.north;
 
+    // Who, and for which invoices; then what is paid, from where; then what
+    // is written about it (the voucher screen review, release 2).
     final List<Widget> leftColumn = [
-      // المساعد السريع في أعلى العمود الأيسر
       _buildTemplateSelector(),
-      const SizedBox(height: 12),
-      _buildStatusBoard(),
       const SizedBox(height: 12),
       KeyedSubtree(
         key: _partyCardKey,
@@ -4711,25 +4111,11 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
           child: _buildPartySelectorCard(),
         ),
       ),
+      if (_showInvoicePicker) ...[
+        const SizedBox(height: 12),
+        _buildInvoicePicker(),
+      ],
     ];
-
-    final partyInfo = _buildPartyInfoCard();
-    if (partyInfo is! SizedBox) {
-      leftColumn
-        ..add(const SizedBox(height: 10))
-        ..add(partyInfo);
-    }
-
-    leftColumn.addAll([
-      const SizedBox(height: 12),
-      _buildDescriptionCard(),
-      const SizedBox(height: 12),
-      _buildReceiverCard(),
-      const SizedBox(height: 12),
-      _buildAttachmentsCard(),
-    ]);
-
-    // تم نقل المساعد السريع إلى أعلى الشاشة
 
     final accountLineCards = _accountLines
         .asMap()
@@ -4738,18 +4124,11 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
         .toList();
 
     final List<Widget> rightColumn = [
-      // Which invoice this payment pays -- where the payment is composed, before
-      // its lines, not in the other column after them (2 Oct 2026).
-      if (_showInvoicePicker) ...[
-        _buildInvoicePicker(),
-        const SizedBox(height: 12),
-      ],
       _buildAccountLinesHeader(),
       const SizedBox(height: 12),
       ...accountLineCards,
-      if (accountLineCards.isNotEmpty) const SizedBox(height: 12),
       Align(
-        alignment: Alignment.centerLeft,
+        alignment: AlignmentDirectional.centerStart,
         child: FilledButton.icon(
           icon: const Icon(Icons.add_circle_outline),
           label: const Text('إضافة سطر'),
@@ -4758,10 +4137,7 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
         ),
       ),
       const SizedBox(height: 12),
-      _buildTotalsCard(),
-      const SizedBox(height: 16),
-      _buildNotesCard(),
-      const SizedBox(height: 20),
+      _buildDetailsCard(),
       _buildSaveSection(accentColor),
     ];
 
@@ -4864,23 +4240,7 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
                         horizontal: 24,
                         vertical: 20,
                       ),
-                      child: Form(
-                        key: _formKey,
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            _buildHeroHeader(
-                              context,
-                              isReceipt,
-                              accentColor,
-                              icon,
-                              title,
-                            ),
-                            const SizedBox(height: 24),
-                            layoutContent,
-                          ],
-                        ),
-                      ),
+                      child: Form(key: _formKey, child: layoutContent),
                     ),
                   ),
           ),
