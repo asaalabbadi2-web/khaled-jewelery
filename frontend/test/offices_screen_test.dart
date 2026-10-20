@@ -20,6 +20,16 @@ import 'package:shared_preferences/shared_preferences.dart';
 /// card; an executed one was struck through as if cancelled, with no way back.
 class _FakeApi extends ApiService {
   final unsettled = <int>[];
+  final stopped = <int>[];
+
+  /// What the server says to stopping an office; none stops it.
+  String? stopRefusal;
+
+  @override
+  Future<void> deleteOffice(int id) async {
+    if (stopRefusal != null) throw Exception(stopRefusal);
+    stopped.add(id);
+  }
 
   @override
   Future<List<dynamic>> getOffices({bool? activeOnly}) async => [
@@ -32,7 +42,8 @@ class _FakeApi extends ApiService {
       'balance_gold_18k': 0.0,
       'balance_gold_21k': 0.0,
       'balance_gold_22k': 0.0,
-      'balance_gold_24k': 0.0,
+      // Two grams of 24 owed to it: 2.286 of 21.
+      'balance_gold_24k': -2.0,
       'open_reservations': {'count': 1, 'grams': 5.0, 'amount': 2186.15},
       'deposit': {
         'safe_box_id': 60,
@@ -82,7 +93,7 @@ class _FakeApi extends ApiService {
   }
 }
 
-Future<_FakeApi> _open(WidgetTester tester) async {
+Future<_FakeApi> _open(WidgetTester tester, {Size size = const Size(1440, 1600)}) async {
   final cairo = FontLoader('Cairo');
   for (final w in ['Regular', 'SemiBold', 'Bold']) {
     cairo.addFont(rootBundle.load('assets/fonts/Cairo-$w.ttf'));
@@ -92,7 +103,7 @@ Future<_FakeApi> _open(WidgetTester tester) async {
     'jwt_token': 'token',
     'app_settings': jsonEncode({'main_karat': 21}),
   });
-  tester.view.physicalSize = const Size(1440, 1600);
+  tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
   final settings = SettingsProvider();
@@ -159,5 +170,55 @@ void main() {
     expect(find.textContaining('منفَّذ'), findsWidgets);
     expect(find.textContaining('غير معروف'), findsNothing);
     expect(find.textContaining('4,000.00'), findsWidgets, reason: 'amounts read with separators');
+  });
+
+  group('the offices list, release 1 (the owner, 20 Oct 2026)', () {
+    testWidgets('on a phone the next step stays in sight', (tester) async {
+      await _open(tester, size: const Size(390, 900));
+      expect(tester.takeException(), isNull);
+      expect(find.byKey(const Key('office-new-reservation-5')).hitTestable(), findsOneWidget);
+      expect(find.byKey(const Key('office-reservations-5')).hitTestable(), findsOneWidget);
+    });
+
+    testWidgets('the old balance dialog is gone: the office page says it all', (
+      tester,
+    ) async {
+      await _open(tester);
+      expect(find.text('الرصيد'), findsNothing);
+    });
+
+    testWidgets('stopping an office asks first, and says why the server refuses', (
+      tester,
+    ) async {
+      final api = await _open(tester);
+      api.stopRefusal = 'لا يُعطَّل «مكتب الراقي»: في وديعته ذهب لنا — سوِّها أولًا';
+      await tester.tap(find.byKey(const Key('office-more-5')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('تعطيل').last);
+      await tester.pumpAndSettle();
+      expect(find.textContaining('تعطيل «مكتب الراقي»؟'), findsOneWidget);
+      await tester.tap(find.byKey(const Key('office-stop-confirm')));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('في وديعته ذهب لنا'), findsOneWidget);
+      expect(api.stopped, isEmpty);
+    });
+
+    testWidgets('its gold is said in the cash\'s words, in the settings\' karat', (
+      tester,
+    ) async {
+      await _open(tester);
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('office-gold-5')),
+          matching: find.byWidgetPredicate(
+            (w) =>
+                w is Text &&
+                (w.data ?? '').replaceAll(RegExp('[\\u2066-\\u2069]'), '') ==
+                    'مستحق للمكتب 2.286 جم بالعيار 21',
+          ),
+        ),
+        findsOneWidget,
+      );
+    });
   });
 }

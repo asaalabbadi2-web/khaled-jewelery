@@ -8,7 +8,6 @@
   "lib/screens/home_screen_enhanced.dart": 1,
   "lib/screens/journal_entries_list_screen.dart": 1,
   "lib/screens/journal_entry_form.dart": 1,
-  "lib/screens/offices_screen.dart": 2,
   "lib/screens/purchase_invoice_screen.dart": 1,
   "lib/screens/reports/admin_dashboard_screen.dart": 2,
   "lib/screens/reports/sales_by_customer_report_screen.dart": 1,

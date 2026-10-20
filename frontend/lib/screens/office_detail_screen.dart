@@ -43,6 +43,10 @@ enum _Segment { open, executed, cancelled }
 
 class _OfficeDetailScreenState extends State<OfficeDetailScreen> {
   late Map<String, dynamic> _office = widget.office;
+
+  /// The average price its reservations were closed at -- the old balance
+  /// dialog's, moved here (the owner, 20 Oct 2026). None when not to hand.
+  double? _avgClosingCost;
   List<Map<String, dynamic>>? _reservations;
   Object? _error;
   _Segment _segment = _Segment.open;
@@ -98,6 +102,14 @@ class _OfficeDetailScreenState extends State<OfficeDetailScreen> {
     } catch (e) {
       if (mounted) setState(() => _error = e);
     }
+    try {
+      final balance = await widget.api.getOfficeBalance(_officeId!);
+      final kpis = balance['kpis'] is Map ? balance['kpis'] as Map : const {};
+      final avg = _asDouble(kpis['avg_closing_price_per_gram']);
+      if (mounted) setState(() => _avgClosingCost = avg > 0 ? avg : null);
+    } catch (_) {
+      // The average is a help, not the page: without it the page stands.
+    }
   }
 
   // ── what a reservation is ──
@@ -116,6 +128,12 @@ class _OfficeDetailScreenState extends State<OfficeDetailScreen> {
     _Segment.executed => _isAr ? 'منفَّذة' : 'Executed',
     _Segment.cancelled => _isAr ? 'ملغاة' : 'Cancelled',
   };
+
+  /// What its reservations not executed nor cancelled hold, as the offices
+  /// list counts them.
+  double get _openGrams => _office['open_reservations'] is Map
+      ? _asDouble((_office['open_reservations'] as Map)['grams'])
+      : 0.0;
 
   String _grams(double v) => '${ltrIsolate(formatGrams(v))} ${_isAr ? 'جم' : 'g'}';
   String _amount(double v) => '${ltrIsolate(formatAmount(v))} $_currency';
@@ -389,8 +407,24 @@ class _OfficeDetailScreenState extends State<OfficeDetailScreen> {
       if (trade.abs() >= 0.0005)
         _tile(
           const Key('office-page-trade'),
-          _isAr ? 'ذهب الحساب التجاري' : 'Trade gold',
-          _grams(trade),
+          _isAr ? 'الحساب الذهبي' : 'Gold account',
+          // The cash's words: below zero owed to it, above ours with it.
+          '${trade < 0 ? (_isAr ? 'مستحق للمكتب' : 'Owed') : (_isAr ? 'لنا عند المكتب' : 'Ours')} '
+              '${ltrIsolate(formatGrams(trade.abs()))} ${_isAr ? 'جم بالعيار $main' : 'g of ${main}k'}',
+          _tones.info,
+        ),
+      if (_openGrams > 0)
+        _tile(
+          const Key('office-page-open'),
+          _isAr ? 'في الحجوزات المفتوحة' : 'In open reservations',
+          _grams(_openGrams),
+          _tones.warning,
+        ),
+      if (_avgClosingCost != null)
+        _tile(
+          const Key('office-page-avg-cost'),
+          _isAr ? 'متوسط تكلفة التسكير' : 'Average closing cost',
+          '${_amount(_avgClosingCost!)}/${_isAr ? 'جم' : 'g'}',
           _tones.info,
         ),
     ];

@@ -626,6 +626,17 @@ def delete_office(office_id):
         if not office:
             return jsonify({'error': 'المكتب غير موجود'}), 404
         
+        # Stopped only when settled (the owner, 20 Oct 2026): no gold of ours
+        # there, no balance between us, no reservation waiting.
+        from services.office_standing import SAID, what_stands_between
+        reasons = what_stands_between(office)
+        if reasons:
+            return jsonify({
+                'error': 'office_not_settled',
+                'reasons': reasons,
+                'message': f"لا يُعطَّل «{office.name}»: {'، '.join(SAID[r] for r in reasons)} — سوِّها أولًا",
+            }), 409
+
         # Soft delete - تعطيل المكتب بدلاً من حذفه
         office.active = False
         db.session.commit()

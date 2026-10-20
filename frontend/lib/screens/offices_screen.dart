@@ -9,6 +9,7 @@ import 'gold_reservations_list_screen.dart';
 import 'office_detail_screen.dart';
 import '../utils/bidi.dart';
 import '../utils/currency_utils.dart';
+import '../utils/party_balance.dart';
 import '../widgets/app_feedback.dart';
 
 /// شاشة قائمة مكاتب التسكير (تسكير الذهب)
@@ -30,8 +31,6 @@ class _OfficesScreenState extends State<OfficesScreen> {
   String _searchQuery = '';
   final TextEditingController _searchController = TextEditingController();
 
-  int _mainKarat = 21;
-
   double _asDouble(dynamic v) {
     if (v == null) return 0.0;
     if (v is double) return v;
@@ -39,32 +38,18 @@ class _OfficesScreenState extends State<OfficesScreen> {
     return double.tryParse(v.toString()) ?? 0.0;
   }
 
-  String _formatSigned(
-    double amount, {
-    required bool isArabic,
-    required String unitAr,
-    required String unitEn,
-    int decimals = 2,
-  }) {
-    final absValue = amount.abs().toStringAsFixed(decimals);
-    final unit = isArabic ? unitAr : unitEn;
-
-    // Convention: positive = "عليه" (debit / receivable), negative = "له" (credit / payable)
-    final direction = isArabic
-        ? (amount < 0 ? 'له' : 'عليه')
-        : (amount < 0 ? 'Payable' : 'Receivable');
-
-    return '$direction $absValue $unit';
-  }
-
-  /// The office's riyals as on the safes' deposit card (ADR-052): below zero
-  /// owed to it, above ours with it.
-  String _officeCashText(double amount, String currency, bool isAr) {
-    final value = '${ltrIsolate(formatAmount(amount.abs()))} $currency';
-    if (amount < -0.005) return isAr ? 'مستحق للمكتب $value' : 'Owed $value';
-    if (amount > 0.005) return isAr ? 'لنا عند المكتب $value' : 'Ours $value';
+  /// What is between us and the office, as on the safes' deposit card
+  /// (ADR-052): below zero owed to it, above ours with it -- its riyals and
+  /// its gold in the same words.
+  String _sideText(double amount, String number, String unit, bool isAr, {double least = 0.005}) {
+    final value = '${ltrIsolate(number)} $unit';
+    if (amount < -least) return isAr ? 'مستحق للمكتب $value' : 'Owed $value';
+    if (amount > least) return isAr ? 'لنا عند المكتب $value' : 'Ours $value';
     return isAr ? 'مسوّى' : 'Settled';
   }
+
+  /// The main karat, the settings' -- never a fixed one (the owner, 20 Oct 2026).
+  int get _mainKarat => context.read<SettingsProvider>().mainKarat;
 
   Future<void> _newReservation(Map<String, dynamic> office) async {
     final officeId = office['id'] is int ? office['id'] as int : int.tryParse('${office['id']}');
@@ -99,49 +84,15 @@ class _OfficesScreenState extends State<OfficesScreen> {
     if (mounted) await _loadOffices();
   }
 
-  double _convertToMainKarat(double grams, int karat) {
-    if (grams == 0.0) return 0.0;
-    final mk = _mainKarat > 0 ? _mainKarat : 21;
-    return grams * (karat / mk);
-  }
-
-  double _goldMainEquivalentFromOffice(Map<String, dynamic> office) {
-    final b18 = _asDouble(office['balance_gold_18k']);
-    final b21 = _asDouble(office['balance_gold_21k']);
-    final b22 = _asDouble(office['balance_gold_22k']);
-    final b24 = _asDouble(office['balance_gold_24k']);
-
-    return _convertToMainKarat(b18, 18) +
-        _convertToMainKarat(b21, 21) +
-        _convertToMainKarat(b22, 22) +
-        _convertToMainKarat(b24, 24);
-  }
-
-  double _goldMainEquivalentFromGoldMap(Map<String, dynamic> gold) {
-    final b18 = _asDouble(gold['18k']);
-    final b21 = _asDouble(gold['21k']);
-    final b22 = _asDouble(gold['22k']);
-    final b24 = _asDouble(gold['24k']);
-
-    return _convertToMainKarat(b18, 18) +
-        _convertToMainKarat(b21, 21) +
-        _convertToMainKarat(b22, 22) +
-        _convertToMainKarat(b24, 24);
-  }
+  /// The office's gold on its supplier account, all karats in the main one.
+  double _goldMainEquivalentFromOffice(Map<String, dynamic> office) => goldInMainKarat({
+    for (final k in const [18, 21, 22, 24]) k: _asDouble(office['balance_gold_${k}k']),
+  }, _mainKarat);
 
   @override
   void initState() {
     super.initState();
     _loadOffices();
-  }
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    final mk = context.watch<SettingsProvider>().mainKarat;
-    if (mk > 0 && mk != _mainKarat) {
-      setState(() => _mainKarat = mk);
-    }
   }
 
   @override
@@ -156,14 +107,15 @@ class _OfficesScreenState extends State<OfficesScreen> {
       final offices = await widget.api.getOffices(
         activeOnly: _showActiveOnly ? true : null,
       );
+      if (!mounted) return;
       setState(() {
         _offices = offices;
         _applyFilters();
       });
     } catch (e) {
-      _showMessage('خطأ في تحميل المكاتب: $e', isError: true);
+      if (mounted) AppFeedback.error(context, e, title: 'تعذّر تحميل المكاتب');
     } finally {
-      setState(() => _isLoading = false);
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -227,9 +179,32 @@ class _OfficesScreenState extends State<OfficesScreen> {
     }
   }
 
+  /// Stopping asks first; the server stops only a settled office (the owner,
+  /// 20 Oct 2026) and says why it will not.
   Future<void> _toggleOfficeStatus(Map<String, dynamic> office) async {
+    final isActive = office['active'] ?? true;
+    if (isActive) {
+      final sure = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: Text('تعطيل «${office['name'] ?? ''}»؟'),
+          content: const Text(
+            'يُعطَّل المكتب إن لم يبقَ بيننا وبينه شيء: لا ذهب لنا في وديعته، '
+            'ولا رصيد نقدي أو ذهبي، ولا حجز لم يُنفَّذ.',
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('رجوع')),
+            FilledButton(
+              key: const Key('office-stop-confirm'),
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('تعطيل'),
+            ),
+          ],
+        ),
+      );
+      if (sure != true) return;
+    }
     try {
-      final isActive = office['active'] ?? true;
       if (isActive) {
         await widget.api.deleteOffice(office['id']);
         _showMessage('تم تعطيل المكتب', isError: false);
@@ -239,185 +214,8 @@ class _OfficesScreenState extends State<OfficesScreen> {
       }
       _loadOffices();
     } catch (e) {
-      _showMessage('خطأ في تغيير حالة المكتب: $e', isError: true);
+      if (mounted) AppFeedback.error(context, e, title: isActive ? 'لم يُعطَّل المكتب' : 'لم يُفعَّل المكتب');
     }
-  }
-
-  Future<void> _viewOfficeBalance(Map<String, dynamic> office) async {
-    try {
-      final balance = await widget.api.getOfficeBalance(office['id']);
-      _showBalanceDialog(balance);
-    } catch (e) {
-      _showMessage('خطأ في تحميل الرصيد: $e', isError: true);
-    }
-  }
-
-  void _showBalanceDialog(Map<String, dynamic> balance) {
-    final isAr = widget.isArabic;
-    final currencySymbol = context.read<SettingsProvider>().currencySymbolText;
-
-    final cashBalance = _asDouble(balance['balance_cash']);
-    final goldMap = (balance['balance_gold'] is Map)
-        ? Map<String, dynamic>.from(balance['balance_gold'])
-        : <String, dynamic>{};
-    final goldTotalMain = _goldMainEquivalentFromGoldMap(goldMap);
-
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text(isAr ? 'رصيد المكتب' : 'Office Balance'),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                balance['office_name'] ?? '',
-                style: const TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 18,
-                ),
-              ),
-              Text('${isAr ? "الكود" : "Code"}: ${balance['office_code']}'),
-
-              const SizedBox(height: 12),
-              Builder(
-                builder: (context) {
-                  final kpis = (balance['kpis'] is Map)
-                      ? Map<String, dynamic>.from(balance['kpis'])
-                      : <String, dynamic>{};
-
-                  final outstanding = _asDouble(
-                    kpis['outstanding_weight_main_karat'],
-                  );
-                  final avgPrice = _asDouble(
-                    kpis['avg_closing_price_per_gram'],
-                  );
-
-                  Widget kpiCard({
-                    required String title,
-                    required String value,
-                    required IconData icon,
-                  }) {
-                    final theme = Theme.of(context);
-                    return Card(
-                      elevation: 0,
-                      color: theme.colorScheme.surfaceContainerHighest,
-                      child: Padding(
-                        padding: const EdgeInsets.all(12),
-                        child: Row(
-                          children: [
-                            Icon(icon, color: AppColors.darkGold),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    title,
-                                    style: const TextStyle(
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Text(value),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    );
-                  }
-
-                  return Row(
-                    children: [
-                      Expanded(
-                        child: kpiCard(
-                          title: isAr
-                              ? 'الوزن المعلق (مكافئ العيار الرئيسي $_mainKarat)'
-                              : 'Outstanding (${_mainKarat}k eq)',
-                          value:
-                              '${outstanding.toStringAsFixed(3)} ${isAr ? "جم" : "g"}',
-                          icon: Icons.pending_actions,
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: kpiCard(
-                          title: isAr
-                              ? 'متوسط تكلفة التسكير'
-                              : 'Avg Closing Cost',
-                          value:
-                              '${avgPrice.toStringAsFixed(2)} $currencySymbol/${isAr ? "جم" : "g"}',
-                          icon: Icons.price_change,
-                        ),
-                      ),
-                    ],
-                  );
-                },
-              ),
-              const Divider(height: 24),
-
-              // النقدي
-              Text(
-                isAr ? 'الرصيد النقدي' : 'Cash Balance',
-                style: const TextStyle(fontWeight: FontWeight.bold),
-              ),
-              Text(
-                _formatSigned(
-                  cashBalance,
-                  isArabic: isAr,
-                  unitAr: currencySymbol,
-                  unitEn: currencySymbol,
-                  decimals: 2,
-                ),
-              ),
-              const SizedBox(height: 12),
-
-              // الذهب
-              Text(
-                isAr ? 'الرصيد الوزني' : 'Gold Balance',
-                style: const TextStyle(fontWeight: FontWeight.bold),
-              ),
-              ...((balance['balance_gold'] as Map<String, dynamic>).entries
-                  .where((e) => e.key != 'total')
-                  .map(
-                    (e) => Text(
-                      '${isAr ? "عيار" : "Karat"} ${e.key}: ${_formatSigned(_asDouble(e.value), isArabic: isAr, unitAr: 'جم', unitEn: 'g', decimals: 3)}',
-                    ),
-                  )),
-              Text(
-                '${isAr ? "الإجمالي (مكافئ العيار الرئيسي $_mainKarat)" : "Total (${_mainKarat}k eq)"}: ${_formatSigned(goldTotalMain, isArabic: isAr, unitAr: 'جم', unitEn: 'g', decimals: 3)}',
-                style: const TextStyle(fontWeight: FontWeight.bold),
-              ),
-              const Divider(height: 24),
-
-              // إحصائيات
-              Text(
-                isAr ? 'الإحصائيات' : 'Statistics',
-                style: const TextStyle(fontWeight: FontWeight.bold),
-              ),
-              Text(
-                '${isAr ? "عدد الحجوزات" : "Total Reservations"}: ${balance['statistics']['total_reservations']}',
-              ),
-              Text(
-                '${isAr ? "إجمالي الوزن المشترى" : "Total Weight"}: ${balance['statistics']['total_weight_purchased']} ${isAr ? "جم" : "g"}',
-              ),
-              Text(
-                '${isAr ? "إجمالي المبالغ المدفوعة" : "Total Paid"}: ${balance['statistics']['total_amount_paid']} $currencySymbol',
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: Text(isAr ? 'إغلاق' : 'Close'),
-          ),
-        ],
-      ),
-    );
   }
 
   @override
@@ -702,7 +500,7 @@ class _OfficesScreenState extends State<OfficesScreen> {
                       key: Key('office-cash-${office['id']}'),
                       child: _buildBalanceTile(
                         isAr ? 'الحساب النقدي' : 'Cash',
-                        _officeCashText(cashBalance, currencySymbol, isAr),
+                        _sideText(cashBalance, formatAmount(cashBalance.abs()), currencySymbol, isAr),
                         cashBalance < -0.005
                             ? AppColors.error
                             : AppColors.success,
@@ -712,16 +510,19 @@ class _OfficesScreenState extends State<OfficesScreen> {
                   if (goldTotal.abs() >= 0.0005) ...[
                     const SizedBox(width: 8),
                     Expanded(
-                      child: _buildBalanceTile(
-                        isAr ? 'ذهب الحساب التجاري' : 'Trade gold',
-                        _formatSigned(
-                          goldTotal,
-                          isArabic: isAr,
-                          unitAr: 'جم',
-                          unitEn: 'g',
-                          decimals: 3,
+                      child: KeyedSubtree(
+                        key: Key('office-gold-${office['id']}'),
+                        child: _buildBalanceTile(
+                          isAr ? 'الحساب الذهبي' : 'Gold account',
+                          _sideText(
+                            goldTotal,
+                            formatGrams(goldTotal.abs()),
+                            isAr ? 'جم بالعيار $_mainKarat' : 'g of ${_mainKarat}k',
+                            isAr,
+                            least: 0.0005,
+                          ),
+                          AppSemanticColors.of(context).gold.fg,
                         ),
-                        AppSemanticColors.of(context).gold.fg,
                       ),
                     ),
                   ],
@@ -729,9 +530,12 @@ class _OfficesScreenState extends State<OfficesScreen> {
               ),
               const SizedBox(height: 12),
 
-              // الأزرار: الخطوة التالية ظاهرة، لا خلف الضغط على البطاقة
-              Row(
-                mainAxisAlignment: MainAxisAlignment.end,
+              // الأزرار: الخطوة التالية ظاهرة، والباقي تحت «المزيد» -- في
+              // سطر يلتفّ، فلا يخرج «حجز جديد» عن شاشة الجوال (المالك، 20 أكتوبر 2026).
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                crossAxisAlignment: WrapCrossAlignment.center,
                 children: [
                   FilledButton.icon(
                     key: Key('office-new-reservation-${office['id']}'),
@@ -739,7 +543,6 @@ class _OfficesScreenState extends State<OfficesScreen> {
                     icon: const Icon(Icons.add, size: 18),
                     label: Text(isAr ? 'حجز جديد' : 'New reservation'),
                   ),
-                  const SizedBox(width: 8),
                   OutlinedButton.icon(
                     key: Key('office-reservations-${office['id']}'),
                     onPressed: () => _openOffice(office),
@@ -752,35 +555,31 @@ class _OfficesScreenState extends State<OfficesScreen> {
                           : (isAr ? 'الحجوزات' : 'Reservations'),
                     ),
                   ),
-                  const Spacer(),
-                  TextButton.icon(
-                    onPressed: () => _viewOfficeBalance(office),
-                    icon: const Icon(Icons.account_balance_wallet, size: 18),
-                    label: Text(isAr ? 'الرصيد' : 'Balance'),
-                  ),
-                  const SizedBox(width: 8),
-                  TextButton.icon(
-                    onPressed: () => _navigateToEditOffice(office),
-                    icon: const Icon(Icons.edit, size: 18),
-                    label: Text(isAr ? 'تعديل' : 'Edit'),
-                  ),
-                  const SizedBox(width: 8),
-                  TextButton.icon(
-                    onPressed: () => _toggleOfficeStatus(office),
-                    icon: Icon(
-                      isActive ? Icons.block : Icons.check_circle,
-                      size: 18,
-                    ),
-                    label: Text(
-                      isActive
-                          ? (isAr ? 'تعطيل' : 'Deactivate')
-                          : (isAr ? 'تفعيل' : 'Activate'),
-                    ),
-                    style: TextButton.styleFrom(
-                      foregroundColor: isActive
-                          ? AppColors.error
-                          : AppColors.success,
-                    ),
+                  PopupMenuButton<String>(
+                    key: Key('office-more-${office['id']}'),
+                    tooltip: isAr ? 'المزيد' : 'More',
+                    icon: const Icon(Icons.more_horiz),
+                    onSelected: (choice) => choice == 'edit'
+                        ? _navigateToEditOffice(office)
+                        : _toggleOfficeStatus(office),
+                    itemBuilder: (_) => [
+                      PopupMenuItem(
+                        value: 'edit',
+                        child: ListTile(
+                          leading: const Icon(Icons.edit),
+                          title: Text(isAr ? 'تعديل' : 'Edit'),
+                        ),
+                      ),
+                      PopupMenuItem(
+                        value: 'status',
+                        child: ListTile(
+                          leading: Icon(isActive ? Icons.block : Icons.check_circle),
+                          title: Text(
+                            isActive ? (isAr ? 'تعطيل' : 'Deactivate') : (isAr ? 'تفعيل' : 'Activate'),
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               ),

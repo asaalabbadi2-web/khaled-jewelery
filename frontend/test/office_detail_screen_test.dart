@@ -38,6 +38,11 @@ class _FakeApi extends ApiService {
   Future<List<dynamic>> getOffices({bool? activeOnly}) async => [_office];
 
   @override
+  Future<Map<String, dynamic>> getOfficeBalance(int id) async => {
+    'kpis': {'outstanding_weight_main_karat': 10.0, 'avg_closing_price_per_gram': 458.27},
+  };
+
+  @override
   Future<Map<String, dynamic>> getOfficeReservations({
     int? officeId,
     String? status,
@@ -195,5 +200,16 @@ void main() {
     await _open(tester, size: const Size(390, 1600));
     expect(tester.takeException(), isNull);
     expect(find.byKey(const Key('office-page-execute-38')), findsOneWidget);
+  });
+
+  testWidgets('what the old balance dialog said is here: what waits in its '
+      'reservations, and the average closing cost (the owner, 20 Oct 2026)', (
+    tester,
+  ) async {
+    await _open(tester);
+    // From the open reservations, as the list counts them -- the dialog's
+    // «الوزن المعلّق» missed a pending one (10 of 15 g on the 17 Oct copy).
+    expect(_in('office-page-open', find.textContaining('5.000')), findsOneWidget);
+    expect(_in('office-page-avg-cost', find.textContaining('458.27')), findsOneWidget);
   });
 }
