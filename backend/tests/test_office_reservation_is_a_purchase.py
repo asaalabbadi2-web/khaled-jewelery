@@ -165,13 +165,21 @@ def test_undoing_the_execution_takes_the_gold_back(auth_headers, rworld):
     from models import Invoice
     before = _books(rworld)
     rid = _create(auth_headers, rworld)
+
+    def standing():
+        db.session.expire_all()
+        r = db.session.get(OfficeReservation, rid)
+        return (r.purchase_invoice_id, r.status, r.weight_consumed_main_karat,
+                r.weight_remaining_main_karat, r.executions_created)
+
+    open_as_made = standing()
     invoice_id = _settle(auth_headers, rid).get_json()['purchase_invoice_id']
     resp = _unsettle(auth_headers, rid)
     assert resp.status_code == 200, resp.get_data(as_text=True)[:300]
     assert _books(rworld) == before
-    db.session.expire_all()
-    reservation = db.session.get(OfficeReservation, rid)
-    assert reservation.purchase_invoice_id is None and reservation.status == 'pending'
+    # Open as it was made -- not «pending» with its weight read as consumed
+    # (RES-0038 on the 20 Oct rehearsal: 5 g consumed, 0 left, no invoice).
+    assert standing() == open_as_made
     invoice = db.session.get(Invoice, invoice_id)
     assert (invoice.is_posted, invoice.status) == (False, 'rejected')
 

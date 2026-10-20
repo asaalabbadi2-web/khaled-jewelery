@@ -37,10 +37,16 @@ def reject_invoice_document(invoice, *, by, now) -> dict:
     # reservation lets go of the invoice, by which this finds it.
     reverse_office_reservation_settlement_for_invoice(invoice, created_by=by)
 
+    # The reservation open again as it was made: 'approved', none of its
+    # weight consumed -- it was left «pending» with all of it read as consumed
+    # (the voucher screen review, 20 Oct 2026; the pending weight read short).
     reservation = OfficeReservation.query.filter_by(purchase_invoice_id=invoice_id).first()
     if reservation:
         reservation.purchase_invoice_id = None
-        reservation.status = 'pending'
+        reservation.status = 'approved'
+        reservation.weight_consumed_main_karat = 0.0
+        reservation.weight_remaining_main_karat = float(reservation.weight_main_karat or 0.0)
+        reservation.executions_created = 0
         db.session.add(reservation)
 
     # Asked after the reversal above: it deletes the deposit's InvoicePayment and

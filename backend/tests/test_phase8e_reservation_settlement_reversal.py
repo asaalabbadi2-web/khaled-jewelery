@@ -298,7 +298,11 @@ class TestRejectReversesReservationSettlement:
 
             refreshed_reservation = OfficeReservation.query.get(state['reservation_id'])
             assert refreshed_reservation.purchase_invoice_id is None
-            assert refreshed_reservation.status == 'pending'
+            # Open again as it was made (20 Oct 2026): 'approved', none of its
+            # weight consumed -- it was 'pending' with all of it consumed.
+            assert refreshed_reservation.status == 'approved'
+            assert refreshed_reservation.weight_consumed_main_karat == 0.0
+            assert refreshed_reservation.weight_remaining_main_karat == refreshed_reservation.weight_main_karat
 
             # Test-only cleanup: the reversal above correctly re-opens this
             # order's capacity (proving the fix), but these tests commit to
