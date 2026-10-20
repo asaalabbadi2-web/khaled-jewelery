@@ -96,7 +96,9 @@ class _CommissionToggleButton extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
         decoration: BoxDecoration(
-          color: selected ? effectiveColor.withOpacity(0.15) : Colors.transparent,
+          color: selected
+              ? effectiveColor.withOpacity(0.15)
+              : Colors.transparent,
           border: Border.all(
             color: selected ? effectiveColor : theme.colorScheme.outlineVariant,
             width: selected ? 1.5 : 1,
@@ -107,7 +109,9 @@ class _CommissionToggleButton extends StatelessWidget {
           label,
           style: Theme.of(context).textTheme.labelSmall?.copyWith(
             fontWeight: selected ? FontWeight.bold : FontWeight.normal,
-            color: selected ? effectiveColor : theme.colorScheme.onSurfaceVariant,
+            color: selected
+                ? effectiveColor
+                : theme.colorScheme.onSurfaceVariant,
           ),
         ),
       ),
@@ -313,7 +317,6 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
   SettingsProvider? _settingsProvider;
 
   final List<double> _availableKarats = const [24, 22, 21, 18];
-
 
   String get _currencySymbol =>
       context.read<SettingsProvider>().currencySymbolText;
@@ -856,8 +859,9 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
     final isReceipt = widget.voucherType == 'receipt';
     final tones = AppSemanticColors.of(context);
     final theme = Theme.of(context);
-    String day(Object? iso) =>
-        '${iso ?? ''}'.length >= 10 ? '${iso ?? ''}'.substring(0, 10) : '${iso ?? ''}';
+    String day(Object? iso) => '${iso ?? ''}'.length >= 10
+        ? '${iso ?? ''}'.substring(0, 10)
+        : '${iso ?? ''}';
     Widget row(String label, String value) => Padding(
       padding: const EdgeInsets.symmetric(vertical: 3),
       child: Row(
@@ -1268,7 +1272,9 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
     // "الطرف: آخر"، فيتغيّر محتوى القائمة فوراً عند تبديل نوع السطر بدل
     // اختلاط حسابات نقدية ووزنية معاً بلا علاقة بما هو محدَّد.
     final detailedAccounts = _accounts.where((acc) {
-      if (!isLeafAccount(acc, _parentAccountIds)) return false; // حسابات تفصيلية فقط
+      if (!isLeafAccount(acc, _parentAccountIds)) {
+        return false; // حسابات تفصيلية فقط
+      }
 
       final t = (acc['transaction_type'] ?? 'both').toString().toLowerCase();
       if (amountType == 'gold') return t == 'gold' || t == 'both';
@@ -1509,7 +1515,8 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
   /// The employee's bonus payable account by its link -- or, before their first
   /// approved bonus, the bonus payables' parent (a mapped role on the server).
   int? _findEmployeeBonusPayableAccountId(EmployeeModel employee) =>
-      employee.payableAccounts['bonus_payable'] ?? _employeeBonusPayableParentId;
+      employee.payableAccounts['bonus_payable'] ??
+      _employeeBonusPayableParentId;
 
   int? _coerceAccountId(dynamic value) {
     if (value == null) {
@@ -2039,9 +2046,7 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
     // ── تطبيق البيان ─────────────────────────────────────────────────────────
     if (newDesc != null) {
       final current = _descriptionController.text.trim();
-      final canWrite = force ||
-          current.isEmpty ||
-          current == _lastAutoDesc;
+      final canWrite = force || current.isEmpty || current == _lastAutoDesc;
       if (canWrite) {
         _descriptionController.text = newDesc;
         _lastAutoDesc = newDesc;
@@ -2051,9 +2056,7 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
     // ── تطبيق المستلم ────────────────────────────────────────────────────────
     {
       final current = _receiverNameController.text.trim();
-      final canWrite = force ||
-          current.isEmpty ||
-          current == _lastAutoReceiver;
+      final canWrite = force || current.isEmpty || current == _lastAutoReceiver;
       if (canWrite) {
         final val = newReceiver ?? '';
         _receiverNameController.text = val;
@@ -2245,10 +2248,7 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
           tilePadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
           childrenPadding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
           maintainState: true,
-          leading: Icon(
-            Icons.dashboard_customize_outlined,
-            color: _cs.primary,
-          ),
+          leading: Icon(Icons.dashboard_customize_outlined, color: _cs.primary),
           title: Text(
             'مؤشرات السند',
             style: Theme.of(context).textTheme.titleLarge?.copyWith(
@@ -2510,7 +2510,8 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
                 hintText: _customers.isEmpty
                     ? 'لا يوجد عملاء'
                     : 'اضغط للبحث والاختيار',
-                helperText: _onAggregate(_findById(_customers, _selectedCustomerId))
+                helperText:
+                    _onAggregate(_findById(_customers, _selectedCustomerId))
                     ? 'ليس للعميل حساب خاص — يُقيَّد على الحساب التجميعي للعملاء'
                     : null,
                 prefixIcon: Icons.person_outline,
@@ -2524,7 +2525,8 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
                 hintText: _suppliers.isEmpty
                     ? 'لا يوجد موردين'
                     : 'اضغط للبحث والاختيار',
-                helperText: _onAggregate(_findById(_suppliers, _selectedSupplierId))
+                helperText:
+                    _onAggregate(_findById(_suppliers, _selectedSupplierId))
                     ? 'ليس للمورد حساب خاص — يُقيَّد على الحساب التجميعي للموردين'
                     : null,
                 prefixIcon: Icons.store_mall_directory,
@@ -2652,10 +2654,16 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
 
   /// The chosen invoices, oldest first: the order the plan fills them in.
   List<Map<String, dynamic>> get _chosenInvoicesInOrder {
-    final rows = _invoiceCandidates
-        .where((r) => _chosenInvoiceIds.contains((r['invoice_id'] as num).toInt()))
-        .toList()
-      ..sort((a, b) => '${a['date'] ?? ''}'.compareTo('${b['date'] ?? ''}'));
+    final rows =
+        _invoiceCandidates
+            .where(
+              (r) =>
+                  _chosenInvoiceIds.contains((r['invoice_id'] as num).toInt()),
+            )
+            .toList()
+          ..sort(
+            (a, b) => '${a['date'] ?? ''}'.compareTo('${b['date'] ?? ''}'),
+          );
     return rows;
   }
 
@@ -2695,7 +2703,12 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
       final id = (row['invoice_id'] as num?)?.toInt();
       if (id == null) continue;
       final merged = byId.putIfAbsent(id, () => {'invoice_id': id});
-      for (final key in ['invoice_number', 'date', 'open_cash', 'open_main_karat']) {
+      for (final key in [
+        'invoice_number',
+        'date',
+        'open_cash',
+        'open_main_karat',
+      ]) {
         if (row[key] != null) merged[key] = row[key];
       }
     }
@@ -2718,7 +2731,9 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
   /// the choice or the amounts change.
   Future<void> _refreshPlan() async {
     final supplierId = _selectedSupplierId;
-    if (!_showInvoicePicker || supplierId == null || _chosenInvoiceIds.isEmpty) {
+    if (!_showInvoicePicker ||
+        supplierId == null ||
+        _chosenInvoiceIds.isEmpty) {
       if (_paymentPlan != null || _planKey != null) {
         setState(() {
           _paymentPlan = null;
@@ -2763,7 +2778,8 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
   }
 
   Widget _buildInvoicePicker() {
-    if (_candidatesSupplierId != _selectedSupplierId && !_loadingInvoiceCandidates) {
+    if (_candidatesSupplierId != _selectedSupplierId &&
+        !_loadingInvoiceCandidates) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted && _showInvoicePicker) _loadInvoiceCandidates();
       });
@@ -2790,13 +2806,18 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
   List<String> get _planLines {
     final plan = _paymentPlan;
     if (_chosenInvoiceIds.isEmpty) {
-      return _showInvoicePicker ? ['الدفعة على حساب المورد (بلا فاتورة)'] : const [];
+      return _showInvoicePicker
+          ? ['الدفعة على حساب المورد (بلا فاتورة)']
+          : const [];
     }
     if (plan == null) return const ['يُحسب توزيعها على الفواتير…'];
     String share(int id) {
       final cash = (plan['cash'] as List? ?? const [])
           .where((s) => ((s as Map)['invoice_id'] as num).toInt() == id)
-          .fold<double>(0, (t, s) => t + ((s as Map)['amount'] as num).toDouble());
+          .fold<double>(
+            0,
+            (t, s) => t + ((s as Map)['amount'] as num).toDouble(),
+          );
       final gold = (plan['gold'] as List? ?? const [])
           .map((s) => s as Map)
           .where((s) => (s['invoice_id'] as num).toInt() == id);
@@ -2808,15 +2829,13 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
     }
 
     final cashLeft = (plan['cash_on_account'] as num?)?.toDouble() ?? 0;
-    final goldLeft = (plan['gold_on_account_main_karat'] as num?)?.toDouble() ?? 0;
+    final goldLeft =
+        (plan['gold_on_account_main_karat'] as num?)?.toDouble() ?? 0;
     return [
       for (final r in _chosenInvoicesInOrder)
         '${r['invoice_number'] ?? '#${r['invoice_id']}'}: ${share((r['invoice_id'] as num).toInt()).isEmpty ? 'لا شيء' : share((r['invoice_id'] as num).toInt())}',
       if (cashLeft > 0 || goldLeft > 0)
-        'يبقى على حساب المورد: ${[
-          if (cashLeft > 0) _formatCash(cashLeft),
-          if (goldLeft > 0) '${formatGrams(goldLeft)} جم بالعيار الرئيسي',
-        ].join(' و')}',
+        'يبقى على حساب المورد: ${[if (cashLeft > 0) _formatCash(cashLeft), if (goldLeft > 0) '${formatGrams(goldLeft)} جم بالعيار الرئيسي'].join(' و')}',
     ];
   }
 
@@ -2859,10 +2878,7 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
                 ),
                 focusedBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(8),
-                  borderSide: BorderSide(
-                    color: _cs.primary,
-                    width: 2,
-                  ),
+                  borderSide: BorderSide(color: _cs.primary, width: 2),
                 ),
               ),
               maxLines: 2,
@@ -2911,10 +2927,7 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
                 ),
                 focusedBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(8),
-                  borderSide: BorderSide(
-                    color: _cs.primary,
-                    width: 2,
-                  ),
+                  borderSide: BorderSide(color: _cs.primary, width: 2),
                 ),
               ),
             ),
@@ -3043,8 +3056,9 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
                 initialValue: entry.commissionPerGram > 0
                     ? entry.commissionPerGram.toStringAsFixed(2)
                     : '',
-                keyboardType:
-                    const TextInputType.numberWithOptions(decimal: true),
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
                 decoration: InputDecoration(
                   labelText: 'ر.س/جم',
                   border: const OutlineInputBorder(),
@@ -3057,7 +3071,8 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
                   ),
                 ),
                 onChanged: (v) => setState(
-                    () => entry.commissionPerGram = readTypedNumber(v) ?? 0),
+                  () => entry.commissionPerGram = readTypedNumber(v) ?? 0,
+                ),
               ),
             ),
             const SizedBox(width: 6),
@@ -3096,10 +3111,7 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
       elevation: 2,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
-        side: BorderSide(
-          color: _cs.primary.withValues(alpha: 0.3),
-          width: 1,
-        ),
+        side: BorderSide(color: _cs.primary.withValues(alpha: 0.3), width: 1),
       ),
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -3250,10 +3262,7 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
           },
           child: Text(
             'تصحيح تلقائي للفرق (${_formatWeight(_balanceDiff)})',
-            style: TextStyle(
-              color: _cs.primary,
-              fontWeight: FontWeight.bold,
-            ),
+            style: TextStyle(color: _cs.primary, fontWeight: FontWeight.bold),
           ),
         ),
       );
@@ -3313,9 +3322,9 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
         // The one strong action on the screen, flat (ADR-049).
         style: AppButtonStyles.primary(context, _voucherTone).copyWith(
           textStyle: WidgetStatePropertyAll(
-            Theme.of(context).textTheme.titleLarge?.copyWith(
-              fontWeight: FontWeight.w700,
-            ),
+            Theme.of(
+              context,
+            ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
           ),
         ),
         icon: _isSaving && !_inReview
@@ -3391,7 +3400,9 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
                             vertical: 8,
                           ),
                           decoration: BoxDecoration(
-                            color: isSelected ? accentColor : _cs.surfaceContainerLowest,
+                            color: isSelected
+                                ? accentColor
+                                : _cs.surfaceContainerLowest,
                             borderRadius: BorderRadius.circular(20),
                             border: Border.all(
                               color: isSelected
@@ -3639,7 +3650,9 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
       }).toList();
 
       exceedsBalance = exceededEntry.isNotEmpty;
-      bgColor = exceedsBalance ? _tone.blocked.container : _tone.ready.container;
+      bgColor = exceedsBalance
+          ? _tone.blocked.container
+          : _tone.ready.container;
       borderColor = exceedsBalance
           ? _tone.blocked.fg.withValues(alpha: 0.4)
           : _tone.ready.fg.withValues(alpha: 0.4);
@@ -3672,7 +3685,9 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
       final bool isOutflow = _isCashOutflowFromSafe(line);
       exceedsBalance =
           isOutflow && available != null && line.amount > available + 0.01;
-      bgColor = exceedsBalance ? _tone.blocked.container : _tone.ready.container;
+      bgColor = exceedsBalance
+          ? _tone.blocked.container
+          : _tone.ready.container;
       borderColor = exceedsBalance
           ? _tone.blocked.fg.withValues(alpha: 0.4)
           : _tone.ready.fg.withValues(alpha: 0.4);
@@ -4061,14 +4076,20 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
         for (final line in _accountLines) {
           if (line.amountType != 'gold') continue;
           for (final entry in line.goldEntries) {
-            if (entry.commissionDirection.isEmpty || entry.amount <= 0) continue;
-            final amt = double.parse((entry.amount * entry.commissionPerGram).toStringAsFixed(2));
+            if (entry.commissionDirection.isEmpty || entry.amount <= 0) {
+              continue;
+            }
+            final amt = _round2(entry.amount * entry.commissionPerGram);
             if (entry.commissionDirection == 'earn') earnTotal += amt;
             if (entry.commissionDirection == 'pay') payTotal += amt;
           }
         }
-        if (earnTotal > 0) voucherData['karat_diff_earn_total'] = double.parse(earnTotal.toStringAsFixed(2));
-        if (payTotal > 0) voucherData['karat_diff_pay_total'] = double.parse(payTotal.toStringAsFixed(2));
+        if (earnTotal > 0) {
+          voucherData['karat_diff_earn_total'] = _round2(earnTotal);
+        }
+        if (payTotal > 0) {
+          voucherData['karat_diff_pay_total'] = _round2(payTotal);
+        }
       }
 
       // Add party
@@ -4422,10 +4443,7 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
                         ),
                         focusedBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(8),
-                          borderSide: BorderSide(
-                            color: _cs.primary,
-                            width: 2,
-                          ),
+                          borderSide: BorderSide(color: _cs.primary, width: 2),
                         ),
                         prefixIcon: Icon(
                           Icons.attach_money,
@@ -4466,9 +4484,7 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
                               ),
                               borderRadius: BorderRadius.circular(10),
                               border: Border.all(
-                                color: _cs.secondary.withValues(
-                                  alpha: 0.28,
-                                ),
+                                color: _cs.secondary.withValues(alpha: 0.28),
                               ),
                             ),
                             child: Column(
@@ -4514,8 +4530,9 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
                                               8,
                                             ),
                                             borderSide: BorderSide(
-                                              color: _cs.secondary
-                                                  .withValues(alpha: 0.3),
+                                              color: _cs.secondary.withValues(
+                                                alpha: 0.3,
+                                              ),
                                             ),
                                           ),
                                           focusedBorder: OutlineInputBorder(
@@ -4564,8 +4581,9 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
                                               8,
                                             ),
                                             borderSide: BorderSide(
-                                              color: _cs.secondary
-                                                  .withValues(alpha: 0.3),
+                                              color: _cs.secondary.withValues(
+                                                alpha: 0.3,
+                                              ),
                                             ),
                                           ),
                                           focusedBorder: OutlineInputBorder(
@@ -4688,7 +4706,10 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
       const SizedBox(height: 12),
       KeyedSubtree(
         key: _partyCardKey,
-        child: KeyedSubtree(key: const Key('voucher-party-card'), child: _buildPartySelectorCard()),
+        child: KeyedSubtree(
+          key: const Key('voucher-party-card'),
+          child: _buildPartySelectorCard(),
+        ),
       ),
     ];
 
@@ -4698,7 +4719,6 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
         ..add(const SizedBox(height: 10))
         ..add(partyInfo);
     }
-
 
     leftColumn.addAll([
       const SizedBox(height: 12),
@@ -4720,7 +4740,10 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
     final List<Widget> rightColumn = [
       // Which invoice this payment pays -- where the payment is composed, before
       // its lines, not in the other column after them (2 Oct 2026).
-      if (_showInvoicePicker) ...[_buildInvoicePicker(), const SizedBox(height: 12)],
+      if (_showInvoicePicker) ...[
+        _buildInvoicePicker(),
+        const SizedBox(height: 12),
+      ],
       _buildAccountLinesHeader(),
       const SizedBox(height: 12),
       ...accountLineCards,
@@ -4775,7 +4798,9 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
     if (_showInvoicePicker) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         final h = _partyCardKey.currentContext?.size?.height;
-        if (mounted && h != null && (_partyCardHeight == null || (_partyCardHeight! - h).abs() > 1)) {
+        if (mounted &&
+            h != null &&
+            (_partyCardHeight == null || (_partyCardHeight! - h).abs() > 1)) {
           setState(() => _partyCardHeight = h);
         }
       });
@@ -4800,59 +4825,64 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
         onAddLine: _addNewLine,
         child: Builder(
           builder: (context) => Scaffold(
-      bottomNavigationBar: _isLoading ? null : _buildFooter(accentColor),
-      appBar: AppBar(
-        title: Text(title),
-        backgroundColor: _cs.primary,
-        foregroundColor: _cs.onPrimary,
-        elevation: 2,
-        actions: [
-          if (widget.existingVoucher == null)
-            TextButton.icon(
-              onPressed: _isSaving
-                  ? null
-                  : () async {
-                      await _saveLocalDraft();
-                      if (mounted) {
-                        Navigator.of(context).pop(false);
-                      }
-                    },
-              icon: Icon(Icons.schedule, color: _cs.onPrimary.withValues(alpha: 0.8)),
-              label: Text(
-                'إكمال لاحقاً',
-                style: TextStyle(color: _cs.onPrimary.withValues(alpha: 0.8)),
-              ),
-            ),
-          const SizedBox(width: 8),
-        ],
-      ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : SafeArea(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 24,
-                  vertical: 20,
-                ),
-                child: Form(
-                  key: _formKey,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      _buildHeroHeader(
-                        context,
-                        isReceipt,
-                        accentColor,
-                        icon,
-                        title,
+            bottomNavigationBar: _isLoading ? null : _buildFooter(accentColor),
+            appBar: AppBar(
+              title: Text(title),
+              backgroundColor: _cs.primary,
+              foregroundColor: _cs.onPrimary,
+              elevation: 2,
+              actions: [
+                if (widget.existingVoucher == null)
+                  TextButton.icon(
+                    onPressed: _isSaving
+                        ? null
+                        : () async {
+                            await _saveLocalDraft();
+                            if (mounted) {
+                              Navigator.of(context).pop(false);
+                            }
+                          },
+                    icon: Icon(
+                      Icons.schedule,
+                      color: _cs.onPrimary.withValues(alpha: 0.8),
+                    ),
+                    label: Text(
+                      'إكمال لاحقاً',
+                      style: TextStyle(
+                        color: _cs.onPrimary.withValues(alpha: 0.8),
                       ),
-                      const SizedBox(height: 24),
-                      layoutContent,
-                    ],
+                    ),
                   ),
-                ),
-              ),
+                const SizedBox(width: 8),
+              ],
             ),
+            body: _isLoading
+                ? const Center(child: CircularProgressIndicator())
+                : SafeArea(
+                    child: SingleChildScrollView(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 24,
+                        vertical: 20,
+                      ),
+                      child: Form(
+                        key: _formKey,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            _buildHeroHeader(
+                              context,
+                              isReceipt,
+                              accentColor,
+                              icon,
+                              title,
+                            ),
+                            const SizedBox(height: 24),
+                            layoutContent,
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
           ),
         ),
       ),
@@ -4865,6 +4895,9 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
     final number = formatAmount(amount, decimals: _currencyDecimalPlaces);
     return includeSymbol ? '${ltrIsolate(number)} $_currencySymbol' : number;
   }
+
+  /// An amount sent rounded to two places, as it always was.
+  double _round2(double x) => double.parse(x.toStringAsFixed(2));
 
   /// A count of lines as Arabic says it: سطر واحد، سطران، ٣ أسطر، ١١ سطرًا.
   String _linesCount(int n) => switch (n) {
