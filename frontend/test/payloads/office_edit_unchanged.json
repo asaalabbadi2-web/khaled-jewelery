@@ -1,0 +1,20 @@
+{
+  "active": true,
+  "address_line_1": "",
+  "address_line_2": "",
+  "city": "الرياض",
+  "contact_person": "أبو خالد",
+  "country": "Saudi Arabia",
+  "email": "",
+  "gold_safe_box_id": 60,
+  "gold_safe_link_mode": "existing",
+  "license_number": "",
+  "name": "مكتب الراقي",
+  "notes": "",
+  "phone": "0500000001",
+  "postal_code": "",
+  "state": "",
+  "supplier_id": 20,
+  "supplier_link_mode": "existing",
+  "tax_number": ""
+}

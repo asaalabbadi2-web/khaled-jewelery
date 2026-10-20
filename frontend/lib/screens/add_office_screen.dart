@@ -66,6 +66,12 @@ class _AddOfficeScreenState extends State<AddOfficeScreen> {
   String _country = 'Saudi Arabia';
   bool _active = true;
 
+  // Whose an opening balance is (journey release 4): +1 ours with the office,
+  // -1 owed to it. Asked whenever an amount is typed -- the form took no sign,
+  // so an opening owed to the office could not be said at all.
+  int? _cashSide;
+  int? _goldSide;
+
   @override
   void initState() {
     super.initState();
@@ -282,13 +288,20 @@ class _AddOfficeScreenState extends State<AddOfficeScreen> {
       }
     }
 
+    final cashAmount = _parseDoubleOrZero(_openingCashController.text);
+    final goldAmount = _parseDoubleOrZero(_openingGoldMainController.text);
+    if (_supplierLinkMode == 'new' &&
+        ((cashAmount > 0 && _cashSide == null) ||
+            (goldAmount > 0 && _goldSide == null))) {
+      _showMessage('حدّد لكل رصيد افتتاحي: لنا عنده أم علينا له', isError: true);
+      return;
+    }
+
     setState(() => _isLoading = true);
 
     try {
-      final openingCash = _parseDoubleOrZero(_openingCashController.text);
-      final openingGoldMain = _parseDoubleOrZero(
-        _openingGoldMainController.text,
-      );
+      final openingCash = cashAmount * (_cashSide ?? 1);
+      final openingGoldMain = goldAmount * (_goldSide ?? 1);
 
       final officeData = {
         'name': _nameController.text.trim(),
@@ -358,6 +371,264 @@ class _AddOfficeScreenState extends State<AddOfficeScreen> {
     child: _buildForm(context),
   );
 
+  Widget _section(String title, IconData icon, List<Widget> children) {
+    final theme = Theme.of(context);
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(AppSpace.lg),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                Icon(icon, size: 20, color: theme.colorScheme.primary),
+                const SizedBox(width: AppSpace.sm),
+                Text(title, style: theme.textTheme.titleMedium),
+              ],
+            ),
+            const SizedBox(height: AppSpace.md),
+            ...children,
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _field(
+    TextEditingController controller,
+    String label,
+    IconData icon, {
+    TextInputType? keyboard,
+    String? Function(String?)? validator,
+    int maxLines = 1,
+    bool number = false,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: AppSpace.md),
+      child: TextFormField(
+        controller: controller,
+        decoration: InputDecoration(labelText: label, prefixIcon: Icon(icon)),
+        keyboardType: keyboard,
+        validator: validator,
+        maxLines: maxLines,
+        inputFormatters: number ? [NormalizeNumberFormatter()] : null,
+      ),
+    );
+  }
+
+  /// An amount and whose it is: ours with the office, or owed to it.
+  Widget _opening({
+    required Key sideKey,
+    required TextEditingController controller,
+    required String label,
+    required IconData icon,
+    required int? side,
+    required ValueChanged<int> onSide,
+    required bool isAr,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: AppSpace.md),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          TextFormField(
+            controller: controller,
+            decoration: InputDecoration(labelText: label, prefixIcon: Icon(icon)),
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            inputFormatters: [NormalizeNumberFormatter()],
+          ),
+          const SizedBox(height: AppSpace.sm),
+          SegmentedButton<int>(
+            key: sideKey,
+            emptySelectionAllowed: true,
+            showSelectedIcon: false,
+            segments: [
+              ButtonSegment(value: 1, label: Text(isAr ? 'لنا عنده' : 'Ours with it')),
+              ButtonSegment(value: -1, label: Text(isAr ? 'علينا له' : 'Owed to it')),
+            ],
+            selected: {if (side != null) side},
+            onSelectionChanged: (v) {
+              if (v.isNotEmpty) setState(() => onSide(v.first));
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  List<Widget> _officeFields(bool isAr, bool isEdit) => [
+    _field(
+      _nameController,
+      '${isAr ? "اسم المكتب" : "Office Name"} *',
+      Icons.store_outlined,
+      validator: (value) => value == null || value.trim().isEmpty
+          ? (isAr ? 'الرجاء إدخال اسم المكتب' : 'Please enter office name')
+          : null,
+    ),
+    _field(_phoneController, isAr ? 'رقم الهاتف' : 'Phone Number', Icons.phone_outlined,
+        keyboard: TextInputType.phone),
+    _field(_contactPersonController, isAr ? 'الشخص المسؤول' : 'Contact Person', Icons.person_outline),
+    _field(_emailController, isAr ? 'البريد الإلكتروني' : 'Email', Icons.email_outlined,
+        keyboard: TextInputType.emailAddress),
+    if (isEdit)
+      SwitchListTile(
+        contentPadding: EdgeInsets.zero,
+        title: Text(isAr ? 'مكتب نشط' : 'Active Office'),
+        subtitle: Text(isAr ? 'المكتب المعطّل لا يُحجز منه' : 'An inactive office takes no reservation'),
+        value: _active,
+        onChanged: (value) => setState(() => _active = value),
+      ),
+  ];
+
+  List<Widget> _accountFields(bool isAr) {
+    final theme = Theme.of(context);
+    final currency = context.read<SettingsProvider>().currencySymbolText;
+    return [
+      SegmentedButton<String>(
+        key: const Key('office-supplier-mode'),
+        showSelectedIcon: false,
+        segments: [
+          ButtonSegment(value: 'new', label: Text(isAr ? 'مورد جديد باسم المكتب' : 'New supplier')),
+          ButtonSegment(value: 'existing', label: Text(isAr ? 'ربط بمورد موجود' : 'Existing supplier')),
+        ],
+        selected: {_supplierLinkMode},
+        onSelectionChanged: (v) => setState(() {
+          _supplierLinkMode = v.first;
+          if (_supplierLinkMode == 'new') _selectedSupplier = null;
+          _goldSafeLinkMode = 'new';
+          _selectedGoldSafe = null;
+        }),
+      ),
+      const SizedBox(height: AppSpace.md),
+      if (_supplierLinkMode == 'existing') ...[
+        SearchablePickerField(
+          labelText: isAr ? 'المورد' : 'Supplier',
+          valueText: (_selectedSupplier?['name'] ?? '').toString(),
+          hintText: isAr ? 'اضغط لاختيار مورد' : 'Tap to pick supplier',
+          helperText: _isLoadingSuppliers ? (isAr ? 'جارٍ تحميل الموردين...' : 'Loading suppliers...') : null,
+          prefixIcon: Icons.person_search,
+          onTap: () => _pickSupplier(isAr: isAr),
+          enabled: !_isLoadingSuppliers,
+        ),
+        const SizedBox(height: AppSpace.md),
+        SegmentedButton<String>(
+          key: const Key('office-deposit-mode'),
+          showSelectedIcon: false,
+          segments: [
+            ButtonSegment(value: 'new', label: Text(isAr ? 'وديعة جديدة' : 'New deposit')),
+            ButtonSegment(value: 'existing', label: Text(isAr ? 'وديعة موجودة' : 'Existing deposit')),
+          ],
+          selected: {_goldSafeLinkMode},
+          onSelectionChanged: (v) => setState(() {
+            _goldSafeLinkMode = v.first;
+            if (_goldSafeLinkMode == 'new') _selectedGoldSafe = null;
+          }),
+        ),
+        const SizedBox(height: AppSpace.md),
+        if (_goldSafeLinkMode == 'existing')
+          SearchablePickerField(
+            labelText: isAr ? 'وديعة الذهب' : 'Gold deposit',
+            valueText: _selectedGoldSafe?.name,
+            hintText: isAr ? 'اضغط لاختيار وديعة ذهب' : 'Tap to pick a gold deposit',
+            helperText: _isLoadingGoldSafeBoxes ? (isAr ? 'جارٍ تحميل الودائع...' : 'Loading deposits...') : null,
+            prefixIcon: Icons.savings_outlined,
+            onTap: () => _pickGoldSafeBox(isAr: isAr),
+            enabled: !_isLoadingGoldSafeBoxes,
+          ),
+      ] else ...[
+        _opening(
+          sideKey: const Key('office-opening-cash-side'),
+          controller: _openingCashController,
+          label: isAr ? 'رصيد افتتاحي نقدي ($currency)' : 'Opening cash balance ($currency)',
+          icon: Icons.payments_outlined,
+          side: _cashSide,
+          onSide: (v) => _cashSide = v,
+          isAr: isAr,
+        ),
+        _opening(
+          sideKey: const Key('office-opening-gold-side'),
+          controller: _openingGoldMainController,
+          label: isAr ? 'رصيد افتتاحي ذهب (جرام مكافئ العيار الرئيسي)' : 'Opening gold (g, main-karat equiv)',
+          icon: Icons.scale_outlined,
+          side: _goldSide,
+          onSide: (v) => _goldSide = v,
+          isAr: isAr,
+        ),
+      ],
+      Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.info_outline, size: 18, color: theme.colorScheme.onSurfaceVariant),
+          const SizedBox(width: AppSpace.sm),
+          Expanded(
+            child: Text(
+              _supplierLinkMode == 'new'
+                  ? (isAr
+                        ? 'يُنشأ للمكتب مورد باسمه، ووديعة ذهب «ذهب مودع لدى …» تلقائيًّا. ذهبه الذي لنا يُحفظ فيها.'
+                        : 'A supplier and a gold deposit are made for the office.')
+                  : (isAr
+                        ? 'الوديعة هي ذهبنا لدى المكتب، والمورد حسابه التجاري.'
+                        : 'The deposit is our gold there; the supplier is its trade.'),
+              key: const Key('office-account-note'),
+              style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+            ),
+          ),
+        ],
+      ),
+    ];
+  }
+
+  Widget _moreSection(bool isAr) {
+    return Card(
+      child: ExpansionTile(
+        key: const Key('office-more'),
+        leading: const Icon(Icons.location_on_outlined),
+        title: Text(isAr ? 'العنوان والبيانات الرسمية' : 'Address and official details'),
+        subtitle: Text(
+          isAr ? 'العنوان والمدينة والترخيص والرقم الضريبي والملاحظات' : 'Address, licence, tax number, notes',
+          style: Theme.of(context).textTheme.bodySmall,
+        ),
+        childrenPadding: const EdgeInsets.fromLTRB(AppSpace.lg, 0, AppSpace.lg, AppSpace.lg),
+        children: [
+          _field(_addressLine1Controller, isAr ? 'العنوان - سطر 1' : 'Address Line 1', Icons.location_on_outlined),
+          _field(_addressLine2Controller, isAr ? 'العنوان - سطر 2' : 'Address Line 2', Icons.location_on_outlined),
+          Row(
+            children: [
+              Expanded(child: _field(_cityController, isAr ? 'المدينة' : 'City', Icons.location_city_outlined)),
+              const SizedBox(width: AppSpace.md),
+              Expanded(child: _field(_stateController, isAr ? 'المنطقة' : 'State/Region', Icons.map_outlined)),
+            ],
+          ),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: _field(_postalCodeController, isAr ? 'الرمز البريدي' : 'Postal Code',
+                    Icons.markunread_mailbox_outlined, keyboard: TextInputType.number, number: true),
+              ),
+              const SizedBox(width: AppSpace.md),
+              Expanded(
+                child: DropdownButtonFormField<String>(
+                  initialValue: _country,
+                  decoration: InputDecoration(
+                    labelText: isAr ? 'الدولة' : 'Country',
+                    prefixIcon: const Icon(Icons.public),
+                  ),
+                  items: [for (final c in const ['Saudi Arabia', 'UAE', 'Kuwait', 'Bahrain', 'Qatar', 'Oman'])
+                    DropdownMenuItem(value: c, child: Text(c))],
+                  onChanged: (value) => setState(() => _country = value!),
+                ),
+              ),
+            ],
+          ),
+          _field(_licenseNumberController, isAr ? 'رقم الترخيص' : 'License Number', Icons.badge_outlined),
+          _field(_taxNumberController, isAr ? 'الرقم الضريبي' : 'Tax Number', Icons.receipt_long_outlined),
+          _field(_notesController, isAr ? 'ملاحظات إضافية' : 'Additional Notes', Icons.note_outlined, maxLines: 3),
+        ],
+      ),
+    );
+  }
+
   Widget _buildForm(BuildContext context) {
     context.watch<SettingsProvider>();
 
@@ -371,413 +642,79 @@ class _AddOfficeScreenState extends State<AddOfficeScreen> {
               ? (isAr ? 'تعديل مكتب' : 'Edit Office')
               : (isAr ? 'إضافة مكتب جديد' : 'Add New Office'),
         ),
-        backgroundColor: AppColors.darkGold,
-        foregroundColor: Colors.white,
       ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : SingleChildScrollView(
-              padding: const EdgeInsets.all(16),
-              child: Form(
-                key: _formKey,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    // معلومات أساسية
-                    _buildSectionTitle(
-                      isAr ? 'المعلومات الأساسية' : 'Basic Information',
-                    ),
-                    const SizedBox(height: 16),
-
-                    TextFormField(
-                      controller: _nameController,
-                      decoration: InputDecoration(
-                        labelText: '${isAr ? "اسم المكتب" : "Office Name"} *',
-                        prefixIcon: const Icon(Icons.store),
-                        border: const OutlineInputBorder(),
-                      ),
-                      validator: (value) {
-                        if (value == null || value.trim().isEmpty) {
-                          return isAr
-                              ? 'الرجاء إدخال اسم المكتب'
-                              : 'Please enter office name';
-                        }
-                        return null;
-                      },
-                    ),
-                    const SizedBox(height: 16),
-
-                    _buildSectionTitle(
-                      isAr ? 'ربط المورد وخزنة الذهب' : 'Supplier & Gold Safe',
-                    ),
-                    const SizedBox(height: 12),
-
-                    RadioListTile<String>(
-                      value: 'new',
-                      groupValue: _supplierLinkMode,
-                      onChanged: (v) {
-                        if (v == null) return;
-                        setState(() {
-                          _supplierLinkMode = v;
-                          _selectedSupplier = null;
-                          _goldSafeLinkMode = 'new';
-                          _selectedGoldSafe = null;
-                        });
-                      },
-                      title: Text(
-                        isAr ? 'إنشاء مورد جديد' : 'Create new supplier',
-                      ),
-                      contentPadding: EdgeInsets.zero,
-                    ),
-                    RadioListTile<String>(
-                      value: 'existing',
-                      groupValue: _supplierLinkMode,
-                      onChanged: (v) {
-                        if (v == null) return;
-                        setState(() {
-                          _supplierLinkMode = v;
-                          _goldSafeLinkMode = 'new';
-                          _selectedGoldSafe = null;
-                        });
-                      },
-                      title: Text(
-                        isAr ? 'ربط بمورد موجود' : 'Link existing supplier',
-                      ),
-                      contentPadding: EdgeInsets.zero,
-                    ),
-                    const SizedBox(height: 10),
-
-                    if (_supplierLinkMode == 'existing') ...[
-                      SearchablePickerField(
-                        labelText: isAr ? 'المورد' : 'Supplier',
-                        valueText: (_selectedSupplier?['name'] ?? '')
-                            .toString(),
-                        hintText: isAr
-                            ? 'اضغط لاختيار مورد'
-                            : 'Tap to pick supplier',
-                        helperText: _isLoadingSuppliers
-                            ? (isAr
-                                  ? 'جارٍ تحميل الموردين...'
-                                  : 'Loading suppliers...')
-                            : null,
-                        prefixIcon: Icons.person_search,
-                        onTap: () => _pickSupplier(isAr: isAr),
-                        enabled: !_isLoadingSuppliers,
-                      ),
-                      const SizedBox(height: 12),
-
-                      RadioListTile<String>(
-                        value: 'existing',
-                        groupValue: _goldSafeLinkMode,
-                        onChanged: (v) {
-                          if (v == null) return;
-                          setState(() {
-                            _goldSafeLinkMode = v;
-                          });
-                        },
-                        title: Text(
-                          isAr
-                              ? 'ربط بوديعة ذهب موجودة'
-                              : 'Link an existing gold deposit',
+      bottomNavigationBar: _isLoading
+          ? null
+          : Material(
+              elevation: 8,
+              color: Theme.of(context).colorScheme.surface,
+              child: SafeArea(
+                top: false,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: AppSpace.lg, vertical: AppSpace.md),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      FilledButton.icon(
+                        key: const Key('office-save'),
+                        onPressed: _isLoading ? null : _saveOffice,
+                        icon: const Icon(Icons.save_outlined),
+                        label: Text(
+                          isEdit
+                              ? (isAr ? 'حفظ التعديلات' : 'Save Changes')
+                              : (isAr ? 'إضافة المكتب' : 'Add Office'),
                         ),
-                        contentPadding: EdgeInsets.zero,
                       ),
-                      RadioListTile<String>(
-                        value: 'new',
-                        groupValue: _goldSafeLinkMode,
-                        onChanged: (v) {
-                          if (v == null) return;
-                          setState(() {
-                            _goldSafeLinkMode = v;
-                            _selectedGoldSafe = null;
-                          });
-                        },
-                        title: Text(
-                          isAr
-                              ? 'إنشاء وديعة ذهب لهذا المكتب («ذهب مودع لدى …»)'
-                              : 'Create a gold deposit for this office',
-                        ),
-                        contentPadding: EdgeInsets.zero,
-                      ),
-                      const SizedBox(height: 8),
-
-                      if (_goldSafeLinkMode == 'existing') ...[
-                        SearchablePickerField(
-                          labelText: isAr ? 'وديعة الذهب' : 'Gold deposit',
-                          valueText: _selectedGoldSafe?.name,
-                          hintText: isAr
-                              ? 'اضغط لاختيار وديعة ذهب'
-                              : 'Tap to pick a gold deposit',
-                          helperText: _isLoadingGoldSafeBoxes
-                              ? (isAr
-                                    ? 'جارٍ تحميل خزائن الذهب...'
-                                    : 'Loading gold safes...')
-                              : null,
-                          prefixIcon: Icons.currency_exchange,
-                          onTap: () => _pickGoldSafeBox(isAr: isAr),
-                          enabled: !_isLoadingGoldSafeBoxes,
-                        ),
-                        const SizedBox(height: 12),
-                      ],
-                    ] else ...[
-                      TextFormField(
-                        controller: _openingCashController,
-                        decoration: InputDecoration(
-                          labelText: isAr
-                              ? 'رصيد افتتاحي نقدي (${context.read<SettingsProvider>().currencySymbolText})'
-                              : 'Opening cash balance (${context.read<SettingsProvider>().currencySymbolText})',
-                          prefixIcon: const Icon(Icons.payments_outlined),
-                          border: const OutlineInputBorder(),
-                        ),
-                        keyboardType: const TextInputType.numberWithOptions(
-                          decimal: true,
-                          signed: false,
-                        ),
-                        inputFormatters: [NormalizeNumberFormatter()],
-                      ),
-                      const SizedBox(height: 12),
-                      TextFormField(
-                        controller: _openingGoldMainController,
-                        decoration: InputDecoration(
-                          labelText: isAr
-                              ? 'رصيد افتتاحي ذهب (جرام مكافئ العيار الرئيسي)'
-                              : 'Opening gold (g, main-karat equiv)',
-                          prefixIcon: const Icon(Icons.scale_outlined),
-                          border: const OutlineInputBorder(),
-                        ),
-                        keyboardType: const TextInputType.numberWithOptions(
-                          decimal: true,
-                          signed: false,
-                        ),
-                        inputFormatters: [NormalizeNumberFormatter()],
-                      ),
-                      const SizedBox(height: 12),
-                      Text(
-                        isAr
-                            ? 'سيتم إنشاء خزنة ذهب تلقائياً وربطها بالمورد.'
-                            : 'A gold safe will be auto-created and linked.',
-                        style: Theme.of(context).textTheme.bodySmall,
-                        textAlign: isAr ? TextAlign.right : TextAlign.left,
-                      ),
-                      const SizedBox(height: 12),
                     ],
-
-                    TextFormField(
-                      controller: _phoneController,
-                      decoration: InputDecoration(
-                        labelText: isAr ? 'رقم الهاتف' : 'Phone Number',
-                        prefixIcon: const Icon(Icons.phone),
-                        border: const OutlineInputBorder(),
-                      ),
-                      keyboardType: TextInputType.phone,
-                    ),
-                    const SizedBox(height: 16),
-
-                    TextFormField(
-                      controller: _emailController,
-                      decoration: InputDecoration(
-                        labelText: isAr ? 'البريد الإلكتروني' : 'Email',
-                        prefixIcon: const Icon(Icons.email),
-                        border: const OutlineInputBorder(),
-                      ),
-                      keyboardType: TextInputType.emailAddress,
-                    ),
-                    const SizedBox(height: 16),
-
-                    TextFormField(
-                      controller: _contactPersonController,
-                      decoration: InputDecoration(
-                        labelText: isAr ? 'الشخص المسؤول' : 'Contact Person',
-                        prefixIcon: const Icon(Icons.person),
-                        border: const OutlineInputBorder(),
-                      ),
-                    ),
-                    const SizedBox(height: 24),
-
-                    // العنوان
-                    _buildSectionTitle(isAr ? 'العنوان' : 'Address'),
-                    const SizedBox(height: 16),
-
-                    TextFormField(
-                      controller: _addressLine1Controller,
-                      decoration: InputDecoration(
-                        labelText: isAr ? 'العنوان - سطر 1' : 'Address Line 1',
-                        prefixIcon: const Icon(Icons.location_on),
-                        border: const OutlineInputBorder(),
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-
-                    TextFormField(
-                      controller: _addressLine2Controller,
-                      decoration: InputDecoration(
-                        labelText: isAr ? 'العنوان - سطر 2' : 'Address Line 2',
-                        prefixIcon: const Icon(Icons.location_on_outlined),
-                        border: const OutlineInputBorder(),
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-
-                    Row(
-                      children: [
-                        Expanded(
-                          child: TextFormField(
-                            controller: _cityController,
-                            decoration: InputDecoration(
-                              labelText: isAr ? 'المدينة' : 'City',
-                              prefixIcon: const Icon(Icons.location_city),
-                              border: const OutlineInputBorder(),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 16),
-                        Expanded(
-                          child: TextFormField(
-                            controller: _stateController,
-                            decoration: InputDecoration(
-                              labelText: isAr ? 'المنطقة' : 'State/Region',
-                              prefixIcon: const Icon(Icons.map),
-                              border: const OutlineInputBorder(),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-
-                    Row(
-                      children: [
-                        Expanded(
-                          child: TextFormField(
-                            controller: _postalCodeController,
-                            decoration: InputDecoration(
-                              labelText: isAr ? 'الرمز البريدي' : 'Postal Code',
-                              prefixIcon: const Icon(Icons.markunread_mailbox),
-                              border: const OutlineInputBorder(),
-                            ),
-                            keyboardType: TextInputType.number,
-                            inputFormatters: [NormalizeNumberFormatter()],
-                          ),
-                        ),
-                        const SizedBox(width: 16),
-                        Expanded(
-                          child: DropdownButtonFormField<String>(
-                            initialValue: _country,
-                            decoration: InputDecoration(
-                              labelText: isAr ? 'الدولة' : 'Country',
-                              prefixIcon: const Icon(Icons.public),
-                              border: const OutlineInputBorder(),
-                            ),
-                            items:
-                                [
-                                  'Saudi Arabia',
-                                  'UAE',
-                                  'Kuwait',
-                                  'Bahrain',
-                                  'Qatar',
-                                  'Oman',
-                                ].map((country) {
-                                  return DropdownMenuItem(
-                                    value: country,
-                                    child: Text(country),
-                                  );
-                                }).toList(),
-                            onChanged: (value) {
-                              setState(() => _country = value!);
-                            },
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 24),
-
-                    // معلومات رسمية
-                    _buildSectionTitle(
-                      isAr ? 'المعلومات الرسمية' : 'Official Information',
-                    ),
-                    const SizedBox(height: 16),
-
-                    TextFormField(
-                      controller: _licenseNumberController,
-                      decoration: InputDecoration(
-                        labelText: isAr ? 'رقم الترخيص' : 'License Number',
-                        prefixIcon: const Icon(Icons.badge),
-                        border: const OutlineInputBorder(),
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-
-                    TextFormField(
-                      controller: _taxNumberController,
-                      decoration: InputDecoration(
-                        labelText: isAr ? 'الرقم الضريبي' : 'Tax Number',
-                        prefixIcon: const Icon(Icons.receipt_long),
-                        border: const OutlineInputBorder(),
-                      ),
-                    ),
-                    const SizedBox(height: 24),
-
-                    // ملاحظات
-                    _buildSectionTitle(isAr ? 'ملاحظات' : 'Notes'),
-                    const SizedBox(height: 16),
-
-                    TextFormField(
-                      controller: _notesController,
-                      decoration: InputDecoration(
-                        labelText: isAr ? 'ملاحظات إضافية' : 'Additional Notes',
-                        prefixIcon: const Icon(Icons.note),
-                        border: const OutlineInputBorder(),
-                      ),
-                      maxLines: 3,
-                    ),
-                    const SizedBox(height: 24),
-
-                    // الحالة
-                    if (isEdit)
-                      SwitchListTile(
-                        title: Text(isAr ? 'مكتب نشط' : 'Active Office'),
-                        subtitle: Text(
-                          isAr ? 'تفعيل/تعطيل المكتب' : 'Enable/Disable office',
-                        ),
-                        value: _active,
-                        onChanged: (value) {
-                          setState(() => _active = value);
-                        },
-                        activeThumbColor: AppColors.primaryGold,
-                      ),
-                    const SizedBox(height: 24),
-
-                    // زر الحفظ
-                    ElevatedButton.icon(
-                      onPressed: _isLoading ? null : _saveOffice,
-                      icon: const Icon(Icons.save),
-                      label: Text(
-                        isEdit
-                            ? (isAr ? 'حفظ التعديلات' : 'Save Changes')
-                            : (isAr ? 'إضافة المكتب' : 'Add Office'),
-                        style: const TextStyle(fontSize: 18),
-                      ),
-                      style: ElevatedButton.styleFrom(
-                        padding: const EdgeInsets.all(16),
-                        backgroundColor: AppColors.primaryGold,
-                        foregroundColor: Colors.white,
-                      ),
-                    ),
-                  ],
+                  ),
                 ),
               ),
             ),
-    );
-  }
-
-  Widget _buildSectionTitle(String title) {
-    return Text(
-      title,
-      style: const TextStyle(
-        fontSize: 18,
-        fontWeight: FontWeight.bold,
-        color: AppColors.darkGold,
-      ),
+      body: _isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : Form(
+              key: _formKey,
+              child: LayoutBuilder(
+                builder: (context, c) {
+                  final wide = c.maxWidth >= 900;
+                  final office = _section(isAr ? 'المكتب' : 'Office', Icons.store_outlined, _officeFields(isAr, isEdit));
+                  final account = _section(
+                    isAr ? 'الحساب والذهب' : 'Account and gold',
+                    Icons.account_balance_wallet_outlined,
+                    _accountFields(isAr),
+                  );
+                  return SingleChildScrollView(
+                    padding: const EdgeInsets.all(AppSpace.lg),
+                    child: Center(
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 1100),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            if (wide)
+                              Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Expanded(child: office),
+                                  const SizedBox(width: AppSpace.lg),
+                                  Expanded(child: account),
+                                ],
+                              )
+                            else ...[
+                              office,
+                              const SizedBox(height: AppSpace.md),
+                              account,
+                            ],
+                            const SizedBox(height: AppSpace.md),
+                            _moreSection(isAr),
+                          ],
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
     );
   }
 }

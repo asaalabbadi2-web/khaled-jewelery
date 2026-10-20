@@ -107,3 +107,22 @@ def test_no_writer_builds_a_supplier_with_a_field_it_does_not_have():
             if isinstance(node, ast.Call) and (getattr(node.func, 'id', None) or getattr(node.func, 'attr', None)) == 'Supplier':
                 bad += [f'{rel}:{node.lineno} {k.arg}' for k in node.keywords if k.arg and k.arg not in mapped]
     assert not bad, bad
+
+
+def test_an_opening_owed_to_the_office_stays_on_its_supplier_account(auth_headers):
+    """The form says it now (journey release 4): an opening owed to the office
+    is the trade -- its supplier account -- not its deposit (ADR-052)."""
+    from services.live_balances import live_balances_by_account_ids
+    map_deposit_parent()
+    name = f'مكتب {uuid.uuid4().hex[:6]}'
+    resp = _post('/api/offices', auth_headers, {'name': name, 'opening_balance_gold_main_karat': -20.0,
+                                                 'opening_balance_cash': -1000.0})
+    assert resp.status_code in (200, 201), resp.get_data(as_text=True)[:400]
+    supplier = db.session.get(Supplier, Office.query.filter_by(name=name).one().supplier_id)
+    deposit = db.session.get(SafeBox, supplier.default_safe_box_id).account_id
+    held = live_balances_by_account_ids([deposit])[deposit]
+    assert all(abs(float(held.get(f'{k}k') or 0)) < 1e-9 for k in (18, 21, 22, 24)), 'not on the deposit'
+    cash_account = db.session.get(Account, supplier.account_id)
+    trade = live_balances_by_account_ids([cash_account.id, cash_account.memo_account_id])
+    assert float(trade[cash_account.id]['cash']) == -1000.0
+    assert sum(float(trade[cash_account.memo_account_id].get(f'{k}k') or 0) for k in (18, 21, 22, 24)) < 0

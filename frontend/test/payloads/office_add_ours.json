@@ -1,0 +1,20 @@
+{
+  "active": true,
+  "address_line_1": "",
+  "address_line_2": "",
+  "city": "",
+  "contact_person": "أبو سعد",
+  "country": "Saudi Arabia",
+  "email": "",
+  "gold_safe_link_mode": "new",
+  "license_number": "",
+  "name": "مكتب جديد",
+  "notes": "",
+  "opening_balance_cash": 1000.0,
+  "opening_balance_gold_main_karat": 50.0,
+  "phone": "0500000002",
+  "postal_code": "",
+  "state": "",
+  "supplier_link_mode": "new",
+  "tax_number": ""
+}
