@@ -34,7 +34,8 @@ class _AccountLedgerScreenState extends State<AccountLedgerScreen> {
   String? _errorMessage;
   String currencySymbol = '';
   int currencyDecimalPlaces = 2;
-  int mainKarat = 21;
+  // The settings' main karat from the start -- never a fixed one.
+  late int mainKarat = context.read<SettingsProvider>().mainKarat;
 
   @override
   void initState() {

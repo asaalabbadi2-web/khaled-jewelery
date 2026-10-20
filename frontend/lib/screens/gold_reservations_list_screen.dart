@@ -29,7 +29,8 @@ class _GoldReservationsListScreenState
     extends State<GoldReservationsListScreen> {
   final DateFormat _dateFormatter = DateFormat('yyyy-MM-dd HH:mm');
 
-  int _mainKarat = 21;
+  // The settings' main karat from the start -- never a fixed one.
+  late int _mainKarat = context.read<SettingsProvider>().mainKarat;
 
   bool _isLoading = false;
   List<Map<String, dynamic>> _reservations = [];

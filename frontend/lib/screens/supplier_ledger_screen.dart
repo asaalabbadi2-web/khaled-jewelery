@@ -38,7 +38,8 @@ class _SupplierLedgerScreenState extends State<SupplierLedgerScreen> {
   final int _perPage = 50;
 
   int _currencyDecimals = 2;
-  int _mainKarat = 21;
+  // The settings' main karat from the start -- never a fixed one.
+  late int _mainKarat = context.read<SettingsProvider>().mainKarat;
   late NumberFormat _cashFormatter;
   late NumberFormat _goldFormatter;
 

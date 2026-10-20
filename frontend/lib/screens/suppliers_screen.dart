@@ -42,7 +42,8 @@ class SuppliersScreenState extends State<SuppliersScreen> {
   bool _sortAscending = true;
   _SuppliersViewMode _viewMode = _SuppliersViewMode.cards;
 
-  int _mainKarat = 21;
+  // The settings' main karat from the start -- never a fixed one.
+  late int _mainKarat = context.read<SettingsProvider>().mainKarat;
   double _topChromeHeight = 0;
   double _topChromeCollapseOffset = 0;
 

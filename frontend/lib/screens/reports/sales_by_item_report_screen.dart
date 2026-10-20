@@ -36,7 +36,8 @@ class _SalesByItemReportScreenState extends State<SalesByItemReportScreen> {
 
   String _currencySymbol = '';
   int _currencyDecimals = 2;
-  int _mainKarat = 21;
+  // The settings' main karat from the start -- never a fixed one.
+  late int _mainKarat = context.read<SettingsProvider>().mainKarat;
 
   late NumberFormat _currencyFormat;
   late NumberFormat _weightFormat;

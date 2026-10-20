@@ -54,7 +54,8 @@ class _JournalEntriesListScreenState extends State<JournalEntriesListScreen>
   String? _error;
 
   int _currencyDecimalPlaces = 2;
-  int _mainKarat = 21;
+  // The settings' main karat from the start -- never a fixed one.
+  late int _mainKarat = context.read<SettingsProvider>().mainKarat;
 
   int _currentPage = 1;
   int _totalPages = 1;

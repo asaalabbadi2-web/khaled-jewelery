@@ -222,7 +222,8 @@ class _AddEditJournalEntryScreenState extends State<AddEditJournalEntryScreen> {
   // JE will NOT create a SafeBoxTransaction (server-side guard).  Show a warning.
   final Set<int> _safeBoxAccountIds = {};
   final List<int> _supportedKarats = [18, 21, 22, 24];
-  int _mainKarat = 21;
+  // The settings' main karat from the start -- never a fixed one.
+  late int _mainKarat = context.read<SettingsProvider>().mainKarat;
   int _currencyDecimalPlaces = 2;
   bool _settingsSynced = false;
   bool _calculatingTotals = false;

@@ -569,7 +569,7 @@ class _SafeBoxesScreenState extends State<SafeBoxesScreen> {
       );
     }
 
-    final mainKarat = (_overview?.mainKarat ?? 21).round();
+    final mainKarat = (_overview?.mainKarat ?? context.read<SettingsProvider>().mainKarat).round();
     return Wrap(
       key: const Key('safes-summary'),
       spacing: 8,

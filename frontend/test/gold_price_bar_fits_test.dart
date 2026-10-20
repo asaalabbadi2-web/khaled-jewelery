@@ -26,6 +26,7 @@ Future<void> _pump(WidgetTester tester, ThemeData theme, double width) async {
         textDirection: TextDirection.rtl,
         child: Scaffold(
           body: GoldPriceBar(
+            mainKarat: 21,
             goldPrice: 4161.86,
             goldPriceOpening: 4160.01,
             // Relative to now: a fixed date became «older than a day» on 16

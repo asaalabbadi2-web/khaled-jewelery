@@ -94,7 +94,8 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
   bool _isLoading = true;
   bool _isSaving = false;
 
-  int _mainKarat = 21;
+  // The settings' main karat from the start -- never a fixed one.
+  late int _mainKarat = context.read<SettingsProvider>().mainKarat;
   int _decimalPlaces = 2;
   String _dateFormat = 'DD/MM/YYYY';
 
@@ -291,7 +292,10 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
 
       setState(() {
         _isInitialized = true;
-        _mainKarat = _safeInt(settings['main_karat'], fallback: 21);
+        _mainKarat = _safeInt(
+          settings['main_karat'],
+          fallback: context.read<SettingsProvider>().mainKarat,
+        );
         _decimalPlaces = _safeInt(
           settings['decimal_places'],
           fallback: 2,

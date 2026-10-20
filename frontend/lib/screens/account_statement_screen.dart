@@ -372,7 +372,7 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
     if (_statement == null) return;
 
     setState(() {
-      final mainKarat = (_statement?.mainKarat ?? 21).toDouble();
+      final mainKarat = (_statement?.mainKarat ?? context.read<SettingsProvider>().mainKarat).toDouble();
       final query = _searchController.text.trim().toLowerCase();
       final bounds = _dateRange == null ? null : statementRangeBounds(_dateRange!);
 
@@ -1002,7 +1002,7 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
     final totals = _periodDebitCreditTotals();
     final summary = StringBuffer()
       ..writeln('كشف حساب: ${widget.accountName}')
-      ..writeln('عيار أساسي: ${statement.mainKarat}')
+      ..writeln('عيار أساسي: ${statement.mainKarat ?? context.read<SettingsProvider>().mainKarat}')
       ..writeln('رصيد افتتاحي ذهب: ${cu.formatGrams(period.openingGold)}')
       ..writeln('رصيد افتتاحي نقد: ${cu.formatAmount(period.openingCash)}')
       ..writeln('إجمالي ذهب مدين: ${cu.formatGrams(totals.goldDebit)}')
@@ -1077,7 +1077,7 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
   Widget _buildStatementContent() {
     final isCard = _displayMode == _StatementDisplayMode.cards;
     final filteredLines = _filteredLines;
-    final mainKarat = (_statement?.mainKarat ?? 21).toDouble();
+    final mainKarat = (_statement?.mainKarat ?? context.read<SettingsProvider>().mainKarat).toDouble();
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -1320,7 +1320,7 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
 
     List<Widget> figures(double gold, double cash, {bool movement = false}) => [
           if (showGold)
-            _summaryLine('ذهب ع${statement.mainKarat}', _withSide(gold, _goldFmt, 'جم', movement: movement), tones.gold.fg),
+            _summaryLine('ذهب ع${statement.mainKarat ?? context.read<SettingsProvider>().mainKarat}', _withSide(gold, _goldFmt, 'جم', movement: movement), tones.gold.fg),
           if (showCash)
             _summaryLine(statement.isMerged ? 'قيمة' : 'نقد', _withSide(cash, _cashFmt, currency, movement: movement),
                 tones.cash.fg, cash: true),
@@ -1363,7 +1363,7 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
         lines: [
           if (value != null) _summaryLine('القيمة', '${ltrIsolate(_cashFmt.format(value))} $currency', tones.cash.fg, cash: true),
           if (price > 0)
-            _summaryLine('جرام ع${statement.mainKarat}', '${ltrIsolate(_cashFmt.format(price))} $currency', tones.gold.fg,
+            _summaryLine('جرام ع${statement.mainKarat ?? context.read<SettingsProvider>().mainKarat}', '${ltrIsolate(_cashFmt.format(price))} $currency', tones.gold.fg,
                 cash: true),
         ],
         // §13: a live price, not a frozen figure of the statement.
@@ -1640,7 +1640,7 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
 
   Widget _buildStatementTableIn(double available) {
     final theme = Theme.of(context);
-    final mainKarat = (_statement?.mainKarat ?? 21).toDouble();
+    final mainKarat = (_statement?.mainKarat ?? context.read<SettingsProvider>().mainKarat).toDouble();
     final cashLabel = (_statement?.isMerged ?? false) ? 'القيمة' : 'النقد';
     final fit = fitTableColumns({
       'date': const AppTableColumn(120),
@@ -3013,11 +3013,11 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
                 const Divider(height: 24),
                 if (_viewMode != 2) ...[
                   _buildDetailsRow(
-                    'ذهب مدين (عيار ${_statement!.mainKarat})',
+                    'ذهب مدين (عيار ${_statement!.mainKarat ?? context.read<SettingsProvider>().mainKarat})',
                     cu.formatGrams(line.goldDebit),
                   ),
                   _buildDetailsRow(
-                    'ذهب دائن (عيار ${_statement!.mainKarat})',
+                    'ذهب دائن (عيار ${_statement!.mainKarat ?? context.read<SettingsProvider>().mainKarat})',
                     cu.formatGrams(line.goldCredit),
                   ),
                   const SizedBox(height: 12),
@@ -3050,7 +3050,7 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
                     ),
                   if (line.runningGoldBalance != null)
                     _buildDetailsRow(
-                      'الرصيد الذهبي (عيار ${_statement!.mainKarat})',
+                      'الرصيد الذهبي (عيار ${_statement!.mainKarat ?? context.read<SettingsProvider>().mainKarat})',
                       cu.formatGrams(line.runningGoldBalance!),
                     ),
                 ],
@@ -3117,10 +3117,10 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
     if (_viewMode != 2) {
       buffer
         ..writeln(
-          'ذهب مدين (عيار ${_statement!.mainKarat}): ${cu.formatGrams(line.goldDebit)}',
+          'ذهب مدين (عيار ${_statement!.mainKarat ?? context.read<SettingsProvider>().mainKarat}): ${cu.formatGrams(line.goldDebit)}',
         )
         ..writeln(
-          'ذهب دائن (عيار ${_statement!.mainKarat}): ${cu.formatGrams(line.goldCredit)}',
+          'ذهب دائن (عيار ${_statement!.mainKarat ?? context.read<SettingsProvider>().mainKarat}): ${cu.formatGrams(line.goldCredit)}',
         );
     }
 

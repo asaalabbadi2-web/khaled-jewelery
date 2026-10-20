@@ -30,7 +30,8 @@ class _GeneralLedgerScreenV2State extends State<GeneralLedgerScreenV2> {
   bool _isLoading = false;
   String? _errorMessage;
   int _currencyDecimalPlaces = 2;
-  int _mainKarat = 21;
+  // The settings' main karat from the start -- never a fixed one.
+  late int _mainKarat = context.read<SettingsProvider>().mainKarat;
 
   // Pagination
   int _currentPage = 1;

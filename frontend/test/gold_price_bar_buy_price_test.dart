@@ -17,6 +17,7 @@ void main() {
           textDirection: TextDirection.rtl,
           child: Scaffold(
             body: GoldPriceBar(
+              mainKarat: 21,
               goldPrice: 4161.86,
               goldPriceOpening: 4160.01,
               pricesPerGram: {

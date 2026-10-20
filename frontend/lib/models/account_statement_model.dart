@@ -7,7 +7,9 @@ class AccountStatement {
   final double closingBalanceGoldNormalized;
   final double closingBalanceCash;
   final Map<String, double> closingBalanceGoldDetails;
-  final int mainKarat;
+  /// The statement's main karat as the server sent it; the screen reads the
+  /// settings' when it did not -- never a fixed one.
+  final int? mainKarat;
   final double totalDebitGold;
   final double totalCreditGold;
   final double totalDebitCash;
@@ -52,7 +54,7 @@ class AccountStatement {
     required this.closingBalanceGoldNormalized,
     required this.closingBalanceCash,
     required this.closingBalanceGoldDetails,
-    required this.mainKarat,
+    this.mainKarat,
     required this.totalDebitGold,
     required this.totalCreditGold,
     required this.totalDebitCash,
@@ -155,7 +157,7 @@ class AccountStatement {
                 MapEntry(key, (value is num) ? value.toDouble() : 0.0),
           ) ??
           {},
-      mainKarat: json['main_karat'] ?? 21,
+      mainKarat: json['main_karat'] as int?,
       totalDebitGold:
           json['totals']?['gold_debit_normalized']?.toDouble() ?? 0.0,
       totalCreditGold:

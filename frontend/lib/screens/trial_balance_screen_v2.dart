@@ -29,7 +29,8 @@ class _TrialBalanceScreenV2State extends State<TrialBalanceScreenV2> {
 
   // Settings
   int _currencyDecimalPlaces = 2;
-  int _mainKarat = 21;
+  // The settings' main karat from the start -- never a fixed one.
+  late int _mainKarat = context.read<SettingsProvider>().mainKarat;
 
   String get _currencySymbol =>
       context.read<SettingsProvider>().currencySymbolText;

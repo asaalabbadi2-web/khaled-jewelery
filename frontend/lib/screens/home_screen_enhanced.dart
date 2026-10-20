@@ -126,7 +126,8 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
   double exchangeRate = 3.75; // سعر الصرف الافتراضي (دولار -> ريال سعودي)
   String currencySymbol = 'ر.س';
   int currencyDecimalPlaces = 2;
-  int mainKarat = 21;
+  // The settings' main karat from the start -- never a fixed one.
+  late int mainKarat = context.read<SettingsProvider>().mainKarat;
 
   // Gold display toggle: true = persistent bar under AppBar, false = scrolling ticker
   final bool _goldBarMode = true;

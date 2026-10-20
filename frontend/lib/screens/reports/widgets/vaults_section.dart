@@ -4,10 +4,13 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_staggered_animations/flutter_staggered_animations.dart';
 import 'package:intl/intl.dart' hide TextDirection;
+import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../../api_service.dart';
 import '../../../../theme/app_theme.dart';
+import '../../../../providers/settings_provider.dart';
+import '../../../../utils/party_balance.dart';
 import '../../safe_boxes_screen.dart';
 import '../safe_box_hero_details_screen.dart';
 
@@ -301,11 +304,14 @@ class _VaultsSectionState extends State<VaultsSection> {
     final totalMain = _asDouble(sb['total_weight_main_karat']);
     final hasWeightBreakdown = sb['weight_balance'] is Map;
     final mainKaratFromApi = _asInt(sb['main_karat']);
-    final displayMainKarat = mainKaratFromApi > 0 ? mainKaratFromApi : 21;
+    final displayMainKarat = mainKaratFromApi > 0
+        ? mainKaratFromApi
+        : context.read<SettingsProvider>().mainKarat;
 
     double totalMainFallback() {
-      final mk = displayMainKarat <= 0 ? 21.0 : displayMainKarat.toDouble();
-      return (w18 * (18.0 / mk)) + w21 + (w22 * (22.0 / mk)) + (w24 * (24.0 / mk));
+      // Every karat by its fineness -- 21 too: it was added as it was, as if
+      // the main karat were always 21.
+      return goldInMainKarat({18: w18, 21: w21, 22: w22, 24: w24}, displayMainKarat);
     }
 
     final totalMainEffective = totalMain > 0

@@ -29,7 +29,7 @@ class GoldPriceBar extends StatelessWidget {
     this.goldPriceOpening,
     this.goldPriceDate,
     this.exchangeRate = 3.75,
-    this.mainKarat = 21,
+    required this.mainKarat,
     this.isUpdating = false,
     this.onRefresh,
     this.sparklinePoints = const [],

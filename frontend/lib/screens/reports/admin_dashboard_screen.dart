@@ -11,6 +11,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../api_service.dart';
 import '../../app_events.dart';
 import '../../providers/settings_provider.dart';
+import '../../utils/party_balance.dart';
 import '../../utils/currency_utils.dart' as cu;
 import '../../theme/app_semantic_colors.dart';
 import '../../theme/app_theme.dart';
@@ -2126,11 +2127,14 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     final totalMain = _asDouble(sb['total_weight_main_karat']);
     final hasWeightBreakdown = sb['weight_balance'] is Map;
     final mainKaratFromApi = _asInt(sb['main_karat']);
-    final displayMainKarat = mainKaratFromApi > 0 ? mainKaratFromApi : 21;
+    final displayMainKarat = mainKaratFromApi > 0
+        ? mainKaratFromApi
+        : context.read<SettingsProvider>().mainKarat;
 
     double totalMainFallback() {
-      final mk = displayMainKarat <= 0 ? 21.0 : displayMainKarat.toDouble();
-      return (w18 * (18.0 / mk)) + w21 + (w22 * (22.0 / mk)) + (w24 * (24.0 / mk));
+      // Every karat by its fineness -- 21 too: it was added as it was, as if
+      // the main karat were always 21.
+      return goldInMainKarat({18: w18, 21: w21, 22: w22, 24: w24}, displayMainKarat);
     }
 
     final totalMainEffective = (totalMain > 0)

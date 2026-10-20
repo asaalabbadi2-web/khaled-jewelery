@@ -3477,7 +3477,9 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
         result.add(
           PurchaseInlineItem(
             name: name,
-            karat: karat <= 0 ? 21 : karat,
+            karat: karat <= 0
+                ? context.read<SettingsProvider>().mainKarat.toDouble()
+                : karat,
             weightGrams: weightPerUnit,
             wagePerGram: wagePerGram,
             description: (description == null || description.trim().isEmpty)
