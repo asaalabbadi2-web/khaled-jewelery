@@ -14,10 +14,14 @@ class GoldReservationScreen extends StatefulWidget {
   final ApiService api;
   final bool isArabic;
 
+  /// The office it opens on -- from that office's «حجز جديد».
+  final int? initialOfficeId;
+
   const GoldReservationScreen({
     super.key,
     required this.api,
     this.isArabic = true,
+    this.initialOfficeId,
   });
 
   @override
@@ -31,7 +35,9 @@ class _GoldReservationScreenState extends State<GoldReservationScreen> {
   DateTime _reservationDate = DateTime.now();
   int? _selectedOfficeId; // معرف المكتب المحجوز منه
   String? _selectedOfficeName; // اسم المكتب
-  int _selectedKarat = 24; // العيار (افتراضي 24 للذهب الخام)
+  // The main karat until the server says it -- most reservations are in it
+  // (the owner, 19 Oct 2026); 24 was a guess.
+  int _selectedKarat = 21;
   double _weight = 0.0; // الوزن بالجرام
   double _pricePerGram = 0.0; // السعر للجرام الواحد
   double _totalAmount = 0.0; // المبلغ الإجمالي
@@ -58,6 +64,11 @@ class _GoldReservationScreenState extends State<GoldReservationScreen> {
   int? _selectedPaymentMethodId;
   bool _isLoading = false;
   double _currentGoldPrice = 0.0;
+
+  /// The office's price per gram by karat -- the server's sell price
+  /// (prices_per_gram), not one computed here from the ounce and a written
+  /// exchange rate. The price field follows the karat chosen.
+  Map<int, double> _karatPrices = const {};
   int? _selectedSupplierId;
 
   String get _currencySymbol =>
@@ -90,14 +101,23 @@ class _GoldReservationScreenState extends State<GoldReservationScreen> {
     try {
       // تحميل سعر الذهب الحالي
       final goldPriceResponse = await widget.api.getGoldPrice();
-      if (goldPriceResponse['price_usd_per_oz'] != null) {
-        final pricePerOz = (goldPriceResponse['price_usd_per_oz'] as num)
-            .toDouble();
-        // تحويل من أونصة إلى جرام (1 أونصة = 31.1035 جرام)
-        // وتحويل من دولار إلى $_currencySymbol (افترض سعر صرف 3.75)
+      final perGram = goldPriceResponse['prices_per_gram'];
+      if (perGram is Map) {
+        final prices = <int, double>{
+          for (final e in perGram.entries)
+            if (int.tryParse('${e.key}') != null &&
+                e.value is Map &&
+                (e.value as Map)['sell'] is num)
+              int.parse('${e.key}'): ((e.value as Map)['sell'] as num)
+                  .toDouble(),
+        };
+        final main = goldPriceResponse['main_karat'];
         setState(() {
-          _currentGoldPrice = (pricePerOz / 31.1035) * 3.75;
-          _priceController.text = _currentGoldPrice.toStringAsFixed(2);
+          _karatPrices = prices;
+          if (main is num && prices.containsKey(main.toInt())) {
+            _selectedKarat = main.toInt();
+          }
+          _applyKaratPrice();
         });
       }
 
@@ -131,6 +151,9 @@ class _GoldReservationScreenState extends State<GoldReservationScreen> {
         _offices = offices.cast<Map<String, dynamic>>();
         _cashBankSafeBoxes = cashBankSafes;
         _paymentMethods = paymentMethods.cast<Map<String, dynamic>>();
+        if (widget.initialOfficeId != null && _selectedOfficeId == null) {
+          _selectOffice(widget.initialOfficeId);
+        }
       });
     } catch (e) {
       _showMessage('خطأ في تحميل البيانات: $e', isError: true);
@@ -166,6 +189,28 @@ class _GoldReservationScreenState extends State<GoldReservationScreen> {
     final raw = found.first['default_safe_box_id'];
     if (raw == null) return null;
     return raw is int ? raw : int.tryParse(raw.toString());
+  }
+
+  /// The office chosen, and what goes with it: its supplier and contact.
+  void _selectOffice(int? value) {
+    final selectedOffice = _offices.firstWhere(
+      (o) => o['id'] == value,
+      orElse: () => <String, dynamic>{},
+    );
+    if (selectedOffice.isEmpty) return;
+    _selectedOfficeId = value;
+    _selectedOfficeName = selectedOffice['name'];
+    _contactPersonController.text = selectedOffice['contact_person'] ?? '';
+    _contactPhoneController.text = selectedOffice['phone'] ?? '';
+    _selectedSupplierId = selectedOffice['supplier_id'] as int?;
+  }
+
+  /// The chosen karat's price into the price field (the total follows it).
+  void _applyKaratPrice() {
+    final price = _karatPrices[_selectedKarat];
+    if (price == null) return;
+    _currentGoldPrice = price;
+    _priceController.text = price.toStringAsFixed(2);
   }
 
   // Weight changed → recompute total from price (price is the source of truth)
@@ -444,8 +489,8 @@ class _GoldReservationScreenState extends State<GoldReservationScreen> {
                               children: [
                                 Text(
                                   isAr
-                                      ? 'سعر الذهب الحالي'
-                                      : 'Current Gold Price',
+                                      ? 'سعر عيار $_selectedKarat الآن'
+                                      : 'Karat $_selectedKarat price now',
                                   style: theme.textTheme.labelSmall,
                                 ),
                                 context.read<SettingsProvider>().buildText(
@@ -521,22 +566,8 @@ class _GoldReservationScreenState extends State<GoldReservationScreen> {
                                   child: Text(office['name'] ?? ''),
                                 );
                               }).toList(),
-                              onChanged: (value) {
-                                setState(() {
-                                  _selectedOfficeId = value;
-                                  final selectedOffice = _offices.firstWhere(
-                                    (o) => o['id'] == value,
-                                    orElse: () => {},
-                                  );
-                                  _selectedOfficeName = selectedOffice['name'];
-                                  _contactPersonController.text =
-                                      selectedOffice['contact_person'] ?? '';
-                                  _contactPhoneController.text =
-                                      selectedOffice['phone'] ?? '';
-                                  _selectedSupplierId =
-                                      selectedOffice['supplier_id'] as int?;
-                                });
-                              },
+                              onChanged: (value) =>
+                                  setState(() => _selectOffice(value)),
                               validator: (value) {
                                 if (value == null) {
                                   return isAr
@@ -604,6 +635,8 @@ class _GoldReservationScreenState extends State<GoldReservationScreen> {
                             const SizedBox(height: 16),
                             // العيار
                             DropdownButtonFormField<int>(
+                              // Rebuilt when the main karat arrives from the server.
+                              key: ValueKey('reservation-karat-$_selectedKarat'),
                               initialValue: _selectedKarat,
                               decoration: InputDecoration(
                                 labelText: isAr ? 'العيار' : 'Karat',
@@ -619,7 +652,10 @@ class _GoldReservationScreenState extends State<GoldReservationScreen> {
                                 );
                               }).toList(),
                               onChanged: (value) {
-                                setState(() => _selectedKarat = value!);
+                                setState(() {
+                                  _selectedKarat = value!;
+                                  _applyKaratPrice();
+                                });
                               },
                             ),
                             const SizedBox(height: 12),

@@ -475,8 +475,13 @@ class TestRetractionReleasesGoldEvidence:
         def body(fn):
             return inspect.getsource(fn)
 
-        assert 'release_invoice_gold_evidence' in body(invoices.reject_invoice), \
-            'reject_invoice does not release the invoice gold evidence'
+        # The reject route's body is services/invoice_rejection.reject_invoice_document
+        # since the execution's undoing shares it (ADR-052): the route calls it, it releases.
+        from services import invoice_rejection
+        assert 'reject_invoice_document' in body(invoices.reject_invoice), \
+            'reject_invoice does not reject by the one rejection'
+        assert 'release_invoice_gold_evidence' in body(invoice_rejection.reject_invoice_document), \
+            'the one rejection does not release the invoice gold evidence'
         assert 'release_invoice_gold_evidence' in body(posting_routes.unpost_invoice_document), \
             'unpost_invoice_document does not release the invoice gold evidence'
         for route in (invoices.unpost_invoice, posting_routes.unpost_invoice, posting_routes.unpost_invoices_batch):

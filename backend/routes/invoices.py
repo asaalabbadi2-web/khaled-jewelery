@@ -189,6 +189,7 @@ def pending_post_invoices():
                 'id': inv.id,
                 'invoice_number': inv.invoice_number,
                 'invoice_type': inv_type,
+                'invoice_type_label': _invoice_type_label(inv_type, office_id=getattr(inv, 'office_id', None)),
                 'total_amount': float(inv.total or 0),
                 'party_name': party_name,
                 'created_by_name': creator,
@@ -302,6 +303,7 @@ def pending_actions():
                 'id': inv.id,
                 'invoice_number': inv.invoice_number,
                 'invoice_type': inv_type,
+                'invoice_type_label': _invoice_type_label(inv_type, office_id=getattr(inv, 'office_id', None)),
                 'total_amount': float(inv.total or 0),
                 'party_name': party_name,
                 'created_by_name': creator,
@@ -2208,84 +2210,12 @@ def reject_invoice(invoice_id: int):
     try:
         rejected_by = getattr(getattr(g, 'current_user', None), 'username', None)
 
-        from routes.office_reservations import reverse_office_reservation_settlement_for_invoice
-
-        # ── التراجع الكامل عن آثار settle_office_reservation المحاسبية
-        # (قيد الشراء + استهلاك weight-closing + ربط سند العربون) — يجب أن
-        # يسبق تصفير purchase_invoice_id، لأن هذا الاستدعاء نفسه يحتاج أن
-        # يجد الحجز عبره أولاً. عملية واحدة ذرّية ضمن هذه المعاملة نفسها.
-        reverse_office_reservation_settlement_for_invoice(invoice, created_by=rejected_by)
-
-        # ── إعادة الحجز المرتبط إلى pending ────────────────────────────────
-        linked_reservation = OfficeReservation.query.filter_by(
-            purchase_invoice_id=invoice_id
-        ).first()
-        if linked_reservation:
-            linked_reservation.purchase_invoice_id = None
-            linked_reservation.status = 'pending'
-            db.session.add(linked_reservation)
-
-        # ── لا رفض والسداد قائم ──────────────────────────────────────────────
-        # Asked HERE, after the office-reservation reversal above: that reversal
-        # deletes the deposit's InvoicePayment and retags the deposit voucher
-        # itself (Phase 8E), so what remains is exactly what rejecting would
-        # leave dangling. Refusal rolls the whole transaction back, 8E included.
-        # Incidents 3123/3132: see services/invoice_retraction_guard.py.
-        db.session.flush()
-        from services.invoice_retraction_guard import (
-            draft_payments_of, live_payments_message, live_payments_of,
-        )
-        # An unposted invoice's own payments -- no voucher, no safe-box row --
-        # are part of its draft and go with it (ADR-034; RETRACT-001, the
-        # owner's decision of 1 Oct 2026). Named in the audit row below. Asked
-        # before the guard, so what it refuses on is only what is real; a
-        # refusal rolls back, and these come back with it.
-        withdrawn = [{'payment_id': p.id, 'amount': float(p.amount or 0),
-                      'payment_method_id': p.payment_method_id} for p in draft_payments_of(invoice)]
-        for p in draft_payments_of(invoice):
-            db.session.delete(p)
-        db.session.flush()
-        standing = live_payments_of(invoice_id)
-        if standing:
+        from services.invoice_rejection import reject_invoice_document
+        result = reject_invoice_document(invoice, by=rejected_by, now=datetime.now())
+        if 'refusal' in result:
             db.session.rollback()
-            return jsonify({
-                'error': 'has_live_payments',
-                'message': live_payments_message('رفض', standing),
-                'payments': standing,
-            }), 409
-
-        # ── أمر التسكير: الفاتورة لم تبقَ قائمة، فلا يُسكَّر ذهب على بيعها ──
-        # Rejected 2821, 3123 and 3303 kept theirs open -- 5,706 g waiting to
-        # take real purchases and book a cost of sale for sales that never were.
-        from services.invoice_retraction_guard import (
-            closing_executions_message, closing_executions_of, withdraw_closing_order,
-        )
-        closed = closing_executions_of(invoice_id)
-        if closed > 0:
-            db.session.rollback()
-            return jsonify({'error': 'has_closing_executions',
-                            'message': closing_executions_message('رفض', closed)}), 409
-        withdraw_closing_order(invoice)
-
-        # ── سحب دليل الذهب: الفاتورة لم تبقَ قائمة ─────────────────────────
-        # النسب تُحذف (الذهب سُلّم فعلًا ويبقى سنده، لكن نسبته لهذه الفاتورة
-        # صارت دعوى غير صحيحة فيعود «غير منسوب»)، والتخصيصات تُحرَّر، وصفوف
-        # الالتزام تبقى — سجل ADR-028 الثابت.
-        from services.gold_allocation_service import release_invoice_gold_evidence
-        release_invoice_gold_evidence(invoice_id)
-
-        # ── A rejected invoice is an unposted one: its entries stay drafts and
-        # count nowhere (ADR-034), and its approval alert is answered.
-        from models import SystemAlert
-        for je in JournalEntry.query.filter_by(reference_type='invoice', reference_id=invoice_id).all():
-            je.is_posted = False
-            je.is_draft = True
-        SystemAlert.query.filter_by(entity_type='Invoice', entity_id=invoice_id, is_reviewed=False).update(
-            {'is_reviewed': True, 'reviewed_by': rejected_by, 'reviewed_at': datetime.now()},
-            synchronize_session=False)
-        if withdrawn:
-            from services.invoice_payment_state_service import InvoicePaymentStateService
-            InvoicePaymentStateService().recompute(invoice)
+            return jsonify(result['refusal']), 409
+        linked_reservation, withdrawn = result['reservation'], result['withdrawn']
 
         # ── وضع علامة رفض على الفاتورة ─────────────────────────────────────
         invoice.status = 'rejected'

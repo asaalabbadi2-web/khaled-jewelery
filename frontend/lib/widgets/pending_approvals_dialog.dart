@@ -154,8 +154,8 @@ class _PendingApprovalsDialogState extends State<PendingApprovalsDialog> {
             const SizedBox(height: 8),
             Text(
               isAr
-                  ? 'سيتم إنشاء فاتورة شراء وإرسالها للاعتماد.'
-                  : 'A purchase invoice will be created for approval.',
+                  ? 'يدخل الذهب وديعة المكتب، ويصبح المتبقي من الثمن دينًا له، وتُعتمد فاتورة الشراء.'
+                  : 'The gold enters the office deposit, the rest is owed, the purchase is approved.',
               style: TextStyle(
                 fontFamily: 'Cairo',
                 fontSize: 12,
@@ -208,8 +208,8 @@ class _PendingApprovalsDialogState extends State<PendingApprovalsDialog> {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content: Text(
             isAr
-                ? 'تم تنفيذ التسوية — الفاتورة بانتظار الاعتماد'
-                : 'Settlement executed — invoice awaiting approval',
+                ? 'نُفّذ الحجز — الذهب في وديعة المكتب والفاتورة معتمدة'
+                : 'Executed — the gold is in the office deposit, the invoice approved',
             style: TextStyle(fontFamily: 'Cairo', color: _cs.onPrimary),
           ),
           backgroundColor: _tone.ready.fg,
@@ -1131,7 +1131,11 @@ class _PendingApprovalsDialogState extends State<PendingApprovalsDialog> {
     final createdBy = (invoice['created_by_name'] ?? '—').toString();
     final createdAt = invoice['created_at']?.toString();
 
-    final (typeLabel, typeColor) = _getTypeInfo(type, isAr);
+    final (guessedLabel, typeColor) = _getTypeInfo(type, isAr);
+    // The server's name -- «شراء كسر من مكتب» for an office's purchase, which
+    // the type alone read «شراء جديد».
+    final serverLabel = (invoice['invoice_type_label'] ?? '').toString();
+    final typeLabel = isAr && serverLabel.isNotEmpty ? serverLabel : guessedLabel;
     final relativeTime = _formatRelativeTime(createdAt, isAr);
 
     return AnimatedOpacity(

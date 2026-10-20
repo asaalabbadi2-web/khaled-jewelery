@@ -215,3 +215,16 @@ def test_a_deposit_shows_what_is_owed_to_its_office(auth_headers, office):
     row = next(r for r in resp.get_json()['rows'] if r['id'] == supplier.default_safe_box_id)
     assert row['office_cash'] == -4000.0
     assert all('office_cash' not in r for r in resp.get_json()['rows'] if r.get('stock_location') != 'deposit')
+
+
+def test_the_offices_list_shows_each_deposit(auth_headers, office):
+    """The offices screen read the supplier's weight account alone: Al-Raqi
+    showed «0.000 g» with 396.6 g of ours in its deposit (19 Oct 2026)."""
+    make_deposits(by='owner', now=NOW)
+    g.pop('current_user', None)
+    resp = flask_app.test_client().get('/api/offices', headers=auth_headers)
+    assert resp.status_code == 200
+    row = next(o for o in resp.get_json() if o['id'] == office['office'].id)
+    assert row['deposit']['weight']['21k'] == 396.6
+    assert row['deposit']['main_karat_total'] > 0
+    assert row['deposit']['name'].startswith('ذهب مودع لدى')

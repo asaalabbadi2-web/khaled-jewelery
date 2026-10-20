@@ -37,7 +37,6 @@ WRITERS = {
     'posting_routes.py::unpost_journal_entry': 1,
     'posting_routes.py::unpost_journal_entries_batch': 1,
     'routes/invoices.py::add_invoice': 6,
-    'routes/invoices.py::reject_invoice': 1,
     'routes/journals.py::add_journal_entry': 1,
     'routes/journals.py::delete_journal_entry': 1,
     'routes/journals.py::soft_delete_journal_entry': 1,
@@ -45,6 +44,9 @@ WRITERS = {
     'routes/vouchers.py::create_voucher': 1,
     'accounting/voucher_engine.py::create_journal_entry_from_voucher': 1,
     'accounting/voucher_engine.py::post_entry_of_approved_voucher': 1,
+    # The one rejection (ADR-052): moved out of routes/invoices.py::reject_invoice,
+    # shared with the undoing of an execution -- it drafts the invoice's entries.
+    'services/invoice_rejection.py::reject_invoice_document': 1,
     'services/supplier_settlement_adjustment_service.py::SupplierSettlementAdjustmentService._build_and_post_voucher': 1,
     # repair tools -- for REPAIR-001 (stage 4), not grown meanwhile
     'posting_routes.py::sync_orphan_journal_entries': 2,

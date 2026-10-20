@@ -195,6 +195,26 @@ def _create_opening_entry_for_supplier(
             )
 
 
+def _deposits_by_supplier(suppliers) -> dict:
+    """{supplier id: its office's deposit} -- our gold held there (ADR-052), from
+    the ledger: the safe, grams per karat and their main-karat total. The
+    supplier balance beside it is the trade: what is owed either way."""
+    from pricing.karat_service import convert_to_main_karat
+    from services.office_deposits import deposit_of
+    found = {s.id: deposit_of(s) for s in suppliers}
+    found = {sid: safe for sid, safe in found.items() if safe is not None}
+    if not found:
+        return {}
+    live = live_balances_by_account_ids({safe.account_id for safe in found.values()})
+    out = {}
+    for sid, safe in found.items():
+        bal = live.get(safe.account_id) or {}
+        grams = {f'{k}k': round(float(bal.get(f'{k}k') or 0.0), 3) for k in (18, 21, 22, 24)}
+        out[sid] = {'safe_box_id': safe.id, 'name': safe.name, 'weight': grams,
+                    'main_karat_total': round(sum(convert_to_main_karat(v, int(k[:-1])) for k, v in grams.items()), 3)}
+    return out
+
+
 @offices_bp.route('', methods=['GET'])
 def get_offices():
     """
@@ -231,6 +251,7 @@ def get_offices():
         supplier_rows = Supplier.query.filter(Supplier.id.in_(list({int(x) for x in supplier_ids if x}))).all() if supplier_ids else []
         balances_by_supplier = compute_live_supplier_balances(supplier_rows) if supplier_rows else {}
         live_map = live_balances_by_account_ids(account_ids) if account_ids else {}
+        deposits = _deposits_by_supplier(supplier_rows)
 
         results = []
         for office in offices:
@@ -265,6 +286,9 @@ def get_offices():
                     data['balance_gold_21k'] = float(live.get('21k') or 0.0)
                     data['balance_gold_22k'] = float(live.get('22k') or 0.0)
                     data['balance_gold_24k'] = float(live.get('24k') or 0.0)
+
+            if data.get('supplier_id') in deposits:
+                data['deposit'] = deposits[data['supplier_id']]
 
             results.append(data)
 

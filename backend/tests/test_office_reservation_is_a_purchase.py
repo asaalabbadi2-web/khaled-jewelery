@@ -153,14 +153,62 @@ def test_settling_adds_the_bought_gold_at_the_office(auth_headers, rworld):
         'scrap_inventory': 0.0}
 
 
-def test_rejecting_the_settled_invoice_takes_the_gold_back(auth_headers, rworld):
+def _unsettle(headers, rid):
+    return flask_app.test_client().post(f'/api/office-reservations/{rid}/unsettle', headers=headers,
+                                        json={'reason': 'law'})
+
+
+def test_undoing_the_execution_takes_the_gold_back(auth_headers, rworld):
+    """«إلغاء التنفيذ» (ADR-052): the execution approves its purchase, so its
+    undoing unposts and rejects it in one operation -- the books as before, the
+    reservation open, the invoice rejected."""
+    from models import Invoice
     before = _books(rworld)
     rid = _create(auth_headers, rworld)
     invoice_id = _settle(auth_headers, rid).get_json()['purchase_invoice_id']
-    resp = flask_app.test_client().post(f'/api/invoices/{invoice_id}/reject', headers=auth_headers,
-                                        json={'reason': 'law'})
+    resp = _unsettle(auth_headers, rid)
     assert resp.status_code == 200, resp.get_data(as_text=True)[:300]
     assert _books(rworld) == before
+    db.session.expire_all()
+    reservation = db.session.get(OfficeReservation, rid)
+    assert reservation.purchase_invoice_id is None and reservation.status == 'pending'
+    invoice = db.session.get(Invoice, invoice_id)
+    assert (invoice.is_posted, invoice.status) == (False, 'rejected')
+
+
+def test_an_execution_done_again_is_undone_again(auth_headers, rworld):
+    """Undone and done again, it has two gold entries: the undoing reverses the latest."""
+    before = _books(rworld)
+    rid = _create(auth_headers, rworld)
+    assert _settle(auth_headers, rid).status_code == 200
+    assert _unsettle(auth_headers, rid).status_code == 200
+    assert _settle(auth_headers, rid).status_code == 200
+    assert _books(rworld)['office'] == round(before['office'] + GRAMS, 3)
+    assert _unsettle(auth_headers, rid).status_code == 200
+    assert _books(rworld) == before
+
+
+def test_a_deposit_spent_since_cannot_be_undone(auth_headers, rworld):
+    """The gold paid on to a supplier since: undoing would leave the deposit below zero."""
+    import datetime as dt
+    rid = _create(auth_headers, rworld)
+    assert _settle(auth_headers, rid).status_code == 200
+    je = JournalEntry(entry_number=f'JE-SP-{_uid()}', date=dt.datetime(2026, 10, 19), description='صرف من الوديعة',
+                      entry_type='عادي', is_posted=True, created_by='t')
+    db.session.add(je)
+    db.session.flush()
+    db.session.add(JournalEntryLine(journal_entry_id=je.id, account_id=rworld['office_gold'].id,
+                                    description='صرف لمورد', credit_21k=GRAMS))
+    db.session.add(JournalEntryLine(journal_entry_id=je.id, account_id=rworld['scrap'].id,
+                                    description='مقابل', debit_21k=GRAMS))
+    db.session.flush()
+    resp = _unsettle(auth_headers, rid)
+    assert resp.status_code == 409, resp.get_data(as_text=True)[:300]
+    assert resp.get_json()['error'] == 'deposit_already_used'
+    # The route rolls back its transaction -- the fence's flushed spend with it --
+    # so the books are not compared here; the execution stands.
+    db.session.expire_all()
+    assert db.session.get(OfficeReservation, rid).purchase_invoice_id is not None
 
 
 def test_a_settlement_with_no_weight_twin_is_refused(auth_headers, rworld):
@@ -204,3 +252,42 @@ def test_an_office_with_no_deposit_is_refused_by_name(auth_headers, rworld):
     db.session.expire_all()
     assert db.session.get(OfficeReservation, rid).purchase_invoice_id is None
     assert _books(rworld) == before
+
+
+def test_the_execution_approves_its_purchase(auth_headers, rworld):
+    """The owner (19 Oct 2026): the execution approves the invoice -- its gold
+    enters the deposit posted, so the purchase is not left waiting while the
+    gold is usable and the weight close cannot see it."""
+    from models import Invoice
+    rid = _create(auth_headers, rworld)
+    resp = _settle(auth_headers, rid)
+    assert resp.status_code == 200, resp.get_data(as_text=True)[:300]
+    db.session.expire_all()
+    invoice = db.session.get(Invoice, resp.get_json()['purchase_invoice_id'])
+    assert invoice.is_posted is True and invoice.posted_by
+
+
+def test_executing_needs_the_right_to_approve_invoices():
+    """Who executes approves (the owner, 19 Oct 2026): the right to approve invoices."""
+    import pathlib
+    src = (pathlib.Path(__file__).resolve().parent.parent / 'routes' / 'office_reservations.py').read_text(encoding='utf-8')
+    head = src[src.index("'/office-reservations/<int:reservation_id>/settle'"):src.index('def settle_office_reservation')]
+    assert "require_permission('invoices.approve')" in head
+
+
+def test_an_office_purchase_is_named_as_one_where_it_waits(auth_headers, rworld):
+    """The pending list named it by its type alone -- «شراء جديد» -- where the
+    owner's name is «شراء كسر من مكتب» (the invoice's own invoice_type_label)."""
+    from models import Invoice
+    import datetime as dt
+    inv = Invoice(invoice_type_id=900000 + int(uuid.uuid4().int % 99999), invoice_type='شراء',
+                  # Latest of all: the lists return their newest 50.
+                  office_id=rworld['office'].id, date=dt.datetime(2099, 1, 1), total=10.0, status='unpaid',
+                  is_posted=False)
+    db.session.add(inv)
+    db.session.flush()
+    for path, key in (('/api/invoices/pending-post', 'invoices'), ('/api/pending-actions', 'pending_invoices')):
+        resp = flask_app.test_client().get(path, headers=auth_headers)
+        assert resp.status_code == 200, (path, resp.get_data(as_text=True)[:200])
+        rows = [r for r in (resp.get_json().get(key) or []) if r['id'] == inv.id]
+        assert rows and rows[0]['invoice_type_label'] == 'شراء كسر من مكتب', (path, rows)

@@ -1102,6 +1102,22 @@ class ApiService {
     throw _apiError(response);
   }
 
+  /// «إلغاء التنفيذ» (ADR-052): the execution undone -- its gold out of the
+  /// deposit, its purchase voided, the reservation open again.
+  Future<Map<String, dynamic>> unsettleOfficeReservation(
+    int reservationId, {
+    String? reason,
+  }) async {
+    final response = await _authedPost(
+      Uri.parse('$_baseUrl/office-reservations/$reservationId/unsettle'),
+      body: json.encode({if (reason != null) 'reason': reason}),
+    );
+    if (response.statusCode == 200) {
+      return json.decode(utf8.decode(response.bodyBytes));
+    }
+    throw _apiError(response, fallback: 'تعذّر إلغاء التنفيذ');
+  }
+
   Future<Map<String, dynamic>> cancelOfficeReservation(
     int reservationId, {
     String? cancelledBy,

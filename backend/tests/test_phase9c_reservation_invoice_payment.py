@@ -355,8 +355,10 @@ class TestRejectReversesInvoicePaymentToo:
             invoice_a_id = settle_a['purchase_invoice_id']
             assert InvoicePayment.query.filter_by(invoice_id=invoice_a_id).count() == 1
 
+            # The execution approves its purchase (ADR-052): its undoing is
+            # «إلغاء التنفيذ», which rejects by the same one rejection.
             reject_resp = client.post(
-                f'/api/invoices/{invoice_a_id}/reject', headers=auth_headers, json={},
+                f'/api/office-reservations/{reservation_id}/unsettle', headers=auth_headers, json={},
             )
             assert reject_resp.status_code == 200, reject_resp.data
 

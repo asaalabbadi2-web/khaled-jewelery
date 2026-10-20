@@ -385,6 +385,7 @@ def create_office_reservation():
 
 @office_reservations_bp.route('/office-reservations/<int:reservation_id>/settle', methods=['POST'])
 @require_permission('journal.post')
+@require_permission('invoices.approve')
 def settle_office_reservation(reservation_id: int):
     """Convert an office reservation (fixing/booking) into a purchase invoice at execution time.
 
@@ -392,6 +393,10 @@ def settle_office_reservation(reservation_id: int):
     - Creates the purchase invoice + karat line.
     - Creates the gold journal entry (bridge vs office) and consumes weight closing orders.
     - Links any prior payment vouchers that referenced the reservation to the created invoice.
+    - Posts the invoice by the one posting (APPROVE-001): its gold enters the
+      office's deposit posted, so its purchase is approved with it -- by one who
+      may approve invoices (the owner, 19 Oct 2026). It waited for an approval
+      while its gold was already usable and the weight close could not see it.
     """
     reservation = OfficeReservation.query.get(reservation_id)
     if not reservation:
@@ -631,6 +636,11 @@ def settle_office_reservation(reservation_id: int):
         except Exception as _rc_exc:
             print(f"⚠️ recalculate balances after settle skipped: {_rc_exc}")
 
+        # The execution approves its purchase: one posting, the one every
+        # approval button calls (APPROVE-001), in this same transaction.
+        from posting_routes import post_invoice_document
+        _actor = getattr(getattr(g, 'current_user', None), 'username', None) or 'system'
+        post_invoice_document(purchase_invoice, _actor)
         db.session.commit()
 
         response = _serialize_office_reservation(reservation)
@@ -646,6 +656,85 @@ def settle_office_reservation(reservation_id: int):
         db.session.rollback()
         print(f"❌ Failed to settle office reservation: {exc}")
         return jsonify({'error': f'فشل تنفيذ الحجز: {exc}'}), 500
+
+
+@office_reservations_bp.route('/office-reservations/<int:reservation_id>/unsettle', methods=['POST'])
+@require_permission('journal.post')
+@require_permission('invoices.approve')
+def unsettle_office_reservation(reservation_id: int):
+    """«إلغاء التنفيذ» (ADR-052, the owner 19 Oct 2026): the execution undone in
+    one operation -- its purchase unposted by the one unposting, then rejected
+    by the one rejection (its gold entry reversed, its deposit payment row
+    withdrawn, the reservation reopened). The execution approves its purchase,
+    so rejecting a waiting invoice -- the undoing it had -- is gone.
+
+    Refused by name, nothing written: a payment standing on the purchase; or
+    the office's deposit, spent since, cannot give the gold back.
+    """
+    from services.invoice_rejection import reject_invoice_document
+    from services.live_balances import live_balances_by_account_ids
+    from posting_routes import unpost_invoice_document
+    from models import AuditLog
+
+    reservation = OfficeReservation.query.get(reservation_id)
+    if not reservation:
+        return jsonify({'error': 'الحجز غير موجود'}), 404
+    if not reservation.purchase_invoice_id:
+        return jsonify({'error': 'not_executed', 'message': 'الحجز لم يُنفَّذ، فلا تنفيذ يُلغى.'}), 400
+    invoice = Invoice.query.get(reservation.purchase_invoice_id)
+    data = request.get_json(silent=True) or {}
+    reason = (data.get('reason') or '').strip()
+    by = getattr(getattr(g, 'current_user', None), 'username', None) or 'system'
+
+    # The gold the execution put in -- per account and karat -- and what each holds now.
+    gold_entry = (JournalEntry.query.filter_by(reference_type='office_reservation', reference_id=reservation.id)
+                  .filter(JournalEntry.description.like('تنفيذ حجز ذهب%'), JournalEntry.is_deleted == False)
+                  .order_by(JournalEntry.id.desc()).first())
+    karats = (18, 21, 22, 24)
+    put_in = {}
+    for line in (gold_entry.lines if gold_entry else []):
+        for k in karats:
+            grams = float(getattr(line, f'debit_{k}k') or 0) - float(getattr(line, f'credit_{k}k') or 0)
+            if grams > 1e-9:
+                put_in.setdefault(line.account_id, {})[k] = grams
+    before = live_balances_by_account_ids(set(put_in)) if put_in else {}
+
+    try:
+        if invoice.is_posted:
+            unpost_invoice_document(invoice)
+        result = reject_invoice_document(invoice, by=by, now=datetime.now())
+        if 'refusal' in result:
+            db.session.rollback()
+            return jsonify(result['refusal']), 409
+
+        db.session.flush()
+        after = live_balances_by_account_ids(set(put_in)) if put_in else {}
+        for account_id, by_karat in put_in.items():
+            for k in by_karat:
+                now_grams = float((after.get(account_id) or {}).get(f'{k}k') or 0)
+                was = float((before.get(account_id) or {}).get(f'{k}k') or 0)
+                if now_grams < -0.0005 and now_grams < was:
+                    db.session.rollback()
+                    account = Account.query.get(account_id)
+                    return jsonify({
+                        'error': 'deposit_already_used',
+                        'message': (f'لا يمكن إلغاء التنفيذ: صُرف من «{account.name}» بعد التنفيذ، '
+                                    f'ورصيده عيار {k} لا يكفي لعكس {by_karat[k]:.3f} غ. '
+                                    'أعِد الذهب إلى الوديعة أولًا، أو صحّح بمرتجع شراء.'),
+                    }), 409
+
+        invoice.status = 'rejected'          # the reason is in the audit row: an invoice has no notes
+        AuditLog.log_action(user_name=by, action='unsettle_office_reservation', entity_type='office_reservation',
+                            entity_id=reservation.id, entity_number=reservation.reservation_code,
+                            details=json.dumps({'invoice_id': invoice.id, 'reason': reason,
+                                                'withdrawn_draft_payments': result['withdrawn']},
+                                               ensure_ascii=False))
+        db.session.commit()
+    except Exception as exc:
+        db.session.rollback()
+        return jsonify({'error': 'unsettle_failed', 'message': str(exc)}), 500
+
+    return jsonify({**_serialize_office_reservation(reservation), 'rejected_invoice_id': invoice.id}), 200
 
 
 def reverse_office_reservation_settlement_for_invoice(invoice, *, created_by=None):
@@ -701,6 +790,8 @@ def reverse_office_reservation_settlement_for_invoice(invoice, *, created_by=Non
         .filter_by(reference_type='office_reservation', reference_id=reservation.id)
         .filter(JournalEntry.description.like('تنفيذ حجز ذهب%'))
         .filter(JournalEntry.is_deleted == False)
+        # The latest: an execution undone and done again has two (ADR-052).
+        .order_by(JournalEntry.id.desc())
         .first()
     )
     already_reversed = JournalEntry.query.filter_by(

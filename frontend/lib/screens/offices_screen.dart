@@ -4,6 +4,9 @@ import '../api_service.dart';
 import '../providers/settings_provider.dart';
 import '../theme/app_theme.dart';
 import 'add_office_screen.dart';
+import 'gold_reservation_screen.dart';
+import '../utils/bidi.dart';
+import '../utils/currency_utils.dart';
 import '../widgets/app_feedback.dart';
 
 /// شاشة قائمة مكاتب التسكير (تسكير الذهب)
@@ -50,6 +53,33 @@ class _OfficesScreenState extends State<OfficesScreen> {
         : (amount < 0 ? 'Payable' : 'Receivable');
 
     return '$direction $absValue $unit';
+  }
+
+  /// The office's riyals as on the safes' deposit card (ADR-052): below zero
+  /// owed to it, above ours with it.
+  String _officeCashText(double amount, String currency, bool isAr) {
+    final value = '${ltrIsolate(formatAmount(amount.abs()))} $currency';
+    if (amount < -0.005) return isAr ? 'مستحق للمكتب $value' : 'Owed $value';
+    if (amount > 0.005) return isAr ? 'لنا عند المكتب $value' : 'Ours $value';
+    return isAr ? 'مسوّى' : 'Settled';
+  }
+
+  Future<void> _newReservation(Map<String, dynamic> office) async {
+    final officeId = office['id'] is int ? office['id'] as int : int.tryParse('${office['id']}');
+    final saved = await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => GoldReservationScreen(
+          api: widget.api,
+          isArabic: widget.isArabic,
+          initialOfficeId: officeId,
+        ),
+      ),
+    );
+    if (saved != null && mounted) {
+      await _loadOffices();
+      if (mounted) _showOfficeReservationsDialog(office);
+    }
   }
 
   double _convertToMainKarat(double grams, int karat) {
@@ -313,11 +343,16 @@ class _OfficesScreenState extends State<OfficesScreen> {
 
                     String statusLabel(String? s) {
                       final v = (s ?? '').toLowerCase();
-                      if (v == 'approved') return isAr ? 'معتمد' : 'Approved';
-                      if (v == 'completed') return isAr ? 'منفذ' : 'Completed';
+                      // Saved, waiting to be executed: to the user, reserved.
+                      if (v == 'approved') return isAr ? 'محجوز' : 'Reserved';
+                      if (v == 'completed') {
+                        return isAr ? 'منفَّذ — الذهب في الوديعة' : 'Executed';
+                      }
                       if (v == 'cancelled') return isAr ? 'ملغي' : 'Cancelled';
                       if (v == 'partial') return isAr ? 'جزئي' : 'Partial';
-                      if (v == 'reserved') return isAr ? 'محجوز' : 'Reserved';
+                      if (v == 'reserved' || v == 'pending') {
+                        return isAr ? 'محجوز' : 'Reserved';
+                      }
                       return isAr ? 'غير معروف' : 'Unknown';
                     }
 
@@ -398,9 +433,6 @@ class _OfficesScreenState extends State<OfficesScreen> {
                                     : 'Status: ${statusLabel(status)}',
                                 style: TextStyle(
                                   color: isDone ? Colors.grey.shade700 : null,
-                                  decoration: isDone
-                                      ? TextDecoration.lineThrough
-                                      : TextDecoration.none,
                                 ),
                               ),
                               Text(
@@ -409,9 +441,6 @@ class _OfficesScreenState extends State<OfficesScreen> {
                                     : 'Date: ${fmt(r['reservation_date'])}',
                                 style: TextStyle(
                                   color: isDone ? Colors.grey.shade700 : null,
-                                  decoration: isDone
-                                      ? TextDecoration.lineThrough
-                                      : TextDecoration.none,
                                 ),
                               ),
                               Text(
@@ -420,9 +449,6 @@ class _OfficesScreenState extends State<OfficesScreen> {
                                     : 'Weight (${_mainKarat}k eq): ${weightMain.toStringAsFixed(3)} g | Karat: $karat',
                                 style: TextStyle(
                                   color: isDone ? Colors.grey.shade700 : null,
-                                  decoration: isDone
-                                      ? TextDecoration.lineThrough
-                                      : TextDecoration.none,
                                 ),
                               ),
                               Text(
@@ -431,12 +457,58 @@ class _OfficesScreenState extends State<OfficesScreen> {
                                     : 'Total: ${total.toStringAsFixed(2)} | Paid: ${paid.toStringAsFixed(2)}',
                                 style: TextStyle(
                                   color: isDone ? Colors.grey.shade700 : null,
-                                  decoration: isDone
-                                      ? TextDecoration.lineThrough
-                                      : TextDecoration.none,
                                 ),
                               ),
                               const SizedBox(height: 10),
+                              if (r['purchase_invoice_id'] != null &&
+                                  status != 'cancelled')
+                                Align(
+                                  alignment: AlignmentDirectional.centerEnd,
+                                  child: OutlinedButton.icon(
+                                    key: Key('reservation-unexecute-$rid'),
+                                    onPressed: (rid <= 0 || isBusy)
+                                        ? null
+                                        : () async {
+                                            final ok = await _confirmAction(
+                                              title: isAr
+                                                  ? 'إلغاء التنفيذ'
+                                                  : 'Undo execution',
+                                              message: isAr
+                                                  ? 'يُعكس قيد الذهب فيخرج ${ltrIsolate(formatGrams(_asDouble(r['weight_grams'])))} جم من الوديعة، وتُلغى فاتورة الشراء، ويعود الحجز مفتوحًا.'
+                                                  : 'The gold leaves the deposit, the purchase is voided, the reservation reopens.',
+                                              isArabic: isAr,
+                                            );
+                                            if (!ok) return;
+                                            setLocalState(() => busyIds.add(rid));
+                                            try {
+                                              await widget.api
+                                                  .unsettleOfficeReservation(rid);
+                                              _showMessage(
+                                                isAr
+                                                    ? 'أُلغي التنفيذ وعاد الحجز مفتوحًا'
+                                                    : 'Execution undone',
+                                                isError: false,
+                                              );
+                                              await refresh();
+                                              await _loadOffices();
+                                            } catch (e) {
+                                              _showMessage(
+                                                AppFeedback.messageOf(e),
+                                                isError: true,
+                                              );
+                                            } finally {
+                                              setLocalState(
+                                                () => busyIds.remove(rid),
+                                              );
+                                            }
+                                          },
+                                    icon: const Icon(Icons.undo, size: 18),
+                                    label: Text(
+                                      isAr ? 'إلغاء التنفيذ' : 'Undo execution',
+                                    ),
+                                  ),
+                                )
+                              else
                               Row(
                                 children: [
                                   Expanded(
@@ -507,8 +579,10 @@ class _OfficesScreenState extends State<OfficesScreen> {
                                                     ? 'تنفيذ الحجز'
                                                     : 'Execute Reservation',
                                                 message: isAr
-                                                    ? 'هل تريد تنفيذ هذا الحجز الآن؟'
-                                                    : 'Execute this reservation now?',
+                                                    ? 'يدخل ${ltrIsolate(formatGrams(_asDouble(r['weight_grams'])))} جم عيار $karat وديعة «${office['name'] ?? ''}»، '
+                                                          'ويصبح ${ltrIsolate(formatAmount(total - paid))} دينًا للمكتب، '
+                                                          'وتُعتمد فاتورة الشراء.'
+                                                    : 'The gold enters the office deposit, the rest is owed, the purchase is approved.',
                                                 isArabic: isAr,
                                               );
                                               if (!ok) return;
@@ -536,6 +610,7 @@ class _OfficesScreenState extends State<OfficesScreen> {
                                                   isError: false,
                                                 );
                                                 await refresh();
+                                                await _loadOffices();
                                               } catch (e) {
                                                 _showMessage(
                                                   isAr
@@ -898,6 +973,9 @@ class _OfficesScreenState extends State<OfficesScreen> {
 
     final cashBalance = _asDouble(office['balance_cash']);
     final goldTotal = _goldMainEquivalentFromOffice(office);
+    // Our gold held there (ADR-052) -- the supplier balances beside it are the trade.
+    final deposit = office['deposit'] is Map ? office['deposit'] as Map : null;
+    final depositGrams = _asDouble(deposit?['main_karat_total']);
 
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
@@ -1001,44 +1079,72 @@ class _OfficesScreenState extends State<OfficesScreen> {
 
               const Divider(height: 24),
 
-              // الأرصدة
+              // الأرصدة: ذهبنا المودع أولًا، ثم ما بيننا وبين المكتب (ADR-052)
               Row(
                 children: [
                   Expanded(
-                    child: _buildBalanceTile(
-                      isAr ? 'النقدي' : 'Cash',
-                      _formatSigned(
-                        cashBalance,
-                        isArabic: isAr,
-                        unitAr: currencySymbol,
-                        unitEn: currencySymbol,
-                        decimals: 2,
+                    child: KeyedSubtree(
+                      key: Key('office-deposit-${office['id']}'),
+                      child: _buildBalanceTile(
+                        isAr ? 'وديعة الذهب' : 'Gold deposit',
+                        deposit == null
+                            ? (isAr ? 'لا وديعة' : 'No deposit')
+                            : '${ltrIsolate(formatGrams(depositGrams))} ${isAr ? 'جم' : 'g'}',
+                        AppColors.primaryGold,
                       ),
-                      cashBalance < 0 ? AppColors.error : AppColors.success,
                     ),
                   ),
                   const SizedBox(width: 8),
                   Expanded(
-                    child: _buildBalanceTile(
-                      isAr ? 'الوزن' : 'Weight',
-                      _formatSigned(
-                        goldTotal,
-                        isArabic: isAr,
-                        unitAr: 'جم',
-                        unitEn: 'g',
-                        decimals: 3,
+                    child: KeyedSubtree(
+                      key: Key('office-cash-${office['id']}'),
+                      child: _buildBalanceTile(
+                        isAr ? 'الحساب النقدي' : 'Cash',
+                        _officeCashText(cashBalance, currencySymbol, isAr),
+                        cashBalance < -0.005
+                            ? AppColors.error
+                            : AppColors.success,
                       ),
-                      AppColors.primaryGold,
                     ),
                   ),
+                  if (goldTotal.abs() >= 0.0005) ...[
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: _buildBalanceTile(
+                        isAr ? 'ذهب الحساب التجاري' : 'Trade gold',
+                        _formatSigned(
+                          goldTotal,
+                          isArabic: isAr,
+                          unitAr: 'جم',
+                          unitEn: 'g',
+                          decimals: 3,
+                        ),
+                        AppSemanticColors.of(context).gold.fg,
+                      ),
+                    ),
+                  ],
                 ],
               ),
               const SizedBox(height: 12),
 
-              // الأزرار
+              // الأزرار: الخطوة التالية ظاهرة، لا خلف الضغط على البطاقة
               Row(
                 mainAxisAlignment: MainAxisAlignment.end,
                 children: [
+                  FilledButton.icon(
+                    key: Key('office-new-reservation-${office['id']}'),
+                    onPressed: isActive ? () => _newReservation(office) : null,
+                    icon: const Icon(Icons.add, size: 18),
+                    label: Text(isAr ? 'حجز جديد' : 'New reservation'),
+                  ),
+                  const SizedBox(width: 8),
+                  OutlinedButton.icon(
+                    key: Key('office-reservations-${office['id']}'),
+                    onPressed: () => _showOfficeReservationsDialog(office),
+                    icon: const Icon(Icons.lock_clock, size: 18),
+                    label: Text(isAr ? 'الحجوزات' : 'Reservations'),
+                  ),
+                  const Spacer(),
                   TextButton.icon(
                     onPressed: () => _viewOfficeBalance(office),
                     icon: const Icon(Icons.account_balance_wallet, size: 18),
