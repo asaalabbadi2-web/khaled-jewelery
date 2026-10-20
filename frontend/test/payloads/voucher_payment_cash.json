@@ -2,7 +2,6 @@
   "account_lines": [
     {
       "account_id": 70,
-      "account_name": "الصندوق",
       "amount": 1500.5,
       "amount_type": "cash",
       "description": "نقد",
@@ -10,7 +9,6 @@
     },
     {
       "account_id": 50,
-      "account_name": "مورد الذهب",
       "amount": 1500.5,
       "amount_type": "cash",
       "description": "نقد",
@@ -19,7 +17,6 @@
   ],
   "date": "<date>",
   "description": "سداد دفعة للمورد مورد الذهب",
-  "id": 901,
   "notes": null,
   "party_type": "supplier",
   "receiver_name": "مورد الذهب",

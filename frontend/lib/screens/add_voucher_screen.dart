@@ -11,14 +11,14 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../api_service.dart';
 import '../models/employee_model.dart';
 import '../models/safe_box_model.dart';
-import '../providers/auth_provider.dart';
 import '../providers/settings_provider.dart';
 import '../theme/app_theme.dart';
-import 'voucher_preview_screen.dart';
+import 'voucher_saved_screen.dart';
 import '../utils.dart';
 import '../widgets/account_picker_sheet.dart';
 import '../widgets/party_picker_dialog.dart';
 import '../widgets/searchable_picker_field.dart';
+import '../utils/bidi.dart';
 import '../utils/currency_utils.dart';
 import '../widgets/app_feedback.dart';
 import '../widgets/app_shortcuts.dart';
@@ -124,6 +124,10 @@ class AccountLineModel {
   double? karat;
   final List<GoldLineEntryModel> goldEntries;
   String? description;
+
+  /// The account was put there by the screen (the safe most used), not
+  /// picked: only then is it said to have been filled.
+  bool accountAutoFilled = false;
 
   AccountLineModel({
     this.accountId,
@@ -332,21 +336,18 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
       _populateFromExisting(widget.existingVoucher!);
     }
 
-    // Quick-create: preselect supplier when opening a payment voucher
-    // from the suppliers list.
-    if (widget.existingVoucher == null &&
-        widget.voucherType == 'payment' &&
-        widget.initialSupplierId != null) {
-      _partyType = 'supplier';
-      _selectedSupplierId = widget.initialSupplierId;
-      _selectedCustomerId = null;
-      _selectedEmployeeId = null;
-      _selectedOtherAccountId = null;
-    }
-
     if (widget.existingVoucher == null) {
+      // The party it was opened for: a supplier named stays chosen whether
+      // or not its kind is named with it (it used to be cleared by it).
       final initialPartyType = (widget.initialPartyType ?? '').trim();
-      if (initialPartyType.isNotEmpty) {
+      if (widget.initialSupplierId != null &&
+          (initialPartyType.isEmpty || initialPartyType == 'supplier')) {
+        _partyType = 'supplier';
+        _selectedSupplierId = widget.initialSupplierId;
+        _selectedCustomerId = null;
+        _selectedEmployeeId = null;
+        _selectedOtherAccountId = null;
+      } else if (initialPartyType.isNotEmpty) {
         _partyType = initialPartyType;
         _selectedCustomerId = null;
         _selectedSupplierId = null;
@@ -607,52 +608,21 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
         return double.tryParse(v.toString());
       }
 
-      int? partyAccountId;
-      if (_partyType == 'customer' && _selectedCustomerId != null) {
-        final customer = _findById(_customers, _selectedCustomerId);
-        partyAccountId = _coerceAccountId(
-          customer?['account_id'] ?? customer?['account_category_id'],
-        );
-        partyAccountId ??= _customersAggregateAccountId;
-        if (partyAccountId == null &&
-            _customersAggregateAccountNumber != null) {
-          partyAccountId = _findAccountIdByNumber(
-            _customersAggregateAccountNumber!,
-          );
-        }
-      } else if (_partyType == 'supplier' && _selectedSupplierId != null) {
-        final supplier = _findById(_suppliers, _selectedSupplierId);
-        partyAccountId = _coerceAccountId(
-          supplier?['account_id'] ?? supplier?['account_category_id'],
-        );
-        partyAccountId ??= _suppliersAggregateAccountId;
-        if (partyAccountId == null &&
-            _suppliersAggregateAccountNumber != null) {
-          partyAccountId = _findAccountIdByNumber(
-            _suppliersAggregateAccountNumber!,
-          );
-        }
-      } else if (_partyType == 'employee' && _selectedEmployeeId != null) {
-        final emp = _findEmployeeById(_selectedEmployeeId);
-        partyAccountId = emp?.accountId;
-      } else if (_partyType == 'other' && _selectedOtherAccountId != null) {
-        partyAccountId = _selectedOtherAccountId;
-      }
-
-      if (_partyType == 'other' && partyAccountId == null) {
-        final String partyLineType = widget.voucherType == 'receipt'
-            ? 'credit'
-            : 'debit';
+      // The party's side -- credit on a receipt, debit on a payment -- is the
+      // line the screen writes itself; every line typed is on the other side.
+      // Told apart by side, not by account: a gold party line is stored on
+      // the party's weight twin, not on the account the screen knows.
+      final String partyLineType = widget.voucherType == 'receipt'
+          ? 'credit'
+          : 'debit';
+      if (_partyType == 'other' && _selectedOtherAccountId == null) {
         final Map<String, dynamic> partyLine = _incomingAccountLinesRaw!
             .firstWhere(
               (line) => line['line_type'] == partyLineType,
               orElse: () => <String, dynamic>{},
             );
         final candidateId = _coerceAccountId(partyLine['account_id']);
-        if (candidateId != null) {
-          partyAccountId = candidateId;
-          _selectedOtherAccountId = candidateId;
-        }
+        if (candidateId != null) _selectedOtherAccountId = candidateId;
       }
 
       final List<AccountLineModel> applied = [];
@@ -661,11 +631,7 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
             ? (map['account_id'] as num).toInt()
             : null;
 
-        if (partyAccountId != null &&
-            mapAccountId != null &&
-            mapAccountId == partyAccountId) {
-          continue;
-        }
+        if (map['line_type'] == partyLineType) continue;
 
         final amountType = (map['amount_type'] ?? 'cash') as String;
         final karat = map['karat'] != null
@@ -853,6 +819,24 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
       _findSafeByAccountId(line.accountId)?.name ??
       '${_findAccountById(line.accountId)?['name'] ?? '—'}';
 
+  /// Each line as it is said -- where, and how much -- in the review and on
+  /// the page that says the voucher was saved.
+  List<(String, String)> get _lineSummaries => [
+    for (final line in _accountLines) ..._lineSummary(line),
+  ];
+
+  List<(String, String)> _lineSummary(AccountLineModel line) =>
+      line.amountType == 'gold'
+      ? [
+          for (final e in _effectiveGoldEntries(line))
+            if (e.amount > 0)
+              (
+                _lineAccountLabel(line),
+                '${formatGrams(e.amount)} جم عيار ${formatAmount(e.karat ?? 0, decimals: 0)}',
+              ),
+        ]
+      : [(_lineAccountLabel(line), _formatCash(line.amount))];
+
   /// The review before saving: the party, the date, each line's account and
   /// amount or weights, what it is for, and the saved vouchers like it.
   Future<bool> _review(Map<String, dynamic> voucherData) async {
@@ -911,18 +895,7 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
                 row(isReceipt ? 'من' : 'إلى', _partyLabel),
                 row('التاريخ', day(_selectedDate.toIso8601String())),
                 const Divider(),
-                for (final line in _accountLines)
-                  if (line.amountType == 'gold')
-                    for (final e in _effectiveGoldEntries(line))
-                      if (e.amount > 0)
-                        row(
-                          _lineAccountLabel(line),
-                          '${formatGrams(e.amount)} جم عيار ${formatAmount(e.karat ?? 0, decimals: 0)}',
-                        )
-                      else
-                        const SizedBox.shrink()
-                  else
-                    row(_lineAccountLabel(line), _formatCash(line.amount)),
+                for (final (where, what) in _lineSummaries) row(where, what),
                 if (planLines.isNotEmpty) ...[
                   const Divider(),
                   for (final line in planLines) Text(line),
@@ -1042,6 +1015,13 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
     if (v is num) return v.toInt();
     return int.tryParse(v.toString());
   }
+
+  /// A chosen party with no account of its own, nor a category: its line
+  /// goes on the aggregate -- the only case the field says so.
+  bool _onAggregate(Map<String, dynamic>? party) =>
+      party != null &&
+      _coerceAccountId(party['account_id']) == null &&
+      _coerceAccountId(party['account_category_id']) == null;
 
   String? _selectedPartyName(String partyType) {
     if (partyType == 'customer') {
@@ -1383,9 +1363,15 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
           lineType: line.lineType,
           amountType: targetType,
         );
-        line.accountId = def?.accountId;
+        _autoFill(line, def?.accountId);
       }
     }
+  }
+
+  /// A line's account put there by the screen, said so on the line.
+  void _autoFill(AccountLineModel line, int? accountId) {
+    line.accountId = accountId;
+    line.accountAutoFilled = accountId != null;
   }
 
   Map<String, dynamic>? _findAccountById(int? accountId) {
@@ -1729,7 +1715,7 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
           amountType: amountType,
         );
         if (def?.accountId != null) {
-          firstLine.accountId = def!.accountId;
+          _autoFill(firstLine, def!.accountId);
         }
       }
     }
@@ -2311,7 +2297,6 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
               '${_formatWeight(entry.value, includeUnit: false)} جم ع ${entry.key.toInt()}',
         )
         .join(' • ');
-    final bool isBalanced = _balanceDiff <= 0.01;
 
     Widget buildChip(
       IconData chipIcon,
@@ -2401,17 +2386,8 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
                               ),
                             ),
                           buildChip(
-                            isBalanced
-                                ? Icons.verified_outlined
-                                : Icons.warning_amber_rounded,
-                            isBalanced
-                                ? 'السند متوازن'
-                                : 'فرق: ${_formatWeight(_balanceDiff)}',
-                            isBalanced ? _tone.ready.fg : _tone.warning.fg,
-                          ),
-                          buildChip(
                             Icons.list_alt_outlined,
-                            '${_accountLines.length} سطور',
+                            _linesCount(_accountLines.length),
                             _cs.secondary,
                             background: _tone.gold.container.withValues(
                               alpha: 0.25,
@@ -2534,9 +2510,9 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
                 hintText: _customers.isEmpty
                     ? 'لا يوجد عملاء'
                     : 'اضغط للبحث والاختيار',
-                helperText: _customersAggregateAccountNumber != null
-                    ? 'سيتم القيد على الحساب التجميعي للعملاء ($_customersAggregateAccountNumber)'
-                    : 'سيتم القيد على الحساب التجميعي للعملاء',
+                helperText: _onAggregate(_findById(_customers, _selectedCustomerId))
+                    ? 'ليس للعميل حساب خاص — يُقيَّد على الحساب التجميعي للعملاء'
+                    : null,
                 prefixIcon: Icons.person_outline,
                 enabled: _customers.isNotEmpty,
                 onTap: _pickCustomer,
@@ -2548,9 +2524,9 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
                 hintText: _suppliers.isEmpty
                     ? 'لا يوجد موردين'
                     : 'اضغط للبحث والاختيار',
-                helperText: _suppliersAggregateAccountNumber != null
-                    ? 'سيتم القيد على الحساب التجميعي للموردين ($_suppliersAggregateAccountNumber)'
-                    : 'سيتم القيد على الحساب التجميعي للموردين',
+                helperText: _onAggregate(_findById(_suppliers, _selectedSupplierId))
+                    ? 'ليس للمورد حساب خاص — يُقيَّد على الحساب التجميعي للموردين'
+                    : null,
                 prefixIcon: Icons.store_mall_directory,
                 enabled: _suppliers.isNotEmpty,
                 onTap: _pickSupplier,
@@ -2769,18 +2745,17 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
     }
   }
 
-  /// The payment filled with what the chosen invoices owe in cash.
+  /// The payment's cash line filled with what the chosen invoices owe in
+  /// cash. Offered only to a payment with a cash line: it used to turn a gold
+  /// line into cash, its grams lost and its gold safe kept.
   void _fillFromInvoices() {
     final owed = _chosenInvoicesInOrder.fold<double>(
       0.0,
       (s, r) => s + ((r['open_cash'] as num?)?.toDouble() ?? 0.0),
     );
-    final line = _accountLines.firstWhere(
-      (l) => l.amountType == 'cash',
-      orElse: () => _accountLines.first,
-    );
+    final line = _accountLines.where((l) => l.amountType == 'cash').firstOrNull;
+    if (line == null) return;
     setState(() {
-      line.amountType = 'cash';
       line.amount = double.parse(owed.toStringAsFixed(2));
       _amountFillEpoch++;
     });
@@ -2800,7 +2775,9 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
       loading: _loadingInvoiceCandidates,
       formatCash: _formatCash,
       onToggle: _toggleInvoice,
-      onFill: _fillFromInvoices,
+      onFill: _accountLines.any((l) => l.amountType == 'cash')
+          ? _fillFromInvoices
+          : null,
       showAdvance: _hasGoldLines,
       advance: _goldAdvance,
       onAdvance: (v) => setState(() => _goldAdvance = v),
@@ -3757,12 +3734,9 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
 
     setState(() {
       _accountLines.add(
-        AccountLineModel(
-          accountId: defaultSafe?.accountId,
-          lineType: lineType,
-          amountType: 'cash',
-        ),
+        AccountLineModel(lineType: lineType, amountType: 'cash'),
       );
+      _autoFill(_accountLines.last, defaultSafe?.accountId);
     });
   }
 
@@ -4057,18 +4031,11 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
         });
       }
 
-      final auth = context.read<AuthProvider>();
-      final createdBy = (auth.fullName.isNotEmpty
-              ? auth.fullName
-              : auth.username)
-          .trim();
-
       // Prepare voucher data
       final Map<String, dynamic> voucherData = {
         'voucher_type': widget.voucherType,
         'date': DateFormat('yyyy-MM-dd').format(_selectedDate),
         'party_type': _partyType,
-        if (createdBy.isNotEmpty) 'created_by': createdBy,
         'description': _descriptionController.text,
         'notes': _notesController.text.trim().isEmpty
             ? null
@@ -4149,76 +4116,29 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
         await _clearLocalDraft();
       }
 
-      if (mounted) {
-        // add id for preview
-        voucherData['id'] = response['id'];
-        voucherData['account_lines'] = (voucherData['account_lines'] as List)
-            .map((line) {
-              final account = _accounts.firstWhere(
-                (acc) => acc['id'] == line['account_id'],
-                orElse: () => <String, dynamic>{},
-              );
-
-              String? accountName = account['name'] as String?;
-              if (accountName == null || accountName.isEmpty) {
-                if (line['account_id'] == partyAccountId) {
-                  if (selectedCustomer != null) {
-                    accountName =
-                        (selectedCustomer['account_name'] ??
-                                selectedCustomer['account_category_name'])
-                            as String?;
-                  } else if (selectedSupplier != null) {
-                    accountName =
-                        (selectedSupplier['account_name'] ??
-                                selectedSupplier['account_category_name'])
-                            as String?;
-                  } else if (selectedEmployee != null) {
-                    accountName = selectedEmployee.name;
-                  }
-                }
-              }
-
-              accountName ??= account['name'] as String? ?? '---';
-
-              return {...line, 'account_name': accountName};
-            })
-            .toList();
-
-        // show success message and return to list
-        // The navigator is taken now: the screen closes just below, and the
-        // message's «معاينة» opens the voucher after it has.
-        final navigator = Navigator.of(context);
-        AppFeedback.success(
-          context,
-          widget.existingVoucher != null
-              ? 'تم تعديل السند بنجاح'
-              : 'تم إنشاء السند بنجاح',
-          action: (
-            label: 'معاينة',
-            onPressed: () => navigator.push(
-              MaterialPageRoute(
-                builder: (context) => VoucherPreviewScreen(
-                  voucherData: voucherData,
-                  voucherType: widget.voucherType,
-                ),
-              ),
+      if (!mounted) return;
+      // The page that says it was saved takes the screen's place; the screen
+      // that opened this one is told it was saved, as before.
+      final summaries = _lineSummaries;
+      final party = _partyLabel;
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute(
+          builder: (_) => VoucherSavedScreen(
+            voucherType: widget.voucherType,
+            voucherId: _toInt(response['id']),
+            voucherNumber: response['voucher_number']?.toString(),
+            status: response['status']?.toString(),
+            partyName: party,
+            lines: summaries,
+            edited: widget.existingVoucher != null,
+            newVoucher: (_) => AddVoucherScreen(
+              voucherType: widget.voucherType,
+              apiService: widget.apiService,
             ),
           ),
-        );
-
-        // العودة إلى شاشة السندات بعد الحفظ
-        Navigator.of(context).pop(true); // إرسال true للإشارة إلى أنه تم الحفظ
-
-        // إعادة تعيين النموذج للبقاء في نفس الشاشة
-        setState(() {
-          _isSaving = false;
-          _descriptionController.clear();
-          _notesController.clear();
-          _accountLines.clear();
-          _addNewLine(); // إضافة سطر جديد
-          _selectedDate = DateTime.now();
-        });
-      }
+        ),
+        result: true,
+      );
     } catch (e) {
       setState(() => _isSaving = false);
       if (mounted) {
@@ -4306,9 +4226,9 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
               title: 'اختيار حساب',
               isArabic: true,
               enabled: filteredAccounts.isNotEmpty,
-              helperText: _shouldShowSafeBoxesForLineType(line.lineType)
-                  ? 'تم تعبئة الخزنة الأكثر استخداماً تلقائياً. اضغط لعرض كل الخزنات.'
-                  : 'اضغط داخل الحقل لعرض كل الحسابات ثم ابحث بالاسم أو الرقم.',
+              helperText: line.accountAutoFilled && line.accountId != null
+                  ? 'اختيرت الخزنة الأكثر استخداماً — اضغط لتغييرها.'
+                  : null,
               showTransactionTypeFilter: false,
               showTracksWeightFilter: false,
               validator: (value) {
@@ -4320,6 +4240,7 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
               onChanged: (value) {
                 setState(() {
                   line.accountId = value;
+                  line.accountAutoFilled = false;
                 });
                 _recordSafeUsage(value);
 
@@ -4427,7 +4348,7 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
                         lineType: line.lineType,
                         amountType: value,
                       );
-                      line.accountId = def?.accountId;
+                      _autoFill(line, def?.accountId);
                     }
                   } else if (oldAmountType != value &&
                       _shouldShowSafeBoxesForLineType(line.lineType)) {
@@ -4437,9 +4358,7 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
                       lineType: line.lineType,
                       amountType: value,
                     );
-                    if (def != null) {
-                      line.accountId = def.accountId;
-                    }
+                    if (def != null) _autoFill(line, def.accountId);
                   }
 
                   // If a gold safe is selected with fixed karat, sync line karat.
@@ -4940,14 +4859,20 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
     );
   }
 
+  /// «1,500.00 ر.س»: the number whole, then the currency, a space apart
+  /// (it was «1,500.00ر.س»).
   String _formatCash(double amount, {bool includeSymbol = true}) {
-    final formatter = NumberFormat.currency(
-      symbol: includeSymbol ? _currencySymbol : '',
-      decimalDigits: _currencyDecimalPlaces,
-    );
-    final formatted = formatter.format(amount).replaceAll('\u00A0', ' ');
-    return includeSymbol ? formatted : formatted.trim();
+    final number = formatAmount(amount, decimals: _currencyDecimalPlaces);
+    return includeSymbol ? '${ltrIsolate(number)} $_currencySymbol' : number;
   }
+
+  /// A count of lines as Arabic says it: سطر واحد، سطران، ٣ أسطر، ١١ سطرًا.
+  String _linesCount(int n) => switch (n) {
+    1 => 'سطر واحد',
+    2 => 'سطران',
+    >= 3 && <= 10 => '$n أسطر',
+    _ => '$n سطرًا',
+  };
 
   String _formatWeight(
     double amount, {

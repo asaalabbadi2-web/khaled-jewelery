@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:frontend/providers/auth_provider.dart';
 import 'package:frontend/providers/settings_provider.dart';
 import 'package:frontend/screens/add_voucher_screen.dart';
+import 'package:frontend/screens/voucher_saved_screen.dart';
 import 'package:frontend/theme/app_theme.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -605,8 +606,8 @@ void main() {
     expectPayload('voucher_payment_cash', api.created.single);
   });
 
-  testWidgets('saved, it says so on the page beneath and offers to open the '
-      'voucher (ADR-049)', (tester) async {
+  testWidgets('saved, the page that says so takes its place (the owner, '
+      '20 Oct 2026; it used to close on a message)', (tester) async {
     final api = await open(tester, overAPage: true);
     await pickSafe(tester);
     await tester.enterText(cashAmount(), '500');
@@ -615,7 +616,7 @@ void main() {
 
     expect(api.created, hasLength(1));
     expect(find.byType(AddVoucherScreen), findsNothing);
-    expect(find.text('تم إنشاء السند بنجاح'), findsOneWidget);
-    expect(find.widgetWithText(SnackBarAction, 'معاينة'), findsOneWidget);
+    expect(find.byType(VoucherSavedScreen), findsOneWidget);
+    expect(find.byKey(const Key('voucher-saved-open')), findsOneWidget);
   });
 }

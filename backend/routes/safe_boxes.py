@@ -1204,7 +1204,7 @@ def create_safe_box_transfer_voucher():
                 - amount_cash: float (required)  (alias: amount)
         - date: ISO datetime (optional)
         - notes: str (optional)
-        - created_by / approved_by: str (optional)
+        - created_by / approved_by: ignored -- the session's user writes it (ADR-036 R4)
 
     Result: creates an approved adjustment Voucher + JournalEntry + SafeBoxTransaction rows (out/in).
     """
@@ -1323,7 +1323,9 @@ def create_safe_box_transfer_voucher():
         # Reuse existing variables to minimize changes below.
         w_24 = w_22 = w_21 = w_18 = 0.0
 
-    created_by = (data.get('approved_by') or data.get('created_by') or 'system')
+    # The session's user, never the request's text (ADR-036 R4; AV-2026-00506 read «system»).
+    from services.approval_policy import actor
+    created_by = actor()
     notes = (data.get('notes') or '').strip() or None
 
     try:

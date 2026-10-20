@@ -1,0 +1,36 @@
+{
+  "account_lines": [
+    {
+      "account_id": 80,
+      "amount": 10.0,
+      "amount_type": "gold",
+      "description": "ذهب",
+      "gross_weight": 10.0,
+      "karat": 21.0,
+      "line_type": "credit",
+      "net_weight": 10.0,
+      "stones_weight": 0.0
+    },
+    {
+      "account_id": 50,
+      "amount": 10.0,
+      "amount_type": "gold",
+      "description": "ذهب عيار 21",
+      "gross_weight": 10.0,
+      "karat": 21.0,
+      "line_type": "debit",
+      "net_weight": 10.0,
+      "stones_weight": 0.0
+    }
+  ],
+  "date": "<date>",
+  "description": "سداد دفعة لفاتورة رقم PI-0011",
+  "invoice_ids": [
+    11
+  ],
+  "notes": null,
+  "party_type": "supplier",
+  "receiver_name": "مورد الذهب",
+  "supplier_id": 5,
+  "voucher_type": "payment"
+}

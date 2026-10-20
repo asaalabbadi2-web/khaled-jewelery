@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:frontend/api_service.dart';
 import 'package:frontend/models/employee_model.dart';
@@ -11,6 +12,9 @@ class FakeVoucherApi extends ApiService {
   FakeVoucherApi({
     this.suppliers = const [
       {'id': 5, 'name': 'مورد الذهب', 'account_id': 50},
+    ],
+    this.customers = const [
+      {'id': 3, 'name': 'عميل الصاغة', 'account_id': 30},
     ],
     this.similar = const [],
     this.openCash = const [],
@@ -28,6 +32,7 @@ class FakeVoucherApi extends ApiService {
   final planAsked = <Map<String, dynamic>>[];
 
   final List<Map<String, dynamic>> suppliers;
+  final List<Map<String, dynamic>> customers;
 
   /// What the server says looks like the voucher about to be saved.
   final List<Map<String, dynamic>> similar;
@@ -37,7 +42,7 @@ class FakeVoucherApi extends ApiService {
   Completer<void>? hold;
 
   @override
-  Future<List<dynamic>> getCustomers() async => [];
+  Future<List<dynamic>> getCustomers() async => customers;
 
   @override
   Future<List<dynamic>> getSuppliers() async => suppliers;
@@ -54,7 +59,10 @@ class FakeVoucherApi extends ApiService {
 
   @override
   Future<List<dynamic>> getAccounts({bool skipBalances = false}) async => [
+    {'id': 30, 'account_number': '1200001', 'name': 'عميل الصاغة'},
     {'id': 50, 'account_number': '2200001', 'name': 'مورد الذهب'},
+    // The supplier's weight twin: where its gold line is stored.
+    {'id': 51, 'account_number': '72200001', 'name': 'مورد الذهب وزني'},
     {'id': 70, 'account_number': '1100001', 'name': 'الصندوق'},
     {'id': 80, 'account_number': '1310001', 'name': 'خزينة الذهب'},
   ];
@@ -139,9 +147,27 @@ class FakeVoucherApi extends ApiService {
   Future<Map<String, dynamic>> createVoucher(
     Map<String, dynamic> voucherData,
   ) async {
-    created.add(voucherData);
+    // What was sent, as it was sent: the screen goes on using its map.
+    created.add(jsonDecode(jsonEncode(voucherData)) as Map<String, dynamic>);
     if (hold != null) await hold!.future;
-    return {'id': 900 + created.length, ...voucherData};
+    return {
+      'id': 900 + created.length,
+      'voucher_number': 'PV-2026-${(900 + created.length).toString().padLeft(5, '0')}',
+      'status': 'approved',
+      ...voucherData,
+    };
+  }
+
+  /// Edits of a saved voucher, as they were sent.
+  final updated = <Map<String, dynamic>>[];
+
+  @override
+  Future<Map<String, dynamic>> updateVoucher(
+    int id,
+    Map<String, dynamic> voucherData,
+  ) async {
+    updated.add(jsonDecode(jsonEncode(voucherData)) as Map<String, dynamic>);
+    return {'id': id, 'voucher_number': 'PV-2026-00077', 'status': 'pending'};
   }
 
   /// Vouchers cancelled, with the reason given (ADR-049: one is asked).

@@ -706,6 +706,16 @@ def _upsert_voucher_from_payload(voucher, data, *, is_create=False):
                         break
                 except Exception:
                     pass
+    # The party line is on the party's own account (the voucher screen review).
+    from services.voucher_party import stray_party_lines
+    stray = stray_party_lines(voucher, summary['account_lines'])
+    if stray:
+        return jsonify({
+            'error': 'party_line_not_on_party_account',
+            'account_ids': sorted({int(ln['account_id']) for ln in stray}),
+            'message': 'سطر الطرف ليس على حساب الطرف المختار؛ لم يُحفظ السند.',
+        }), 400
+
     voucher.amount_cash = summary['amount_cash']
     voucher.amount_gold = summary['amount_gold']
     voucher.gold_karat = None

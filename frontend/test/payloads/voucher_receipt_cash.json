@@ -1,0 +1,25 @@
+{
+  "account_lines": [
+    {
+      "account_id": 70,
+      "amount": 750.0,
+      "amount_type": "cash",
+      "description": "نقد",
+      "line_type": "debit"
+    },
+    {
+      "account_id": 30,
+      "amount": 750.0,
+      "amount_type": "cash",
+      "description": "نقد",
+      "line_type": "credit"
+    }
+  ],
+  "customer_id": 3,
+  "date": "<date>",
+  "description": "استلام دفعة من العميل عميل الصاغة",
+  "notes": null,
+  "party_type": "customer",
+  "receiver_name": null,
+  "voucher_type": "receipt"
+}

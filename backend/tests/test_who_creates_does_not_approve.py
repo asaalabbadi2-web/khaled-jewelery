@@ -158,3 +158,37 @@ def test_the_settings_carry_the_limit_and_refuse_a_negative(auth_headers):
     body = _call('GET', '/api/settings', auth_headers).get_json()
     assert (body['accountant_approval_limit_cash'], body['accountant_approval_limit_gold_grams']) == (2000.0, 10.0)
     assert _call('PUT', '/api/settings', auth_headers, {'accountant_approval_limit_cash': -1}).status_code == 400
+
+
+def test_a_safe_transfer_is_written_by_the_session_not_the_request_text():
+    """AV-2026-00506 (the voucher screen review, 20 Oct 2026): a gold transfer
+    written by `system` -- the route took its author from the body, `system`
+    when none was sent."""
+    from models import Account, SafeBox
+    user, headers = _user('manager')
+
+    def gold_safe(name):
+        acc = Account(account_number=f'7{uuid.uuid4().int % 10**7:07d}', name=name, type='Asset',
+                      tracks_weight=True)
+        db.session.add(acc)
+        db.session.flush()
+        box = SafeBox(name=f'{name} {uuid.uuid4().hex[:6]}', safe_type='gold', account_id=acc.id,
+                      is_active=True, stock_location='showroom')
+        db.session.add(box)
+        db.session.flush()
+        return box
+
+    source, target, other = gold_safe('مصدر'), gold_safe('هدف'), gold_safe('مقابل')
+    je = JournalEntry(entry_number=f'T-{uuid.uuid4().hex[:10]}', date=datetime(2026, 9, 1), description='t',
+                      is_posted=True)
+    db.session.add(je)
+    db.session.flush()
+    db.session.add_all([JournalEntryLine(journal_entry_id=je.id, account_id=source.account_id, debit_21k=5.0),
+                        JournalEntryLine(journal_entry_id=je.id, account_id=other.account_id, credit_21k=5.0)])
+    db.session.flush()
+    resp = _call('POST', '/api/safe-boxes/transfer-voucher', headers, {
+        'from_safe_box_id': source.id, 'to_safe_box_id': target.id, 'weights': {'21k': 2.0},
+        'created_by': 'someone else'})
+    assert resp.status_code in (200, 201), resp.get_data(as_text=True)[:400]
+    voucher = Voucher.query.filter_by(voucher_type='adjustment').order_by(Voucher.id.desc()).first()
+    assert (voucher.created_by, voucher.approved_by) == (user.username, user.username)

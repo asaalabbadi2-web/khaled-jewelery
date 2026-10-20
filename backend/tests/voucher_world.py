@@ -36,10 +36,15 @@ def vworld():
         SafeBox(name=f'نقد V0 {uuid.uuid4().hex[:6]}', safe_type='cash', account_id=cash.id, is_active=True),
         SafeBox(name=f'ذهب V0 {uuid.uuid4().hex[:6]}', safe_type='gold', account_id=gold.id, is_active=True),
     ])
-    db.session.flush()
+    # Each party's lines on its own account, made as the app makes it: a
+    # voucher's party line is on its party's account
+    # (test_a_voucher_party_line_is_on_the_party).
+    from party_account_service import ensure_customer_accounts, ensure_supplier_accounts
+    customer, supplier = Customer.query.first(), db.session.get(Supplier, 1)
     return {'cash': cash.id, 'gold': gold.id,
-            'customer_acc': _account('عميل', 'Asset').id, 'supplier_acc': _account('مورد', 'Liability').id,
-            'customer': Customer.query.first().id, 'supplier': Supplier.query.get(1).id}
+            'customer_acc': ensure_customer_accounts(customer).financial.id,
+            'supplier_acc': ensure_supplier_accounts(supplier).financial.id,
+            'customer': customer.id, 'supplier': supplier.id}
 
 
 def auto_post(on: bool):
