@@ -18,21 +18,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 /// The card showed the supplier's weight alone -- Al-Raqi «عليه 0.000 جم» with
 /// 396.6 g of ours in its deposit; its reservations were behind a tap on the
 /// card; an executed one was struck through as if cancelled, with no way back.
-class _FakeApi extends ApiService {
-  final unsettled = <int>[];
-  final stopped = <int>[];
-
-  /// What the server says to stopping an office; none stops it.
-  String? stopRefusal;
-
-  @override
-  Future<void> deleteOffice(int id) async {
-    if (stopRefusal != null) throw Exception(stopRefusal);
-    stopped.add(id);
-  }
-
-  @override
-  Future<List<dynamic>> getOffices({bool? activeOnly}) async => [
+final _offices = <Map<String, dynamic>>[
     {
       'id': 5,
       'name': 'مكتب الراقي',
@@ -52,7 +38,43 @@ class _FakeApi extends ApiService {
         'main_karat_total': 396.6,
       },
     },
-  ];
+  // A settled office: nothing between us.
+  {
+    'id': 6,
+    'name': 'مكتب الديوان',
+    'office_code': 'OFF-000004',
+    'active': true,
+    'balance_cash': 0.0,
+    'balance_gold_18k': 0.0,
+    'balance_gold_21k': 0.0,
+    'balance_gold_22k': 0.0,
+    'balance_gold_24k': 0.0,
+    'open_reservations': {'count': 0, 'grams': 0.0, 'amount': 0.0},
+    'deposit': {'main_karat_total': 0.0},
+  },
+];
+
+class _FakeApi extends ApiService {
+  final unsettled = <int>[];
+  final stopped = <int>[];
+
+  /// What the server says to stopping an office; none stops it.
+  String? stopRefusal;
+
+  @override
+  Future<void> deleteOffice(int id) async {
+    if (stopRefusal != null) throw Exception(stopRefusal);
+    stopped.add(id);
+  }
+
+  /// What each load asked: active only, or all.
+  final asked = <bool?>[];
+
+  @override
+  Future<List<dynamic>> getOffices({bool? activeOnly}) async {
+    asked.add(activeOnly);
+    return _offices;
+  }
 
   @override
   Future<Map<String, dynamic>> getOfficeReservations({
@@ -219,6 +241,67 @@ void main() {
         ),
         findsOneWidget,
       );
+    });
+  });
+
+  group('the offices list, release 2 (the owner, 20 Oct 2026: «حجم بطاقة '
+      'المكتب كبير»)', () {
+    testWidgets('a card is compact: what is between us in one line', (tester) async {
+      await _open(tester);
+      final card = tester.getSize(find.byKey(const Key('office-card-5')));
+      expect(card.height, lessThan(150), reason: 'it was about 210');
+    });
+
+    testWidgets('on a desktop the cards sit two to a row; on a phone one', (
+      tester,
+    ) async {
+      await _open(tester);
+      final a = tester.getRect(find.byKey(const Key('office-card-5')));
+      final b = tester.getRect(find.byKey(const Key('office-card-6')));
+      expect(a.top, b.top, reason: 'side by side');
+
+      tester.view.physicalSize = const Size(390, 1600);
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      final a2 = tester.getRect(find.byKey(const Key('office-card-5')));
+      final b2 = tester.getRect(find.byKey(const Key('office-card-6')));
+      expect(b2.top, greaterThan(a2.bottom - 1), reason: 'one under the other');
+    });
+
+    testWidgets('nothing is said that is nothing: a settled office says so once', (
+      tester,
+    ) async {
+      await _open(tester);
+      final settled = find.byKey(const Key('office-card-6'));
+      expect(find.descendant(of: settled, matching: find.text('لا شيء بيننا')), findsOneWidget);
+      expect(find.descendant(of: settled, matching: find.textContaining('0.000')), findsNothing);
+      expect(find.descendant(of: settled, matching: find.text('نشط')), findsNothing,
+          reason: 'the list is of the active: the chip said it on every card');
+    });
+
+    testWidgets('the offices summed at the top: our gold there, what is owed, '
+        'what waits', (tester) async {
+      await _open(tester);
+      final summary = find.byKey(const Key('offices-summary'));
+      String said(String text) => text.replaceAll(RegExp('[\\u2066-\\u2069]'), '');
+      final texts = [
+        for (final t in tester.widgetList<Text>(find.descendant(of: summary, matching: find.byType(Text))))
+          said(t.data ?? ''),
+      ].join(' | ');
+      expect(texts, contains('396.600 جم'));
+      expect(texts, contains('4,000.00'));
+      expect(texts, contains('1'));
+    });
+
+    testWidgets('active or all, said by two chips -- not an eye', (tester) async {
+      final api = await _open(tester);
+      expect(find.byIcon(Icons.visibility), findsNothing);
+      await tester.tap(find.byKey(const Key('offices-filter-all')));
+      await tester.pumpAndSettle();
+      expect(api.asked.last, isNull, reason: 'all');
+      await tester.tap(find.byKey(const Key('offices-filter-active')));
+      await tester.pumpAndSettle();
+      expect(api.asked.last, isTrue);
     });
   });
 }

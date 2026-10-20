@@ -221,13 +221,10 @@ class _OfficesScreenState extends State<OfficesScreen> {
   @override
   Widget build(BuildContext context) {
     final isAr = widget.isArabic;
-    final theme = Theme.of(context);
 
     return Scaffold(
       appBar: AppBar(
         title: Text(isAr ? 'المكاتب' : 'Offices'),
-        backgroundColor: AppColors.darkGold,
-        foregroundColor: Colors.white,
         actions: [
           TextButton.icon(
             key: const Key('offices-all-reservations'),
@@ -242,309 +239,339 @@ class _OfficesScreenState extends State<OfficesScreen> {
             label: Text(isAr ? 'كل الحجوزات' : 'All reservations'),
           ),
           IconButton(
-            icon: Icon(
-              _showActiveOnly ? Icons.visibility : Icons.visibility_off,
-            ),
-            onPressed: () {
-              setState(() => _showActiveOnly = !_showActiveOnly);
-              _loadOffices();
-            },
-            tooltip: isAr
-                ? (_showActiveOnly ? 'إظهار الكل' : 'إظهار النشطة فقط')
-                : (_showActiveOnly ? 'Show All' : 'Show Active Only'),
-          ),
-          IconButton(
             icon: const Icon(Icons.refresh),
             onPressed: _loadOffices,
             tooltip: isAr ? 'تحديث' : 'Refresh',
           ),
         ],
       ),
-      body: Column(
-        children: [
-          // شريط البحث
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: TextField(
-              controller: _searchController,
-              decoration: InputDecoration(
-                labelText: isAr ? 'بحث' : 'Search',
-                hintText: isAr
-                    ? 'ابحث بالاسم، الكود، الهاتف...'
-                    : 'Search by name, code, phone...',
-                prefixIcon: const Icon(Icons.search),
-                border: const OutlineInputBorder(),
-                suffixIcon: _searchQuery.isNotEmpty
-                    ? IconButton(
-                        icon: const Icon(Icons.clear),
-                        onPressed: () {
-                          _searchController.clear();
-                          setState(() => _searchQuery = '');
-                          _applyFilters();
-                        },
-                      )
-                    : null,
-              ),
-              onChanged: (value) {
-                setState(() => _searchQuery = value);
-                _applyFilters();
-              },
-            ),
-          ),
-
-          // إحصائيات سريعة
-          if (!_isLoading)
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    '${isAr ? "العدد" : "Total"}: ${_filteredOffices.length}',
-                    style: theme.textTheme.titleSmall,
-                  ),
-                  Text(
-                    '${isAr ? "نشط" : "Active"}: ${_filteredOffices.where((o) => o['active'] == true).length}',
-                    style: theme.textTheme.titleSmall?.copyWith(
-                      color: AppColors.success,
-                    ),
-                  ),
+      body: RefreshIndicator(
+        onRefresh: _loadOffices,
+        child: LayoutBuilder(
+          builder: (context, box) {
+            // Two to a row where there is room; one on a phone.
+            final columns = box.maxWidth >= 900 ? 2 : 1;
+            final width = (box.maxWidth - 32 - (columns - 1) * AppSpace.md) / columns;
+            return ListView(
+              // Room under the last card for «إضافة مكتب», which covered its «تعديل».
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
+              children: [
+                _buildSearchAndFilter(isAr),
+                const SizedBox(height: AppSpace.md),
+                if (!_isLoading && _filteredOffices.isNotEmpty) ...[
+                  _buildSummary(isAr),
+                  const SizedBox(height: AppSpace.md),
                 ],
-              ),
-            ),
-
-          // القائمة
-          Expanded(
-            child: _isLoading
-                ? const Center(child: CircularProgressIndicator())
-                : _filteredOffices.isEmpty
-                ? Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(
-                          Icons.store_outlined,
-                          size: 64,
-                          color: Colors.grey.shade400,
-                        ),
-                        const SizedBox(height: 16),
-                        Text(
-                          isAr ? 'لا توجد مكاتب' : 'No offices found',
-                          style: theme.textTheme.titleMedium?.copyWith(
-                            color: Colors.grey.shade600,
-                          ),
-                        ),
-                      ],
+                if (_isLoading)
+                  const Padding(
+                    padding: EdgeInsets.all(AppSpace.xl),
+                    child: Center(child: CircularProgressIndicator()),
+                  )
+                else if (_filteredOffices.isEmpty)
+                  Padding(
+                    padding: const EdgeInsets.all(AppSpace.xl),
+                    child: Center(
+                      child: Text(
+                        isAr ? 'لا توجد مكاتب' : 'No offices found',
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
                     ),
                   )
-                : RefreshIndicator(
-                    onRefresh: _loadOffices,
-                    child: ListView.builder(
-                      // Room under the last card for «إضافة مكتب», which covered its «تعديل».
-                      padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
-                      itemCount: _filteredOffices.length,
-                      itemBuilder: (context, index) {
-                        final office = _filteredOffices[index];
-                        return _buildOfficeCard(office);
-                      },
-                    ),
+                else
+                  Wrap(
+                    spacing: AppSpace.md,
+                    runSpacing: AppSpace.md,
+                    children: [
+                      for (final office in _filteredOffices)
+                        SizedBox(width: width, child: _buildOfficeCard(office)),
+                    ],
                   ),
-          ),
-        ],
+              ],
+            );
+          },
+        ),
       ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _navigateToAddOffice,
-        backgroundColor: AppColors.primaryGold,
-        foregroundColor: Colors.white,
         icon: const Icon(Icons.add),
         label: Text(isAr ? 'إضافة مكتب' : 'Add Office'),
       ),
     );
   }
 
-  Widget _buildOfficeCard(Map<String, dynamic> office) {
+  /// The search, and whether the stopped offices are shown: two chips in
+  /// place of an eye and «العدد / نشط» (the owner, 20 Oct 2026).
+  Widget _buildSearchAndFilter(bool isAr) {
+    return Wrap(
+      spacing: AppSpace.sm,
+      runSpacing: AppSpace.sm,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: [
+        ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 520),
+          child: TextField(
+            controller: _searchController,
+            decoration: InputDecoration(
+              hintText: isAr ? 'ابحث بالاسم أو الرمز أو الهاتف' : 'Search by name, code, phone',
+              prefixIcon: const Icon(Icons.search),
+              border: const OutlineInputBorder(),
+              isDense: true,
+              suffixIcon: _searchQuery.isNotEmpty
+                  ? IconButton(
+                      icon: const Icon(Icons.clear),
+                      onPressed: () {
+                        _searchController.clear();
+                        setState(() => _searchQuery = '');
+                        _applyFilters();
+                      },
+                    )
+                  : null,
+            ),
+            onChanged: (value) {
+              setState(() => _searchQuery = value);
+              _applyFilters();
+            },
+          ),
+        ),
+        ChoiceChip(
+          key: const Key('offices-filter-active'),
+          label: Text(isAr ? 'النشطة' : 'Active'),
+          selected: _showActiveOnly,
+          onSelected: (_) {
+            if (_showActiveOnly) return;
+            setState(() => _showActiveOnly = true);
+            _loadOffices();
+          },
+        ),
+        ChoiceChip(
+          key: const Key('offices-filter-all'),
+          label: Text(isAr ? 'الكل' : 'All'),
+          selected: !_showActiveOnly,
+          onSelected: (_) {
+            if (!_showActiveOnly) return;
+            setState(() => _showActiveOnly = false);
+            _loadOffices();
+          },
+        ),
+      ],
+    );
+  }
+
+  /// The offices summed: our gold in their deposits, what is owed either
+  /// way in riyals, the reservations waiting -- the list's own numbers.
+  Widget _buildSummary(bool isAr) {
+    final theme = Theme.of(context);
+    final tones = AppSemanticColors.of(context);
+    final currency = context.read<SettingsProvider>().currencySymbolText;
+    var deposits = 0.0, owed = 0.0, ours = 0.0;
+    var waiting = 0;
+    for (final o in _filteredOffices) {
+      final office = Map<String, dynamic>.from(o as Map);
+      if (office['deposit'] is Map) {
+        deposits += _asDouble((office['deposit'] as Map)['main_karat_total']);
+      }
+      final cash = _asDouble(office['balance_cash']);
+      if (cash < 0) owed += -cash;
+      if (cash > 0) ours += cash;
+      if (office['open_reservations'] is Map) {
+        waiting += ((office['open_reservations'] as Map)['count'] as num? ?? 0).toInt();
+      }
+    }
+    Widget stat(String label, String value, SemanticTone tone) => Container(
+      padding: const EdgeInsets.symmetric(horizontal: AppSpace.md, vertical: AppSpace.sm),
+      decoration: BoxDecoration(
+        color: tone.container,
+        borderRadius: BorderRadius.circular(AppRadius.control),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(label, style: theme.textTheme.labelMedium?.copyWith(color: tone.onContainer)),
+          Text(
+            value,
+            style: theme.textTheme.titleMedium?.copyWith(
+              color: tone.onContainer,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ],
+      ),
+    );
+    return Wrap(
+      key: const Key('offices-summary'),
+      spacing: AppSpace.sm,
+      runSpacing: AppSpace.sm,
+      children: [
+        stat(
+          isAr ? 'ذهبنا في الودائع' : 'Our gold deposited',
+          '${ltrIsolate(formatGrams(deposits))} ${isAr ? 'جم بالعيار $_mainKarat' : 'g of ${_mainKarat}k'}',
+          tones.gold,
+        ),
+        stat(
+          isAr ? 'مستحق للمكاتب' : 'Owed to offices',
+          '${ltrIsolate(formatAmount(owed))} $currency',
+          owed > 0.005 ? tones.warning : tones.ready,
+        ),
+        if (ours > 0.005)
+          stat(
+            isAr ? 'لنا عند المكاتب' : 'Ours with offices',
+            '${ltrIsolate(formatAmount(ours))} $currency',
+            tones.ready,
+          ),
+        stat(
+          isAr ? 'حجوزات مفتوحة' : 'Open reservations',
+          ltrIsolate('$waiting'),
+          tones.info,
+        ),
+      ],
+    );
+  }
+
+  /// One office, compact (the owner, 20 Oct 2026: «حجم بطاقة المكتب كبير»):
+  /// its name; what is between us in one line, nothing said that is nothing;
+  /// its next steps.
+  Widget _buildOfficeCard(dynamic raw) {
+    final office = Map<String, dynamic>.from(raw as Map);
     final isAr = widget.isArabic;
     final currencySymbol = context.read<SettingsProvider>().currencySymbolText;
     final theme = Theme.of(context);
+    final tones = AppSemanticColors.of(context);
     final isActive = office['active'] ?? true;
+    final id = office['id'];
 
     final cashBalance = _asDouble(office['balance_cash']);
     final goldTotal = _goldMainEquivalentFromOffice(office);
     // Our gold held there (ADR-052) -- the supplier balances beside it are the trade.
     final deposit = office['deposit'] is Map ? office['deposit'] as Map : null;
+    final depositGrams = _asDouble(deposit?['main_karat_total']);
     final openCount = office['open_reservations'] is Map
         ? ((office['open_reservations'] as Map)['count'] as num? ?? 0).toInt()
         : 0;
-    final depositGrams = _asDouble(deposit?['main_karat_total']);
 
-    return Card(
-      margin: const EdgeInsets.only(bottom: 12),
-      elevation: 2,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: BorderSide(
-          color: (isActive ? AppColors.success : AppColors.error).withValues(
-            alpha: 0.4,
-          ),
-          width: 2,
+    Widget fact(Key key, String text, SemanticTone tone) => Container(
+      key: key,
+      padding: const EdgeInsets.symmetric(horizontal: AppSpace.sm, vertical: AppSpace.xs),
+      decoration: BoxDecoration(
+        color: tone.container,
+        borderRadius: BorderRadius.circular(AppRadius.chip),
+      ),
+      child: Text(
+        text,
+        style: theme.textTheme.bodyMedium?.copyWith(
+          color: tone.onContainer,
+          fontWeight: FontWeight.w700,
         ),
       ),
+    );
+
+    final facts = <Widget>[
+      if (depositGrams.abs() >= 0.0005)
+        fact(
+          Key('office-deposit-$id'),
+          '${isAr ? 'وديعة' : 'Deposit'} ${ltrIsolate(formatGrams(depositGrams))} ${isAr ? 'جم' : 'g'}',
+          tones.gold,
+        ),
+      if (cashBalance.abs() >= 0.005)
+        fact(
+          Key('office-cash-$id'),
+          _sideText(cashBalance, formatAmount(cashBalance.abs()), currencySymbol, isAr),
+          cashBalance < 0 ? tones.warning : tones.ready,
+        ),
+      if (goldTotal.abs() >= 0.0005)
+        fact(
+          Key('office-gold-$id'),
+          _sideText(
+            goldTotal,
+            formatGrams(goldTotal.abs()),
+            isAr ? 'جم بالعيار $_mainKarat' : 'g of ${_mainKarat}k',
+            isAr,
+            least: 0.0005,
+          ),
+          tones.info,
+        ),
+    ];
+
+    return Card(
+      key: Key('office-card-$id'),
+      margin: EdgeInsets.zero,
       child: InkWell(
         onTap: () => _openOffice(office),
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(AppRadius.control),
         child: Padding(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.all(AppSpace.md),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // الرأس
-              Row(
-                children: [
-                  CircleAvatar(
-                    backgroundColor:
-                        (isActive ? AppColors.success : AppColors.error)
-                            .withValues(alpha: 0.12),
-                    child: Icon(
-                      Icons.store,
-                      color: isActive ? AppColors.success : AppColors.error,
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          office['name'] ?? '',
-                          style: theme.textTheme.titleMedium?.copyWith(
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        Text(
-                          office['office_code'] ?? '',
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: Colors.grey.shade600,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 4,
-                    ),
-                    decoration: BoxDecoration(
-                      color: (isActive ? AppColors.success : AppColors.error)
-                          .withValues(alpha: 0.1),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Text(
-                      isActive
-                          ? (isAr ? 'نشط' : 'Active')
-                          : (isAr ? 'معطل' : 'Inactive'),
-                      style: TextStyle(
-                        color: isActive ? AppColors.success : AppColors.error,
-                        fontSize: 12,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-
-              // التفاصيل
-              if (office['contact_person'] != null &&
-                  office['contact_person'].toString().isNotEmpty)
-                _buildInfoRow(
-                  Icons.person,
-                  isAr ? 'المسؤول' : 'Contact',
-                  office['contact_person'],
-                ),
-              if (office['phone'] != null &&
-                  office['phone'].toString().isNotEmpty)
-                _buildInfoRow(
-                  Icons.phone,
-                  isAr ? 'الهاتف' : 'Phone',
-                  office['phone'],
-                ),
-              if (office['city'] != null &&
-                  office['city'].toString().isNotEmpty)
-                _buildInfoRow(
-                  Icons.location_on,
-                  isAr ? 'المدينة' : 'City',
-                  office['city'],
-                ),
-
-              const Divider(height: 24),
-
-              // الأرصدة: ذهبنا المودع أولًا، ثم ما بيننا وبين المكتب (ADR-052)
-              Row(
+              Padding(
+                padding: const EdgeInsets.only(bottom: AppSpace.sm),
+                child: Row(
                 children: [
                   Expanded(
-                    child: KeyedSubtree(
-                      key: Key('office-deposit-${office['id']}'),
-                      child: _buildBalanceTile(
-                        isAr ? 'وديعة الذهب' : 'Gold deposit',
-                        deposit == null
-                            ? (isAr ? 'لا وديعة' : 'No deposit')
-                            : '${ltrIsolate(formatGrams(depositGrams))} ${isAr ? 'جم' : 'g'}',
-                        AppColors.primaryGold,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: KeyedSubtree(
-                      key: Key('office-cash-${office['id']}'),
-                      child: _buildBalanceTile(
-                        isAr ? 'الحساب النقدي' : 'Cash',
-                        _sideText(cashBalance, formatAmount(cashBalance.abs()), currencySymbol, isAr),
-                        cashBalance < -0.005
-                            ? AppColors.error
-                            : AppColors.success,
-                      ),
-                    ),
-                  ),
-                  if (goldTotal.abs() >= 0.0005) ...[
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: KeyedSubtree(
-                        key: Key('office-gold-${office['id']}'),
-                        child: _buildBalanceTile(
-                          isAr ? 'الحساب الذهبي' : 'Gold account',
-                          _sideText(
-                            goldTotal,
-                            formatGrams(goldTotal.abs()),
-                            isAr ? 'جم بالعيار $_mainKarat' : 'g of ${_mainKarat}k',
-                            isAr,
-                            least: 0.0005,
+                    child: Text.rich(
+                      TextSpan(
+                        children: [
+                          TextSpan(
+                            text: '${office['name'] ?? ''}',
+                            style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
                           ),
-                          AppSemanticColors.of(context).gold.fg,
-                        ),
+                          TextSpan(
+                            text: '  ${office['office_code'] ?? ''}',
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: theme.colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                        ],
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  // Only a stopped one is marked: the list is of the active.
+                  if (!isActive)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: AppSpace.sm, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: tones.blocked.container,
+                        borderRadius: BorderRadius.circular(AppRadius.chip),
+                      ),
+                      child: Text(
+                        isAr ? 'معطّل' : 'Inactive',
+                        style: theme.textTheme.labelMedium?.copyWith(color: tones.blocked.onContainer),
                       ),
                     ),
-                  ],
                 ],
               ),
-              const SizedBox(height: 12),
-
-              // الأزرار: الخطوة التالية ظاهرة، والباقي تحت «المزيد» -- في
-              // سطر يلتفّ، فلا يخرج «حجز جديد» عن شاشة الجوال (المالك، 20 أكتوبر 2026).
+              ),
               Wrap(
-                spacing: 8,
-                runSpacing: 8,
+                spacing: AppSpace.sm,
+                runSpacing: AppSpace.xs,
+                children: facts.isEmpty
+                    ? [
+                        Text(
+                          isAr ? 'لا شيء بيننا' : 'Nothing between us',
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            color: theme.colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ]
+                    : facts,
+              ),
+              const SizedBox(height: AppSpace.sm),
+              // The next steps in sight, wrapping on a phone.
+              Wrap(
+                spacing: AppSpace.sm,
+                runSpacing: AppSpace.sm,
                 crossAxisAlignment: WrapCrossAlignment.center,
                 children: [
                   FilledButton.icon(
-                    key: Key('office-new-reservation-${office['id']}'),
+                    key: Key('office-new-reservation-$id'),
                     onPressed: isActive ? () => _newReservation(office) : null,
                     icon: const Icon(Icons.add, size: 18),
                     label: Text(isAr ? 'حجز جديد' : 'New reservation'),
                   ),
                   OutlinedButton.icon(
-                    key: Key('office-reservations-${office['id']}'),
+                    key: Key('office-reservations-$id'),
                     onPressed: () => _openOffice(office),
                     icon: const Icon(Icons.lock_clock, size: 18),
                     label: Text(
@@ -556,7 +583,7 @@ class _OfficesScreenState extends State<OfficesScreen> {
                     ),
                   ),
                   PopupMenuButton<String>(
-                    key: Key('office-more-${office['id']}'),
+                    key: Key('office-more-$id'),
                     tooltip: isAr ? 'المزيد' : 'More',
                     icon: const Icon(Icons.more_horiz),
                     onSelected: (choice) => choice == 'edit'
@@ -586,59 +613,6 @@ class _OfficesScreenState extends State<OfficesScreen> {
             ],
           ),
         ),
-      ),
-    );
-  }
-
-  Widget _buildInfoRow(IconData icon, String label, dynamic value) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Row(
-        children: [
-          Icon(icon, size: 16, color: Colors.grey.shade600),
-          const SizedBox(width: 8),
-          Text(
-            '$label: ',
-            style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
-          ),
-          Expanded(
-            child: Text(
-              value?.toString() ?? '',
-              style: const TextStyle(fontSize: 13),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildBalanceTile(String label, String value, Color color) {
-    return Container(
-      padding: const EdgeInsets.all(8),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Column(
-        children: [
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 12,
-              color: color,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            value,
-            style: TextStyle(
-              fontSize: 14,
-              color: color,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-        ],
       ),
     );
   }
