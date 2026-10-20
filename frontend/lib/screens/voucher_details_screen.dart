@@ -1451,7 +1451,9 @@ class _VoucherDetailsScreenState extends State<VoucherDetailsScreen> {
   String? _formatEquivalentGold(Map<String, dynamic> voucher) {
     final double? amount = _toDouble(voucher['amount_gold_main_karat']);
     if (amount == null || amount == 0) return null;
-    final int mainKarat = (_toDouble(voucher['main_karat']) ?? 21).round();
+    final int mainKarat = (_toDouble(voucher['main_karat']) ??
+            context.read<SettingsProvider>().mainKarat)
+        .round();
     return 'مكافئ عيار $mainKarat: ${_weightFormat.format(amount)} غ';
   }
 

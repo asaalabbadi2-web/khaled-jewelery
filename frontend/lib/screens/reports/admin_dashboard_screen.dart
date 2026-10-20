@@ -1364,7 +1364,8 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     final netMarginPct = gd('net_margin_pct');
     final weightSold = gd('weight_sold');
 
-    final mainKarat = g['main_karat']?.toString() ?? '21';
+    final mainKarat =
+        '${g['main_karat'] ?? context.read<SettingsProvider>().mainKarat}';
     final isProfit = netProfitWeight >= 0;
 
     final isAllZero = netProfitWeight == 0 &&

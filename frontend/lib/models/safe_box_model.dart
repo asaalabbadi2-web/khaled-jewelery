@@ -437,7 +437,8 @@ class SafeTypeTotal {
 class SafeBoxesOverview {
   final List<SafeBoxModel> rows;
   final Map<String, SafeTypeTotal> totals;
-  final double mainKarat;
+  /// The server's main karat -- null when it sent none (the screen reads the settings').
+  final double? mainKarat;
 
   const SafeBoxesOverview({required this.rows, required this.totals, required this.mainKarat});
 
@@ -450,6 +451,6 @@ class SafeBoxesOverview {
           for (final e in ((json['totals'] as Map?) ?? const {}).entries)
             if (e.value is Map) '${e.key}': SafeTypeTotal.fromJson(Map<String, dynamic>.from(e.value as Map)),
         },
-        mainKarat: (json['main_karat'] as num?)?.toDouble() ?? 21,
+        mainKarat: (json['main_karat'] as num?)?.toDouble(),
       );
 }

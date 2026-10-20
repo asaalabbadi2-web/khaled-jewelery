@@ -718,7 +718,8 @@ class _IncomeStatementReportScreenState
           (isArabic
               ? 'بيانات غير كافية لحساب ربح الجرام'
               : 'Insufficient data to compute gram profit');
-      final mainKarat = g['main_karat']?.toString() ?? '21';
+      final mainKarat =
+          '${g['main_karat'] ?? context.read<SettingsProvider>().mainKarat}';
       final wSold = val('weight_sold').toStringAsFixed(3);
       return Container(
         decoration: BoxDecoration(
@@ -854,7 +855,8 @@ class _IncomeStatementReportScreenState
     final valuationPrice = val('valuation_price_per_gram') > 0 ? val('valuation_price_per_gram') : avgBuy;
     final netMarginPct = val('net_margin_pct');
     final totalSales = val('total_sales_cash');
-    final mainKarat = g['main_karat']?.toString() ?? '21';
+    final mainKarat =
+        '${g['main_karat'] ?? context.read<SettingsProvider>().mainKarat}';
     final isProfit = netProfitWeight >= 0;
 
     final profitColor = isProfit ? Colors.green.shade600 : Colors.red.shade600;

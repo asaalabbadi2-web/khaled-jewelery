@@ -18,6 +18,7 @@ import '../theme/app_button_styles.dart';
 import '../theme/app_semantic_colors.dart';
 import '../theme/app_tokens.dart';
 import '../providers/auth_provider.dart';
+import '../providers/settings_provider.dart';
 import '../widgets/cancelled_vouchers_bar.dart';
 import '../widgets/widgets.dart';
 import 'package:provider/provider.dart';
@@ -2832,7 +2833,9 @@ class _VouchersListScreenState extends State<VouchersListScreen>
       return null;
     }
 
-    final int mainKarat = (_toDouble(voucher['main_karat']) ?? 21).round();
+    final int mainKarat = (_toDouble(voucher['main_karat']) ??
+            context.read<SettingsProvider>().mainKarat)
+        .round();
     return 'المكافئ عيار $mainKarat: ${_goldFormat.format(amount)} غ';
   }
 
