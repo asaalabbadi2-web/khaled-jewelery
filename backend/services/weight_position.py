@@ -331,7 +331,7 @@ def collect_events(start: dt.datetime, end: dt.datetime) -> Events:
     # The revenues and expenses gram profit counts (the owner's marks), when entered.
     revenue_ids, expense_ids = gram_profit_accounts()
     marked = revenue_ids | expense_ids
-    main_karat = float(get_main_karat() or 21)
+    main_karat = float(get_main_karat())
     weight_accounts = {a.id for a in Account.query.filter(Account.id.in_(marked or {-1}),
                                                           Account.tracks_weight.is_(True))}
     rows = (db.session.query(JournalEntry.date, JournalEntryLine)

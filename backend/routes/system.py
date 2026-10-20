@@ -69,6 +69,7 @@ from core.responses import _wrap_api_exceptions
 from auth_decorators import require_permission, require_any_permission
 
 
+from pricing.gold_price_service import configured_main_karat
 from pricing.karat_service import get_main_karat
 from accounting.voucher_engine import (
     post_entry_of_approved_voucher,
@@ -542,7 +543,7 @@ def update_weight_closing_settings():
     # Persist
     settings_row = Settings.query.first()
     if not settings_row:
-        settings_row = Settings(main_karat=get_main_karat() or 21)
+        settings_row = Settings()
         db.session.add(settings_row)
         db.session.flush()
 
@@ -779,7 +780,15 @@ def update_settings():
 
     # إعدادات أساسية
     if 'main_karat' in data:
-        settings.main_karat = data['main_karat']
+        from pricing.gold_price_service import KARATS
+        try:
+            chosen = int(data['main_karat'])
+        except (TypeError, ValueError):
+            chosen = None
+        if chosen not in KARATS:
+            return jsonify({'error': 'invalid_main_karat',
+                            'message': 'العيار الرئيسي واحد من 18 أو 21 أو 22 أو 24'}), 400
+        settings.main_karat = chosen
         from pricing.gold_price_service import forget_main_karat
         forget_main_karat()
     if 'currency_symbol' in data:
@@ -1879,12 +1888,16 @@ def _reset_full_system_wipe():
 def _reset_settings():
     """إعادة تعيين الإعدادات للقيم الافتراضية"""
     try:
+        # العيار الرئيسي ليس تفضيلًا يُعاد إلى قيمة افتراضية: تُوزن به كل أرصدة
+        # الذهب، فيبقى كما ضبطه المحل (20 أكتوبر 2026؛ كانت تكتب 21 فوقه).
+        kept_main_karat = configured_main_karat()
+
         # حذف الإعدادات الحالية
         Settings.query.delete()
         
         # إنشاء إعدادات جديدة بالقيم الافتراضية
         default_settings = Settings(
-            main_karat=21,
+            main_karat=kept_main_karat,
             currency_symbol='ريال',
             tax_rate=0.0,
             tax_enabled=False,
@@ -2719,7 +2732,7 @@ def get_app_config():
             ('operating_expenses', OPERATING_EXPENSES_ROOT))}
 
         return jsonify({
-            'main_karat': int(getattr(settings, 'main_karat', 21) or 21) if settings else 21,
+            'main_karat': configured_main_karat(),   # None until set: a request that needs it is refused
             'currency_symbol': getattr(settings, 'currency_symbol', 'ر.س') if settings else 'ر.س',
             'aggregate_accounts': {
                 'customers': customers_agg,

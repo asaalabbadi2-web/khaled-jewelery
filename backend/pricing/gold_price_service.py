@@ -34,13 +34,41 @@ def forget_main_karat() -> None:
         memo.pop('main_karat', None)
 
 
+KARATS = (18, 21, 22, 24)
+
+
+class MainKaratNotSet(ValueError):
+    """The settings hold no main karat (the owner, 20 Oct 2026: «يرفض العمل إن
+    لم يُضبط»): nothing is weighed in the main karat on a guess. A ValueError,
+    so a posting rolls back; a request is refused `main_karat_not_set` (app.py)."""
+
+    def __init__(self):
+        super().__init__('العيار الرئيسي غير مضبوط: يُضبط في الإعدادات، '
+                         'ولا يُحسب وزن بالعيار الرئيسي دونه')
+
+
+def configured_main_karat() -> int | None:
+    """The main karat the settings hold -- None when they hold none (or one
+    that is no karat). Only the settings themselves are said with it; every
+    conversion reads get_main_karat()."""
+    from models import Settings
+    settings = Settings.query.first()
+    try:
+        value = int(settings.main_karat) if settings is not None and settings.main_karat is not None else None
+    except (TypeError, ValueError):
+        return None
+    return value if value in KARATS else None
+
+
 def get_main_karat() -> int:
+    """The main karat -- the settings', never a fixed one (the owner, 20 Oct
+    2026); MainKaratNotSet when they hold none."""
     memo = request_memo()
     if memo is not None and 'main_karat' in memo:
         return memo['main_karat']
-    from models import Settings
-    settings = Settings.query.first()
-    value = settings.main_karat if settings else 21
+    value = configured_main_karat()
+    if value is None:
+        raise MainKaratNotSet()
     if memo is not None:
         memo['main_karat'] = value
     return value

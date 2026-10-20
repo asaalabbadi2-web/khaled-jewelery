@@ -43,7 +43,7 @@ def render(until: dt.date) -> str:
     expected = sum(lot.cash / lot.price_at_sale - lot.grams for lot in result.lots if lot.price_at_sale)
 
     out = ['# التسكير الوزني — المركز والأداء (قراءة فقط)', '',
-           f'- من {wp.year_start(until):%Y-%m-%d} إلى {until} · العيار الرئيسي {float(get_main_karat() or 21):g}', '',
+           f'- من {wp.year_start(until):%Y-%m-%d} إلى {until} · العيار الرئيسي {float(get_main_karat()):g}', '',
            '## الخلاصة', '', '| | |', '|---|---|',
            f'| المصادر (مبيعات وإيرادات) | {len(result.lots):,} · {_f(sum(l.cash for l in result.lots), 0)} ريال · '
            f'{_f(sum(l.grams for l in result.lots), 1)} غ مُباعة |',

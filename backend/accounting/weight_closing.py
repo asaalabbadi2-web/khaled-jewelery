@@ -13,7 +13,7 @@ from models import (
 
 
 DEFAULT_WEIGHT_CLOSING_SETTINGS = {
-    'main_karat': 21,
+    # No main karat here: it is the settings' own (Settings.main_karat), one place.
     'price_source': 'live',
     'enabled': True,
     'allow_override': True,

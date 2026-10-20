@@ -509,7 +509,7 @@ def _record_memo_weight_transfer(journal_entry_id, *, debit_account_id=None, cre
     if weight_main_karat <= 0 or not debit_account_id or not credit_account_id:
         return
 
-    karat_value = get_main_karat() or 21
+    karat_value = get_main_karat()
     if karat_value not in (18, 21, 22, 24):
         karat_value = 21
 
@@ -568,7 +568,7 @@ def _invoice_weight_mk_v2(invoice: Invoice) -> float:
     """
     if not invoice:
         return 0.0
-    main_karat = get_main_karat() or 21
+    main_karat = get_main_karat()
     w = 0.0
     karat_lines = getattr(invoice, 'karat_lines', None) or []
     if karat_lines:
@@ -943,7 +943,7 @@ def _line_weight_total_in_main_karat(line, side, main_karat_value=None):
         return 0.0
     prefix = 'debit' if side == 'debit' else 'credit'
     if main_karat_value is None or main_karat_value <= 0:
-        main_karat_value = get_main_karat() or 21
+        main_karat_value = get_main_karat()
 
     total = 0.0
     karat_fields = {

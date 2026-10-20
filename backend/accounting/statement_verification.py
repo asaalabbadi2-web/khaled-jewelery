@@ -160,7 +160,7 @@ def _build_statement_qr_signed_payload(
         'account_id': int(getattr(account, 'id', 0) or 0),
         'account_number': str(getattr(account, 'account_number', '') or ''),
         'account_name': str(getattr(account, 'name', '') or ''),
-        'main_karat': int(main_karat or 21),
+        'main_karat': int(main_karat),
         'closing_gold_g': float(round(float(closing_gold_g or 0.0), 3)),
         'closing_cash': float(round(float(closing_cash or 0.0), 2)),
         'is_merged': bool(is_merged),

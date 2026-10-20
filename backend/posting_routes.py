@@ -72,18 +72,15 @@ def _to_float(value, default: float = 0.0) -> float:
 
 
 def _main_karat_value() -> float:
-    settings_row = _get_settings_row()
-    try:
-        main_karat = _to_float(getattr(settings_row, 'main_karat', None), 21.0)
-    except Exception:
-        main_karat = 21.0
-    return main_karat if main_karat > 0 else 21.0
+    """The settings' main karat -- MainKaratNotSet when they hold none."""
+    from pricing.gold_price_service import get_main_karat
+    return float(get_main_karat())
 
 
 def _convert_to_main_karat(weight: float, karat: float, main_karat: float) -> float:
     w = _to_float(weight, 0.0)
     k = _to_float(karat, 0.0)
-    mk = _to_float(main_karat, 21.0)
+    mk = _to_float(main_karat, 0.0)
     if w == 0.0 or k == 0.0 or mk == 0.0:
         return 0.0
     return (w * k) / mk

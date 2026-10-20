@@ -43,8 +43,13 @@ from sqlalchemy import func
 
 from models import Invoice, JournalEntry, JournalEntryLine, OfficeReservation, db
 
-MAIN_KARAT = 21.0
 KARATS = (18, 21, 22, 24)
+
+
+def _main_karat() -> float:
+    """The settings' main karat -- it was a constant 21 here (20 Oct 2026)."""
+    from pricing.gold_price_service import get_main_karat
+    return float(get_main_karat())
 
 # Which accounts are which pool -- by the tree, under roles (a policy: data, not
 # law). They were numbers here (71300; 71310, 7210; 512, 1310; 7120; 74; 752;
@@ -154,7 +159,8 @@ class Replay:
 
 
 def _grams(line) -> float:
-    return sum((float(getattr(line, f'debit_{k}k') or 0) - float(getattr(line, f'credit_{k}k') or 0)) * k / MAIN_KARAT
+    main = _main_karat()
+    return sum((float(getattr(line, f'debit_{k}k') or 0) - float(getattr(line, f'credit_{k}k') or 0)) * k / main
                for k in KARATS)
 
 
@@ -352,10 +358,11 @@ def ledger_weights() -> dict:
     from accounting.balances import counted_line_filters
     result = {}
     pools = pool_accounts()
+    main = _main_karat()
     for name in ('scrap', 'worked'):
         ids = pools[name]
         expr = sum((func.coalesce(func.sum(getattr(JournalEntryLine, f'debit_{k}k')), 0.0)
-                    - func.coalesce(func.sum(getattr(JournalEntryLine, f'credit_{k}k')), 0.0)) * k / MAIN_KARAT
+                    - func.coalesce(func.sum(getattr(JournalEntryLine, f'credit_{k}k')), 0.0)) * k / main
                    for k in KARATS)
         result[name] = float(db.session.query(expr).join(JournalEntry, JournalEntry.id == JournalEntryLine.journal_entry_id)
                              .filter(*counted_line_filters(), JournalEntryLine.account_id.in_(ids or {-1})).scalar() or 0.0)
@@ -413,7 +420,7 @@ def market_average_price(start: date, days: int = 30) -> tuple[float, date, date
     usd_per_oz = float(db.session.query(func.avg(GoldPrice.price))
                        .filter(GoldPrice.date >= first, GoldPrice.date < last, GoldPrice.price > 0).scalar())
     per_gram_24k = usd_per_oz / TROY_OZ_TO_GRAMS * SAR_USD_PEG
-    return round(per_gram_24k * MAIN_KARAT / 24.0, 4), first.date(), last.date()
+    return round(per_gram_24k * _main_karat() / 24.0, 4), first.date(), last.date()
 
 
 def books_start() -> date:

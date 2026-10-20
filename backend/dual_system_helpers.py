@@ -35,28 +35,15 @@ Dual accounting system helpers (cash + weight)
 Note: These functions must be called from within a Flask app context
 """
 
-from config import MAIN_KARAT as CONFIG_MAIN_KARAT
 from pricing.constants import SAR_USD_PEG, TROY_OZ_TO_GRAMS
-
-_MAIN_KARAT_CACHE = None
 
 
 def _get_main_karat_value(db_session):
-    """Return the main karat configured for weight normalization."""
-    global _MAIN_KARAT_CACHE
-    if _MAIN_KARAT_CACHE:
-        return _MAIN_KARAT_CACHE
-    value = CONFIG_MAIN_KARAT or 21
-    try:
-        from models import Settings
-        settings = db_session.query(Settings).first()
-        if settings and settings.main_karat:
-            value = settings.main_karat
-    except Exception:
-        # Fallback silently to the configured value
-        pass
-    _MAIN_KARAT_CACHE = value
-    return value
+    """The settings' main karat -- read each request, never cached for the
+    process (a changed setting held only from the next restart), never a fixed
+    21 when unset: MainKaratNotSet (the owner, 20 Oct 2026)."""
+    from pricing.gold_price_service import get_main_karat
+    return get_main_karat()
 
 
 def _normalize_weight_to_main(weight, karat, main_karat):
@@ -300,8 +287,7 @@ def create_dual_journal_entry(journal_entry_id, account_id, cash_debit=0, cash_c
             price_per_gram_24k_sar = (latest_price.price / TROY_OZ_TO_GRAMS) * SAR_USD_PEG
             
             # الحصول على العيار الرئيسي من الإعدادات
-            settings = Settings.query.first()
-            main_karat = settings.main_karat if settings else 21
+            main_karat = _get_main_karat_value(db.session)
             
             # 🔧 FIXED: حساب السعر للعيار الرئيسي (SAR/gram)
             gold_price_main_karat = (price_per_gram_24k_sar * main_karat) / 24.0
@@ -1032,14 +1018,14 @@ def apply_golden_rule_to_line(line_data, gold_price_main_karat, apply_rule=True)
         # سعر غير صحيح، لا يمكن تطبيق القاعدة
         return result
     
-def apply_golden_rule_to_line(line_data, gold_price_main_karat, main_karat=21, apply_rule=True):
+def apply_golden_rule_to_line(line_data, gold_price_main_karat, main_karat, apply_rule=True):
     """
     🆕 تطبيق القاعدة الذهبية على سطر قيد يدوي
     
     Args:
         line_data (dict): بيانات السطر من الطلب (account_id, cash_debit, cash_credit, etc.)
         gold_price_main_karat (float): سعر الذهب للعيار الرئيسي
-        main_karat (int): العيار الرئيسي (افتراضي 21، لكنه قابل للتغيير)
+        main_karat (int): العيار الرئيسي -- من الإعدادات، لا افتراضي له
         apply_rule (bool): تطبيق القاعدة أم لا (افتراضي True)
     
     Returns:

@@ -1,8 +1,3 @@
-try:
-    from backend.config import MAIN_KARAT
-except ImportError:  # Local scripts running from backend/ directory
-    from config import MAIN_KARAT
-from models import Settings
 
 
 # دالة لتحويل أي أرقام عربية أو هندية أو فارسية إلى أرقام عالمية (0-9)
@@ -15,8 +10,8 @@ def normalize_number(text):
     return text
 
 
-def get_main_karat(default=MAIN_KARAT):
-    """الحصول على العيار الرئيسي للنظام من إعدادات قاعدة البيانات."""
-    settings = Settings.query.first()
-    main_karat = getattr(settings, 'main_karat', None)
-    return main_karat or default
+def get_main_karat():
+    """العيار الرئيسي من الإعدادات -- القارئ الواحد (pricing.gold_price_service)؛
+    يرفض إن لم يُضبط، ولا عيار ثابت بديلًا عنه (المالك، 20 أكتوبر 2026)."""
+    from pricing.gold_price_service import get_main_karat as _settings_main_karat
+    return _settings_main_karat()

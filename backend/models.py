@@ -1,8 +1,3 @@
-try:
-    # When running via Docker/Gunicorn we import backend as a package.
-    from backend.config import MAIN_KARAT
-except ImportError:  # Local scripts running from backend/ directory
-    from config import MAIN_KARAT
 # SQLAlchemy models for Customer, Item, Invoice, InvoiceItem
 from datetime import datetime, date, time
 import json
@@ -18,23 +13,10 @@ db = SQLAlchemy()
 
 
 def _configured_main_karat_f() -> float:
-    """Return the configured main karat as float.
-
-    Prefers Settings.main_karat when available, otherwise falls back to MAIN_KARAT/21.
-    Kept defensive because this can be called in varied app/migration contexts.
-    """
-    try:
-        from pricing.gold_price_service import get_main_karat
-        main = get_main_karat()   # read once per request (request_memo)
-        if main:
-            return float(main)
-    except Exception:
-        pass
-
-    try:
-        return float(MAIN_KARAT or 21)
-    except Exception:
-        return 21.0
+    """The settings' main karat as float -- MainKaratNotSet when they hold none
+    (the owner, 20 Oct 2026); read once per request (request_memo)."""
+    from pricing.gold_price_service import get_main_karat
+    return float(get_main_karat())
 
 
 def get_race_points_per_gram() -> float:
@@ -1039,7 +1021,7 @@ class Invoice(db.Model):
 
     # 🆕 ملخص أمر التسكير (التزامات الذهب)
     weight_closing_status = db.Column(db.String(20), default='not_initialized')
-    weight_closing_main_karat = db.Column(db.Float, default=21.0)
+    weight_closing_main_karat = db.Column(db.Float, default=_configured_main_karat_f)   # frozen: the settings' at creation
     weight_closing_total_weight = db.Column(db.Float, default=0.0)
     weight_closing_executed_weight = db.Column(db.Float, default=0.0)
     weight_closing_remaining_weight = db.Column(db.Float, default=0.0)
@@ -1236,14 +1218,15 @@ class Invoice(db.Model):
         effective_total_weight = self.total_weight
         effective_total_weight_mk = None  # الوزن المعادل بالعيار الرئيسي
         try:
+            main = _configured_main_karat_f()
             if getattr(self, 'karat_lines', None):
                 kl_sum = 0.0
                 kl_sum_mk = 0.0
                 for kl in self.karat_lines:
                     lw = float(getattr(kl, 'weight_grams', 0.0) or 0.0)
-                    lk = float(getattr(kl, 'karat', MAIN_KARAT) or MAIN_KARAT)
+                    lk = float(getattr(kl, 'karat', None) or main)
                     kl_sum += lw
-                    kl_sum_mk += lw * lk / MAIN_KARAT
+                    kl_sum_mk += lw * lk / main
                 if kl_sum > 0:
                     effective_total_weight = round(kl_sum, 4)
                     effective_total_weight_mk = round(kl_sum_mk, 4)
@@ -1252,9 +1235,9 @@ class Invoice(db.Model):
                 ii_sum_mk = 0.0
                 for ii in self.items:
                     iw = float(getattr(ii, 'weight', 0.0) or 0.0)
-                    ik = float(getattr(ii, 'karat', 0.0) or 0.0) or MAIN_KARAT
+                    ik = float(getattr(ii, 'karat', 0.0) or 0.0) or main
                     ii_sum += iw
-                    ii_sum_mk += iw * ik / MAIN_KARAT
+                    ii_sum_mk += iw * ik / main
                 if ii_sum > 0:
                     effective_total_weight_mk = round(ii_sum_mk, 4)
         except Exception:
@@ -1957,7 +1940,7 @@ class WeightClosingOrder(db.Model):
     invoice_id = db.Column(db.Integer, db.ForeignKey('invoice.id'), nullable=False, unique=True, index=True)
     order_number = db.Column(db.String(30), unique=True, nullable=False)
     status = db.Column(db.String(20), default='open', nullable=False)
-    main_karat = db.Column(db.Float, default=21.0, nullable=False)
+    main_karat = db.Column(db.Float, default=_configured_main_karat_f, nullable=False)   # frozen: the settings' at creation
     price_source = db.Column(db.String(20), default='live', nullable=False)
     close_price_per_gram = db.Column(db.Float, default=0.0, nullable=False)
     gold_value_cash = db.Column(db.Float, default=0.0)
@@ -2572,7 +2555,7 @@ class Settings(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     
     # إعدادات أساسية
-    main_karat = db.Column(db.Integer, default=21)
+    main_karat = db.Column(db.Integer)   # none until chosen: nothing is weighed on a guess (20 Oct 2026)
     currency_symbol = db.Column(db.String(10), default='ر.س')
     manufacturing_wage_mode = db.Column(db.String(20), default='expense')  # expense | inventory
 
@@ -3074,7 +3057,7 @@ class Voucher(db.Model):
             if amount <= 0:
                 continue
 
-            karat = float(line.karat or main_karat or 21.0)
+            karat = float(line.karat or main_karat)
             bucket = debit_by_karat if line.line_type == 'debit' else credit_by_karat
             bucket[karat] = bucket.get(karat, 0.0) + amount
 

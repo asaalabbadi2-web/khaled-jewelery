@@ -92,7 +92,7 @@ def get_safe_box_balance(safe_box_id: int):
     لو احتجت القيمة المشتقة منه للتشخيص.
     """
     safe_box = SafeBox.query.get_or_404(safe_box_id)
-    main_karat = float(get_main_karat() or 21)
+    main_karat = float(get_main_karat())
     balance = safe_box_balance(safe_box, main_karat=main_karat)
 
     return jsonify({
@@ -132,7 +132,7 @@ def list_safe_box_balances():
 
     safes = q_safes.order_by(SafeBox.safe_type.asc(), SafeBox.is_default.desc(), SafeBox.name.asc()).all()
 
-    main_karat = float(get_main_karat() or 21)
+    main_karat = float(get_main_karat())
     balances_by_safe_id = safe_box_balances_bulk(safes, main_karat=main_karat)
     # Beside the posted balance, what waits for approval -- read only (services/safe_pending.py)
     from services.safe_pending import pending_by_safe

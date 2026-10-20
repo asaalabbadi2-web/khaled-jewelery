@@ -48,8 +48,9 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 
 # Flask app setup with PostgreSQL, db init, register routes, create tables, run debug
 try:
-	from flask import Flask, url_for
+	from flask import Flask, jsonify, url_for
 	from models import db
+	from pricing.gold_price_service import MainKaratNotSet
 	from routes import api
 	from routes import public_api
 	from routes.pricing import pricing_bp
@@ -288,6 +289,14 @@ def _compute_backend_build() -> str:
 
 _BACKEND_BUILD = _compute_backend_build()
 _BACKEND_STARTED_AT = datetime.now().isoformat(timespec='seconds') + 'Z'
+
+
+@app.errorhandler(MainKaratNotSet)
+def _main_karat_not_set(exc):
+	"""No main karat in the settings: the request is refused, saying where it
+	is set (the owner, 20 Oct 2026) -- never weighed on a guessed 21."""
+	db.session.rollback()
+	return jsonify({'error': 'main_karat_not_set', 'message': str(exc)}), 409
 
 
 @app.after_request

@@ -1113,7 +1113,7 @@ def get_supplier_weight_summary(supplier_id):
         '24k': round(balances['weight_24k'] * prices_by_karat['24'], 2),
     }
 
-    main_karat = gold_price_data.get('main_karat', 21)
+    main_karat = gold_price_data['main_karat']
     total_weight_main_karat = round(
         (balances['weight_18k'] * 18 / main_karat) +
         (balances['weight_21k'] * 21 / main_karat) +

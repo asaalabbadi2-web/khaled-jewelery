@@ -339,7 +339,7 @@ def get_employee_scrap_ledger_report():
         except Exception:
             return 0.0
 
-    main_karat = float(get_main_karat() or 21)
+    main_karat = float(get_main_karat())
 
     # Resolve default/main gold safe (used as "unassigned" bucket).
     default_gold_safe = None
@@ -992,7 +992,7 @@ def get_sales_by_karat_report():
         .all()
     )
 
-    main_karat = get_main_karat() or 21
+    main_karat = get_main_karat()
 
     # {karat_int: {'sales_weight': float, 'returns_weight': float,
     #              'sales_value': float, 'returns_value': float, 'documents': set}}
@@ -2098,13 +2098,7 @@ def get_analytics_summary():
     )
 
     # Determine main karat for fallback weight normalization
-    main_karat = 21
-    try:
-        settings_row = Settings.query.first()
-        if settings_row and settings_row.main_karat:
-            main_karat = int(settings_row.main_karat)
-    except Exception:
-        main_karat = 21
+    main_karat = int(get_main_karat())
 
     # Fallback physical 24k-equivalent per line (used when analytic_* is null).
     # نستخدم COALESCE لكل حقل حتى لا تتحول العملية إلى NULL إذا كان أحدهما NULL.
@@ -2147,7 +2141,7 @@ def get_analytics_summary():
         else_=0.0,
     )
 
-    physical_main_expr = physical_24k_expr * (24.0 / float(main_karat or 21))
+    physical_main_expr = physical_24k_expr * (24.0 / float(main_karat))
 
     # صافي الحركة الوزنية في حسابات المخزون فقط (لأسطر PHYSICAL/Inventory)
     net_24k_inventory = physical_24k_expr
@@ -2226,8 +2220,8 @@ def get_analytics_summary():
     weight_out_24k_sum = func.sum(weight_out_24k_expr)
     weight_in_24k_sum = func.sum(weight_in_24k_expr)
 
-    weight_out_main_sum = weight_out_24k_sum * (24.0 / float(main_karat or 21))
-    weight_in_main_sum = weight_in_24k_sum * (24.0 / float(main_karat or 21))
+    weight_out_main_sum = weight_out_24k_sum * (24.0 / float(main_karat))
+    weight_in_main_sum = weight_in_24k_sum * (24.0 / float(main_karat))
 
     query = (
         db.session.query(
@@ -3145,7 +3139,7 @@ def get_gold_price_history_report():
         price_points = [point for point in price_points if point['bucket'] in keep_set]
 
     series_payload = []
-    main_karat = get_main_karat() or 21
+    main_karat = get_main_karat()
     main_ratio = main_karat / 24.0
 
     for bucket in bucket_map.values():
@@ -3272,7 +3266,7 @@ def get_gold_position_report():
     def round_weight(value):
         return round(float(value or 0.0), 3)
 
-    main_karat = get_main_karat() or 21
+    main_karat = get_main_karat()
 
     def normalize_to_main(weight_value, karat_value):
         value = parse_float(weight_value)
@@ -3539,7 +3533,7 @@ def get_weight_based_income_statement():
             if price and price > 0:
                 return net_cash / price
             return 0.0
-        main_karat_value = get_main_karat() or 21
+        main_karat_value = get_main_karat()
         
         # سعر الذهب المباشر (عيار 24) لتحويل الربح النقدي إلى وزن
         latest_gold_price = GoldPrice.query.order_by(GoldPrice.date.desc()).first()
@@ -4666,7 +4660,6 @@ def get_gold_trial_balance():
     - totals: إجماليات المدين والدائن بالجرامات
     """
     try:
-        from config import MAIN_KARAT
         
         end_date_str = request.args.get('date')
         if end_date_str:
@@ -4675,7 +4668,7 @@ def get_gold_trial_balance():
             end_date = datetime.now().date()
         
         karat_filter = request.args.get('karat')
-        main_karat = MAIN_KARAT or 21
+        main_karat = get_main_karat()
         
         # جلب جميع الحسابات الوزنية
         gold_accounts = Account.query.filter_by(transaction_type='gold').order_by(Account.account_number).all()
@@ -4754,7 +4747,6 @@ def get_inventory_reconciliation_report():
     - نسبة القيمة لكل جرام (ريال/جرام) إن أمكن
     """
     try:
-        from config import MAIN_KARAT
 
         end_date_str = request.args.get('date')
         if end_date_str:
@@ -4762,7 +4754,7 @@ def get_inventory_reconciliation_report():
         else:
             end_date = datetime.now().date()
 
-        main_karat = MAIN_KARAT or 21
+        main_karat = get_main_karat()
 
         # 1) حساب أرصدة المخزون المالية 13xx
         # مجموعة المخزون، بالشجرة تحت دورها (CHART-002)
@@ -4892,7 +4884,6 @@ def get_gold_weight_trial_balance_by_safe_box():
     - rows: لكل خزنة: رصيد الخزنة، رصيد الحساب، والفرق لكل عيار + إجمالي محول للعيار الرئيسي
     """
     try:
-        from config import MAIN_KARAT
 
         end_date_str = request.args.get('date')
         if end_date_str:
@@ -4900,7 +4891,7 @@ def get_gold_weight_trial_balance_by_safe_box():
         else:
             end_date = datetime.now().date()
 
-        main_karat = float(MAIN_KARAT or 21)
+        main_karat = float(get_main_karat())
         end_dt = datetime.combine(end_date, time.max)
 
         def _to_float(v):
@@ -5093,7 +5084,6 @@ def get_gold_income_statement():
     - net_profit_grams: صافي الربح بالجرامات
     """
     try:
-        from config import MAIN_KARAT
         
         start_date_str = request.args.get('start_date')
         end_date_str = request.args.get('end_date')
@@ -5103,7 +5093,7 @@ def get_gold_income_statement():
         
         start_date = datetime.fromisoformat(start_date_str).date()
         end_date = datetime.fromisoformat(end_date_str).date()
-        main_karat = MAIN_KARAT or 21
+        main_karat = get_main_karat()
         
         # جلب حسابات الإيرادات (74xx) من شجرة المذكرة
         from accounting.chart_tree import EXPENSES_ROOT, REVENUE_ROOT, twin_subtree_ids
@@ -5268,7 +5258,7 @@ def get_admin_dashboard():
     tomorrow_start = today_start + timedelta(days=1)
 
     # --- Safe boxes summary (Account-derived balances; aligned with SafeBox details UI) ---
-    main_karat = current_app.config.get('MAIN_KARAT', 21)
+    main_karat = get_main_karat()
     cash_balance = 0.0
     gold_18k = 0.0
     gold_21k = 0.0
@@ -5471,12 +5461,10 @@ def get_admin_dashboard():
     # --- Gold equivalent in main karat (from account-derived balances) ---
     gold_equivalent_main_karat = 0.0
     try:
-        mk = float(main_karat or 21)
-        if mk <= 0:
-            mk = 21.0
+        mk = float(main_karat)
         gold_equivalent_main_karat = (
             (gold_18k * (18.0 / mk))
-            + gold_21k
+            + (gold_21k * (21.0 / mk))
             + (gold_22k * (22.0 / mk))
             + (gold_24k * (24.0 / mk))
         )
@@ -5571,7 +5559,7 @@ def get_admin_dashboard():
                 # New: detailed weights per karat (ledger-based) for richer UI.
                 'weight_balance': {k: v for k, v in weight.items() if k != 'total'},
                 'total_weight_main_karat': weight.get('total', 0.0),
-                'main_karat': int(main_karat or 21),
+                'main_karat': int(main_karat),
             })
     except Exception:
         safe_boxes_summary = []
@@ -5608,12 +5596,10 @@ def get_admin_dashboard():
         inventory_value = float(gold_pure_24k) * float(spot_price_24k_per_gram)
 
     try:
-        mk = float(main_karat or 21)
-        if mk <= 0:
-            mk = 21.0
+        mk = float(main_karat)
         gold_equivalent_main_karat = (
             (gold_18k * (18.0 / mk))
-            + gold_21k
+            + (gold_21k * (21.0 / mk))
             + (gold_22k * (22.0 / mk))
             + (gold_24k * (24.0 / mk))
         )

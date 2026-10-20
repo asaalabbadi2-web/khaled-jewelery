@@ -12,7 +12,7 @@ def _get_settings_singleton(create_if_missing: bool = True) -> Settings | None:
     if not rows:
         if not create_if_missing:
             return None
-        row = Settings(main_karat=21)
+        row = Settings()   # no main karat until one is chosen: nothing is weighed on a guess
         db.session.add(row)
         db.session.commit()
         return row

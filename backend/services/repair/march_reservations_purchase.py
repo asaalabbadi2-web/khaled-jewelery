@@ -27,6 +27,7 @@ nothing and says what it would do.
 import json
 
 from models import Account, AuditLog, JournalEntry, JournalEntryLine, OfficeReservation, db
+from pricing.gold_price_service import get_main_karat
 from services.repair.entries import write_entry
 
 PURCHASE = 'office_reservation_purchase_recognized'
@@ -97,7 +98,7 @@ def record_march_reservations_purchase(*, by: str, now, dry_run: bool = True,
             raise NotAsMeasured(f'reservations {reservation_ids} total {total}, not {amount}')
 
     plan = {'done': False, 'grams_24k': credited['24k'], 'karats': {k: v for k, v in credited.items() if v},
-            'grams_main': round(sum(v * int(k[:-1]) / 21.0 for k, v in credited.items()), 3),
+            'grams_main': round(sum(v * int(k[:-1]) / get_main_karat() for k, v in credited.items()), 3),
             'amount': amount, 'purchase_date': transfer.date, 'reversal_date': settled.date, 'entries': []}
     if dry_run:
         return plan

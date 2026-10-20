@@ -550,7 +550,7 @@ def settle_office_reservation(reservation_id: int):
 
         karat = int(reservation.karat or get_main_karat())
         if karat not in (18, 21, 22, 24):
-            karat = int(get_main_karat() or 21)
+            karat = int(get_main_karat())
         if karat not in (18, 21, 22, 24):
             karat = 21
 

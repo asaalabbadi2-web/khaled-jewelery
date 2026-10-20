@@ -17,6 +17,7 @@ dry_run (the default) writes nothing and says what it would do.
 import json
 
 from models import Account, AuditLog, JournalEntry, JournalEntryLine, db
+from pricing.gold_price_service import get_main_karat
 from services.repair.entries import write_entry
 
 TRANSFER = 'office_reservation_weight_transfer'
@@ -63,7 +64,7 @@ def transfer_office_reservation_weights(*, by: str, now, dry_run: bool = True) -
         if all(abs(v) < 0.0005 for v in out.values()):
             skipped.append({'entry_number': entry.entry_number, 'karats': out})   # a rounding remainder
             continue
-        main = sum(v * int(k[:-1]) / 21.0 for k, v in out.items())
+        main = sum(v * int(k[:-1]) / get_main_karat() for k, v in out.items())
         grams_main += main
         step = {'entry_id': entry.id, 'entry_number': entry.entry_number, 'date': entry.date,
                 'reservation_id': entry.reference_id, 'karats': {k: v for k, v in out.items() if v},

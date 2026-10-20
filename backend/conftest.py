@@ -207,6 +207,12 @@ def initialize_db():
             e = Employee(employee_code='E-000001', name='موظف اختبار', is_active=True)
             db.session.add(e)
 
+        # The test shop's main karat, chosen as a shop chooses it: a settings row
+        # holds none until set, and nothing is weighed without it (20 Oct 2026).
+        from models import Settings
+        if Settings.query.first() is None:
+            db.session.add(Settings(main_karat=21))
+
         db.session.commit()
 
         # PostgreSQL: rows seeded with explicit ids (accounts 15, 1300, 1610,

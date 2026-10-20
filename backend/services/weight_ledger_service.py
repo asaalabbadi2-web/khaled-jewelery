@@ -81,21 +81,9 @@ class WeightLedgerService:
             self._main_karat_cache = self.settings.main_karat
             return self._main_karat_cache
         
-        # Try to fetch from DB
-        if self.db_session:
-            try:
-                from models import Settings
-                settings = self.db_session.query(Settings).first()
-                if settings and settings.main_karat:
-                    self._main_karat_cache = settings.main_karat
-                    self.settings = settings
-                    return self._main_karat_cache
-            except Exception as e:
-                logger.warning(f"Failed to fetch main karat from DB: {e}")
-        
-        # Default fallback
-        from config import MAIN_KARAT
-        self._main_karat_cache = MAIN_KARAT or 21
+        # The settings' -- MainKaratNotSet when they hold none, never a fixed 21.
+        from pricing.gold_price_service import get_main_karat
+        self._main_karat_cache = get_main_karat()
         return self._main_karat_cache
     
     def _get_direct_gold_price(self, karat: Optional[int] = None) -> float:

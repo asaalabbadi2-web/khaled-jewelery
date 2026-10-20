@@ -853,7 +853,7 @@ def get_invoices():
         return None
 
     try:
-        _mk_val = float(get_main_karat() or 21)
+        _mk_val = float(get_main_karat())
 
         # Pre-fetch weight (main karat equiv) from karat_lines AND items
         _all_inv_ids_q = query.order_by(None).with_entities(Invoice.id).all()
@@ -4656,13 +4656,8 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
                 return float(default)
 
         def _estimate_weight_main_from_payload() -> float:
-            """Estimate total weight in MAIN_KARAT from payload (items or karat_lines)."""
-            try:
-                main_k = _safe_float(get_main_karat(), 21.0)
-                if main_k <= 0:
-                    main_k = 21.0
-            except Exception:
-                main_k = 21.0
+            """Estimate total weight in the main karat from payload (items or karat_lines)."""
+            main_k = float(get_main_karat())
 
             total_main = 0.0
             try:
@@ -4715,7 +4710,7 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
                     stones_weight_val = _to_float_request(item.get('stones_weight'), 0.0)
                     karat_val = _to_float_request(item.get('karat'), 0.0)
                     if karat_val <= 0:
-                        karat_val = float(get_main_karat() or 21.0)
+                        karat_val = float(get_main_karat())
 
                     effective_weight = weight_val
                     if standing_weight_val > 0:
@@ -5701,10 +5696,7 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
                     }), 400
 
                 # Aggregate settled weight in MAIN karat on the invoice.
-                try:
-                    main_equiv = convert_to_main_karat(float(line_weight), karat_int)
-                except Exception:
-                    main_equiv = float(line_weight) * (karat_int / 21.0) if karat_int > 0 else 0.0
+                main_equiv = convert_to_main_karat(float(line_weight), karat_int)
                 total_main_equiv += float(main_equiv or 0.0)
 
                 try:
@@ -5818,11 +5810,7 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
                 }), 400
 
             # Store settled weight in MAIN karat on the invoice.
-            try:
-                main_equiv = convert_to_main_karat(float(settled_gold_weight), karat_int)
-            except Exception:
-                # Fallback: simple proportion to 21k if conversion helper unavailable
-                main_equiv = float(settled_gold_weight) * (karat_int / 21.0) if karat_int > 0 else 0.0
+            main_equiv = convert_to_main_karat(float(settled_gold_weight), karat_int)
 
             new_invoice.settled_gold_weight = round(float(main_equiv), 3)
 
@@ -6755,7 +6743,7 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
             # مقابل X ريال بسعر اليوم = X / سعر الجرام (عيار رئيسي)
             # الربح الحقيقي = Y - (X / سعر_الجرام) → كمية الذهب الزائدة عن السعر
             # نفس مبدأ المبيعات: profit_gold = profit_cash / سعر_الجرام
-            _mk = get_main_karat() or 21
+            _mk = get_main_karat()
             _weight_main_karat = sum(
                 float(w or 0) * int(k) / _mk
                 for k, w in gold_by_karat.items()
@@ -7564,7 +7552,7 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
                         price_snapshot = get_current_gold_price()
                         price_main = _to_float(price_snapshot.get('price_per_gram_main_karat'), 0.0)
                         if price_main > 0:
-                            main_karat = get_main_karat() or 21
+                            main_karat = get_main_karat()
                             candidate_field = f"weight_{int(round(float(main_karat)))}k_credit"
                             if candidate_field in dual_entry_params:
                                 wage_gold_weight_main = round(wage_cash / price_main, 3)

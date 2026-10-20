@@ -29,11 +29,8 @@ def _weight_main(inv, mk: float) -> float:
 def returned_share(ret, original, main_karat: float | None = None) -> float:
     """How much of *original* the return *ret* takes back: its weight's share,
     or its amount's when neither has weight; never more than all of it."""
-    try:
-        from models import _configured_main_karat_f
-        mk = float(main_karat or _configured_main_karat_f())
-    except Exception:
-        mk = float(main_karat or 21.0)
+    from models import _configured_main_karat_f
+    mk = float(main_karat or _configured_main_karat_f())
     ow, rw = _weight_main(original, mk), _weight_main(ret, mk)
     if ow > 0:
         return min(1.0, max(0.0, rw / ow))
@@ -162,11 +159,7 @@ def _points_of(
     # Phase 2: apply PointCalculator multiplier per bucket.
     # Backward-compat: invoices with no profit_weight on any item fall back to
     # invoice.profit_gold (permanent, matches pre-Phase-2C records).
-    try:
-        from models import _configured_main_karat_f
-        _mk = float(main_karat or _configured_main_karat_f())
-    except Exception:
-        _mk = float(main_karat or 21.0)
+    _mk = None   # read when a weight is converted -- the settings', never a fixed 21
 
     buckets: dict[tuple, float] = {}
 
@@ -179,6 +172,9 @@ def _points_of(
             pw = max(0.0, float(getattr(item, 'profit_weight', 0.0) or 0.0))
             if pw == 0.0:
                 continue
+            if _mk is None:
+                from models import _configured_main_karat_f
+                _mk = float(main_karat or _configured_main_karat_f())
             normalized = pw * float(karat) / _mk
             inv_contributed += normalized
             bucket = (getattr(item, 'category_id', None), float(karat))

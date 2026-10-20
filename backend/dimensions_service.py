@@ -225,15 +225,9 @@ def _get_price_per_gram_24k_sar(db_session) -> float | None:
 
 
 def _get_main_karat(db_session) -> int:
-    try:
-        from models import Settings
-
-        settings = db_session.query(Settings).first()
-        if settings and settings.main_karat:
-            return int(settings.main_karat)
-    except Exception:
-        pass
-    return 21
+    """The settings' main karat -- MainKaratNotSet when they hold none."""
+    from pricing.gold_price_service import get_main_karat
+    return int(get_main_karat())
 
 
 def compute_line_analytics(db_session, line: Any) -> tuple[float | None, float | None, float | None]:

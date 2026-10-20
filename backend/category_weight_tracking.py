@@ -17,13 +17,9 @@ def _coerce_float(value, default: float = 0.0) -> float:
 
 
 def _get_main_karat_value() -> float:
-    try:
-        settings_row = Settings.query.first()
-        mk = getattr(settings_row, 'main_karat', None) if settings_row else None
-        mk_val = _coerce_float(mk, 21.0)
-        return mk_val if mk_val > 0 else 21.0
-    except Exception:
-        return 21.0
+    """The settings' main karat -- MainKaratNotSet when they hold none."""
+    from pricing.gold_price_service import get_main_karat
+    return float(get_main_karat())
 
 
 def _convert_to_main_karat(weight_grams: float, karat: float) -> float:

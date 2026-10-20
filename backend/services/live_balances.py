@@ -83,13 +83,16 @@ def live_balances_by_account_ids(account_ids: Iterable[int], *, start=None, end=
     return out
 
 
-def _format_safe_box_balance(live: dict, main_karat: float) -> dict:
+def _format_safe_box_balance(live: dict, main_karat: float | None) -> dict:
     cash = round(float(live.get("cash") or 0.0), 2)
     w18 = round(float(live.get("18k") or 0.0), 3)
     w21 = round(float(live.get("21k") or 0.0), 3)
     w22 = round(float(live.get("22k") or 0.0), 3)
     w24 = round(float(live.get("24k") or 0.0), 3)
-    mk = float(main_karat or 21.0) or 21.0
+    if not main_karat:   # the settings' -- MainKaratNotSet when they hold none
+        from pricing.gold_price_service import get_main_karat
+        main_karat = get_main_karat()
+    mk = float(main_karat)
 
     def _to_main(weight: float, karat: float) -> float:
         return (weight * karat) / mk
@@ -101,7 +104,7 @@ def _format_safe_box_balance(live: dict, main_karat: float) -> dict:
     }
 
 
-def safe_box_balance(safe_box, main_karat: float = 21.0) -> dict:
+def safe_box_balance(safe_box, main_karat: float | None = None) -> dict:
     """الرصيد الرسمي الوحيد لخزينة واحدة -- من دفتر الأستاذ مباشرة عبر
     live_balances_by_account_ids أعلاه، بلا أي مصدر آخر (لا SafeBoxTransaction
     ولا أي حقل مخزَّن/مشتق). أي endpoint أو شاشة تحتاج "رصيد خزينة حالي"
@@ -119,7 +122,7 @@ def safe_box_balance(safe_box, main_karat: float = 21.0) -> dict:
     return _format_safe_box_balance(live if isinstance(live, dict) else {}, main_karat)
 
 
-def safe_box_balances_bulk(safe_boxes, main_karat: float = 21.0) -> Dict[int, dict]:
+def safe_box_balances_bulk(safe_boxes, main_karat: float | None = None) -> Dict[int, dict]:
     """نفس safe_box_balance لكن لمجموعة خزائن بنداء واحد لقاعدة البيانات."""
     account_ids = [
         sb.account_id for sb in safe_boxes if getattr(sb, "account_id", None) is not None

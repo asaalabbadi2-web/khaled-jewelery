@@ -62,12 +62,7 @@ def _to_float_or_zero(value) -> float:
 
 def _weight_kwargs_for_main_karat(amount: float, side: str) -> dict:
     """Build {debit_XXk|credit_XXk: amount} based on configured main karat."""
-    try:
-        main = int(round(float(_configured_main_karat_f() or 21)))
-    except Exception:
-        main = 21
-    if main not in (18, 21, 22, 24):
-        main = 21
+    main = int(round(_configured_main_karat_f()))   # the settings' -- or MainKaratNotSet
 
     side_key = (side or '').strip().lower()
     if side_key not in ('debit', 'credit'):

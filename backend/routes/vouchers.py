@@ -474,9 +474,7 @@ def _validate_and_summarize_voucher_account_lines(account_lines_data):
     if not account_lines_data:
         return None, jsonify({'error': 'account_lines is required and cannot be empty'}), 400
 
-    main_karat = _coerce_float(get_main_karat(), 21.0)
-    if main_karat <= 0:
-        main_karat = 21.0
+    main_karat = float(get_main_karat())
 
     total_debit_cash = 0.0
     total_credit_cash = 0.0
