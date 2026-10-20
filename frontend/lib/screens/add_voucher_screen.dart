@@ -231,10 +231,6 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
 
   final _formKey = GlobalKey<FormState>();
 
-  /// The party card is measured after it is drawn; the invoice card beside it
-  /// never grows past its height (the owner, 10 Oct 2026).
-  final _partyCardKey = GlobalKey();
-  double? _partyCardHeight;
   late final ApiService _apiService = widget.apiService ?? ApiService();
   final TextEditingController _descriptionController = TextEditingController();
   final TextEditingController _notesController = TextEditingController();
@@ -296,7 +292,6 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
   /// A gold payment for gold not yet bought (an advance), asked only when no
   /// invoice is chosen.
   bool _goldAdvance = false;
-  int _amountFillEpoch = 0; // rebuilds the amount field when it is filled
 
   int? _selectedEmployeeId;
   int? _selectedOtherAccountId;
@@ -752,6 +747,17 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
   }
 
   /// The first thing in the way of saving, or null (VOUCHER-UX-1).
+  /// A chosen invoice the payment does not reach, as the server's plan says:
+  /// not named on the voucher (the server refuses it: invoice_gets_nothing).
+  String? get _invoicesBlocker {
+    final unreached = (_paymentPlan?['unreached'] as List? ?? const [])
+        .whereType<num>()
+        .map((n) => n.toInt());
+    return unreached.any(_chosenInvoiceIds.contains)
+        ? 'ألغِ اختيار فاتورة لا تصل إليها الدفعة'
+        : null;
+  }
+
   /// What the tax invoice still lacks, once it is asked for.
   String? get _expenseVatBlocker {
     if (!_expenseVatOffered || !_expenseVatOn) return null;
@@ -812,7 +818,7 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
         unbalanced: _balanceDiff > 0.01,
       ),
     );
-    return base ?? _expenseVatBlocker;
+    return base ?? _expenseVatBlocker ?? _invoicesBlocker;
   }
 
   /// Something typed that leaving would lose.
@@ -1095,6 +1101,7 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
         selectedId: _selectedCustomerId,
         emptyText: 'لا يوجد عميل مطابق',
         currencySymbol: _currencySymbol,
+        mainKarat: _mainKarat,
       ),
     );
     if (selected != null) _takeCustomer(selected);
@@ -1119,6 +1126,7 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
         selectedId: _selectedSupplierId,
         emptyText: 'لا يوجد مورد مطابق',
         currencySymbol: _currencySymbol,
+        mainKarat: _mainKarat,
       ),
     );
     if (selected != null) _takeSupplier(selected);
@@ -1171,7 +1179,11 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
         final said = [
           if (code(p).isNotEmpty) code(p),
           if ('${p['phone'] ?? ''}'.isNotEmpty) '${p['phone']}',
-          ...?partyBalanceSaid(p, currencySymbol: _currencySymbol),
+          ...?partyBalanceBrief(
+            p,
+            currencySymbol: _currencySymbol,
+            mainKarat: _mainKarat,
+          ),
         ];
         return said.isEmpty ? null : said.join(' • ');
       },
@@ -1467,7 +1479,8 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
     final safe = _findSafeByAccountId(accountId);
     if (kind == 'gold') {
       // The account's live weight where the accounts came with it, else the
-      // safe's own -- the banner's sources, in the banner's order.
+      // safe's own -- the banner's sources, in the banner's order -- as one
+      // weight of the main karat (the owner, 20 Oct 2026).
       final weight = safe?.balance?.weight;
       double? held(int k) =>
           _getLiveAccountWeightBalance(accountId, k) ??
@@ -1477,14 +1490,15 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
             21 => weight?.karat21,
             _ => weight?.karat18,
           };
-      final known = [for (final k in const [24, 22, 21, 18]) held(k)];
-      if (known.every((v) => v == null)) return null;
-      final said = [
-        for (final (i, k) in const [24, 22, 21, 18].indexed)
-          if ((known[i] ?? 0).abs() >= 0.0005)
-            '${ltrIsolate(formatGrams(known[i]!))} جم عيار $k',
-      ];
-      return said.isEmpty ? 'لا ذهب فيها' : 'فيها ${said.join(' • ')}';
+      final known = {for (final k in const [24, 22, 21, 18]) k: held(k)};
+      if (known.values.every((v) => v == null)) return null;
+      final total = goldInMainKarat(
+        {for (final e in known.entries) e.key: e.value ?? 0},
+        _mainKarat,
+      );
+      return total.abs() < 0.0005
+          ? 'لا ذهب فيها'
+          : 'فيها ${ltrIsolate(formatGrams(total))} جم بالعيار $_mainKarat';
     }
     final cash = safe != null
         ? _getAvailableSafeCash(safe)
@@ -2520,23 +2534,6 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
     }
   }
 
-  /// The payment's cash line filled with what the chosen invoices owe in
-  /// cash. Offered only to a payment with a cash line: it used to turn a gold
-  /// line into cash, its grams lost and its gold safe kept.
-  void _fillFromInvoices() {
-    final owed = _chosenInvoicesInOrder.fold<double>(
-      0.0,
-      (s, r) => s + ((r['open_cash'] as num?)?.toDouble() ?? 0.0),
-    );
-    final line = _accountLines.where((l) => l.amountType == 'cash').firstOrNull;
-    if (line == null) return;
-    setState(() {
-      line.amount = double.parse(owed.toStringAsFixed(2));
-      _amountFillEpoch++;
-    });
-    _refreshPlan();
-  }
-
   Widget _buildInvoicePicker() {
     if (_candidatesSupplierId != _selectedSupplierId &&
         !_loadingInvoiceCandidates) {
@@ -2551,13 +2548,11 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
       loading: _loadingInvoiceCandidates,
       formatCash: _formatCash,
       onToggle: _toggleInvoice,
-      onFill: _accountLines.any((l) => l.amountType == 'cash')
-          ? _fillFromInvoices
-          : null,
+      // The amount first, then what it pays (the owner, 20 Oct 2026).
+      hasAmount: _totalCash > 0 || _goldForPlan.isNotEmpty,
       showAdvance: _hasGoldLines,
       advance: _goldAdvance,
       onAdvance: (v) => setState(() => _goldAdvance = v),
-      maxHeight: _partyCardHeight,
     );
   }
 
@@ -3851,7 +3846,7 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
                   Expanded(
                     flex: 2,
                     child: TextFormField(
-                      key: ValueKey('cash-amount-$index-$_amountFillEpoch'),
+                      key: ValueKey('cash-amount-$index'),
                       initialValue: line.amount > 0
                           ? line.amount.toString()
                           : '',
@@ -4170,16 +4165,9 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
       _buildTemplateSelector(),
       const SizedBox(height: 12),
       KeyedSubtree(
-        key: _partyCardKey,
-        child: KeyedSubtree(
-          key: const Key('voucher-party-card'),
-          child: _buildPartySelectorCard(),
-        ),
+        key: const Key('voucher-party-card'),
+        child: _buildPartySelectorCard(),
       ),
-      if (_showInvoicePicker) ...[
-        const SizedBox(height: 12),
-        _buildInvoicePicker(),
-      ],
       if (_expenseVatOffered) ...[
         const SizedBox(height: 12),
         _buildExpenseVatCard(),
@@ -4206,6 +4194,12 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
         ),
       ),
       const SizedBox(height: 12),
+      // Which invoices it pays -- under what is paid, read from it (the owner,
+      // 20 Oct 2026; it was above the lines, chosen before the amount).
+      if (_showInvoicePicker) ...[
+        _buildInvoicePicker(),
+        const SizedBox(height: 12),
+      ],
       _buildDetailsCard(),
       _buildSaveSection(accentColor),
     ];
@@ -4245,17 +4239,6 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
               ...rightColumn,
             ],
           );
-
-    if (_showInvoicePicker) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        final h = _partyCardKey.currentContext?.size?.height;
-        if (mounted &&
-            h != null &&
-            (_partyCardHeight == null || (_partyCardHeight! - h).abs() > 1)) {
-          setState(() => _partyCardHeight = h);
-        }
-      });
-    }
 
     // The plan follows the amounts as they are typed; asked only on a change.
     if (_chosenInvoiceIds.isNotEmpty) {

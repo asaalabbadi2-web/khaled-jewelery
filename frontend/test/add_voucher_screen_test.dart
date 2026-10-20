@@ -7,6 +7,7 @@ import 'package:frontend/providers/auth_provider.dart';
 import 'package:frontend/providers/settings_provider.dart';
 import 'package:frontend/screens/add_voucher_screen.dart';
 import 'package:frontend/screens/voucher_saved_screen.dart';
+import 'package:frontend/widgets/supplier_invoice_picker.dart';
 import 'package:frontend/theme/app_theme.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -378,7 +379,7 @@ void main() {
 
     testWidgets('choosing invoices asks the server how the payment spreads, '
         'and shows each its share', (tester) async {
-      final api = FakeVoucherApi(openCash: openCash, plan: plan);
+      final api = FakeVoucherApi(openCash: openCash);
       await open(tester, api: api);
       await ready(tester);
 
@@ -432,7 +433,7 @@ void main() {
 
     testWidgets('the description names the invoices, and a hand-written one '
         'is kept', (tester) async {
-      final api = FakeVoucherApi(openCash: openCash, plan: plan);
+      final api = FakeVoucherApi(openCash: openCash);
       await open(tester, api: api);
       await ready(tester);
 
@@ -456,7 +457,7 @@ void main() {
     testWidgets(
       'it is saved with the chosen invoices, the server spreading it',
       (tester) async {
-        final api = FakeVoucherApi(openCash: openCash, plan: plan);
+        final api = FakeVoucherApi(openCash: openCash);
         await open(tester, api: api);
         await ready(tester);
         await choose(tester, 12);
@@ -510,22 +511,6 @@ void main() {
 
       expect(api.created.single.containsKey('invoice_ids'), isFalse);
     });
-
-    testWidgets('the amount can be filled with what the chosen invoices owe', (
-      tester,
-    ) async {
-      final api = FakeVoucherApi(openCash: openCash, plan: plan);
-      await open(tester, api: api);
-      await pickSafe(tester);
-      await choose(tester, 11);
-      await choose(tester, 12);
-
-      await tester.tap(find.byKey(const Key('fill-from-invoices')));
-      await tester.pumpAndSettle();
-      await save(tester);
-
-      expect(cashSent(api), 1500.0);
-    });
   });
 
   group('many invoices do not stretch the screen (the owner, 10 Oct 2026)', () {
@@ -543,19 +528,17 @@ void main() {
       find.ancestor(of: find.byKey(key), matching: find.byType(Card)).first,
     );
 
-    testWidgets('the invoice card is no taller than the party card beside it', (
+    testWidgets('forty invoices scroll inside their card (under the lines '
+        'since 20 Oct 2026; beside the party card it was no taller than it)', (
       tester,
     ) async {
       await open(tester, api: FakeVoucherApi(openCash: many));
       await tester.pumpAndSettle();
 
-      final party = tester.getSize(
-        find.byKey(const Key('voucher-party-card')).first,
-      );
       final invoices = card(tester, const Key('invoice-count'));
       expect(
         invoices.height,
-        lessThanOrEqualTo(party.height + 1),
+        lessThanOrEqualTo(SupplierInvoicePicker.fallbackCardHeight + 1),
         reason:
             'forty invoices must scroll inside their card, not stretch the page',
       );
@@ -567,6 +550,8 @@ void main() {
       'the list can be searched by number, and the count follows the choice',
       (tester) async {
         await open(tester, api: FakeVoucherApi(openCash: many));
+        await pickSafe(tester);
+        await tester.enterText(cashAmount(), '5000');
         await tester.pumpAndSettle();
 
         await tester.enterText(find.byKey(const Key('invoice-search')), '1017');
@@ -574,6 +559,7 @@ void main() {
         expect(find.byKey(const Key('invoice-pick-117')), findsOneWidget);
         expect(find.byKey(const Key('invoice-pick-118')), findsNothing);
 
+        await tester.ensureVisible(find.byKey(const Key('invoice-pick-117')));
         await tester.tap(find.byKey(const Key('invoice-pick-117')));
         await tester.pumpAndSettle();
         expect(find.text('مختار 1 من 40'), findsOneWidget);

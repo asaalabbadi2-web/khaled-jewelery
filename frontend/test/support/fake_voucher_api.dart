@@ -151,14 +151,65 @@ class FakeVoucherApi extends ApiService {
       'cash': cash,
       'gold': gold,
     });
-    return plan ??
-        {
-          'cash': [],
-          'gold': [],
-          'cash_on_account': cash,
-          'gold_on_account_main_karat': 0.0,
-          'invoices': [],
-        };
+    return plan ?? _spread(invoiceIds, cash, gold);
+  }
+
+  /// The cash spread as the server spreads it (services/supplier_payment_plan):
+  /// over the chosen invoices oldest first, each taking what it owes; the
+  /// rest on account; a chosen one it does not reach, unreached.
+  Map<String, dynamic> _spread(
+    List<int> ids,
+    double cash,
+    List<Map<String, dynamic>> gold,
+  ) {
+    final byId = <int, Map<String, dynamic>>{};
+    for (final r in [...openCash, ...openGold]) {
+      byId.putIfAbsent((r['invoice_id'] as num).toInt(), () => {}).addAll(r);
+    }
+    final chosen = byId.values
+        .where((r) => ids.contains((r['invoice_id'] as num).toInt()))
+        .toList()
+      ..sort((a, b) => '${a['date']}'.compareTo('${b['date']}'));
+    var left = cash;
+    final splits = <Map<String, dynamic>>[];
+    for (final r in chosen) {
+      final take = left < (r['open_cash'] as num) ? left : (r['open_cash'] as num).toDouble();
+      if (take > 0.004) {
+        splits.add({'invoice_id': r['invoice_id'], 'amount': take});
+        left -= take;
+      }
+    }
+    // Gold by its main-karat (21) worth, over what each still owes in gold.
+    var goldLeft = gold.fold<double>(
+      0,
+      (t, g) => t + (g['weight'] as num) * (g['karat'] as num) / 21,
+    );
+    final goldSplits = <Map<String, dynamic>>[];
+    for (final r in chosen) {
+      final room = ((r['open_main_karat'] as num?) ?? 0).toDouble();
+      final take = goldLeft < room ? goldLeft : room;
+      if (take > 0.0004) {
+        goldSplits.add({'invoice_id': r['invoice_id'], 'karat': 21, 'weight': take});
+        goldLeft -= take;
+      }
+    }
+    final reached = {
+      for (final s in [...splits, ...goldSplits]) s['invoice_id'],
+    };
+    return {
+      'cash': splits,
+      'gold': goldSplits,
+      'cash_on_account': left,
+      'gold_on_account_main_karat': goldLeft,
+      'unreached': [
+        for (final r in chosen)
+          if (!reached.contains(r['invoice_id'])) r['invoice_id'],
+      ],
+      'invoices': [
+        for (final r in chosen)
+          {'invoice_id': r['invoice_id'], 'invoice_number': r['invoice_number'], 'date': r['date']},
+      ],
+    };
   }
 
   @override

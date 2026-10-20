@@ -25,3 +25,31 @@ List<String>? partyBalanceSaid(
             '${ltrIsolate(formatGrams(read('balance_gold_${k}k').abs()))} جم عيار $k',
   ];
 }
+
+/// The same, short, for a list a party is picked from (the owner, 20 Oct
+/// 2026: «يكفي أن يذكر إجمالي رصيده محولًا إلى العيار الرئيسي»): the cash,
+/// and the gold of every karat as one figure in [mainKarat].
+List<String>? partyBalanceBrief(
+  Map<String, dynamic> party, {
+  required String currencySymbol,
+  required int mainKarat,
+}) {
+  if (!party.containsKey('balance_cash')) return null;
+  double read(String key) => (party[key] as num?)?.toDouble() ?? 0.0;
+  String side(double v) => v > 0 ? 'لنا عنده' : 'علينا له';
+  final cash = read('balance_cash');
+  final gold = goldInMainKarat(
+    {for (final k in const [24, 22, 21, 18]) k: read('balance_gold_${k}k')},
+    mainKarat,
+  );
+  return [
+    if (cash.abs() >= 0.005)
+      '${side(cash)} ${ltrIsolate(formatAmount(cash.abs()))} $currencySymbol',
+    if (gold.abs() >= 0.0005)
+      '${side(gold)} ${ltrIsolate(formatGrams(gold.abs()))} جم بالعيار $mainKarat',
+  ];
+}
+
+/// Weights by karat as one weight of [mainKarat]: each by its fineness.
+double goldInMainKarat(Map<int, double> byKarat, int mainKarat) => byKarat.entries
+    .fold(0.0, (sum, e) => sum + e.value * e.key / (mainKarat <= 0 ? 21 : mainKarat));

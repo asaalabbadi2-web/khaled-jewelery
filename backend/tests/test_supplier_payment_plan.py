@@ -220,10 +220,13 @@ def test_chosen_invoices_owing_no_gold_take_none_of_it(auth_headers, vworld):
     s = vworld['supplier']
     a = _purchase(s, 1, wages=700)
 
-    v = _pay(auth_headers, vworld, 'gold_payment', 2500.0, [a.id])
-
-    assert _gold_paid(v) == {}
-    assert db.session.get(Voucher, v).status == 'approved'
+    # A payment does not name an invoice it does not reach (the owner, 20 Oct
+    # 2026; test_a_payment_names_only_the_invoices_it_reaches): it was saved,
+    # approved, naming an invoice its gold could not pay.
+    resp = flask_app.test_client().post('/api/vouchers', headers=auth_headers,
+                                        json={**payload(vworld, 'gold_payment', 2500.0), 'invoice_ids': [a.id]})
+    assert resp.status_code == 400
+    assert resp.get_json()['error'] == 'invoice_gets_nothing'
 
 
 def test_a_pending_voucher_records_it_when_approved(auth_headers, vworld):

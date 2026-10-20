@@ -16,17 +16,17 @@ class SupplierInvoicePicker extends StatefulWidget {
   final String Function(double) formatCash;
   final ValueChanged<int> onToggle;
 
-  /// Fills the payment with what the chosen invoices owe in cash.
-  final VoidCallback? onFill;
+  /// The payment has an amount: until it does the invoices wait for it (the
+  /// owner, 20 Oct 2026: the amount first, then what it pays).
+  final bool hasAmount;
 
   /// A gold payment for gold not yet bought: asked only when no invoice is.
   final bool showAdvance;
   final bool advance;
   final ValueChanged<bool>? onAdvance;
 
-  /// The card never grows past this height (the owner, 10 Oct 2026): the screen
-  /// passes the party card's height beside it, and a long list scrolls inside
-  /// the card instead of stretching the page. Null: a fixed fallback.
+  /// The card never grows past this height (the owner, 10 Oct 2026): a long
+  /// list scrolls inside the card instead of stretching the page.
   final double? maxHeight;
 
   const SupplierInvoicePicker({
@@ -37,7 +37,7 @@ class SupplierInvoicePicker extends StatefulWidget {
     required this.loading,
     required this.formatCash,
     required this.onToggle,
-    this.onFill,
+    this.hasAmount = true,
     this.showAdvance = false,
     this.advance = false,
     this.onAdvance,
@@ -91,10 +91,6 @@ class _SupplierInvoicePickerState extends State<SupplierInvoicePicker> {
       return _num(a['invoice_id']).compareTo(_num(b['invoice_id']));
     });
 
-  double get chosenOpenCash => invoices
-      .where((r) => chosen.contains(_num(r['invoice_id']).toInt()))
-      .fold(0.0, (s, r) => s + _num(r['open_cash']));
-
   String _share(int id) {
     final p = plan;
     if (p == null) return '…';
@@ -114,6 +110,19 @@ class _SupplierInvoicePickerState extends State<SupplierInvoicePicker> {
         ? 'لا يُنسب لها شيء — غطّت ما قبلها الدفعة'
         : 'يُنسب لها: ${parts.join(' • ')}';
   }
+
+  /// Chosen invoices the payment does not reach, as the server's plan says.
+  Set<int> get _unreached => {
+    for (final id in (plan?['unreached'] as List? ?? const []))
+      if (id is num && chosen.contains(id.toInt())) id.toInt(),
+  };
+
+  /// The payment spent on the chosen invoices: nothing left for another.
+  bool get _usedUp =>
+      plan != null &&
+      chosen.isNotEmpty &&
+      _num(plan!['cash_on_account']) <= 0.004 &&
+      _num(plan!['gold_on_account_main_karat']) <= 0.0004;
 
   List<Map<String, dynamic>> get _shown {
     final q = _query.trim().toLowerCase();
@@ -196,6 +205,14 @@ class _SupplierInvoicePickerState extends State<SupplierInvoicePicker> {
                   ),
                 ),
               ],
+              if (!widget.hasAmount && all.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: Text(
+                    'أدخل المبلغ أولًا، ثم اختر ما يسدده',
+                    style: theme.textTheme.bodySmall?.copyWith(color: tones.info.fg),
+                  ),
+                ),
               const SizedBox(height: 4),
 
               // ── the list: takes what room is left, and scrolls inside it ──
@@ -260,22 +277,6 @@ class _SupplierInvoicePickerState extends State<SupplierInvoicePicker> {
                     ),
                   ),
                 ),
-                if (widget.onFill != null && chosenOpenCash > 0)
-                  Align(
-                    alignment: AlignmentDirectional.centerStart,
-                    child: TextButton.icon(
-                      key: const Key('fill-from-invoices'),
-                      onPressed: widget.onFill,
-                      style: TextButton.styleFrom(
-                        visualDensity: VisualDensity.compact,
-                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      ),
-                      icon: const Icon(Icons.download_done, size: 18),
-                      label: Text(
-                        'املأ المبلغ بما تبقّى عليها (${formatCash(chosenOpenCash)})',
-                      ),
-                    ),
-                  ),
               ] else if (widget.showAdvance)
                 CheckboxListTile(
                   dense: true,
@@ -297,6 +298,10 @@ class _SupplierInvoicePickerState extends State<SupplierInvoicePicker> {
     final theme = Theme.of(context);
     final id = _num(row['invoice_id']).toInt();
     final isChosen = chosen.contains(id);
+    // A chosen one can always be let go; another waits for an amount, and is
+    // locked once the payment is spent on those chosen.
+    final locked = !isChosen && (!widget.hasAmount || _usedUp);
+    final notReached = isChosen && _unreached.contains(id);
     final openCash = _num(row['open_cash']);
     final openGold = _num(row['open_main_karat']);
     final owes = [
@@ -310,7 +315,7 @@ class _SupplierInvoicePickerState extends State<SupplierInvoicePicker> {
       contentPadding: EdgeInsets.zero,
       controlAffinity: ListTileControlAffinity.leading,
       value: isChosen,
-      onChanged: (_) => widget.onToggle(id),
+      onChanged: locked ? null : (_) => widget.onToggle(id),
       // The number whole on its own line; its date and what is left on it
       // under it, said as what is left (it read as the invoice's total).
       title: Text(
@@ -324,10 +329,19 @@ class _SupplierInvoicePickerState extends State<SupplierInvoicePicker> {
             [
               _day(row['date']),
               if (owes.isNotEmpty) 'المتبقي: $owes',
+              if (locked && widget.hasAmount) 'الدفعة لا تكفي لها',
             ].join(' — '),
             style: theme.textTheme.bodySmall,
           ),
-          if (isChosen)
+          if (notReached)
+            Text(
+              'لا تصل إليها الدفعة — ألغِ اختيارها أو زِد المبلغ',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: AppSemanticColors.of(context).blocked.fg,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          if (isChosen && !notReached)
             KeyedSubtree(
               key: Key('invoice-share-$id'),
               child: Text(

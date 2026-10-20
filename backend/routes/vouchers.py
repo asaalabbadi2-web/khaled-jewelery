@@ -775,6 +775,15 @@ def _upsert_voucher_from_payload(voucher, data, *, is_create=False):
                     gold=[{'karat': k, 'weight': w} for k, w in gold_by_karat.items()])
             except ValueError as exc:
                 return jsonify({'error': str(exc).split(':', 1)[0], 'message': str(exc)}), 400
+            # A payment names only the invoices it reaches (the owner, 20 Oct 2026).
+            if plan['unreached']:
+                numbers = [i['invoice_number'] or f"#{i['invoice_id']}" for i in plan['invoices']
+                           if i['invoice_id'] in plan['unreached']]
+                return jsonify({
+                    'error': 'invoice_gets_nothing',
+                    'invoice_ids': plan['unreached'],
+                    'message': f"الدفعة لا تصل إلى: {'، '.join(numbers)} — ألغِ اختيارها أو زِد المبلغ",
+                }), 400
             free = (data.get('notes') or '').strip()
             voucher.notes = json.dumps({
                 **({'note': free} if free else {}),

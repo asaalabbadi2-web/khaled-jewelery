@@ -91,9 +91,13 @@ def plan_supplier_payment(*, supplier_id: int, invoice_ids, cash: float, gold) -
             left_main -= used_main
         gold_left_main += max(0.0, left_main)
 
+    # The chosen invoices the payment does not reach: a voucher does not name
+    # them (the owner, 20 Oct 2026); the screen locks them as it is typed.
+    reached = {sp['invoice_id'] for sp in cash_splits} | {sp['invoice_id'] for sp in gold_splits}
     return {
         'cash': cash_splits,
         'gold': gold_splits,
+        'unreached': [inv.id for inv in invoices if inv.id not in reached],
         'cash_on_account': round(max(0.0, cash_left), 2),
         'gold_on_account_main_karat': round(gold_left_main, 2),
         'invoices': [{

@@ -13,6 +13,9 @@ class PartyPickerDialog extends StatefulWidget {
   final String emptyText;
   final String currencySymbol;
 
+  /// The karat a party's gold is said in, all its karats as one figure.
+  final int mainKarat;
+
   const PartyPickerDialog({
     super.key,
     required this.title,
@@ -20,6 +23,7 @@ class PartyPickerDialog extends StatefulWidget {
     this.selectedId,
     this.emptyText = 'لا توجد بيانات',
     this.currencySymbol = 'ر.س',
+    this.mainKarat = 21,
   });
 
   @override
@@ -98,7 +102,11 @@ class _PartyPickerDialogState extends State<PartyPickerDialog> {
     if (code.isNotEmpty) parts.add(code);
     if (phone.isNotEmpty) parts.add(phone);
     if (mobile.isNotEmpty && mobile != phone) parts.add(mobile);
-    final balance = partyBalanceSaid(item, currencySymbol: widget.currencySymbol);
+    final balance = partyBalanceBrief(
+      item,
+      currencySymbol: widget.currencySymbol,
+      mainKarat: widget.mainKarat,
+    );
     return [
       parts.join(' • '),
       if (balance != null && balance.isNotEmpty) balance.join(' • '),

@@ -193,6 +193,7 @@ void main() {
         'phone': '0500000005',
         'balance_cash': -7784.83,
         'balance_gold_21k': -2748.71,
+        'balance_gold_24k': 2265.87,
       },
       {'id': 6, 'name': 'مفيد الحبيشي', 'account_id': 60, 'supplier_code': 'S-000013'},
       {'id': 7, 'name': 'مكتب الراقي', 'account_id': 70, 'supplier_code': 'S-000020'},
@@ -224,14 +225,17 @@ void main() {
       expect(find.text('مكتب الراقي'), findsNothing);
     });
 
-    testWidgets('each party with its code, phone and what is between us', (
+    testWidgets('each party with its code, phone and what is between us -- '
+        'its gold in one figure, in the main karat (the owner, 20 Oct 2026)', (
       tester,
     ) async {
       await openPicker(tester);
       expect(said('S-000005'), findsOneWidget);
       expect(said('0500000005'), findsOneWidget);
       expect(said('علينا له 7,784.83 ر.س'), findsOneWidget);
-      expect(said('علينا له 2,748.710 جم عيار 21'), findsOneWidget);
+      // -2,748.710 of 21 and +2,265.870 of 24 (2,589.566 of 21).
+      expect(said('علينا له 159.144 جم بالعيار 21'), findsOneWidget);
+      expect(said('جم عيار 24'), findsNothing);
     });
 
     testWidgets('it keeps its height while it is searched', (tester) async {
@@ -258,14 +262,14 @@ void main() {
     await tester.tap(find.byKey(const Key('voucher-line-account-0')));
     await tester.pumpAndSettle();
     final option = find.byKey(const Key('type-to-pick-option-80'));
-    expect(find.descendant(of: option, matching: said('410.600 جم عيار 21')), findsOneWidget);
+    expect(find.descendant(of: option, matching: said('فيها 410.600 جم بالعيار 21')), findsOneWidget);
     expect(find.text('كلاهما'), findsNothing);
 
     // ... and in the whole list.
     await tester.tap(find.byKey(const Key('voucher-line-account-show-all-0')));
     await tester.pumpAndSettle();
     final sheet = find.byType(BottomSheet);
-    expect(find.descendant(of: sheet, matching: said('410.600 جم عيار 21')), findsOneWidget);
+    expect(find.descendant(of: sheet, matching: said('فيها 410.600 جم بالعيار 21')), findsOneWidget);
     expect(find.descendant(of: sheet, matching: find.text('كلاهما')), findsNothing);
     final search = tester.widget<TextField>(
       find.descendant(of: sheet, matching: find.byType(TextField)),
