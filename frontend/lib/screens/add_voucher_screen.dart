@@ -19,6 +19,7 @@ import '../widgets/account_picker_sheet.dart';
 import '../widgets/party_picker_dialog.dart';
 import '../widgets/searchable_picker_field.dart';
 import '../utils/bidi.dart';
+import '../utils/party_balance.dart';
 import '../utils/currency_utils.dart';
 import '../widgets/app_feedback.dart';
 import '../widgets/app_shortcuts.dart';
@@ -1050,6 +1051,7 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
         items: _customers,
         selectedId: _selectedCustomerId,
         emptyText: 'لا يوجد عميل مطابق',
+        currencySymbol: _currencySymbol,
       ),
     );
     if (selected == null) return;
@@ -1070,6 +1072,7 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
         items: _suppliers,
         selectedId: _selectedSupplierId,
         emptyText: 'لا يوجد مورد مطابق',
+        currencySymbol: _currencySymbol,
       ),
     );
     if (selected == null) return;
@@ -1143,13 +1146,23 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
       final employeeBonusPayableParentId = bonusGroup is Map
           ? _coerceAccountId(bonusGroup['account_id'])
           : null;
-      final expensesGroup = groups?['expenses'];
-      final expenseIds = expensesGroup is Map
-          ? ((expensesGroup['subtree_ids'] as List?) ?? const [])
-                .map(_coerceAccountId)
-                .whereType<int>()
-                .toSet()
-          : <int>{};
+      // The expense template offers operating expenses (the owner, 20 Oct
+      // 2026: not purchases or cost of sales); all expenses where that
+      // group is not mapped.
+      Set<int> idsOf(String name) {
+        final g = groups?[name];
+        return g is Map
+            ? ((g['subtree_ids'] as List?) ?? const [])
+                  .map(_coerceAccountId)
+                  .whereType<int>()
+                  .toSet()
+            : <int>{};
+      }
+
+      final operatingIds = idsOf('operating_expenses');
+      final expenseIds = operatingIds.isNotEmpty
+          ? operatingIds
+          : idsOf('expenses');
 
       final customersAggId = _coerceAccountId(customersAgg?['account_id']);
       final customersAggNumber = customersAgg?['account_number']?.toString();
@@ -1373,6 +1386,40 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
       }
     }
   }
+
+  /// What an account offered for a line holds of the line's kind -- «فيها
+  /// 410.600 جم عيار 21» -- from the balances the accounts came with; null
+  /// when they did not come with any.
+  String? _accountHolds(int? accountId, String kind) {
+    if (accountId == null) return null;
+    final safe = _findSafeByAccountId(accountId);
+    if (kind == 'gold') {
+      // The account's live weight where the accounts came with it, else the
+      // safe's own -- the banner's sources, in the banner's order.
+      final weight = safe?.balance?.weight;
+      double? held(int k) =>
+          _getLiveAccountWeightBalance(accountId, k) ??
+          switch (k) {
+            24 => weight?.karat24,
+            22 => weight?.karat22,
+            21 => weight?.karat21,
+            _ => weight?.karat18,
+          };
+      final known = [for (final k in const [24, 22, 21, 18]) held(k)];
+      if (known.every((v) => v == null)) return null;
+      final said = [
+        for (final (i, k) in const [24, 22, 21, 18].indexed)
+          if ((known[i] ?? 0).abs() >= 0.0005)
+            '${ltrIsolate(formatGrams(known[i]!))} جم عيار $k',
+      ];
+      return said.isEmpty ? 'لا ذهب فيها' : 'فيها ${said.join(' • ')}';
+    }
+    final cash = safe != null
+        ? _getAvailableSafeCash(safe)
+        : _getLiveAccountCashBalance(accountId);
+    return cash == null ? null : 'فيها ${_formatCash(cash)}';
+  }
+
 
   /// A line's account put there by the screen, said so on the line.
   void _autoFill(AccountLineModel line, int? accountId) {
@@ -2207,7 +2254,7 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
                 title: 'اختيار حساب',
                 isArabic: true,
                 helperText: _selectedTemplateId == 'payment_expense'
-                    ? 'تُعرض حسابات المصروفات وحدها'
+                    ? 'تُعرض المصروفات التشغيلية وحدها'
                     : _selectedTemplateId == 'payment_salary'
                     ? 'سيتم تسجيل الراتب على ذمم الموظفين (رواتب)'
                     : _selectedTemplateId == 'payment_advance'
@@ -2669,26 +2716,17 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
   }
 
   /// What is between us and the chosen customer or supplier, as the ledger
-  /// says it (debit less credit): «لنا عنده» or «علينا له», cash and each karat.
+  /// says it: «لنا عنده» or «علينا له», cash and each karat.
   Widget _buildPartyBalance() {
     final party = switch (_partyType) {
       'customer' => _findById(_customers, _selectedCustomerId),
       'supplier' => _findById(_suppliers, _selectedSupplierId),
       _ => null,
     };
-    if (party == null || !party.containsKey('balance_cash')) {
-      return const SizedBox.shrink();
-    }
-    double read(String key) => (party[key] as num?)?.toDouble() ?? 0.0;
-    String side(double v) => v > 0 ? 'لنا عنده' : 'علينا له';
-    final cash = read('balance_cash');
-    final said = [
-      if (cash.abs() >= 0.005) '${side(cash)} ${_formatCash(cash.abs())}',
-      for (final k in const [24, 22, 21, 18])
-        if (read('balance_gold_${k}k').abs() >= 0.0005)
-          '${side(read('balance_gold_${k}k'))} '
-              '${ltrIsolate(formatGrams(read('balance_gold_${k}k').abs()))} جم عيار $k',
-    ];
+    final said = party == null
+        ? null
+        : partyBalanceSaid(party, currencySymbol: _currencySymbol);
+    if (said == null) return const SizedBox.shrink();
     final theme = Theme.of(context);
     return Container(
       key: const Key('voucher-party-balance'),
@@ -3754,6 +3792,8 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
                   : null,
               showTransactionTypeFilter: false,
               showTracksWeightFilter: false,
+              subtitleOf: (a) =>
+                  _accountHolds(_coerceAccountId(a['id']), line.amountType),
               validator: (value) {
                 if (value == null) {
                   return 'يجب اختيار حساب';

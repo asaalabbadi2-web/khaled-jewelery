@@ -84,6 +84,10 @@ String accountTransactionTypeLabel(
   return 'Both';
 }
 
+/// What a screen says under each account it offers -- a safe's balance --
+/// in place of the account's kind; null says nothing.
+typedef AccountSubtitle = String? Function(Map<String, dynamic> account);
+
 Future<Map<String, dynamic>?> showAccountPickerBottomSheet({
   required BuildContext context,
   required List<Map<String, dynamic>> accounts,
@@ -95,6 +99,7 @@ Future<Map<String, dynamic>?> showAccountPickerBottomSheet({
   bool showTransactionTypeFilter = true,
   bool showTracksWeightFilter = false,
   bool showLeafOnlyFilter = false,
+  AccountSubtitle? subtitleOf,
 }) {
   return showModalBottomSheet<Map<String, dynamic>>(
     context: context,
@@ -292,6 +297,7 @@ Future<Map<String, dynamic>?> showAccountPickerBottomSheet({
                   const SizedBox(height: 10),
                   TextField(
                     controller: searchCtrl,
+                    autofocus: true,
                     onChanged: (_) => setSheetState(() {}),
                     decoration: InputDecoration(
                       prefixIcon: const Icon(Icons.search),
@@ -469,7 +475,9 @@ Future<Map<String, dynamic>?> showAccountPickerBottomSheet({
 
                               final label = accountLabelOf(a);
                               final memoName = memoNameByFinancialId[idInt];
-                              final txLabel = memoName == null
+                              final txLabel = subtitleOf != null
+                                  ? subtitleOf(a)
+                                  : memoName == null
                                   ? accountTransactionTypeLabel(
                                       accountTransactionTypeOf(a),
                                       isArabic: isArabic,
@@ -498,7 +506,9 @@ Future<Map<String, dynamic>?> showAccountPickerBottomSheet({
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                 ),
-                                subtitle: Text(
+                                subtitle: txLabel == null
+                                    ? null
+                                    : Text(
                                   txLabel,
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
@@ -508,7 +518,7 @@ Future<Map<String, dynamic>?> showAccountPickerBottomSheet({
                                   textAlign: isArabic
                                       ? TextAlign.right
                                       : TextAlign.left,
-                                ),
+                                    ),
                                 trailing: selected
                                     ? Icon(
                                         Icons.check_circle,
@@ -550,6 +560,7 @@ class AccountPickerFormField extends FormField<int> {
     AccountPredicate? predicate,
     bool showTransactionTypeFilter = true,
     bool showTracksWeightFilter = false,
+    AccountSubtitle? subtitleOf,
   }) : super(
          initialValue: value,
          builder: (state) {
@@ -573,12 +584,14 @@ class AccountPickerFormField extends FormField<int> {
            final display = selectedAccount != null
                ? accountLabelOf(selectedAccount)
                : hintText;
-           final txLabel = selectedAccount != null
-               ? accountTransactionTypeLabel(
+           // A screen that says its accounts' balance says the chosen one's
+           // itself, once; the field does not repeat it.
+           final txLabel = selectedAccount == null || subtitleOf != null
+               ? null
+               : accountTransactionTypeLabel(
                    accountTransactionTypeOf(selectedAccount),
                    isArabic: isArabic,
-                 )
-               : null;
+                 );
 
            Future<void> pick() async {
              if (!enabled) return;
@@ -591,6 +604,7 @@ class AccountPickerFormField extends FormField<int> {
                predicate: predicate,
                showTransactionTypeFilter: showTransactionTypeFilter,
                showTracksWeightFilter: showTracksWeightFilter,
+               subtitleOf: subtitleOf,
              );
              if (picked == null) return;
              final raw = picked['id'];

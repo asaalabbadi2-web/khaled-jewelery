@@ -311,21 +311,24 @@ class _SupplierInvoicePickerState extends State<SupplierInvoicePicker> {
       controlAffinity: ListTileControlAffinity.leading,
       value: isChosen,
       onChanged: (_) => widget.onToggle(id),
-      title: Row(
-        children: [
-          Expanded(
-            child: Text(
-              '${row['invoice_number'] ?? '#$id'} — ${_day(row['date'])}',
-              style: const TextStyle(fontWeight: FontWeight.w700),
-              overflow: TextOverflow.ellipsis,
-            ),
-          ),
-          const SizedBox(width: 8),
-          Text(owes, style: theme.textTheme.bodySmall),
-        ],
+      // The number whole on its own line; its date and what is left on it
+      // under it, said as what is left (it read as the invoice's total).
+      title: Text(
+        '${row['invoice_number'] ?? '#$id'}',
+        style: const TextStyle(fontWeight: FontWeight.w700),
       ),
-      subtitle: isChosen
-          ? KeyedSubtree(
+      subtitle: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            [
+              _day(row['date']),
+              if (owes.isNotEmpty) 'المتبقي: $owes',
+            ].join(' — '),
+            style: theme.textTheme.bodySmall,
+          ),
+          if (isChosen)
+            KeyedSubtree(
               key: Key('invoice-share-$id'),
               child: Text(
                 _share(id),
@@ -334,8 +337,9 @@ class _SupplierInvoicePickerState extends State<SupplierInvoicePicker> {
                   fontWeight: FontWeight.w700,
                 ),
               ),
-            )
-          : null,
+            ),
+        ],
+      ),
     );
   }
 }

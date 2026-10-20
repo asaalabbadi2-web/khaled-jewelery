@@ -139,13 +139,17 @@ void main() {
   });
 
   testWidgets('the expense template leaves the expense to the employee, and '
-      'offers only expenses', (tester) async {
+      'offers operating expenses only (the owner, 20 Oct 2026)', (tester) async {
     final api = FakeVoucherApi(
       appConfig: const {
         'account_groups': {
           'expenses': {
-            'id': 90,
-            'subtree_ids': [90, 91, 92],
+            'account_id': 90,
+            'subtree_ids': [90, 93, 94, 91, 92],
+          },
+          'operating_expenses': {
+            'account_id': 94,
+            'subtree_ids': [94, 91, 92],
           },
         },
       },
@@ -159,6 +163,8 @@ void main() {
     await tester.tap(find.text('اختر حساب المصروف'));
     await tester.pumpAndSettle();
     expect(find.textContaining('كهرباء'), findsOneWidget);
+    expect(find.textContaining('مشتريات ذهب'), findsNothing,
+        reason: 'a purchase is cost of sales, not an operating expense');
     expect(find.textContaining('مورد الذهب'), findsNothing);
   });
 
@@ -175,5 +181,108 @@ void main() {
     await tester.enterText(amount, '150000');
     await tester.pumpAndSettle();
     expect(find.textContaining('لا يغطي'), findsOneWidget);
+  });
+
+  group('the party picker (the voucher screen review, release 3)', () {
+    const many = [
+      {
+        'id': 5,
+        'name': 'مورد الذهب',
+        'account_id': 50,
+        'supplier_code': 'S-000005',
+        'phone': '0500000005',
+        'balance_cash': -7784.83,
+        'balance_gold_21k': -2748.71,
+      },
+      {'id': 6, 'name': 'مفيد الحبيشي', 'account_id': 60, 'supplier_code': 'S-000013'},
+      {'id': 7, 'name': 'مكتب الراقي', 'account_id': 70, 'supplier_code': 'S-000020'},
+    ];
+
+    Finder search() => find.descendant(
+      of: find.byType(AlertDialog),
+      matching: find.byType(TextField),
+    );
+
+    Future<void> openPicker(WidgetTester tester, {int more = 0}) async {
+      final suppliers = [
+        ...many,
+        for (var i = 0; i < more; i++)
+          {'id': 100 + i, 'name': 'مورد $i', 'account_id': 200 + i},
+      ];
+      await openVoucher(tester, api: FakeVoucherApi(suppliers: suppliers), supplierId: null);
+      await tester.tap(find.text('اضغط للبحث والاختيار').first);
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('it takes the typing at once', (tester) async {
+      await openPicker(tester);
+      await tester.enterText(search(), 'مفيد');
+      await tester.pumpAndSettle();
+      final field = tester.widget<TextField>(search());
+      expect(field.autofocus, isTrue);
+      expect(find.text('مكتب الراقي'), findsNothing);
+    });
+
+    testWidgets('each party with its code, phone and what is between us', (
+      tester,
+    ) async {
+      await openPicker(tester);
+      expect(said('S-000005'), findsOneWidget);
+      expect(said('0500000005'), findsOneWidget);
+      expect(said('علينا له 7,784.83 ر.س'), findsOneWidget);
+      expect(said('علينا له 2,748.710 جم عيار 21'), findsOneWidget);
+    });
+
+    testWidgets('it keeps its height while it is searched', (tester) async {
+      await openPicker(tester, more: 20);
+      // The dialog's surface, not the barrier around it.
+      final dialog = find
+          .descendant(of: find.byType(AlertDialog), matching: find.byType(Material))
+          .first;
+      final before = tester.getRect(dialog);
+      await tester.enterText(search(), 'مفيد');
+      await tester.pumpAndSettle();
+      expect(tester.getRect(dialog), before, reason: 'the one result moved from '
+          'under the hand as the list shrank');
+    });
+  });
+
+  testWidgets('a safe is offered with what it holds, not a kind already chosen', (
+    tester,
+  ) async {
+    await openVoucher(tester);
+    await tester.tap(find.text('ذهب').first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.textContaining('خزينة الذهب').first);
+    await tester.pumpAndSettle();
+    final sheet = find.byType(BottomSheet);
+    expect(find.descendant(of: sheet, matching: said('410.600 جم عيار 21')), findsOneWidget);
+    expect(find.descendant(of: sheet, matching: find.text('كلاهما')), findsNothing);
+    final search = tester.widget<TextField>(
+      find.descendant(of: sheet, matching: find.byType(TextField)),
+    );
+    expect(search.autofocus, isTrue);
+  });
+
+  testWidgets('an invoice is listed whole, with what is left on it said so, '
+      'on a phone too', (tester) async {
+    await openVoucher(
+      tester,
+      size: const Size(390, 1600),
+      api: FakeVoucherApi(
+        openCash: const [
+          {
+            'invoice_id': 12,
+            'invoice_number': 'SUPP-2026-005',
+            'date': '2026-02-12T00:00:00',
+            'open_cash': 6104.0,
+            'open_main_karat': 921.8,
+          },
+        ],
+      ),
+    );
+    expect(find.text('SUPP-2026-005'), findsOneWidget,
+        reason: 'the number alone on its line, not cut');
+    expect(said('المتبقي: 6,104.00 ر.س'), findsOneWidget);
   });
 }

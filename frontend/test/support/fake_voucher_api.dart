@@ -67,11 +67,18 @@ class FakeVoucherApi extends ApiService {
     {'id': 50, 'account_number': '2200001', 'name': 'مورد الذهب'},
     // The supplier's weight twin: where its gold line is stored.
     {'id': 51, 'account_number': '72200001', 'name': 'مورد الذهب وزني'},
-    {'id': 70, 'account_number': '1100001', 'name': 'الصندوق'},
+    {
+      'id': 70,
+      'account_number': '1100001',
+      'name': 'الصندوق',
+      'balances': {'cash': 100000.0},
+    },
     {'id': 80, 'account_number': '1310001', 'name': 'خزينة الذهب'},
-    // Two expenses: the first in the tree, and the one meant.
+    // Expenses: a purchase under cost of sales, the first operating one in
+    // the tree, and the one meant.
+    {'id': 93, 'account_number': '511', 'name': 'مشتريات ذهب جديد من العملاء'},
     {'id': 91, 'account_number': '5220', 'name': 'خسارة الوزن (الفقد)'},
-    {'id': 92, 'account_number': '5310', 'name': 'كهرباء'},
+    {'id': 92, 'account_number': '5420', 'name': 'كهرباء'},
   ];
 
   @override
@@ -99,6 +106,18 @@ class FakeVoucherApi extends ApiService {
       accountId: 80,
       karat: 21,
       isDefault: true,
+      // Its weight on the safe itself, as the app reads it: the accounts
+      // come without balances.
+      balance: BalanceInfo(
+        cash: 0,
+        weight: WeightBalance(
+          karat18: 0,
+          karat21: 410.6,
+          karat22: 0,
+          karat24: 0,
+          total: 410.6,
+        ),
+      ),
     ),
   ];
 

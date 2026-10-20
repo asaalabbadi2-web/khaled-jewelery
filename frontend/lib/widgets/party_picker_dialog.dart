@@ -1,10 +1,17 @@
 import 'package:flutter/material.dart';
 
+import '../utils/party_balance.dart';
+
+/// A customer or supplier picked by name, code or phone (the voucher screen
+/// review, 20 Oct 2026): the search takes the typing at once; each party
+/// shows its code, phone and what is between us; the dialog keeps its height
+/// while it is searched, so the result does not move from under the hand.
 class PartyPickerDialog extends StatefulWidget {
   final String title;
   final List<Map<String, dynamic>> items;
   final int? selectedId;
   final String emptyText;
+  final String currencySymbol;
 
   const PartyPickerDialog({
     super.key,
@@ -12,6 +19,7 @@ class PartyPickerDialog extends StatefulWidget {
     required this.items,
     this.selectedId,
     this.emptyText = 'لا توجد بيانات',
+    this.currencySymbol = 'ر.س',
   });
 
   @override
@@ -60,7 +68,7 @@ class _PartyPickerDialogState extends State<PartyPickerDialog> {
         final phone = _phoneOf(m).toLowerCase();
         final mobile = _mobileOf(m).toLowerCase();
         final idNo = _asString(m['identity_number']).toLowerCase();
-        final code = _asString(m['code']).toLowerCase();
+        final code = _codeOf(m).toLowerCase();
         return name.contains(q) ||
             phone.contains(q) ||
             mobile.contains(q) ||
@@ -78,29 +86,47 @@ class _PartyPickerDialogState extends State<PartyPickerDialog> {
     return list;
   }
 
+  String _codeOf(Map<String, dynamic> item) => _asString(
+    item['supplier_code'] ?? item['customer_code'] ?? item['code'],
+  );
+
   String _subtitle(Map<String, dynamic> item) {
     final phone = _phoneOf(item);
     final mobile = _mobileOf(item);
     final parts = <String>[];
+    final code = _codeOf(item);
+    if (code.isNotEmpty) parts.add(code);
     if (phone.isNotEmpty) parts.add(phone);
     if (mobile.isNotEmpty && mobile != phone) parts.add(mobile);
-    return parts.join(' • ');
+    final balance = partyBalanceSaid(item, currencySymbol: widget.currencySymbol);
+    return [
+      parts.join(' • '),
+      if (balance != null && balance.isNotEmpty) balance.join(' • '),
+    ].where((p) => p.isNotEmpty).join('\n');
   }
 
   @override
   Widget build(BuildContext context) {
     final filtered = _filtered();
     final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    // The height it opens with, kept while it is searched.
+    final height = (MediaQuery.sizeOf(context).height * 0.7).clamp(240.0, 600.0);
 
     return AlertDialog(
       title: Text(widget.title),
       content: SizedBox(
         width: 520,
+        height: height,
         child: Column(
-          mainAxisSize: MainAxisSize.min,
           children: [
             TextField(
               controller: _searchController,
+              autofocus: true,
+              // Enter takes the one party the search leaves.
+              onSubmitted: (_) {
+                if (filtered.length == 1) Navigator.pop(context, filtered.single);
+              },
               decoration: InputDecoration(
                 prefixIcon: const Icon(Icons.search),
                 hintText: 'ابحث بالاسم / الجوال / الهاتف',
@@ -126,13 +152,12 @@ class _PartyPickerDialogState extends State<PartyPickerDialog> {
                 padding: const EdgeInsets.all(16),
                 child: Text(
                   widget.emptyText,
-                  style: TextStyle(color: Colors.grey.shade600),
+                  style: TextStyle(color: cs.onSurfaceVariant),
                 ),
               )
             else
-              Flexible(
+              Expanded(
                 child: ListView.separated(
-                  shrinkWrap: true,
                   itemCount: filtered.length,
                   separatorBuilder: (context, index) => const Divider(height: 1),
                   itemBuilder: (context, index) {
@@ -145,13 +170,11 @@ class _PartyPickerDialogState extends State<PartyPickerDialog> {
                     return ListTile(
                       leading: CircleAvatar(
                         backgroundColor: selected
-                            ? theme.colorScheme.primary.withValues(alpha: 0.15)
-                            : Colors.grey.shade200,
+                            ? cs.primary.withValues(alpha: 0.15)
+                            : cs.surfaceContainerHighest,
                         child: Icon(
                           Icons.person_outline,
-                          color: selected
-                              ? theme.colorScheme.primary
-                              : Colors.grey.shade700,
+                          color: selected ? cs.primary : cs.onSurfaceVariant,
                         ),
                       ),
                       title: Text(name.isEmpty ? 'بدون اسم' : name),

@@ -52,7 +52,10 @@ def test_the_app_config_hands_the_groups_by_role(auth_headers):
     for name, role in (('employee_personal', 'employee_personal_parent'),
                        ('employee_salary_payable', 'employee_salary_payable_parent'),
                        ('employee_bonus_payable', 'employee_bonus_payable_parent'),
-                       ('expenses', 'expenses_root')):
+                       ('expenses', 'expenses_root'),
+                       # The expense template's choice: operating expenses only,
+                       # not purchases or cost of sales (the owner, 20 Oct 2026).
+                       ('operating_expenses', 'operating_expenses_root')):
         account_id = require_account(DEFAULT_MAPPING_OPERATION_TYPE, role)
         assert groups[name]['account_id'] == account_id, name
         assert set(groups[name]['subtree_ids']) == subtree_ids(account_id), name
