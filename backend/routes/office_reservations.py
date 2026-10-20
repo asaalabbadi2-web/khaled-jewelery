@@ -572,7 +572,7 @@ def settle_office_reservation(reservation_id: int):
             account_id=office.account_category_id,
             cash_credit=total_amount,
             supplier_id=supplier.id,
-            description=f'مستحق لمكتب التسكير عيار {karat} - يُسدَّد من خزينة المكتب',
+            description=f'ثمن ذهب عيار {karat} مستحق للمكتب -- يُسدَّد بسند صرف',
         )
         # The gold bought, by weight, in the same entry (the owner, 1 Oct 2026:
         # every reservation is a purchase; settled, the gold stays at the

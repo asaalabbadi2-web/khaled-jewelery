@@ -291,3 +291,17 @@ def test_an_office_purchase_is_named_as_one_where_it_waits(auth_headers, rworld)
         assert resp.status_code == 200, (path, resp.get_data(as_text=True)[:200])
         rows = [r for r in (resp.get_json().get(key) or []) if r['id'] == inv.id]
         assert rows and rows[0]['invoice_type_label'] == 'شراء كسر من مكتب', (path, rows)
+
+
+def test_the_office_card_counts_its_open_reservations(auth_headers, rworld):
+    """What waits to be executed, on the office's card (journey release 2):
+    an executed one leaves the count, an undone one comes back."""
+    def card():
+        resp = flask_app.test_client().get('/api/offices', headers=auth_headers)
+        return next(o for o in resp.get_json() if o['id'] == rworld['office'].id)['open_reservations']
+    rid = _create(auth_headers, rworld)
+    assert card() == {'count': 1, 'grams': GRAMS, 'amount': round(GRAMS * 400.0, 2)}
+    assert _settle(auth_headers, rid).status_code == 200
+    assert card()['count'] == 0
+    assert _unsettle(auth_headers, rid).status_code == 200
+    assert card()['count'] == 1

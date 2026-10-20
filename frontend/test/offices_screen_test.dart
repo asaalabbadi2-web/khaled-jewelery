@@ -5,6 +5,8 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:frontend/api_service.dart';
 import 'package:frontend/providers/settings_provider.dart';
+import 'package:frontend/screens/gold_reservations_list_screen.dart';
+import 'package:frontend/screens/office_detail_screen.dart';
 import 'package:frontend/screens/offices_screen.dart';
 import 'package:frontend/theme/app_theme.dart';
 import 'package:provider/provider.dart';
@@ -31,6 +33,7 @@ class _FakeApi extends ApiService {
       'balance_gold_21k': 0.0,
       'balance_gold_22k': 0.0,
       'balance_gold_24k': 0.0,
+      'open_reservations': {'count': 1, 'grams': 5.0, 'amount': 2186.15},
       'deposit': {
         'safe_box_id': 60,
         'name': 'ذهب مودع لدى مكتب الراقي',
@@ -136,24 +139,25 @@ void main() {
     expect(find.byKey(const Key('office-reservations-5')), findsOneWidget);
   });
 
-  testWidgets('an executed reservation is not struck through, and is undone by name', (
+  testWidgets('the card says what waits, and its reservations open the office page', (
     tester,
   ) async {
-    final api = await _open(tester);
-    await tester.tap(find.byKey(const Key('office-reservations-5')));
+    await _open(tester);
+    final button = find.byKey(const Key('office-reservations-5'));
+    expect(find.descendant(of: button, matching: find.textContaining('مفتوحة')), findsOneWidget);
+    await tester.tap(button);
     await tester.pumpAndSettle();
+    expect(find.byType(OfficeDetailScreen), findsOneWidget);
+  });
 
-    final struck = tester
-        .widgetList<Text>(find.descendant(of: find.byType(AlertDialog), matching: find.byType(Text)))
-        .where((t) => t.style?.decoration == TextDecoration.lineThrough);
-    expect(struck, isEmpty, reason: 'executed is not cancelled');
-    expect(find.textContaining('منفَّذ'), findsOneWidget);
-
-    await tester.tap(find.byKey(const Key('reservation-unexecute-36')));
+  testWidgets('all reservations, across the offices, are one tap away', (tester) async {
+    await _open(tester);
+    await tester.tap(find.byKey(const Key('offices-all-reservations')));
     await tester.pumpAndSettle();
-    expect(find.textContaining('يخرج'), findsOneWidget, reason: 'it says what it undoes');
-    await tester.tap(find.widgetWithText(ElevatedButton, 'تأكيد').last);
-    await tester.pumpAndSettle();
-    expect(api.unsettled, [36]);
+    expect(find.byType(GoldReservationsListScreen), findsOneWidget);
+    // Named as on the office page: an executed one is «منفَّذ», never «غير معروف».
+    expect(find.textContaining('منفَّذ'), findsWidgets);
+    expect(find.textContaining('غير معروف'), findsNothing);
+    expect(find.textContaining('4,000.00'), findsWidgets, reason: 'amounts read with separators');
   });
 }

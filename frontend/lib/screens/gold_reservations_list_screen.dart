@@ -5,6 +5,8 @@ import 'package:provider/provider.dart';
 import '../api_service.dart';
 import '../providers/settings_provider.dart';
 import '../theme/app_theme.dart';
+import '../utils/bidi.dart';
+import '../utils/currency_utils.dart';
 import '../widgets/app_feedback.dart';
 
 /// شاشة سجل حجوزات الذهب للمكاتب
@@ -228,14 +230,17 @@ class _GoldReservationsListScreenState
   String _statusLabel(String? status) {
     final isAr = widget.isArabic;
     switch (status) {
+      // Saved and waiting to be executed: reserved, as on the office page
+      // (ADR-052); «pending» is what an undone execution goes back to.
       case 'approved':
-        return isAr ? 'معتمد' : 'Approved';
+      case 'pending':
+        return isAr ? 'محجوز' : 'Reserved';
       case 'completed':
-        return isAr ? 'مكتمل' : 'Completed';
+        return isAr ? 'منفَّذ' : 'Executed';
       case 'partial':
         return isAr ? 'جزئي' : 'Partial';
       case 'cancelled':
-        return isAr ? 'ملغي' : 'Cancelled';
+        return isAr ? 'ملغى' : 'Cancelled';
       case 'reserved':
         return isAr ? 'محجوز' : 'Reserved';
       default:
@@ -448,17 +453,17 @@ class _GoldReservationsListScreenState
               title: isAr
                   ? 'الوزن (مكافئ $_mainKarat)'
                   : 'Weight (${_mainKarat}K eq.)',
-              value: _totalWeightMainKarat.toStringAsFixed(2),
+              value: ltrIsolate(formatGrams(_totalWeightMainKarat)),
             ),
             _buildSummaryTile(
               icon: Icons.payments,
               title: isAr ? 'المبالغ المحجوزة' : 'Reserved amount',
-              value: _totalAmount.toStringAsFixed(2),
+              value: ltrIsolate(formatAmount(_totalAmount)),
             ),
             _buildSummaryTile(
               icon: Icons.check_circle,
               title: isAr ? 'المبالغ المدفوعة' : 'Paid amount',
-              value: _totalPaidAmount.toStringAsFixed(2),
+              value: ltrIsolate(formatAmount(_totalPaidAmount)),
             ),
           ],
         ),
@@ -490,7 +495,6 @@ class _GoldReservationsListScreenState
   Widget _buildReservationCard(Map<String, dynamic> reservation, bool isAr) {
     final office = reservation['office'] ?? {};
     final weight = _toDouble(reservation['weight_grams']);
-    final weightMain = _toDouble(reservation['weight_main_karat']);
     final totalAmount = _toDouble(reservation['total_amount']);
     final paidAmount = _toDouble(reservation['paid_amount']);
 
@@ -535,7 +539,7 @@ class _GoldReservationsListScreenState
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      '${weight.toStringAsFixed(2)} g / ${weightMain.toStringAsFixed(2)}g 21K',
+                      '${ltrIsolate(formatGrams(weight))} ${isAr ? 'جم' : 'g'} · ${isAr ? 'عيار' : 'K'} ${reservation['karat'] ?? ''}',
                       style: const TextStyle(fontWeight: FontWeight.bold),
                     ),
                   ],
@@ -592,7 +596,7 @@ class _GoldReservationsListScreenState
                         style: TextStyle(color: Colors.grey[600]),
                       ),
                       Text(
-                        totalAmount.toStringAsFixed(2),
+                        ltrIsolate(formatAmount(totalAmount)),
                         style: const TextStyle(
                           fontWeight: FontWeight.bold,
                           fontSize: 16,
@@ -610,7 +614,7 @@ class _GoldReservationsListScreenState
                         style: TextStyle(color: Colors.grey[600]),
                       ),
                       Text(
-                        paidAmount.toStringAsFixed(2),
+                        ltrIsolate(formatAmount(paidAmount)),
                         style: TextStyle(
                           fontWeight: FontWeight.bold,
                           fontSize: 16,

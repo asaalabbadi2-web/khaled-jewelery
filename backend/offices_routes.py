@@ -195,6 +195,24 @@ def _create_opening_entry_for_supplier(
             )
 
 
+def _open_reservations_by_office(office_ids) -> dict:
+    """{office id: its reservations waiting to be executed} -- not executed, not
+    cancelled: the count, grams and riyals the office card shows."""
+    from models import OfficeReservation
+    from sqlalchemy import func
+    if not office_ids:
+        return {}
+    rows = (db.session.query(OfficeReservation.office_id, func.count(OfficeReservation.id),
+                             func.coalesce(func.sum(OfficeReservation.weight_grams), 0.0),
+                             func.coalesce(func.sum(OfficeReservation.total_amount), 0.0))
+            .filter(OfficeReservation.office_id.in_(office_ids),
+                    OfficeReservation.purchase_invoice_id.is_(None),
+                    func.coalesce(OfficeReservation.status, '') != 'cancelled')
+            .group_by(OfficeReservation.office_id).all())
+    return {oid: {'count': int(n), 'grams': round(float(g), 3), 'amount': round(float(a), 2)}
+            for oid, n, g, a in rows}
+
+
 def _deposits_by_supplier(suppliers) -> dict:
     """{supplier id: its office's deposit} -- our gold held there (ADR-052), from
     the ledger: the safe, grams per karat and their main-karat total. The
@@ -252,6 +270,7 @@ def get_offices():
         balances_by_supplier = compute_live_supplier_balances(supplier_rows) if supplier_rows else {}
         live_map = live_balances_by_account_ids(account_ids) if account_ids else {}
         deposits = _deposits_by_supplier(supplier_rows)
+        open_reservations = _open_reservations_by_office([o.id for o in offices])
 
         results = []
         for office in offices:
@@ -289,6 +308,7 @@ def get_offices():
 
             if data.get('supplier_id') in deposits:
                 data['deposit'] = deposits[data['supplier_id']]
+            data['open_reservations'] = open_reservations.get(office.id, {'count': 0, 'grams': 0.0, 'amount': 0.0})
 
             results.append(data)
 

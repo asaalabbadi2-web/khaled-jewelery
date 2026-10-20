@@ -5,6 +5,8 @@ import '../providers/settings_provider.dart';
 import '../theme/app_theme.dart';
 import 'add_office_screen.dart';
 import 'gold_reservation_screen.dart';
+import 'gold_reservations_list_screen.dart';
+import 'office_detail_screen.dart';
 import '../utils/bidi.dart';
 import '../utils/currency_utils.dart';
 import '../widgets/app_feedback.dart';
@@ -78,8 +80,23 @@ class _OfficesScreenState extends State<OfficesScreen> {
     );
     if (saved != null && mounted) {
       await _loadOffices();
-      if (mounted) _showOfficeReservationsDialog(office);
+      if (mounted) _openOffice(office);
     }
+  }
+
+  /// One office's page: its balances, its reservations, their next steps.
+  Future<void> _openOffice(Map<String, dynamic> office) async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => OfficeDetailScreen(
+          api: widget.api,
+          office: office,
+          isArabic: widget.isArabic,
+        ),
+      ),
+    );
+    if (mounted) await _loadOffices();
   }
 
   double _convertToMainKarat(double grams, int karat) {
@@ -233,437 +250,6 @@ class _OfficesScreenState extends State<OfficesScreen> {
     } catch (e) {
       _showMessage('خطأ في تحميل الرصيد: $e', isError: true);
     }
-  }
-
-  Future<bool> _confirmAction({
-    required String title,
-    required String message,
-    required bool isArabic,
-  }) async {
-    final result = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text(title),
-        content: Text(message),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: Text(isArabic ? 'إلغاء' : 'Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: Text(isArabic ? 'تأكيد' : 'Confirm'),
-          ),
-        ],
-      ),
-    );
-    return result ?? false;
-  }
-
-  Future<void> _showOfficeReservationsDialog(
-    Map<String, dynamic> office,
-  ) async {
-    final isAr = widget.isArabic;
-    final officeId = (office['id'] is num)
-        ? (office['id'] as num).toInt()
-        : int.tryParse('${office['id']}') ?? 0;
-    if (officeId <= 0) return;
-
-    Future<Map<String, dynamic>> future = widget.api.getOfficeReservations(
-      officeId: officeId,
-      page: 1,
-      perPage: 50,
-      orderBy: 'reservation_date',
-      orderDirection: 'desc',
-    );
-
-    final busyIds = <int>{};
-
-    await showDialog<void>(
-      context: context,
-      builder: (context) {
-        return StatefulBuilder(
-          builder: (context, setLocalState) {
-            Future<void> refresh() async {
-              setLocalState(() {
-                future = widget.api.getOfficeReservations(
-                  officeId: officeId,
-                  page: 1,
-                  perPage: 50,
-                  orderBy: 'reservation_date',
-                  orderDirection: 'desc',
-                );
-              });
-            }
-
-            return AlertDialog(
-              title: Text(
-                isAr
-                    ? 'حجوزات المكتب: ${office['name'] ?? ''}'
-                    : 'Office Reservations: ${office['name'] ?? ''}',
-              ),
-              content: SizedBox(
-                width: 520,
-                child: FutureBuilder<Map<String, dynamic>>(
-                  future: future,
-                  builder: (context, snapshot) {
-                    if (snapshot.connectionState == ConnectionState.waiting) {
-                      return const SizedBox(
-                        height: 120,
-                        child: Center(child: CircularProgressIndicator()),
-                      );
-                    }
-                    if (snapshot.hasError) {
-                      return SizedBox(
-                        height: 120,
-                        child: Center(
-                          child: Text(
-                            isAr
-                                ? 'تعذر تحميل الحجوزات: ${snapshot.error}'
-                                : 'Failed to load reservations: ${snapshot.error}',
-                          ),
-                        ),
-                      );
-                    }
-
-                    final body = snapshot.data ?? <String, dynamic>{};
-                    final rows = (body['data'] is List)
-                        ? (body['data'] as List)
-                        : <dynamic>[];
-                    final reservations = rows
-                        .whereType<Map>()
-                        .map((e) => Map<String, dynamic>.from(e))
-                        .toList();
-
-                    bool isDoneStatus(String? s, Map<String, dynamic> row) {
-                      if (row['purchase_invoice_id'] != null) return true;
-                      final v = (s ?? '').toLowerCase();
-                      return v == 'completed' || v == 'cancelled';
-                    }
-
-                    String statusLabel(String? s) {
-                      final v = (s ?? '').toLowerCase();
-                      // Saved, waiting to be executed: to the user, reserved.
-                      if (v == 'approved') return isAr ? 'محجوز' : 'Reserved';
-                      if (v == 'completed') {
-                        return isAr ? 'منفَّذ — الذهب في الوديعة' : 'Executed';
-                      }
-                      if (v == 'cancelled') return isAr ? 'ملغي' : 'Cancelled';
-                      if (v == 'partial') return isAr ? 'جزئي' : 'Partial';
-                      if (v == 'reserved' || v == 'pending') {
-                        return isAr ? 'محجوز' : 'Reserved';
-                      }
-                      return isAr ? 'غير معروف' : 'Unknown';
-                    }
-
-                    final pending = <Map<String, dynamic>>[];
-                    final done = <Map<String, dynamic>>[];
-                    for (final r in reservations) {
-                      final st = (r['status'] ?? '').toString();
-                      (isDoneStatus(st, r) ? done : pending).add(r);
-                    }
-                    final ordered = [...pending, ...done];
-
-                    if (ordered.isEmpty) {
-                      return SizedBox(
-                        height: 120,
-                        child: Center(
-                          child: Text(
-                            isAr ? 'لا توجد حجوزات' : 'No reservations',
-                          ),
-                        ),
-                      );
-                    }
-
-                    String fmt(dynamic iso) {
-                      if (iso == null) return '--';
-                      try {
-                        return DateTime.parse(
-                          iso.toString(),
-                        ).toLocal().toString().split('.').first;
-                      } catch (_) {
-                        return iso.toString();
-                      }
-                    }
-
-                    return ConstrainedBox(
-                      constraints: const BoxConstraints(maxHeight: 420),
-                      child: ListView.separated(
-                        shrinkWrap: true,
-                        itemCount: ordered.length,
-                        separatorBuilder: (_, _) => const Divider(height: 16),
-                        itemBuilder: (context, index) {
-                          final r = ordered[index];
-                          final rid = (r['id'] is num)
-                              ? (r['id'] as num).toInt()
-                              : int.tryParse('${r['id']}') ?? 0;
-                          final isBusy = busyIds.contains(rid);
-
-                          final status = (r['status'] ?? '').toString();
-                          final isDone = isDoneStatus(status, r);
-
-                          final code = (r['reservation_code'] ?? '').toString();
-                          final weightMain = _asDouble(r['weight_main_karat']);
-                          final karat = (r['karat'] ?? '').toString();
-                          final paid = _asDouble(r['paid_amount']);
-                          final total = _asDouble(r['total_amount']);
-                          final execPrice = _asDouble(
-                            r['execution_price_per_gram'] ??
-                                r['price_per_gram'],
-                          );
-
-                          return Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                code.isNotEmpty
-                                    ? (isAr
-                                          ? 'حجز: $code'
-                                          : 'Reservation: $code')
-                                    : (isAr ? 'حجز #' : 'Reservation #'),
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                ),
-                                textAlign: TextAlign.start,
-                              ),
-                              const SizedBox(height: 6),
-                              Text(
-                                isAr
-                                    ? 'الحالة: ${statusLabel(status)}'
-                                    : 'Status: ${statusLabel(status)}',
-                                style: TextStyle(
-                                  color: isDone ? Colors.grey.shade700 : null,
-                                ),
-                              ),
-                              Text(
-                                isAr
-                                    ? 'التاريخ: ${fmt(r['reservation_date'])}'
-                                    : 'Date: ${fmt(r['reservation_date'])}',
-                                style: TextStyle(
-                                  color: isDone ? Colors.grey.shade700 : null,
-                                ),
-                              ),
-                              Text(
-                                isAr
-                                    ? 'الوزن (مكافئ العيار الرئيسي $_mainKarat): ${weightMain.toStringAsFixed(3)} جم | العيار: $karat'
-                                    : 'Weight (${_mainKarat}k eq): ${weightMain.toStringAsFixed(3)} g | Karat: $karat',
-                                style: TextStyle(
-                                  color: isDone ? Colors.grey.shade700 : null,
-                                ),
-                              ),
-                              Text(
-                                isAr
-                                    ? 'المبلغ: ${total.toStringAsFixed(2)} | المدفوع: ${paid.toStringAsFixed(2)}'
-                                    : 'Total: ${total.toStringAsFixed(2)} | Paid: ${paid.toStringAsFixed(2)}',
-                                style: TextStyle(
-                                  color: isDone ? Colors.grey.shade700 : null,
-                                ),
-                              ),
-                              const SizedBox(height: 10),
-                              if (r['purchase_invoice_id'] != null &&
-                                  status != 'cancelled')
-                                Align(
-                                  alignment: AlignmentDirectional.centerEnd,
-                                  child: OutlinedButton.icon(
-                                    key: Key('reservation-unexecute-$rid'),
-                                    onPressed: (rid <= 0 || isBusy)
-                                        ? null
-                                        : () async {
-                                            final ok = await _confirmAction(
-                                              title: isAr
-                                                  ? 'إلغاء التنفيذ'
-                                                  : 'Undo execution',
-                                              message: isAr
-                                                  ? 'يُعكس قيد الذهب فيخرج ${ltrIsolate(formatGrams(_asDouble(r['weight_grams'])))} جم من الوديعة، وتُلغى فاتورة الشراء، ويعود الحجز مفتوحًا.'
-                                                  : 'The gold leaves the deposit, the purchase is voided, the reservation reopens.',
-                                              isArabic: isAr,
-                                            );
-                                            if (!ok) return;
-                                            setLocalState(() => busyIds.add(rid));
-                                            try {
-                                              await widget.api
-                                                  .unsettleOfficeReservation(rid);
-                                              _showMessage(
-                                                isAr
-                                                    ? 'أُلغي التنفيذ وعاد الحجز مفتوحًا'
-                                                    : 'Execution undone',
-                                                isError: false,
-                                              );
-                                              await refresh();
-                                              await _loadOffices();
-                                            } catch (e) {
-                                              _showMessage(
-                                                AppFeedback.messageOf(e),
-                                                isError: true,
-                                              );
-                                            } finally {
-                                              setLocalState(
-                                                () => busyIds.remove(rid),
-                                              );
-                                            }
-                                          },
-                                    icon: const Icon(Icons.undo, size: 18),
-                                    label: Text(
-                                      isAr ? 'إلغاء التنفيذ' : 'Undo execution',
-                                    ),
-                                  ),
-                                )
-                              else
-                              Row(
-                                children: [
-                                  Expanded(
-                                    child: OutlinedButton(
-                                      onPressed: (rid <= 0 || isBusy || isDone)
-                                          ? null
-                                          : () async {
-                                              final ok = await _confirmAction(
-                                                title: isAr
-                                                    ? 'إلغاء الحجز'
-                                                    : 'Cancel Reservation',
-                                                message: isAr
-                                                    ? 'هل تريد إلغاء هذا الحجز؟'
-                                                    : 'Do you want to cancel this reservation?',
-                                                isArabic: isAr,
-                                              );
-                                              if (!ok) return;
-
-                                              setLocalState(
-                                                () => busyIds.add(rid),
-                                              );
-                                              try {
-                                                await widget.api
-                                                    .cancelOfficeReservation(
-                                                      rid,
-                                                      cancelledBy:
-                                                          'flutter_app',
-                                                    );
-                                                _showMessage(
-                                                  isAr
-                                                      ? 'تم إلغاء الحجز'
-                                                      : 'Reservation cancelled',
-                                                  isError: false,
-                                                );
-                                                await refresh();
-                                              } catch (e) {
-                                                _showMessage(
-                                                  isAr
-                                                      ? 'تعذر إلغاء الحجز: $e'
-                                                      : 'Failed to cancel: $e',
-                                                  isError: true,
-                                                );
-                                              } finally {
-                                                setLocalState(
-                                                  () => busyIds.remove(rid),
-                                                );
-                                              }
-                                            },
-                                      child: isBusy
-                                          ? const SizedBox(
-                                              height: 18,
-                                              width: 18,
-                                              child: CircularProgressIndicator(
-                                                strokeWidth: 2,
-                                              ),
-                                            )
-                                          : Text(isAr ? 'إلغاء' : 'Cancel'),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 12),
-                                  Expanded(
-                                    child: ElevatedButton(
-                                      onPressed: (rid <= 0 || isBusy || isDone)
-                                          ? null
-                                          : () async {
-                                              final ok = await _confirmAction(
-                                                title: isAr
-                                                    ? 'تنفيذ الحجز'
-                                                    : 'Execute Reservation',
-                                                message: isAr
-                                                    ? 'يدخل ${ltrIsolate(formatGrams(_asDouble(r['weight_grams'])))} جم عيار $karat وديعة «${office['name'] ?? ''}»، '
-                                                          'ويصبح ${ltrIsolate(formatAmount(total - paid))} دينًا للمكتب، '
-                                                          'وتُعتمد فاتورة الشراء.'
-                                                    : 'The gold enters the office deposit, the rest is owed, the purchase is approved.',
-                                                isArabic: isAr,
-                                              );
-                                              if (!ok) return;
-
-                                              setLocalState(
-                                                () => busyIds.add(rid),
-                                              );
-                                              try {
-                                                await widget.api
-                                                    .settleOfficeReservation(
-                                                      rid,
-                                                      executionPricePerGram:
-                                                          execPrice > 0
-                                                          ? execPrice
-                                                          : null,
-                                                      settlementDate:
-                                                          DateTime.now(),
-                                                      createdBy: 'flutter_app',
-                                                    );
-
-                                                _showMessage(
-                                                  isAr
-                                                      ? 'تم تنفيذ الحجز'
-                                                      : 'Reservation executed',
-                                                  isError: false,
-                                                );
-                                                await refresh();
-                                                await _loadOffices();
-                                              } catch (e) {
-                                                _showMessage(
-                                                  isAr
-                                                      ? 'تعذر تنفيذ الحجز: $e'
-                                                      : 'Failed to execute: $e',
-                                                  isError: true,
-                                                );
-                                              } finally {
-                                                setLocalState(
-                                                  () => busyIds.remove(rid),
-                                                );
-                                              }
-                                            },
-                                      style: ElevatedButton.styleFrom(
-                                        backgroundColor: AppColors.primaryGold,
-                                        foregroundColor: Colors.white,
-                                      ),
-                                      child: isBusy
-                                          ? const SizedBox(
-                                              height: 18,
-                                              width: 18,
-                                              child: CircularProgressIndicator(
-                                                strokeWidth: 2,
-                                                valueColor:
-                                                    AlwaysStoppedAnimation<
-                                                      Color
-                                                    >(Colors.white),
-                                              ),
-                                            )
-                                          : Text(isAr ? 'تنفيذ' : 'Execute'),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ],
-                          );
-                        },
-                      ),
-                    );
-                  },
-                ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: Text(isAr ? 'إغلاق' : 'Close'),
-                ),
-              ],
-            );
-          },
-        );
-      },
-    );
   }
 
   void _showBalanceDialog(Map<String, dynamic> balance) {
@@ -845,6 +431,18 @@ class _OfficesScreenState extends State<OfficesScreen> {
         backgroundColor: AppColors.darkGold,
         foregroundColor: Colors.white,
         actions: [
+          TextButton.icon(
+            key: const Key('offices-all-reservations'),
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => GoldReservationsListScreen(api: widget.api, isArabic: isAr),
+              ),
+            ),
+            style: TextButton.styleFrom(foregroundColor: Theme.of(context).colorScheme.onPrimary),
+            icon: const Icon(Icons.list_alt),
+            label: Text(isAr ? 'كل الحجوزات' : 'All reservations'),
+          ),
           IconButton(
             icon: Icon(
               _showActiveOnly ? Icons.visibility : Icons.visibility_off,
@@ -944,7 +542,8 @@ class _OfficesScreenState extends State<OfficesScreen> {
                 : RefreshIndicator(
                     onRefresh: _loadOffices,
                     child: ListView.builder(
-                      padding: const EdgeInsets.all(16),
+                      // Room under the last card for «إضافة مكتب», which covered its «تعديل».
+                      padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
                       itemCount: _filteredOffices.length,
                       itemBuilder: (context, index) {
                         final office = _filteredOffices[index];
@@ -975,6 +574,9 @@ class _OfficesScreenState extends State<OfficesScreen> {
     final goldTotal = _goldMainEquivalentFromOffice(office);
     // Our gold held there (ADR-052) -- the supplier balances beside it are the trade.
     final deposit = office['deposit'] is Map ? office['deposit'] as Map : null;
+    final openCount = office['open_reservations'] is Map
+        ? ((office['open_reservations'] as Map)['count'] as num? ?? 0).toInt()
+        : 0;
     final depositGrams = _asDouble(deposit?['main_karat_total']);
 
     return Card(
@@ -990,7 +592,7 @@ class _OfficesScreenState extends State<OfficesScreen> {
         ),
       ),
       child: InkWell(
-        onTap: () => _showOfficeReservationsDialog(office),
+        onTap: () => _openOffice(office),
         borderRadius: BorderRadius.circular(12),
         child: Padding(
           padding: const EdgeInsets.all(16),
@@ -1140,9 +742,15 @@ class _OfficesScreenState extends State<OfficesScreen> {
                   const SizedBox(width: 8),
                   OutlinedButton.icon(
                     key: Key('office-reservations-${office['id']}'),
-                    onPressed: () => _showOfficeReservationsDialog(office),
+                    onPressed: () => _openOffice(office),
                     icon: const Icon(Icons.lock_clock, size: 18),
-                    label: Text(isAr ? 'الحجوزات' : 'Reservations'),
+                    label: Text(
+                      openCount > 0
+                          ? (isAr
+                                ? 'الحجوزات · ${ltrIsolate('$openCount')} مفتوحة'
+                                : 'Reservations · $openCount open')
+                          : (isAr ? 'الحجوزات' : 'Reservations'),
+                    ),
                   ),
                   const Spacer(),
                   TextButton.icon(
