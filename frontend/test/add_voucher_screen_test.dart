@@ -94,7 +94,7 @@ void main() {
 
   /// The safe the payment is paid from, picked as the employee picks it.
   Future<void> pickSafe(WidgetTester tester) async {
-    await tester.tap(find.text('اختر حساب/خزينة').first);
+    await tester.tap(find.byKey(const Key('voucher-line-account-0')));
     await tester.pumpAndSettle();
     await tester.tap(find.textContaining('الصندوق').last);
     await tester.pumpAndSettle();

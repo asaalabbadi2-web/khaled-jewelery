@@ -92,7 +92,7 @@ Finder cashAmount() =>
     find.widgetWithText(TextFormField, 'المبلغ (ريال) *').first;
 
 Future<void> pickSafe(WidgetTester tester, String name) async {
-  await tester.tap(find.text('اختر حساب/خزينة').first);
+  await tester.tap(find.byKey(const Key('voucher-line-account-0')));
   await tester.pumpAndSettle();
   await tester.tap(find.textContaining(name).last);
   await tester.pumpAndSettle();

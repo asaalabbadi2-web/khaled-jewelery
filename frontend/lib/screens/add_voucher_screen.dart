@@ -17,7 +17,7 @@ import 'voucher_saved_screen.dart';
 import '../utils.dart';
 import '../widgets/account_picker_sheet.dart';
 import '../widgets/party_picker_dialog.dart';
-import '../widgets/searchable_picker_field.dart';
+import '../widgets/type_to_pick_field.dart';
 import '../utils/bidi.dart';
 import '../utils/party_balance.dart';
 import '../utils/currency_utils.dart';
@@ -952,6 +952,8 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
           ),
           FilledButton(
             key: const Key('voucher-review-save'),
+            // Enter saves what was just read; Esc goes back to it.
+            autofocus: true,
             onPressed: () => Navigator.pop(dialogContext, true),
             child: Text(similar.isEmpty ? 'حفظ السند' : 'حفظ رغم التشابه'),
           ),
@@ -1028,20 +1030,6 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
       _coerceAccountId(party['account_id']) == null &&
       _coerceAccountId(party['account_category_id']) == null;
 
-  String? _selectedPartyName(String partyType) {
-    if (partyType == 'customer') {
-      final selected = _findById(_customers, _selectedCustomerId);
-      final name = (selected?['name'] ?? '').toString().trim();
-      return name.isEmpty ? null : name;
-    }
-    if (partyType == 'supplier') {
-      final selected = _findById(_suppliers, _selectedSupplierId);
-      final name = (selected?['name'] ?? '').toString().trim();
-      return name.isEmpty ? null : name;
-    }
-    return null;
-  }
-
   Future<void> _pickCustomer() async {
     if (_customers.isEmpty) return;
     final selected = await showDialog<Map<String, dynamic>>(
@@ -1054,8 +1042,11 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
         currencySymbol: _currencySymbol,
       ),
     );
-    if (selected == null) return;
-    final id = _toInt(selected['id']);
+    if (selected != null) _takeCustomer(selected);
+  }
+
+  void _takeCustomer(Map<String, dynamic> customer) {
+    final id = _toInt(customer['id']);
     if (id == null) return;
     setState(() {
       _selectedCustomerId = id;
@@ -1075,8 +1066,11 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
         currencySymbol: _currencySymbol,
       ),
     );
-    if (selected == null) return;
-    final id = _toInt(selected['id']);
+    if (selected != null) _takeSupplier(selected);
+  }
+
+  void _takeSupplier(Map<String, dynamic> supplier) {
+    final id = _toInt(supplier['id']);
     if (id == null) return;
     setState(() {
       _selectedSupplierId = id;
@@ -1088,6 +1082,47 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
       _smartFillDescriptionAndReceiver();
     });
     if (_showInvoicePicker) _loadInvoiceCandidates();
+  }
+
+  /// A customer or supplier typed for in its own field: by name, code or
+  /// phone, each match with its code and what is between us.
+  Widget _partyField({
+    required List<Map<String, dynamic>> parties,
+    required int? selectedId,
+    required String label,
+    required String none,
+    required String? helper,
+    required IconData icon,
+    required ValueChanged<Map<String, dynamic>> onTake,
+    required VoidCallback onShowAll,
+  }) {
+    String code(Map<String, dynamic> p) =>
+        '${p['supplier_code'] ?? p['customer_code'] ?? p['code'] ?? ''}';
+    final sorted = [...parties]
+      ..sort((a, b) => '${a['name'] ?? ''}'.compareTo('${b['name'] ?? ''}'));
+    return TypeToPickField(
+      fieldKey: const Key('voucher-party-field'),
+      showAllKey: const Key('voucher-party-show-all'),
+      items: sorted,
+      selectedId: selectedId,
+      labelText: label,
+      hintText: parties.isEmpty ? none : 'اكتب الاسم أو الرمز أو الجوال',
+      helperText: helper,
+      prefixIcon: icon,
+      enabled: parties.isNotEmpty,
+      labelOf: (p) => '${p['name'] ?? ''}',
+      searchTextOf: (p) => '${p['name'] ?? ''} ${code(p)} ${p['phone'] ?? ''}',
+      subtitleOf: (p) {
+        final said = [
+          if (code(p).isNotEmpty) code(p),
+          if ('${p['phone'] ?? ''}'.isNotEmpty) '${p['phone']}',
+          ...?partyBalanceSaid(p, currencySymbol: _currencySymbol),
+        ];
+        return said.isEmpty ? null : said.join(' • ');
+      },
+      onSelected: onTake,
+      onShowAll: onShowAll,
+    );
   }
 
   Future<void> _loadData() async {
@@ -1420,6 +1455,23 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
     return cash == null ? null : 'فيها ${_formatCash(cash)}';
   }
 
+
+  /// A line's account picked by the employee.
+  void _takeLineAccount(AccountLineModel line, int? accountId) {
+    setState(() {
+      line.accountId = accountId;
+      line.accountAutoFilled = false;
+    });
+    _recordSafeUsage(accountId);
+    // A cash safe's ledger balance, where the live one is not to hand.
+    final safe = _findSafeByAccountId(accountId);
+    if (safe != null &&
+        (safe.safeType == 'cash' ||
+            safe.safeType == 'bank' ||
+            safe.safeType == 'clearing')) {
+      _ensureSafeLedgerBalanceLoaded(safe);
+    }
+  }
 
   /// A line's account put there by the screen, said so on the line.
   void _autoFill(AccountLineModel line, int? accountId) {
@@ -2182,34 +2234,30 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
             ),
             const SizedBox(height: 16),
             if (_partyType == 'customer')
-              SearchablePickerField(
-                labelText: 'العميل *',
-                valueText: _selectedPartyName('customer'),
-                hintText: _customers.isEmpty
-                    ? 'لا يوجد عملاء'
-                    : 'اضغط للبحث والاختيار',
-                helperText:
-                    _onAggregate(_findById(_customers, _selectedCustomerId))
+              _partyField(
+                parties: _customers,
+                selectedId: _selectedCustomerId,
+                label: 'العميل *',
+                none: 'لا يوجد عملاء',
+                helper: _onAggregate(_findById(_customers, _selectedCustomerId))
                     ? 'ليس للعميل حساب خاص — يُقيَّد على الحساب التجميعي للعملاء'
                     : null,
-                prefixIcon: Icons.person_outline,
-                enabled: _customers.isNotEmpty,
-                onTap: _pickCustomer,
+                icon: Icons.person_outline,
+                onTake: _takeCustomer,
+                onShowAll: _pickCustomer,
               ),
             if (_partyType == 'supplier')
-              SearchablePickerField(
-                labelText: 'المورد *',
-                valueText: _selectedPartyName('supplier'),
-                hintText: _suppliers.isEmpty
-                    ? 'لا يوجد موردين'
-                    : 'اضغط للبحث والاختيار',
-                helperText:
-                    _onAggregate(_findById(_suppliers, _selectedSupplierId))
+              _partyField(
+                parties: _suppliers,
+                selectedId: _selectedSupplierId,
+                label: 'المورد *',
+                none: 'لا يوجد موردين',
+                helper: _onAggregate(_findById(_suppliers, _selectedSupplierId))
                     ? 'ليس للمورد حساب خاص — يُقيَّد على الحساب التجميعي للموردين'
                     : null,
-                prefixIcon: Icons.store_mall_directory,
-                enabled: _suppliers.isNotEmpty,
-                onTap: _pickSupplier,
+                icon: Icons.store_mall_directory,
+                onTake: _takeSupplier,
+                onShowAll: _pickSupplier,
               ),
             if (_partyType == 'employee')
               DropdownButtonFormField<int?>(
@@ -3773,48 +3821,39 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
               onSelectionChanged: (v) => _setLineKind(line, v.first),
             ),
             const SizedBox(height: 12),
-            AccountPickerFormField(
-              context: context,
+            // Found by typing its name or number, the whole list a tap away.
+            TypeToPickField(
               key: ValueKey(
-                'voucher_line_picker_${index}_${line.lineType}_${line.amountType}_${line.accountId ?? 'none'}',
+                'voucher_line_picker_${index}_${line.lineType}_${line.amountType}',
               ),
-              accounts: filteredAccounts,
-              value: line.accountId,
+              fieldKey: Key('voucher-line-account-$index'),
+              showAllKey: Key('voucher-line-account-show-all-$index'),
+              items: filteredAccounts,
+              selectedId: line.accountId,
               labelText: 'الحساب *',
               hintText: filteredAccounts.isEmpty
                   ? 'لا توجد حسابات متاحة'
                   : 'اختر حساب/خزينة',
-              title: 'اختيار حساب',
-              isArabic: true,
               enabled: filteredAccounts.isNotEmpty,
               helperText: line.accountAutoFilled && line.accountId != null
-                  ? 'اختيرت الخزنة الأكثر استخداماً — اضغط لتغييرها.'
+                  ? 'اختيرت الخزنة الأكثر استخداماً — اكتب لتغييرها.'
                   : null,
-              showTransactionTypeFilter: false,
-              showTracksWeightFilter: false,
+              prefixIcon: Icons.search,
+              labelOf: accountLabelOf,
               subtitleOf: (a) =>
                   _accountHolds(_coerceAccountId(a['id']), line.amountType),
-              validator: (value) {
-                if (value == null) {
-                  return 'يجب اختيار حساب';
-                }
-                return null;
-              },
-              onChanged: (value) {
-                setState(() {
-                  line.accountId = value;
-                  line.accountAutoFilled = false;
-                });
-                _recordSafeUsage(value);
-
-                // If selected account is a SafeBox-backed account, load ledger
-                // balance as a fallback source when live account balance is unavailable.
-                final safe = _findSafeByAccountId(value);
-                if (safe != null &&
-                    (safe.safeType == 'cash' ||
-                        safe.safeType == 'bank' ||
-                        safe.safeType == 'clearing')) {
-                  _ensureSafeLedgerBalanceLoaded(safe);
+              onSelected: (a) => _takeLineAccount(line, _coerceAccountId(a['id'])),
+              onShowAll: () async {
+                final picked = await showAccountPickerBottomSheet(
+                  context: context,
+                  accounts: filteredAccounts,
+                  selectedId: line.accountId,
+                  showTransactionTypeFilter: false,
+                  subtitleOf: (a) =>
+                      _accountHolds(_coerceAccountId(a['id']), line.amountType),
+                );
+                if (picked != null) {
+                  _takeLineAccount(line, _coerceAccountId(picked['id']));
                 }
               },
             ),
@@ -4185,19 +4224,25 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
         ? Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              // Each column a traversal group: Tab finishes the column it is
+              // in -- by height alone it crossed from a safe to the party.
               Expanded(
                 flex: 4,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: leftColumn,
+                child: FocusTraversalGroup(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: leftColumn,
+                  ),
                 ),
               ),
               const SizedBox(width: 24),
               Expanded(
                 flex: 6,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: rightColumn,
+                child: FocusTraversalGroup(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: rightColumn,
+                  ),
                 ),
               ),
             ],

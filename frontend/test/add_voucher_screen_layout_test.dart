@@ -28,16 +28,16 @@ void main() {
   ];
 
   Future<void> pickSafe(WidgetTester tester, String name) async {
-    await tester.ensureVisible(find.text('اختر حساب/خزينة').first);
+    await tester.ensureVisible(find.byKey(const Key('voucher-line-account-0')));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('اختر حساب/خزينة').first);
+    await tester.tap(find.byKey(const Key('voucher-line-account-0')));
     await tester.pumpAndSettle();
     await tester.tap(find.textContaining(name).last);
     await tester.pumpAndSettle();
   }
 
   Finder kind() => find.byKey(const Key('voucher-line-kind-0'));
-  Finder account() => find.text('اختر حساب/خزينة').first;
+  Finder account() => find.byKey(const Key('voucher-line-account-0'));
 
   testWidgets('cash or gold is asked before where from, and choosing a safe '
       'does not move it', (tester) async {
@@ -210,7 +210,8 @@ void main() {
           {'id': 100 + i, 'name': 'مورد $i', 'account_id': 200 + i},
       ];
       await openVoucher(tester, api: FakeVoucherApi(suppliers: suppliers), supplierId: null);
-      await tester.tap(find.text('اضغط للبحث والاختيار').first);
+      // The whole list, the field's button away.
+      await tester.tap(find.byKey(const Key('voucher-party-show-all')));
       await tester.pumpAndSettle();
     }
 
@@ -253,7 +254,15 @@ void main() {
     await openVoucher(tester);
     await tester.tap(find.text('ذهب').first);
     await tester.pumpAndSettle();
-    await tester.tap(find.textContaining('خزينة الذهب').first);
+    // Under the field as it is typed in ...
+    await tester.tap(find.byKey(const Key('voucher-line-account-0')));
+    await tester.pumpAndSettle();
+    final option = find.byKey(const Key('type-to-pick-option-80'));
+    expect(find.descendant(of: option, matching: said('410.600 جم عيار 21')), findsOneWidget);
+    expect(find.text('كلاهما'), findsNothing);
+
+    // ... and in the whole list.
+    await tester.tap(find.byKey(const Key('voucher-line-account-show-all-0')));
     await tester.pumpAndSettle();
     final sheet = find.byType(BottomSheet);
     expect(find.descendant(of: sheet, matching: said('410.600 جم عيار 21')), findsOneWidget);

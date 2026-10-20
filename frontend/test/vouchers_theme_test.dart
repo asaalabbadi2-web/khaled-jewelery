@@ -163,7 +163,7 @@ void main() {
           ),
         ),
       );
-      await tester.tap(find.text('اختر حساب/خزينة').first);
+      await tester.tap(find.byKey(const Key('voucher-line-account-0')));
       await tester.pumpAndSettle();
       await tester.tap(find.textContaining('الصندوق').last);
       await tester.pumpAndSettle();

@@ -55,7 +55,7 @@ void main() {
 
     testWidgets('a cash receipt from a customer', (tester) async {
       final api = await open(tester, voucherType: 'receipt', supplierId: null);
-      await tester.tap(find.text('اضغط للبحث والاختيار').first);
+      await tester.tap(find.byKey(const Key('voucher-party-field')));
       await tester.pumpAndSettle();
       await tester.tap(find.text('عميل الصاغة').last);
       await tester.pumpAndSettle();
@@ -138,8 +138,10 @@ void main() {
     testWidgets('no safe filled, none said to be', (tester) async {
       await open(tester, api: FakeVoucherApi(), voucherType: 'receipt',
           supplierId: null);
-      final picker = find.text('اختر حساب/خزينة');
-      if (picker.evaluate().isNotEmpty) {
+      final field = tester.widget<TextField>(
+        find.byKey(const Key('voucher-line-account-0')),
+      );
+      if (field.controller!.text.isEmpty) {
         expect(find.textContaining(hint), findsNothing);
       }
     });
