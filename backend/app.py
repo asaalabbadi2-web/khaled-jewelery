@@ -51,6 +51,7 @@ try:
 	from flask import Flask, jsonify, url_for
 	from models import db
 	from pricing.gold_price_service import MainKaratNotSet
+	from pricing.karat_service import LineKaratMissing
 	from routes import api
 	from routes import public_api
 	from routes.pricing import pricing_bp
@@ -289,6 +290,13 @@ def _compute_backend_build() -> str:
 
 _BACKEND_BUILD = _compute_backend_build()
 _BACKEND_STARTED_AT = datetime.now().isoformat(timespec='seconds') + 'Z'
+
+
+@app.errorhandler(LineKaratMissing)
+def _line_karat_missing(exc):
+	"""A gold line with no valid karat: refused, never posted on an assumed 21."""
+	db.session.rollback()
+	return jsonify({'error': 'line_karat_missing', 'message': str(exc)}), 400
 
 
 @app.errorhandler(MainKaratNotSet)

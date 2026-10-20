@@ -42,6 +42,12 @@ FIXED = [
     re.compile(r'\b' + _MAIN + r'\s*(?::\s*\w+\s*)?=\s*21(\.0)?\b(?!\s*[*/+-])'),   # main = 21 / x: float = 21.0
     re.compile(r'\(\s*(?:getattr\([^)]*main_karat[^)]*\)|get_main_karat\(\)|[\w.]*' + _MAIN + r')\s*,\s*21(\.0)?\)'),
     # ^ _to_float(main_karat, 21.0) -- not convert_to_main_karat(w21, 21), a karat's own fineness
+    # A gold line's own karat guessed as 21 (the owner, 20 Oct 2026: a line with
+    # none is refused, LineKaratMissing -- never posted on an assumed karat):
+    re.compile(r'\bkarat\w*\)?\s*or\s*21(\.0)?\b'),                           # kl.karat or 21
+    re.compile(r"""['"](?:from_)?karat['"]\s*,\s*21\)"""),                    # .get('karat', 21)
+    re.compile(r'^\s*karat\w*\s*=\s*21(\.0)?\s*$'),                              # except: karat = 21
+    re.compile(r'_for_invoice\(\w+,\s*21\)'),                                     # a safe chosen for karat 21
     re.compile(r'main_karat[^\n]*default\s*=\s*21(\.0)?\b'),                   # a column defaulting to 21
     re.compile(r'^\s*return\s+(int\()?21(\.0)?\)?\s*$'),                       # except: return 21
     re.compile(r'(?<![\d/])/\s*21(\.0)?\b(?!\s*/)'),                         # dividing by 21 (not 18/21/22)

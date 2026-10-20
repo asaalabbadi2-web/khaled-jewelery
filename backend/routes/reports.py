@@ -36,7 +36,7 @@ from core.dates import _parse_iso_date
 from auth_decorators import get_current_user, require_auth, require_permission
 
 from pricing.constants import SAR_USD_PEG, TROY_OZ_TO_GRAMS
-from pricing.karat_service import convert_to_main_karat, get_main_karat
+from pricing.karat_service import convert_to_main_karat, get_main_karat, line_karat
 from accounting.mappings import (DEFAULT_MAPPING_OPERATION_TYPE, get_account_id_by_number, get_account_id_for_mapping,
                                  require_account)
 from core.settings import _get_settings_singleton
@@ -5486,7 +5486,7 @@ def get_admin_dashboard():
         total_weight_for_cost = 0.0
         for item in items_with_cost:
             item_weight = float(item.weight or 0.0)
-            item_karat = int(item.karat or 21)
+            item_karat = line_karat(item.karat, f'صنف {item.id}')
             # Convert to 24k equivalent for fair comparison
             weight_24k = item_weight * (item_karat / 24.0)
             # Use purchase price or calculate from gold price

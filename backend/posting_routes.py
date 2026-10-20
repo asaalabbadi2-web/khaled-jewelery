@@ -58,6 +58,7 @@ from services.gold_allocation_service import (
     sync_gold_attribution_after_voucher_approval,
 )
 from journal_entry_guard import LEGACY_VOUCHER_MESSAGE, voucher_state_problem
+from pricing.karat_service import LineKaratMissing, line_karat
 
 posting_bp = Blueprint('posting', __name__)
 
@@ -873,19 +874,14 @@ def invoice_gold_plan(invoice: Invoice, *, posted: bool = True) -> list:
     try:
         karat_lines = getattr(invoice, 'karat_lines', None) or []
         for kl in karat_lines:
-            karat_val = getattr(kl, 'karat', None)
-            try:
-                karat = int(float(karat_val or 21))
-            except Exception:
-                karat = 21
-            if karat not in weights_by_karat:
-                karat = 21
-
             grams = _to_float(getattr(kl, 'weight_grams', 0.0) or 0.0)
             if grams <= 0:
                 continue
+            karat = line_karat(getattr(kl, 'karat', None), f'فاتورة {invoice.id}')
             weights_by_karat[karat] += float(grams)
             used_karat_lines = True
+    except LineKaratMissing:
+        raise
     except Exception:
         used_karat_lines = False
 
@@ -903,13 +899,6 @@ def invoice_gold_plan(invoice: Invoice, *, posted: bool = True) -> list:
             if karat_val in (None, '', False) and getattr(inv_item, 'item', None):
                 karat_val = getattr(inv_item.item, 'karat', None)
 
-            try:
-                karat = int(float(karat_val or 21))
-            except Exception:
-                karat = 21
-            if karat not in weights_by_karat:
-                karat = 21
-
             # A line's recorded weight is the whole line's: an invoice's
             # total_weight is the sum of its lines' weights, and posting at
             # creation moves exactly that. Multiplying it by the quantity moved
@@ -923,6 +912,7 @@ def invoice_gold_plan(invoice: Invoice, *, posted: bool = True) -> list:
                 grams = _to_float(line_weight)
             if grams <= 0:
                 continue
+            karat = line_karat(karat_val, f'فاتورة {invoice.id}')
             weights_by_karat[karat] += float(grams)
 
             # استخراج وزن الفصوص لهذا الصنف (للفواتير الصنفية)
@@ -1031,19 +1021,17 @@ def _restore_scrap_provisional_sbts(invoice: Invoice, created_by: str = None) ->
     stones_by_karat  = {18: 0.0, 21: 0.0, 22: 0.0, 24: 0.0}
     try:
         for inv_item in getattr(invoice, 'items', None) or []:
-            karat_val = getattr(inv_item, 'karat', None)
-            try:
-                karat = int(float(karat_val or 21))
-            except Exception:
-                karat = 21
-            if karat not in weights_by_karat:
-                karat = 21
             grams = _to_float(getattr(inv_item, 'weight', None))
+            sw = _to_float(getattr(inv_item, 'stones_weight', 0.0))
+            if grams <= 0 and sw <= 0:
+                continue
+            karat = line_karat(getattr(inv_item, 'karat', None), f'فاتورة {invoice.id}')
             if grams > 0:
                 weights_by_karat[karat] += grams
-            sw = _to_float(getattr(inv_item, 'stones_weight', 0.0))
             if sw > 0:
                 stones_by_karat[karat] += sw
+    except LineKaratMissing:
+        raise
     except Exception:
         return
 
@@ -1051,7 +1039,8 @@ def _restore_scrap_provisional_sbts(invoice: Invoice, created_by: str = None) ->
         return
 
     # تحديد الخزينة
-    target_safe = _resolve_gold_safe_for_invoice(invoice, 21)
+    heaviest = max(weights_by_karat, key=weights_by_karat.get)   # the karat that names a safe, last resort
+    target_safe = _resolve_gold_safe_for_invoice(invoice, heaviest)
     if not target_safe:
         return
 

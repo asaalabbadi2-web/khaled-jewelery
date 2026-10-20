@@ -88,7 +88,9 @@ from services.gold_allocation_service import (
 from settlement_state_service import get_settled_amounts, is_locked
 from utils import normalize_number
 
-from pricing.karat_service import convert_from_main_karat, convert_to_main_karat, get_main_karat
+from pricing.karat_service import (
+    LineKaratMissing, convert_from_main_karat, convert_to_main_karat, get_main_karat, line_karat,
+)
 from accounting.voucher_engine import (
     _generate_journal_entry_number,
     generate_voucher_number,
@@ -7967,10 +7969,7 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
                     )
 
                     for karat_label, diff in imbalanced:  # diff = debit - credit
-                        try:
-                            karat_int = int(str(karat_label).replace('k', '').strip())
-                        except Exception:
-                            karat_int = 21
+                        karat_int = line_karat(str(karat_label).replace('k', '').strip(), 'فرق وزن القيد')
 
                         debit_field = f'debit_{karat_int}k'
                         credit_field = f'credit_{karat_int}k'
@@ -8368,6 +8367,8 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
                 # and nothing may flip an existing invoice False -> True.
                 if is_gold_obligation_eligible(new_invoice):
                     new_invoice.gold_settlement_tracked = True
+            except LineKaratMissing:
+                raise   # a line with no karat is refused, not skipped (20 Oct 2026)
             except Exception as _gold_alloc_exc:
                 print(f"⚠️ gold allocation after invoice post skipped: {_gold_alloc_exc}")
         elif invoice_type == 'مرتجع شراء (مورد)' and getattr(new_invoice, 'original_invoice_id', None):

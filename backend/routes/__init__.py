@@ -509,9 +509,7 @@ def _record_memo_weight_transfer(journal_entry_id, *, debit_account_id=None, cre
     if weight_main_karat <= 0 or not debit_account_id or not credit_account_id:
         return
 
-    karat_value = get_main_karat()
-    if karat_value not in (18, 21, 22, 24):
-        karat_value = 21
+    karat_value = get_main_karat()   # one of 18/21/22/24 -- or MainKaratNotSet
 
     weight_at_karat = convert_from_main_karat(weight_main_karat, karat_value)
     if weight_at_karat <= 0:
@@ -621,11 +619,11 @@ def create_item_from_invoice_payload(item_data):
     if weight_value <= 0:
         raise InlineItemCreationError('وزن الصنف يجب أن يكون أكبر من صفر')
 
-    karat_value = item_data.get('karat', 21)
+    from pricing.karat_service import LineKaratMissing, line_karat
     try:
-        karat_text = str(int(round(float(karat_value))))
-    except Exception:
-        karat_text = str(karat_value)
+        karat_text = str(line_karat(item_data.get('karat'), 'صنف جديد'))
+    except LineKaratMissing:
+        raise InlineItemCreationError('عيار الصنف مطلوب: 18 أو 21 أو 22 أو 24') from None
 
     wage_per_gram = _inline_pick_number(
         item_data,

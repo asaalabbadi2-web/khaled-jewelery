@@ -2788,7 +2788,7 @@ def create_melting_renewal():
     raw_lines = data.get('lines')
     if raw_lines is None:
         raw_lines = [{
-            'karat': data.get('from_karat', 21),
+            'karat': data.get('from_karat'),
             'to_karat': data.get('to_karat'),
             'gold_weight': data.get('gold_weight'),
             'stones_weight': data.get('stones_weight'),
@@ -2799,7 +2799,7 @@ def create_melting_renewal():
     op_lines = []
     try:
         for raw in raw_lines:
-            karat = int(raw.get('karat', 21))
+            karat = int(raw.get('karat'))
             op_lines.append({
                 'karat': karat,
                 'to_karat': int(raw.get('to_karat') or karat),

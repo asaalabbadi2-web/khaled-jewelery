@@ -295,7 +295,7 @@ def check_gold_attribution_missing() -> list:
     3132's single 24.2 g obligation. PV-2026-01230 (voucher 4309) is the live
     instance on the 28 Sep snapshot.
     """
-    from pricing.karat_service import convert_to_main_karat
+    from pricing.karat_service import convert_to_main_karat, line_karat
     from services.gold_allocation_service import historical_attribution_boundary
 
     boundary = historical_attribution_boundary()
@@ -320,7 +320,7 @@ def check_gold_attribution_missing() -> list:
         lines = VoucherAccountLine.query.filter_by(
             voucher_id=r.id, amount_type='gold', line_type='debit').all()
         weight = round(sum(
-            float(convert_to_main_karat(float(l.amount or 0.0), float(l.karat or 21.0)))
+            float(convert_to_main_karat(float(l.amount or 0.0), line_karat(l.karat, f'سند {r.id}')))
             for l in lines), 3)
         facts.append(Fact(GOLD_ATTRIBUTION_MISSING, f'voucher:{r.id}', weight, {
             'voucher_number': r.voucher_number,

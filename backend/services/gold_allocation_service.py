@@ -75,7 +75,7 @@ from models import (
     Voucher,
     VoucherInvoiceGoldAttribution,
 )
-from pricing.karat_service import convert_to_main_karat
+from pricing.karat_service import convert_to_main_karat, line_karat
 
 WEIGHT_EPSILON = 0.005
 
@@ -614,7 +614,7 @@ def create_gold_obligations_for_invoice(invoice: Invoice) -> list[InvoiceGoldObl
     karat/weight when the InvoiceItem's own fields are blank). Real evidence:
     33/180 real 'شراء' invoices use InvoiceKaratLine, 147/180 use InvoiceItem
     only, and the 4 carrying both have identical per-karat totals in each.
-    Karat is rounded to the nearest int (default 21 for anything unmapped).
+    Karat is rounded to the nearest int; a line with none is refused (LineKaratMissing).
 
     Idempotent: a no-op if this invoice already has any obligation row.
     """
@@ -628,10 +628,10 @@ def create_gold_obligations_for_invoice(invoice: Invoice) -> list[InvoiceGoldObl
     karat_lines = InvoiceKaratLine.query.filter_by(invoice_id=invoice.id).all()
     if karat_lines:
         for kl in karat_lines:
-            karat = int(round(float(kl.karat or 21)))
             weight = float(kl.weight_grams or 0.0)
             if weight <= 0:
                 continue
+            karat = line_karat(kl.karat, f'فاتورة {invoice.id}')
             by_karat[karat] = by_karat.get(karat, 0.0) + weight
     else:
         for item in (invoice.items or []):
@@ -645,11 +645,11 @@ def create_gold_obligations_for_invoice(invoice: Invoice) -> list[InvoiceGoldObl
                 linked = Item.query.get(item.item_id)
                 if linked is not None:
                     weight_val = getattr(linked, 'weight', None)
-            karat = int(round(float(karat_val or 21)))
             qty = item.quantity if item.quantity and item.quantity > 0 else 1
             weight = float(weight_val or 0.0) * float(qty)
             if weight <= 0:
                 continue
+            karat = line_karat(karat_val, f'فاتورة {invoice.id}')
             by_karat[karat] = by_karat.get(karat, 0.0) + weight
 
     obligations: list[InvoiceGoldObligation] = []

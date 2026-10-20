@@ -29,7 +29,7 @@ from core.number_helpers import _coerce_float
 from auth_decorators import require_permission
 from services.invoice_payment_state_service import InvoicePaymentStateService
 
-from pricing.karat_service import convert_to_main_karat, get_main_karat
+from pricing.karat_service import convert_to_main_karat, get_main_karat, line_karat
 from accounting.voucher_engine import (
     generate_voucher_number,
     create_journal_entry_from_voucher,
@@ -548,11 +548,7 @@ def settle_office_reservation(reservation_id: int):
             return jsonify({'error': f'لا حساب مربوط للدور (شراء من عميل / {_purchases_key}): '
                                      f'يُضبط في «الربط المحاسبي»، ولا تُسوّى الحجوزات دونه'}), 400
 
-        karat = int(reservation.karat or get_main_karat())
-        if karat not in (18, 21, 22, 24):
-            karat = int(get_main_karat())
-        if karat not in (18, 21, 22, 24):
-            karat = 21
+        karat = line_karat(reservation.karat, f'حجز {reservation.id}') if reservation.karat else int(get_main_karat())
 
         weight_grams = float(reservation.weight_grams or 0.0)
         if weight_grams <= 0:
