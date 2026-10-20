@@ -265,10 +265,6 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
   Set<int> _parentAccountIds = {};
   List<SafeBoxModel> _safeBoxes = [];
 
-  int? _customersAggregateAccountId;
-  String? _customersAggregateAccountNumber;
-  int? _suppliersAggregateAccountId;
-  String? _suppliersAggregateAccountNumber;
 
   // The groups the templates filter by -- mapped roles on the server and the ids
   // under them (/app-config account_groups), never account numbers (CHART-002 5c).
@@ -1210,16 +1206,6 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
         includeBalance: true,
       );
 
-      final aggregate = (appConfig['aggregate_accounts'] as Map?)?.map(
-        (k, v) => MapEntry(k.toString(), v),
-      );
-      final customersAgg = (aggregate?['customers'] as Map?)?.map(
-        (k, v) => MapEntry(k.toString(), v),
-      );
-      final suppliersAgg = (aggregate?['suppliers'] as Map?)?.map(
-        (k, v) => MapEntry(k.toString(), v),
-      );
-
       final groups = (appConfig['account_groups'] as Map?)?.map(
         (k, v) => MapEntry(k.toString(), v),
       );
@@ -1258,10 +1244,6 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
           ? operatingIds
           : idsOf('expenses');
 
-      final customersAggId = _coerceAccountId(customersAgg?['account_id']);
-      final customersAggNumber = customersAgg?['account_number']?.toString();
-      final suppliersAggId = _coerceAccountId(suppliersAgg?['account_id']);
-      final suppliersAggNumber = suppliersAgg?['account_number']?.toString();
 
       setState(() {
         _customers = customers
@@ -1282,10 +1264,6 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
         _parentAccountIds = parentAccountIdsOf(_accounts);
         _safeBoxes = safeBoxes;
 
-        _customersAggregateAccountId = customersAggId;
-        _customersAggregateAccountNumber = customersAggNumber;
-        _suppliersAggregateAccountId = suppliersAggId;
-        _suppliersAggregateAccountNumber = suppliersAggNumber;
         _employeePersonalIds = employeePersonalIds;
         _employeeSalaryPayableIds = employeeSalaryPayableIds;
         _employeeBonusPayableParentId = employeeBonusPayableParentId;
@@ -1694,19 +1672,6 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
       return int.tryParse(trimmed);
     }
     return null;
-  }
-
-  int? _findAccountIdByNumber(String accountNumber) {
-    final target = accountNumber.trim();
-    if (target.isEmpty) return null;
-    try {
-      final acc = _accounts.firstWhere(
-        (a) => a['account_number']?.toString().trim() == target,
-      );
-      return _coerceAccountId(acc['id']);
-    } catch (_) {
-      return null;
-    }
   }
 
   bool _shouldShowSafeBoxesForLineType(String? lineType) {
@@ -3436,361 +3401,241 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
     }
   }
 
-  Future<void> _saveVoucher() async {
-    if (!_formKey.currentState!.validate()) {
-      return;
+  /// The party's own line is the server's for a customer or a supplier
+  /// (services/voucher_party.py); the screen writes it for those that name
+  /// their account themselves.
+  bool get _screenWritesThePartyLine =>
+      _partyType == 'employee' || _partyType == 'other';
+
+  /// The account an employee's or «آخر»'s line is written on: an employee's by
+  /// the template -- salary payable, bonus payable, or its own account.
+  int _partyAccountToWrite() {
+    if (_partyType == 'other') {
+      return _selectedOtherAccountId ?? (throw Exception('لم يتم تحديد حساب للطرف'));
     }
+    final employee = _findEmployeeById(_selectedEmployeeId);
+    if (employee == null) throw Exception('تعذر العثور على بيانات الموظف المحدد');
+    final int? account = switch (_selectedTemplateId) {
+      'payment_salary' => _findEmployeeSalaryPayableAccountId(employee),
+      'payment_bonus' => _findEmployeeBonusPayableAccountId(employee),
+      _ => employee.accountId,
+    };
+    if (account != null) return account;
+    throw Exception(switch (_selectedTemplateId) {
+      'payment_salary' =>
+        'لا يوجد حساب ذمم رواتب مرتبط بهذا الموظف.\n'
+            'يرجى إنشاء/تأكيد حسابات الذمم للموظف من شاشة الموظفين (Ensure setup).',
+      'payment_bonus' =>
+        'لا يوجد حساب مكافآت مستحقة مربوط (لا للموظف ولا أبٌ في «الربط المحاسبي»).\n'
+            'يرجى إنشاء حساب المكافآت المستحقة أولاً.',
+      _ => 'الموظف المختار ليس لديه حساب مرتبط',
+    });
+  }
 
-    // Validate party - مطلوب دائماً لأن سطر الطرف يتم إضافته تلقائياً
-    if (_partyType == 'customer' && _selectedCustomerId == null) {
-      AppFeedback.error(context, 'يجب اختيار عميل');
-      return;
-    }
-    if (_partyType == 'supplier' && _selectedSupplierId == null) {
-      AppFeedback.error(context, 'يجب اختيار مورد');
-      return;
-    }
-    if (_partyType == 'employee' && _selectedEmployeeId == null) {
-      AppFeedback.error(context, 'يجب اختيار موظف');
-      return;
-    }
-    if (_partyType == 'other' && _selectedOtherAccountId == null) {
-      AppFeedback.error(context, 'يجب اختيار حساب');
-      return;
-    }
-    setState(() => _isSaving = true);
-
-    try {
-      // Get party account ID - مطلوب دائماً لأن سطر الطرف يتم إضافته تلقائياً
-      int? partyAccountId;
-      Map<String, dynamic>? selectedCustomer;
-      Map<String, dynamic>? selectedSupplier;
-      EmployeeModel? selectedEmployee;
-
-      if (_partyType == 'customer') {
-        selectedCustomer = _findById(_customers, _selectedCustomerId);
-        if (selectedCustomer == null) {
-          throw Exception('تعذر العثور على بيانات العميل المحدد');
-        }
-
-        final primaryAccountId = _coerceAccountId(
-          selectedCustomer['account_id'],
-        );
-        final categoryAccountId = _coerceAccountId(
-          selectedCustomer['account_category_id'],
-        );
-        partyAccountId = primaryAccountId ?? categoryAccountId;
-
-        // Fallback to configured aggregate account (from /app-config).
-        partyAccountId ??= _customersAggregateAccountId;
-        if (partyAccountId == null &&
-            _customersAggregateAccountNumber != null) {
-          partyAccountId = _findAccountIdByNumber(
-            _customersAggregateAccountNumber!,
-          );
-        }
-        if (partyAccountId == null) {
-          throw Exception(
-            'العميل المختار لا يملك حساباً مرتبطاً، ولا حساب تجميعي للعملاء مربوط في «الربط المحاسبي» (سندات / customers)',
-          );
-        }
-      } else if (_partyType == 'supplier') {
-        selectedSupplier = _findById(_suppliers, _selectedSupplierId);
-        if (selectedSupplier == null) {
-          throw Exception('تعذر العثور على بيانات المورد المحدد');
-        }
-
-        final primaryAccountId = _coerceAccountId(
-          selectedSupplier['account_id'],
-        );
-        final categoryAccountId = _coerceAccountId(
-          selectedSupplier['account_category_id'],
-        );
-        partyAccountId = primaryAccountId ?? categoryAccountId;
-
-        // Fallback to configured aggregate account (from /app-config).
-        partyAccountId ??= _suppliersAggregateAccountId;
-        if (partyAccountId == null &&
-            _suppliersAggregateAccountNumber != null) {
-          partyAccountId = _findAccountIdByNumber(
-            _suppliersAggregateAccountNumber!,
-          );
-        }
-        if (partyAccountId == null) {
-          throw Exception(
-            'المورد المختار لا يملك حساباً مرتبطاً، ولا حساب تجميعي للموردين مربوط في «الربط المحاسبي» (سندات / suppliers)',
-          );
-        }
-      } else if (_partyType == 'employee') {
-        // اختيار الموظف بالاسم، ثم الربط بالخلفية حسب القالب:
-        // - راتب: ذمم رواتب الموظف (رابطه)
-        // - سلفة: حساب الموظف ضمن الأصول
-        selectedEmployee = _findEmployeeById(_selectedEmployeeId);
-        if (selectedEmployee == null) {
-          throw Exception('تعذر العثور على بيانات الموظف المحدد');
-        }
-
-        if (_selectedTemplateId == 'payment_salary') {
-          partyAccountId = _findEmployeeSalaryPayableAccountId(
-            selectedEmployee,
-          );
-          if (partyAccountId == null) {
-            throw Exception(
-              'لا يوجد حساب ذمم رواتب مرتبط بهذا الموظف.\n'
-              'يرجى إنشاء/تأكيد حسابات الذمم للموظف من شاشة الموظفين (Ensure setup).',
-            );
-          }
-        } else if (_selectedTemplateId == 'payment_bonus') {
-          partyAccountId = _findEmployeeBonusPayableAccountId(selectedEmployee);
-          if (partyAccountId == null) {
-            throw Exception(
-              'لا يوجد حساب مكافآت مستحقة مربوط (لا للموظف ولا أبٌ في «الربط المحاسبي»).\n'
-              'يرجى إنشاء حساب المكافآت المستحقة أولاً.',
-            );
-          }
-        } else {
-          // Default: employee personal account
-          if (selectedEmployee.accountId != null) {
-            partyAccountId = selectedEmployee.accountId;
-          } else {
-            throw Exception('الموظف المختار ليس لديه حساب مرتبط');
-          }
-        }
-      } else if (_partyType == 'other') {
-        // استخدام الحساب المحدد يدوياً
-        partyAccountId = _selectedOtherAccountId;
-      }
-
-      if (partyAccountId == null) {
-        throw Exception('لم يتم تحديد حساب للطرف');
-      }
-
-      // Build account lines
-      final List<Map<String, dynamic>> allAccountLines = [];
-      final bool isReceipt = widget.voucherType == 'receipt';
-
-      // Add user-entered lines (الخزائن)
-      // سند قبض: الخزائن مدينة (نستقبل فيها)
-      // سند صرف: الخزائن دائنة (نصرف منها)
-      for (var line in _accountLines) {
-        if (line.accountId == null) {
-          AppFeedback.error(context, 'يجب اختيار حساب لجميع السطور');
-          setState(() => _isSaving = false);
-          return;
-        }
-
-        if (line.amountType == 'cash') {
-          if (line.amount <= 0) {
-            AppFeedback.error(
-              context,
-              'يجب إدخال مبلغ أكبر من صفر لجميع السطور',
-            );
-            setState(() => _isSaving = false);
-            return;
-          }
-
-          allAccountLines.add({
-            'account_id': line.accountId,
-            'line_type': line.lineType,
-            'amount_type': line.amountType,
-            'amount': line.amount,
-            'description': line.description ?? 'نقد',
-          });
-          continue;
-        }
-
-        final entries = _effectiveGoldEntries(
-          line,
-        ).where((entry) => entry.amount > 0).toList();
-
-        if (entries.isEmpty) {
-          AppFeedback.error(context, 'يجب إدخال وزن أكبر من صفر في سطور الذهب');
-          setState(() => _isSaving = false);
-          return;
-        }
-
-        final hasMissingKarat = entries.any((entry) => entry.karat == null);
-        if (hasMissingKarat) {
-          AppFeedback.error(context, 'يجب اختيار العيار لكل حقل ذهب');
-          setState(() => _isSaving = false);
-          return;
-        }
-
-        for (final entry in entries) {
-          final netWeight = entry.netWeight ?? entry.amount;
-          final stonesWeight = entry.stonesWeight ?? 0.0;
-          final grossWeight = entry.grossWeight ?? (netWeight + stonesWeight);
-
-          if (netWeight <= 0) {
-            AppFeedback.error(context, 'الوزن الصافي يجب أن يكون أكبر من صفر');
-            setState(() => _isSaving = false);
-            return;
-          }
-
-          if (entry.netWeight != null &&
-              (netWeight - entry.amount).abs() > 0.001) {
-            AppFeedback.error(
-              context,
-              'وزن السطر المحاسبي يجب أن يساوي الوزن الصافي',
-            );
-            setState(() => _isSaving = false);
-            return;
-          }
-
-          if (stonesWeight < 0 || grossWeight + 0.001 < netWeight) {
-            AppFeedback.error(
-              context,
-              'الوزن القائم يجب أن يكون أكبر من أو يساوي الصافي، ووزن الأحجار غير سالب',
-            );
-            setState(() => _isSaving = false);
-            return;
-          }
-
-          allAccountLines.add({
-            'account_id': line.accountId,
-            'line_type': line.lineType,
-            'amount_type': 'gold',
-            'amount': entry.amount,
-            'karat': entry.karat,
-            'gross_weight': grossWeight,
-            'net_weight': netWeight,
-            'stones_weight': stonesWeight,
-            'description': line.description ?? 'ذهب',
-          });
-        }
-      }
-
-      // Calculate totals for party account lines
-      double totalCash = 0;
-      Map<double, double> totalGoldByKarat = {};
-      Map<double, double> totalGrossGoldByKarat = {};
-      Map<double, double> totalNetGoldByKarat = {};
-      Map<double, double> totalStonesGoldByKarat = {};
-
-      for (var line in _accountLines) {
-        if (line.amountType == 'cash') {
-          totalCash += line.amount;
-        } else if (line.amountType == 'gold') {
-          for (final entry in _effectiveGoldEntries(line)) {
-            if (entry.amount <= 0 || entry.karat == null) continue;
-            final netWeight = entry.netWeight ?? entry.amount;
-            final stonesWeight = entry.stonesWeight ?? 0.0;
-            final grossWeight = entry.grossWeight ?? (netWeight + stonesWeight);
-            totalGoldByKarat[entry.karat!] =
-                (totalGoldByKarat[entry.karat!] ?? 0) + entry.amount;
-            totalGrossGoldByKarat[entry.karat!] =
-                (totalGrossGoldByKarat[entry.karat!] ?? 0) + grossWeight;
-            totalNetGoldByKarat[entry.karat!] =
-                (totalNetGoldByKarat[entry.karat!] ?? 0) + netWeight;
-            totalStonesGoldByKarat[entry.karat!] =
-                (totalStonesGoldByKarat[entry.karat!] ?? 0) + stonesWeight;
-          }
-        }
-      }
-
-      // Add party account line (الطرف - عميل أو مورد)
-      // سند قبض: الطرف دائن (يدفع لنا)
-      // سند صرف: الطرف مدين (نصرف له)
-      final partyLineType = isReceipt ? 'credit' : 'debit';
-
-      if (totalCash > 0) {
-        allAccountLines.add({
-          'account_id': partyAccountId,
-          'line_type': partyLineType,
-          'amount_type': 'cash',
-          'amount': totalCash,
-          'description': 'نقد',
+  /// The lines typed, as they are sent -- or what stands in their way.
+  List<Map<String, dynamic>> _typedLines() {
+    final lines = <Map<String, dynamic>>[];
+    for (final line in _accountLines) {
+      if (line.accountId == null) throw Exception('يجب اختيار حساب لجميع السطور');
+      if (line.amountType == 'cash') {
+        if (line.amount <= 0) throw Exception('يجب إدخال مبلغ أكبر من صفر لجميع السطور');
+        lines.add({
+          'account_id': line.accountId,
+          'line_type': line.lineType,
+          'amount_type': line.amountType,
+          'amount': line.amount,
+          'description': line.description ?? 'نقد',
         });
+        continue;
       }
-
-      for (var entry in totalGoldByKarat.entries) {
-        allAccountLines.add({
-          'account_id': partyAccountId,
-          'line_type': partyLineType,
+      final entries = _effectiveGoldEntries(line).where((e) => e.amount > 0).toList();
+      if (entries.isEmpty) throw Exception('يجب إدخال وزن أكبر من صفر في سطور الذهب');
+      if (entries.any((e) => e.karat == null)) throw Exception('يجب اختيار العيار لكل حقل ذهب');
+      for (final entry in entries) {
+        final net = entry.netWeight ?? entry.amount;
+        final stones = entry.stonesWeight ?? 0.0;
+        final gross = entry.grossWeight ?? (net + stones);
+        if (net <= 0) throw Exception('الوزن الصافي يجب أن يكون أكبر من صفر');
+        if (entry.netWeight != null && (net - entry.amount).abs() > 0.001) {
+          throw Exception('وزن السطر المحاسبي يجب أن يساوي الوزن الصافي');
+        }
+        if (stones < 0 || gross + 0.001 < net) {
+          throw Exception(
+            'الوزن القائم يجب أن يكون أكبر من أو يساوي الصافي، ووزن الأحجار غير سالب',
+          );
+        }
+        lines.add({
+          'account_id': line.accountId,
+          'line_type': line.lineType,
           'amount_type': 'gold',
-          'amount': entry.value,
-          'karat': entry.key,
-          'gross_weight': totalGrossGoldByKarat[entry.key] ?? entry.value,
-          'net_weight': totalNetGoldByKarat[entry.key] ?? entry.value,
-          'stones_weight': totalStonesGoldByKarat[entry.key] ?? 0.0,
-          'description': 'ذهب عيار ${entry.key.toInt()}',
+          'amount': entry.amount,
+          'karat': entry.karat,
+          'gross_weight': gross,
+          'net_weight': net,
+          'stones_weight': stones,
+          'description': line.description ?? 'ذهب',
         });
       }
+    }
+    return lines;
+  }
 
-      // Prepare voucher data
-      final Map<String, dynamic> voucherData = {
-        'voucher_type': widget.voucherType,
-        'date': DateFormat('yyyy-MM-dd').format(_selectedDate),
-        'party_type': _partyType,
-        'description': _descriptionController.text,
-        'notes': _notesController.text.trim().isEmpty
-            ? null
-            : _notesController.text.trim(),
-        'receiver_name': _receiverNameController.text.isNotEmpty
-            ? _receiverNameController.text
-            : null,
-        'account_lines': allAccountLines,
-        // The invoices chosen (VOUCHER-ATTR-1): the server spreads the payment
-        // over them oldest first and records each share at approval; the rest
-        // stays on account. None chosen: the payment is on account -- for gold,
-        // a general settlement or an advance.
-        if (_showInvoicePicker && _chosenInvoiceIds.isNotEmpty)
-          'invoice_ids': _chosenInvoiceIds.toList()
-        else if (_showInvoicePicker && _hasGoldLines)
-          'reference_type': _goldAdvance ? 'gold_advance' : 'gold_supplier',
-      };
-
-      // عمولة / رسوم فرق العيار — احتساب per-line
-      {
-        double earnTotal = 0.0;
-        double payTotal = 0.0;
-        for (final line in _accountLines) {
-          if (line.amountType != 'gold') continue;
-          for (final entry in line.goldEntries) {
-            if (entry.commissionDirection.isEmpty || entry.amount <= 0) {
-              continue;
-            }
-            final amt = _round2(entry.amount * entry.commissionPerGram);
-            if (entry.commissionDirection == 'earn') earnTotal += amt;
-            if (entry.commissionDirection == 'pay') payTotal += amt;
-          }
-        }
-        if (earnTotal > 0) {
-          voucherData['karat_diff_earn_total'] = _round2(earnTotal);
-        }
-        if (payTotal > 0) {
-          voucherData['karat_diff_pay_total'] = _round2(payTotal);
-        }
+  /// An employee's or «آخر»'s side of [typed]: one cash line, one gold line a
+  /// karat with its weights -- as the server writes a customer's or supplier's.
+  List<Map<String, dynamic>> _partyLines(
+    List<Map<String, dynamic>> typed,
+    int account,
+  ) {
+    final side = widget.voucherType == 'receipt' ? 'credit' : 'debit';
+    var cash = 0.0;
+    final gold = <double, Map<String, double>>{};
+    for (final l in typed) {
+      final amount = (l['amount'] as num).toDouble();
+      if (l['amount_type'] == 'cash') {
+        cash += amount;
+        continue;
       }
+      final g = gold.putIfAbsent(
+        (l['karat'] as num).toDouble(),
+        () => {'amount': 0, 'gross': 0, 'net': 0, 'stones': 0},
+      );
+      g['amount'] = g['amount']! + amount;
+      g['gross'] = g['gross']! + (l['gross_weight'] as num).toDouble();
+      g['net'] = g['net']! + (l['net_weight'] as num).toDouble();
+      g['stones'] = g['stones']! + (l['stones_weight'] as num).toDouble();
+    }
+    return [
+      if (cash > 0)
+        {
+          'account_id': account,
+          'line_type': side,
+          'amount_type': 'cash',
+          'amount': cash,
+          'description': 'نقد',
+        },
+      for (final MapEntry(key: karat, value: g) in gold.entries)
+        {
+          'account_id': account,
+          'line_type': side,
+          'amount_type': 'gold',
+          'amount': g['amount'],
+          'karat': karat,
+          'gross_weight': g['gross'],
+          'net_weight': g['net'],
+          'stones_weight': g['stones'],
+          'description': 'ذهب عيار ${karat.toInt()}',
+        },
+    ];
+  }
 
-      // Add party
-      if (_partyType == 'customer') {
-        voucherData['customer_id'] = _selectedCustomerId;
-      } else if (_partyType == 'supplier') {
-        voucherData['supplier_id'] = _selectedSupplierId;
-      } else if (_partyType == 'employee') {
-        voucherData['employee_id'] = _selectedEmployeeId;
-      } else if (_partyType == 'other' && _selectedOtherAccountId != null) {
-        // Resolve and send the account name as party_name so it appears
-        // in the voucher list, detail view, and printed copies.
-        final otherAccount = _findAccountById(_selectedOtherAccountId);
-        final accountName = (otherAccount?['name'] ?? '').toString().trim();
-        if (accountName.isNotEmpty) {
-          voucherData['party_name'] = accountName;
-        }
+  /// The voucher as it is sent: the party, the lines, the invoices it pays,
+  /// a karat difference's commission, an expense's tax invoice.
+  Map<String, dynamic> _voucherPayload(List<Map<String, dynamic>> lines) {
+    var earn = 0.0, pay = 0.0;
+    for (final line in _accountLines.where((l) => l.amountType == 'gold')) {
+      for (final e in line.goldEntries) {
+        if (e.commissionDirection.isEmpty || e.amount <= 0) continue;
+        final amount = _round2(e.amount * e.commissionPerGram);
+        if (e.commissionDirection == 'earn') earn += amount;
+        if (e.commissionDirection == 'pay') pay += amount;
       }
-
+    }
+    final otherName = _partyType == 'other'
+        ? '${_findAccountById(_selectedOtherAccountId)?['name'] ?? ''}'.trim()
+        : '';
+    return {
+      'voucher_type': widget.voucherType,
+      'date': DateFormat('yyyy-MM-dd').format(_selectedDate),
+      'party_type': _partyType,
+      'description': _descriptionController.text,
+      'notes': _notesController.text.trim().isEmpty
+          ? null
+          : _notesController.text.trim(),
+      'receiver_name': _receiverNameController.text.isNotEmpty
+          ? _receiverNameController.text
+          : null,
+      'account_lines': lines,
+      // The invoices chosen (VOUCHER-ATTR-1): the server spreads the payment
+      // over them oldest first and records each share at approval; the rest
+      // stays on account. None chosen: on account -- for gold, a general
+      // settlement or an advance.
+      if (_showInvoicePicker && _chosenInvoiceIds.isNotEmpty)
+        'invoice_ids': _chosenInvoiceIds.toList()
+      else if (_showInvoicePicker && _hasGoldLines)
+        'reference_type': _goldAdvance ? 'gold_advance' : 'gold_supplier',
+      if (earn > 0) 'karat_diff_earn_total': _round2(earn),
+      if (pay > 0) 'karat_diff_pay_total': _round2(pay),
+      if (_partyType == 'customer') 'customer_id': _selectedCustomerId,
+      if (_partyType == 'supplier') 'supplier_id': _selectedSupplierId,
+      if (_partyType == 'employee') 'employee_id': _selectedEmployeeId,
+      // «آخر» by its account's name, in the list, the details and the print.
+      if (otherName.isNotEmpty) 'party_name': otherName,
       // The tax invoice an operating expense was paid with: the server splits
       // its VAT off the expense (services/expense_vat.py).
-      if (_expenseVatOffered && _expenseVatOn) {
-        voucherData['expense_vat'] = {
+      if (_expenseVatOffered && _expenseVatOn)
+        'expense_vat': {
           'amount': _round2(_expenseVatAmount),
           'supplier_name': _vatSupplierController.text.trim(),
           'supplier_tax_number': _vatTaxNumberController.text.trim(),
           'invoice_number': _vatInvoiceController.text.trim(),
-          'invoice_date': DateFormat('yyyy-MM-dd').format(_vatInvoiceDate ?? _selectedDate),
-        };
-      }
+          'invoice_date': DateFormat(
+            'yyyy-MM-dd',
+          ).format(_vatInvoiceDate ?? _selectedDate),
+        },
+    };
+  }
+
+  /// What a voucher becomes once saved: the page that says so takes the
+  /// screen's place; the screen that opened this one is told, as before.
+  void _showSaved(Map<String, dynamic> response) {
+    final summaries = [
+      ..._lineSummaries,
+      if (_expenseVatOffered && _expenseVatOn)
+        ('منها ضريبة', _formatCash(_expenseVatAmount)),
+    ];
+    final party = _partyLabel;
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute(
+        builder: (_) => VoucherSavedScreen(
+          voucherType: widget.voucherType,
+          voucherId: _toInt(response['id']),
+          voucherNumber: response['voucher_number']?.toString(),
+          status: response['status']?.toString(),
+          partyName: party,
+          lines: summaries,
+          edited: widget.existingVoucher != null,
+          newVoucher: (_) => AddVoucherScreen(
+            voucherType: widget.voucherType,
+            apiService: widget.apiService,
+          ),
+        ),
+      ),
+      result: true,
+    );
+  }
+
+  /// Sent, reviewed and saved -- the party's line written by the server for
+  /// a customer or supplier, by the screen for an employee or «آخر».
+  Future<void> _saveVoucher() async {
+    if (!_formKey.currentState!.validate()) return;
+    final missingParty = switch (_partyType) {
+      'customer' when _selectedCustomerId == null => 'يجب اختيار عميل',
+      'supplier' when _selectedSupplierId == null => 'يجب اختيار مورد',
+      'employee' when _selectedEmployeeId == null => 'يجب اختيار موظف',
+      'other' when _selectedOtherAccountId == null => 'يجب اختيار حساب',
+      _ => null,
+    };
+    if (missingParty != null) {
+      AppFeedback.error(context, missingParty);
+      return;
+    }
+    setState(() => _isSaving = true);
+    try {
+      final typed = _typedLines();
+      final voucherData = _voucherPayload([
+        ...typed,
+        if (_screenWritesThePartyLine) ..._partyLines(typed, _partyAccountToWrite()),
+      ]);
 
       // Reviewed before it is saved (VOUCHER-UX-1): what is about to be
       // saved, and any saved voucher that looks like it.
@@ -3803,55 +3648,16 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
         return;
       }
 
-      // Create or update voucher
-      Map<String, dynamic> response;
-      if (widget.existingVoucher != null &&
-          widget.existingVoucher!['id'] != null) {
-        // Update existing
-        final int vid = widget.existingVoucher!['id'] is int
-            ? widget.existingVoucher!['id'] as int
-            : int.tryParse('${widget.existingVoucher!['id']}') ?? 0;
-        response = await _apiService.updateVoucher(vid, voucherData);
-      } else {
-        response = await _apiService.createVoucher(voucherData);
-      }
-
-      if (widget.existingVoucher == null) {
-        await _clearLocalDraft();
-      }
-
+      final existingId = _toInt(widget.existingVoucher?['id']);
+      final response = existingId != null
+          ? await _apiService.updateVoucher(existingId, voucherData)
+          : await _apiService.createVoucher(voucherData);
+      if (widget.existingVoucher == null) await _clearLocalDraft();
       if (!mounted) return;
-      // The page that says it was saved takes the screen's place; the screen
-      // that opened this one is told it was saved, as before.
-      final summaries = [
-        ..._lineSummaries,
-        if (_expenseVatOffered && _expenseVatOn)
-          ('منها ضريبة', _formatCash(_expenseVatAmount)),
-      ];
-      final party = _partyLabel;
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(
-          builder: (_) => VoucherSavedScreen(
-            voucherType: widget.voucherType,
-            voucherId: _toInt(response['id']),
-            voucherNumber: response['voucher_number']?.toString(),
-            status: response['status']?.toString(),
-            partyName: party,
-            lines: summaries,
-            edited: widget.existingVoucher != null,
-            newVoucher: (_) => AddVoucherScreen(
-              voucherType: widget.voucherType,
-              apiService: widget.apiService,
-            ),
-          ),
-        ),
-        result: true,
-      );
+      _showSaved(response);
     } catch (e) {
       setState(() => _isSaving = false);
-      if (mounted) {
-        AppFeedback.error(context, e, title: 'خطأ في الحفظ');
-      }
+      if (mounted) AppFeedback.error(context, e, title: 'خطأ في الحفظ');
     }
   }
 

@@ -10,17 +10,6 @@
       "line_type": "credit",
       "net_weight": 10.0,
       "stones_weight": 0.0
-    },
-    {
-      "account_id": 50,
-      "amount": 10.0,
-      "amount_type": "gold",
-      "description": "ذهب عيار 21",
-      "gross_weight": 10.0,
-      "karat": 21.0,
-      "line_type": "debit",
-      "net_weight": 10.0,
-      "stones_weight": 0.0
     }
   ],
   "date": "<date>",

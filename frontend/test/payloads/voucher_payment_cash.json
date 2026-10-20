@@ -6,13 +6,6 @@
       "amount_type": "cash",
       "description": "نقد",
       "line_type": "credit"
-    },
-    {
-      "account_id": 50,
-      "amount": 1500.5,
-      "amount_type": "cash",
-      "description": "نقد",
-      "line_type": "debit"
     }
   ],
   "date": "<date>",

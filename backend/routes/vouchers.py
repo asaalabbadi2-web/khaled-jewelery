@@ -667,6 +667,18 @@ def _upsert_voucher_from_payload(voucher, data, *, is_create=False):
             }
             for line in voucher.account_lines.all()
         ]
+    elif isinstance(account_lines_data, list):
+        # A customer's or supplier's side, written by the server where it was
+        # not sent (the voucher screen review, cleanup release).
+        from services.voucher_party import PartyHasNoAccount, write_party_lines
+        try:
+            account_lines_data = write_party_lines(
+                voucher_type=voucher_type, party_type=data.get('party_type'),
+                customer_id=data.get('customer_id'), supplier_id=data.get('supplier_id'),
+                lines=account_lines_data)
+        except PartyHasNoAccount:
+            return jsonify({'error': 'party_has_no_account',
+                            'message': 'ليس للطرف حساب، ولا حساب تجميعي مربوط في «الربط المحاسبي»'}), 400
 
     summary, error_response, status_code = _validate_and_summarize_voucher_account_lines(account_lines_data)
     if error_response is not None:

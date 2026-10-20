@@ -104,7 +104,9 @@ void main() {
       for (final l in api.updated.single['account_lines'] as List)
         '${l['line_type']} ${l['account_id']} ${l['amount']}',
     ];
-    expect(lines, ['credit 80 10.0', 'debit 50 10.0']);
+    // Its own line only: the supplier's the server writes (cleanup release;
+    // it sent debit 51 10 and debit 50 20 beside it before release 1).
+    expect(lines, ['credit 80 10.0']);
   });
 
   group('the invoices\' fill', () {
