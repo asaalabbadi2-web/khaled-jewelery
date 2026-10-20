@@ -3,11 +3,14 @@ import 'package:intl/intl.dart';
 import '../api_service.dart';
 import '../models/safe_box_model.dart';
 import '../theme/app_theme.dart';
+import 'office_detail_screen.dart';
 import 'weight_closing_settings_screen.dart';
 import '../utils.dart';
 import '../providers/settings_provider.dart';
 import 'package:provider/provider.dart';
 import '../widgets/app_feedback.dart';
+import '../utils/currency_utils.dart';
+import '../utils/bidi.dart';
 
 /// شاشة التسكير - حجز ذهب خام من مكاتب بيع وشراء الذهب
 class GoldReservationScreen extends StatefulWidget {
@@ -48,14 +51,11 @@ class _GoldReservationScreenState extends State<GoldReservationScreen> {
   // Controllers
   final _weightController = TextEditingController();
   final _priceController = TextEditingController();
-  final _totalAmountController = TextEditingController();
   final _notesController = TextEditingController();
   final _contactPersonController = TextEditingController();
   final _contactPhoneController = TextEditingController();
   final _paidAmountController = TextEditingController();
 
-  // Prevent circular listener updates
-  bool _updatingFields = false;
 
   // بيانات
   List<Map<String, dynamic>> _offices = []; // قائمة المكاتب
@@ -63,7 +63,6 @@ class _GoldReservationScreenState extends State<GoldReservationScreen> {
   List<Map<String, dynamic>> _paymentMethods = []; // وسائل الدفع الفعالة
   int? _selectedPaymentMethodId;
   bool _isLoading = false;
-  double _currentGoldPrice = 0.0;
 
   /// The office's price per gram by karat -- the server's sell price
   /// (prices_per_gram), not one computed here from the ounce and a written
@@ -80,7 +79,6 @@ class _GoldReservationScreenState extends State<GoldReservationScreen> {
     _loadInitialData();
     _weightController.addListener(_onWeightChanged);
     _priceController.addListener(_onPriceChanged);
-    _totalAmountController.addListener(_onTotalChanged);
     _paidAmountController.addListener(_updatePaymentStatus);
   }
 
@@ -88,7 +86,6 @@ class _GoldReservationScreenState extends State<GoldReservationScreen> {
   void dispose() {
     _weightController.dispose();
     _priceController.dispose();
-    _totalAmountController.dispose();
     _notesController.dispose();
     _contactPersonController.dispose();
     _contactPhoneController.dispose();
@@ -209,56 +206,23 @@ class _GoldReservationScreenState extends State<GoldReservationScreen> {
   void _applyKaratPrice() {
     final price = _karatPrices[_selectedKarat];
     if (price == null) return;
-    _currentGoldPrice = price;
     _priceController.text = price.toStringAsFixed(2);
   }
 
-  // Weight changed → recompute total from price (price is the source of truth)
-  void _onWeightChanged() {
-    if (_updatingFields) return;
+  // The total is the weight times the price (journey release 3): it is
+  // read in the summary bar, not typed -- typing it back-calculated the price.
+  void _onWeightChanged() => _recompute();
+  void _onPriceChanged() => _recompute();
+
+  void _recompute() {
     final weight = double.tryParse(_weightController.text) ?? 0.0;
     final price = double.tryParse(_priceController.text) ?? 0.0;
-    final total = weight * price;
-    _updatingFields = true;
-    _totalAmountController.text = total > 0 ? total.toStringAsFixed(2) : '';
-    _updatingFields = false;
     setState(() {
       _weight = weight;
       _pricePerGram = price;
-      _totalAmount = total;
+      _totalAmount = weight * price;
     });
-  }
-
-  // Price per gram changed → recompute total
-  void _onPriceChanged() {
-    if (_updatingFields) return;
-    final weight = double.tryParse(_weightController.text) ?? 0.0;
-    final price = double.tryParse(_priceController.text) ?? 0.0;
-    final total = weight * price;
-    _updatingFields = true;
-    _totalAmountController.text = total > 0 ? total.toStringAsFixed(2) : '';
-    _updatingFields = false;
-    setState(() {
-      _weight = weight;
-      _pricePerGram = price;
-      _totalAmount = total;
-    });
-  }
-
-  // Total amount changed → back-calculate price per gram
-  void _onTotalChanged() {
-    if (_updatingFields) return;
-    final weight = double.tryParse(_weightController.text) ?? 0.0;
-    final total = double.tryParse(_totalAmountController.text) ?? 0.0;
-    final price = (weight > 0 && total > 0) ? total / weight : 0.0;
-    _updatingFields = true;
-    _priceController.text = price > 0 ? price.toStringAsFixed(2) : '';
-    _updatingFields = false;
-    setState(() {
-      _weight = weight;
-      _pricePerGram = price;
-      _totalAmount = total;
-    });
+    _updatePaymentStatus();
   }
 
   void _updatePaymentStatus() {
@@ -356,7 +320,23 @@ class _GoldReservationScreenState extends State<GoldReservationScreen> {
       }
 
       _showMessage(successMessage, isError: false);
-      Navigator.pop(context, response);
+      // From an office (its card or page): back to it. From the menu: on to
+      // the office's page, where the reservation waits to be executed.
+      final office = _offices.where((o) => o['id'] == _selectedOfficeId).firstOrNull;
+      if (widget.initialOfficeId == null && office != null) {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(
+            builder: (_) => OfficeDetailScreen(
+              api: widget.api,
+              office: office,
+              isArabic: widget.isArabic,
+            ),
+          ),
+        );
+      } else {
+        Navigator.pop(context, response);
+      }
     } catch (e) {
       if (!mounted) return;
       _showMessage('فشل حفظ الحجز: $e', isError: true);
@@ -380,16 +360,10 @@ class _GoldReservationScreenState extends State<GoldReservationScreen> {
                 Text(
                   '${isAr ? "المكتب" : "Office"}: ${_selectedOfficeName ?? ""}',
                 ),
-                Text(
-                  '${isAr ? "الوزن" : "Weight"}: ${_weight.toStringAsFixed(3)} ${isAr ? "جرام" : "grams"}',
-                ),
-                Text('${isAr ? "العيار" : "Karat"}: $_selectedKarat'),
-                context.read<SettingsProvider>().buildText(
-                  '${isAr ? "المبلغ الإجمالي" : "Total"}: ${_totalAmount.toStringAsFixed(2)} $_currencySymbol',
-                ),
-                context.read<SettingsProvider>().buildText(
-                  '${isAr ? "المبلغ المدفوع" : "Paid"}: ${_paidAmount.toStringAsFixed(2)} $_currencySymbol',
-                ),
+                Text('${isAr ? "الوزن" : "Weight"}: ${_g(_weight)} · ${isAr ? "عيار" : "Karat"} $_selectedKarat'),
+                Text('${isAr ? "السعر" : "Price"}: ${_a(_pricePerGram)} / ${isAr ? "جم" : "g"}'),
+                Text('${isAr ? "المبلغ الإجمالي" : "Total"}: ${_a(_totalAmount)}'),
+                Text('${isAr ? "المبلغ المدفوع" : "Paid"}: ${_a(_paidAmount)}'),
                 if (_paidAmount > 0) ...[
                   Text(
                     '${isAr ? "وسيلة الدفع" : "Payment Method"}: ${_paymentMethodNameById(_selectedPaymentMethodId)}',
@@ -399,10 +373,12 @@ class _GoldReservationScreenState extends State<GoldReservationScreen> {
                   ),
                 ],
                 if (_totalAmount - _paidAmount > 0)
-                  context.read<SettingsProvider>().buildText(
-                    '${isAr ? "المتبقي" : "Remaining"}: ${(_totalAmount - _paidAmount).toStringAsFixed(2)} $_currencySymbol',
-                    style: const TextStyle(
-                      color: AppColors.error,
+                  Text(
+                    isAr
+                        ? 'المتبقي ${_a(_totalAmount - _paidAmount)} يصير دينًا للمكتب عند التنفيذ'
+                        : 'Remaining ${_a(_totalAmount - _paidAmount)}, owed on execution',
+                    style: TextStyle(
+                      color: AppSemanticColors.of(context).warning.fg,
                       fontWeight: FontWeight.bold,
                     ),
                   ),
@@ -431,18 +407,355 @@ class _GoldReservationScreenState extends State<GoldReservationScreen> {
     }
   }
 
+  // ── the form (journey release 3) ──
+  // Two columns on a wide screen: the reservation -- office, gold, price -- and
+  // what may be added -- a deposit, the details; a bar under the page says
+  // the reservation in one line and saves it. What it sends is the form's
+  // before (test/payloads/office_reservation_*.json).
+
+  String _g(double v) => '${ltrIsolate(formatGrams(v))} ${widget.isArabic ? 'جم' : 'g'}';
+  String _a(double v) => '${ltrIsolate(formatAmount(v))} $_currencySymbol';
+
+  Widget _section(String title, IconData icon, List<Widget> children) {
+    final theme = Theme.of(context);
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(AppSpace.lg),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                Icon(icon, size: 20, color: theme.colorScheme.primary),
+                const SizedBox(width: AppSpace.sm),
+                Text(title, style: theme.textTheme.titleMedium),
+              ],
+            ),
+            const SizedBox(height: AppSpace.md),
+            ...children,
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _dateField({
+    required Key key,
+    required String label,
+    required DateTime? value,
+    required String empty,
+    required DateTime first,
+    required DateTime last,
+    required DateTime initial,
+    required ValueChanged<DateTime> onPicked,
+  }) {
+    return InkWell(
+      key: key,
+      onTap: () async {
+        final picked = await showDatePicker(
+          context: context,
+          initialDate: initial,
+          firstDate: first,
+          lastDate: last,
+        );
+        if (picked != null) setState(() => onPicked(picked));
+      },
+      child: InputDecorator(
+        decoration: InputDecoration(
+          labelText: label,
+          prefixIcon: const Icon(Icons.event_outlined),
+        ),
+        child: Text(
+          value == null ? empty : ltrIsolate(DateFormat('yyyy-MM-dd').format(value)),
+        ),
+      ),
+    );
+  }
+
+  List<Widget> _reservationFields(bool isAr, bool wide) {
+    final theme = Theme.of(context);
+    final market = _karatPrices[_selectedKarat];
+    final priceChanged = market != null && (_pricePerGram - market).abs() >= 0.005;
+    final karat = DropdownButtonFormField<int>(
+      // Rebuilt when the main karat arrives from the server.
+      key: ValueKey('reservation-karat-$_selectedKarat'),
+      initialValue: _selectedKarat,
+      decoration: InputDecoration(
+        labelText: isAr ? 'العيار' : 'Karat',
+        prefixIcon: const Icon(Icons.verified_outlined),
+      ),
+      items: [for (final k in const [24, 22, 21, 18])
+        DropdownMenuItem(value: k, child: Text('${isAr ? "عيار" : "Karat"} $k'))],
+      onChanged: (value) => setState(() {
+        _selectedKarat = value!;
+        _applyKaratPrice();
+      }),
+    );
+    final weight = TextFormField(
+      key: const Key('reservation-weight'),
+      controller: _weightController,
+      decoration: InputDecoration(
+        labelText: isAr ? 'الوزن (جرام)' : 'Weight (grams)',
+        prefixIcon: const Icon(Icons.scale_outlined),
+        suffixText: isAr ? 'جم' : 'g',
+      ),
+      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+      inputFormatters: [NormalizeNumberFormatter()],
+      validator: (value) {
+        final w = double.tryParse(value ?? '');
+        if (w == null || w <= 0) return isAr ? 'أدخل الوزن' : 'Enter the weight';
+        return null;
+      },
+    );
+    return [
+      DropdownButtonFormField<int>(
+        key: ValueKey('office-${_selectedOfficeId ?? 'none'}'),
+        initialValue: _selectedOfficeId,
+        decoration: InputDecoration(
+          labelText: isAr ? 'اختر المكتب' : 'Select Office',
+          prefixIcon: const Icon(Icons.store_outlined),
+        ),
+        isExpanded: true,
+        items: [for (final office in _offices)
+          DropdownMenuItem<int>(value: office['id'], child: Text(office['name'] ?? ''))],
+        onChanged: (value) => setState(() => _selectOffice(value)),
+        validator: (value) => value == null ? (isAr ? 'اختر المكتب' : 'Choose the office') : null,
+      ),
+      const SizedBox(height: AppSpace.md),
+      if (wide)
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(child: karat),
+            const SizedBox(width: AppSpace.md),
+            Expanded(child: weight),
+          ],
+        )
+      else ...[
+        karat,
+        const SizedBox(height: AppSpace.md),
+        weight,
+      ],
+      const SizedBox(height: AppSpace.md),
+      TextFormField(
+        key: const Key('reservation-price'),
+        controller: _priceController,
+        decoration: InputDecoration(
+          labelText: isAr ? 'السعر للجرام ($_currencySymbol)' : 'Price per gram ($_currencySymbol)',
+          prefixIcon: const Icon(Icons.sell_outlined),
+          suffixText: _currencySymbol,
+          helperText: market == null
+              ? null
+              : (isAr
+                    ? 'سعر السوق لعيار $_selectedKarat: ${ltrIsolate(formatAmount(market))}'
+                    : 'Market price, ${_selectedKarat}k: ${formatAmount(market)}'),
+          suffixIcon: priceChanged
+              ? IconButton(
+                  key: const Key('reservation-price-reset'),
+                  tooltip: isAr ? 'سعر السوق' : 'Market price',
+                  icon: const Icon(Icons.restart_alt),
+                  onPressed: () => setState(_applyKaratPrice),
+                )
+              : null,
+        ),
+        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+        inputFormatters: [NormalizeNumberFormatter()],
+        validator: (value) {
+          final p = double.tryParse(value ?? '');
+          if (p == null || p <= 0) return isAr ? 'أدخل السعر' : 'Enter the price';
+          return null;
+        },
+      ),
+      const SizedBox(height: AppSpace.md),
+      _dateField(
+        key: const Key('reservation-date'),
+        label: isAr ? 'تاريخ الحجز' : 'Reservation date',
+        value: _reservationDate,
+        empty: '',
+        first: DateTime(2020),
+        last: DateTime.now(),
+        initial: _reservationDate,
+        onPicked: (d) => _reservationDate = d,
+      ),
+      if (_totalAmount > 0) ...[
+        const SizedBox(height: AppSpace.sm),
+        Text(
+          isAr ? 'الإجمالي ${_a(_totalAmount)}' : 'Total ${_a(_totalAmount)}',
+          key: const Key('reservation-total'),
+          style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
+        ),
+      ],
+    ];
+  }
+
+  Widget _depositSection(bool isAr) {
+    final theme = Theme.of(context);
+    final paid = _paidAmount > 0;
+    return Card(
+      child: ExpansionTile(
+        key: const Key('reservation-deposit'),
+        initiallyExpanded: paid,
+        leading: const Icon(Icons.payments_outlined),
+        title: Text(isAr ? 'دفعة مقدّمة (عربون)' : 'Deposit'),
+        subtitle: Text(
+          paid
+              ? (isAr ? 'مدفوع ${_a(_paidAmount)}' : 'Paid ${_a(_paidAmount)}')
+              : (isAr ? 'لا عربون — يُسدَّد الثمن بعد التنفيذ' : 'None -- paid after execution'),
+          style: theme.textTheme.bodySmall,
+        ),
+        childrenPadding: const EdgeInsets.fromLTRB(AppSpace.lg, 0, AppSpace.lg, AppSpace.lg),
+        children: [
+          TextFormField(
+            controller: _paidAmountController,
+            decoration: InputDecoration(
+              labelText: isAr ? 'المبلغ المدفوع' : 'Paid Amount',
+              prefixIcon: const Icon(Icons.payments),
+              suffixText: _currencySymbol,
+            ),
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            inputFormatters: [NormalizeNumberFormatter()],
+          ),
+          const SizedBox(height: AppSpace.md),
+          // Required when anything is paid: the safe is the method's (Phase 9C).
+          DropdownButtonFormField<int>(
+            key: ValueKey('payment-method-${_selectedPaymentMethodId ?? 'none'}'),
+            initialValue: _selectedPaymentMethodId,
+            decoration: InputDecoration(
+              labelText: isAr ? 'وسيلة الدفع' : 'Payment Method',
+              prefixIcon: const Icon(Icons.account_balance_wallet_outlined),
+              helperText: _selectedPaymentMethodId == null
+                  ? null
+                  : (isAr
+                        ? 'تخرج من خزينة: ${_safeNameById(_resolvedSafeBoxId)}'
+                        : 'From safe: ${_safeNameById(_resolvedSafeBoxId)}'),
+            ),
+            isExpanded: true,
+            items: [for (final method in _paymentMethods)
+              DropdownMenuItem<int>(value: method['id'], child: Text(method['name']?.toString() ?? ''))],
+            onChanged: (value) => setState(() => _selectedPaymentMethodId = value),
+            validator: (value) => _paidAmount > 0 && value == null
+                ? (isAr ? 'اختر وسيلة الدفع' : 'Choose the way to pay')
+                : null,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _detailsSection(bool isAr) {
+    return Card(
+      child: ExpansionTile(
+        key: const Key('reservation-details'),
+        leading: const Icon(Icons.notes_outlined),
+        title: Text(isAr ? 'تفاصيل إضافية' : 'More details'),
+        subtitle: Text(
+          isAr ? 'المسؤول والجوال وتاريخ الاستلام والملاحظات' : 'Contact, delivery date, notes',
+          style: Theme.of(context).textTheme.bodySmall,
+        ),
+        childrenPadding: const EdgeInsets.fromLTRB(AppSpace.lg, 0, AppSpace.lg, AppSpace.lg),
+        children: [
+          TextFormField(
+            controller: _contactPersonController,
+            decoration: InputDecoration(
+              labelText: isAr ? 'اسم المسؤول' : 'Contact Person',
+              prefixIcon: const Icon(Icons.person_outline),
+            ),
+          ),
+          const SizedBox(height: AppSpace.md),
+          TextFormField(
+            controller: _contactPhoneController,
+            decoration: InputDecoration(
+              labelText: isAr ? 'رقم الجوال' : 'Phone Number',
+              prefixIcon: const Icon(Icons.phone_outlined),
+            ),
+            keyboardType: TextInputType.phone,
+          ),
+          const SizedBox(height: AppSpace.md),
+          _dateField(
+            key: const Key('reservation-delivery-date'),
+            label: isAr ? 'تاريخ الاستلام المتوقع' : 'Expected delivery',
+            value: _deliveryDate,
+            empty: isAr ? 'غير محدد' : 'Not set',
+            first: DateTime.now(),
+            last: DateTime.now().add(const Duration(days: 365)),
+            initial: _deliveryDate ?? DateTime.now().add(const Duration(days: 7)),
+            onPicked: (d) => _deliveryDate = d,
+          ),
+          const SizedBox(height: AppSpace.md),
+          TextFormField(
+            controller: _notesController,
+            decoration: InputDecoration(
+              labelText: isAr ? 'ملاحظات' : 'Notes',
+              prefixIcon: const Icon(Icons.note_outlined),
+            ),
+            maxLines: 3,
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// The reservation in one line, and its save -- always in sight.
+  Widget _summaryBar(bool isAr) {
+    final theme = Theme.of(context);
+    final tones = AppSemanticColors.of(context);
+    final rest = _totalAmount - _paidAmount;
+    final line = _totalAmount > 0
+        ? '${_g(_weight)} ${isAr ? 'عيار' : 'K'} $_selectedKarat × ${ltrIsolate(formatAmount(_pricePerGram))} = ${_a(_totalAmount)}'
+        : (isAr ? 'أدخل الوزن والسعر' : 'Enter the weight and price');
+    return Material(
+      elevation: 8,
+      color: theme.colorScheme.surface,
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: AppSpace.lg, vertical: AppSpace.md),
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      line,
+                      key: const Key('reservation-summary'),
+                      style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
+                    ),
+                    if (_totalAmount > 0)
+                      Text(
+                        isAr
+                            ? 'مدفوع ${_a(_paidAmount)} · متبقٍّ ${_a(rest > 0 ? rest : 0)}'
+                            : 'Paid ${_a(_paidAmount)} · rest ${_a(rest > 0 ? rest : 0)}',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: rest > 0.005 ? tones.warning.fg : tones.ready.fg,
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: AppSpace.md),
+              FilledButton.icon(
+                key: const Key('reservation-save'),
+                onPressed: _isLoading ? null : _saveReservation,
+                icon: const Icon(Icons.save_outlined),
+                label: Text(isAr ? 'حفظ الحجز' : 'Save Reservation'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     context.watch<SettingsProvider>();
-
     final isAr = widget.isArabic;
-    final theme = Theme.of(context);
 
     return Scaffold(
       appBar: AppBar(
         title: Text(isAr ? 'التسكير - حجز ذهب خام' : 'Gold Reservation'),
-        backgroundColor: AppColors.darkGold,
-        foregroundColor: Colors.white,
         actions: [
           IconButton(
             icon: const Icon(Icons.settings_suggest_outlined),
@@ -450,9 +763,7 @@ class _GoldReservationScreenState extends State<GoldReservationScreen> {
             onPressed: () async {
               await Navigator.push(
                 context,
-                MaterialPageRoute(
-                  builder: (_) => const WeightClosingSettingsScreen(),
-                ),
+                MaterialPageRoute(builder: (_) => const WeightClosingSettingsScreen()),
               );
             },
           ),
@@ -463,482 +774,53 @@ class _GoldReservationScreenState extends State<GoldReservationScreen> {
           ),
         ],
       ),
+      bottomNavigationBar: _isLoading ? null : _summaryBar(isAr),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
-          : SingleChildScrollView(
-              padding: const EdgeInsets.all(16),
-              child: Form(
-                key: _formKey,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    // بطاقة معلومات السعر الحالي
-                    Card(
-                      color: AppColors.lightGold.withValues(alpha: 0.4),
-                      child: Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: Row(
-                          children: [
-                            const Icon(
-                              Icons.monetization_on,
-                              color: AppColors.mediumGold,
-                            ),
-                            const SizedBox(width: 12),
-                            Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  isAr
-                                      ? 'سعر عيار $_selectedKarat الآن'
-                                      : 'Karat $_selectedKarat price now',
-                                  style: theme.textTheme.labelSmall,
-                                ),
-                                context.read<SettingsProvider>().buildText(
-                                  '${_currentGoldPrice.toStringAsFixed(2)} ${isAr ? '$_currencySymbol/جم' : '$_currencySymbol/g'}',
-                                  style: theme.textTheme.titleMedium?.copyWith(
-                                    fontWeight: FontWeight.bold,
-                                    color: AppColors.mediumGold,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ],
-                        ),
+          : Form(
+              key: _formKey,
+              child: LayoutBuilder(
+                builder: (context, c) {
+                  final wide = c.maxWidth >= 900;
+                  final reservation = _section(
+                    isAr ? 'الحجز' : 'Reservation',
+                    Icons.lock_clock,
+                    _reservationFields(isAr, wide),
+                  );
+                  final extras = Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      _depositSection(isAr),
+                      const SizedBox(height: AppSpace.md),
+                      _detailsSection(isAr),
+                    ],
+                  );
+                  return SingleChildScrollView(
+                    padding: const EdgeInsets.all(AppSpace.lg),
+                    child: Center(
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 1100),
+                        child: wide
+                            ? Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Expanded(flex: 3, child: reservation),
+                                  const SizedBox(width: AppSpace.lg),
+                                  Expanded(flex: 2, child: extras),
+                                ],
+                              )
+                            : Column(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  reservation,
+                                  const SizedBox(height: AppSpace.md),
+                                  extras,
+                                ],
+                              ),
                       ),
                     ),
-                    const SizedBox(height: 16),
-
-                    // التاريخ
-                    Card(
-                      child: ListTile(
-                        leading: const Icon(Icons.calendar_today),
-                        title: Text(isAr ? 'تاريخ الحجز' : 'Reservation Date'),
-                        subtitle: Text(
-                          DateFormat('yyyy-MM-dd').format(_reservationDate),
-                        ),
-                        trailing: const Icon(Icons.edit),
-                        onTap: () async {
-                          final picked = await showDatePicker(
-                            context: context,
-                            initialDate: _reservationDate,
-                            firstDate: DateTime(2020),
-                            lastDate: DateTime.now(),
-                          );
-                          if (picked != null) {
-                            setState(() => _reservationDate = picked);
-                          }
-                        },
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-
-                    // اختيار المكتب
-                    Card(
-                      child: Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              isAr ? 'المكتب' : 'Office',
-                              style: theme.textTheme.titleMedium,
-                            ),
-                            const SizedBox(height: 8),
-                            DropdownButtonFormField<int>(
-                              key: ValueKey(
-                                'office-${_selectedOfficeId ?? 'none'}',
-                              ),
-                              initialValue: _selectedOfficeId,
-                              decoration: InputDecoration(
-                                labelText: isAr
-                                    ? 'اختر المكتب'
-                                    : 'Select Office',
-                                border: const OutlineInputBorder(),
-                                prefixIcon: const Icon(Icons.store),
-                              ),
-                              isExpanded: true,
-                              icon: const Icon(
-                                Icons.arrow_drop_down_circle_outlined,
-                              ),
-                              items: _offices.map((office) {
-                                return DropdownMenuItem<int>(
-                                  value: office['id'],
-                                  child: Text(office['name'] ?? ''),
-                                );
-                              }).toList(),
-                              onChanged: (value) =>
-                                  setState(() => _selectOffice(value)),
-                              validator: (value) {
-                                if (value == null) {
-                                  return isAr
-                                      ? 'الرجاء اختيار المكتب'
-                                      : 'Please select office';
-                                }
-                                return null;
-                              },
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-
-                    // بيانات الاتصال
-                    Card(
-                      child: Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              isAr ? 'بيانات الاتصال' : 'Contact Information',
-                              style: theme.textTheme.titleMedium,
-                            ),
-                            const SizedBox(height: 16),
-                            TextFormField(
-                              controller: _contactPersonController,
-                              decoration: InputDecoration(
-                                labelText: isAr
-                                    ? 'اسم المسؤول'
-                                    : 'Contact Person',
-                                border: const OutlineInputBorder(),
-                                prefixIcon: const Icon(Icons.person),
-                              ),
-                            ),
-                            const SizedBox(height: 12),
-                            TextFormField(
-                              controller: _contactPhoneController,
-                              decoration: InputDecoration(
-                                labelText: isAr ? 'رقم الجوال' : 'Phone Number',
-                                border: const OutlineInputBorder(),
-                                prefixIcon: const Icon(Icons.phone),
-                              ),
-                              keyboardType: TextInputType.phone,
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-
-                    // بيانات الذهب
-                    Card(
-                      child: Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              isAr ? 'بيانات الذهب' : 'Gold Details',
-                              style: theme.textTheme.titleMedium,
-                            ),
-                            const SizedBox(height: 16),
-                            // العيار
-                            DropdownButtonFormField<int>(
-                              // Rebuilt when the main karat arrives from the server.
-                              key: ValueKey('reservation-karat-$_selectedKarat'),
-                              initialValue: _selectedKarat,
-                              decoration: InputDecoration(
-                                labelText: isAr ? 'العيار' : 'Karat',
-                                border: const OutlineInputBorder(),
-                                prefixIcon: const Icon(Icons.verified),
-                              ),
-                              items: [24, 22, 21, 18].map((karat) {
-                                return DropdownMenuItem(
-                                  value: karat,
-                                  child: Text(
-                                    '${isAr ? "عيار" : "Karat"} $karat',
-                                  ),
-                                );
-                              }).toList(),
-                              onChanged: (value) {
-                                setState(() {
-                                  _selectedKarat = value!;
-                                  _applyKaratPrice();
-                                });
-                              },
-                            ),
-                            const SizedBox(height: 12),
-                            // الوزن
-                            TextFormField(
-                              controller: _weightController,
-                              decoration: InputDecoration(
-                                labelText: isAr
-                                    ? 'الوزن (جرام)'
-                                    : 'Weight (grams)',
-                                border: const OutlineInputBorder(),
-                                prefixIcon: const Icon(Icons.scale),
-                                suffixText: isAr ? 'جم' : 'g',
-                              ),
-                              keyboardType:
-                                  const TextInputType.numberWithOptions(
-                                    decimal: true,
-                                  ),
-                              inputFormatters: [NormalizeNumberFormatter()],
-                              validator: (value) {
-                                if (value == null || value.isEmpty) {
-                                  return isAr
-                                      ? 'الرجاء إدخال الوزن'
-                                      : 'Please enter weight';
-                                }
-                                final weight = double.tryParse(value);
-                                if (weight == null || weight <= 0) {
-                                  return isAr
-                                      ? 'الرجاء إدخال وزن صحيح'
-                                      : 'Please enter valid weight';
-                                }
-                                return null;
-                              },
-                            ),
-                            const SizedBox(height: 12),
-                            // السعر للجرام
-                            TextFormField(
-                              controller: _priceController,
-                              decoration: InputDecoration(
-                                labelText: isAr
-                                    ? 'السعر للجرام ($_currencySymbol)'
-                                    : 'Price per gram ($_currencySymbol)',
-                                border: const OutlineInputBorder(),
-                                prefixIcon: const Icon(Icons.attach_money),
-                                suffixText: _currencySymbol,
-                              ),
-                              keyboardType:
-                                  const TextInputType.numberWithOptions(
-                                    decimal: true,
-                                  ),
-                              inputFormatters: [NormalizeNumberFormatter()],
-                              validator: (value) {
-                                if (value == null || value.isEmpty) {
-                                  return isAr
-                                      ? 'الرجاء إدخال السعر'
-                                      : 'Please enter price';
-                                }
-                                final price = double.tryParse(value);
-                                if (price == null || price <= 0) {
-                                  return isAr
-                                      ? 'الرجاء إدخال سعر صحيح'
-                                      : 'Please enter valid price';
-                                }
-                                return null;
-                              },
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-
-                    // الدفع
-                    Card(
-                      child: Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              isAr ? 'الدفع' : 'Payment',
-                              style: theme.textTheme.titleMedium,
-                            ),
-                            const SizedBox(height: 16),
-                            // المبلغ الإجمالي — قابل للإدخال (يولّد سعر الجرام تلقائياً)
-                            TextFormField(
-                              controller: _totalAmountController,
-                              decoration: InputDecoration(
-                                labelText: isAr
-                                    ? 'المبلغ الإجمالي ($_currencySymbol)'
-                                    : 'Total Amount ($_currencySymbol)',
-                                border: const OutlineInputBorder(),
-                                prefixIcon: const Icon(
-                                  Icons.calculate_outlined,
-                                ),
-                                suffixText: _currencySymbol,
-                                filled: true,
-                                fillColor: AppColors.lightGold.withValues(
-                                  alpha: 0.25,
-                                ),
-                              ),
-                              keyboardType:
-                                  const TextInputType.numberWithOptions(
-                                    decimal: true,
-                                  ),
-                              inputFormatters: [NormalizeNumberFormatter()],
-                              style: theme.textTheme.titleMedium?.copyWith(
-                                fontWeight: FontWeight.bold,
-                                color: AppColors.mediumGold,
-                              ),
-                            ),
-                            const SizedBox(height: 12),
-                            // المبلغ المدفوع
-                            TextFormField(
-                              controller: _paidAmountController,
-                              decoration: InputDecoration(
-                                labelText: isAr
-                                    ? 'المبلغ المدفوع'
-                                    : 'Paid Amount',
-                                border: const OutlineInputBorder(),
-                                prefixIcon: const Icon(Icons.payments),
-                                suffixText: _currencySymbol,
-                              ),
-                              keyboardType:
-                                  const TextInputType.numberWithOptions(
-                                    decimal: true,
-                                  ),
-                              inputFormatters: [NormalizeNumberFormatter()],
-                            ),
-                            const SizedBox(height: 12),
-                            // وسيلة الدفع — إلزامية عند وجود مبلغ مدفوع
-                            // (Phase 9C: الخزينة تُشتق منها في الـbackend،
-                            // وليست اختيارًا منفصلاً)
-                            DropdownButtonFormField<int>(
-                              key: ValueKey(
-                                'payment-method-${_selectedPaymentMethodId ?? 'none'}',
-                              ),
-                              initialValue: _selectedPaymentMethodId,
-                              decoration: InputDecoration(
-                                labelText: isAr
-                                    ? 'وسيلة الدفع'
-                                    : 'Payment Method',
-                                border: const OutlineInputBorder(),
-                                prefixIcon: const Icon(
-                                  Icons.account_balance_wallet_outlined,
-                                ),
-                              ),
-                              isExpanded: true,
-                              items: _paymentMethods.map((method) {
-                                return DropdownMenuItem<int>(
-                                  value: method['id'],
-                                  child: Text(method['name']?.toString() ?? ''),
-                                );
-                              }).toList(),
-                              onChanged: (value) {
-                                setState(() => _selectedPaymentMethodId = value);
-                              },
-                              validator: (value) {
-                                if (_paidAmount > 0 && value == null) {
-                                  return isAr
-                                      ? 'الرجاء اختيار وسيلة الدفع'
-                                      : 'Please select a payment method';
-                                }
-                                return null;
-                              },
-                            ),
-                            if (_selectedPaymentMethodId != null) ...[
-                              const SizedBox(height: 6),
-                              Text(
-                                isAr
-                                    ? 'ستُقيَّد في خزينة: ${_safeNameById(_resolvedSafeBoxId)}'
-                                    : 'Will settle to safe: ${_safeNameById(_resolvedSafeBoxId)}',
-                                style: theme.textTheme.bodySmall,
-                              ),
-                            ],
-                            const SizedBox(height: 12),
-                            // المتبقي
-                            if (_totalAmount - _paidAmount > 0)
-                              Container(
-                                padding: const EdgeInsets.all(12),
-                                decoration: BoxDecoration(
-                                  color: AppColors.error.withValues(
-                                    alpha: 0.08,
-                                  ),
-                                  borderRadius: BorderRadius.circular(8),
-                                  border: Border.all(
-                                    color: AppColors.error.withValues(
-                                      alpha: 0.35,
-                                    ),
-                                  ),
-                                ),
-                                child: Row(
-                                  mainAxisAlignment:
-                                      MainAxisAlignment.spaceBetween,
-                                  children: [
-                                    Text(
-                                      isAr ? 'المبلغ المتبقي' : 'Remaining',
-                                      style: theme.textTheme.bodyLarge,
-                                    ),
-                                    context.read<SettingsProvider>().buildText(
-                                      '$_currencySymbol ${(_totalAmount - _paidAmount).toStringAsFixed(2)}',
-                                      style: theme.textTheme.titleMedium
-                                          ?.copyWith(
-                                            fontWeight: FontWeight.bold,
-                                            color: AppColors.error,
-                                          ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                          ],
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-
-                    // تاريخ الاستلام المتوقع
-                    Card(
-                      child: ListTile(
-                        leading: const Icon(Icons.event),
-                        title: Text(
-                          isAr
-                              ? 'تاريخ الاستلام المتوقع'
-                              : 'Expected Delivery Date',
-                        ),
-                        subtitle: Text(
-                          _deliveryDate != null
-                              ? DateFormat('yyyy-MM-dd').format(_deliveryDate!)
-                              : (isAr ? 'غير محدد' : 'Not set'),
-                        ),
-                        trailing: const Icon(Icons.edit),
-                        onTap: () async {
-                          final picked = await showDatePicker(
-                            context: context,
-                            initialDate: DateTime.now().add(
-                              const Duration(days: 7),
-                            ),
-                            firstDate: DateTime.now(),
-                            lastDate: DateTime.now().add(
-                              const Duration(days: 365),
-                            ),
-                          );
-                          if (picked != null) {
-                            setState(() => _deliveryDate = picked);
-                          }
-                        },
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-
-                    // ملاحظات
-                    Card(
-                      child: Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: TextFormField(
-                          controller: _notesController,
-                          decoration: InputDecoration(
-                            labelText: isAr ? 'ملاحظات' : 'Notes',
-                            border: const OutlineInputBorder(),
-                            prefixIcon: const Icon(Icons.note),
-                          ),
-                          maxLines: 3,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 24),
-
-                    // زر الحفظ
-                    ElevatedButton.icon(
-                      onPressed: _isLoading ? null : _saveReservation,
-                      icon: const Icon(Icons.save),
-                      label: Text(
-                        isAr ? 'حفظ الحجز' : 'Save Reservation',
-                        style: const TextStyle(fontSize: 18),
-                      ),
-                      style: ElevatedButton.styleFrom(
-                        padding: const EdgeInsets.all(16),
-                        backgroundColor: AppColors.primaryGold,
-                        foregroundColor: Colors.white,
-                      ),
-                    ),
-                  ],
-                ),
+                  );
+                },
               ),
             ),
     );

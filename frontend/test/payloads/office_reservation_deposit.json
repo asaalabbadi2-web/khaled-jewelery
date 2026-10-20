@@ -1,0 +1,19 @@
+{
+  "contact_person": "أبو خالد",
+  "contact_phone": "0500000001",
+  "created_by": "flutter_app",
+  "delivery_date": null,
+  "execution_price_per_gram": 441.52,
+  "karat": 21,
+  "notes": null,
+  "office_id": 5,
+  "office_name": "مكتب الراقي",
+  "paid_amount": 1000.0,
+  "payment_method_id": 9,
+  "payment_status": "partial",
+  "price_per_gram": 441.52,
+  "reservation_date": "<date>",
+  "supplier_id": 20,
+  "total_amount": 8830.4,
+  "weight": 20.0
+}
