@@ -555,13 +555,18 @@ def settle_office_reservation(reservation_id: int):
             db.session.rollback()
             return jsonify({'error': 'وزن الحجز غير صالح'}), 400
 
-        # مدين: مشتريات ذهب (512/511) — تكلفة الشراء من المكتب
-        create_dual_journal_entry(
-            journal_entry_id=gold_entry.id,
-            account_id=purchases_acc_id,
-            cash_debit=total_amount,
-            description=f'شراء ذهب تسكير عيار {karat} - مشتريات',
-        )
+        # مدين: مشتريات ذهب (512/511) — تكلفة الشراء من المكتب. From the day
+        # the settings name, the gold's value in its pool's stock instead
+        # (ADR-042 phase 3), written below with the gold's weight lines.
+        from services.gold_cost_postings import GoldCostRefused, applies as _gold_cost_applies, bought_into
+        _gold_cost = _gold_cost_applies(settlement_date)
+        if not _gold_cost:
+            create_dual_journal_entry(
+                journal_entry_id=gold_entry.id,
+                account_id=purchases_acc_id,
+                cash_debit=total_amount,
+                description=f'شراء ذهب تسكير عيار {karat} - مشتريات',
+            )
         # دائن: حساب مورد المكتب — الدفع لاحقاً من خزينة المكتب
         create_dual_journal_entry(
             journal_entry_id=gold_entry.id,
@@ -602,6 +607,13 @@ def settle_office_reservation(reservation_id: int):
                 journal_entry_id=gold_entry.id, account_id=purchases_weight_acc_id,
                 description=f'مشتريات ذهب تسكير وزني عيار {karat}', **{f'credit_{karat}k': weight_grams}))
             db.session.flush()
+
+        if _gold_cost:
+            try:
+                bought_into(gold_entry.id, total_amount, description=f'شراء ذهب تسكير عيار {karat}')
+            except GoldCostRefused as refused:
+                db.session.rollback()
+                return jsonify({'error': refused.code, 'message': refused.message}), 400
 
         verify_dual_balance(gold_entry.id)
 

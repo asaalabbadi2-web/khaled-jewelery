@@ -72,6 +72,7 @@ from dual_system_helpers import (
     verify_dual_balance,
 )
 from gold_costing_service import GoldCostingService, ScrapCostingService
+from services.gold_cost_postings import GoldCostRefused
 from office_supplier_service import ensure_office_supplier
 from party_account_service import ensure_customer_accounts, ensure_supplier_accounts
 from accounting.invoice_payment_voucher import (
@@ -6658,8 +6659,13 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
             # ============================================
             
             # 1. مدين المشتريات (نقد فقط - الوزن في حساب المذكرة الوزنية)
+            # From the day the settings name, the price is the gold's value in
+            # its pool's stock instead (ADR-042 phase 3), written below once
+            # its weight lines say which pool it enters.
+            from services.gold_cost_postings import applies as _gold_cost_applies
+            _gold_cost = _gold_cost_applies(new_invoice.date)
             _purchase_cash_acc = purchases_acc_id or unified_inventory_acc_id
-            if _purchase_cash_acc:
+            if _purchase_cash_acc and not _gold_cost:
                 create_dual_journal_entry(
                     journal_entry_id=journal_entry.id,
                     account_id=_purchase_cash_acc,
@@ -6756,6 +6762,11 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
                                 description=f"دخول وزني عيار {_karat}",
                                 apply_golden_rule=False,
                             )
+
+            if _gold_cost:
+                from services.gold_cost_postings import bought_into
+                bought_into(journal_entry.id, total_cash,
+                            description=f"شراء ذهب {'كسر' if gold_type == 'scrap' else 'جديد'} من عميل")
 
             # قيد ضريبة القيمة المضافة (إن وجدت)
             _total_vat = data.get('total_tax', 0)
@@ -7045,8 +7056,12 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
             )
 
             # Line 2: دائن مردودات المشتريات (بدون ضريبة)
+            # From the day the settings name, the price leaves the pool's stock
+            # it entered instead (ADR-042 phase 3), once the weight lines are written.
+            from services.gold_cost_postings import applies as _gold_cost_applies
+            _gold_cost_ret = _gold_cost_applies(new_invoice.date)
             _pr_credit_acc = purchase_returns_acc_id or inventory_acc_id
-            if _pr_credit_acc:
+            if _pr_credit_acc and not _gold_cost_ret:
                 create_dual_journal_entry(
                     journal_entry_id=journal_entry.id,
                     account_id=_pr_credit_acc,
@@ -7104,6 +7119,9 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
                     ),
                     party_weight_account_override=_pr_weight_override,
                 )
+            if _gold_cost_ret:
+                from services.gold_cost_postings import returned_out
+                returned_out(journal_entry.id, _net_purchase_ret, description='مرتجع شراء من عميل')
         
         elif invoice_type == 'شراء':
             # 5. شراء (مورد)
@@ -8556,6 +8574,10 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
                 pass
         return jsonify(without_cost(new_invoice.to_dict())), 201
 
+    except GoldCostRefused as refused:
+        # The gold's cost refuses the posting, saying why (ADR-042 phase 3).
+        db.session.rollback()
+        return jsonify({'error': refused.code, 'message': refused.message}), 400
     except (ValueError, IntegrityError) as e:
         db.session.rollback()
         # Log the error for debugging

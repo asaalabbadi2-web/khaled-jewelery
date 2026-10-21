@@ -106,6 +106,8 @@ ROLES: dict[str, Role] = dict((
     _r('gold_inventory_scrap', 'مخزون الكسر', G_GOLD,
        'المخزون المالي للكسر لكل العيارات؛ توأمه الوزني وزنُ الكسر.', needs_twin=True),
     _r('gold_cost_of_sales', 'تكلفة مبيعات الذهب', G_GOLD, 'تكلفة الذهب المباع نقدًا.'),
+    _r('gold_exchange_difference', 'فروق تكلفة تبادل الذهب', G_GOLD,
+       'فرق ثمن الذهب المشترى عن متوسط النقص الذي يغطيه (ADR-042)؛ تحت تكلفة المبيعات.'),
     _r('gold_cost_of_sales_weight', 'تكلفة مبيعات الذهب (وزني)', G_GOLD,
        'الجانب الوزني لتكلفة الذهب المباع.', kind=WEIGHT),
     _r('weight_closing_bridge', 'جسر إقفال الوزن', G_GOLD,

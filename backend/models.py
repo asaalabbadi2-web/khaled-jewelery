@@ -2671,6 +2671,10 @@ class Settings(db.Model):
     # ==========================================
     # ترحيل الفواتير تلقائياً فور الحفظ
     auto_post_invoices = db.Column(db.Boolean, default=True)
+    # From this day a gold purchase is written into its pool's stock and a sale
+    # costs its pool's average (ADR-042 phase 3); NULL: never -- 2026 posts as
+    # it always has. The 2027 database opens with 1 January (ADR-044).
+    gold_cost_from = db.Column(db.Date, nullable=True)
     # ترحيل القيود تلقائياً فور الحفظ
     auto_post_entries = db.Column(db.Boolean, default=True)
     # طلب موافقة قبل الترحيل (يؤثر على بوابات الاعتماد - below_cost/large_discount)
@@ -4210,7 +4214,7 @@ SCRAP_LOCATIONS = ('scrap', 'deposit')
 
 # The cost pool each location's gold is in (ADR-042; the owner, 11 and 21 Oct
 # 2026): the worked gold is what is sold as pieces -- the showroom, and a piece
-# at a workshop or in transit, still a piece; the scrap pool is the scrap, the
+# at a workshop or in transit, still a piece (the owner, 21 Oct); the scrap pool is the scrap, the
 # employees' custody and the gold deposited with offices. Not SCRAP_LOCATIONS:
 # a custody holds scrap bought from customers, costed with it.
 COST_POOL_OF_LOCATION = {'showroom': 'worked', 'workshop': 'worked', 'transit': 'worked',

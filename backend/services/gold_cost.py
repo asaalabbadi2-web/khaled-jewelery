@@ -51,6 +51,13 @@ def _main_karat() -> float:
     from pricing.gold_price_service import get_main_karat
     return float(get_main_karat())
 
+def _mapped_subtree(operation: str, role: str) -> set[int]:
+    from accounting.chart_tree import subtree_ids
+    from accounting.mappings import get_account_id_for_mapping
+    account_id = get_account_id_for_mapping(operation, role)
+    return subtree_ids(account_id) if account_id else set()
+
+
 def _safes_of(pool: str) -> set[int]:
     """The weight accounts of the gold safes whose stock location is in *pool*
     (COST_POOL_OF_LOCATION) -- active or not: a balance is a balance."""
@@ -70,7 +77,8 @@ def _safes_of(pool: str) -> set[int]:
 def pool_accounts() -> dict[str, set[int]]:
     from accounting.chart_tree import (
         ASSETS_ROOT, COST_OF_SALES_ROOT, CUSTOMER_RECEIVABLES_ROOT, EQUITY_ROOT, LIABILITIES_ROOT,
-        OPERATING_EXPENSES_ROOT, REVENUE_ROOT, WORKED_GOLD_SUPPLIERS_ROOT, subtree_ids, twin_id, twin_subtree_ids)
+        OPERATING_EXPENSES_ROOT, REVENUE_ROOT, WORKED_GOLD_SUPPLIERS_ROOT, role_subtree_ids, subtree_ids, twin_id,
+        twin_subtree_ids)
     from accounting.mappings import DEFAULT_MAPPING_OPERATION_TYPE as DEFAULT, require_account
 
     def own(operation, role):
@@ -92,6 +100,11 @@ def pool_accounts() -> dict[str, set[int]]:
         # where each pool's value is: its financial stock account (1300, 1310)
         'worked_value': own(DEFAULT, 'gold_inventory_new'),
         'scrap_value': own(DEFAULT, 'gold_inventory_scrap'),
+        # where a purchase covering a short writes its difference (phase 3) --
+        # part of what the gold cost; unmapped before phase 3, then none
+        'exchange_difference': _mapped_subtree(DEFAULT, 'gold_exchange_difference'),
+        # a sale's cost, in riyals -- what tells a sale from a purchase undone
+        'cost_of_sales': role_subtree_ids(COST_OF_SALES_ROOT) | _mapped_subtree(DEFAULT, 'gold_cost_of_sales'),
         # where a purchase's price is debited
         'purchase_cash': own('شراء من عميل', 'purchases_gold_scrap') | own(DEFAULT, 'gold_inventory_scrap'),
         'customers': twin_subtree_ids(CUSTOMER_RECEIVABLES_ROOT),
@@ -130,6 +143,12 @@ class Pool:
         self.value -= out
         self._settle()
         return out
+
+    def take_at(self, grams: float, value: float) -> None:
+        """Grams out at *value* -- a purchase undone at its price."""
+        self.weight -= grams
+        self.value -= value
+        self._settle()
 
     def put(self, grams: float, value: float) -> float:
         """Grams in at *value*. Covering a short first at the short's average;
@@ -191,6 +210,8 @@ def replay(*, opening_price: float, since: date | None = None, until: date | Non
     pools = pool_accounts()
     worked, scrap = pools['worked'], pools['scrap']
     cash_accounts = pools['purchase_cash']
+    exchange_accounts = pools['exchange_difference']
+    cost_of_sales_cash = pools['cost_of_sales']
     customers, equity = pools['customers'], pools['equity']
     sales_twin = pools['sales_twin']
     # By the nature of the account the gold went to (the owner, 11 Oct 2026):
@@ -272,6 +293,19 @@ def replay(*, opening_price: float, since: date | None = None, until: date | Non
         m = month(e)
         accounts = {l.account_id for l in lines if abs(_grams(l)) > EPS or l.cash_debit or l.cash_credit}
         cash_price = sum(float(l.cash_debit or 0) for l in lines if l.account_id in cash_accounts)
+        # Phase 3 writes a purchase on its pool's stock, its difference over a
+        # short's average beside it: the price is both (services/gold_cost_postings).
+        exchanged = sum(float(l.cash_debit or 0) - float(l.cash_credit or 0)
+                        for l in lines if l.account_id in exchange_accounts)
+        if cash_price > 0:
+            cash_price += exchanged
+        # A purchase undone (its return, its reversal): the price credited back
+        # -- not a sale, which credits the stock its cost against a cost of sales.
+        cash_refund = sum(float(l.cash_credit or 0) for l in lines if l.account_id in cash_accounts)
+        if any(float(l.cash_debit or 0) > 0 for l in lines if l.account_id in cost_of_sales_cash):
+            cash_refund = 0.0
+        if cash_refund > 0:
+            cash_refund -= exchanged
 
         # transfer: the pools move opposite each other (a supplier's gold for gold)
         if d['scrap'] * d['worked'] < 0:
@@ -296,6 +330,10 @@ def replay(*, opening_price: float, since: date | None = None, until: date | Non
                 m.exchange_difference += pool.put(grams, cash_price)
                 m.purchases_g += grams
                 m.purchases_value += cash_price
+            elif grams < 0 and cash_refund > 0 and e.reference_type not in CORRECTION_TYPES:
+                pool.take_at(-grams, cash_refund)
+                m.purchases_g += grams
+                m.purchases_value -= cash_refund
             elif accounts & equity:
                 value = grams * opening_price
                 pool.put(grams, value)
@@ -374,8 +412,10 @@ def replay(*, opening_price: float, since: date | None = None, until: date | Non
     return out
 
 
-def _ledger_sums(ids: set[int], until: datetime | None) -> tuple[float, float]:
-    """The posted balance of *ids*: (main-karat grams, riyals), entries before *until*."""
+def _ledger_sums(ids: set[int], until: datetime | None, excluding_entry_id: int | None = None
+                 ) -> tuple[float, float]:
+    """The posted balance of *ids*: (main-karat grams, riyals), entries before
+    *until*, without *excluding_entry_id* (the entry being written)."""
     from accounting.balances import counted_line_filters
     main = _main_karat()
     grams = sum((func.coalesce(func.sum(getattr(JournalEntryLine, f'debit_{k}k')), 0.0)
@@ -387,6 +427,8 @@ def _ledger_sums(ids: set[int], until: datetime | None) -> tuple[float, float]:
              .filter(*counted_line_filters(), JournalEntryLine.account_id.in_(ids or {-1})))
     if until is not None:
         query = query.filter(JournalEntry.date < until)
+    if excluding_entry_id is not None:
+        query = query.filter(JournalEntry.id != excluding_entry_id)
     g, r = query.one()
     return float(g or 0.0), float(r or 0.0)
 
@@ -403,16 +445,16 @@ class PoolState:
         return self.value / self.weight if abs(self.weight) > EPS else None
 
 
-def pool_state(name: str, *, until: datetime | None = None) -> PoolState:
+def pool_state(name: str, *, until: datetime | None = None, excluding_entry_id: int | None = None) -> PoolState:
     """A pool as the ledger holds it (ADR-042 phase 3; the owner, 21 Oct 2026):
     its weight on its safes and its suppliers' gold, its value on its financial
     stock account -- the one reader of the average a posting takes. Before
-    *until* when given, else all that is posted."""
+    *until* when given, else all that is posted; without the entry being written."""
     if name not in ('worked', 'scrap'):
         raise ValueError(f'no such pool: {name}')
     pools = pool_accounts()
-    weight, _ = _ledger_sums(pools[name], until)
-    _, value = _ledger_sums(pools[f'{name}_value'], until)
+    weight, _ = _ledger_sums(pools[name], until, excluding_entry_id)
+    _, value = _ledger_sums(pools[f'{name}_value'], until, excluding_entry_id)
     return PoolState(weight=weight, value=value)
 
 
