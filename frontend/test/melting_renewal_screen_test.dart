@@ -25,6 +25,7 @@ const _safes = {
       'id': 1,
       'name': 'الذهب المعروض',
       'safe_type': 'gold',
+      'stock_location': 'showroom',
       'account_id': 760,
       'balance': {
         'cash': 0.0,
@@ -41,6 +42,7 @@ const _safes = {
       'id': 2,
       'name': 'صندوق الكسر',
       'safe_type': 'gold',
+      'stock_location': 'scrap',
       'account_id': 761,
       'balance': {
         'cash': 0.0,
@@ -80,6 +82,7 @@ void main() {
     WidgetTester tester,
     Future<void> Function() steps, {
     String? warning,
+    Map<String, dynamic>? safes,
     ThemeData? theme,
     Size size = const Size(1200, 2400),
     bool overAPage = false,
@@ -146,7 +149,7 @@ void main() {
           );
         }
         final body = path.endsWith('/safe-boxes/balances')
-            ? _safes
+            ? (safes ?? _safes)
             : path.endsWith('/accounts')
             ? _accounts
             : path.endsWith('/stones-balance')
@@ -248,10 +251,52 @@ void main() {
     expect(find.textContaining('عيار 21k'), findsOneWidget);
   });
 
+  testWidgets('melting goes to a scrap safe by its kind, not a name with «كسر»', (
+    tester,
+  ) async {
+    // ت1: the target was the first safe whose name held «كسر» -- here a
+    // showroom. A showroom is no melting's target; the scrap safe is.
+    Map<String, dynamic> safe(int id, String name, String location, double g21) => {
+      'id': id,
+      'name': name,
+      'safe_type': 'gold',
+      'stock_location': location,
+      'account_id': 700 + id,
+      'balance': {
+        'cash': 0.0,
+        'weight': {'18k': 0.0, '21k': g21, '22k': 0.0, '24k': 0.0, 'total': g21},
+      },
+    };
+    final sent = await run(
+      safes: {
+        'rows': [
+          safe(3, 'معرض الكسر القديم', 'showroom', 10.0),
+          safe(1, 'الذهب المعروض', 'showroom', 10.0),
+          safe(2, 'الخزينة الرئيسية', 'scrap', 0.0),
+        ],
+      },
+      tester,
+      () async {
+        await tester.enterText(
+          find.widgetWithText(TextFormField, '0.000').first,
+          '2',
+        );
+        await execute(tester);
+        await tester.tap(find.widgetWithText(FilledButton, 'تأكيد التكسير'));
+        await tester.pumpAndSettle();
+      },
+    );
+
+    expect(sent, hasLength(1));
+    expect(sent.single['from_safe_box_id'], 3);
+    expect(sent.single['to_safe_box_id'], 2);
+  });
+
   testWidgets('the server\'s warning is said, not dropped', (tester) async {
-    // A renewal whose stones' accounts are unset posts no stones entry, and
-    // the server says so; the screen showed «تم بنجاح» alone.
-    const warning = 'لم تُسجَّل قيود الفصوص المحاسبية';
+    // What the server warns of is said; the screen showed «تم بنجاح» alone.
+    // (Its one warning, a renewal's unposted stones entry, went with that
+    // entry in ت1 -- the contract stays for any.)
+    const warning = 'تحذير من الخادم';
     final sent = await run(warning: warning, tester, () async {
       await tester.enterText(
         find.widgetWithText(TextFormField, '0.000').first,

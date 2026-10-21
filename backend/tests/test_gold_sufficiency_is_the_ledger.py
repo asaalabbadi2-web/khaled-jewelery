@@ -34,12 +34,12 @@ def rollback_after_each(app, db_fence):
     yield
 
 
-def _gold_safe(name):
+def _gold_safe(name, location='showroom'):
     acc = Account(account_number=f'7{uuid.uuid4().int % 10**7:07d}', name=name, type='Asset', tracks_weight=True)
     db.session.add(acc)
     db.session.flush()
     box = SafeBox(name=f'{name} {uuid.uuid4().hex[:6]}', safe_type='gold', account_id=acc.id, is_active=True,
-                 stock_location='showroom')  # the shop's: a party's moves by voucher (ADR-051)
+                 stock_location=location)  # the shop's: a party's moves by voucher (ADR-051)
     db.session.add(box)
     db.session.flush()
     return box
@@ -97,7 +97,7 @@ def test_the_karat_correction_asks_the_ledger(auth_headers, ledger, rows, ok):
 
 
 def test_the_melting_renewal_asks_the_ledger(auth_headers):
-    source, target = _gold_safe('صهر'), _gold_safe('ناتج')
+    source, target = _gold_safe('صهر'), _gold_safe('ناتج', 'scrap')
     _ledger_21k(source, 1.0)
     _rows_21k(source, 5.0)
     resp = _post('/api/melting-renewal', auth_headers,

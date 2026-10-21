@@ -40,10 +40,10 @@ def _account(prefix, name, **kw):
     return acc
 
 
-def _gold_safe(name):
+def _gold_safe(name, location='showroom'):
     acc = _account('7', name, type='Asset', tracks_weight=True)
     box = SafeBox(name=f'{name} {uuid.uuid4().hex[:6]}', safe_type='gold', account_id=acc.id, is_active=True,
-                 stock_location='showroom')  # the shop's: a party's moves by voucher (ADR-051)
+                 stock_location=location)  # the shop's: a party's moves by voucher (ADR-051)
     db.session.add(box)
     db.session.flush()
     return box
@@ -83,7 +83,7 @@ def _vouchers_from(box):
 
 
 def test_three_karats_are_one_voucher_and_the_wage_is_posted_once(auth_headers, capitalized_wages):
-    source, target = _gold_safe('معروض'), _gold_safe('كسر')
+    source, target = _gold_safe('معروض'), _gold_safe('كسر', 'scrap')
     _ledger(source, 21, 10.0)
     _ledger(source, 18, 10.0)
     resp = _post(auth_headers, {
@@ -105,7 +105,7 @@ def test_three_karats_are_one_voucher_and_the_wage_is_posted_once(auth_headers, 
 
 
 def test_a_refused_line_posts_nothing(auth_headers, capitalized_wages):
-    source, target = _gold_safe('معروض'), _gold_safe('كسر')
+    source, target = _gold_safe('معروض'), _gold_safe('كسر', 'scrap')
     _ledger(source, 21, 10.0)
     _ledger(source, 18, 1.0)
     resp = _post(auth_headers, {
@@ -120,7 +120,7 @@ def test_a_refused_line_posts_nothing(auth_headers, capitalized_wages):
 
 def test_a_karats_lines_are_checked_together(auth_headers):
     """Two lines of 21k, each within the 3 g held, are not within it together."""
-    source, target = _gold_safe('معروض'), _gold_safe('كسر')
+    source, target = _gold_safe('كسر', 'scrap'), _gold_safe('معروض')   # renewal: scrap to showroom
     _ledger(source, 21, 3.0)
     resp = _post(auth_headers, {
         'operation_type': 'renewal', 'from_safe_box_id': source.id, 'to_safe_box_id': target.id,
@@ -131,7 +131,7 @@ def test_a_karats_lines_are_checked_together(auth_headers):
 
 
 def test_the_one_line_body_is_as_before(auth_headers, capitalized_wages):
-    source, target = _gold_safe('معروض'), _gold_safe('كسر')
+    source, target = _gold_safe('معروض'), _gold_safe('كسر', 'scrap')
     _ledger(source, 21, 10.0)
     resp = _post(auth_headers, {
         'operation_type': 'melting', 'from_safe_box_id': source.id, 'to_safe_box_id': target.id,
@@ -151,7 +151,7 @@ def test_the_one_line_body_is_as_before(auth_headers, capitalized_wages):
 @pytest.mark.parametrize('lines', [[], 'x', [{'karat': 20, 'gold_weight': 1.0}], [{'karat': 21, 'gold_weight': 0}]],
                          ids=['empty', 'not a list', 'no such karat', 'no weight'])
 def test_bad_lines_are_refused(auth_headers, lines):
-    source, target = _gold_safe('معروض'), _gold_safe('كسر')
+    source, target = _gold_safe('معروض'), _gold_safe('كسر', 'scrap')
     resp = _post(auth_headers, {'operation_type': 'melting', 'from_safe_box_id': source.id,
                                 'to_safe_box_id': target.id, 'lines': lines})
     assert resp.status_code == 400

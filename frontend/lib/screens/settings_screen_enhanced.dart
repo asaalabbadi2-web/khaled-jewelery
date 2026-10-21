@@ -138,8 +138,6 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
   int? _mainCashSafeBoxId;
   int? _saleGoldSafeBoxId;
   int? _mainScrapGoldSafeBoxId;
-  int? _stonesPendingAccountId;
-  int? _stonesDisplayRevenueAccountId;
 
   bool _safeBoxesLoaded = false;
   bool _isLoadingSafeBoxes = false;
@@ -423,12 +421,6 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
         _mainScrapGoldSafeBoxId = _safeNullableInt(
           settings['main_scrap_gold_safe_box_id'],
         );
-        _stonesPendingAccountId = _safeNullableInt(
-          settings['stones_pending_account_id'],
-        );
-        _stonesDisplayRevenueAccountId = _safeNullableInt(
-          settings['stones_display_revenue_account_id'],
-        );
 
         _cashSafeBoxes = cashSafes;
         _goldSafeBoxes = goldSafes;
@@ -603,8 +595,6 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
       'main_cash_safe_box_id': _mainCashSafeBoxId,
       'sale_gold_safe_box_id': _saleGoldSafeBoxId,
       'main_scrap_gold_safe_box_id': _mainScrapGoldSafeBoxId,
-      'stones_pending_account_id': _stonesPendingAccountId,
-      'stones_display_revenue_account_id': _stonesDisplayRevenueAccountId,
     };
 
     try {
@@ -1542,53 +1532,6 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
                 icon: const Icon(Icons.account_tree_outlined),
                 label: const Text('اختيار من الحسابات (بدلاً من الخزائن)'),
               ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 20),
-        _buildSectionCard(
-          icon: Icons.diamond_outlined,
-          iconColor: Colors.purple,
-          title: 'حسابات الفصوص',
-          children: [
-            Text(
-              'تُستخدم عند شراء قطع تحتوي فصوصاً وتجديدها للعرض.',
-              style: Theme.of(context).textTheme.bodyMedium,
-            ),
-            const SizedBox(height: 16),
-            _buildAccountPickerRow(
-              label: 'حساب أصول الفصوص',
-              subtitle: 'مدين عند التجديد — يُسجَّل وزن الفصوص كأصل',
-              accountId: _stonesPendingAccountId,
-              icon: Icons.diamond_outlined,
-              onPick: () async {
-                final picked = await _pickAccountSheet(
-                  title: 'اختر حساب أصول الفصوص',
-                  filter: _AccountPickFilter.weightOnly,
-                );
-                if (picked == null) return;
-                setState(() => _stonesPendingAccountId = _accountId(picked));
-              },
-              onClear: () => setState(() => _stonesPendingAccountId = null),
-            ),
-            const SizedBox(height: 12),
-            _buildAccountPickerRow(
-              label: 'حساب إيراد الفصوص',
-              subtitle: 'دائن عند التجديد — إيراد يُعترف به عند العرض',
-              accountId: _stonesDisplayRevenueAccountId,
-              icon: Icons.storefront_outlined,
-              onPick: () async {
-                final picked = await _pickAccountSheet(
-                  title: 'اختر حساب إيراد الفصوص',
-                  filter: _AccountPickFilter.weightOnly,
-                );
-                if (picked == null) return;
-                setState(
-                  () => _stonesDisplayRevenueAccountId = _accountId(picked),
-                );
-              },
-              onClear: () =>
-                  setState(() => _stonesDisplayRevenueAccountId = null),
             ),
           ],
         ),
@@ -2724,70 +2667,6 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
               accentColor: accentColor ?? _primaryColor,
             ),
           ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildAccountPickerRow({
-    required String label,
-    required String subtitle,
-    required int? accountId,
-    required IconData icon,
-    required VoidCallback onPick,
-    required VoidCallback onClear,
-  }) {
-    final theme = Theme.of(context);
-    final hasValue = accountId != null;
-    final displayAccount = hasValue
-        ? _allAccounts.firstWhere(
-            (a) => _accountId(a) == accountId,
-            orElse: () => {'id': accountId, 'name': '#$accountId'},
-          )
-        : null;
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(label, style: _fieldLabelStyle()),
-        const SizedBox(height: 4),
-        Text(
-          subtitle,
-          style: theme.textTheme.bodySmall?.copyWith(
-            color: theme.colorScheme.outline,
-          ),
-        ),
-        const SizedBox(height: 8),
-        Row(
-          children: [
-            Expanded(
-              child: OutlinedButton.icon(
-                onPressed: (_isSaving || _isLoadingAccounts) ? null : onPick,
-                icon: Icon(icon, size: 18),
-                label: Text(
-                  displayAccount != null
-                      ? _accountLabel(displayAccount)
-                      : 'اختر حساباً...',
-                  overflow: TextOverflow.ellipsis,
-                ),
-                style: OutlinedButton.styleFrom(
-                  alignment: AlignmentDirectional.centerStart,
-                  foregroundColor: hasValue
-                      ? theme.colorScheme.primary
-                      : theme.colorScheme.outline,
-                ),
-              ),
-            ),
-            if (hasValue) ...[
-              const SizedBox(width: 8),
-              IconButton(
-                onPressed: _isSaving ? null : onClear,
-                icon: const Icon(Icons.close, size: 18),
-                tooltip: 'إلغاء الاختيار',
-                color: theme.colorScheme.error,
-              ),
-            ],
-          ],
         ),
       ],
     );

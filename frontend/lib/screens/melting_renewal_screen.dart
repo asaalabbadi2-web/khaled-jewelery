@@ -191,14 +191,11 @@ class _OperationFormState extends State<_OperationForm> {
         _stonesMap = stones;
         _wageAccounts = wageAccs;
 
-        // استعادة آخر اختيار
-        final ids = safes.map((s) => s.id).toSet();
+        // استعادة آخر اختيار -- ما دام في الاتجاه المسموح للعملية
         final savedFrom = prefs.getInt(_prefFrom);
         final savedTo = prefs.getInt(_prefTo);
-        if (savedFrom != null && ids.contains(savedFrom)) {
-          _fromSafeId = savedFrom;
-        }
-        if (savedTo != null && ids.contains(savedTo)) _toSafeId = savedTo;
+        if (_sourceSafes.any((s) => s.id == savedFrom)) _fromSafeId = savedFrom;
+        if (_targetSafes.any((s) => s.id == savedTo)) _toSafeId = savedTo;
 
         _applyDefaults();
         _loading = false;
@@ -211,27 +208,35 @@ class _OperationFormState extends State<_OperationForm> {
     }
   }
 
-  void _applyDefaults() {
-    if (_safes.isEmpty) return;
-    _fromSafeId ??= _safes.first.id;
+  // One way each, by the safe's stock location -- the server's law (ت1):
+  // melting takes the showroom's jewellery to a scrap safe; renewal brings a
+  // scrap safe's or a custody's gold to the showroom. The target was the
+  // first safe with «كسر» in its name.
+  static const _ways = {
+    'melting': ({'showroom'}, {'scrap'}),
+    'renewal': ({'scrap', 'custody'}, {'showroom'}),
+  };
 
-    if (_toSafeId == null || _toSafeId == _fromSafeId) {
-      final target = _isMelting
-          ? _safes.firstWhere(
-              (s) => s.isDefault || s.name.contains('كسر'),
-              orElse: () => _safes.firstWhere(
-                (s) => s.id != _fromSafeId,
-                orElse: () => _safes.first,
-              ),
-            )
-          : _safes.firstWhere(
-              (s) => s.isDefault,
-              orElse: () => _safes.firstWhere(
-                (s) => s.id != _fromSafeId,
-                orElse: () => _safes.first,
-              ),
-            );
-      if (target.id != _fromSafeId) _toSafeId = target.id;
+  List<SafeBoxModel> get _sourceSafes => _safes
+      .where((s) => _ways[widget.opType]!.$1.contains(s.stockLocation))
+      .toList();
+
+  List<SafeBoxModel> get _targetSafes => _safes
+      .where((s) => _ways[widget.opType]!.$2.contains(s.stockLocation))
+      .toList();
+
+  void _applyDefaults() {
+    final sources = _sourceSafes;
+    final targets = _targetSafes;
+    if (!sources.any((s) => s.id == _fromSafeId)) {
+      _fromSafeId = sources.isEmpty ? null : sources.first.id;
+    }
+    if (!targets.any((s) => s.id == _toSafeId)) {
+      _toSafeId = targets.isEmpty
+          ? null
+          : targets
+                .firstWhere((s) => s.isDefault, orElse: () => targets.first)
+                .id;
     }
 
     // اختيار العيار الأعلى رصيداً في الخزنة المصدر للسطر الأول
@@ -579,7 +584,7 @@ class _OperationFormState extends State<_OperationForm> {
                   title: 'خزينة المصدر',
                   icon: Icons.output,
                   color: opColor,
-                  safes: _safes,
+                  safes: _sourceSafes,
                   value: _fromSafeId,
                   excludeId: _toSafeId,
                   stonesBalance: _stonesFor(_fromSafeId),
@@ -597,7 +602,7 @@ class _OperationFormState extends State<_OperationForm> {
                   title: 'خزينة الوجهة',
                   icon: Icons.input,
                   color: opColor,
-                  safes: _safes,
+                  safes: _targetSafes,
                   value: _toSafeId,
                   excludeId: _fromSafeId,
                   stonesBalance: _stonesFor(_toSafeId),

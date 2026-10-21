@@ -2809,6 +2809,11 @@ def create_melting_renewal():
 
     if any(l['karat'] not in _valid_karats or l['to_karat'] not in _valid_karats for l in op_lines):
         return jsonify({'error': 'invalid_karat', 'allowed': list(_valid_karats)}), 400
+    # The karat stays (ت1): the same grams under another karat were gold made
+    # or lost from nothing. A karat is corrected by the safes' own correction.
+    if any(l['to_karat'] != l['karat'] for l in op_lines):
+        return jsonify({'error': 'karat_change_refused',
+                        'message': 'التكسير والتجديد لا يغيّران العيار؛ يُصحَّح العيار من شاشة الخزائن «تصحيح العيار»'}), 400
 
     try:
         for line, raw in zip(op_lines, raw_lines):
@@ -2856,6 +2861,18 @@ def create_melting_renewal():
         refused = transfer_refusal(from_safe, to_safe)
         if refused:
             return jsonify(refused), 400
+        # One way each, by the safe's stock location -- not by a name with «كسر»
+        # in it (ت1): melting takes the showroom's jewellery to the scrap;
+        # renewal brings scrap or a custody's gold to the showroom.
+        ways = {'melting': (('showroom',), ('scrap',)), 'renewal': (('scrap', 'custody'), ('showroom',))}
+        sources, targets = ways[operation_type]
+        if from_safe.stock_location not in sources or to_safe.stock_location not in targets:
+            return jsonify({'error': 'operation_direction_refused',
+                            'message': ('التكسير من خزينة المعروض إلى خزينة كسر'
+                                        if operation_type == 'melting' else
+                                        'التجديد من خزينة كسر أو عهدة موظف إلى خزينة المعروض'),
+                            'from_stock_location': from_safe.stock_location,
+                            'to_stock_location': to_safe.stock_location}), 400
 
         # Gold from the ledger -- the balance the screen shows (BALANCE-001 B2);
         # stones have no ledger weight and stay on the safe-box rows below.
@@ -2954,39 +2971,10 @@ def create_melting_renewal():
                     karat=karat_val,
                 ))
 
-        # ─── قيد الفصوص عند التجديد فقط ───
-        # مدين:  حساب أصول الفصوص  (الفصوص تُسجَّل كأصل)
-        # دائن:  حساب إيراد الفصوص  (إيراد يُعترف به عند التجديد)
-        _stones_je_warning = None
-        if operation_type == 'renewal' and stones_weight > 0:
-            _s = Settings.query.first()
-            _stones_asset_acc   = getattr(_s, 'stones_pending_account_id', None) if _s else None
-            _stones_revenue_acc = getattr(_s, 'stones_display_revenue_account_id', None) if _s else None
-            if not _stones_asset_acc or not _stones_revenue_acc:
-                _stones_je_warning = 'لم تُسجَّل قيود الفصوص المحاسبية — يرجى تعريف حسابَي أصول وإيراد الفصوص في الإعدادات'
-            if _stones_asset_acc and _stones_revenue_acc:
-                for line in op_lines:
-                    line_stones = line['stones_weight']
-                    if line_stones <= 0:
-                        continue
-                    db.session.add(VoucherAccountLine(
-                        voucher_id=voucher.id,
-                        account_id=_stones_asset_acc,
-                        line_type='debit',
-                        amount_type='gold',
-                        amount=line_stones,
-                        karat=float(line['to_karat']),
-                        description=f'أصول فصوص — تجديد ({line_stones:.3f} جم)',
-                    ))
-                    db.session.add(VoucherAccountLine(
-                        voucher_id=voucher.id,
-                        account_id=_stones_revenue_acc,
-                        line_type='credit',
-                        amount_type='gold',
-                        amount=line_stones,
-                        karat=float(line['to_karat']),
-                        description=f'إيراد فصوص — تجديد ({line_stones:.3f} جم)',
-                    ))
+        # A renewal's stones are no gold line (ت1): they were written as gold of
+        # the line's karat on «stones asset» / «stones revenue» -- stones are not
+        # gold, and a mapped revenue made them grams of gold profit. They move
+        # by weight on the safes' rows below; their own design is ت5.
 
         # قيد المصنعية التالفة (تكسير فقط):
         # مدين: حساب مصروف المصنعية التالفة (نقد)
@@ -3107,8 +3095,6 @@ def create_melting_renewal():
                 ],
             },
         }
-        if _stones_je_warning:
-            resp['warning'] = _stones_je_warning
         return jsonify(resp), 201
 
     except Exception as e:
