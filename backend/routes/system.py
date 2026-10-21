@@ -70,6 +70,7 @@ from auth_decorators import require_permission, require_any_permission
 
 
 from pricing.gold_price_service import configured_main_karat
+from services.stock_ledger import StockAllocationError, spread
 from pricing.karat_service import get_main_karat
 from accounting.voucher_engine import (
     post_entry_of_approved_voucher,
@@ -2804,6 +2805,7 @@ def _melting_renewal(*, preview: bool):
             'to_karat': data.get('to_karat'),
             'gold_weight': data.get('gold_weight'),
             'stones_weight': data.get('stones_weight'),
+            'category_id': data.get('category_id'),
         }]
     if not isinstance(raw_lines, list) or not raw_lines:
         return jsonify({'error': 'invalid_lines'}), 400
@@ -2815,6 +2817,7 @@ def _melting_renewal(*, preview: bool):
             op_lines.append({
                 'karat': karat,
                 'to_karat': int(raw.get('to_karat') or karat),
+                'category_id': raw.get('category_id'),
             })
     except (AttributeError, TypeError, ValueError):
         return jsonify({'error': 'invalid_karat'}), 400
@@ -2885,6 +2888,39 @@ def _melting_renewal(*, preview: bool):
                                         'التجديد من خزينة كسر أو عهدة موظف إلى خزينة المعروض'),
                             'from_stock_location': from_safe.stock_location,
                             'to_stock_location': to_safe.stock_location}), 400
+
+        # Each line says its category (ت3): a melting the category it leaves
+        # the showroom from, a renewal the one it joins the showroom in; the
+        # other side is its karat's scrap category. Their lines fell «بلا تصنيف».
+        from services.categories import scrap_category
+        from models import Category
+        for n, line in enumerate(op_lines, start=1):
+            raw_category = line['category_id']
+            if raw_category in (None, '', 0, '0'):
+                return jsonify({'error': 'category_required', 'line': n,
+                                'message': (f'السطر {n}: اختر تصنيف ما يُكسَّر من المعروض' if operation_type == 'melting'
+                                            else f'السطر {n}: اختر التصنيف الذي يدخل به المعروض')}), 400
+            try:
+                category = db.session.get(Category, int(raw_category))
+            except (TypeError, ValueError):
+                category = None
+            if category is None or category.is_active is False:
+                return jsonify({'error': 'category_not_found', 'line': n,
+                                'message': f'السطر {n}: التصنيف غير موجود أو موقوف'}), 400
+            if str(category.karat or '').strip() != str(line['karat']):
+                return jsonify({'error': 'category_karat_mismatch', 'line': n,
+                                'message': f'السطر {n}: «{category.name}» عيار {category.karat}، والسطر عيار {line["karat"]}'}), 400
+            if category.is_scrap:
+                return jsonify({'error': 'category_not_for_this_side', 'line': n,
+                                'message': (f'السطر {n}: التكسير يُخرج من تصنيف معروض، لا من «{category.name}»'
+                                            if operation_type == 'melting' else
+                                            f'السطر {n}: التجديد يُدخل المعروض بتصنيف معروض، لا «{category.name}»')}), 400
+            scrap = scrap_category(line['karat'])
+            if scrap is None:
+                return jsonify({'error': 'scrap_category_missing', 'line': n,
+                                'message': f'لا تصنيف كسر لعيار {line["karat"]}: يُضاف في التصنيفات'}), 400
+            line['category_id'] = category.id
+            line['scrap_category_id'] = scrap.id
 
         # Gold from the ledger -- the balance the screen shows (BALANCE-001 B2);
         # stones have no ledger weight and stay on the safe-box rows below.
@@ -3013,6 +3049,17 @@ def _melting_renewal(*, preview: bool):
         voucher.approved_by = created_by
         voucher.journal_entry_id = journal_entry.id
 
+        # The categories' shares of its stock lines, in this transaction (ت3):
+        # refused, nothing is posted (ADR-045 -- the invoice's own rule).
+        entry_lines = JournalEntryLine.query.filter_by(journal_entry_id=journal_entry.id).order_by(JournalEntryLine.id).all()
+        left_cat = 'category_id' if operation_type == 'melting' else 'scrap_category_id'
+        joined_cat = 'scrap_category_id' if operation_type == 'melting' else 'category_id'
+        for account_id, which in ((from_safe.account_id, left_cat), (to_safe.account_id, joined_cat)):
+            on_account = [l for l in entry_lines if l.account_id == account_id]
+            for karat in sorted({l['karat'] for l in op_lines}):
+                parts = [(l[which], None, l['gold_weight']) for l in op_lines if l['karat'] == karat]
+                spread(on_account, karat, parts, now=voucher_dt, by=created_by, what=f'{op_label} {voucher_number}')
+
         # stones_weight: معلوماتي فقط — لا يؤثر على رصيد الوزن الذهبي
         _stones_raw = data.get('stones') or {}
         _sf = lambda v: max(0.0, float(v or 0))
@@ -3099,6 +3146,10 @@ def _melting_renewal(*, preview: bool):
         }
         return jsonify(resp), 201
 
+    except StockAllocationError as refused:
+        # The categories' shares refused by their law (ت3): nothing is posted.
+        db.session.rollback()
+        return jsonify({'error': 'stock_allocation_refused', 'message': str(refused)}), 400
     except Exception as e:
         db.session.rollback()
         import traceback; traceback.print_exc()

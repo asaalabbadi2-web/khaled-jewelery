@@ -93,7 +93,14 @@ String _resolveApiBaseUrl() {
 }
 
 /// One karat line of a melting or renewal (ADR-050).
-typedef MeltingRenewalLine = ({int karat, double goldWeight, double stonesWeight});
+/// A melting or renewal line; [categoryId] is the category it leaves the
+/// showroom from (melting) or joins it in (renewal) -- ت3.
+typedef MeltingRenewalLine = ({
+  int karat,
+  double goldWeight,
+  double stonesWeight,
+  int? categoryId,
+});
 
 class ApiException implements Exception {
   final int statusCode;
@@ -5428,6 +5435,7 @@ class ApiService {
           'karat': l.karat,
           'gold_weight': l.goldWeight,
           if (l.stonesWeight > 0) 'stones_weight': l.stonesWeight,
+          if (l.categoryId != null) 'category_id': l.categoryId,
         },
     ],
     if (damageWageAmount != null && damageWageAmount > 0)

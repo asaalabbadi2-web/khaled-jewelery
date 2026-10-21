@@ -3,10 +3,12 @@
   "from_safe_box_id": 1,
   "lines": [
     {
+      "category_id": 7,
       "gold_weight": 2.0,
       "karat": 21
     },
     {
+      "category_id": 8,
       "gold_weight": 1.5,
       "karat": 18
     }

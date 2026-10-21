@@ -66,9 +66,40 @@ def _holds(box, karat, grams, stones=0.0):
     db.session.flush()
 
 
+def with_categories(body):
+    """Each line a category of its karat, and each karat its scrap category --
+    as the shop's chart has them (ت3): for the tests of the other laws."""
+    from models import Category
+
+    def of(karat, scrap):
+        found = Category.query.filter_by(karat=str(karat), is_scrap=scrap).filter(Category.is_active.isnot(False)).first()
+        if found is None:
+            found = Category(name=f'{"كسر" if scrap else "تصنيف"} {karat} {uuid.uuid4().hex[:5]}', karat=str(karat),
+                             is_scrap=scrap, is_active=True)
+            db.session.add(found)
+            db.session.flush()
+        return found
+    lines = body.get('lines')
+    if lines is not None and not isinstance(lines, list):
+        return body                      # a malformed body, sent as it is
+    if lines is None and body.get('from_karat') and 'category_id' not in body:
+        of(body['from_karat'], True)
+        return {**body, 'category_id': of(body['from_karat'], False).id}
+    out = []
+    for line in lines or []:
+        try:
+            karat = int(line.get('karat'))
+        except (AttributeError, TypeError, ValueError):
+            out.append(line)
+            continue
+        of(karat, True)
+        out.append(line if 'category_id' in line else {**line, 'category_id': of(karat, False).id})
+    return {**body, 'lines': out} if lines is not None else body
+
+
 def _post(headers, body):
     g.pop('current_user', None)
-    return flask_app.test_client().post('/api/melting-renewal', headers=headers, json=body)
+    return flask_app.test_client().post('/api/melting-renewal', headers=headers, json=with_categories(body))
 
 
 def _op(kind, source, target, **line):

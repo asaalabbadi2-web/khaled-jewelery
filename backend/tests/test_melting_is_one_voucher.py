@@ -80,8 +80,9 @@ def capitalized_wages(monkeypatch):
 
 
 def _post(headers, body):
+    from tests.test_melting_and_renewal_go_one_way import with_categories   # each line its category (ت3)
     g.pop('current_user', None)
-    return flask_app.test_client().post('/api/melting-renewal', headers=headers, json=body)
+    return flask_app.test_client().post('/api/melting-renewal', headers=headers, json=with_categories(body))
 
 
 def _vouchers_from(box):

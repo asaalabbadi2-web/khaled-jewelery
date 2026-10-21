@@ -9,6 +9,8 @@ second ledger to drift: the karat totals are the books' by construction.
   only a stock safe's line is allocated.
 - allocate_invoice(): an invoice allocates its stock lines by its items'
   categories, in its posting's transaction; a failure refuses the posting.
+- spread(): the one rule laying a karat's parts on the lines carrying it --
+  the invoice's, and melting's and renewal's (ت3).
 - stock_balances(): the one reader -- grams per (safe, karat, category), the
   unallocated rest under category None («بلا تصنيف»).
 """
@@ -96,26 +98,37 @@ def allocate_invoice(invoice: Invoice, *, now, by=None) -> list:
 
     written = []
     for karat, items in by_karat.items():
-        capacity = [(line, line_grams(line, karat)) for line in lines if abs(line_grams(line, karat)) > TOLERANCE]
-        total = sum(abs(net) for _, net in capacity)
-        weight = sum(w for _, _, w in items)
-        if weight > total + TOLERANCE:
-            raise StockAllocationError(
-                f'أوزان أصناف الفاتورة {invoice.id} في عيار {karat} ({weight:.3f}) تتجاوز قيد مخزونها ({total:.3f})')
-        left = [abs(net) for _, net in capacity]
-        for category_id, item_id, w in items:
-            if category_id is None:
-                continue                      # unclassified: the line's rest
-            for i, (line, net) in enumerate(capacity):
-                if w <= TOLERANCE:
-                    break
-                take = min(w, left[i])
-                if take <= TOLERANCE:
-                    continue
-                written.append(allocate(line, karat, category_id, take if net > 0 else -take,
-                                        item_id=item_id, by=by, now=now))
-                left[i] -= take
-                w -= take
+        written += spread(lines, karat, items, now=now, by=by,
+                          what=f'أوزان أصناف الفاتورة {invoice.id}')
+    return written
+
+
+def spread(lines, karat: int, parts, *, now, by=None, what: str) -> list:
+    """Parts of a karat -- (category_id, item_id, grams), grams positive -- laid
+    on the lines carrying it, in order, each with its line's sign: the one rule
+    for a document whose entry groups a karat into fewer lines than it has
+    parts. A part with no category is the lines' unclassified rest. Parts
+    heavier than the lines are refused."""
+    capacity = [(line, line_grams(line, karat)) for line in lines if abs(line_grams(line, karat)) > TOLERANCE]
+    total = sum(abs(net) for _, net in capacity)
+    weight = sum(w for _, _, w in parts)
+    if weight > total + TOLERANCE:
+        raise StockAllocationError(f'{what} في عيار {karat} ({weight:.3f}) تتجاوز قيد مخزونها ({total:.3f})')
+    left = [abs(net) for _, net in capacity]
+    written = []
+    for category_id, item_id, w in parts:
+        if category_id is None:
+            continue                      # unclassified: the line's rest
+        for i, (line, net) in enumerate(capacity):
+            if w <= TOLERANCE:
+                break
+            take = min(w, left[i])
+            if take <= TOLERANCE:
+                continue
+            written.append(allocate(line, karat, category_id, take if net > 0 else -take,
+                                    item_id=item_id, by=by, now=now))
+            left[i] -= take
+            w -= take
     return written
 
 

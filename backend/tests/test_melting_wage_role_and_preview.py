@@ -80,8 +80,9 @@ def test_a_wage_with_its_role_unmapped_is_refused_saying_where(auth_headers, cap
 def _preview(headers, body):
     from flask import g
     from app import app as flask_app
+    from tests.test_melting_and_renewal_go_one_way import with_categories   # each line its category (ت3)
     g.pop('current_user', None)
-    return flask_app.test_client().post('/api/melting-renewal/preview', headers=headers, json=body)
+    return flask_app.test_client().post('/api/melting-renewal/preview', headers=headers, json=with_categories(body))
 
 
 def test_the_preview_is_what_is_posted_and_leaves_nothing(auth_headers, capitalized):

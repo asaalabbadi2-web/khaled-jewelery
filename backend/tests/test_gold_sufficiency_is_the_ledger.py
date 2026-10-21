@@ -67,6 +67,9 @@ def _rows_21k(box, grams):
 
 
 def _post(path, headers, body):
+    if path.endswith('/melting-renewal'):
+        from tests.test_melting_and_renewal_go_one_way import with_categories   # each line its category (ت3)
+        body = with_categories(body)
     g.pop('current_user', None)
     return flask_app.test_client().post(path, headers=headers, json=body)
 

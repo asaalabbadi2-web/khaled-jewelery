@@ -86,6 +86,10 @@ class _MeltingRenewalScreenState extends State<MeltingRenewalScreen>
 // ═══════════════════════════════════════════════════════════════════
 class _WeightLine {
   int karat;
+
+  /// The category it leaves the showroom from (melting) or joins it in
+  /// (renewal) -- ت3; the other side is its karat's scrap category.
+  int? categoryId;
   final TextEditingController goldCtrl = TextEditingController();
   final TextEditingController stonesCtrl = TextEditingController();
 
@@ -121,6 +125,9 @@ class _OperationFormState extends State<_OperationForm> {
   Map<int, Map<String, double>> _stonesMap =
       {}; // safe_box_id → {total, 18, 21, 22, 24}
   bool _loading = true;
+
+  // The showroom's categories (not scrap), each line's of its karat (ت3).
+  List<Map<String, dynamic>> _categories = [];
 
   // ── اختيارات ─────────────────────────────────────────────────
   int? _fromSafeId;
@@ -170,6 +177,7 @@ class _OperationFormState extends State<_OperationForm> {
         widget.api.getSafeBoxBalances(type: 'gold'),
         widget.api.getStonesBalance(),
         SharedPreferences.getInstance(),
+        widget.api.getCategories(),
       ]);
 
       // The shop's own gold: a party's is not melted from here (ADR-051).
@@ -178,10 +186,16 @@ class _OperationFormState extends State<_OperationForm> {
           .toList();
       final stones = results[1] as Map<int, Map<String, double>>;
       final prefs = results[2] as SharedPreferences;
+      final categories = [
+        for (final c in results[3] as List)
+          if (c is Map && c['is_scrap'] != true && c['is_active'] != false)
+            Map<String, dynamic>.from(c),
+      ];
 
       setState(() {
         _safes = safes;
         _stonesMap = stones;
+        _categories = categories;
 
         // استعادة آخر اختيار -- ما دام في الاتجاه المسموح للعملية
         final savedFrom = prefs.getInt(_prefFrom);
@@ -344,6 +358,7 @@ class _OperationFormState extends State<_OperationForm> {
           karat: line.karat,
           goldWeight: line.goldWeight,
           stonesWeight: line.stonesWeight,
+          categoryId: line.categoryId,
         ),
     ];
     final wage = (_isMelting && wageAmt > 0) ? wageAmt : null;
@@ -666,6 +681,10 @@ class _OperationFormState extends State<_OperationForm> {
                   (i) => _WeightLineRow(
                     key: ValueKey(i),
                     line: _lines[i],
+                    categories: _categories,
+                    categoryLabel: _isMelting
+                        ? 'تصنيف ما يُكسَّر'
+                        : 'يدخل المعروض بتصنيف',
                     availableKarats: _availableKarats,
                     goldAvailable: (k) => _goldAvailable(_fromSafeId, k),
                     stonesInfo: _stonesInfoFor(_fromSafeId),
@@ -800,6 +819,8 @@ class _OperationFormState extends State<_OperationForm> {
 // ═══════════════════════════════════════════════════════════════════
 class _WeightLineRow extends StatefulWidget {
   final _WeightLine line;
+  final List<Map<String, dynamic>> categories;
+  final String categoryLabel;
   final List<int> availableKarats;
   final double Function(int karat) goldAvailable;
   final Map<String, double> stonesInfo;
@@ -810,6 +831,8 @@ class _WeightLineRow extends StatefulWidget {
   const _WeightLineRow({
     super.key,
     required this.line,
+    required this.categories,
+    required this.categoryLabel,
     required this.availableKarats,
     required this.goldAvailable,
     required this.stonesInfo,
@@ -829,6 +852,10 @@ class _WeightLineRowState extends State<_WeightLineRow> {
     final avail = widget.goldAvailable(widget.line.karat);
     final entered = widget.line.goldWeight;
     final over = entered > 0 && entered > avail + 1e-6;
+    final ofKarat = [
+      for (final c in widget.categories)
+        if ('${c['karat'] ?? ''}'.trim() == '${widget.line.karat}') c,
+    ];
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
@@ -858,7 +885,11 @@ class _WeightLineRowState extends State<_WeightLineRow> {
                       .toList(),
                   onChanged: (v) {
                     if (v == null) return;
-                    setState(() => widget.line.karat = v);
+                    setState(() {
+                      widget.line.karat = v;
+                      widget.line.categoryId =
+                          null; // a category is of its karat
+                    });
                     widget.onChanged();
                   },
                 ),
@@ -942,6 +973,39 @@ class _WeightLineRowState extends State<_WeightLineRow> {
                     : const SizedBox(),
               ),
             ],
+          ),
+
+          // ── التصنيف (ت3) ───────────────────────────────
+          Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: DropdownButtonFormField<int>(
+              key: ValueKey('category-${widget.line.karat}'),
+              value: ofKarat.any((c) => c['id'] == widget.line.categoryId)
+                  ? widget.line.categoryId
+                  : null,
+              isExpanded: true,
+              decoration: InputDecoration(
+                labelText: widget.categoryLabel,
+                prefixIcon: const Icon(Icons.category_outlined, size: 18),
+                border: const OutlineInputBorder(),
+                isDense: true,
+              ),
+              items: [
+                for (final c in ofKarat)
+                  DropdownMenuItem<int>(
+                    value: c['id'] as int?,
+                    child: Text(
+                      '${c['name'] ?? ''}',
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+              ],
+              onChanged: (v) {
+                setState(() => widget.line.categoryId = v);
+                widget.onChanged();
+              },
+              validator: (v) => v == null ? 'اختر التصنيف' : null,
+            ),
           ),
 
           // ── رصيد العيار مدمج أسفل السطر ──────────────────

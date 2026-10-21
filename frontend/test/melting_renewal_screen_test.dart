@@ -58,6 +58,14 @@ const _safes = {
   ],
 };
 
+/// The showroom's categories, one a karat, and a scrap one no line may name
+/// (ت3).
+const _categories = [
+  {'id': 7, 'name': 'بنجرة اختبار 21', 'karat': '21', 'is_scrap': false},
+  {'id': 8, 'name': 'خاتم اختبار 18', 'karat': '18', 'is_scrap': false},
+  {'id': 9, 'name': 'كسر 21', 'karat': '21', 'is_scrap': true},
+];
+
 /// What the server would post: the confirmation shows these, not a summary
 /// of its own (ت2).
 const _previewLines = [
@@ -179,6 +187,8 @@ void main() {
         }
         final body = path.endsWith('/safe-boxes/balances')
             ? (safes ?? _safes)
+            : path.endsWith('/categories')
+            ? _categories
             : path.endsWith('/stones-balance')
             ? {'safes': []}
             : <String, dynamic>{};
@@ -198,6 +208,21 @@ void main() {
       '100',
     );
     await tester.pumpAndSettle();
+  }
+
+  /// Each line its category (ت3): the one of its karat.
+  Future<void> pickCategories(WidgetTester tester) async {
+    final fields = find.widgetWithText(
+      DropdownButtonFormField<int>,
+      'تصنيف ما يُكسَّر',
+    );
+    for (var i = 0; i < fields.evaluate().length; i++) {
+      await tester.ensureVisible(fields.at(i));
+      await tester.tap(fields.at(i));
+      await tester.pumpAndSettle();
+      await tester.tap(find.textContaining('اختبار').last);
+      await tester.pumpAndSettle();
+    }
   }
 
   Future<void> execute(WidgetTester tester) async {
@@ -225,6 +250,7 @@ void main() {
         '1.5',
       );
       await typeWage(tester);
+      await pickCategories(tester);
       await execute(tester);
       // The confirmation is the server's entry (ت2).
       expect(find.textContaining('مصنعية تالفة (الدور)'), findsOneWidget);
@@ -254,6 +280,7 @@ void main() {
           '2',
         );
         await typeWage(tester);
+        await pickCategories(tester);
         await execute(tester);
       },
     );
@@ -261,6 +288,37 @@ void main() {
     expect(sent, isEmpty);
     expect(find.textContaining(said), findsOneWidget);
     expect(find.text('تأكيد التكسير'), findsNothing);
+  });
+
+  testWidgets('a line names a category of its karat, never a scrap one', (
+    tester,
+  ) async {
+    // ت3: the line's gold leaves the showroom under its category; the scrap
+    // side is the server's. No category, nothing is sent.
+    final sent = await run(tester, () async {
+      await tester.enterText(
+        find.widgetWithText(TextFormField, '0.000').first,
+        '2',
+      );
+      await execute(tester);
+      expect(find.text('اختر التصنيف'), findsOneWidget);
+      expect(find.text('تأكيد التكسير'), findsNothing);
+
+      final field = find.widgetWithText(
+        DropdownButtonFormField<int>,
+        'تصنيف ما يُكسَّر',
+      );
+      await tester.ensureVisible(field);
+      await tester.tap(field);
+      await tester.pumpAndSettle();
+      expect(find.textContaining('بنجرة اختبار 21'), findsWidgets);
+      expect(find.textContaining('خاتم اختبار 18'), findsNothing);
+      expect(find.text('كسر 21'), findsNothing);
+      await tester.tap(find.textContaining('بنجرة اختبار 21').last);
+      await tester.pumpAndSettle();
+    });
+
+    expect(sent, isEmpty);
   });
 
   testWidgets('a karat\'s lines are weighed together', (tester) async {
@@ -277,6 +335,7 @@ void main() {
         '6',
       );
       await tester.pumpAndSettle();
+      await pickCategories(tester);
       await execute(tester);
     });
 
@@ -325,6 +384,7 @@ void main() {
             find.widgetWithText(TextFormField, '0.000').first,
             '2',
           );
+          await pickCategories(tester);
           await execute(tester);
           await tester.tap(find.widgetWithText(FilledButton, 'تأكيد التكسير'));
           await tester.pumpAndSettle();
@@ -347,6 +407,7 @@ void main() {
         find.widgetWithText(TextFormField, '0.000').first,
         '2',
       );
+      await pickCategories(tester);
       await execute(tester);
       await tester.tap(find.widgetWithText(FilledButton, 'تأكيد التكسير'));
       await tester.pumpAndSettle();
@@ -411,6 +472,7 @@ void main() {
         find.widgetWithText(TextFormField, '0.000').last,
         '1',
       );
+      await pickCategories(tester);
       await press(tester, LogicalKeyboardKey.keyS, control: true);
       expect(find.text('تأكيد التكسير'), findsWidgets);
     });
