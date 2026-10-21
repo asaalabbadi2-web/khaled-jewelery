@@ -6102,7 +6102,18 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
                 settings_row = Settings.query.first()
             except Exception:
                 settings_row = None
-            
+
+            # 0) A purchase's return gives the gold back from the safe its
+            # purchase put it in, read from its posted entry -- not from who
+            # makes the return (the owner, 21 Oct 2026: moved since, it is
+            # transferred back first).
+            if inv_type_tmp == 'مرتجع شراء' and data.get('original_invoice_id'):
+                from services.return_lines import purchase_gold_safe_id
+                try:
+                    target_gold_safe_id = purchase_gold_safe_id(int(data['original_invoice_id']))
+                except (TypeError, ValueError):
+                    target_gold_safe_id = None
+
             # 1) If an explicit scrap holder employee is provided, honor it.
             if target_gold_safe_id is None:
                 try:

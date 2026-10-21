@@ -67,3 +67,25 @@ def sale_return_cost(ret) -> float | None:
     if not cost:
         return None
     return round(cost * returned_share(ret, original), 2)
+
+
+def purchase_gold_safe_id(original_invoice_id: int) -> int | None:
+    """The gold safe a customer purchase's posted entry put its gold in -- where
+    its return gives the gold back from (the owner, 21 Oct 2026: «يخرج من العهدة
+    التي دخلها؛ حتى وإن سُحب الذهب منها يُعاد إليها بتحويل»). Read from the
+    books, not from who makes the return. None when the purchase put none in a
+    gold safe."""
+    from models import JournalEntry, JournalEntryLine, SafeBox, db
+    entries = [e.id for e in JournalEntry.query.filter_by(reference_type='invoice', reference_id=original_invoice_id,
+                                                         is_deleted=False).all()]
+    safes = {int(a): int(s) for s, a in db.session.query(SafeBox.id, SafeBox.account_id)
+             .filter(SafeBox.safe_type == 'gold').all()}
+    grams: dict[int, float] = {}
+    for l in JournalEntryLine.query.filter(JournalEntryLine.journal_entry_id.in_(entries or [-1]),
+                                           JournalEntryLine.account_id.in_(list(safes) or [-1]),
+                                           JournalEntryLine.is_deleted.is_(False)).all():
+        g = sum((float(getattr(l, f'debit_{k}k') or 0) - float(getattr(l, f'credit_{k}k') or 0)) * k
+                for k in (18, 21, 22, 24))
+        grams[safes[l.account_id]] = grams.get(safes[l.account_id], 0.0) + g
+    filled = {s: g for s, g in grams.items() if g > 0}
+    return max(filled, key=filled.get) if filled else None

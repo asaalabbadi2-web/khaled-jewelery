@@ -210,8 +210,7 @@ def test_a_purchase_returned_takes_its_price_back_out_of_the_stock(auth_headers,
     _from(date(2026, 1, 1))
     _square_the_scrap_pool(weight=50.0, value=7500.0)
     invoice = _purchase(auth_headers, world)
-    # Given back from the custody it went into: the holder named (a full reversal
-    # names none, and takes it from the user's own custody).
+    # Given back from the custody it went into (test_purchase_return_gives_back_from_its_custody).
     item = Invoice.query.get(invoice['id']).items[0]
     resp = flask_app.test_client().post('/api/invoices', headers=auth_headers, json={
         'customer_id': world['customer'].id, 'invoice_type': 'مرتجع شراء', 'gold_type': 'scrap',
