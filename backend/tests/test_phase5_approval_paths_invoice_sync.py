@@ -369,116 +369,82 @@ class TestBatchApprovalTwoIndependentInvoicesEachSyncIndependently:
             assert invoice_b_db.status == 'paid'
 
 
-@pytest.mark.xfail(strict=True, reason=(
-    "TEST-003: since the voucher-cash bridge (6e78fd28, 24 Sep 2026) recomputes "
-    "unswallowed, a failed invoice-state recompute refuses the whole approval -- "
-    "these tests pin the older swallow-and-commit. Which one is right is the "
-    "owner's accounting decision, asked 21 Oct 2026; strict, so a change either "
-    "way turns this red."))
-class TestRecomputeFailureIsSwallowedNotRolledBack:
-    """Step 6/16 — observe, not assume, what happens when
-    InvoicePaymentStateService.recompute() raises during approval.
+class TestARecomputeFailureRefusesTheWholeApproval:
+    """The owner (21 Oct 2026, the open decision of Phase 5): a voucher's
+    approval and its invoice's payment state are one transaction -- when the
+    state cannot be recomputed, the approval is refused and nothing is posted
+    (no entry, no safe row, the voucher still pending), on every approval path.
 
-    Answered as an explicit choice, not a silent default: this phase
-    replicates the swallow-and-continue semantics that
-    routes/vouchers.py::approve_voucher already shipped (Phase 2) — a
-    failed recompute() prints a warning and lets the already-posted
-    accounting (JournalEntry, SafeBoxTransaction, voucher.status='approved')
-    commit anyway. Making that atomic (rolling back the whole approval if
-    the invoice-state sync fails) or otherwise visible beyond a print()
-    would be a new accounting/business decision — not made here. These
-    tests pin the CURRENT, deliberately-kept behavior at all three call
-    sites so a future change to it is a conscious, visible diff.
+    It was swallow-and-commit: the sync helper printed a warning and the
+    approval stood, the invoice's state behind its payments. The voucher-cash
+    bridge (6e78fd28) already refused for a general voucher; a voucher whose
+    payment row was written before its approval reached only the helper, and
+    stood. A cash or credit invoice alike: recompute raises on no rule, only
+    on a fault.
     """
 
-    def test_posting_routes_approve_voucher_commits_even_if_recompute_raises(self, auth_headers, monkeypatch):
-        from app import app
+    @staticmethod
+    def _boom(monkeypatch):
         from services.invoice_payment_state_service import InvoicePaymentStateService
 
-        def _boom(self, invoice):
+        def _fail(self, invoice):
             raise RuntimeError('simulated recompute failure')
+        monkeypatch.setattr(InvoicePaymentStateService, 'recompute', _fail)
 
-        monkeypatch.setattr(InvoicePaymentStateService, 'recompute', _boom)
+    @staticmethod
+    def _voucher(shape):
+        """'general': a bare invoice voucher (the bridge records its payment);
+        'paid_before': its payment row written before approval (the helper alone)."""
+        from models import PaymentMethod
+        customer, customer_account_id = _customer()
+        invoice = _invoice(customer.id, 10000.0)
+        voucher = _bare_invoice_voucher(invoice.id, customer_account_id, 10000.0, status='pending')
+        if shape == 'paid_before':
+            pm = PaymentMethod(name=f'وسيلة اختبار {_uid()}', payment_type='cash')
+            db.session.add(pm)
+            db.session.flush()
+            db.session.add(InvoicePayment(invoice_id=invoice.id, payment_method_id=pm.id, amount=10000.0,
+                                          net_amount=10000.0, source_voucher_id=voucher.id))
+            db.session.commit()
+        return voucher.id
 
-        with app.app_context():
-            client = app.test_client()
-            customer, customer_account_id = _customer()
-            invoice = _invoice(customer.id, 10000.0)
-            voucher = _bare_invoice_voucher(invoice.id, customer_account_id, 10000.0, status='pending')
-            voucher_id = voucher.id
+    @staticmethod
+    def _nothing_posted(voucher_id):
+        from models import JournalEntry, SafeBoxTransaction
+        db.session.expire_all()
+        v = Voucher.query.get(voucher_id)
+        assert v.status == 'pending'
+        assert v.journal_entry_id is None
+        assert JournalEntry.query.filter_by(reference_type='voucher', reference_id=voucher_id).count() == 0
+        assert SafeBoxTransaction.query.filter_by(ref_id=voucher_id, ref_type='voucher').count() == 0
 
-            resp = client.post(f'/api/vouchers/approve/{voucher_id}', headers=auth_headers)
-            assert resp.status_code == 200, resp.data
-            payload = json.loads(resp.data)
-            assert payload['success'] is True
-
-            voucher_db = Voucher.query.get(voucher_id)
-            assert voucher_db.status == 'approved', (
-                "A recompute() failure must not be allowed to silently undo "
-                "this — confirming it doesn't, exactly like the pre-existing "
-                "routes/vouchers.py path."
-            )
-            assert voucher_db.journal_entry_id is not None, (
-                "Real accounting was posted and committed despite the "
-                "invoice-state sync raising — this is the swallow-and-"
-                "continue behavior, observed rather than assumed."
-            )
-
-    def test_routes_vouchers_approve_voucher_commits_even_if_recompute_raises(self, auth_headers, monkeypatch):
+    @pytest.mark.parametrize('shape', ['general', 'paid_before'])
+    def test_the_posting_approval_is_refused_and_posts_nothing(self, auth_headers, monkeypatch, shape):
         from app import app
-        from services.invoice_payment_state_service import InvoicePaymentStateService
+        self._boom(monkeypatch)
+        voucher_id = self._voucher(shape)
+        resp = app.test_client().post(f'/api/vouchers/approve/{voucher_id}', headers=auth_headers)
+        assert resp.status_code == 500, resp.data
+        self._nothing_posted(voucher_id)
 
-        def _boom(self, invoice):
-            raise RuntimeError('simulated recompute failure')
-
-        monkeypatch.setattr(InvoicePaymentStateService, 'recompute', _boom)
-
-        with app.app_context():
-            client = app.test_client()
-            customer, customer_account_id = _customer()
-            invoice = _invoice(customer.id, 10000.0)
-            voucher = _bare_invoice_voucher(invoice.id, customer_account_id, 10000.0, status='pending')
-            voucher_id = voucher.id
-
-            resp = client.post(f'/api/vouchers/{voucher_id}/approve', headers=auth_headers, json={})
-            assert resp.status_code == 200, resp.data
-
-            voucher_db = Voucher.query.get(voucher_id)
-            assert voucher_db.status == 'approved'
-            assert voucher_db.journal_entry_id is not None
-
-    def test_batch_approve_commits_the_voucher_even_if_recompute_raises(self, auth_headers, monkeypatch):
+    @pytest.mark.parametrize('shape', ['general', 'paid_before'])
+    def test_the_vouchers_approval_is_refused_and_posts_nothing(self, auth_headers, monkeypatch, shape):
         from app import app
-        from services.invoice_payment_state_service import InvoicePaymentStateService
+        self._boom(monkeypatch)
+        voucher_id = self._voucher(shape)
+        resp = app.test_client().post(f'/api/vouchers/{voucher_id}/approve', headers=auth_headers, json={})
+        assert resp.status_code == 500, resp.data
+        self._nothing_posted(voucher_id)
 
-        def _boom(self, invoice):
-            raise RuntimeError('simulated recompute failure')
-
-        monkeypatch.setattr(InvoicePaymentStateService, 'recompute', _boom)
-
-        with app.app_context():
-            client = app.test_client()
-            customer, customer_account_id = _customer()
-            invoice = _invoice(customer.id, 10000.0)
-            voucher = _bare_invoice_voucher(invoice.id, customer_account_id, 10000.0, status='pending')
-            voucher_id = voucher.id
-
-            resp = client.post(
-                '/api/vouchers/approve/batch',
-                headers=auth_headers,
-                json={'voucher_ids': [voucher_id]},
-            )
-            assert resp.status_code == 200, resp.data
-            payload = json.loads(resp.data)
-            assert payload['approved_count'] == 1, (
-                "approve_vouchers_batch must still count this voucher as "
-                "approved — a downstream recompute() failure is swallowed "
-                "inside sync_invoice_payment_state_after_voucher_approval "
-                "itself, never reaching this loop's own try/except, so it "
-                "must not be recorded as a per-voucher batch error either."
-            )
-            assert payload['errors'] == []
-
-            voucher_db = Voucher.query.get(voucher_id)
-            assert voucher_db.status == 'approved'
-            assert voucher_db.journal_entry_id is not None
+    @pytest.mark.parametrize('shape', ['general', 'paid_before'])
+    def test_the_batch_reports_it_and_posts_nothing_for_it(self, auth_headers, monkeypatch, shape):
+        from app import app
+        self._boom(monkeypatch)
+        voucher_id = self._voucher(shape)
+        resp = app.test_client().post('/api/vouchers/approve/batch', headers=auth_headers,
+                                      json={'voucher_ids': [voucher_id]})
+        assert resp.status_code == 200, resp.data
+        payload = json.loads(resp.data)
+        assert payload['approved_count'] == 0
+        assert len(payload['errors']) == 1
+        self._nothing_posted(voucher_id)

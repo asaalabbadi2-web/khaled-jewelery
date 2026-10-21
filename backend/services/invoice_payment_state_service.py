@@ -516,21 +516,16 @@ def sync_invoice_payment_state_after_voucher_approval(voucher) -> None:
     that can move a voucher into 'approved' calls it the same way, instead
     of only whichever one happened to be patched first.
 
-    Deliberately swallows its own failure instead of raising: by the time
-    this runs, the caller has already posted real accounting (JournalEntry
-    and/or SafeBoxTransaction rows) for this voucher, and none of its
-    callers are written to roll that back for a stale-cache failure
-    downstream of it. Whether a failed recompute should instead abort the
-    whole approval is an accounting/business call this function does not
-    make — see the Phase 5 report's open decisions.
+    Its failure fails the approval (the owner, 21 Oct 2026, Phase 5's open
+    decision): an approval and its invoice's payment state are one
+    transaction -- every caller rolls back on an error, so nothing is posted
+    and the voucher stays pending. It swallowed the failure before, and the
+    approval stood with the invoice's state behind its payments.
     """
     if voucher.reference_type == 'invoice' and voucher.reference_id:
-        try:
-            linked_invoice = Invoice.query.get(int(voucher.reference_id))
-            if linked_invoice is not None:
-                InvoicePaymentStateService().recompute(linked_invoice)
-        except Exception as _sync_exc:
-            print(f"⚠️ invoice payment-state sync after voucher approve skipped: {_sync_exc}")
+        linked_invoice = Invoice.query.get(int(voucher.reference_id))
+        if linked_invoice is not None:
+            InvoicePaymentStateService().recompute(linked_invoice)
 
 
 # ── Attributing a voucher's cash to an invoice, after the fact ──────────────

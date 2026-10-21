@@ -217,7 +217,10 @@ def test_idempotency_guard_prevents_double_posting(app):
         assert txs2 == []
 
         # Only 1 row in DB
-        count = SafeBoxTransaction.query.filter_by(ref_id=v.id).count()
+        # This voucher's own rows: ref_id alone also matches another kind's row
+        # that carries the same number (a journal entry's), left by another test.
+        count = SafeBoxTransaction.query.filter(SafeBoxTransaction.ref_id == v.id,
+                                                SafeBoxTransaction.ref_type.in_(['voucher', 'invoice_payment'])).count()
         assert count == 1
 
 
