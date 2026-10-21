@@ -590,3 +590,95 @@ def books_start() -> date:
     """The first posted entry's day -- the opening of the replay."""
     return db.session.query(func.min(JournalEntry.date)).filter(JournalEntry.is_posted.is_(True)).scalar().date()
 
+
+
+# ── the nightly witness (phase 3, step 7) ─────────────────────────────────
+
+def phase3_start() -> datetime | None:
+    """The first instant the gold is costed at its pools' averages -- the
+    settings' day (gold_cost_from) -- or None: nothing to witness."""
+    from models import Settings
+    day = getattr(Settings.query.first(), 'gold_cost_from', None)
+    return datetime.combine(day, datetime.min.time()) if day else None
+
+
+def pools_against_replay() -> list[dict]:
+    """Each pool since the day, in the books and in the replay of the same
+    movements: what posted against what it should have."""
+    start = phase3_start()
+    if start is None:
+        return []
+    result = replay(opening_price=0.0, since=start.date())
+    out = []
+    for name in ('worked', 'scrap'):
+        before, now = pool_state(name, until=start), pool_state(name)
+        out.append({'pool': name,
+                    'ledger_weight': round(now.weight - before.weight, 3),
+                    'replay_weight': round(result.pools[name].weight, 3),
+                    'ledger_value': round(now.value - before.value, 2),
+                    'replay_value': round(result.pools[name].value, 2)})
+    return out
+
+
+def unvalued_movements() -> list[dict]:
+    """The entries since the day that moved a pool's gold and wrote no value on
+    its stock -- one within a pool (a transfer between its safes) moves none."""
+    from accounting.balances import counted_line_filters
+    start = phase3_start()
+    if start is None:
+        return []
+    pools = pool_accounts()
+    weights = pools['worked'] | pools['scrap']
+    values = pools['worked_value'] | pools['scrap_value']
+    ids = {r[0] for r in (db.session.query(JournalEntryLine.journal_entry_id)
+                          .join(JournalEntry, JournalEntry.id == JournalEntryLine.journal_entry_id)
+                          .filter(*counted_line_filters(), JournalEntry.date >= start,
+                                  JournalEntryLine.account_id.in_(weights or {-1})).distinct().all())}
+    by_entry: dict[int, list] = defaultdict(list)
+    for line in JournalEntryLine.query.filter(JournalEntryLine.journal_entry_id.in_(ids or {-1}),
+                                              JournalEntryLine.is_deleted.is_(False)).all():
+        by_entry[line.journal_entry_id].append(line)
+    out = []
+    for entry_id, lines in sorted(by_entry.items()):
+        moved = {n: sum(_grams(l) for l in lines if l.account_id in pools[n]) for n in ('worked', 'scrap')}
+        valued = any(abs(float(l.cash_debit or 0)) + abs(float(l.cash_credit or 0)) > 0.005
+                     for l in lines if l.account_id in values)
+        if any(abs(g) > EPS for g in moved.values()) and not valued:
+            entry = db.session.get(JournalEntry, entry_id)
+            out.append({'entry_id': entry_id, 'entry_number': entry.entry_number, 'date': entry.date,
+                        'grams': {n: round(g, 3) for n, g in moved.items() if abs(g) > EPS},
+                        'reference': f'{entry.reference_type}:{entry.reference_id}'})
+    return out
+
+
+def parties_adrift() -> list[dict]:
+    """Each party given valued gold since the day: its grams in the books since
+    the day against the grams its value was written for (decision 7)."""
+    from accounting.balances import counted_line_filters
+    from accounting.mappings import get_account_id_for_mapping
+    from services.gold_cost_postings import party_state
+    start = phase3_start()
+    with_parties = get_account_id_for_mapping('افتراضي', 'gold_with_parties')
+    if start is None or not with_parties:
+        return []
+    pools = pool_accounts()
+    party_ids = pools['party'] - pools['worked'] - pools['scrap']
+    valued_entries = (db.session.query(JournalEntryLine.journal_entry_id)
+                      .join(JournalEntry, JournalEntry.id == JournalEntryLine.journal_entry_id)
+                      .filter(*counted_line_filters(), JournalEntry.date >= start,
+                              JournalEntryLine.account_id == with_parties))
+    parties = {r[0] for r in db.session.query(JournalEntryLine.account_id)
+               .filter(JournalEntryLine.journal_entry_id.in_(valued_entries),
+                       JournalEntryLine.account_id.in_(party_ids or {-1}),
+                       JournalEntryLine.is_deleted.is_(False)).distinct().all()}
+    out = []
+    for account_id in sorted(parties):
+        books = sum(_grams(l) for l in JournalEntryLine.query
+                    .join(JournalEntry, JournalEntry.id == JournalEntryLine.journal_entry_id)
+                    .filter(*counted_line_filters(), JournalEntry.date >= start,
+                            JournalEntryLine.account_id == account_id).all())
+        grams, value = party_state(account_id)
+        if abs(books - grams) > 0.001:
+            out.append({'account_id': account_id, 'books_grams': round(books, 3), 'valued_grams': round(grams, 3),
+                        'value': value})
+    return out

@@ -72,6 +72,9 @@ ENTRY_WEIGHT_UNBALANCED = 'ENTRY_WEIGHT_UNBALANCED'
 STOCK_ALLOCATION_INVALID = 'STOCK_ALLOCATION_INVALID'
 ROLE_NOT_MAPPED = 'ROLE_NOT_MAPPED'
 CLEARING_DUE_DRIFT = 'CLEARING_DUE_DRIFT'
+GOLD_COST_DRIFT = 'GOLD_COST_DRIFT'
+GOLD_MOVED_UNVALUED = 'GOLD_MOVED_UNVALUED'
+GOLD_WITH_PARTY_ADRIFT = 'GOLD_WITH_PARTY_ADRIFT'
 
 KINDS = (
     ORPHAN_POSTED_ENTRY,
@@ -86,6 +89,9 @@ KINDS = (
     STOCK_ALLOCATION_INVALID,
     ROLE_NOT_MAPPED,
     CLEARING_DUE_DRIFT,
+    GOLD_COST_DRIFT,
+    GOLD_MOVED_UNVALUED,
+    GOLD_WITH_PARTY_ADRIFT,
 )
 
 # An invoice in one of these states is retracted: its entries must not count
@@ -94,6 +100,10 @@ RETRACTED_INVOICE_STATUSES = ('rejected', 'cancelled')
 
 # A magnitude that moves by less than this has not moved. Policy (ADR-030).
 METRIC_EPSILON = 0.005
+
+# A pool's value in the books against its replay: within this, the cents each
+# posting rounds to. Policy (ADR-042 phase 3).
+GOLD_COST_TOLERANCE = 1.00
 
 # DRIFT_THRESHOLD is services/safebox_subledger.py's: the reconciliation screen
 # reads the same one, so the two cannot disagree about what counts as drift.
@@ -570,6 +580,39 @@ def check_clearing_due_drift(threshold: float = DRIFT_THRESHOLD) -> list:
     return facts
 
 
+def check_gold_cost_drift(tolerance: float = GOLD_COST_TOLERANCE) -> list:
+    """A pool's weight and value since the settings' day, in the books against
+    the replay of the same movements (ADR-042 phase 3, step 7): a writer valued
+    at another average, or not at all. Keyed 'gold_pool:<worked|scrap>'; the
+    metric is the books' value less the replay's. Nothing before the day."""
+    from services.gold_cost import pools_against_replay
+    facts = []
+    for p in pools_against_replay():
+        diff = round(p['ledger_value'] - p['replay_value'], 2)
+        if abs(diff) > tolerance or abs(p['ledger_weight'] - p['replay_weight']) > 0.001:
+            facts.append(Fact(GOLD_COST_DRIFT, f"gold_pool:{p['pool']}", diff, p))
+    return facts
+
+
+def check_gold_moved_unvalued() -> list:
+    """An entry since the settings' day that moved a pool's gold and wrote no
+    value on its stock -- a path no writer values (ADR-042 phase 3, step 7).
+    Keyed 'journal_entry:<id>'; the metric is its grams."""
+    from services.gold_cost import unvalued_movements
+    return [Fact(GOLD_MOVED_UNVALUED, f"journal_entry:{m['entry_id']}", round(sum(m['grams'].values()), 3), m)
+            for m in unvalued_movements()]
+
+
+def check_gold_with_parties_adrift() -> list:
+    """A party's grams in the books since the settings' day against the grams
+    its value on «ذهب لدى الأطراف» was written for (decision 7): gold passed from
+    party to party without a pool. Keyed 'account:<id>'; the metric is books
+    less valued grams."""
+    from services.gold_cost import parties_adrift
+    return [Fact(GOLD_WITH_PARTY_ADRIFT, f"account:{p['account_id']}",
+                 round(p['books_grams'] - p['valued_grams'], 3), p) for p in parties_adrift()]
+
+
 CHECKS = {
     ORPHAN_POSTED_ENTRY: check_orphan_posted_entries,
     UNPOSTED_ENTRY_IN_LIMBO: check_unposted_entries_in_limbo,
@@ -584,6 +627,9 @@ CHECKS = {
     STOCK_ALLOCATION_INVALID: check_stock_allocations,
     ROLE_NOT_MAPPED: check_roles_not_mapped,
     CLEARING_DUE_DRIFT: check_clearing_due_drift,
+    GOLD_COST_DRIFT: check_gold_cost_drift,
+    GOLD_MOVED_UNVALUED: check_gold_moved_unvalued,
+    GOLD_WITH_PARTY_ADRIFT: check_gold_with_parties_adrift,
 }
 
 

@@ -90,6 +90,24 @@ KIND_INFO: dict = {
         'explanation_ar': 'عملية يطلب قيدها حسابًا بدوره (نقدية، مبيعات، مشتريات، مخزون…) ولا ربط له في «الربط المحاسبي». '
                           'لا يُستعمل رقم حساب بديلًا: القيد الذي يطلبه يُرفض أو يسقط سطره حتى يُربط الدور.',
     },
+    'GOLD_COST_DRIFT': {
+        'rank': 18,
+        'title_ar': 'قيمة مخزن الذهب تخالف متوسطها',
+        'explanation_ar': 'قيمة مخزن (المشغول أو الكسر) في الدفاتر منذ يوم التكلفة بالمتوسط تخالف ما تحسبه إعادة حركاته '
+                          'نفسها: كاتبٌ قيّم الذهب بغير متوسطه أو لم يقيّمه، فتكلفة ما يُباع بعده خاطئة.',
+    },
+    'GOLD_MOVED_UNVALUED': {
+        'rank': 19,
+        'title_ar': 'ذهب تحرّك بلا قيمة',
+        'explanation_ar': 'قيد نقل ذهبًا من مخزن أو إليه ولم يقيّد قيمته — قيد يدوي أو مسار لا يقيّم الذهب — '
+                          'فتغيّر وزن المخزن دون قيمته، وانحرف متوسطه.',
+    },
+    'GOLD_WITH_PARTY_ADRIFT': {
+        'rank': 40,
+        'title_ar': 'ذهب عند طرف بلا قيمته',
+        'explanation_ar': 'جرامات الطرف في دفتره تخالف الجرامات التي قُيّدت قيمتها في «ذهب لدى الأطراف»؛ '
+                          'غالبًا انتقل ذهب من طرف إلى طرف دون مرور بمخزن، فبقيت قيمته عند الأول.',
+    },
     'STOCK_ALLOCATION_INVALID': {
         'rank': 35,
         'title_ar': 'توزيع مخزون يخالف سطره',
@@ -120,6 +138,8 @@ _SUBJECTS = {
     'payment_method': 'وسيلة دفع رقم',
     'invoice': 'فاتورة رقم',
     'karat': 'عيار',
+    'gold_pool': 'مخزن',
+    'account': 'حساب رقم',
 }
 
 
@@ -128,6 +148,8 @@ def subject_label(subject_key: Optional[str]) -> str:
     if not subject_key:
         return '—'
     kind, _, ident = subject_key.partition(':')
+    if kind == 'gold_pool':                        # 'gold_pool:worked' -- a cost pool (ADR-042)
+        return {'worked': 'مخزن المشغول', 'scrap': 'مخزن الكسر'}.get(ident, subject_key)
     prefix = _SUBJECTS.get(kind)
     if kind == 'karat' and ident.endswith('k'):   # 'karat:21k' -- a karat of the whole stock
         return f'{prefix} {ident[:-1]}'
