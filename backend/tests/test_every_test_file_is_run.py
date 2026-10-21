@@ -43,3 +43,24 @@ def test_the_not_yet_list_names_no_file_that_is_run_or_gone():
     root = {os.path.basename(p) for p in glob.glob(os.path.join(BACKEND, 'test_*.py'))}
     assert not (allowed & _testpaths()), 'a file run by the gate is still listed as not yet'
     assert allowed <= root, f'listed files that are gone: {sorted(allowed - root)} -- strike them'
+
+
+def test_no_gated_test_talks_to_a_live_server():
+    """A gated test runs against the app it imports, not a server on a port.
+
+    Three files brought in by TEST-003 release 1 sent requests to
+    http://127.0.0.1:8001 -- the developer's own server. On a machine running
+    it they passed (and could have written to its database); in CI there is
+    none, and the push failed (21 Oct 2026). They asserted nothing. A test
+    reaches the app through its test client (`app.test_client()`).
+    """
+    import re
+    live = re.compile(r'https?://(127\.0\.0\.1|localhost|0\.0\.0\.0)[:/]')
+    offenders = []
+    for path in sorted(glob.glob(os.path.join(BACKEND, 'tests', '**', '*.py'), recursive=True)):
+        with open(path, encoding='utf-8') as fh:
+            source = fh.read()
+        if re.search(r'^\s*(import requests|from requests)', source, re.M) and live.search(source) \
+                and re.search(r'^def test_', source, re.M):
+            offenders.append(os.path.relpath(path, BACKEND))
+    assert not offenders, f'tests that call a live local server: {offenders} -- use app.test_client()'
