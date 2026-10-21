@@ -126,3 +126,39 @@ def test_the_screen_names_a_pool_and_a_party():
     assert subject_label('gold_pool:worked') == 'مخزن المشغول'
     assert subject_label('gold_pool:scrap') == 'مخزن الكسر'
     assert subject_label('account:12') == 'حساب رقم 12'
+
+
+def test_the_replay_starts_from_the_books_on_the_day(books):
+    """Gold valued before the day -- an opening dated before it -- is where the
+    replay starts: a sale after the day at the average says nothing."""
+    _from(date(2032, 1, 5))                                       # the books' two purchases are before it
+    _entry(6, [(books['show'], {'credit_21k': 10}), (books['customer'], {'debit_21k': 10}),
+               (books['cost'], {'cash_debit': 5000}), (books['wv'], {'cash_credit': 5000})])
+    assert _facts(GOLD_COST_DRIFT) == {}
+
+
+def test_a_partys_gold_given_before_the_day_comes_back_at_its_value(books):
+    _from(date(2032, 1, 5))
+    employee = _party_and_role()
+    with_parties = db.session.get(Account, AccountingMapping.query.filter_by(account_type='gold_with_parties')
+                                  .one().account_id)
+    _entry(2, [(books['scr'], {'credit_21k': 5}), (employee, {'debit_21k': 5}),
+               (with_parties, {'cash_debit': 2000}), (books['sv'], {'cash_credit': 2000})])    # before the day
+    _entry(3, [(books['scr'], {'debit_21k': 10}), (books['twin'], {'credit_21k': 10}),
+               (books['sv'], {'cash_debit': 5000}), (books['cash'], {'cash_credit': 5000})])  # the average moves
+    _entry(6, [(books['scr'], {'debit_21k': 2}), (employee, {'credit_21k': 2}),
+               (books['sv'], {'cash_debit': 800}), (with_parties, {'cash_credit': 800})])     # back at 400
+    assert _facts(GOLD_COST_DRIFT) == {}
+
+
+def test_a_document_dated_back_is_witnessed_in_the_order_it_posted(books):
+    """The value is written at the average of its posting (decision 1), so the
+    witness replays the entries in the order they posted, not by their dates:
+    a sale dated back before a purchase that posted first says nothing."""
+    from tests.test_gold_cost import _entry as entry_on
+    _from(DAY)
+    entry_on(5, [(books['show'], {'debit_21k': 100}), (books['twin'], {'credit_21k': 100}),
+                 (books['wv'], {'cash_debit': 70000}), (books['cash'], {'cash_credit': 70000})])  # avg now 600
+    entry_on(3, [(books['show'], {'credit_21k': 10}), (books['customer'], {'debit_21k': 10}),        # dated back,
+                 (books['cost'], {'cash_debit': 6000}), (books['wv'], {'cash_credit': 6000})])     # posted after, at 600
+    assert _facts(GOLD_COST_DRIFT) == {}

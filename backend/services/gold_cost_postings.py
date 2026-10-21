@@ -302,7 +302,8 @@ def value_the_gold(journal_entry_id: int, *, description: str) -> dict:
     return out
 
 
-def party_state(weight_account_id: int, *, excluding_entry_id: int | None = None) -> tuple[float, float]:
+def party_state(weight_account_id: int, *, excluding_entry_id: int | None = None,
+                until: datetime | None = None) -> tuple[float, float]:
     """The valued gold a party holds, from the ledger: (main-karat grams, riyals).
     Each posted entry that moves the party's gold and writes «ذهب لدى الأطراف»
     gives the party that value in the share of its grams among the entry's
@@ -322,6 +323,8 @@ def party_state(weight_account_id: int, *, excluding_entry_id: int | None = None
                .filter(*counted_line_filters(), JournalEntryLine.account_id == weight_account_id))
     if excluding_entry_id is not None:
         entries = entries.filter(JournalEntry.id != excluding_entry_id)
+    if until is not None:
+        entries = entries.filter(JournalEntry.date < until)
     ids = {r[0] for r in entries.distinct().all()}
     by_entry: dict[int, list] = {}
     for l in JournalEntryLine.query.filter(JournalEntryLine.journal_entry_id.in_(ids or {-1}),

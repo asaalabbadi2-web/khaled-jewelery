@@ -213,8 +213,14 @@ def _grams(line) -> float:
                for k in KARATS)
 
 
-def replay(*, opening_price: float, since: date | None = None, until: date | None = None) -> Replay:
-    """Replay every posted movement of the two pools, oldest first."""
+def replay(*, opening_price: float, since: date | None = None, until: date | None = None,
+           from_the_books: bool = False) -> Replay:
+    """Replay every posted movement of the two pools, oldest first. With
+    *from_the_books* -- the nightly witness of the days since (step 7) -- the
+    pools start where the books stand at *since* (each pool's weight and
+    value, each party's valued gold), and the entries come in the order they
+    were written: a value is the average of its posting (decision 1), so a
+    document dated back is valued where it posted, not where it is dated."""
     from accounting.balances import counted_line_filters
     pools = pool_accounts()
     worked, scrap = pools['worked'], pools['scrap']
@@ -241,7 +247,7 @@ def replay(*, opening_price: float, since: date | None = None, until: date | Non
         touched = touched.filter(JournalEntry.date < datetime.combine(until, datetime.min.time()))
     entry_ids = {r[0] for r in touched.distinct().all()}
     entries = (JournalEntry.query.filter(JournalEntry.id.in_(entry_ids or {-1}))
-               .order_by(JournalEntry.date, JournalEntry.id).all())
+               .order_by(*((JournalEntry.id,) if from_the_books else (JournalEntry.date, JournalEntry.id))).all())
     lines_by_entry = defaultdict(list)
     for line in (JournalEntryLine.query.filter(JournalEntryLine.journal_entry_id.in_(entry_ids or {-1}),
                                                JournalEntryLine.is_deleted.is_(False)).all()):
@@ -289,6 +295,20 @@ def replay(*, opening_price: float, since: date | None = None, until: date | Non
     with_parties: dict[int, list] = {}
 
     pools = {'scrap': Pool(), 'worked': Pool()}
+    seed_at = datetime.combine(since, datetime.min.time()) if (from_the_books and since is not None) else None
+    if seed_at is not None:
+        for _name in pools:
+            _held = pool_state(_name, until=seed_at)
+            pools[_name] = Pool(weight=_held.weight, value=_held.value, last_avg=_held.average or 0.0)
+
+    def party_held(account_id):
+        if account_id not in with_parties:
+            if seed_at is not None:
+                from services.gold_cost_postings import party_state
+                with_parties[account_id] = list(party_state(account_id, until=seed_at))
+            else:
+                with_parties[account_id] = [0.0, 0.0]
+        return with_parties[account_id]
     out = Replay(pools=pools)
     current_day = None
 
@@ -426,7 +446,7 @@ def replay(*, opening_price: float, since: date | None = None, until: date | Non
                     if grams < 0:
                         value = pool.take(-grams)
                         for l, cg in parties_here:
-                            held = with_parties.setdefault(l.account_id, [0.0, 0.0])
+                            held = party_held(l.account_id)
                             held[0] += -grams * abs(cg) / side
                             held[1] += value * abs(cg) / side
                         m.receivables_g += grams
@@ -434,7 +454,7 @@ def replay(*, opening_price: float, since: date | None = None, until: date | Non
                     else:
                         value = 0.0
                         for l, cg in parties_here:
-                            held = with_parties.setdefault(l.account_id, [0.0, 0.0])
+                            held = party_held(l.account_id)
                             back = grams * abs(cg) / side
                             rate = held[1] / held[0] if held[0] > EPS else pool.avg
                             held[0] -= back
@@ -603,20 +623,18 @@ def phase3_start() -> datetime | None:
 
 
 def pools_against_replay() -> list[dict]:
-    """Each pool since the day, in the books and in the replay of the same
-    movements: what posted against what it should have."""
+    """Each pool now, in the books and in the replay of the movements since the
+    day from where the books stood on it: what posted against what it should have."""
     start = phase3_start()
     if start is None:
         return []
-    result = replay(opening_price=0.0, since=start.date())
+    result = replay(opening_price=0.0, since=start.date(), from_the_books=True)
     out = []
     for name in ('worked', 'scrap'):
-        before, now = pool_state(name, until=start), pool_state(name)
+        now = pool_state(name)
         out.append({'pool': name,
-                    'ledger_weight': round(now.weight - before.weight, 3),
-                    'replay_weight': round(result.pools[name].weight, 3),
-                    'ledger_value': round(now.value - before.value, 2),
-                    'replay_value': round(result.pools[name].value, 2)})
+                    'ledger_weight': round(now.weight, 3), 'replay_weight': round(result.pools[name].weight, 3),
+                    'ledger_value': round(now.value, 2), 'replay_value': round(result.pools[name].value, 2)})
     return out
 
 
