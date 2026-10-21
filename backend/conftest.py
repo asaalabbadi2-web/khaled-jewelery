@@ -357,21 +357,3 @@ def original_invoice_id():
         db.session.add(inv)
         db.session.commit()
         return inv.id
-
-
-def pytest_collection_modifyitems(config, items):
-    """Skip integration-like HTTP tests unless RUN_SERVER_TESTS env is set.
-
-    Tests that rely on a running HTTP server (the files starting with
-    `test_invoices.py` and `test_supplier_purchase.py`) are skipped by default.
-    Set RUN_SERVER_TESTS=1 to run them.
-    """
-    run_server = os.getenv('RUN_SERVER_TESTS') == '1'
-    if run_server:
-        return
-
-    skip_marker = pytest.mark.skip(reason="Integration server tests skipped; set RUN_SERVER_TESTS=1 to enable")
-    skip_files = {'test_invoices.py', 'test_supplier_purchase.py', 'test_invoice.py', 'test_advance_accounts.py'}
-    for item in items:
-        if item.fspath.basename in skip_files:
-            item.add_marker(skip_marker)
