@@ -2747,7 +2747,21 @@ def get_app_config():
 @system_bp.route('/melting-renewal', methods=['POST'])
 @require_permission('safe_boxes.transfer')
 def create_melting_renewal():
-    """تسجيل عملية تكسير أو تجديد.
+    return _melting_renewal(preview=False)
+
+
+@system_bp.route('/melting-renewal/preview', methods=['POST'])
+@require_permission('safe_boxes.transfer')
+def preview_melting_renewal():
+    """The operation's entry before it is saved (ت2, as ADR-050 §3 for the
+    clearing settlement): the same body through the same code -- the voucher is
+    built, its lines read, and all of it rolled back before the answer leaves.
+    It refuses as the operation refuses."""
+    return _melting_renewal(preview=True)
+
+
+def _melting_renewal(*, preview: bool):
+    """تسجيل عملية تكسير أو تجديد (أو معاينتها).
 
     Body JSON:
         operation_type : str   — 'melting' | 'renewal'
@@ -2757,10 +2771,8 @@ def create_melting_renewal():
         to_karat         : int — عيار الذهب الناتج   (18|21|22|24)  [اختياري ← يساوي from_karat إن لم يُحدَّد]
         gold_weight      : float — وزن الذهب (جم)
         stones_weight    : float — وزن الفصوص (جم)  [اختياري]
-        stones_revenue_account_id  : int — حساب إيراد الفصوص الداخلة  [اختياري]
-        stones_expense_account_id  : int — حساب مصروف الفصوص الخارجة [اختياري]
-        damage_wage_weight         : float — مبلغ المصنعية التالفة (نقد) [اختياري، تكسير فقط]
-        damage_wage_account_id     : int   — حساب مصروف المصنعية التالفة [اختياري، تكسير فقط]
+        damage_wage_amount         : float — مبلغ المصنعية التالفة (نقد) [اختياري، تكسير فقط]
+                                     حسابه دور «المصنعية التالفة بالتكسير» في الربط المحاسبي (ت2)
         notes            : str — ملاحظات       [اختياري]
         lines            : list — بدل from_karat/to_karat/gold_weight/stones_weight:
                            [{karat, to_karat?, gold_weight, stones_weight?}, ...]
@@ -2831,18 +2843,18 @@ def create_melting_renewal():
     gold_weight = sum(l['gold_weight'] for l in op_lines)
     stones_weight = sum(l['stones_weight'] for l in op_lines)
 
-    stones_rev_account_id  = data.get('stones_revenue_account_id')
-    stones_exp_account_id  = data.get('stones_expense_account_id')
-    damage_wage_account_id = data.get('damage_wage_account_id')
-    try:
-        if stones_rev_account_id:
-            stones_rev_account_id = int(stones_rev_account_id)
-        if stones_exp_account_id:
-            stones_exp_account_id = int(stones_exp_account_id)
-        if damage_wage_account_id:
-            damage_wage_account_id = int(damage_wage_account_id)
-    except (TypeError, ValueError):
-        return jsonify({'error': 'invalid_account_id'}), 400
+    # The damaged wage's account is its role's, chosen once in «الربط المحاسبي»
+    # (ت2): it was picked from every expense account each time (on the 17 Oct
+    # copy two accounts for three meltings), and dropped unsaid without one.
+    damage_wage_account_id = None
+    if damage_wage_amount > 0 and operation_type == 'melting' and wages_are_capitalized(live_wage_mode()):
+        from accounting.mappings import DEFAULT_MAPPING_OPERATION_TYPE, AccountNotMapped, require_account
+        try:
+            damage_wage_account_id = require_account(DEFAULT_MAPPING_OPERATION_TYPE, 'melting_damaged_wage')
+        except AccountNotMapped:
+            return jsonify({'error': 'account_not_mapped', 'role': 'melting_damaged_wage',
+                            'message': 'حساب «المصنعية التالفة بالتكسير» غير مربوط: يُضبط في «الربط المحاسبي»، '
+                                       'ولا تُقيَّد مصنعية تالفة دونه'}), 400
 
     notes = (data.get('notes') or '').strip() or None
 
@@ -2911,17 +2923,6 @@ def create_melting_renewal():
 
         created_by = getattr(getattr(g, 'current_user', None), 'username', None) or 'system'
 
-        # Optional: validate stones accounts exist
-        if stones_rev_account_id:
-            if not Account.query.get(stones_rev_account_id):
-                return jsonify({'error': 'stones_revenue_account_not_found'}), 404
-        if stones_exp_account_id:
-            if not Account.query.get(stones_exp_account_id):
-                return jsonify({'error': 'stones_expense_account_not_found'}), 404
-        if damage_wage_account_id:
-            if not Account.query.get(damage_wage_account_id):
-                return jsonify({'error': 'damage_wage_account_not_found'}), 404
-
     except Exception as pre_err:
         import traceback; traceback.print_exc()
         return jsonify({'error': 'pre_validation_failed', 'message': str(pre_err)}), 500
@@ -2981,8 +2982,7 @@ def create_melting_renewal():
         # دائن: حساب مخزون أجور المصنعية
         # Under «expense» the wage was charged at purchase: nothing sits on the
         # wage inventory to write off (ADR-039).
-        if (damage_wage_amount > 0 and operation_type == 'melting' and damage_wage_account_id
-                and wages_are_capitalized(live_wage_mode())):
+        if damage_wage_account_id:   # a melting's wage, capitalized, on its role's account
             wage_inventory_acc_id = _get_manufacturing_wage_inventory_account_id()
             if not wage_inventory_acc_id:
                 raise Exception('حساب مخزون أجور المصنعية غير موجود. يرجى إنشاؤه أولاً.')
@@ -3070,6 +3070,8 @@ def create_melting_renewal():
                 **line_stones_kw,
             ))
 
+        if preview:
+            return _melting_preview_of(voucher)
         db.session.commit()
 
         resp = {
@@ -3101,3 +3103,27 @@ def create_melting_renewal():
         db.session.rollback()
         import traceback; traceback.print_exc()
         return jsonify({'error': 'melting_renewal_failed', 'message': str(e)}), 500
+
+
+def _melting_preview_of(voucher):
+    """The lines of the voucher just built in this request, then nothing of it
+    kept: the session is rolled back before the answer leaves (ت2)."""
+    try:
+        rows = (db.session.query(VoucherAccountLine, Account)
+                .join(Account, Account.id == VoucherAccountLine.account_id)
+                .filter(VoucherAccountLine.voucher_id == voucher.id)
+                .order_by(VoucherAccountLine.id.asc()).all())
+        lines = [{
+            'account_id': account.id,
+            'account_number': account.account_number,
+            'account_name': account.name,
+            'side': line.line_type,
+            'amount_type': line.amount_type,
+            'amount': round(float(line.amount or 0.0), 3),
+            'karat': line.karat,
+            'description': line.description,
+        } for line, account in rows]
+    finally:
+        db.session.rollback()
+        db.session.info.pop('_voucher_number_seq_cache', None)
+    return jsonify({'preview': True, 'lines': lines}), 200

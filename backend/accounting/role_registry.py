@@ -110,6 +110,8 @@ ROLES: dict[str, Role] = dict((
        'الجانب الوزني لتكلفة الذهب المباع.', kind=WEIGHT),
     _r('weight_closing_bridge', 'جسر إقفال الوزن', G_GOLD,
        'يمرّ عليه الوزن حين يُنفَّذ إقفال الوزن شراءً.', needs_twin=True),
+    _r('melting_damaged_wage', 'المصنعية التالفة بالتكسير', G_GOLD,
+       'يُقيَّد عليه ما تلف من أجور المصنعية المرسملة حين تُكسَّر الحُليّ.'),
     _r('inventory_count_shortage', 'عجز الجرد', G_GOLD, 'يُقيَّد عليه عجز الجرد المعتمد.'),
     _r('inventory_count_surplus', 'زيادة الجرد', G_GOLD, 'يُقيَّد عليه فائض الجرد المعتمد.'),
     _r('karat_diff_revenue', 'خصم السداد بعيار أعلى', G_GOLD,

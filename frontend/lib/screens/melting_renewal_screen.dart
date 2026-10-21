@@ -120,7 +120,6 @@ class _OperationFormState extends State<_OperationForm> {
   List<SafeBoxModel> _safes = [];
   Map<int, Map<String, double>> _stonesMap =
       {}; // safe_box_id → {total, 18, 21, 22, 24}
-  List<Map<String, dynamic>> _wageAccounts = [];
   bool _loading = true;
 
   // ── اختيارات ─────────────────────────────────────────────────
@@ -131,8 +130,9 @@ class _OperationFormState extends State<_OperationForm> {
   final List<_WeightLine> _lines = [_WeightLine()];
 
   // ── مصنعية تالفة (تكسير فقط) ─────────────────────────────────
+  // Its account is its role's, «المصنعية التالفة بالتكسير» in «الربط
+  // المحاسبي» (ت2) -- it was chosen here each time from every expense.
   final _wageCtrl = TextEditingController();
-  int? _wageAccountId;
 
   // ── ملاحظات ──────────────────────────────────────────────────
   final _notesCtrl = TextEditingController();
@@ -169,7 +169,6 @@ class _OperationFormState extends State<_OperationForm> {
       final results = await Future.wait([
         widget.api.getSafeBoxBalances(type: 'gold'),
         widget.api.getStonesBalance(),
-        widget.api.getAccounts(),
         SharedPreferences.getInstance(),
       ]);
 
@@ -178,18 +177,11 @@ class _OperationFormState extends State<_OperationForm> {
           .where((s) => !s.holdsPartyGold)
           .toList();
       final stones = results[1] as Map<int, Map<String, double>>;
-      final accounts = results[2] as List;
-      final prefs = results[3] as SharedPreferences;
-
-      final wageAccs = accounts
-          .whereType<Map<String, dynamic>>()
-          .where((a) => (a['type'] ?? '').toString().toLowerCase() == 'expense')
-          .toList();
+      final prefs = results[2] as SharedPreferences;
 
       setState(() {
         _safes = safes;
         _stonesMap = stones;
-        _wageAccounts = wageAccs;
 
         // استعادة آخر اختيار -- ما دام في الاتجاه المسموح للعملية
         final savedFrom = prefs.getInt(_prefFrom);
@@ -340,41 +332,59 @@ class _OperationFormState extends State<_OperationForm> {
       }
     }
 
-    // A wage without its account was dropped by the server unsaid, while the
-    // confirmation showed it.
-    final wageTyped = double.tryParse(_wageCtrl.text.trim()) ?? 0.0;
-    if (_isMelting && wageTyped > 0 && _wageAccountId == null) {
-      _snack('اختر حساب مصروف المصنعية', error: true);
-      return;
-    }
-
-    final confirmed = await _showConfirm();
-    if (confirmed != true || !mounted) return;
-
-    setState(() => _submitting = true);
     final wageAmt = double.tryParse(_wageCtrl.text.trim()) ?? 0.0;
     final notes = _notesCtrl.text.trim().isEmpty
         ? null
         : _notesCtrl.text.trim();
+    // All the lines in one request: one voucher, the wage posted once
+    // (ADR-050). One request per line posted the wage per line.
+    final lines = [
+      for (final line in _lines)
+        (
+          karat: line.karat,
+          goldWeight: line.goldWeight,
+          stonesWeight: line.stonesWeight,
+        ),
+    ];
+    final wage = (_isMelting && wageAmt > 0) ? wageAmt : null;
+
+    // The entry the server will post, before it is posted (ت2): the
+    // confirmation showed a summary the screen built. A refusal (a wage with
+    // its role unmapped, a way not allowed) is said and nothing is sent.
+    setState(() => _submitting = true);
+    final Map<String, dynamic> preview;
     try {
-      // All the lines in one request: one voucher, the wage posted once
-      // (ADR-050). One request per line posted the wage per line.
+      preview = await widget.api.previewMeltingRenewal(
+        operationType: widget.opType,
+        fromSafeBoxId: _fromSafeId!,
+        toSafeBoxId: _toSafeId!,
+        lines: lines,
+        damageWageAmount: wage,
+        notes: notes,
+      );
+    } catch (e) {
+      if (mounted) {
+        setState(() => _submitting = false);
+        AppFeedback.error(context, e, title: 'لم يُعرض القيد');
+      }
+      return;
+    }
+    if (!mounted) return;
+    setState(() => _submitting = false);
+    final confirmed = await _showConfirm([
+      for (final l in (preview['lines'] as List? ?? const []))
+        Map<String, dynamic>.from(l as Map),
+    ]);
+    if (confirmed != true || !mounted) return;
+
+    setState(() => _submitting = true);
+    try {
       final res = await widget.api.createMeltingRenewal(
         operationType: widget.opType,
         fromSafeBoxId: _fromSafeId!,
         toSafeBoxId: _toSafeId!,
-        lines: [
-          for (final line in _lines)
-            (
-              karat: line.karat,
-              goldWeight: line.goldWeight,
-              stonesWeight: line.stonesWeight,
-            ),
-        ],
-        damageWageAmount: (_isMelting && wageAmt > 0) ? wageAmt : null,
-        damageWageAccountId: (_isMelting && wageAmt > 0)
-            ? _wageAccountId
-            : null,
+        lines: lines,
+        damageWageAmount: wage,
         notes: notes,
       );
       final voucher = res['voucher'] as Map?;
@@ -424,11 +434,20 @@ class _OperationFormState extends State<_OperationForm> {
     }
   }
 
-  Future<bool?> _showConfirm() {
+  /// The server's [entry] lines, as it will post them (ت2).
+  Future<bool?> _showConfirm(List<Map<String, dynamic>> entry) {
     final fromSafe = _safeById(_fromSafeId);
     final toSafe = _safeById(_toSafeId);
     final opLabel = _isMelting ? 'التكسير' : 'التجديد';
-    final wageAmt = double.tryParse(_wageCtrl.text.trim()) ?? 0.0;
+    final currency = context.read<SettingsProvider>().currencySymbolText;
+    String amountOf(Map<String, dynamic> l) {
+      final amount = (l['amount'] as num?)?.toDouble() ?? 0.0;
+      if (l['amount_type'] == 'gold') {
+        final karat = (l['karat'] as num?)?.round();
+        return '${_grams(amount)}${karat == null ? '' : ' · ${karat}k'}';
+      }
+      return '${ltrIsolate(formatAmount(amount))} $currency';
+    }
 
     return showDialog<bool>(
       context: context,
@@ -442,22 +461,20 @@ class _OperationFormState extends State<_OperationForm> {
               _cRow('من', fromSafe?.name ?? '—'),
               _cRow('إلى', toSafe?.name ?? '—'),
               const Divider(),
-              ..._lines.map(
-                (l) => Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _cRow('عيار ${l.karat}k — ذهب', _grams(l.goldWeight)),
-                    if (l.stonesWeight > 0)
-                      _cRow('فصوص ${l.karat}k', _grams(l.stonesWeight)),
-                  ],
-                ),
-              ),
-              if (wageAmt > 0 && _isMelting) ...[
-                const Divider(),
+              Text('القيد', style: Theme.of(context).textTheme.titleSmall),
+              for (final l in entry)
                 _cRow(
-                  'مصنعية تالفة',
-                  '${ltrIsolate(formatAmount(wageAmt))} ${context.read<SettingsProvider>().currencySymbolText}',
+                  '${l['side'] == 'debit' ? 'مدين' : 'دائن'} · '
+                  '${ltrIsolate('${l['account_number'] ?? ''}')} ${l['account_name'] ?? ''}',
+                  amountOf(l),
                 ),
+              if (_lines.any((l) => l.stonesWeight > 0)) ...[
+                const Divider(),
+                for (final l in _lines.where((l) => l.stonesWeight > 0))
+                  _cRow(
+                    'فصوص ${l.karat}k (وزن، لا قيد)',
+                    _grams(l.stonesWeight),
+                  ),
               ],
             ],
           ),
@@ -512,7 +529,6 @@ class _OperationFormState extends State<_OperationForm> {
       _lines.add(_WeightLine());
       _fromSafeId = null;
       _toSafeId = null;
-      _wageAccountId = null;
       _wageCtrl.clear();
       _notesCtrl.clear();
       _applyDefaults();
@@ -712,26 +728,12 @@ class _OperationFormState extends State<_OperationForm> {
                     onChanged: (_) => setState(() {}),
                   ),
                   if (wageAmt > 0) ...[
-                    const SizedBox(height: 10),
-                    DropdownButtonFormField<int>(
-                      value: _wageAccountId,
-                      decoration: const InputDecoration(
-                        labelText: 'حساب مصروف المصنعية',
-                        prefixIcon: Icon(Icons.account_balance_outlined),
-                        border: OutlineInputBorder(),
+                    const SizedBox(height: 8),
+                    Text(
+                      'تُقيَّد على حساب «المصنعية التالفة بالتكسير» في الربط المحاسبي',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
                       ),
-                      items: _wageAccounts
-                          .map(
-                            (a) => DropdownMenuItem<int>(
-                              value: a['id'] as int?,
-                              child: Text(
-                                '${a['account_number'] ?? ''} · ${a['name'] ?? ''}',
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                          )
-                          .toList(),
-                      onChanged: (v) => setState(() => _wageAccountId = v),
                     ),
                   ],
                 ],

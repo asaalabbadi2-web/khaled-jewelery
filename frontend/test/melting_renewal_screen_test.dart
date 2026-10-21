@@ -58,12 +58,24 @@ const _safes = {
   ],
 };
 
-const _accounts = [
+/// What the server would post: the confirmation shows these, not a summary
+/// of its own (ت2).
+const _previewLines = [
   {
-    'id': 51,
+    'account_number': '71300',
+    'account_name': 'المعروض وزني',
+    'side': 'credit',
+    'amount_type': 'gold',
+    'amount': 2.0,
+    'karat': 21,
+  },
+  {
     'account_number': '5410',
-    'name': 'مصروف مصنعية تالفة',
-    'type': 'expense',
+    'account_name': 'مصنعية تالفة (الدور)',
+    'side': 'debit',
+    'amount_type': 'cash',
+    'amount': 100.0,
+    'karat': null,
   },
 ];
 
@@ -83,6 +95,7 @@ void main() {
     Future<void> Function() steps, {
     String? warning,
     Map<String, dynamic>? safes,
+    Map<String, dynamic>? previewRefusal,
     ThemeData? theme,
     Size size = const Size(1200, 2400),
     bool overAPage = false,
@@ -137,6 +150,22 @@ void main() {
       },
       () => MockClient((request) async {
         final path = request.url.path;
+        if (request.method == 'POST' &&
+            path.endsWith('/melting-renewal/preview')) {
+          // The server's entry before it is saved (ت2).
+          if (previewRefusal != null) {
+            return http.Response(
+              jsonEncode(previewRefusal),
+              400,
+              headers: {'content-type': 'application/json; charset=utf-8'},
+            );
+          }
+          return http.Response(
+            jsonEncode({'preview': true, 'lines': _previewLines}),
+            200,
+            headers: {'content-type': 'application/json; charset=utf-8'},
+          );
+        }
         if (request.method == 'POST' && path.endsWith('/melting-renewal')) {
           sent.add(jsonDecode(request.body) as Map<String, dynamic>);
           return http.Response(
@@ -150,8 +179,6 @@ void main() {
         }
         final body = path.endsWith('/safe-boxes/balances')
             ? (safes ?? _safes)
-            : path.endsWith('/accounts')
-            ? _accounts
             : path.endsWith('/stones-balance')
             ? {'safes': []}
             : <String, dynamic>{};
@@ -198,11 +225,10 @@ void main() {
         '1.5',
       );
       await typeWage(tester);
-      await tester.tap(find.text('حساب مصروف المصنعية'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.textContaining('مصروف مصنعية تالفة').last);
-      await tester.pumpAndSettle();
       await execute(tester);
+      // The confirmation is the server's entry (ت2).
+      expect(find.textContaining('مصنعية تالفة (الدور)'), findsOneWidget);
+      expect(find.textContaining('مدين'), findsWidgets);
       await tester.tap(find.widgetWithText(FilledButton, 'تأكيد التكسير'));
       await tester.pumpAndSettle();
     });
@@ -213,20 +239,27 @@ void main() {
     expect(find.text('عرض السند'), findsOneWidget);
   });
 
-  testWidgets('a wage without its account is not sent', (tester) async {
-    // The server drops a wage that names no account, unsaid, while the
-    // confirmation showed it.
-    final sent = await run(tester, () async {
-      await tester.enterText(
-        find.widgetWithText(TextFormField, '0.000').first,
-        '2',
-      );
-      await typeWage(tester);
-      await execute(tester);
-    });
+  testWidgets('a wage with its role unmapped is said and nothing is sent', (
+    tester,
+  ) async {
+    // The wage's account is its role's (ت2): unmapped, the server's preview
+    // refuses saying where it is set, and the operation is not sent.
+    const said = 'حساب «المصنعية التالفة بالتكسير» غير مربوط';
+    final sent = await run(
+      previewRefusal: {'error': 'account_not_mapped', 'message': said},
+      tester,
+      () async {
+        await tester.enterText(
+          find.widgetWithText(TextFormField, '0.000').first,
+          '2',
+        );
+        await typeWage(tester);
+        await execute(tester);
+      },
+    );
 
     expect(sent, isEmpty);
-    expect(find.text('اختر حساب مصروف المصنعية'), findsOneWidget);
+    expect(find.textContaining(said), findsOneWidget);
     expect(find.text('تأكيد التكسير'), findsNothing);
   });
 
@@ -251,46 +284,58 @@ void main() {
     expect(find.textContaining('عيار 21k'), findsOneWidget);
   });
 
-  testWidgets('melting goes to a scrap safe by its kind, not a name with «كسر»', (
-    tester,
-  ) async {
-    // ت1: the target was the first safe whose name held «كسر» -- here a
-    // showroom. A showroom is no melting's target; the scrap safe is.
-    Map<String, dynamic> safe(int id, String name, String location, double g21) => {
-      'id': id,
-      'name': name,
-      'safe_type': 'gold',
-      'stock_location': location,
-      'account_id': 700 + id,
-      'balance': {
-        'cash': 0.0,
-        'weight': {'18k': 0.0, '21k': g21, '22k': 0.0, '24k': 0.0, 'total': g21},
-      },
-    };
-    final sent = await run(
-      safes: {
-        'rows': [
-          safe(3, 'معرض الكسر القديم', 'showroom', 10.0),
-          safe(1, 'الذهب المعروض', 'showroom', 10.0),
-          safe(2, 'الخزينة الرئيسية', 'scrap', 0.0),
-        ],
-      },
-      tester,
-      () async {
-        await tester.enterText(
-          find.widgetWithText(TextFormField, '0.000').first,
-          '2',
-        );
-        await execute(tester);
-        await tester.tap(find.widgetWithText(FilledButton, 'تأكيد التكسير'));
-        await tester.pumpAndSettle();
-      },
-    );
+  testWidgets(
+    'melting goes to a scrap safe by its kind, not a name with «كسر»',
+    (tester) async {
+      // ت1: the target was the first safe whose name held «كسر» -- here a
+      // showroom. A showroom is no melting's target; the scrap safe is.
+      Map<String, dynamic> safe(
+        int id,
+        String name,
+        String location,
+        double g21,
+      ) => {
+        'id': id,
+        'name': name,
+        'safe_type': 'gold',
+        'stock_location': location,
+        'account_id': 700 + id,
+        'balance': {
+          'cash': 0.0,
+          'weight': {
+            '18k': 0.0,
+            '21k': g21,
+            '22k': 0.0,
+            '24k': 0.0,
+            'total': g21,
+          },
+        },
+      };
+      final sent = await run(
+        safes: {
+          'rows': [
+            safe(3, 'معرض الكسر القديم', 'showroom', 10.0),
+            safe(1, 'الذهب المعروض', 'showroom', 10.0),
+            safe(2, 'الخزينة الرئيسية', 'scrap', 0.0),
+          ],
+        },
+        tester,
+        () async {
+          await tester.enterText(
+            find.widgetWithText(TextFormField, '0.000').first,
+            '2',
+          );
+          await execute(tester);
+          await tester.tap(find.widgetWithText(FilledButton, 'تأكيد التكسير'));
+          await tester.pumpAndSettle();
+        },
+      );
 
-    expect(sent, hasLength(1));
-    expect(sent.single['from_safe_box_id'], 3);
-    expect(sent.single['to_safe_box_id'], 2);
-  });
+      expect(sent, hasLength(1));
+      expect(sent.single['from_safe_box_id'], 3);
+      expect(sent.single['to_safe_box_id'], 2);
+    },
+  );
 
   testWidgets('the server\'s warning is said, not dropped', (tester) async {
     // What the server warns of is said; the screen showed «تم بنجاح» alone.

@@ -5370,32 +5370,78 @@ class ApiService {
     required int fromSafeBoxId,
     required int toSafeBoxId,
     required List<MeltingRenewalLine> lines,
-    int? stonesRevenueAccountId,
-    int? stonesExpenseAccountId,
     double? damageWageAmount,
-    int? damageWageAccountId,
     String? notes,
+  }) => _postMeltingRenewal(
+    '/melting-renewal',
+    _meltingRenewalPayload(
+      operationType: operationType,
+      fromSafeBoxId: fromSafeBoxId,
+      toSafeBoxId: toSafeBoxId,
+      lines: lines,
+      damageWageAmount: damageWageAmount,
+      notes: notes,
+    ),
+    fallback: 'تعذّر تسجيل العملية',
+  );
+
+  /// The operation's entry before it is saved (ت2): the server builds it with
+  /// the same code and keeps nothing -- `{preview, lines}`, each line its
+  /// account (number and name), side, amount type, amount and karat. It
+  /// refuses as the operation refuses.
+  Future<Map<String, dynamic>> previewMeltingRenewal({
+    required String operationType,
+    required int fromSafeBoxId,
+    required int toSafeBoxId,
+    required List<MeltingRenewalLine> lines,
+    double? damageWageAmount,
+    String? notes,
+  }) => _postMeltingRenewal(
+    '/melting-renewal/preview',
+    _meltingRenewalPayload(
+      operationType: operationType,
+      fromSafeBoxId: fromSafeBoxId,
+      toSafeBoxId: toSafeBoxId,
+      lines: lines,
+      damageWageAmount: damageWageAmount,
+      notes: notes,
+    ),
+    fallback: 'تعذّر عرض القيد',
+  );
+
+  // The damaged wage's account is its role's, set in «الربط المحاسبي» (ت2);
+  // the stones' accounts went with the stones' gold lines (ت1).
+  Map<String, dynamic> _meltingRenewalPayload({
+    required String operationType,
+    required int fromSafeBoxId,
+    required int toSafeBoxId,
+    required List<MeltingRenewalLine> lines,
+    double? damageWageAmount,
+    String? notes,
+  }) => <String, dynamic>{
+    'operation_type': operationType,
+    'from_safe_box_id': fromSafeBoxId,
+    'to_safe_box_id': toSafeBoxId,
+    'lines': [
+      for (final l in lines)
+        {
+          'karat': l.karat,
+          'gold_weight': l.goldWeight,
+          if (l.stonesWeight > 0) 'stones_weight': l.stonesWeight,
+        },
+    ],
+    if (damageWageAmount != null && damageWageAmount > 0)
+      'damage_wage_amount': damageWageAmount,
+    if (notes != null && notes.isNotEmpty) 'notes': notes,
+  };
+
+  Future<Map<String, dynamic>> _postMeltingRenewal(
+    String path,
+    Map<String, dynamic> payload, {
+    required String fallback,
   }) async {
-    final payload = <String, dynamic>{
-      'operation_type': operationType,
-      'from_safe_box_id': fromSafeBoxId,
-      'to_safe_box_id': toSafeBoxId,
-      'lines': [
-        for (final l in lines)
-          {
-            'karat': l.karat,
-            'gold_weight': l.goldWeight,
-            if (l.stonesWeight > 0) 'stones_weight': l.stonesWeight,
-          },
-      ],
-      if (stonesRevenueAccountId != null) 'stones_revenue_account_id': stonesRevenueAccountId,
-      if (stonesExpenseAccountId != null) 'stones_expense_account_id': stonesExpenseAccountId,
-      if (damageWageAmount != null && damageWageAmount > 0) 'damage_wage_amount': damageWageAmount,
-      if (damageWageAccountId != null) 'damage_wage_account_id': damageWageAccountId,
-      if (notes != null && notes.isNotEmpty) 'notes': notes,
-    };
     final response = await _authedPost(
-      Uri.parse('$_baseUrl/melting-renewal'),
+      Uri.parse('$_baseUrl$path'),
       headers: {'Content-Type': 'application/json; charset=UTF-8'},
       body: json.encode(payload),
     );
@@ -5405,7 +5451,7 @@ class ApiService {
       if (decoded is Map<String, dynamic>) return decoded;
       return <String, dynamic>{'raw': decoded};
     }
-    throw _apiError(response, fallback: 'تعذّر تسجيل العملية');
+    throw _apiError(response, fallback: fallback);
   }
 
   Future<Map<String, dynamic>> correctSafeBoxKarat({

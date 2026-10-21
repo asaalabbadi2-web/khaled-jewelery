@@ -69,7 +69,14 @@ def capitalized_wages(monkeypatch):
     inventory = _account('9', 'مخزون أجور المصنعية', type='Asset')
     monkeypatch.setattr(system_routes, 'wages_are_capitalized', lambda mode: True)
     monkeypatch.setattr(system_routes, '_get_manufacturing_wage_inventory_account_id', lambda: inventory.id)
-    return _account('5', 'مصروف مصنعية تالفة', type='Expense')
+    # The damaged wage's account is its role's (ت2), not one the request names.
+    from accounting.mappings import DEFAULT_MAPPING_OPERATION_TYPE
+    from models import AccountingMapping
+    wage = _account('5', 'مصروف مصنعية تالفة', type='Expense')
+    db.session.add(AccountingMapping(operation_type=DEFAULT_MAPPING_OPERATION_TYPE,
+                                     account_type='melting_damaged_wage', account_id=wage.id, is_active=True))
+    db.session.flush()
+    return wage
 
 
 def _post(headers, body):
