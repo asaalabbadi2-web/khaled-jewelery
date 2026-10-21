@@ -538,7 +538,9 @@ class _VoucherDetailsScreenState extends State<VoucherDetailsScreen> {
         }
       }
     }
-    return 21.0;
+    // A gold line has its karat (the server refuses one without); else the
+    // settings' main karat, never a fixed 21.
+    return context.read<SettingsProvider>().mainKarat.toDouble();
   }
 
   @override

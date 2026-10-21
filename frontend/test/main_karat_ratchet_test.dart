@@ -19,6 +19,7 @@ final ratchet = SourceRatchet(
     r"[mM]ain_?[kK]arat\w*\s*(=|\?\?|:)\s*'?21\b"
     r"|main_karat'\][^;\n]{0,40}\?\?\s*'?21\b"
     r'|\?\s*21(\.0)?\s*:'
+    r'|\breturn\s+21(\.0)?\s*;'
     r'|/\s*21(\.0)?\b',
   ),
   baselinePath: 'test/main_karat_baseline.json',
@@ -38,6 +39,8 @@ void main() {
     expect(n("g['main_karat']?.toString() ?? '21';"), 1);
     expect(n('this.mainKarat = 21,'), 1);
     expect(n('final main = k <= 0 ? 21.0 : k;'), 1);
+    expect(n('if (value <= 0) return 21;'), 1);
+    expect(n('    return 21.0;'), 1);
     expect(n('w18 * (18.0 / 21.0)'), 1);
     expect(n('w21 * (21.0 / main)'), 0);
     expect(n('weight * 21 / mainKarat'), 0);

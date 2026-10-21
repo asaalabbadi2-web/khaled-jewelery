@@ -1176,35 +1176,19 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
     if (mounted) Navigator.of(context).pop();
   }
 
+  // The settings' own -- no fixed rate, karat or exempt set stands in for
+  // them (the owner, 20 Oct 2026: «يمنع استخدام عيار ثابت»; a 15% rate and
+  // {24} were the same kind of guess).
   double _vatRateFromSettings() {
     if (!_vatApplied) return 0.0;
-    try {
-      final settings = context.read<SettingsProvider>();
-      return settings.taxEnabled ? settings.taxRate : 0.0;
-    } catch (_) {
-      return 0.15;
-    }
+    final settings = context.read<SettingsProvider>();
+    return settings.taxEnabled ? settings.taxRate : 0.0;
   }
 
-  int _mainKaratFromSettings() {
-    try {
-      final settings = context.read<SettingsProvider>();
-      final value = settings.mainKarat;
-      if (value <= 0) return 21;
-      return value;
-    } catch (_) {
-      return 21;
-    }
-  }
+  int _mainKaratFromSettings() => context.read<SettingsProvider>().mainKarat;
 
-  Set<int> _vatExemptKaratsFromSettings() {
-    try {
-      final settings = context.read<SettingsProvider>();
-      return settings.vatExemptKarats.toSet();
-    } catch (_) {
-      return {24};
-    }
-  }
+  Set<int> _vatExemptKaratsFromSettings() =>
+      context.read<SettingsProvider>().vatExemptKarats.toSet();
 
   String _selectedSupplierDefaultWageType() {
     final selectedId = _selectedSupplierId;
