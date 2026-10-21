@@ -1,6 +1,5 @@
 {
   "lib/api_service.dart": 3,
-  "lib/features/invoice/providers/invoice_form_controller.dart": 1,
   "lib/screens/account_ledger_screen.dart": 1,
   "lib/screens/accounting_mapping_screen_enhanced.dart": 2,
   "lib/screens/add_customer_screen.dart": 1,
