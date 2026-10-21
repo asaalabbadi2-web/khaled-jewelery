@@ -51,10 +51,22 @@ def _main_karat() -> float:
     from pricing.gold_price_service import get_main_karat
     return float(get_main_karat())
 
-# Which accounts are which pool -- by the tree, under roles (a policy: data, not
-# law). They were numbers here (71300; 71310, 7210; 512, 1310; 7120; 74; 752;
-# 751; 7420; 71, 72; 73; 510): each is a role's account or its linked weight
-# twin, the subtree under it (CHART-002 release 5).
+def _safes_of(pool: str) -> set[int]:
+    """The weight accounts of the gold safes whose stock location is in *pool*
+    (COST_POOL_OF_LOCATION) -- active or not: a balance is a balance."""
+    from models import COST_POOL_OF_LOCATION, SafeBox
+    locations = [loc for loc, p in COST_POOL_OF_LOCATION.items() if p == pool]
+    return {int(a) for (a,) in db.session.query(SafeBox.account_id)
+            .filter(SafeBox.safe_type == 'gold', SafeBox.stock_location.in_(locations)).all()}
+
+
+# Which accounts are which pool. The pools' gold is its safes by their stock
+# location (ADR-045; the owner, 21 Oct 2026 -- it was the tree under 1300's and
+# 1310's weight twins, which left out the offices' deposits) and the pool's
+# stock weight account itself; the gold owed to the worked-gold suppliers
+# counts out of the scrap. The rest are roles (a
+# policy: data, not law) -- a role's account or its linked weight twin, the
+# subtree under it (CHART-002 release 5).
 def pool_accounts() -> dict[str, set[int]]:
     from accounting.chart_tree import (
         ASSETS_ROOT, COST_OF_SALES_ROOT, CUSTOMER_RECEIVABLES_ROOT, EQUITY_ROOT, LIABILITIES_ROOT,
@@ -64,13 +76,22 @@ def pool_accounts() -> dict[str, set[int]]:
     def own(operation, role):
         return subtree_ids(require_account(operation, role))
 
+    def own_twin(operation, role):
+        # the pool's stock weight account itself: gold posted on it is the
+        # pool's, in no safe (2026's office reservations staged there)
+        twin_account = twin_id(require_account(operation, role))
+        return {int(twin_account)} if twin_account else set()
+
     def twin(operation, role):
         twin_account = twin_id(require_account(operation, role))
         return subtree_ids(twin_account) if twin_account else set()
 
     return {
-        'worked': twin(DEFAULT, 'gold_inventory_new'),
-        'scrap': twin(DEFAULT, 'gold_inventory_scrap') | twin_subtree_ids(WORKED_GOLD_SUPPLIERS_ROOT),
+        'worked': _safes_of('worked') | own_twin(DEFAULT, 'gold_inventory_new'),
+        'scrap': _safes_of('scrap') | own_twin(DEFAULT, 'gold_inventory_scrap') | twin_subtree_ids(WORKED_GOLD_SUPPLIERS_ROOT),
+        # where each pool's value is: its financial stock account (1300, 1310)
+        'worked_value': own(DEFAULT, 'gold_inventory_new'),
+        'scrap_value': own(DEFAULT, 'gold_inventory_scrap'),
         # where a purchase's price is debited
         'purchase_cash': own('شراء من عميل', 'purchases_gold_scrap') | own(DEFAULT, 'gold_inventory_scrap'),
         'customers': twin_subtree_ids(CUSTOMER_RECEIVABLES_ROOT),
@@ -353,20 +374,52 @@ def replay(*, opening_price: float, since: date | None = None, until: date | Non
     return out
 
 
+def _ledger_sums(ids: set[int], until: datetime | None) -> tuple[float, float]:
+    """The posted balance of *ids*: (main-karat grams, riyals), entries before *until*."""
+    from accounting.balances import counted_line_filters
+    main = _main_karat()
+    grams = sum((func.coalesce(func.sum(getattr(JournalEntryLine, f'debit_{k}k')), 0.0)
+                 - func.coalesce(func.sum(getattr(JournalEntryLine, f'credit_{k}k')), 0.0)) * k / main
+                for k in KARATS)
+    riyals = (func.coalesce(func.sum(JournalEntryLine.cash_debit), 0.0)
+              - func.coalesce(func.sum(JournalEntryLine.cash_credit), 0.0))
+    query = (db.session.query(grams, riyals).join(JournalEntry, JournalEntry.id == JournalEntryLine.journal_entry_id)
+             .filter(*counted_line_filters(), JournalEntryLine.account_id.in_(ids or {-1})))
+    if until is not None:
+        query = query.filter(JournalEntry.date < until)
+    g, r = query.one()
+    return float(g or 0.0), float(r or 0.0)
+
+
+@dataclass(frozen=True)
+class PoolState:
+    weight: float      # main-karat grams
+    value: float       # riyals
+
+    @property
+    def average(self) -> float | None:
+        """The value over the weight -- a short pool keeps its average (both
+        below zero); None when the pool is empty: there is no average to take."""
+        return self.value / self.weight if abs(self.weight) > EPS else None
+
+
+def pool_state(name: str, *, until: datetime | None = None) -> PoolState:
+    """A pool as the ledger holds it (ADR-042 phase 3; the owner, 21 Oct 2026):
+    its weight on its safes and its suppliers' gold, its value on its financial
+    stock account -- the one reader of the average a posting takes. Before
+    *until* when given, else all that is posted."""
+    if name not in ('worked', 'scrap'):
+        raise ValueError(f'no such pool: {name}')
+    pools = pool_accounts()
+    weight, _ = _ledger_sums(pools[name], until)
+    _, value = _ledger_sums(pools[f'{name}_value'], until)
+    return PoolState(weight=weight, value=value)
+
+
 def ledger_weights() -> dict:
     """Each pool's weight as the books say it -- the replay must end on it."""
-    from accounting.balances import counted_line_filters
-    result = {}
     pools = pool_accounts()
-    main = _main_karat()
-    for name in ('scrap', 'worked'):
-        ids = pools[name]
-        expr = sum((func.coalesce(func.sum(getattr(JournalEntryLine, f'debit_{k}k')), 0.0)
-                    - func.coalesce(func.sum(getattr(JournalEntryLine, f'credit_{k}k')), 0.0)) * k / main
-                   for k in KARATS)
-        result[name] = float(db.session.query(expr).join(JournalEntry, JournalEntry.id == JournalEntryLine.journal_entry_id)
-                             .filter(*counted_line_filters(), JournalEntryLine.account_id.in_(ids or {-1})).scalar() or 0.0)
-    return result
+    return {name: _ledger_sums(pools[name], None)[0] for name in ('scrap', 'worked')}
 
 
 def gross_by_month(result: Replay) -> dict[str, dict]:

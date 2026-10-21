@@ -99,6 +99,15 @@ def _stock_pair(role):
     return stock, twin
 
 
+def _located(account, location):
+    """A pool's gold is its safes by their stock location (the owner, 21 Oct 2026)."""
+    from models import SafeBox
+    db.session.add(SafeBox(name=f'{account.name} {uuid.uuid4().hex[:4]}', safe_type='gold', account_id=account.id,
+                           stock_location=location, is_active=True))
+    db.session.flush()
+    return account
+
+
 def _role_twin(role):
     from accounting.chart_tree import role_account_id, twin_id
     return db.session.get(Account, twin_id(role_account_id(role)))
@@ -110,8 +119,8 @@ def books():
     stock_worked, worked_twin = _stock_pair('gold_inventory_new')
     stock_scrap, scrap_twin = _stock_pair('gold_inventory_scrap')
     b = {
-        'display': _child(worked_twin, 'معروض اختبار'),
-        'scrap_safe': _child(scrap_twin, 'صندوق كسر اختبار'),
+        'display': _located(_child(worked_twin, 'معروض اختبار'), 'showroom'),
+        'scrap_safe': _located(_child(scrap_twin, 'صندوق كسر اختبار'), 'scrap'),
         'supplier': _child(_role_twin('worked_gold_suppliers_root'), 'مورد اختبار وزني', kind='Liability'),
         'customer': _child(_role_twin('customer_receivables_root'), 'عميل اختبار وزني'),
         'party': _child(_account('71', weight=True), 'موظف اختبار وزني'),

@@ -4208,6 +4208,14 @@ STOCK_LOCATIONS = ('showroom', 'custody', 'scrap', 'workshop', 'transit', 'depos
 # The stock gold read as scrap: raw, not pieces (the scrap/new report).
 SCRAP_LOCATIONS = ('scrap', 'deposit')
 
+# The cost pool each location's gold is in (ADR-042; the owner, 11 and 21 Oct
+# 2026): the worked gold is what is sold as pieces -- the showroom, and a piece
+# at a workshop or in transit, still a piece; the scrap pool is the scrap, the
+# employees' custody and the gold deposited with offices. Not SCRAP_LOCATIONS:
+# a custody holds scrap bought from customers, costed with it.
+COST_POOL_OF_LOCATION = {'showroom': 'worked', 'workshop': 'worked', 'transit': 'worked',
+                         'scrap': 'scrap', 'custody': 'scrap', 'deposit': 'scrap'}
+
 # The stock no one counts on the shop's floor: a deposit is confirmed by the
 # office's statement, counted on its own -- never zeroed by a count of all.
 UNCOUNTED_WITH_ALL = ('deposit',)

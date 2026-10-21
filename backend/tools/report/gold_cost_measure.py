@@ -27,7 +27,7 @@ def main(argv=None):
     args = ap.parse_args(argv)
 
     from app import app
-    from services.gold_cost import books_start, gross_by_month, ledger_weights, market_average_price, replay
+    from services.gold_cost import books_start, gross_by_month, ledger_weights, market_average_price, pool_state, replay
 
     with app.app_context():
         if args.opening_price is None:
@@ -55,6 +55,11 @@ def main(argv=None):
         for name, pool in result.pools.items():
             print(f'{name}: {pool.weight:,.3f} g · {pool.value:,.2f} · average {pool.avg:,.2f} '
                   f'(the books: {books[name]:,.3f} g)')
+            # what a posting would read from the ledger (phase 3) -- right only
+            # on books whose every movement wrote its value (2027's)
+            held = pool_state(name)
+            average = f'{held.average:,.2f}' if held.average is not None else '--'
+            print(f'    the ledger: {held.weight:,.3f} g · {held.value:,.2f} · average {average}')
         total = lambda f: sum(getattr(m, f) for m in result.months.values())
         print(f'gold charged to expenses: {-total("expense_g"):,.3f} g, {-total("expense_value"):,.2f}')
         print(f'gold with parties (a receivable, not a cost): {-total("receivables_g"):,.3f} g, '

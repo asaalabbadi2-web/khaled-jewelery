@@ -116,11 +116,20 @@ def _role_twin(role):
     return db.session.get(Account, twin_id(role_account_id(role)))
 
 
+def _located(account, location):
+    """A pool's gold is its safes by their stock location (the owner, 21 Oct 2026)."""
+    from models import SafeBox
+    db.session.add(SafeBox(name=f'{account.name} {uuid.uuid4().hex[:4]}', safe_type='gold', account_id=account.id,
+                           stock_location=location, is_active=True))
+    db.session.flush()
+    return account
+
+
 @pytest.fixture
 def books():
     return {
-        'display': _child(_stock_twin('gold_inventory_new'), 'معروض اختبار'),
-        'scrap_safe': _child(_stock_twin('gold_inventory_scrap'), 'صندوق كسر اختبار'),
+        'display': _located(_child(_stock_twin('gold_inventory_new'), 'معروض اختبار'), 'showroom'),
+        'scrap_safe': _located(_child(_stock_twin('gold_inventory_scrap'), 'صندوق كسر اختبار'), 'scrap'),
         'supplier': _child(_role_twin('worked_gold_suppliers_root'), 'مورد اختبار وزني'),
         'customer': _child(_role_twin('customer_receivables_root'), 'عميل اختبار وزني'),
         'twin': _child(_account('7512'), 'مشتريات وزني اختبار'),
