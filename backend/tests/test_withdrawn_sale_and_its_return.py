@@ -302,7 +302,7 @@ def test_a_return_counts_in_its_own_period_against_the_seller(auth_headers, worl
     """The bonus and the goals find a seller's returns by the return's date --
     the period it is made in -- and by the original's seller."""
     from datetime import datetime, timedelta
-    from points.engine import sale_returns_against
+    from points.engine import returns_against
     sale = _paid_sale(auth_headers, world)
     _sold_by(sale, world['holder'].id)
     returner = _seller_and_another()
@@ -311,10 +311,10 @@ def test_a_return_counts_in_its_own_period_against_the_seller(auth_headers, worl
     now = datetime.now()
     window = (now - timedelta(days=1), now + timedelta(days=1))
 
-    found = sale_returns_against(lambda o: o.employee_id == world['holder'].id, *window)
+    found = returns_against(lambda o: o.employee_id == world['holder'].id, *window)
     assert ret['id'] in {r.id for r in found}
-    assert ret['id'] not in {r.id for r in sale_returns_against(lambda o: o.employee_id == returner.id, *window)}
-    assert not sale_returns_against(lambda o: o.employee_id == world['holder'].id,
+    assert ret['id'] not in {r.id for r in returns_against(lambda o: o.employee_id == returner.id, *window)}
+    assert not returns_against(lambda o: o.employee_id == world['holder'].id,
                                     now + timedelta(days=2), now + timedelta(days=3))
 
 

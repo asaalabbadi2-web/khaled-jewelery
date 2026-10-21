@@ -374,17 +374,17 @@ class BonusCalculator:
             attr_filter,
         )).all()
 
-        # A sale return made in this period takes back the points of the sale it
-        # returns, from the one who sold it (the owner, 10 Oct 2026). Bonuses of
-        # earlier periods stay as they were paid.
-        from points.engine import sale_returns_against
+        # A return made in this period takes back the points of what it returns,
+        # from the one who sold or bought it (the owner, 10 Oct 2026; purchases
+        # 22 Oct 2026). Bonuses of earlier periods stay as they were paid.
+        from points.engine import returns_against
 
         def _sold_by(original):
             if username:
                 return or_(original.employee_id == employee.id, original.posted_by == username)
             return original.employee_id == employee.id
 
-        invoices += sale_returns_against(_sold_by, start_dt, end_dt, end_inclusive=True)
+        invoices += returns_against(_sold_by, start_dt, end_dt, end_inclusive=True)
 
         # ── Resolve engine parameters from race settings (single source of truth) ──
         race_cfg            = get_race_points_config()

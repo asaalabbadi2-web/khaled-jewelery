@@ -12,6 +12,14 @@ from __future__ import annotations
 
 
 SALE_RETURN = 'مرتجع بيع'
+PURCHASE_RETURN = 'مرتجع شراء'
+# A return and what it returns: each takes back its original's points (the
+# owner: a sale's, 10 Oct 2026; a customer purchase's, 22 Oct 2026).
+RETURNS = {SALE_RETURN: 'بيع', PURCHASE_RETURN: 'شراء من عميل'}
+
+
+def is_return(inv) -> bool:
+    return str(getattr(inv, 'invoice_type', '') or '').strip() in RETURNS
 
 
 def _weight_main(inv, mk: float) -> float:
@@ -38,11 +46,12 @@ def returned_share(ret, original, main_karat: float | None = None) -> float:
     return min(1.0, max(0.0, rt / ot)) if ot > 0 else 1.0
 
 
-def sale_returns_against(sale_filter, start_dt, end_dt, *, end_inclusive: bool = False) -> list:
-    """Posted sale returns dated in [start_dt, end_dt) whose ORIGINAL sale
-    matches *sale_filter* -- a function of the original's Invoice alias giving
-    the condition that names the actor (the owner, 10 Oct 2026: a return takes
-    its points back in the period it is made, from the one who sold)."""
+def returns_against(original_filter, start_dt, end_dt, *, end_inclusive: bool = False) -> list:
+    """Posted returns -- of sales and of customer purchases -- dated in
+    [start_dt, end_dt) whose ORIGINAL matches *original_filter*: a function of
+    the original's Invoice alias giving the condition that names the actor (the
+    owner, 10 Oct 2026: a return takes its points back in the period it is
+    made, from the one who sold; 22 Oct 2026: and from the one who bought)."""
     from sqlalchemy import and_
     from sqlalchemy.orm import aliased
     from models import Invoice
@@ -50,11 +59,11 @@ def sale_returns_against(sale_filter, start_dt, end_dt, *, end_inclusive: bool =
     upper = Invoice.date <= end_dt if end_inclusive else Invoice.date < end_dt
     return (Invoice.query
             .join(original, original.id == Invoice.original_invoice_id)
-            .filter(and_(Invoice.invoice_type == SALE_RETURN,
+            .filter(and_(Invoice.invoice_type.in_(tuple(RETURNS)),
                          Invoice.is_posted.is_(True),
                          Invoice.date >= start_dt, upper,
                          original.is_posted.is_(True),
-                         sale_filter(original)))
+                         original_filter(original)))
             .all())
 
 
@@ -70,16 +79,17 @@ def compute_invoices_points(
 ) -> float:
     """Return total points for a pre-filtered list of invoices (single actor).
 
-    A sale return in the list takes back the points of the sale it returns, in
-    the share it returns (returned_share) -- the original's points, scored by
-    this same formula, negative. Points earned before stay where they were
-    paid: the return counts in its own period (the owner, 10 Oct 2026).
+    A return in the list -- of a sale or of a customer purchase -- takes back
+    the points of what it returns, in the share it returns (returned_share):
+    the original's points, scored by this same formula, negative. Points earned
+    before stay where they were paid: the return counts in its own period (the
+    owner, 10 Oct 2026; purchases, 22 Oct 2026).
     """
     kwargs = dict(points_source=points_source, cash_amount_per_point=cash_amount_per_point,
                   points_per_gram=points_per_gram, point_rules=point_rules,
                   main_karat=main_karat, points_per_invoice=points_per_invoice)
-    returns = [i for i in invoices if str(getattr(i, 'invoice_type', '') or '').strip() == SALE_RETURN]
-    others = [i for i in invoices if str(getattr(i, 'invoice_type', '') or '').strip() != SALE_RETURN]
+    returns = [i for i in invoices if is_return(i)]
+    others = [i for i in invoices if not is_return(i)]
     total = _points_of(others, **kwargs) if others else 0.0
     for ret in returns:
         original = getattr(ret, 'original_invoice', None)

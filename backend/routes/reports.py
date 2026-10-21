@@ -1727,7 +1727,8 @@ def get_home_leaderboard():
                     0.0,
                 ).label('sales_total'),
                 func.coalesce(
-                    func.sum(case((Invoice.invoice_type == 'شراء من عميل', Invoice.total), else_=0.0)),
+                    func.sum(case((Invoice.invoice_type == 'شراء من عميل', Invoice.total),
+                                  (Invoice.invoice_type == 'مرتجع شراء', -Invoice.total), else_=0.0)),
                     0.0,
                 ).label('purchase_total'),
                 func.coalesce(
@@ -1746,7 +1747,7 @@ def get_home_leaderboard():
             )
             .filter(
                 Invoice.is_posted.is_(True),
-                Invoice.invoice_type.in_(['بيع', 'شراء من عميل', 'مرتجع بيع']),
+                Invoice.invoice_type.in_(['بيع', 'شراء من عميل', 'مرتجع بيع', 'مرتجع شراء']),
                 Invoice.date >= start_dt,
                 Invoice.date < end_dt,
             )

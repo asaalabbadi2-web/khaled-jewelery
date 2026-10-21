@@ -34,9 +34,10 @@ class PointsMetric(RaceMetric):
 
     @property
     def invoice_types(self) -> list[str]:
-        # A sale return takes its sale's points back in its own period, from the
-        # one who sold (the owner, 10 Oct 2026).
-        return ['بيع', 'شراء من عميل', 'مرتجع بيع']
+        # A return takes its original's points back in its own period: a sale's
+        # from the one who sold (the owner, 10 Oct 2026), a purchase's from the
+        # one who bought (22 Oct 2026).
+        return ['بيع', 'شراء من عميل', 'مرتجع بيع', 'مرتجع شراء']
 
     @property
     def require_employee_id(self) -> bool:
@@ -121,7 +122,8 @@ class PointsMetric(RaceMetric):
 
     @staticmethod
     def _is_return(inv) -> bool:
-        return str(getattr(inv, 'invoice_type', '') or '').strip() == 'مرتجع بيع'
+        from points.engine import is_return
+        return is_return(inv)
 
     @staticmethod
     def _infer_actor(inv) -> tuple[int, str] | None:
@@ -194,8 +196,12 @@ class PointsMetric(RaceMetric):
             inv_total = float(getattr(inv, 'total', 0.0) or 0.0)
             if self._is_return(inv):
                 counts.setdefault(aid, 0)
-                sales_amount[aid] = sales_amount.get(aid, 0.0) - inv_total
-                actor_sales_invs.setdefault(aid, []).append(inv)
+                if self._is_purchase(getattr(inv, 'original_invoice', None)):
+                    purchase_amount[aid] = purchase_amount.get(aid, 0.0) - inv_total
+                    actor_purchase_invs.setdefault(aid, []).append(inv)
+                else:
+                    sales_amount[aid] = sales_amount.get(aid, 0.0) - inv_total
+                    actor_sales_invs.setdefault(aid, []).append(inv)
                 continue
             counts[aid] = counts.get(aid, 0) + 1
 
