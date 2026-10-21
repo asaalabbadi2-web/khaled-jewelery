@@ -22,6 +22,16 @@ from datetime import datetime
 
 from models import Customer, Invoice, InvoicePayment, PaymentMethod, Settings, db
 
+import pytest
+
+@pytest.fixture(autouse=True)
+def _behind_the_fence(db_fence):
+    """Its commits stay in the test (TEST-003): brought under tests/ from the
+    root, where the gate never ran it and what it wrote stayed in the run's
+    database."""
+    yield
+
+
 
 def _allow_partial_payments():
     """add_invoice_payment rejects a partial amount unless

@@ -9,6 +9,16 @@ from flask import Flask
 from models import db, Item
 from routes import create_item_from_invoice_payload, InlineItemCreationError
 
+import pytest
+
+@pytest.fixture(autouse=True)
+def _behind_the_fence(db_fence):
+    """Its commits stay in the test (TEST-003): brought under tests/ from the
+    root, where the gate never ran it and what it wrote stayed in the run's
+    database."""
+    yield
+
+
 
 class InlineItemCreationTestCase(unittest.TestCase):
     def setUp(self):

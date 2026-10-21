@@ -3,6 +3,16 @@ from datetime import datetime
 from app import app
 from models import db, Account, Customer, Employee, Invoice, PaymentMethod, SafeBox
 
+import pytest
+
+@pytest.fixture(autouse=True)
+def _behind_the_fence(db_fence):
+    """Its commits stay in the test (TEST-003): brought under tests/ from the
+    root, where the gate never ran it and what it wrote stayed in the run's
+    database."""
+    yield
+
+
 
 def _ensure_cash_payment_method() -> PaymentMethod:
     safe_box = SafeBox.query.filter_by(name='خزينة اختبار نقدية').first()

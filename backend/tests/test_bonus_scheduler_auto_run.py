@@ -23,6 +23,15 @@ from bonus_scheduler import BonusScheduler
 from models import BonusCalculationLog, BonusRule, Employee, EmployeeBonus, db
 
 
+@pytest.fixture(autouse=True)
+def _behind_the_fence(db_fence):
+    """Its commits stay in the test (TEST-003): brought under tests/ from the
+    root, where the gate never ran it and what it wrote stayed in the run's
+    database."""
+    yield
+
+
+
 @pytest.fixture
 def scheduler_employee_and_rule():
     """موظف وقاعدة مخصّصان لهذا الملف — لا اعتماد على بيانات بيئة أخرى."""

@@ -3,6 +3,16 @@ from datetime import datetime
 from app import app
 from models import db, Employee, Invoice
 
+import pytest
+
+@pytest.fixture(autouse=True)
+def _behind_the_fence(db_fence):
+    """Its commits stay in the test (TEST-003): brought under tests/ from the
+    root, where the gate never ran it and what it wrote stayed in the run's
+    database."""
+    yield
+
+
 
 def _create_posted_invoice(
     *,

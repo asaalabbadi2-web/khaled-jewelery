@@ -12,6 +12,16 @@ import requests
 import json
 from datetime import datetime
 
+import pytest
+
+@pytest.fixture(autouse=True)
+def _behind_the_fence(db_fence):
+    """Its commits stay in the test (TEST-003): brought under tests/ from the
+    root, where the gate never ran it and what it wrote stayed in the run's
+    database."""
+    yield
+
+
 BASE_URL = "http://127.0.0.1:8001/api"
 
 def test_manual_entry_without_golden_rule():

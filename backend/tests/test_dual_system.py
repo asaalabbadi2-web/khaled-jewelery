@@ -6,6 +6,16 @@ from models import Account, JournalEntry
 from dual_system_helpers import create_dual_journal_entry, verify_dual_balance, get_account_balances
 from datetime import datetime
 
+import pytest
+
+@pytest.fixture(autouse=True)
+def _behind_the_fence(db_fence):
+    """Its commits stay in the test (TEST-003): brought under tests/ from the
+    root, where the gate never ran it and what it wrote stayed in the run's
+    database."""
+    yield
+
+
 def test_dual_system_sale():
     """
     اختبار: بيع 2 جم عيار 24 @ 500 ر.س/جم = 1000 ر.س

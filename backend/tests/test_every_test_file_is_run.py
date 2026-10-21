@@ -1,7 +1,7 @@
 """Every test file is run by the gate (20 Oct 2026).
 
 `pytest` runs `testpaths` (pytest.ini): tests/ and a list of root files. 42
-root test files were in neither -- written, never run by the gate, and 17 of
+root test files were in neither -- written, never run by the gate, and 18 of
 them had gone red unseen. One of those held the performance race's purchase
 points (test_points_metric_integration: a purchase's riyal profit earned
 nothing since 6ff6b10b); it read as flaky, but it simply never ran.

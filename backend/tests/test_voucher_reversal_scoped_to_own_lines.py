@@ -33,6 +33,15 @@ from routes.vouchers import _reverse_voucher_journal_entry
 from tests.cleanup import purge  # UNPOST-001 U3: cleanup of posted rows is a purge
 
 
+@pytest.fixture(autouse=True)
+def _behind_the_fence(db_fence):
+    """Its commits stay in the test (TEST-003): brought under tests/ from the
+    root, where the gate never ran it and what it wrote stayed in the run's
+    database."""
+    yield
+
+
+
 def _account(number, name, type_='Asset'):
     existing = Account.query.filter_by(account_number=number).first()
     if existing is not None:

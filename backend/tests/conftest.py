@@ -10,6 +10,17 @@ collect_ignore = [
 import pytest
 
 
+@pytest.fixture(scope='module')
+def app():
+    """The app, in one context per module -- for a module that defines none
+    (TEST-003: the files brought under tests/ from the root use the module
+    `app` itself, not a fixture). A module's own `app` fixture overrides it."""
+    from app import app as flask_app
+    flask_app.config['TESTING'] = True
+    with flask_app.app_context():
+        yield flask_app
+
+
 @pytest.fixture
 def db_fence(app):
     """One transaction per test that nothing escapes -- not even a commit.

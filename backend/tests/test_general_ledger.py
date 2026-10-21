@@ -6,6 +6,15 @@ from app import app, db
 from models import Account, JournalEntry, JournalEntryLine, SafeBox
 
 
+@pytest.fixture(autouse=True)
+def _behind_the_fence(db_fence):
+    """Its commits stay in the test (TEST-003): brought under tests/ from the
+    root, where the gate never ran it and what it wrote stayed in the run's
+    database."""
+    yield
+
+
+
 def _create_account(name: str) -> Account:
     account = Account(
         account_number=f'TST-GL-{uuid.uuid4().hex[:8]}',

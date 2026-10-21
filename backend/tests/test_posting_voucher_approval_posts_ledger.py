@@ -1,5 +1,15 @@
 import json
 
+import pytest
+
+@pytest.fixture(autouse=True)
+def _behind_the_fence(db_fence):
+    """Its commits stay in the test (TEST-003): brought under tests/ from the
+    root, where the gate never ran it and what it wrote stayed in the run's
+    database."""
+    yield
+
+
 
 def test_posting_approve_voucher_creates_journal_entry_and_safebox_transactions(auth_headers):
     """Regression: posting approval must not be status-only.
