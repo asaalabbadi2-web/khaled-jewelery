@@ -5,6 +5,15 @@ from models import db, Account, Supplier, Customer
 from party_account_service import ensure_supplier_accounts, ensure_customer_accounts
 
 
+@pytest.fixture(autouse=True)
+def _behind_the_fence(db_fence):
+    """Its commits stay in the test (TEST-003): brought under tests/ from the
+    root, where the gate never ran it and what it wrote stayed in the run's
+    database."""
+    yield
+
+
+
 def _ensure_account_number(number: str, *, name: str, acc_type: str) -> Account:
     acc = Account.query.filter_by(account_number=str(number)).first()
     if acc:
@@ -64,6 +73,16 @@ def test_customer_account_created_under_customer_category():
 
     with app.app_context():
         category = _ensure_account_number('1260', name='حسابات العملاء', acc_type='Asset')
+        # A customer's category has its weight twin, as in production: a
+        # customer's account is refused without one (no account is made with
+        # no twin for its gold).
+        if not category.memo_account_id:
+            twin = Account(account_number='71260', name='حسابات العملاء وزني', type='Asset',
+                           transaction_type='gold', tracks_weight=True)
+            db.session.add(twin)
+            db.session.flush()
+            category.memo_account_id, twin.memo_account_id = twin.id, category.id
+            db.session.flush()
 
         customer = Customer(customer_code='C-TCAP-000001', name='عميل سعة 1260')
         customer.account_category_id = category.id

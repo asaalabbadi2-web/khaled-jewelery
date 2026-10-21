@@ -10,25 +10,48 @@ endpoint) can discover these transactions.
 """
 
 import json
+import uuid
+from datetime import datetime
 import pytest
 from app import app as _app
 from models import db, SafeBox, SafeBoxTransaction, Voucher, VoucherAccountLine, Account
 
-@pytest.fixture()
-def app():
-    _app.config['TESTING'] = True
-    _app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite://'
-    with _app.app_context():
-        db.create_all()
-        yield _app
-        db.session.rollback()
-        db.drop_all()
+@pytest.fixture(autouse=True)
+def _behind_the_fence(db_fence):
+    """TEST-003: brought in from the root. Its fixture set a SQLite URI the app
+    never read and ran db.create_all()/db.drop_all() on the run's database --
+    in the gate, every table gone for the tests after it. SQLite enforced no
+    foreign key, so it pointed at an invoice and payments that did not exist."""
+    yield
 
-@pytest.fixture()
-def client(app):
-    return app.test_client()
+
+@pytest.fixture(scope='module')
+def app():
+    from app import app as flask_app
+    flask_app.config['TESTING'] = True
+    with flask_app.app_context():
+        yield flask_app
+
+
+def _payment():
+    """A real invoice payment: its id is what a voucher's notes name."""
+    from models import Invoice, InvoicePayment, PaymentMethod
+    pm = PaymentMethod.query.filter_by(payment_type='cash').first()
+    if pm is None:
+        pm = PaymentMethod(name='نقدي اختبار', payment_type='cash', is_active=True)
+        db.session.add(pm)
+        db.session.flush()
+    inv = Invoice(invoice_type='بيع', invoice_type_id=uuid.uuid4().int % 10**8, date=datetime(2026, 10, 1), total=500.0)
+    db.session.add(inv)
+    db.session.flush()
+    ip = InvoicePayment(invoice_id=inv.id, payment_method_id=pm.id, amount=500.0, net_amount=500.0)
+    db.session.add(ip)
+    db.session.flush()
+    return inv.id, ip.id
+
 
 def _make_account(name, number, acc_type='asset'):
+    number = f'{number}{uuid.uuid4().int % 10**6:06d}'   # the test chart holds 1100 and 2100 already
     a = Account(name=name, account_number=number, account_type=acc_type, type=acc_type)
     db.session.add(a)
     db.session.flush()
@@ -40,6 +63,7 @@ def test_invoice_payment_voucher_gets_invoice_payment_ref_type(app):
     from routes import _append_safe_transactions_for_voucher
 
     with app.app_context():
+        inv_id, ip_id = _payment()
         acc = _make_account('Clearing', '2100', 'asset')
         sb = SafeBox(name='Test Clearing', safe_type='clearing', account_id=acc.id, is_active=True)
         db.session.add(sb)
@@ -50,8 +74,8 @@ def test_invoice_payment_voucher_gets_invoice_payment_ref_type(app):
             voucher_number='V-TEST-001',
             voucher_type='receipt',
             reference_type='invoice',
-            reference_id=str(1),
-            notes=json.dumps({'invoice_payment_id': 42, 'payment_method_id': 1}),
+            reference_id=str(inv_id),
+            notes=json.dumps({'invoice_payment_id': ip_id, 'payment_method_id': 1}),
             status='approved',
             created_by='test',
         )
@@ -70,7 +94,7 @@ def test_invoice_payment_voucher_gets_invoice_payment_ref_type(app):
         txs = _append_safe_transactions_for_voucher(v, created_by='test')
         assert len(txs) == 1
         assert txs[0].ref_type == 'invoice_payment'
-        assert txs[0].invoice_payment_id == 42
+        assert txs[0].invoice_payment_id == ip_id
         assert txs[0].direction == 'in'
         assert txs[0].amount_cash == 500.0
 
@@ -157,6 +181,7 @@ def test_idempotency_guard_prevents_double_posting(app):
     from routes import _append_safe_transactions_for_voucher
 
     with app.app_context():
+        inv_id, ip_id = _payment()
         acc = _make_account('Clearing', '2100', 'asset')
         sb = SafeBox(name='Clearing', safe_type='clearing', account_id=acc.id, is_active=True)
         db.session.add(sb)
@@ -166,8 +191,8 @@ def test_idempotency_guard_prevents_double_posting(app):
             voucher_number='V-TEST-IDEMPOTENT-001',
             voucher_type='receipt',
             reference_type='invoice',
-            reference_id=str(1),
-            notes=json.dumps({'invoice_payment_id': 99}),
+            reference_id=str(inv_id),
+            notes=json.dumps({'invoice_payment_id': ip_id}),
             status='approved',
             created_by='test',
         )
@@ -199,6 +224,8 @@ def test_idempotency_guard_prevents_double_posting(app):
 def test_invoice_payment_safe_box_tx_rejects_mismatched_voucher_notes(app):
     """Guard: invoice_payment tx pointing at a voucher must match voucher.notes invoice_payment_id."""
     with app.app_context():
+        inv_id, ip_id = _payment()
+        _, other_ip_id = _payment()   # a real payment, not the one the voucher names
         acc = _make_account('Clearing', '2100', 'asset')
         sb = SafeBox(name='Test Clearing', safe_type='clearing', account_id=acc.id, is_active=True)
         db.session.add(sb)
@@ -209,8 +236,8 @@ def test_invoice_payment_safe_box_tx_rejects_mismatched_voucher_notes(app):
             voucher_number='V-TEST-MISMATCH-001',
             voucher_type='receipt',
             reference_type='invoice',
-            reference_id=str(1),
-            notes=json.dumps({'invoice_payment_id': 42, 'payment_method_id': 1}),
+            reference_id=str(inv_id),
+            notes=json.dumps({'invoice_payment_id': ip_id, 'payment_method_id': 1}),
             status='approved',
             created_by='test',
         )
@@ -222,14 +249,14 @@ def test_invoice_payment_safe_box_tx_rejects_mismatched_voucher_notes(app):
             safe_box_id=sb.id,
             ref_type='invoice_payment',
             ref_id=v.id,
-            invoice_payment_id=99,
+            invoice_payment_id=other_ip_id,
             direction='in',
             amount_cash=100.0,
             created_by='test',
         )
         db.session.add(bad)
 
-        with pytest.raises(Exception):
+        with pytest.raises(ValueError, match='does not match invoice_payment_id'):
             db.session.flush()
 
         # Expected: flush failed, so session needs rollback before any further DB work.

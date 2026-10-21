@@ -1,14 +1,44 @@
+"""The clearing auto-settlement: a bulk settlement carries its fee.
+
+Brought in from the root (TEST-003): its safe-box rows named invoice payments
+20001-20003 that did not exist -- on PostgreSQL the foreign key refuses them.
+Real payments on a posted invoice now, behind the fence. Its second test
+counted the due rows after the last settlement with a function ADR-037 replaced
+(a settlement is dated by when its money reaches the bank, one schedule
+reading); tests/test_settlement_schedule*.py and test_settlement_dated_on_deposit
+pin that now.
+"""
+import uuid
 from datetime import datetime
+
+import pytest
 
 import routes
 from app import app
 from clearing_settlement_scheduler import ClearingSettlementScheduler
-from models import Account, PaymentMethod, SafeBox, SafeBoxTransaction, db
+from models import Account, Invoice, InvoicePayment, PaymentMethod, SafeBox, SafeBoxTransaction, db
+
+
+@pytest.fixture(autouse=True)
+def _behind_the_fence(db_fence):
+    yield
+
+
+def _payment(method, amount):
+    """A payment that stands: on a posted invoice, its method the card's."""
+    inv = Invoice(invoice_type='بيع', invoice_type_id=uuid.uuid4().int % 10**8, date=datetime.now(),
+                  total=amount, is_posted=True)
+    db.session.add(inv)
+    db.session.flush()
+    ip = InvoicePayment(invoice_id=inv.id, payment_method_id=method.id, amount=amount, net_amount=amount)
+    db.session.add(ip)
+    db.session.flush()
+    return ip.id
 
 
 def _create_safe_box(name: str, safe_type: str, account_number: str) -> SafeBox:
     account = Account(
-        account_number=account_number,
+        account_number=f'{account_number}{uuid.uuid4().int % 10**6:06d}',
         name=f'حساب {name}',
         type='Asset',
         balance_cash=0.0,
@@ -50,12 +80,13 @@ def test_auto_settlement_bulk_supports_settlement_fee(monkeypatch):
         db.session.add(payment_method)
         db.session.flush()
 
+        paid = _payment(payment_method, 100.0)
         db.session.add(
             SafeBoxTransaction(
                 safe_box_id=clearing_safe.id,
                 ref_type='invoice_payment',
-                ref_id=20001,
-                invoice_payment_id=20001,
+                ref_id=paid,
+                invoice_payment_id=paid,
                 direction='in',
                 amount_cash=100.0,
                 created_at=datetime.now(),
@@ -78,42 +109,6 @@ def test_auto_settlement_bulk_supports_settlement_fee(monkeypatch):
     assert captured['gross_amount'] == 100.0
     assert captured['fee_amount'] == 2.5
     assert captured['fee_account_id'] is None
-    assert captured['notes'] == 'auto_settlement'
-
-
-def test_bulk_due_transaction_count_uses_latest_settlement_boundary():
-    with app.app_context():
-        clearing_safe = _create_safe_box('مستحقات عداد', 'clearing', '9203')
-        bank_safe = _create_safe_box('بنك عداد', 'bank', '9204')
-        db.session.commit()
-
-        scheduler = ClearingSettlementScheduler(app)
-        now = datetime.now()
-
-        db.session.add(
-            SafeBoxTransaction(
-                safe_box_id=clearing_safe.id,
-                ref_type='invoice_payment',
-                ref_id=20002,
-                invoice_payment_id=20002,
-                direction='in',
-                amount_cash=50.0,
-                created_at=now,
-            )
-        )
-        db.session.add(
-            SafeBoxTransaction(
-                safe_box_id=clearing_safe.id,
-                ref_type='invoice_payment',
-                ref_id=20003,
-                invoice_payment_id=20003,
-                direction='in',
-                amount_cash=75.0,
-                created_at=now,
-            )
-        )
-        db.session.commit()
-
-        count = scheduler._count_bulk_due_transactions(clearing_safe.id, now)
-
-    assert count == 2
+    # The batch it closes and the day its money reaches the bank (ADR-037, d6924191).
+    assert captured['notes'].startswith('auto_settlement:batch=')
+    assert ';deposit=' in captured['notes']

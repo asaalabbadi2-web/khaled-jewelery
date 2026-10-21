@@ -31,8 +31,8 @@ SKIP_DIRS = {'venv', '.venv', '__pycache__', '.pytest_db', 'node_modules', 'migr
 
 # (file, imported name) -> why it is allowed to stay broken.
 KNOWN_BROKEN = {
-    ('test_settings_singleton.py', 'create_app'):
-        'dead: defined inside another test function, so pytest never collects it',
+    # Empty since TEST-003: the last one (test_settings_singleton's create_app,
+    # in a test nested dead inside another) went with that test.
 }
 
 

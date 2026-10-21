@@ -7,6 +7,15 @@ from app import app, db
 from models import Account, JournalEntry, JournalEntryLine, Supplier
 
 
+@pytest.fixture(autouse=True)
+def _behind_the_fence(db_fence):
+    """Its commits stay in the test (TEST-003): brought under tests/ from the
+    root, where the gate never ran it and what it wrote stayed in the run's
+    database."""
+    yield
+
+
+
 def _create_liability_payable_account() -> Account:
     acc = Account(
         account_number=f"210-{uuid.uuid4().hex[:8]}",
@@ -74,8 +83,7 @@ def test_suppliers_list_uses_live_balance_not_cached(auth_headers):
         s = Supplier(
             supplier_code=f"S-TST-{uuid.uuid4().hex[:6]}",
             name="مورد اختبار - قائمة",
-            account_id=payable.id,
-            balance_cash=999.0,
+            account_id=payable.id,   # no stored balance: the columns are gone (3f20338), the list reads the ledger
         )
         db.session.add(s)
         db.session.flush()
@@ -101,7 +109,6 @@ def test_suppliers_list_returns_zero_when_no_ledger_rows(auth_headers):
         s = Supplier(
             supplier_code=f"S-TST-{uuid.uuid4().hex[:6]}",
             name="مورد اختبار - بدون قيود",
-            balance_cash=500.0,
         )
         db.session.add(s)
         db.session.commit()

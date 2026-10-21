@@ -28,8 +28,20 @@ from models import (
     JournalEntryLine,
 )
 
+
+@pytest.fixture(autouse=True)
+def _behind_the_fence(db_fence):
+    """Its commits stay in the test (TEST-003): brought under tests/ from the
+    root, where the gate never ran it and what it wrote stayed in the run's
+    database."""
+    yield
+
+
 CASH_ACCOUNT_ID = 15    # صندوق النقدية — seeded in conftest.py
-GOLD_ACCOUNT_ID = 1220  # مخزون ذهب عيار 21, tracks_weight=True — seeded in conftest.py
+# A stock account that tracks weight -- seeded in conftest.py. It was 1220,
+# which the P4.2 migration (ADR-026) made a financial account (cash, no
+# weight): the unlinked-entry path reads weight accounts, so it saw nothing.
+GOLD_ACCOUNT_ID = 1300  # مخزون ذهب معروض للبيع (موحد), tracks_weight=True
 
 # ── Month registry ────────────────────────────────────────────────────────────
 M_CLEAN    = 9

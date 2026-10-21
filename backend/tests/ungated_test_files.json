@@ -1,18 +1,1 @@
-[
- "test_clearing_auto_settlement_route.py",
- "test_clearing_auto_settlement_scheduler.py",
- "test_gold_acquisition_reconciliation.py",
- "test_gram_profit_semantics.py",
- "test_invoice_payment_state_service.py",
- "test_invoice_weight.py",
- "test_party_accounts_capacity.py",
- "test_phase5_approval_paths_invoice_sync.py",
- "test_phase6_general_invoice_voucher_characterization.py",
- "test_safe_box_journal_entry_sync.py",
- "test_safe_box_tx_ref_type.py",
- "test_settings_singleton.py",
- "test_supplier_ledger_endpoint.py",
- "test_supplier_purchase_return_invoice.py",
- "test_suppliers_list_live_balances.py",
- "test_voucher_safebox_transactions.py"
-]
+[]

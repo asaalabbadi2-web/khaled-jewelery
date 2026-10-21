@@ -41,6 +41,15 @@ from party_account_service import ensure_customer_accounts
 from services.invoice_payment_state_service import InvoicePaymentStateService
 
 
+@pytest.fixture(autouse=True)
+def _behind_the_fence(db_fence):
+    """Its commits stay in the test (TEST-003): brought under tests/ from the
+    root, where the gate never ran it and what it wrote stayed in the run's
+    database."""
+    yield
+
+
+
 def _uid():
     return uuid.uuid4().hex[:8]
 
@@ -185,7 +194,7 @@ class TestApproveVoucherNowSyncsTheLinkedInvoice:
     """The gap the whole audit was about: a voucher approved through the
     general endpoint never touched Invoice.status/amount_paid before this."""
 
-    def test_approving_an_invoice_voucher_syncs_status_and_amount(self):
+    def test_approving_an_invoice_voucher_syncs_status_and_amount(self, auth_headers):
         with app.app_context():
             customer, customer_account = _customer()
             invoice = _invoice(customer.id, total=1000.0)
@@ -203,7 +212,7 @@ class TestApproveVoucherNowSyncsTheLinkedInvoice:
             invoice_id, voucher_id = invoice.id, voucher.id
 
         with app.test_client() as client:
-            resp = client.post(f'/api/vouchers/{voucher_id}/approve', json={})
+            resp = client.post(f'/api/vouchers/{voucher_id}/approve', json={}, headers=auth_headers)
             assert resp.status_code == 200, resp.get_json()
 
         with app.app_context():
@@ -217,7 +226,7 @@ class TestApproveVoucherNowSyncsTheLinkedInvoice:
 
 class TestCancelVoucherExcludesWithoutDeleting:
 
-    def test_cancelling_excludes_the_payment_but_keeps_the_row(self):
+    def test_cancelling_excludes_the_payment_but_keeps_the_row(self, auth_headers):
         with app.app_context():
             customer, customer_account = _customer()
             invoice = _invoice(customer.id, total=1000.0)
@@ -228,14 +237,14 @@ class TestCancelVoucherExcludesWithoutDeleting:
             invoice_id, voucher_id, ip_id = invoice.id, voucher.id, ip.id
 
         with app.test_client() as client:
-            resp = client.post(f'/api/vouchers/{voucher_id}/approve', json={})
+            resp = client.post(f'/api/vouchers/{voucher_id}/approve', json={}, headers=auth_headers)
             assert resp.status_code == 200, resp.get_json()
 
         with app.app_context():
             assert Invoice.query.get(invoice_id).status == 'paid'
 
         with app.test_client() as client:
-            resp = client.post(f'/api/vouchers/{voucher_id}/cancel', json={'reason': 'test'})
+            resp = client.post(f'/api/vouchers/{voucher_id}/cancel', json={'reason': 'test'}, headers=auth_headers)
             assert resp.status_code == 200, resp.get_json()
 
         with app.app_context():
@@ -271,7 +280,7 @@ class TestCollisionRegression:
     FK to the one true creating voucher, never inferred from an id number.
     """
 
-    def test_cancelling_a_voucher_never_excludes_an_unrelated_payment_with_the_same_id(self):
+    def test_cancelling_a_voucher_never_excludes_an_unrelated_payment_with_the_same_id(self, auth_headers):
         with app.app_context():
             customer_a, account_a = _customer()
             customer_b, account_b = _customer()
@@ -322,9 +331,9 @@ class TestCollisionRegression:
             assert Invoice.query.get(invoice_b_id).status == 'paid'
 
         with app.test_client() as client:
-            resp = client.post(f'/api/vouchers/{voucher_id}/approve', json={})
+            resp = client.post(f'/api/vouchers/{voucher_id}/approve', json={}, headers=auth_headers)
             assert resp.status_code == 200, resp.get_json()
-            resp = client.post(f'/api/vouchers/{voucher_id}/cancel', json={'reason': 'test'})
+            resp = client.post(f'/api/vouchers/{voucher_id}/cancel', json={'reason': 'test'}, headers=auth_headers)
             assert resp.status_code == 200, resp.get_json()
 
         with app.app_context():
@@ -357,7 +366,7 @@ class TestCorrectionPathsLeaveSourceVoucherIdNull:
     function cannot start treating every InvoicePayment as voucher-created
     without this test noticing."""
 
-    def test_multi_split_correction_leaves_new_rows_unlinked(self):
+    def test_multi_split_correction_leaves_new_rows_unlinked(self, auth_headers):
         with app.app_context():
             customer, customer_account = _customer()
             invoice = _invoice(customer.id, total=1000.0)
@@ -373,7 +382,7 @@ class TestCorrectionPathsLeaveSourceVoucherIdNull:
             new_pm_1_id, new_pm_2_id = new_pm_1.id, new_pm_2.id
 
         with app.test_client() as client:
-            resp = client.post(f'/api/vouchers/{voucher_id}/approve', json={})
+            resp = client.post(f'/api/vouchers/{voucher_id}/approve', json={}, headers=auth_headers)
             assert resp.status_code == 200, resp.get_json()
 
             resp = client.post(
@@ -385,6 +394,7 @@ class TestCorrectionPathsLeaveSourceVoucherIdNull:
                         {'payment_method_id': new_pm_2_id, 'amount': 300.0},
                     ],
                 },
+                headers=auth_headers,
             )
             assert resp.status_code == 200, resp.get_json()
 

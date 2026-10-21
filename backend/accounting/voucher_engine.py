@@ -4,6 +4,8 @@ from __future__ import annotations
 import json
 from datetime import datetime
 
+from sqlalchemy import and_, or_
+
 from models import (
     db,
     Account,
@@ -348,10 +350,23 @@ def _append_safe_transactions_for_voucher(voucher: 'Voucher', created_by=None):
             SafeBoxTransaction.invoice_id == linked_invoice_id_pre,
         )
     else:
-        _guard_q = SafeBoxTransaction.query.filter(
-            SafeBoxTransaction.ref_id == voucher.id,
-            SafeBoxTransaction.ref_type == 'voucher',
-        )
+        # A voucher not linked to an invoice may still name its invoice payment
+        # in its notes: its rows are then written as 'invoice_payment' (below),
+        # and a guard that looked for 'voucher' alone wrote them again on a second
+        # call (12 such vouchers on the 17 Oct copy, none on a safe yet -- TEST-003).
+        # Matched by the payment it names too, so no legacy row collides.
+        named_payment_id = None
+        try:
+            _notes = json.loads(getattr(voucher, 'notes', None) or '{}')
+            if isinstance(_notes, dict) and _notes.get('invoice_payment_id') not in (None, '', False):
+                named_payment_id = int(_notes.get('invoice_payment_id'))
+        except Exception:
+            named_payment_id = None
+        own_rows = SafeBoxTransaction.ref_type == 'voucher'
+        if named_payment_id is not None:
+            own_rows = or_(own_rows, and_(SafeBoxTransaction.ref_type == 'invoice_payment',
+                                          SafeBoxTransaction.invoice_payment_id == named_payment_id))
+        _guard_q = SafeBoxTransaction.query.filter(SafeBoxTransaction.ref_id == voucher.id, own_rows)
 
     existing_count = _guard_q.count()
     if existing_count > 0:

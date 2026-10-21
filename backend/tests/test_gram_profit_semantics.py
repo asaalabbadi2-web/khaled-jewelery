@@ -2,7 +2,7 @@
 ADR-024 § Proof — gram profit semantics gate.
 
 Tests 1-6: guard existing correct behavior (no code changes required).
-Tests 7-8: xfail(strict=True) — witnesses for deviations D-1 and D-3.
+Test 7: D-1 retired by ADR-048 (a period with no purchase is counted); test 8: D-3, fixed.
 
 Running:
     cd backend && pytest test_gram_profit_semantics.py -v
@@ -24,6 +24,7 @@ import calendar
 import pytest
 from datetime import datetime
 
+from accounting.chart_tree import REVENUE_ROOT, role_account_id
 from app import app
 from models import (
     db,
@@ -33,6 +34,15 @@ from models import (
     JournalEntry,
     JournalEntryLine,
 )
+
+
+@pytest.fixture(autouse=True)
+def _behind_the_fence(db_fence):
+    """Its commits stay in the test (TEST-003): brought under tests/ from the
+    root, where the gate never ran it and what it wrote stayed in the run's
+    database."""
+    yield
+
 
 MAIN_KARAT = 21
 
@@ -51,7 +61,7 @@ M_RETURNS   = 3   # test_returns_subtracted_from_both_numerator_and_denominator
 M_KARAT     = 4   # test_weight_normalized_to_main_karat
 M_FLAGS     = 5   # test_flags_do_not_affect_avg_buy
 M_FORMULA   = 6   # test_net_profit_weight_equals_sum_of_four_layers
-M_D1        = 7   # test_d1_zero_denominator_returns_null_not_zero   [xfail D-1]
+M_D1        = 7   # test_a_period_with_no_purchase_is_counted_not_unavailable  [D-1 retired, ADR-048]
 M_D3        = 8   # test_d3_grandchild_of_741_not_double_counted     [xfail D-3]
 # M_NEXT    = 9   # ← next available month for new tests
 # ─────────────────────────────────────────────────────────────────────────────
@@ -92,8 +102,11 @@ GRAM_PROFIT_RESPONSE_KEYS = frozenset({
     # Backward-compat fields — nullable when avg_buy=0
     'manufacturing_wages', 'other_expenses',
     'total_operating_expenses', 'profit_after_wages', 'profit_after_wages_weight',
-    # Availability signal
+    # Availability signal -- always None since ADR-048
     'unavailable_reason',
+    # The weight position engine's fifth layer and its valuation (ADR-048 phase 2b)
+    'price_effect_weight', 'realized_weight', 'unrealized_start_weight', 'unrealized_end_weight',
+    'valuation_price_per_gram', 'valuation_price_source',
 })
 
 
@@ -256,6 +269,9 @@ def test_flags_do_not_affect_avg_buy(auth_headers):
                 type='Revenue',
                 tracks_weight=False,
                 include_in_gram_profit=True,
+                # A marked account is a revenue by the tree, under the revenue
+                # group (CHART-002) -- not by its number; alone it counts nowhere.
+                parent_id=role_account_id(REVENUE_ROOT),
             )
             db.session.add(flagged)
             db.session.flush()
@@ -294,8 +310,9 @@ def test_flags_do_not_affect_avg_buy(auth_headers):
 
 def test_net_profit_weight_equals_sum_of_four_layers(auth_headers):
     """
-    [6] Fundamental formula (contract):
-        net_profit_weight == ① + ② - ③ - ④
+    [6] Fundamental formula (contract): the five layers of the weight position
+        engine (ADR-048 phase 2b, 5eaecd73) -- ① + ② - ③ - ④ + ⑤, the price
+        effect on what still waits to be turned into gold. It was four.
     """
     inv_dt, url = _period(M_FORMULA)
     with app.app_context():
@@ -309,6 +326,7 @@ def test_net_profit_weight_equals_sum_of_four_layers(auth_headers):
       + d['total_extra_revenue_weight']
       - d['expense_weight_direct']
       - d['expense_cash_as_weight']
+      + d['price_effect_weight']
     )
     assert abs(d['net_profit_weight'] - computed) < 0.002, (
         f"Formula broken: net={d['net_profit_weight']} ≠ Σlayers={computed}"
@@ -322,69 +340,24 @@ def test_net_profit_weight_equals_sum_of_four_layers(auth_headers):
 
 # ── Tests 7-8: deviation witnesses (xfail strict) ─────────────────────────────
 
-def test_d1_zero_denominator_returns_null_not_zero(auth_headers):
+def test_a_period_with_no_purchase_is_counted_not_unavailable(auth_headers):
     """
-    [7] D-1(2a) fix: no cash purchases in period → metric is unavailable, not zero.
-
-    Contract (ADR-024 §D-1):
-    - unavailable_reason == 'no_cash_purchases'  (مصدر الحقيقة الوحيد)
-    - avg_buy-dependent fields (11 حقلاً) → null
-    - independent fields (6) → numeric وصحيحة:
-        weight_sold, total_sales_cash, avg_sell_per_gram, avg_buy_per_gram,
-        trading_profit_cash, extra_revenue_weight, expense_weight_direct
-    - مجموعة مفاتيح الاستجابة مطابقة للحالة العادية (test 6) → لا مفتاح مفقود
+    [7] D-1 is no more (ADR-048: «ولا "غير متوفر" بعد اليوم -- يناير يُحسب»):
+    the engine values what waits at the shop's own buying price, so a period
+    with sales and no purchase is counted. It pinned null and 'no_cash_purchases'.
     """
     inv_dt, url = _period(M_D1)
     with app.app_context():
-        _sell(inv_dt, 10000.0, 20.0)   # sales with no purchases → avg_buy=0
+        _sell(inv_dt, 10000.0, 20.0)   # sales with no purchases
         db.session.commit()
 
     d = _fetch(url, auth_headers)
-
-    # مصدر الحقيقة الوحيد: unavailable_reason
-    assert d.get('unavailable_reason') == 'no_cash_purchases', (
-        f"unavailable_reason={d.get('unavailable_reason')!r}"
-    )
-
-    # الحقول المشتقة من avg_buy يجب أن تكون null
-    nullable = [
-        'net_profit_weight', 'net_profit', 'net_margin_pct',
-        'trading_profit_weight', 'gross_profit_weight',
-        'extra_revenue_cash_as_weight', 'total_extra_revenue_weight',
-        'expense_cash_as_weight',
-        'profit_after_wages', 'profit_after_wages_weight',
-        'total_operating_expenses',
-    ]
-    for key in nullable:
-        assert d[key] is None, f"{key} expected null, got {d[key]!r}"
-
-    # الحقول المستقلة عن avg_buy يجب أن تبقى رقمية وصحيحة
-    assert d['weight_sold'] == pytest.approx(20.0, abs=0.01), (
-        f"weight_sold={d['weight_sold']}"
-    )
-    assert d['total_sales_cash'] == pytest.approx(10000.0, abs=0.01), (
-        f"total_sales_cash={d['total_sales_cash']}"
-    )
-    assert d['avg_sell_per_gram'] == pytest.approx(500.0, abs=0.5), (
-        f"avg_sell_per_gram={d['avg_sell_per_gram']}"
-    )
-    assert d['avg_buy_per_gram'] == 0.0, (
-        f"avg_buy_per_gram={d['avg_buy_per_gram']}"
-    )
-    # الحقول المستقلة المتبقية — ليس بديهياً أنها تبقى رقمية عند avg_buy=0
-    assert d['trading_profit_cash'] == pytest.approx(10000.0, abs=0.01), (
-        # margin_per_gram = avg_sell(500) - avg_buy(0) = 500; 500 × 20g = 10000
-        f"trading_profit_cash={d['trading_profit_cash']}"
-    )
-    assert d['extra_revenue_weight'] == pytest.approx(0.0, abs=0.001), (
-        f"extra_revenue_weight={d['extra_revenue_weight']}"
-    )
-    assert d['expense_weight_direct'] == pytest.approx(0.0, abs=0.001), (
-        f"expense_weight_direct={d['expense_weight_direct']}"
-    )
-    # مجموعة المفاتيح مطابقة للحالة العادية — حقل يُضاف ويُنسى في else = مفتاح مفقود
+    assert d.get('unavailable_reason') is None
+    assert isinstance(d['net_profit_weight'], (int, float))
+    assert d['weight_sold'] == pytest.approx(20.0, abs=0.01)
+    assert d['total_sales_cash'] == pytest.approx(10000.0, abs=0.01)
     assert set(d.keys()) == GRAM_PROFIT_RESPONSE_KEYS, (
-        f"keys mismatch (D-1) — extra: {set(d.keys()) - GRAM_PROFIT_RESPONSE_KEYS}, "
+        f"keys mismatch -- extra: {set(d.keys()) - GRAM_PROFIT_RESPONSE_KEYS}, "
         f"missing: {GRAM_PROFIT_RESPONSE_KEYS - set(d.keys())}"
     )
 

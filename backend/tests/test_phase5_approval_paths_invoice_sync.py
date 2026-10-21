@@ -36,6 +36,8 @@ changed:
 """
 
 import json
+
+import pytest
 import uuid
 from datetime import datetime
 
@@ -50,6 +52,23 @@ from models import (
     db,
 )
 from party_account_service import ensure_customer_accounts
+
+
+@pytest.fixture(autouse=True)
+def _behind_the_fence(db_fence):
+    """Its commits stay in the test (TEST-003): brought under tests/ from the
+    root, where the gate never ran it."""
+    yield
+
+
+@pytest.fixture(autouse=True)
+def _a_cash_method(_behind_the_fence):
+    """The shop has a cash payment method, as production does: a voucher-sourced
+    invoice payment is refused without one (the cash side would be invisible)."""
+    from models import PaymentMethod, db
+    if PaymentMethod.query.filter_by(payment_type='cash').first() is None:
+        db.session.add(PaymentMethod(name='نقدي اختبار', payment_type='cash', is_active=True))
+        db.session.flush()
 
 
 def _uid():
@@ -128,7 +147,21 @@ def _bare_invoice_voucher(invoice_id, customer_account_id, amount, status='pendi
     return voucher
 
 
-class TestPostingRoutesApproveVoucherDoesNotBridgeGeneralVoucherPayments:
+def _the_voucher_paid_the_invoice(invoice_id, voucher_id):
+    """The bridge (6e78fd28, 24 Sep 2026: «let a voucher prove cash settlement
+    as strongly as gold"): an approved invoice-tagged voucher's cash is recorded
+    as the invoice's payment, sourced to it, and the invoice's state follows.
+    These two tests pinned the gap before it -- no payment, amount_paid 0 --
+    and went red unseen when it closed (TEST-003)."""
+    (payment,) = InvoicePayment.query.filter_by(invoice_id=invoice_id).all()
+    assert payment.source_voucher_id == voucher_id
+    assert payment.amount == 10000.0
+    invoice_db = Invoice.query.get(invoice_id)
+    assert invoice_db.amount_paid == 10000.0
+    assert invoice_db.status == 'paid'
+
+
+class TestPostingRoutesApproveVoucherBridgesGeneralVoucherPayments:
     """posting_routes.py::approve_voucher — POST /api/vouchers/approve/<id>."""
 
     def test_full_scenario_via_test_client(self, auth_headers):
@@ -139,52 +172,23 @@ class TestPostingRoutesApproveVoucherDoesNotBridgeGeneralVoucherPayments:
             invoice = _invoice(customer.id, 10000.0)
             voucher = _bare_invoice_voucher(invoice.id, customer_account_id, 10000.0, status='pending')
             invoice_id, voucher_id = invoice.id, voucher.id
-
-            before_payment_count = InvoicePayment.query.filter_by(invoice_id=invoice_id).count()
-            assert before_payment_count == 0
+            assert InvoicePayment.query.filter_by(invoice_id=invoice_id).count() == 0
 
             resp = client.post(f'/api/vouchers/approve/{voucher_id}', headers=auth_headers)
             assert resp.status_code == 200, resp.data
-            payload = json.loads(resp.data)
-            assert payload['success'] is True
+            assert json.loads(resp.data)['success'] is True
 
             voucher_db = Voucher.query.get(voucher_id)
             assert voucher_db.status == 'approved'
             assert voucher_db.journal_entry_id is not None
-
-            # FACT under test: does approving this voucher create/attach an
-            # InvoicePayment, or move Invoice.amount_paid/status at all?
-            after_payment_count = InvoicePayment.query.filter_by(invoice_id=invoice_id).count()
-            invoice_db = Invoice.query.get(invoice_id)
-
-            assert after_payment_count == 0, (
-                "posting_routes.py::approve_voucher does not create an "
-                "InvoicePayment — confirmed. Approval alone cannot bridge a "
-                "general voucher into the invoice's paid total."
-            )
-            assert invoice_db.amount_paid == 0.0, (
-                "Invoice.amount_paid stayed 0 after approving a 10000 receipt "
-                "voucher tagged reference_type='invoice' for this exact "
-                "invoice — because InvoicePaymentStateService sums "
-                "InvoicePayment rows only, and none exists for this voucher. "
-                "This IS the original desync bug's ground truth: a voucher "
-                "recorded through the general voucher endpoints moves real "
-                "money and posts real accounting, but is structurally "
-                "invisible to the invoice's cached payment state, "
-                "independent of whether the approval endpoint calls "
-                "InvoicePaymentStateService.recompute() or not."
-            )
-            assert invoice_db.status == 'unpaid'
+            _the_voucher_paid_the_invoice(invoice_id, voucher_id)
 
 
 class TestRoutesVouchersApproveVoucherSameScenario:
     """routes/vouchers.py::approve_voucher — POST /vouchers/<id>/approve — the
-    endpoint Flutter actually calls, already patched (Phase 2) to call
-    InvoicePaymentStateService.recompute(). Same scenario, to prove the
-    patched endpoint has the identical ceiling: recompute() cannot see a
-    payment that was never turned into an InvoicePayment row."""
+    endpoint Flutter calls: the same bridge."""
 
-    def test_recompute_call_is_a_structural_no_op_for_a_bare_voucher(self, auth_headers):
+    def test_approving_a_bare_voucher_records_its_payment(self, auth_headers):
         from app import app
         with app.app_context():
             client = app.test_client()
@@ -199,11 +203,7 @@ class TestRoutesVouchersApproveVoucherSameScenario:
             voucher_db = Voucher.query.get(voucher_id)
             assert voucher_db.status == 'approved'
             assert voucher_db.journal_entry_id is not None
-
-            invoice_db = Invoice.query.get(invoice_id)
-            assert InvoicePayment.query.filter_by(invoice_id=invoice_id).count() == 0
-            assert invoice_db.amount_paid == 0.0
-            assert invoice_db.status == 'unpaid'
+            _the_voucher_paid_the_invoice(invoice_id, voucher_id)
 
 
 class TestApprovalPathsNowAgreeOnInvoicePaymentStateServiceCall:
@@ -369,6 +369,12 @@ class TestBatchApprovalTwoIndependentInvoicesEachSyncIndependently:
             assert invoice_b_db.status == 'paid'
 
 
+@pytest.mark.xfail(strict=True, reason=(
+    "TEST-003: since the voucher-cash bridge (6e78fd28, 24 Sep 2026) recomputes "
+    "unswallowed, a failed invoice-state recompute refuses the whole approval -- "
+    "these tests pin the older swallow-and-commit. Which one is right is the "
+    "owner's accounting decision, asked 21 Oct 2026; strict, so a change either "
+    "way turns this red."))
 class TestRecomputeFailureIsSwallowedNotRolledBack:
     """Step 6/16 — observe, not assume, what happens when
     InvoicePaymentStateService.recompute() raises during approval.

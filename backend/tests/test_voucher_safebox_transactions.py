@@ -14,18 +14,43 @@ from models import (
 )
 
 
-@pytest.fixture()
+@pytest.fixture(scope='module')
 def app():
     _app.config['TESTING'] = True
-    _app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite://'
     with _app.app_context():
-        db.create_all()
         yield _app
-        db.session.rollback()
-        db.drop_all()
+
+
+@pytest.fixture(autouse=True)
+def _behind_the_fence(db_fence):
+    """TEST-003: brought in from the root. Its fixture set a SQLite URI the app
+    never read and ran db.create_all()/db.drop_all() on the run's database; on
+    SQLite no foreign key held it to a payment that existed (it named 123)."""
+    yield
+
+
+def _payment():
+    from datetime import datetime
+    import uuid
+    from models import Invoice, InvoicePayment, PaymentMethod
+    pm = PaymentMethod.query.filter_by(payment_type='cash').first()
+    if pm is None:
+        pm = PaymentMethod(name='نقدي اختبار', payment_type='cash', is_active=True)
+        db.session.add(pm)
+        db.session.flush()
+    inv = Invoice(invoice_type='شراء', invoice_type_id=uuid.uuid4().int % 10**8, date=datetime(2026, 10, 1),
+                  total=150000.0)
+    db.session.add(inv)
+    db.session.flush()
+    ip = InvoicePayment(invoice_id=inv.id, payment_method_id=pm.id, amount=150000.0, net_amount=150000.0)
+    db.session.add(ip)
+    db.session.flush()
+    return ip.id, pm.id
 
 
 def _make_account(name: str, number: str, acc_type: str = 'asset') -> Account:
+    import uuid
+    number = f'{number}{uuid.uuid4().int % 10**6:06d}'
     acc = Account(name=name, account_number=number, account_type=acc_type, type=acc_type)
     db.session.add(acc)
     db.session.flush()
@@ -42,6 +67,7 @@ def test_append_safe_transactions_prefers_journal_entry_lines(app):
     from routes import _append_safe_transactions_for_voucher
 
     with app.app_context():
+        ip_id, pm_id = _payment()
         safe_acc = _make_account('Cash Safe Account', '1000', 'asset')
         other_cash = _make_account('Other Cash Account', '1001', 'asset')
 
@@ -56,7 +82,7 @@ def test_append_safe_transactions_prefers_journal_entry_lines(app):
             description='Test payment',
             created_by='test',
             status='approved',
-            notes=json.dumps({'invoice_payment_id': 123, 'payment_method_id': 7}),
+            notes=json.dumps({'invoice_payment_id': ip_id, 'payment_method_id': pm_id}),
         )
         db.session.add(voucher)
         db.session.flush()
@@ -111,7 +137,7 @@ def test_append_safe_transactions_prefers_journal_entry_lines(app):
         assert tx.direction == 'out'
         assert float(tx.amount_cash or 0.0) == 150000.0
         assert tx.ref_type == 'invoice_payment'
-        assert int(tx.invoice_payment_id) == 123
+        assert int(tx.invoice_payment_id) == ip_id
 
         # Idempotent.
         created2 = _append_safe_transactions_for_voucher(voucher, created_by='test')
