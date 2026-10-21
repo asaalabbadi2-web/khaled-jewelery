@@ -147,21 +147,26 @@ def test_the_karat_does_not_change(auth_headers):
     assert SafeBoxTransaction.query.filter_by(safe_box_id=dst.id, ref_type='voucher').count() == 0
 
 
-def test_a_renewals_stones_are_no_gold_line_even_with_the_old_accounts_set(auth_headers):
+def test_a_renewals_stones_never_reach_the_old_stones_accounts(auth_headers):
+    """ت1 took their gold lines off «stones asset» / «stones revenue»; ت5أ (the
+    owner) puts them on the showroom against the renewal stones revenue role --
+    the two old settings, set, still receive nothing."""
+    from accounting.mappings import DEFAULT_MAPPING_OPERATION_TYPE
+    from models import AccountingMapping
     src, dst = _safe('scrap'), _safe('showroom')
     _holds(src, 18, 30.0, stones=6.7)
     settings = Settings.query.first()
-    settings.stones_pending_account_id = _account('1', 'أصول فصوص', type='Asset').id
-    settings.stones_display_revenue_account_id = _account('4', 'إيراد فصوص', type='Revenue', tracks_weight=True).id
+    old_asset = _account('1', 'أصول فصوص', type='Asset')
+    old_revenue = _account('4', 'إيراد فصوص', type='Revenue', tracks_weight=True)
+    settings.stones_pending_account_id, settings.stones_display_revenue_account_id = old_asset.id, old_revenue.id
+    role = _account('74', 'إيراد فصوص التجديد وزني', type='Revenue', tracks_weight=True)
+    db.session.add(AccountingMapping(operation_type=DEFAULT_MAPPING_OPERATION_TYPE, account_type='renewal_stones_revenue',
+                                     account_id=role.id, is_active=True))
     db.session.flush()
     resp = _post(auth_headers, {'operation_type': 'renewal', 'from_safe_box_id': src.id, 'to_safe_box_id': dst.id,
                                 'lines': [{'karat': 18, 'gold_weight': 27.3, 'stones_weight': 6.7}]})
     assert resp.status_code == 201, resp.get_data(as_text=True)[:300]
     voucher = Voucher.query.get(resp.get_json()['voucher']['id'])
     lines = VoucherAccountLine.query.filter_by(voucher_id=voucher.id).all()
-    assert sorted((l.line_type, l.account_id, l.amount) for l in lines) == sorted([
-        ('credit', src.account_id, 27.3), ('debit', dst.account_id, 27.3)])
-    # The stones move by weight on the safes' rows, as before.
-    (into,) = SafeBoxTransaction.query.filter_by(safe_box_id=dst.id, ref_type='voucher', ref_id=voucher.id).all()
-    assert into.stones_weight == pytest.approx(6.7)
+    assert {l.account_id for l in lines} == {src.account_id, dst.account_id, role.id}
     assert 'warning' not in resp.get_json()

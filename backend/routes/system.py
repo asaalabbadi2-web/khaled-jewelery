@@ -2859,6 +2859,19 @@ def _melting_renewal(*, preview: bool):
                             'message': 'حساب «المصنعية التالفة بالتكسير» غير مربوط: يُضبط في «الربط المحاسبي»، '
                                        'ولا تُقيَّد مصنعية تالفة دونه'}), 400
 
+    # A renewal's stones enter the showroom as gold, against a weight revenue
+    # (ت5أ, the owner: «فصوص التجديد تدخل مدين المعروض ودائن إيرادات وزنية»):
+    # bought free with the scrap's net gold, sold as gold by the standing weight.
+    stones_revenue_account_id = None
+    if operation_type == 'renewal' and any(l['stones_weight'] > 0 for l in op_lines):
+        from accounting.mappings import DEFAULT_MAPPING_OPERATION_TYPE, AccountNotMapped, require_account
+        try:
+            stones_revenue_account_id = require_account(DEFAULT_MAPPING_OPERATION_TYPE, 'renewal_stones_revenue')
+        except AccountNotMapped:
+            return jsonify({'error': 'account_not_mapped', 'role': 'renewal_stones_revenue',
+                            'message': 'حساب «إيراد فصوص التجديد» غير مربوط: يُضبط في «الربط المحاسبي»، '
+                                       'ولا تدخل فصوص التجديد المعروضَ دونه'}), 400
+
     notes = (data.get('notes') or '').strip() or None
 
     # Validate safe boxes + available balance
@@ -3008,10 +3021,20 @@ def _melting_renewal(*, preview: bool):
                     karat=karat_val,
                 ))
 
-        # A renewal's stones are no gold line (ت1): they were written as gold of
-        # the line's karat on «stones asset» / «stones revenue» -- stones are not
-        # gold, and a mapped revenue made them grams of gold profit. They move
-        # by weight on the safes' rows below; their own design is ت5.
+        # A renewal's stones: debit the showroom by their weight at the line's
+        # karat, credit the renewal stones revenue -- a weight account (ت5أ).
+        # (ت1 took away their gold lines on «stones asset» / «stones revenue»,
+        # which no showroom ever held.) A melting's stones stay stones (ت5).
+        if stones_revenue_account_id:
+            for line in op_lines:
+                if line['stones_weight'] <= 0:
+                    continue
+                for lt, acct_id, what in (('debit', to_safe.account_id, 'فصوص تجديد تدخل المعروض ذهبًا'),
+                                          ('credit', stones_revenue_account_id, 'إيراد فصوص التجديد')):
+                    db.session.add(VoucherAccountLine(
+                        voucher_id=voucher.id, account_id=acct_id, line_type=lt, amount_type='gold',
+                        amount=line['stones_weight'], karat=float(line['to_karat']),
+                        description=f"{what} ({line['stones_weight']:.3f} جم)"))
 
         # قيد المصنعية التالفة (تكسير فقط):
         # مدين: حساب مصروف المصنعية التالفة (نقد)
@@ -3057,7 +3080,10 @@ def _melting_renewal(*, preview: bool):
         for account_id, which in ((from_safe.account_id, left_cat), (to_safe.account_id, joined_cat)):
             on_account = [l for l in entry_lines if l.account_id == account_id]
             for karat in sorted({l['karat'] for l in op_lines}):
-                parts = [(l[which], None, l['gold_weight']) for l in op_lines if l['karat'] == karat]
+                # In the showroom a renewal's stones are gold, with their line (ت5أ).
+                parts = [(l[which], None, l['gold_weight'] + (l['stones_weight'] if stones_revenue_account_id
+                                                              and account_id == to_safe.account_id else 0.0))
+                         for l in op_lines if l['karat'] == karat]
                 spread(on_account, karat, parts, now=voucher_dt, by=created_by, what=f'{op_label} {voucher_number}')
 
         # stones_weight: معلوماتي فقط — لا يؤثر على رصيد الوزن الذهبي
@@ -3104,7 +3130,9 @@ def _melting_renewal(*, preview: bool):
                 **line_stones_kw,
             ))
 
-            # SafeBoxTransaction: دخول إلى الوجهة (وزن صافي + فصوص معلوماتي)
+            # SafeBoxTransaction: دخول إلى الوجهة (وزن صافي + فصوص معلوماتي)؛
+            # وفصوص التجديد ذهبٌ في المعرض (ت5أ): تدخل وزنًا لا فصوصًا.
+            stones_as_gold = line['stones_weight'] if stones_revenue_account_id else 0.0
             db.session.add(SafeBoxTransaction(
                 safe_box_id=to_safe_id,
                 direction='in',
@@ -3113,8 +3141,8 @@ def _melting_renewal(*, preview: bool):
                 created_by=created_by,
                 notes=f"{op_label} — دخول {line['to_karat']}k",
                 amount_cash=0.0,
-                **{f"weight_{line['to_karat']}k": round(line['gold_weight'], 6)},
-                **line_stones_kw,
+                **{f"weight_{line['to_karat']}k": round(line['gold_weight'] + stones_as_gold, 6)},
+                **({} if stones_as_gold else line_stones_kw),
             ))
 
         if preview:
