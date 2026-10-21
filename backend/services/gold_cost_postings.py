@@ -1,4 +1,4 @@
-"""Gold bought for riyals enters its pool's stock at its price (ADR-042 phase 3, step 2).
+"""The gold's value through the books: bought at its price, sold at its average (ADR-042 phase 3, steps 2-3).
 
 The owner (21 Oct 2026): «اتفق مع توصياتك بجميع القرارات». From the day the
 settings name (Settings.gold_cost_from -- the 2027 database's first day,
@@ -15,7 +15,13 @@ between the price and that average goes to «فروق تكلفة تبادل ال
 not buried in the average (the replay's Pool.put, the same rule).
 
 A purchase undone (a customer purchase's return) takes its price back out of
-the same stock. Each writer calls these after its entry's weight lines are
+the same stock.
+
+Sold (step 3), the gold leaves its pool's stock at the pool's average, onto
+its cost of sales -- «تكلفة مبيعات الذهب» for the worked, «تكلفة الكسر
+المباع» for the scrap: two margins, seen apart (the owner). A sale returned
+brings its sale's cost back, in the share returned, onto the pool it enters --
+the cost its sale posted, never the screen's. Each writer calls these after its entry's weight lines are
 written; the replay (services/gold_cost.replay) reads what they write as it
 computes it -- the nightly witness (step 7).
 """
@@ -116,3 +122,61 @@ def returned_out(journal_entry_id: int, price: float, *, description: str) -> di
     price = round(float(price or 0.0), 2)
     _line(journal_entry_id, _value_account(name), -price, f'{description} — من المخزون')
     return {'pool': name, 'grams': grams, 'value': price}
+
+
+COST_ROLE = {'worked': 'gold_cost_of_sales', 'scrap': 'scrap_cost_of_sales'}
+
+
+def sold_out(journal_entry_id: int, *, description: str) -> dict:
+    """The entry's gold, sold, out of its pool's stock at the pool's average:
+    debit its cost of sales, credit the stock. Returns what was written."""
+    from services.gold_cost import pool_state
+    name, grams = _the_pool(journal_entry_id, -1)
+    before = pool_state(name, excluding_entry_id=journal_entry_id)
+    if before.average is None or before.average <= 0:
+        raise GoldCostRefused('gold_cost_no_average',
+                              f'مخزن {"الكسر" if name == "scrap" else "المشغول"} بلا متوسط '
+                              f'({before.weight:.3f} غ بقيمة {before.value:.2f}): لا تكلفة يُباع بها — راجع قيد الافتتاح')
+    cost = round(grams * before.average, 2)
+    cost_account = _require(COST_ROLE[name])
+    _line(journal_entry_id, cost_account, cost, f'{description} — تكلفة الذهب المباع')
+    _line(journal_entry_id, _value_account(name), -cost, f'{description} — من المخزون')
+    return {'pool': name, 'grams': grams, 'cost': cost, 'average': before.average}
+
+
+def posted_sale_cost(invoice) -> dict[int, float]:
+    """What a sale's entries posted as the gold's cost, by cost account -- its
+    cost of sales, as written (none for a sale before the rule)."""
+    from models import JournalEntry
+    from accounting.mappings import DEFAULT_MAPPING_OPERATION_TYPE, get_account_id_for_mapping
+    accounts = {a for a in (get_account_id_for_mapping(DEFAULT_MAPPING_OPERATION_TYPE, r) for r in COST_ROLE.values()) if a}
+    if not accounts:
+        return {}
+    entry_ids = [e.id for e in JournalEntry.query.filter_by(reference_type='invoice', reference_id=invoice.id,
+                                                            is_deleted=False).all()]
+    cost: dict[int, float] = {}
+    for l in JournalEntryLine.query.filter(JournalEntryLine.journal_entry_id.in_(entry_ids or [-1]),
+                                           JournalEntryLine.account_id.in_(accounts),
+                                           JournalEntryLine.is_deleted.is_(False)).all():
+        cost[l.account_id] = cost.get(l.account_id, 0.0) + float(l.cash_debit or 0) - float(l.cash_credit or 0)
+    return {a: round(v, 2) for a, v in cost.items() if abs(v) >= CENT}
+
+
+def sale_returned_in(journal_entry_id: int, ret, original, *, description: str) -> dict:
+    """The entry's gold, a sale returned, back into the pool it enters at its
+    sale's posted cost, in the share returned: debit the stock, credit the
+    cost of sales it was charged to. Returns what was written."""
+    from points.engine import returned_share
+    name, grams = _the_pool(journal_entry_id, +1)
+    cost = posted_sale_cost(original) if original is not None else {}
+    if not cost:
+        raise GoldCostRefused('gold_cost_return_of_uncosted_sale',
+                              'البيع الأصلي لم تُكتب له تكلفة ذهب (قبل يوم التكلفة بالمتوسط، أو من سنة مقفلة): '
+                              'لا يُرجَع بهذا المستند')
+    share = returned_share(ret, original)
+    back = {a: round(v * share, 2) for a, v in cost.items()}
+    for account_id, amount in back.items():
+        _line(journal_entry_id, account_id, -amount, f'{description} — عكس تكلفة الذهب المباع')
+    total = round(sum(back.values()), 2)
+    _line(journal_entry_id, _value_account(name), total, f'{description} — إلى المخزون')
+    return {'pool': name, 'grams': grams, 'cost': total, 'share': share}

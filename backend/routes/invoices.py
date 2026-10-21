@@ -4797,7 +4797,19 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
                 cost_cash = 0.0
                 cost_basis = None
 
-                if provided_cost and provided_cost > 0:
+                from services.gold_cost_postings import applies as _gold_cost_applies
+                if _gold_cost_applies(new_invoice.date):
+                    # The cost the sale will post: its pool's average (ADR-042
+                    # phase 3) -- not the screen's figure, nor the old stored average.
+                    from services.gold_cost import pool_state
+                    weight_main = _estimate_weight_main_from_payload()
+                    _pool = 'scrap' if str(getattr(new_invoice, 'gold_type', '') or '').lower() == 'scrap' else 'worked'
+                    _avg = pool_state(_pool).average or 0.0
+                    cost_cash = round(_avg * weight_main, 2) if weight_main > 0 and _avg > 0 else 0.0
+                    cost_basis = 'pool_average' if cost_cash else None
+                    below_cost_details['weight_main_grams_estimate'] = float(weight_main)
+                    below_cost_details['avg_total_cost_per_gram'] = float(_avg)
+                elif provided_cost and provided_cost > 0:
                     cost_cash = round(provided_cost, 2)
                     cost_basis = 'provided_total_cost'
                 else:
@@ -6531,6 +6543,14 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
                             apply_golden_rule=False,
                         )
 
+            # From the day the settings name, the gold sold leaves its pool's
+            # stock at the pool's average, onto its cost of sales (ADR-042 phase 3).
+            from services.gold_cost_postings import applies as _gold_cost_applies
+            if _gold_cost_applies(new_invoice.date):
+                from services.gold_cost_postings import sold_out
+                _sold = sold_out(journal_entry.id, description=f"بيع ذهب {'كسر' if gold_type == 'scrap' else 'مشغول'}")
+                new_invoice.total_cost = _sold['cost']
+
             # بيع كسر: تسجيل خروج الوزن من صندوق الكسر (يقابل دخول عند الشراء)
             if _scrap_sale_target_sb_id and not unposted_mode:  # ADR-034
                 _sale_sbt_weights = {
@@ -6929,6 +6949,17 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
                         apply_golden_rule=False,
                         description="استرداد نقدي للعميل",
                     )
+
+            # From the day the settings name, the gold comes back into the stock
+            # at its sale's posted cost, in the share returned (ADR-042 phase 3).
+            from services.gold_cost_postings import applies as _gold_cost_applies
+            if _gold_cost_applies(new_invoice.date):
+                from services.gold_cost_postings import sale_returned_in
+                _back = sale_returned_in(
+                    journal_entry.id, new_invoice,
+                    db.session.get(Invoice, new_invoice.original_invoice_id) if new_invoice.original_invoice_id else None,
+                    description='مرتجع بيع')
+                new_invoice.total_cost = _back['cost']
 
             # ─── عكس أجور المصنعية ───
             _wage_cash_ret = 0.0

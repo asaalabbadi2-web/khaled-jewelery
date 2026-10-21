@@ -170,13 +170,21 @@ def write_transition(*, by: str, now, opening_price: float, at: date, since: dat
 
 
 def cost_basis(start: datetime, end: datetime) -> tuple[str, str]:
-    """The basis of the cost of sales over [start, end): before the transition,
-    'purchases' (the past as it was posted); from it, 'moving_average'; across
-    it, 'mixed' -- with the day named."""
-    first = (JournalEntry.query.filter(JournalEntry.reference_type == TRANSITION, JournalEntry.is_deleted.is_(False))
-             .order_by(JournalEntry.date).first())
-    if first is None or end <= first.date:
+    """The basis of the cost of sales over [start, end): before the day the
+    average starts, 'purchases' (the past as it was posted); from it,
+    'moving_average'; across it, 'mixed' -- with the day named. The day is the
+    settings' (gold_cost_from: phase 3 posts from it, the 2027 database opens
+    with it, ADR-044), else the transition entry's (ADR-042 phase 2)."""
+    from models import Settings
+    day = getattr(Settings.query.first(), 'gold_cost_from', None)
+    if day is not None:
+        start_of = datetime.combine(day, time.min)
+    else:
+        first = (JournalEntry.query.filter(JournalEntry.reference_type == TRANSITION, JournalEntry.is_deleted.is_(False))
+                 .order_by(JournalEntry.date).first())
+        start_of = first.date if first is not None else None
+    if start_of is None or end <= start_of:
         return 'purchases', PURCHASES_NOTE
-    if start >= first.date:
+    if start >= start_of:
         return 'moving_average', AVERAGE_NOTE
-    return 'mixed', (f'قبل {first.date:%Y-%m-%d}: {PURCHASES_NOTE} -- ومنه: {AVERAGE_NOTE}')
+    return 'mixed', (f'قبل {start_of:%Y-%m-%d}: {PURCHASES_NOTE} -- ومنه: {AVERAGE_NOTE}')

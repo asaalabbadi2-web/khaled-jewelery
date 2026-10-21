@@ -57,7 +57,13 @@ def sale_return_cost(ret) -> float | None:
     the owner, 10 Oct 2026). None when the original carries no cost."""
     from models import Invoice, db
     from points.engine import returned_share
+    from services.gold_cost_postings import posted_sale_cost
     original = db.session.get(Invoice, int(ret.original_invoice_id)) if ret.original_invoice_id else None
-    if original is None or not float(original.total_cost or 0.0):
+    if original is None:
         return None
-    return round(float(original.total_cost) * returned_share(ret, original), 2)
+    # The cost its sale posted (ADR-042 phase 3), else the sale's recorded cost.
+    posted = posted_sale_cost(original)
+    cost = sum(posted.values()) if posted else float(original.total_cost or 0.0)
+    if not cost:
+        return None
+    return round(cost * returned_share(ret, original), 2)

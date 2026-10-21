@@ -106,7 +106,9 @@ def pool_accounts() -> dict[str, set[int]]:
         # a sale's cost, in riyals -- what tells a sale from a purchase undone
         'cost_of_sales': role_subtree_ids(COST_OF_SALES_ROOT) | _mapped_subtree(DEFAULT, 'gold_cost_of_sales'),
         # where a purchase's price is debited
-        'purchase_cash': own('شراء من عميل', 'purchases_gold_scrap') | own(DEFAULT, 'gold_inventory_scrap'),
+        # (phase 3: a purchase into the worked pool -- a customer's new gold -- debits 1300)
+        'purchase_cash': (own('شراء من عميل', 'purchases_gold_scrap') | own(DEFAULT, 'gold_inventory_scrap')
+                          | own(DEFAULT, 'gold_inventory_new')),
         'customers': twin_subtree_ids(CUSTOMER_RECEIVABLES_ROOT),
         'sales_twin': twin_subtree_ids(REVENUE_ROOT),                # early sales wrote these
         'weight_expense': twin_subtree_ids(OPERATING_EXPENSES_ROOT),  # operating expenses, by weight
@@ -143,6 +145,12 @@ class Pool:
         self.value -= out
         self._settle()
         return out
+
+    def add(self, grams: float, value: float) -> None:
+        """Grams back in at *value* -- a sale undone at its sale's cost."""
+        self.weight += grams
+        self.value += value
+        self._settle()
 
     def take_at(self, grams: float, value: float) -> None:
         """Grams out at *value* -- a purchase undone at its price."""
@@ -212,6 +220,7 @@ def replay(*, opening_price: float, since: date | None = None, until: date | Non
     cash_accounts = pools['purchase_cash']
     exchange_accounts = pools['exchange_difference']
     cost_of_sales_cash = pools['cost_of_sales']
+    value_accounts = {'worked': pools['worked_value'], 'scrap': pools['scrap_value']}
     customers, equity = pools['customers'], pools['equity']
     sales_twin = pools['sales_twin']
     # By the nature of the account the gold went to (the owner, 11 Oct 2026):
@@ -306,6 +315,10 @@ def replay(*, opening_price: float, since: date | None = None, until: date | Non
             cash_refund = 0.0
         if cash_refund > 0:
             cash_refund -= exchanged
+        # A sale undone (phase 3): its cost credited back, the stock debited it.
+        sale_undone = any(float(l.cash_credit or 0) > 0 for l in lines if l.account_id in cost_of_sales_cash)
+        stock_value = {n: sum(float(l.cash_debit or 0) - float(l.cash_credit or 0)
+                              for l in lines if l.account_id in ids) for n, ids in value_accounts.items()}
 
         # transfer: the pools move opposite each other (a supplier's gold for gold)
         if d['scrap'] * d['worked'] < 0:
@@ -326,6 +339,16 @@ def replay(*, opening_price: float, since: date | None = None, until: date | Non
                 m.exchange_difference += pool.put(grams, price)
                 m.purchases_g += grams
                 m.purchases_value += price
+            elif (grams > 0 and sale_undone and stock_value[name] > 0 and accounts & customers
+                  and e.reference_type not in CORRECTION_TYPES):
+                pool.add(grams, stock_value[name])
+                target = out.months.setdefault(corrected_month.get(e.id, e.date.strftime('%Y-%m')), Month())
+                if name == 'worked':
+                    target.sold_worked_g -= grams
+                    target.cost_of_worked_sold -= stock_value[name]
+                else:
+                    target.sold_scrap_g -= grams
+                    target.cost_of_scrap_sold -= stock_value[name]
             elif grams > 0 and cash_price > 0:
                 m.exchange_difference += pool.put(grams, cash_price)
                 m.purchases_g += grams
