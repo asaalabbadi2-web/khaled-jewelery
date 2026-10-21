@@ -206,11 +206,13 @@ def value_the_gold(journal_entry_id: int, *, description: str) -> dict:
       short is covered first and the difference said (the replay's rule);
     - out to an expense, or in from a revenue (a melting's stones, a
       renewal's): at its pool's average, on the expense's or revenue's riyal
-      account.
-    Gold to or from a party (an advance, a drawing) is not built -- refused,
-    so the average is never moved unseen (step 5). An entry that already
-    writes value on a pool's stock was valued by its writer: left as it is.
-    Returns what was written."""
+      account;
+    - out to a party (an advance, a drawing) at its pool's average, onto
+      «ذهب لدى الأطراف»; back from a party at the value it left with -- the
+      party's own average there (step 5; the owner's decision 7, 22 Oct 2026).
+    Any other account is refused, so the average is never moved unseen. An
+    entry that already writes value on a pool's stock was valued by its
+    writer: left as it is. Returns what was written."""
     from services.gold_cost import Pool, _grams, pool_accounts, pool_state
     db.session.flush()
     pools = pool_accounts()
@@ -251,33 +253,87 @@ def value_the_gold(journal_entry_id: int, *, description: str) -> dict:
         out['transfer'] = {'from': src, 'to': dst, 'grams': moved, 'value': value, 'difference': difference}
 
     pool_ids = pools['worked'] | pools['scrap']
+    party_ids = pools['party'] - pool_ids
     for n, g in rest.items():
         if abs(g) < CENT:
             continue
         counters = [(l, _grams(l)) for l in lines if l.account_id not in pool_ids and _grams(l) * g < -CENT ** 2]
         kinds = {l.account_id: ('expense' if l.account_id in pools['weight_expense']
-                                else 'revenue' if l.account_id in pools['sales_twin'] else None) for l, _ in counters}
-        # an expense either way (a write-off, or one undone); a revenue only in (gold gained)
+                                else 'revenue' if l.account_id in pools['sales_twin']
+                                else 'party' if l.account_id in party_ids else None) for l, _ in counters}
+        # an expense either way (a write-off, or one undone); a revenue only in
+        # (gold gained); a party either way (an advance, and its return)
         if not counters or None in kinds.values() or (g < 0 and 'revenue' in kinds.values()):
             raise GoldCostRefused('gold_cost_counter_not_built',
                                   f'ذهب {"يخرج من" if g < 0 else "يدخل"} مخزن {label[n]} '
-                                  f'{"إلى" if g < 0 else "من"} حساب ليس مصروفًا ولا إيرادًا (طرف أو غيره): '
-                                  'لم تُبنَ قيمته بعد (ADR-042 المرحلة 3، الخطوة 5)')
-        need_average(n)
-        total = round(abs(g) * held[n].avg, 2)
+                                  f'{"إلى" if g < 0 else "من"} حساب ليس مصروفًا ولا إيرادًا ولا طرفًا: '
+                                  'لا تُعرف قيمته (ADR-042 المرحلة 3)')
+        if g < 0 or held[n].weight < -CENT or set(kinds.values()) - {'party'}:
+            need_average(n)
+        weights = sum(abs(cg) for _, cg in counters)
+        parts, total = [], 0.0
+        for l, cg in counters:
+            share = abs(g) * abs(cg) / weights
+            if kinds[l.account_id] == 'party' and g > 0:
+                held_grams, held_value = party_state(l.account_id, excluding_entry_id=journal_entry_id)
+                if held_grams <= CENT or held_value <= 0:
+                    raise GoldCostRefused('gold_cost_party_has_no_valued_gold',
+                                          'ذهب يعود من طرف لم يخرج إليه ذهب مقيَّم: لا قيمة خرج بها يعود بها — '
+                                          'يُسجَّل شراءً أو إيرادًا بمستنده')
+                v = round(share * held_value / held_grams, 2)
+                riyal = _require('gold_with_parties')
+            else:
+                v = round(share * held[n].avg, 2)
+                riyal = _require('gold_with_parties') if kinds[l.account_id] == 'party' else _riyal_account(l.account_id)
+            total += v
+            _line(journal_entry_id, riyal, v if g < 0 else -v, f'{description} — قيمة الذهب')
+            parts.append({'account_id': riyal, 'value': v, 'kind': kinds[l.account_id]})
+        total = round(total, 2)
+        difference = 0.0
         if g < 0:
             held[n].take(abs(g))
         else:
-            held[n].put(abs(g), total)
-        weights = sum(abs(cg) for _, cg in counters)
-        parts, written = [], 0.0
-        for i, (l, cg) in enumerate(counters):
-            v = round(total - written, 2) if i == len(counters) - 1 else round(total * abs(cg) / weights, 2)
-            written += v
-            riyal = _riyal_account(l.account_id)
-            _line(journal_entry_id, riyal, v if g < 0 else -v, f'{description} — قيمة الذهب')
-            parts.append({'account_id': riyal, 'value': v, 'kind': kinds[l.account_id]})
-        _line(journal_entry_id, _value_account(n), -total if g < 0 else total,
+            difference = round(held[n].put(abs(g), total), 2)
+        _line(journal_entry_id, _value_account(n), -total if g < 0 else total - difference,
               f'{description} — {"من" if g < 0 else "إلى"} {label[n]}')
-        out['rest'].append({'pool': n, 'grams': g, 'value': total, 'counters': parts})
+        if abs(difference) >= CENT:
+            _line(journal_entry_id, _require('gold_exchange_difference'), difference, f'{description} — فرق تغطية النقص')
+        out['rest'].append({'pool': n, 'grams': g, 'value': total, 'difference': difference, 'counters': parts})
     return out
+
+
+def party_state(weight_account_id: int, *, excluding_entry_id: int | None = None) -> tuple[float, float]:
+    """The valued gold a party holds, from the ledger: (main-karat grams, riyals).
+    Each posted entry that moves the party's gold and writes «ذهب لدى الأطراف»
+    gives the party that value in the share of its grams among the entry's
+    parties -- the share value_the_gold writes it in. Its average is what the
+    gold comes back at (the owner's decision 7, 22 Oct 2026)."""
+    from accounting.balances import counted_line_filters
+    from accounting.mappings import DEFAULT_MAPPING_OPERATION_TYPE, get_account_id_for_mapping
+    from models import JournalEntry
+    from services.gold_cost import _grams, pool_accounts
+    with_parties = get_account_id_for_mapping(DEFAULT_MAPPING_OPERATION_TYPE, 'gold_with_parties')
+    if not with_parties:
+        return 0.0, 0.0
+    pools = pool_accounts()
+    party_ids = pools['party'] - pools['worked'] - pools['scrap']
+    entries = (db.session.query(JournalEntryLine.journal_entry_id)
+               .join(JournalEntry, JournalEntry.id == JournalEntryLine.journal_entry_id)
+               .filter(*counted_line_filters(), JournalEntryLine.account_id == weight_account_id))
+    if excluding_entry_id is not None:
+        entries = entries.filter(JournalEntry.id != excluding_entry_id)
+    ids = {r[0] for r in entries.distinct().all()}
+    by_entry: dict[int, list] = {}
+    for l in JournalEntryLine.query.filter(JournalEntryLine.journal_entry_id.in_(ids or {-1}),
+                                           JournalEntryLine.is_deleted.is_(False)).all():
+        by_entry.setdefault(l.journal_entry_id, []).append(l)
+    grams = value = 0.0
+    for lines in by_entry.values():
+        mine = sum(_grams(l) for l in lines if l.account_id == weight_account_id)
+        written = sum(float(l.cash_debit or 0) - float(l.cash_credit or 0) for l in lines if l.account_id == with_parties)
+        if abs(mine) < CENT or abs(written) < CENT:
+            continue
+        side = sum(_grams(l) for l in lines if l.account_id in party_ids and _grams(l) * mine > 0)
+        grams += mine
+        value += written * mine / side if side else written
+    return round(grams, 6), round(value, 2)

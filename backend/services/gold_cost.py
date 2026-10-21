@@ -103,6 +103,8 @@ def pool_accounts() -> dict[str, set[int]]:
         # where a purchase covering a short writes its difference (phase 3) --
         # part of what the gold cost; unmapped before phase 3, then none
         'exchange_difference': _mapped_subtree(DEFAULT, 'gold_exchange_difference'),
+        # the value of the gold with the parties (phase 3, decision 7)
+        'gold_with_parties': _mapped_subtree(DEFAULT, 'gold_with_parties'),
         # a sale's cost, in riyals -- what tells a sale from a purchase undone
         'cost_of_sales': role_subtree_ids(COST_OF_SALES_ROOT) | _mapped_subtree(DEFAULT, 'gold_cost_of_sales'),
         # where 2026's purchases debited their price (phase 3 debits the pool's
@@ -220,6 +222,7 @@ def replay(*, opening_price: float, since: date | None = None, until: date | Non
     exchange_accounts = pools['exchange_difference']
     cost_of_sales_cash = pools['cost_of_sales']
     value_accounts = {'worked': pools['worked_value'], 'scrap': pools['scrap_value']}
+    pools_of = pools
     customers, equity = pools['customers'], pools['equity']
     sales_twin = pools['sales_twin']
     # By the nature of the account the gold went to (the owner, 11 Oct 2026):
@@ -278,6 +281,13 @@ def replay(*, opening_price: float, since: date | None = None, until: date | Non
                      .filter(JournalEntry.id.in_(set(rev_refs.values()))).all())
         corrected_month.update({k: dates[v].strftime('%Y-%m') for k, v in rev_refs.items() if dates.get(v)})
 
+    # From the settings' day (phase 3), the gold with each party is followed:
+    # out at its pool's average, back at the value it left with (decision 7).
+    from models import Settings
+    _day = getattr(Settings.query.first(), 'gold_cost_from', None)
+    phase3_day = datetime.combine(_day, datetime.min.time()) if _day else None
+    with_parties: dict[int, list] = {}
+
     pools = {'scrap': Pool(), 'worked': Pool()}
     out = Replay(pools=pools)
     current_day = None
@@ -314,7 +324,8 @@ def replay(*, opening_price: float, since: date | None = None, until: date | Non
                         for l in lines if l.account_id in exchange_accounts)
         sold = any(float(l.cash_debit or 0) > 0 for l in lines if l.account_id in cost_of_sales_cash)
         sale_undone = any(float(l.cash_credit or 0) > 0 for l in lines if l.account_id in cost_of_sales_cash)
-        by_nature = bool(accounts & (expense_accounts | sales_twin))   # valued at the average, not a price
+        # valued at the average, not a price -- or a party's, on «ذهب لدى الأطراف»
+        by_nature = bool(accounts & (expense_accounts | sales_twin | pools_of['gold_with_parties']))
 
         # transfer: the pools move opposite each other (a supplier's gold for gold)
         if d['scrap'] * d['worked'] < 0:
@@ -405,7 +416,34 @@ def replay(*, opening_price: float, since: date | None = None, until: date | Non
                 # account -- a receivable (an advance, a drawing, zakat charged to
                 # a partner), not a cost; a sales return -- the sale undone; a
                 # purchase account -- a purchase returned; a revenue account --
-                # gold gained. All at the average.
+                # gold gained. All at the average -- but from the settings' day a
+                # party's gold comes back at the value it left with (decision 7).
+                parties_here = [(l, _grams(l)) for l in lines
+                                if l.account_id in receivable_accounts and _grams(l) * grams < 0]
+                if (phase3_day is not None and e.date >= phase3_day and parties_here
+                        and not accounts & (expense_accounts | sales_twin | cost_of_sales_weight | sales_returns)):
+                    side = sum(abs(cg) for _, cg in parties_here)
+                    if grams < 0:
+                        value = pool.take(-grams)
+                        for l, cg in parties_here:
+                            held = with_parties.setdefault(l.account_id, [0.0, 0.0])
+                            held[0] += -grams * abs(cg) / side
+                            held[1] += value * abs(cg) / side
+                        m.receivables_g += grams
+                        m.receivables_value -= value
+                    else:
+                        value = 0.0
+                        for l, cg in parties_here:
+                            held = with_parties.setdefault(l.account_id, [0.0, 0.0])
+                            back = grams * abs(cg) / side
+                            rate = held[1] / held[0] if held[0] > EPS else pool.avg
+                            held[0] -= back
+                            held[1] -= back * rate
+                            value += back * rate
+                        m.exchange_difference += pool.put(grams, value)
+                        m.receivables_g += grams
+                        m.receivables_value += value
+                    continue
                 if grams > 0:
                     value = grams * pool.avg
                     pool.put(grams, value)

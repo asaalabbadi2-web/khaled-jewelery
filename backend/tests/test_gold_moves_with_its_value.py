@@ -10,8 +10,9 @@ settings name, the gold an entry moves that no writer valued gets its value
     short is covered first and the difference said;
   - a melting's stones out to their expense, a renewal's in from their
     revenue: at the worked's average, on the riyal side of the role;
-  - gold to or from a party (an advance, a drawing) is not built yet: refused
-    by name, never moving the average unseen (step 5).
+  - gold out to a party (an advance, a drawing) at its pool's average onto
+    «ذهب لدى الأطراف»; back at the value it left with (step 5, the owner's
+    decision 7); to an account of no known nature, refused by name.
 With no day set, nothing is valued: 2026 posts as ever. The replay reads it.
 
 Run:
@@ -158,15 +159,64 @@ def _crafted(lines):
     return je
 
 
-def test_gold_to_a_party_is_refused_until_it_is_built(roles):
+def _party_and_role():
+    """An employee's gold account, on the assets' weight side (a party), and
+    «ذهب لدى الأطراف» mapped."""
+    _map('gold_with_parties', _account('175', 'ذهب لدى الأطراف (قيمة)', type='Asset'))
+    return _weight_child('assets_root', 'موظف وزني GM')
+
+
+def test_gold_out_to_a_party_leaves_at_the_pool_average_onto_gold_with_parties(roles):
+    _from(date(2026, 1, 1))
+    employee = _party_and_role()
+    scrap = _safe('scrap')
+    _holds(scrap, 21, 20.0 - min(pool_state('scrap').weight, 0.0))
+    _valued('scrap', pool_state('scrap').weight * 400.0)
+    je = _crafted([(db.session.get(Account, scrap.account_id), {'credit_21k': 5}), (employee, {'debit_21k': 5})])
+    value_the_gold(je.id, description='سلفة ذهب')
+    with_parties = AccountingMapping.query.filter_by(account_type='gold_with_parties').one().account_id
+    assert _cash(je.id, with_parties) == pytest.approx(2000.0)
+    assert _cash(je.id, SCRAP()) == pytest.approx(-2000.0)
+
+
+def test_gold_back_from_a_party_comes_at_the_value_it_left_with(roles):
+    _from(date(2026, 1, 1))
+    employee = _party_and_role()
+    scrap = _safe('scrap')
+    scrap_account = db.session.get(Account, scrap.account_id)
+    _holds(scrap, 21, 20.0 - min(pool_state('scrap').weight, 0.0))
+    _valued('scrap', pool_state('scrap').weight * 400.0)
+    out = _crafted([(scrap_account, {'credit_21k': 5}), (employee, {'debit_21k': 5})])
+    value_the_gold(out.id, description='سلفة ذهب')                        # 5 g at 400: 2,000
+    _valued('scrap', pool_state('scrap').weight * 450.0)                  # the scrap's average moves to 450
+    back = _crafted([(scrap_account, {'debit_21k': 2}), (employee, {'credit_21k': 2})])
+    value_the_gold(back.id, description='رد سلفة')
+    with_parties = AccountingMapping.query.filter_by(account_type='gold_with_parties').one().account_id
+    assert _cash(back.id, with_parties) == pytest.approx(-800.0), 'at 400, as it left -- not 450'
+    assert _cash(back.id, SCRAP()) == pytest.approx(800.0)
+
+
+def test_gold_back_from_a_party_that_was_given_none_is_refused(roles):
+    _from(date(2026, 1, 1))
+    employee = _party_and_role()
+    scrap = _safe('scrap')
+    _holds(scrap, 21, 20.0 - min(pool_state('scrap').weight, 0.0))
+    _valued('scrap', pool_state('scrap').weight * 400.0)
+    je = _crafted([(db.session.get(Account, scrap.account_id), {'debit_21k': 2}), (employee, {'credit_21k': 2})])
+    with pytest.raises(GoldCostRefused) as refused:
+        value_the_gold(je.id, description='ذهب من طرف')
+    assert refused.value.code == 'gold_cost_party_has_no_valued_gold'
+
+
+def test_gold_to_an_account_of_no_known_nature_is_refused(roles):
     _from(date(2026, 1, 1))
     scrap = _safe('scrap')
-    _holds(scrap, 21, 10.0)
+    _holds(scrap, 21, 10.0 - min(pool_state('scrap').weight, 0.0))
     _valued('scrap', pool_state('scrap').weight * 400.0)
-    employee = _child(_role_twin('customer_receivables_root'), 'موظف وزني GM')
-    je = _crafted([(db.session.get(Account, scrap.account_id), {'credit_21k': 5}), (employee, {'debit_21k': 5})])
+    stray = _account('79', 'حساب وزني بلا مجموعة', type='Asset', tracks_weight=True)
+    je = _crafted([(db.session.get(Account, scrap.account_id), {'credit_21k': 5}), (stray, {'debit_21k': 5})])
     with pytest.raises(GoldCostRefused) as refused:
-        value_the_gold(je.id, description='سلفة ذهب')
+        value_the_gold(je.id, description='؟')
     assert refused.value.code == 'gold_cost_counter_not_built'
 
 
@@ -253,3 +303,32 @@ def test_a_suppliers_worked_gold_enters_at_the_scrap_average(auth_headers, roles
     entry = JournalEntry.query.filter_by(reference_type='invoice', reference_id=resp.get_json()['id']).first()
     assert _cash(entry.id, WORKED()) == pytest.approx(34 * 400.0)
     assert _cash(entry.id, SCRAP()) == pytest.approx(-34 * 400.0)
+
+
+def test_the_replay_reads_a_partys_gold_out_and_back_as_it_is_written(roles):
+    """In 2032, alone: 20 g of scrap at 400; 5 g out to an employee (2,000);
+    10 g more bought at 500 (the average 433.33...); 2 g back -- at 400, as it
+    left (800). The ledger and the replay agree."""
+    _from(date(2026, 1, 1))
+    employee = _party_and_role()
+    with_parties = db.session.get(Account, AccountingMapping.query.filter_by(account_type='gold_with_parties')
+                                  .one().account_id)
+    b = {'scrap': _safe('scrap'), 'twin': _child(_tree_account('7512'), 'مشتريات وزني 2032 GP'),
+         'cash': _child(_tree_account('1100'), 'صندوق 2032 GP')}
+    scr, sv = db.session.get(Account, b['scrap'].account_id), db.session.get(Account, SCRAP())
+    _entry(1, [(scr, {'debit_21k': 20}), (b['twin'], {'credit_21k': 20}),
+               (sv, {'cash_debit': 8000}), (b['cash'], {'cash_credit': 8000})])
+    _entry(2, [(scr, {'credit_21k': 5}), (employee, {'debit_21k': 5}),
+               (with_parties, {'cash_debit': 2000}), (sv, {'cash_credit': 2000})])
+    _entry(3, [(scr, {'debit_21k': 10}), (b['twin'], {'credit_21k': 10}),
+               (sv, {'cash_debit': 5000}), (b['cash'], {'cash_credit': 5000})])
+    _entry(4, [(scr, {'debit_21k': 2}), (employee, {'credit_21k': 2}),
+               (sv, {'cash_debit': 800}), (with_parties, {'cash_credit': 800})])
+
+    r = replay(opening_price=0.0, since=date(2032, 1, 1), until=date(2032, 2, 1))
+    assert r.others == []
+    assert r.months['2032-01'].receivables_value == pytest.approx(-2000 + 800)
+    a, z = pool_state('scrap', until=datetime(2032, 1, 1)), pool_state('scrap', until=datetime(2032, 2, 1))
+    assert (z.weight - a.weight, z.value - a.value) == (pytest.approx(r.pools['scrap'].weight),
+                                                         pytest.approx(r.pools['scrap'].value))
+    assert r.pools['scrap'].value == pytest.approx(8000 - 2000 + 5000 + 800)
