@@ -1715,11 +1715,15 @@ def get_home_leaderboard():
     can_view_total_profit = _can_view_admin
 
     if can_view_total_cash or can_view_total_profit:
-        # Aggregate across posted sales and purchases for the same period.
+        # Aggregate across posted sales and purchases for the same period. The
+        # sales are net of their returns in it -- as each seller's card takes a
+        # return back (ADR-041), so the card is the sum of the cards beneath it
+        # (it left 2,221 of October's returns in, 20 Oct 2026).
         totals = (
             db.session.query(
                 func.coalesce(
-                    func.sum(case((Invoice.invoice_type == 'بيع', Invoice.total), else_=0.0)),
+                    func.sum(case((Invoice.invoice_type == 'بيع', Invoice.total),
+                                  (Invoice.invoice_type == 'مرتجع بيع', -Invoice.total), else_=0.0)),
                     0.0,
                 ).label('sales_total'),
                 func.coalesce(
@@ -1742,7 +1746,7 @@ def get_home_leaderboard():
             )
             .filter(
                 Invoice.is_posted.is_(True),
-                Invoice.invoice_type.in_(['بيع', 'شراء من عميل']),
+                Invoice.invoice_type.in_(['بيع', 'شراء من عميل', 'مرتجع بيع']),
                 Invoice.date >= start_dt,
                 Invoice.date < end_dt,
             )

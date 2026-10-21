@@ -1,10 +1,26 @@
 from datetime import datetime
 
-from app import app
+import pytest
+
+from app import app as flask_app
 from models import db, Employee, Invoice, InvoiceItem
 
 
-_MAIN_KARAT = 21.0  # matches _configured_main_karat_f() fallback in tests
+@pytest.fixture(scope='module')
+def app():
+    flask_app.config['TESTING'] = True
+    with flask_app.app_context():
+        yield flask_app
+
+
+@pytest.fixture(autouse=True)
+def rollback_after_each(app, db_fence):
+    """Behind the fence (moved under tests/ 20 Oct 2026): its commits stayed in
+    the run's database and the next file's «today» held them."""
+    yield
+
+
+_MAIN_KARAT = 21.0  # the test shop's main karat (conftest seeds it)
 
 
 def _create_posted_sale(
@@ -87,9 +103,11 @@ def _create_posted_purchase(
 
 
 def test_home_leaderboard_points_uses_main_karat_equivalent(auth_headers):
-    with app.app_context():
-        emp = Employee.query.first()
-        assert emp is not None
+    with flask_app.app_context():
+        emp = Employee(employee_code='EMP-PTS-MK', name='موظف العيار', salary=0.0)
+        db.session.add(emp)
+        db.session.flush()
+        emp_id = emp.id
 
         # Earned gold weight is stored on the invoice as main-karat grams (profit_gold).
         # Points = earned_main_karat_g * 10.
@@ -111,7 +129,7 @@ def test_home_leaderboard_points_uses_main_karat_equivalent(auth_headers):
 
         db.session.commit()
 
-    with app.test_client() as client:
+    with flask_app.test_client() as client:
         resp = client.get(
             '/api/home/leaderboard',
             query_string={'period': 'today', 'metric': 'points'},
@@ -123,17 +141,14 @@ def test_home_leaderboard_points_uses_main_karat_equivalent(auth_headers):
 
     assert payload.get('metric') == 'points'
     ranking = payload.get('ranking') or []
-    assert len(ranking) >= 1
-
-    first = ranking[0]
+    (first,) = [r for r in ranking if r.get('id') == emp_id]   # not ranking[0]: today may hold others'
     assert first.get('count') == 2
     assert first.get('score') == 20.0
-    assert first.get('share') == 1.0
 
 
 def test_home_leaderboard_points_rounds_after_employee_total(auth_headers):
     emp_id = None
-    with app.app_context():
+    with flask_app.app_context():
         emp = Employee(
             employee_code='EMP-PTS-ROUND',
             name='موظف تقريبي',
@@ -157,7 +172,7 @@ def test_home_leaderboard_points_rounds_after_employee_total(auth_headers):
 
         db.session.commit()
 
-    with app.test_client() as client:
+    with flask_app.test_client() as client:
         resp = client.get(
             '/api/home/leaderboard',
             query_string={'period': 'today', 'metric': 'points'},
@@ -176,7 +191,7 @@ def test_home_leaderboard_points_rounds_after_employee_total(auth_headers):
 
 def test_home_leaderboard_points_include_posted_purchases(auth_headers):
     employee_id = None
-    with app.app_context():
+    with flask_app.app_context():
         emp = Employee(
             employee_code='EMP-PTS-BUY',
             name='موظف مشتريات',
@@ -200,7 +215,7 @@ def test_home_leaderboard_points_include_posted_purchases(auth_headers):
 
         db.session.commit()
 
-    with app.test_client() as client:
+    with flask_app.test_client() as client:
         resp = client.get(
             '/api/home/leaderboard',
             query_string={'period': 'today', 'metric': 'points'},

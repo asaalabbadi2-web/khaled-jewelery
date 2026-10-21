@@ -262,17 +262,21 @@ class PointsMetric(RaceMetric):
         ranking_raw: list[dict] = []
         for actor_id in counts:
             aid = int(actor_id)
+            # The card's two parts make its points: each rounded alone, 1.45 +
+            # 1.45 showed 1 + 1 under 3 (20 Oct 2026). Purchases take the rest.
+            points = max(0, int(round(pts_total.get(aid, 0.0))))
+            points_sales = min(points, max(0, int(round(pts_sales.get(aid, 0.0)))))
             ranking_raw.append({
                 'id':              aid,
                 'name':            name_map.get(aid) or f'Employee {aid}',
                 'photo':           photo_map.get(aid),
                 'count':           counts.get(aid, 0),
                 'weight':          0.0,
-                'points':          max(0, int(round(pts_total.get(aid, 0.0)))),
+                'points':          points,
                 'sales_amount':    round(sales_amount.get(aid, 0.0), 2),
                 'purchase_amount': round(purchase_amount.get(aid, 0.0), 2),
-                'points_sales':    max(0, int(round(pts_sales.get(aid, 0.0)))),
-                'points_purchase': max(0, int(round(pts_purchase.get(aid, 0.0)))),
+                'points_sales':    points_sales,
+                'points_purchase': points - points_sales,
             })
 
         return ranking_raw, invoices

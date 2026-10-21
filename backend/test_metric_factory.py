@@ -58,7 +58,8 @@ class TestMetricProperties:
         assert MetricFactory.create('count').invoice_types == ['بيع']
 
     def test_points_invoice_types(self):
-        assert MetricFactory.create('points').invoice_types == ['بيع', 'شراء من عميل']
+        # A sale return takes its sale's points back (the owner, 10 Oct 2026, ADR-041).
+        assert MetricFactory.create('points').invoice_types == ['بيع', 'شراء من عميل', 'مرتجع بيع']
 
     def test_weight_requires_employee_id(self):
         assert MetricFactory.create('weight').require_employee_id is True

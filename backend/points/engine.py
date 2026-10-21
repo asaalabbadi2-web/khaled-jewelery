@@ -125,12 +125,15 @@ def _points_of(
     if points_source == 'profit_cash':
         total = 0.0
         for inv in invoices:
-            if _is_purchase(inv):
+            pc = max(0.0, float(getattr(inv, 'profit_cash', 0.0) or 0.0))
+            if pc > 0.0:
+                total += pc / _cpp
+            elif _is_purchase(inv):
+                # A purchase from a customer keeps its profit in grams (profit_gold),
+                # not riyals (77720467, Jul 2026) -- the shared engine (6ff6b10b)
+                # read only the grams, so a purchase's riyal profit earned nothing.
                 pg = max(0.0, float(getattr(inv, 'profit_gold', 0.0) or 0.0))
                 total += pg * _ppg
-            else:
-                pc = max(0.0, float(getattr(inv, 'profit_cash', 0.0) or 0.0))
-                total += pc / _cpp
         return total
 
     # ── sales_amount mode ─────────────────────────────────────────────────────

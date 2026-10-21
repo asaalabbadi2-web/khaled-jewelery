@@ -25,10 +25,25 @@ _invoice_type_id_counter = itertools.count(90_000)
 
 import pytest
 
-from app import app
+from app import app as flask_app
 from models import db, Invoice, InvoiceItem, Employee, Category, Settings
 from points.models import PointRule
 from points.defaults import DEFAULT_MULTIPLIER
+
+
+@pytest.fixture(scope='module')
+def app():
+    flask_app.config['TESTING'] = True
+    with flask_app.app_context():
+        yield flask_app
+
+
+@pytest.fixture(autouse=True)
+def rollback_after_each(app, db_fence):
+    """Behind the fence (moved under tests/ 20 Oct 2026): its commits stayed in
+    the run's database and the next file's «today» held them."""
+    yield
+
 
 MAIN_KARAT = 21.0
 
@@ -221,7 +236,7 @@ def _invoice_with_weight(employee_id: int, *, weight_g: float, karat: float = 21
 
 
 def _leaderboard(auth_headers: dict) -> dict:
-    with app.test_client() as client:
+    with flask_app.test_client() as client:
         resp = client.get(
             '/api/home/leaderboard',
             query_string={'period': 'today', 'metric': 'points'},
@@ -251,7 +266,7 @@ class TestZeroDiff:
     """
 
     def test_single_karat_single_employee(self, auth_headers):
-        with app.app_context():
+        with flask_app.app_context():
             emp = _employee('EMP-ZD-1')
             items = [{'karat': 21.0, 'profit_weight': 5.0}]
             _invoice_with_items(emp.id, items)
@@ -263,7 +278,7 @@ class TestZeroDiff:
 
     def test_mixed_karats_single_employee(self, auth_headers):
         """21k + 18k items: new system = old system = profit_gold × 10."""
-        with app.app_context():
+        with flask_app.app_context():
             emp = _employee('EMP-ZD-2')
             items = [
                 {'karat': 21.0, 'profit_weight': 5.0},
@@ -279,7 +294,7 @@ class TestZeroDiff:
 
     def test_high_karat_single_employee(self, auth_headers):
         """24k item (above main karat): profit_gold contribution > profit_weight."""
-        with app.app_context():
+        with flask_app.app_context():
             emp = _employee('EMP-ZD-3')
             items = [{'karat': 24.0, 'profit_weight': 4.0}]
             inv = _invoice_with_items(emp.id, items)
@@ -291,7 +306,7 @@ class TestZeroDiff:
 
     def test_multi_employee_multi_karat(self, auth_headers):
         """Each employee's score = their invoice.profit_gold × 10."""
-        with app.app_context():
+        with flask_app.app_context():
             emp_a = _employee('EMP-ZD-A')
             emp_b = _employee('EMP-ZD-B')
             items_a = [
@@ -314,7 +329,7 @@ class TestZeroDiff:
 
     def test_zero_diff_explicit_formula_verification(self, auth_headers):
         """Assert new_points == invoice.profit_gold × DEFAULT_MULTIPLIER directly."""
-        with app.app_context():
+        with flask_app.app_context():
             emp = _employee('EMP-ZD-VRF')
             items = [
                 {'karat': 21.0, 'profit_weight': 7.0},
@@ -347,7 +362,7 @@ class TestWithRules:
 
     def test_karat_specific_rules_gold(self, auth_headers):
         """Gold 21k → 10, Gold 18k → 8: same category, different karats."""
-        with app.app_context():
+        with flask_app.app_context():
             emp = _employee('EMP-RUL-1')
             cat = _category('Gold')
             items = [
@@ -369,13 +384,13 @@ class TestWithRules:
             ])
 
         payload = _leaderboard(auth_headers)
-        with app.app_context():
+        with flask_app.app_context():
             _clear_point_rules()
         assert _score_for(payload, emp_id) == expected
 
     def test_category_only_rule_bullion(self, auth_headers):
         """Bullion (any karat) → 2 multiplier."""
-        with app.app_context():
+        with flask_app.app_context():
             emp = _employee('EMP-RUL-2')
             cat = _category('Bullion')
             items = [
@@ -390,13 +405,13 @@ class TestWithRules:
             _set_point_rules([PointRule(category_id=cat_id, karat=None, multiplier=2.0)])
 
         payload = _leaderboard(auth_headers)
-        with app.app_context():
+        with flask_app.app_context():
             _clear_point_rules()
         assert _score_for(payload, emp_id) == expected
 
     def test_mixed_categories_each_employee_own_rule(self, auth_headers):
         """Actor A: Gold (21→10, 18→8). Actor B: Bullion (any→2)."""
-        with app.app_context():
+        with flask_app.app_context():
             emp_a = _employee('EMP-RUL-A')
             emp_b = _employee('EMP-RUL-B')
             cat_gold = _category('GoldMix')
@@ -421,14 +436,14 @@ class TestWithRules:
             ])
 
         payload = _leaderboard(auth_headers)
-        with app.app_context():
+        with flask_app.app_context():
             _clear_point_rules()
         assert _score_for(payload, aid) == exp_a
         assert _score_for(payload, bid) == exp_b
 
     def test_no_category_rule_falls_to_default(self, auth_headers):
         """Item with category not covered by any rule → DEFAULT_MULTIPLIER."""
-        with app.app_context():
+        with flask_app.app_context():
             emp = _employee('EMP-RUL-DEF')
             cat_covered = _category('Covered')
             cat_other = _category('Other')
@@ -446,7 +461,7 @@ class TestWithRules:
             _set_point_rules([PointRule(category_id=covered_id, karat=None, multiplier=15.0)])
 
         payload = _leaderboard(auth_headers)
-        with app.app_context():
+        with flask_app.app_context():
             _clear_point_rules()
         assert _score_for(payload, emp_id) == expected
 
@@ -463,7 +478,7 @@ class TestRegression:
     """
 
     def test_three_employees_ranking_and_scores(self, auth_headers):
-        with app.app_context():
+        with flask_app.app_context():
             e1 = _employee('EMP-REG-1')
             e2 = _employee('EMP-REG-2')
             e3 = _employee('EMP-REG-3')
@@ -503,12 +518,12 @@ class TestProfitCashSource:
     """points_source='profit_cash': النقاط = profit_cash ÷ cash_amount_per_point."""
 
     def teardown_method(self):
-        with app.app_context():
+        with flask_app.app_context():
             _reset_points_source()
 
     def test_basic_cash_points(self, auth_headers):
         """1000 ريال ربح ÷ 100 = 10 نقاط."""
-        with app.app_context():
+        with flask_app.app_context():
             emp = _employee('EMP-CASH-BASIC')
             _invoice_cash(emp.id, profit_cash=1000.0)
             emp_id = emp.id
@@ -519,7 +534,7 @@ class TestProfitCashSource:
 
     def test_cash_amount_per_point_respected(self, auth_headers):
         """500 ريال ÷ 250 = 2 نقطة."""
-        with app.app_context():
+        with flask_app.app_context():
             emp = _employee('EMP-CASH-250')
             _invoice_cash(emp.id, profit_cash=500.0)
             emp_id = emp.id
@@ -530,7 +545,7 @@ class TestProfitCashSource:
 
     def test_two_invoices_accumulate(self, auth_headers):
         """فاتورتان: 600 + 400 = 1000 ريال ÷ 100 = 10 نقاط."""
-        with app.app_context():
+        with flask_app.app_context():
             emp = _employee('EMP-CASH-TWO')
             _invoice_cash(emp.id, profit_cash=600.0)
             _invoice_cash(emp.id, profit_cash=400.0)
@@ -542,7 +557,7 @@ class TestProfitCashSource:
 
     def test_purchase_invoice_included(self, auth_headers):
         """شراء من عميل يُحتسب في مسار profit_cash."""
-        with app.app_context():
+        with flask_app.app_context():
             emp = _employee('EMP-CASH-BUY')
             _invoice_cash(emp.id, profit_cash=300.0, invoice_type='شراء من عميل')
             emp_id = emp.id
@@ -553,7 +568,7 @@ class TestProfitCashSource:
 
     def test_ranking_order_by_cash_points(self, auth_headers):
         """الترتيب صحيح: الأعلى ربحاً أولاً."""
-        with app.app_context():
+        with flask_app.app_context():
             e_high = _employee('EMP-CASH-HIGH')
             e_low  = _employee('EMP-CASH-LOW')
             _invoice_cash(e_high.id, profit_cash=2000.0)
@@ -568,7 +583,7 @@ class TestProfitCashSource:
 
     def test_gold_weight_mode_unaffected(self, auth_headers):
         """التأكد أن gold_weight (الوضع الافتراضي) لا يتأثر بالتغيير."""
-        with app.app_context():
+        with flask_app.app_context():
             emp = _employee('EMP-GOLD-UNAFFECTED')
             _invoice_with_items(emp.id, [{'karat': 21.0, 'profit_weight': 5.0}])
             emp_id = emp.id
@@ -584,12 +599,12 @@ class TestSalesAmountSource:
     """points_source='sales_amount': النقاط = إجمالي الفاتورة ÷ cash_amount_per_point."""
 
     def teardown_method(self):
-        with app.app_context():
+        with flask_app.app_context():
             _reset_points_source()
 
     def test_basic_sales_amount(self, auth_headers):
         """فاتورة 2000 ريال ÷ 100 = 20 نقطة."""
-        with app.app_context():
+        with flask_app.app_context():
             emp = _employee('EMP-SA-BASIC')
             _invoice_total(emp.id, total=2000.0)
             emp_id = emp.id
@@ -600,7 +615,7 @@ class TestSalesAmountSource:
 
     def test_divisor_respected(self, auth_headers):
         """3000 ريال ÷ 500 = 6 نقاط."""
-        with app.app_context():
+        with flask_app.app_context():
             emp = _employee('EMP-SA-DIV')
             _invoice_total(emp.id, total=3000.0)
             emp_id = emp.id
@@ -611,7 +626,7 @@ class TestSalesAmountSource:
 
     def test_two_invoices_accumulate(self, auth_headers):
         """1500 + 500 = 2000 ÷ 100 = 20 نقطة."""
-        with app.app_context():
+        with flask_app.app_context():
             emp = _employee('EMP-SA-TWO')
             _invoice_total(emp.id, total=1500.0)
             _invoice_total(emp.id, total=500.0)
@@ -623,7 +638,7 @@ class TestSalesAmountSource:
 
     def test_ranking_order(self, auth_headers):
         """الأعلى مبيعاً يأتي أولاً."""
-        with app.app_context():
+        with flask_app.app_context():
             e_big = _employee('EMP-SA-BIG')
             e_sml = _employee('EMP-SA-SML')
             _invoice_total(e_big.id, total=5000.0)
@@ -642,7 +657,7 @@ class TestInvoiceCountSource:
     """points_source='invoice_count': النقاط = عدد الفواتير × points_per_invoice."""
 
     def teardown_method(self):
-        with app.app_context():
+        with flask_app.app_context():
             _reset_points_source()
 
     def _set_count_source(self, ppi: float = 1.0):
@@ -659,7 +674,7 @@ class TestInvoiceCountSource:
         db.session.commit()
 
     def test_one_invoice_one_point(self, auth_headers):
-        with app.app_context():
+        with flask_app.app_context():
             emp = _employee('EMP-IC-ONE')
             _invoice_total(emp.id, total=0.0)
             emp_id = emp.id
@@ -670,7 +685,7 @@ class TestInvoiceCountSource:
 
     def test_three_invoices_five_points_each(self, auth_headers):
         """3 فواتير × 5 نقاط = 15 نقطة."""
-        with app.app_context():
+        with flask_app.app_context():
             emp = _employee('EMP-IC-THREE')
             for _ in range(3):
                 _invoice_total(emp.id, total=100.0)
@@ -682,7 +697,7 @@ class TestInvoiceCountSource:
 
     def test_purchase_counts(self, auth_headers):
         """شراء من عميل يُحتسب في عدد الفواتير."""
-        with app.app_context():
+        with flask_app.app_context():
             emp = _employee('EMP-IC-BUY')
             _invoice_total(emp.id, total=0.0, invoice_type='شراء من عميل')
             _invoice_total(emp.id, total=0.0, invoice_type='شراء من عميل')
@@ -694,7 +709,7 @@ class TestInvoiceCountSource:
 
     def test_ranking_order(self, auth_headers):
         """الأكثر فواتير يأتي أولاً."""
-        with app.app_context():
+        with flask_app.app_context():
             e_many = _employee('EMP-IC-MANY')
             e_few  = _employee('EMP-IC-FEW')
             for _ in range(5):
@@ -714,12 +729,12 @@ class TestSoldWeightSource:
     """points_source='sold_weight': النقاط = الوزن المباع × points_per_gram."""
 
     def teardown_method(self):
-        with app.app_context():
+        with flask_app.app_context():
             _reset_points_source()
 
     def test_basic_sold_weight(self, auth_headers):
         """10 جرام مباعة × 10 = 100 نقطة."""
-        with app.app_context():
+        with flask_app.app_context():
             emp = _employee('EMP-SW-BASIC')
             _invoice_with_weight(emp.id, weight_g=10.0)
             emp_id = emp.id
@@ -730,7 +745,7 @@ class TestSoldWeightSource:
 
     def test_multiple_items_accumulate(self, auth_headers):
         """فاتورتان: 6 + 4 = 10 جرام × 10 = 100 نقطة."""
-        with app.app_context():
+        with flask_app.app_context():
             emp = _employee('EMP-SW-TWO')
             _invoice_with_weight(emp.id, weight_g=6.0)
             _invoice_with_weight(emp.id, weight_g=4.0)
@@ -742,7 +757,7 @@ class TestSoldWeightSource:
 
     def test_ignores_profit_weight(self, auth_headers):
         """في sold_weight، profit_weight=0 لا يؤثر — يُستخدم weight فقط."""
-        with app.app_context():
+        with flask_app.app_context():
             emp = _employee('EMP-SW-NOPW')
             _invoice_with_weight(emp.id, weight_g=5.0)
             emp_id = emp.id
@@ -753,7 +768,7 @@ class TestSoldWeightSource:
 
     def test_ranking_order(self, auth_headers):
         """الأثقل وزناً يأتي أولاً."""
-        with app.app_context():
+        with flask_app.app_context():
             e_heavy = _employee('EMP-SW-HEAVY')
             e_light = _employee('EMP-SW-LIGHT')
             _invoice_with_weight(e_heavy.id, weight_g=20.0)
