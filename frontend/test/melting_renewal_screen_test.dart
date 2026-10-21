@@ -321,6 +321,24 @@ void main() {
     expect(sent, isEmpty);
   });
 
+  testWidgets('a melting weighs its stones with its gold (ت5)', (tester) async {
+    // The showroom holds its stones as gold: 6 g of gold and 5 g of stones
+    // are 11 g of the 10 g held -- refused, nothing sent.
+    final sent = await run(tester, () async {
+      await tester.enterText(
+        find.widgetWithText(TextFormField, '0.000').first,
+        '6',
+      );
+      await tester.enterText(find.widgetWithText(TextFormField, '—').first, '5');
+      await tester.pumpAndSettle();
+      await pickCategories(tester);
+      await execute(tester);
+    });
+
+    expect(sent, isEmpty);
+    expect(find.textContaining('عيار 21k'), findsOneWidget);
+  });
+
   testWidgets('a karat\'s lines are weighed together', (tester) async {
     // Two lines of 21k, 6 g each, within the 10 g held; not together.
     final sent = await run(tester, () async {

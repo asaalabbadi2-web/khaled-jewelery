@@ -11,7 +11,7 @@ revenue, mapped in «الربط المحاسبي». The gain is the day's, in gr
 The stones leave the scrap or custody as stones (their rows' weight); in the
 showroom they are gold, with their line, in the line's category. Unmapped, a
 renewal with stones is refused saying where the role is set. A melting's
-stones stay as they were (ت5).
+stones are its mirror (ت5, test_melting_stones_are_an_expense).
 
 Run:
     python -m pytest tests/test_renewal_stones_are_gold.py -v
@@ -98,17 +98,3 @@ def test_a_renewal_without_stones_needs_no_role(auth_headers):
     _holds(src, 18, 30.0)
     resp = _post(auth_headers, _renewal(src, dst, sets, 0.0))
     assert resp.status_code == 201, resp.get_data(as_text=True)[:300]
-
-
-def test_a_meltings_stones_stay_stones(auth_headers):
-    _map_role()
-    bangles = _category('بنجرة', 21)
-    _category('كسر', 21, scrap=True)
-    src, dst = _safe('showroom'), _safe('scrap')
-    _holds(src, 21, 10.0, stones=1.0)
-    resp = _post(auth_headers, {'operation_type': 'melting', 'from_safe_box_id': src.id, 'to_safe_box_id': dst.id,
-                                'lines': [{'karat': 21, 'gold_weight': 2.0, 'stones_weight': 1.0,
-                                           'category_id': bangles.id}]})
-    assert resp.status_code == 201, resp.get_data(as_text=True)[:300]
-    lines = VoucherAccountLine.query.filter_by(voucher_id=resp.get_json()['voucher']['id']).all()
-    assert sorted((l.line_type, l.amount) for l in lines) == [('credit', 2.0), ('debit', 2.0)]

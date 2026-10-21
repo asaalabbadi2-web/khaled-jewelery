@@ -331,7 +331,9 @@ class _OperationFormState extends State<_OperationForm> {
     // A karat's lines together against its balance, as the server checks.
     final asked = <int, double>{};
     for (final line in _lines) {
-      asked[line.karat] = (asked[line.karat] ?? 0) + line.goldWeight;
+      // A melting's stones are the showroom's gold, weighed with it (ت5).
+      final weight = line.goldWeight + (_isMelting ? line.stonesWeight : 0.0);
+      asked[line.karat] = (asked[line.karat] ?? 0) + weight;
     }
     for (final MapEntry(key: karat, value: weight) in asked.entries) {
       final avail = _goldAvailable(_fromSafeId, karat);
