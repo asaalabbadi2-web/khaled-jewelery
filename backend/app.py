@@ -52,6 +52,7 @@ try:
 	from models import db
 	from pricing.gold_price_service import MainKaratNotSet
 	from pricing.karat_service import LineKaratMissing
+	from services.gold_cost_postings import GoldCostRefused
 	from routes import api
 	from routes import public_api
 	from routes.pricing import pricing_bp
@@ -297,6 +298,13 @@ def _line_karat_missing(exc):
 	"""A gold line with no valid karat: refused, never posted on an assumed 21."""
 	db.session.rollback()
 	return jsonify({'error': 'line_karat_missing', 'message': str(exc)}), 400
+
+
+@app.errorhandler(GoldCostRefused)
+def _gold_cost_refused(exc):
+	"""The gold's cost refuses a posting (ADR-042 phase 3), saying why."""
+	db.session.rollback()
+	return jsonify({'error': exc.code, 'message': exc.message}), 400
 
 
 @app.errorhandler(MainKaratNotSet)

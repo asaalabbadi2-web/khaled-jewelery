@@ -257,6 +257,13 @@ def create_journal_entry_from_voucher(voucher):
 
         db.session.flush()
 
+        # From the day the settings name, the gold a voucher moves carries its
+        # value: between the pools at the average of the one it leaves, to an
+        # expense or from a revenue at its pool's (ADR-042 phase 3, step 4).
+        from services.gold_cost_postings import applies as _gold_cost_applies, value_the_gold
+        if _gold_cost_applies(voucher.date):
+            value_the_gold(journal_entry.id, description=f'سند {voucher.voucher_number}')
+
         try:
             _post_settings = _get_settings_singleton(create_if_missing=False)
             _should_auto_post = False
@@ -284,6 +291,9 @@ def create_journal_entry_from_voucher(voucher):
         return journal_entry
 
     except Exception as e:
+        from services.gold_cost_postings import GoldCostRefused
+        if isinstance(e, GoldCostRefused):
+            raise   # refused by name: the caller says why (app.py's handler)
         import traceback
         traceback.print_exc()
         raise Exception(f'فشل إنشاء القيد المحاسبي من السند: {str(e)}') from e

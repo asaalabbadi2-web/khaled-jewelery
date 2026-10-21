@@ -180,3 +180,104 @@ def sale_returned_in(journal_entry_id: int, ret, original, *, description: str) 
     total = round(sum(back.values()), 2)
     _line(journal_entry_id, _value_account(name), total, f'{description} — إلى المخزون')
     return {'pool': name, 'grams': grams, 'cost': total, 'share': share}
+
+
+def _riyal_account(account_id: int) -> int:
+    """A weight account's riyal side: itself when it carries riyals, else the
+    financial account it is the twin of -- or the posting refused, naming it."""
+    from models import Account
+    account = db.session.get(Account, account_id)
+    if account is not None and (account.transaction_type or 'both') in ('cash', 'both'):
+        return account.id
+    financial = Account.query.filter_by(memo_account_id=account_id).first()
+    if financial is None:
+        raise GoldCostRefused('gold_cost_no_riyal_account',
+                              f'الحساب الوزني «{getattr(account, "name", account_id)}» بلا حساب مالي مقابل '
+                              'تُقيَّد عليه قيمة ذهبه — يُربط له حساب مالي في شجرة الحسابات')
+    return financial.id
+
+
+def value_the_gold(journal_entry_id: int, *, description: str) -> dict:
+    """The value of the gold an entry moves that no writer valued (step 4): a
+    voucher's, a supplier purchase's, a count's, a melting's or a renewal's.
+
+    - between the pools: at the average of the pool it leaves -- debit the
+      stock it enters, credit the one it leaves; entering a short pool, the
+      short is covered first and the difference said (the replay's rule);
+    - out to an expense, or in from a revenue (a melting's stones, a
+      renewal's): at its pool's average, on the expense's or revenue's riyal
+      account.
+    Gold to or from a party (an advance, a drawing) is not built -- refused,
+    so the average is never moved unseen (step 5). An entry that already
+    writes value on a pool's stock was valued by its writer: left as it is.
+    Returns what was written."""
+    from services.gold_cost import Pool, _grams, pool_accounts, pool_state
+    db.session.flush()
+    pools = pool_accounts()
+    lines = JournalEntryLine.query.filter_by(journal_entry_id=journal_entry_id, is_deleted=False).all()
+    value_ids = pools['worked_value'] | pools['scrap_value']
+    if any(abs(float(l.cash_debit or 0)) + abs(float(l.cash_credit or 0)) > CENT
+           for l in lines if l.account_id in value_ids):
+        return {}
+    grams = {n: sum(_grams(l) for l in lines if l.account_id in pools[n]) for n in ('worked', 'scrap')}
+    if all(abs(g) < CENT for g in grams.values()):
+        return {}
+    held = {}
+    for n in ('worked', 'scrap'):
+        state = pool_state(n, excluding_entry_id=journal_entry_id)
+        held[n] = Pool(weight=state.weight, value=state.value, last_avg=state.average or 0.0)
+    label = {'worked': 'المشغول', 'scrap': 'الكسر'}
+
+    def need_average(n):
+        if held[n].avg is None or held[n].avg <= 0:
+            raise GoldCostRefused('gold_cost_no_average', f'مخزن {label[n]} بلا متوسط ({held[n].weight:.3f} غ '
+                                                          f'بقيمة {held[n].value:.2f}): لا قيمة ينتقل بها الذهب')
+
+    out = {'transfer': None, 'rest': []}
+    rest = dict(grams)
+    if grams['worked'] * grams['scrap'] < 0:
+        src, dst = ('scrap', 'worked') if grams['worked'] > 0 else ('worked', 'scrap')
+        moved = min(abs(grams['worked']), abs(grams['scrap']))
+        need_average(src)
+        if held[dst].weight < -CENT:
+            need_average(dst)
+        value = round(held[src].take(moved), 2)
+        difference = round(held[dst].put(moved, value), 2)
+        _line(journal_entry_id, _value_account(src), -value, f'{description} — من {label[src]}')
+        _line(journal_entry_id, _value_account(dst), value - difference, f'{description} — إلى {label[dst]}')
+        if abs(difference) >= CENT:
+            _line(journal_entry_id, _require('gold_exchange_difference'), difference, f'{description} — فرق تغطية النقص')
+        rest = {k: v - (moved if v > 0 else -moved) for k, v in grams.items()}
+        out['transfer'] = {'from': src, 'to': dst, 'grams': moved, 'value': value, 'difference': difference}
+
+    pool_ids = pools['worked'] | pools['scrap']
+    for n, g in rest.items():
+        if abs(g) < CENT:
+            continue
+        counters = [(l, _grams(l)) for l in lines if l.account_id not in pool_ids and _grams(l) * g < -CENT ** 2]
+        kinds = {l.account_id: ('expense' if l.account_id in pools['weight_expense']
+                                else 'revenue' if l.account_id in pools['sales_twin'] else None) for l, _ in counters}
+        # an expense either way (a write-off, or one undone); a revenue only in (gold gained)
+        if not counters or None in kinds.values() or (g < 0 and 'revenue' in kinds.values()):
+            raise GoldCostRefused('gold_cost_counter_not_built',
+                                  f'ذهب {"يخرج من" if g < 0 else "يدخل"} مخزن {label[n]} '
+                                  f'{"إلى" if g < 0 else "من"} حساب ليس مصروفًا ولا إيرادًا (طرف أو غيره): '
+                                  'لم تُبنَ قيمته بعد (ADR-042 المرحلة 3، الخطوة 5)')
+        need_average(n)
+        total = round(abs(g) * held[n].avg, 2)
+        if g < 0:
+            held[n].take(abs(g))
+        else:
+            held[n].put(abs(g), total)
+        weights = sum(abs(cg) for _, cg in counters)
+        parts, written = [], 0.0
+        for i, (l, cg) in enumerate(counters):
+            v = round(total - written, 2) if i == len(counters) - 1 else round(total * abs(cg) / weights, 2)
+            written += v
+            riyal = _riyal_account(l.account_id)
+            _line(journal_entry_id, riyal, v if g < 0 else -v, f'{description} — قيمة الذهب')
+            parts.append({'account_id': riyal, 'value': v, 'kind': kinds[l.account_id]})
+        _line(journal_entry_id, _value_account(n), -total if g < 0 else total,
+              f'{description} — {"من" if g < 0 else "إلى"} {label[n]}')
+        out['rest'].append({'pool': n, 'grams': g, 'value': total, 'counters': parts})
+    return out

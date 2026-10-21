@@ -8044,6 +8044,15 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
                         description="خصم وزني من المخزون (مرتجع شراء مورد)"
                     )
 
+        # A supplier's gold for gold: from the day the settings name, the worked
+        # gold enters at the scrap's average, the gold owed with it; returned,
+        # it leaves at the worked's (ADR-042 phase 3, step 4).
+        if invoice_type in ('شراء', 'مرتجع شراء (مورد)'):
+            from services.gold_cost_postings import applies as _gold_cost_applies
+            if _gold_cost_applies(new_invoice.date):
+                from services.gold_cost_postings import value_the_gold
+                value_the_gold(journal_entry.id, description=f'{invoice_type} من مورد')
+
         # --- 6. Verify Dual Balance Before Commit ---
         db.session.flush()  # Ensure all entries are in DB before verification
         print(f"🔍 Verifying dual balance for journal entry #{journal_entry.id}...")

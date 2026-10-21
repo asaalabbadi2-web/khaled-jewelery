@@ -105,10 +105,9 @@ def pool_accounts() -> dict[str, set[int]]:
         'exchange_difference': _mapped_subtree(DEFAULT, 'gold_exchange_difference'),
         # a sale's cost, in riyals -- what tells a sale from a purchase undone
         'cost_of_sales': role_subtree_ids(COST_OF_SALES_ROOT) | _mapped_subtree(DEFAULT, 'gold_cost_of_sales'),
-        # where a purchase's price is debited
-        # (phase 3: a purchase into the worked pool -- a customer's new gold -- debits 1300)
-        'purchase_cash': (own('شراء من عميل', 'purchases_gold_scrap') | own(DEFAULT, 'gold_inventory_scrap')
-                          | own(DEFAULT, 'gold_inventory_new')),
+        # where 2026's purchases debited their price (phase 3 debits the pool's
+        # stock, read as the value written on it)
+        'purchase_cash': own('شراء من عميل', 'purchases_gold_scrap'),
         'customers': twin_subtree_ids(CUSTOMER_RECEIVABLES_ROOT),
         'sales_twin': twin_subtree_ids(REVENUE_ROOT),                # early sales wrote these
         'weight_expense': twin_subtree_ids(OPERATING_EXPENSES_ROOT),  # operating expenses, by weight
@@ -301,32 +300,34 @@ def replay(*, opening_price: float, since: date | None = None, until: date | Non
             continue
         m = month(e)
         accounts = {l.account_id for l in lines if abs(_grams(l)) > EPS or l.cash_debit or l.cash_credit}
-        cash_price = sum(float(l.cash_debit or 0) for l in lines if l.account_id in cash_accounts)
-        # Phase 3 writes a purchase on its pool's stock, its difference over a
-        # short's average beside it: the price is both (services/gold_cost_postings).
+        # The value an entry writes. 2026's purchases debited their price on
+        # purchases (512); phase 3 writes it on the pool's stock (1310, 1300),
+        # with a short's difference beside it (services/gold_cost_postings) --
+        # and a transfer's, a sale's or a stone's value there too. What is
+        # written on each pool's stock, less the transfer computed below, is
+        # what the rest of its gold moved for.
+        legacy_in = sum(float(l.cash_debit or 0) for l in lines if l.account_id in cash_accounts)
+        legacy_out = sum(float(l.cash_credit or 0) for l in lines if l.account_id in cash_accounts)
+        written = {n: sum(float(l.cash_debit or 0) - float(l.cash_credit or 0)
+                          for l in lines if l.account_id in ids) for n, ids in value_accounts.items()}
         exchanged = sum(float(l.cash_debit or 0) - float(l.cash_credit or 0)
                         for l in lines if l.account_id in exchange_accounts)
-        if cash_price > 0:
-            cash_price += exchanged
-        # A purchase undone (its return, its reversal): the price credited back
-        # -- not a sale, which credits the stock its cost against a cost of sales.
-        cash_refund = sum(float(l.cash_credit or 0) for l in lines if l.account_id in cash_accounts)
-        if any(float(l.cash_debit or 0) > 0 for l in lines if l.account_id in cost_of_sales_cash):
-            cash_refund = 0.0
-        if cash_refund > 0:
-            cash_refund -= exchanged
-        # A sale undone (phase 3): its cost credited back, the stock debited it.
+        sold = any(float(l.cash_debit or 0) > 0 for l in lines if l.account_id in cost_of_sales_cash)
         sale_undone = any(float(l.cash_credit or 0) > 0 for l in lines if l.account_id in cost_of_sales_cash)
-        stock_value = {n: sum(float(l.cash_debit or 0) - float(l.cash_credit or 0)
-                              for l in lines if l.account_id in ids) for n, ids in value_accounts.items()}
+        by_nature = bool(accounts & (expense_accounts | sales_twin))   # valued at the average, not a price
 
         # transfer: the pools move opposite each other (a supplier's gold for gold)
         if d['scrap'] * d['worked'] < 0:
             src, dst = ('scrap', 'worked') if d['worked'] > 0 else ('worked', 'scrap')
             moved = min(abs(d['scrap']), abs(d['worked']))
             value = pools[src].take(moved)
-            m.exchange_difference += pools[dst].put(moved, value)
+            difference = pools[dst].put(moved, value)
+            m.exchange_difference += difference
             m.transfers_g += moved
+            # what the transfer wrote, out of what is left to read
+            written[src] += value
+            written[dst] -= value - difference
+            exchanged -= difference
             rest = {k: v - (moved if v > 0 else -moved) for k, v in d.items()}
         else:
             rest = d
@@ -339,24 +340,30 @@ def replay(*, opening_price: float, since: date | None = None, until: date | Non
                 m.exchange_difference += pool.put(grams, price)
                 m.purchases_g += grams
                 m.purchases_value += price
-            elif (grams > 0 and sale_undone and stock_value[name] > 0 and accounts & customers
+            elif (grams > 0 and sale_undone and written[name] > EPS and accounts & customers
                   and e.reference_type not in CORRECTION_TYPES):
-                pool.add(grams, stock_value[name])
+                # a sale undone: its sale's cost, as written
+                pool.add(grams, written[name])
                 target = out.months.setdefault(corrected_month.get(e.id, e.date.strftime('%Y-%m')), Month())
                 if name == 'worked':
                     target.sold_worked_g -= grams
-                    target.cost_of_worked_sold -= stock_value[name]
+                    target.cost_of_worked_sold -= written[name]
                 else:
                     target.sold_scrap_g -= grams
-                    target.cost_of_scrap_sold -= stock_value[name]
-            elif grams > 0 and cash_price > 0:
-                m.exchange_difference += pool.put(grams, cash_price)
+                    target.cost_of_scrap_sold -= written[name]
+            elif grams > 0 and not sale_undone and not by_nature and legacy_in + written[name] + exchanged > EPS:
+                # bought: at its price
+                price = legacy_in + written[name] + exchanged
+                m.exchange_difference += pool.put(grams, price)
                 m.purchases_g += grams
-                m.purchases_value += cash_price
-            elif grams < 0 and cash_refund > 0 and e.reference_type not in CORRECTION_TYPES:
-                pool.take_at(-grams, cash_refund)
+                m.purchases_value += price
+            elif (grams < 0 and not sold and not by_nature and legacy_out - written[name] - exchanged > EPS
+                  and e.reference_type not in CORRECTION_TYPES):
+                # a purchase undone (its return, its reversal): at its price
+                price = legacy_out - written[name] - exchanged
+                pool.take_at(-grams, price)
                 m.purchases_g += grams
-                m.purchases_value -= cash_refund
+                m.purchases_value -= price
             elif accounts & equity:
                 value = grams * opening_price
                 pool.put(grams, value)

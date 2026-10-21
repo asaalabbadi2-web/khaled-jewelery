@@ -107,4 +107,10 @@ class InventoryAccountingService:
                 if category_id is not None:
                     allocate(made[id(spec)], karat, category_id, v, by=by, now=now)
         write_safe_rows(entry, specs, by, ref_type=REFERENCE_TYPE)
+        # From the day the settings name, what was found short leaves its pool's
+        # stock at its average onto the loss, what was found over enters at it
+        # from the surplus; between the pools, at the leaving one's (ADR-042 phase 3).
+        from services.gold_cost_postings import applies as _gold_cost_applies, value_the_gold
+        if _gold_cost_applies(now):
+            value_the_gold(entry.id, description='فروق الجرد')
         return entry
