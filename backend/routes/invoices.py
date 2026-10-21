@@ -3361,6 +3361,35 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
     if not invoice_type:
         return jsonify({'error': 'invoice_type or transaction_type is required'}), 400
 
+    # A supplier purchase's stones (ت4): a line's gold = its standing weight -
+    # its stones priced by the carat; their value owed in riyals, with VAT as
+    # the wages take it. Applied before anything reads the lines' weights.
+    from services.purchase_stones import StonesRefused, normalize as _normalize_stones, tax_of as _stones_tax_of
+    try:
+        priced_stones_value = _normalize_stones(invoice_type, data)
+    except StonesRefused as refused:
+        return jsonify({'error': refused.code, 'message': refused.message}), 400
+    priced_stones_tax = 0.0
+    priced_stones_account_id = None
+    if priced_stones_value > 0:
+        # Aliased: a bare import here would make these names local to all of add_invoice.
+        from accounting import mappings as _stones_mappings
+        try:
+            priced_stones_account_id = _stones_mappings.require_account(
+                _stones_mappings.DEFAULT_MAPPING_OPERATION_TYPE, 'stones_inventory')
+        except _stones_mappings.AccountNotMapped:
+            return jsonify({'error': 'account_not_mapped', 'role': 'stones_inventory',
+                            'message': 'حساب «مخزون الأحجار» غير مربوط: يُضبط في «الربط المحاسبي»، '
+                                       'ولا تُقيَّد أحجار مسعَّرة دونه'}), 400
+        priced_stones_tax = _stones_tax_of(priced_stones_value, vat_applied=data.get('vat_applied'),
+                                           settings=Settings.query.first())
+        # The screen's totals carry them (the invoice's total is the screen's): the same, or refused.
+        sent = (round(float(data.get('stones_subtotal') or 0.0), 2), round(float(data.get('stones_tax_total') or 0.0), 2))
+        if abs(sent[0] - priced_stones_value) > 0.01 or abs(sent[1] - priced_stones_tax) > 0.01:
+            return jsonify({'error': 'stones_totals_mismatch',
+                            'message': f'قيمة الأحجار وضريبتها ({priced_stones_value:.2f} + {priced_stones_tax:.2f}) '
+                                       f'لا تطابق ما أُرسل ({sent[0]:.2f} + {sent[1]:.2f})'}), 400
+
     def _to_positive_int(raw_value):
         try:
             if raw_value in (None, '', False):
@@ -4487,6 +4516,8 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
                 weight=weight_per_item,
                 standing_weight=standing_weight_val,
                 stones_weight=stones_weight_val,
+                stones_kind=item_data.get('stones_kind'),
+                stones_value=_to_float(item_data.get('stones_value'), 0.0) or None,
                 direct_purchase_price_per_gram=direct_purchase_price_per_gram_val,
                 wage=item_wage_val,
                 net=net_price,
@@ -7649,6 +7680,35 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
                         cash_credit=wage_payable_cash,
                         apply_golden_rule=False,
                         description="التزام المورد - أجور مصنعية + ضريبة الأجور",
+                    )
+
+                # Stones priced by the carat (ت4): their value on «مخزون الأحجار»,
+                # their VAT as the wages', owed to the supplier in riyals.
+                if priced_stones_value > 0:
+                    create_dual_journal_entry(
+                        journal_entry_id=journal_entry.id,
+                        account_id=priced_stones_account_id,
+                        cash_debit=round(priced_stones_value, 2),
+                        apply_golden_rule=False,
+                        exclude_from_ledger=True,
+                        description="أحجار مسعَّرة بالقيراط - شراء (مورد)",
+                    )
+                    if priced_stones_tax > 0:
+                        create_dual_journal_entry(
+                            journal_entry_id=journal_entry.id,
+                            account_id=_input_vat_account(_purchase_day, operation_type='شراء',
+                                                          cost_account_id=priced_stones_account_id),
+                            cash_debit=round(priced_stones_tax, 2),
+                            apply_golden_rule=False,
+                            exclude_from_ledger=True,
+                            description="ضريبة على الأحجار المسعَّرة - مشتريات من مورد",
+                        )
+                    create_dual_journal_entry(
+                        journal_entry_id=journal_entry.id,
+                        account_id=supplier_fin_account_id,
+                        cash_credit=round(priced_stones_value + priced_stones_tax, 2),
+                        apply_golden_rule=False,
+                        description="التزام المورد - أحجار مسعَّرة + ضريبتها",
                     )
 
                 # --- Gold settlements: reflect in journal lines for statements ---

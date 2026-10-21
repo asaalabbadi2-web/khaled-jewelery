@@ -417,7 +417,9 @@ def test_main_karat_equivalent_follows_configured_setting(service):
     raw = {'21k': 0.030}
     assert service._main_karat_equivalent(raw) == pytest.approx(0.030, abs=1e-6)
 
-    db.session.add(Settings(main_karat=24))
+    # The settings are one row (the test world seeds it): its karat changes --
+    # a second row was read or not by an unordered first().
+    Settings.query.first().main_karat = 24
     db.session.flush()
 
     # Same grams, different unit: 0.030g of 21k is less gold than 0.030g of 24k.

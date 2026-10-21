@@ -40,6 +40,7 @@ void main() {
     List<Map<String, dynamic>> goldSettlements = const [],
     bool withItem = true,
     bool manualPricing = false,
+    Map<String, dynamic> stones = const {},
   }) => {
     'version': 1,
     'supplier_id': supplierId,
@@ -59,6 +60,7 @@ void main() {
           'weight_grams': 12.5,
           'wage_per_gram': 18,
           'entry_type': 'item',
+          ...stones,
         },
     ],
   };
@@ -639,6 +641,63 @@ void main() {
     await tester.tap(find.text('حفظ الفاتورة').last);
     await settle(tester);
     expectPayload('purchase_credit', api.added.single);
+  });
+
+  testWidgets('priced stones leave the gold and are owed in riyals (ت4)', (
+    tester,
+  ) async {
+    // 12.5 g standing, 2.5 g of stones priced at 300: the gold is 10 g; the
+    // stones' 300 joins what is owed. Counted as gold, the 12.5 g stays gold.
+    final api = FakePurchaseApi();
+    await open(
+      tester,
+      api: api,
+      saved: draft(
+        stones: {
+          'has_stones': true,
+          'stones_weight': 2.5,
+          'stones_kind': 'priced',
+          'stones_value': 300,
+        },
+      ),
+    );
+    await pressCtrlS(tester);
+    await tester.tap(find.text('حفظ الفاتورة').last);
+    await settle(tester);
+    final sent = api.added.single;
+    final line = (sent['items'] as List).single as Map;
+    expect(line['weight'], 12.5, reason: 'the weight entered; the server takes the stones out');
+    expect(line['stones_kind'], 'priced');
+    expect(line['stones_value'], 300);
+    expect(sent['supplier_gold_lines'], [
+      {'karat': 21.0, 'weight': 10.0},
+    ]);
+    expect(sent['stones_subtotal'], 300);
+    expect(sent['total'], greaterThanOrEqualTo(300));
+  });
+
+  testWidgets('stones counted as gold stay in the gold (ت4)', (tester) async {
+    final api = FakePurchaseApi();
+    await open(
+      tester,
+      api: api,
+      saved: draft(
+        stones: {
+          'has_stones': true,
+          'stones_weight': 2.5,
+          'stones_kind': 'as_gold',
+        },
+      ),
+    );
+    await pressCtrlS(tester);
+    await tester.tap(find.text('حفظ الفاتورة').last);
+    await settle(tester);
+    final sent = api.added.single;
+    expect(((sent['items'] as List).single as Map)['stones_kind'], 'as_gold');
+    expect(sent['supplier_gold_lines'], [
+      {'karat': 21.0, 'weight': 12.5},
+    ]);
+    expect(sent.containsKey('stones_subtotal'), isFalse);
   });
 
   testWidgets('a purchase reads in the dark theme: no text near-black on it '

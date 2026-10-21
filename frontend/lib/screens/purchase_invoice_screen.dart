@@ -778,6 +778,9 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
   double _wageSubtotal = 0;
   double _goldTaxTotal = 0;
   double _wageTaxTotal = 0;
+  // Stones priced by the carat and their VAT, as the wages take it (ت4).
+  double _stonesSubtotal = 0;
+  double _stonesTaxTotal = 0;
   double _subtotal = 0;
   double _taxTotal = 0;
   double _grandTotal = 0;
@@ -854,15 +857,23 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
       return PurchaseInlineItem(
         name: (item['name'] ?? '').toString(),
         karat: toDouble(item['karat']),
-        weightGrams: toDouble(item['weight']),
+        // A line with priced stones holds its gold in `weight` and the weight
+        // entered in `standing_weight` (ت4); the screen edits what was entered.
+        weightGrams:
+            item['stones_kind'] == 'priced' &&
+                toDouble(item['standing_weight']) > 0
+            ? toDouble(item['standing_weight'])
+            : toDouble(item['weight']),
         wagePerGram: toDouble(
           item['wage_per_gram'] ?? item['manufacturing_wage_per_gram'],
         ),
         allowInlineCreation: false,
         description: item['description']?.toString(),
-        hasStones: item['has_stones'] == true,
+        hasStones:
+            item['has_stones'] == true || toDouble(item['stones_weight']) > 0,
         stonesWeight: toDouble(item['stones_weight']),
         stonesValue: toDouble(item['stones_value']),
+        stonesKind: item['stones_kind']?.toString(),
         itemCode: item['item_code']?.toString(),
         barcode: item['barcode']?.toString(),
         category: item['category']?.toString(),
@@ -937,6 +948,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
               'has_stones': i.hasStones,
               'stones_weight': i.stonesWeight,
               'stones_value': i.stonesValue,
+              'stones_kind': i.stonesKind,
               'item_code': i.itemCode,
               'barcode': i.barcode,
               'category': i.category,
@@ -1062,6 +1074,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
             hasStones: map['has_stones'] == true,
             stonesWeight: toDouble(map['stones_weight']),
             stonesValue: toDouble(map['stones_value']),
+            stonesKind: map['stones_kind']?.toString(),
             itemCode: map['item_code']?.toString(),
             barcode: map['barcode']?.toString(),
             category: map['category']?.toString(),
@@ -1214,7 +1227,9 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
     return _round(
       (wageType == 'cash' ? _wageSubtotal : 0.0) +
           _goldTaxTotal +
-          _wageTaxTotal,
+          _wageTaxTotal +
+          _stonesSubtotal +
+          _stonesTaxTotal,
       2,
     );
   }
@@ -2040,10 +2055,14 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
     final source = items ?? _inlineItems;
     return source
         .map(
+          // The gold on the line's gold (ت4); the wage as before, on the
+          // weight entered -- kept whole over the gold.
           (item) => PurchaseKaratLine(
             karat: item.karat,
-            weightGrams: item.weightGrams,
-            wagePerGram: item.wagePerGram,
+            weightGrams: item.goldWeight,
+            wagePerGram: item.goldWeight > 0
+                ? item.weightGrams * item.wagePerGram / item.goldWeight
+                : item.wagePerGram,
           ),
         )
         .toList();
@@ -2059,8 +2078,15 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
     _wageSubtotal = _round(totals.wageSubtotal, 2);
     _goldTaxTotal = _round(totals.goldTaxTotal, 2);
     _wageTaxTotal = _round(totals.wageTaxTotal, 2);
-    _subtotal = _round(_goldSubtotal + _wageSubtotal, 2);
-    _taxTotal = _round(_goldTaxTotal + _wageTaxTotal, 2);
+    _stonesSubtotal = _round(
+      _inlineItems
+          .where((i) => i.pricedStones)
+          .fold(0.0, (sum, i) => sum + _round(i.stonesValue, 2)),
+      2,
+    );
+    _stonesTaxTotal = _round(_stonesSubtotal * _vatRateFromSettings(), 2);
+    _subtotal = _round(_goldSubtotal + _wageSubtotal + _stonesSubtotal, 2);
+    _taxTotal = _round(_goldTaxTotal + _wageTaxTotal + _stonesTaxTotal, 2);
     _grandTotal = _round(_subtotal + _taxTotal, 2);
   }
 
@@ -2153,13 +2179,13 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
     final Map<String, double> summary = {};
     for (final item in _inlineItems) {
       final key = _normalizeKaratKey(item.karat);
-      summary[key] = (summary[key] ?? 0) + item.weightGrams;
+      summary[key] = (summary[key] ?? 0) + item.goldWeight;
     }
     return summary;
   }
 
   double get _inlineTotalWeight =>
-      _inlineItems.fold(0.0, (sum, item) => sum + item.weightGrams);
+      _inlineItems.fold(0.0, (sum, item) => sum + item.goldWeight);
 
   double get _inlineTotalWage => _inlineItems.fold(
     0.0,
@@ -2355,6 +2381,10 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
       'wage_subtotal': _round(_wageSubtotal, 2),
       'gold_tax_total': _round(_goldTaxTotal, 2),
       'wage_tax_total': _round(_wageTaxTotal, 2),
+      // Only with stones priced by the carat (ت4): a purchase without them
+      // sends what it always sent.
+      if (_stonesSubtotal > 0) 'stones_subtotal': _round(_stonesSubtotal, 2),
+      if (_stonesSubtotal > 0) 'stones_tax_total': _round(_stonesTaxTotal, 2),
       'apply_gold_tax': _vatApplied && _applyVatOnGold,
       'vat_applied': _vatApplied,
       'items': inlineItemsPayload,
@@ -4678,7 +4708,9 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
       extentOffset: stonesValueController.text.length,
     );
 
-    double karat = existing?.karat ?? 21;
+    // A new line starts at the settings' main karat, never a fixed one.
+    double karat =
+        existing?.karat ?? context.read<SettingsProvider>().mainKarat.toDouble();
     const allowedKarats = [18.0, 21.0, 22.0, 24.0];
     final normalizedInitialKarat = allowedKarats.contains(karat)
         ? karat
@@ -4687,6 +4719,8 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
               : 21.0);
     karat = normalizedInitialKarat;
     bool hasStones = existing?.hasStones ?? false;
+    // Counted as gold (the shop's practice) or priced by the carat (ت4).
+    String stonesKind = existing?.stonesKind ?? 'as_gold';
     bool wageInputIsTotal = false;
     var entryType = existing?.entryType ?? PurchaseInlineEntryType.item;
     String? selectedCategoryName = (existing?.category?.isNotEmpty ?? false)
@@ -4751,6 +4785,19 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
                 return;
               }
 
+              // Priced stones leave the gold: their value is owed, and their
+              // weight leaves some gold (ت4) -- as the server refuses.
+              if (hasStones && stonesKind == 'priced') {
+                if (stonesValue <= 0) {
+                  AppFeedback.error(context, 'قيمة الأحجار المسعَّرة مطلوبة');
+                  return;
+                }
+                if (stonesWeight >= clampedWeight) {
+                  AppFeedback.error(context, 'وزن الأحجار لا يترك ذهبًا من الوزن القائم');
+                  return;
+                }
+              }
+
               if (!isCategoryOnly && name.isEmpty) {
                 AppFeedback.error(context, 'اسم الصنف مطلوب لإضافة صنف');
                 return;
@@ -4797,7 +4844,10 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
                   categoryId: effectiveCategoryId,
                   hasStones: hasStones,
                   stonesWeight: hasStones ? stonesWeight : 0,
-                  stonesValue: hasStones ? stonesValue : 0,
+                  stonesValue: hasStones && stonesKind == 'priced'
+                      ? stonesValue
+                      : 0,
+                  stonesKind: hasStones ? stonesKind : null,
                   entryType: entryType,
                 ),
               );
@@ -4815,7 +4865,10 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
                 double.tryParse(stonesWeightController.text) ?? 0;
             final stonesValue =
                 double.tryParse(stonesValueController.text) ?? 0;
-            final resolvedStonesWeight = hasStones ? stonesWeight : 0.0;
+            // Only stones priced by the carat leave the gold (ت4).
+            final resolvedStonesWeight = hasStones && stonesKind == 'priced'
+                ? stonesWeight
+                : 0.0;
             final netWeight = math.max(0.0, weight - resolvedStonesWeight);
             final categoryItems = _buildCategoryDropdownItems();
             final hasCategoryValue = categoryItems.any(
@@ -4982,7 +5035,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
                                         ),
                                       ],
                                       decoration: const InputDecoration(
-                                        labelText: 'الوزن (جرام)',
+                                        labelText: 'الوزن القائم (جرام)',
                                         border: OutlineInputBorder(),
                                         prefixIcon: Icon(Icons.scale),
                                       ),
@@ -5221,6 +5274,36 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
                                         onChanged: (_) => setDialogState(() {}),
                                       ),
                                       const SizedBox(height: 12),
+                                      // How the supplier charges them (ت4).
+                                      SegmentedButton<String>(
+                                        key: const ValueKey('stones-kind'),
+                                        segments: const [
+                                          ButtonSegment(
+                                            value: 'as_gold',
+                                            label: Text('تُحسب ذهبًا'),
+                                          ),
+                                          ButtonSegment(
+                                            value: 'priced',
+                                            label: Text('مسعَّرة بالقيراط'),
+                                          ),
+                                        ],
+                                        selected: {stonesKind},
+                                        onSelectionChanged: (v) =>
+                                            setDialogState(
+                                              () => stonesKind = v.first,
+                                            ),
+                                      ),
+                                      const SizedBox(height: 6),
+                                      Text(
+                                        stonesKind == 'priced'
+                                            ? 'تخرج من الذهب، وقيمتها بالريال للمورد مع ضريبتها كالأجور'
+                                            : 'تبقى في الذهب: المورد يحسبها ذهبًا، وتُباع بالوزن القائم',
+                                        style: Theme.of(
+                                          context,
+                                        ).textTheme.bodySmall,
+                                      ),
+                                      if (stonesKind == 'priced') ...[
+                                      const SizedBox(height: 12),
                                       TextField(
                                         controller: stonesValueController,
                                         focusNode: stonesValueFocusNode,
@@ -5252,6 +5335,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
                                         onChanged: (_) => setDialogState(() {}),
                                         onSubmitted: (_) => submit(),
                                       ),
+                                      ],
                                     ],
                                   ],
                                 ),
@@ -5275,9 +5359,12 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
                                   ),
                                 ),
                                 const SizedBox(height: 8),
-                                _previewRow('الوزن', _formatWeight(weight)),
                                 _previewRow(
-                                  'الوزن الصافي (بعد خصم الأحجار)',
+                                  'الوزن القائم',
+                                  _formatWeight(weight),
+                                ),
+                                _previewRow(
+                                  'الذهب',
                                   _formatWeight(netWeight),
                                 ),
                                 _previewRow(
@@ -5293,7 +5380,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
                                     'وزن الأحجار',
                                     _formatWeight(stonesWeight),
                                   ),
-                                if (hasStones)
+                                if (hasStones && stonesKind == 'priced')
                                   _previewRow(
                                     'قيمة الأحجار',
                                     _formatCurrency(stonesValue),
@@ -6011,6 +6098,10 @@ class PurchaseInlineItem {
   final bool hasStones;
   final double stonesWeight;
   final double stonesValue;
+
+  /// 'as_gold' (the supplier counts them as gold: they stay in the line's
+  /// gold) or 'priced' (by the carat: out of the gold, owed in riyals) -- ت4.
+  final String? stonesKind;
   final String? itemCode;
   final String? barcode;
   final String? category;
@@ -6029,6 +6120,7 @@ class PurchaseInlineItem {
     this.hasStones = false,
     this.stonesWeight = 0,
     this.stonesValue = 0,
+    this.stonesKind,
     this.itemCode,
     this.barcode,
     this.category,
@@ -6048,6 +6140,7 @@ class PurchaseInlineItem {
     bool? hasStones,
     double? stonesWeight,
     double? stonesValue,
+    String? stonesKind,
     String? itemCode,
     String? barcode,
     String? category,
@@ -6067,6 +6160,7 @@ class PurchaseInlineItem {
       hasStones: hasStones ?? this.hasStones,
       stonesWeight: stonesWeight ?? this.stonesWeight,
       stonesValue: stonesValue ?? this.stonesValue,
+      stonesKind: stonesKind ?? this.stonesKind,
       itemCode: itemCode ?? this.itemCode,
       barcode: barcode ?? this.barcode,
       category: category ?? this.category,
@@ -6074,6 +6168,14 @@ class PurchaseInlineItem {
       entryType: entryType ?? this.entryType,
     );
   }
+
+  /// Stones priced by the carat: out of the gold, owed in riyals (ت4).
+  bool get pricedStones => hasStones && stonesKind == 'priced' && stonesWeight > 0;
+
+  /// The line's gold: its standing weight less its priced stones (ت4);
+  /// stones counted as gold stay in it.
+  double get goldWeight =>
+      pricedStones ? math.max(0.0, weightGrams - stonesWeight) : weightGrams;
 
   Map<String, dynamic> toPayload() {
     final payload = {
@@ -6091,7 +6193,8 @@ class PurchaseInlineItem {
       'barcode': barcode,
       'has_stones': hasStones,
       'stones_weight': stonesWeight,
-      'stones_value': stonesValue,
+      if (hasStones) 'stones_kind': stonesKind ?? 'as_gold',
+      'stones_value': pricedStones ? stonesValue : 0.0,
       'category': category,
       'category_id': categoryId,
     };

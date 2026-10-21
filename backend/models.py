@@ -1500,6 +1500,10 @@ class InvoiceItem(db.Model):
     weight = db.Column(db.Float)
     standing_weight = db.Column(db.Float, default=0.0)
     stones_weight = db.Column(db.Float, default=0.0)
+    # 'as_gold' (the supplier counts them as gold: they stay in the line's gold)
+    # or 'priced' (by the carat: out of the gold, owed in riyals) -- ت4.
+    stones_kind = db.Column(db.String(10), nullable=True)
+    stones_value = db.Column(db.Float, nullable=True)
     direct_purchase_price_per_gram = db.Column(db.Float, default=0.0)
     wage = db.Column(db.Float)
     net = db.Column(db.Float)
@@ -1532,6 +1536,8 @@ class InvoiceItem(db.Model):
             'weight': self.weight,
             'standing_weight': self.standing_weight,
             'stones_weight': self.stones_weight,
+            'stones_kind': self.stones_kind,
+            'stones_value': self.stones_value,
             'direct_purchase_price_per_gram': self.direct_purchase_price_per_gram,
             'wage': self.wage,
             'net': self.net,
