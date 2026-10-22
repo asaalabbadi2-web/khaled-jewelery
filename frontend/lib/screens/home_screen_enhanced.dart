@@ -20,6 +20,7 @@ import '../widgets/gold_price_ticker_bar.dart';
 import '../widgets/gold_sparkline_enhanced.dart';
 import '../widgets/app_logo.dart';
 import '../widgets/app_screen_search.dart';
+import '../widgets/confirm_financial_action.dart';
 import '../models/report_catalog.dart';
 import '../app_route_observer.dart';
 import 'items_screen_enhanced.dart';
@@ -981,7 +982,8 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
     final sections = _menuSections(isAr, gold);
     // Build section widgets as collapsible ExpansionTiles (card style)
     for (final sec in sections) {
-      if (sec.items.isEmpty) continue;
+      final items = [for (final it in sec.items) if (!it.danger) it];
+      if (items.isEmpty) continue;
 
       drawerChildren.add(
         Padding(
@@ -1025,12 +1027,14 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
                     Expanded(
                       child: Text(
                         sec.title,
-                        style: sectionStyle.copyWith(color: sec.color),
+                        // One colour for every title: the marker beside it
+                        // carries the section's (ADR-057 ق١).
+                        style: sectionStyle,
                       ),
                     ),
                   ],
                 ),
-                children: sec.items.map((it) {
+                children: items.map((it) {
                   final iconColor = it.color ?? theme.iconTheme.color;
                   return Padding(
                     padding: const EdgeInsetsDirectional.only(top: 6),
@@ -1072,6 +1076,45 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
           ),
         ),
       );
+    }
+
+    // What cannot be taken back stands apart, at the bottom, in the error's
+    // tone -- it was one line among the settings (ADR-057 ق١).
+    final danger = [
+      for (final sec in sections) ...sec.items.where((it) => it.danger),
+    ];
+    if (danger.isNotEmpty) {
+      final cs = theme.colorScheme;
+      drawerChildren.add(
+        const Divider(
+          height: AppSpace.xl,
+          indent: AppSpace.lg,
+          endIndent: AppSpace.lg,
+        ),
+      );
+      for (final it in danger) {
+        drawerChildren.add(
+          Padding(
+            padding: const EdgeInsetsDirectional.fromSTEB(12, 0, 12, 16),
+            child: ListTile(
+              key: Key('drawer-danger-${it.title}'),
+              dense: true,
+              leading: Icon(it.icon, color: cs.error),
+              title: Text(
+                it.title,
+                style: baseLabelStyle.copyWith(
+                  color: cs.error,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              onTap: () async {
+                Navigator.of(context).pop();
+                await it.onSelected();
+              },
+            ),
+          ),
+        );
+      }
     }
 
     return Drawer(
@@ -1313,6 +1356,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
       required Future<void> Function() onSelected,
       Color? color,
       List<String> keywords = const [],
+      bool danger = false,
     }) {
       // Ensure every destination belongs to a titled section (collapsible).
       currentSection ??= _DrawerSection(
@@ -1330,6 +1374,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
           onSelected: onSelected,
           color: color,
           keywords: keywords,
+          danger: danger,
         ),
       );
     }
@@ -2113,7 +2158,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
       addDestination(
         icon: Icons.restore,
         title: isAr ? 'إعادة تهيئة النظام' : 'System Reset',
-        color: _tone.sectionRed.fg,
+        danger: true,
         onSelected: () async {
           await Navigator.push(
             context,
@@ -2388,6 +2433,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
                       ),
                     ),
                     const PopupMenuDivider(),
+                    if (auth.currentUser?.id != null)
                     PopupMenuItem<String>(
                       value: 'profile',
                       child: Row(
@@ -2443,6 +2489,20 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
                   ],
                   onSelected: (value) async {
                     if (value == 'logout') {
+                      // Asks first: one slip of the menu closed the session
+                      // and what the user was doing (ADR-057 ق١).
+                      final sure = await confirmFinancialAction(
+                        context,
+                        title: isAr ? 'تسجيل الخروج؟' : 'Sign out?',
+                        effect: isAr
+                            ? 'يُغلق حسابك على هذا الجهاز وتعود إلى شاشة الدخول.'
+                            : 'Your account closes on this device and the '
+                                  'sign-in screen opens.',
+                        confirmLabel: isAr ? 'تسجيل الخروج' : 'Sign out',
+                        backLabel: isAr ? 'تراجع' : 'Back',
+                        destructive: false,
+                      );
+                      if (sure == null) return;
                       await auth.logout();
                       return;
                     }
@@ -2478,20 +2538,9 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
                     }
 
                     if (value == 'profile') {
+                      // Offered only with an id: no item that says it cannot.
                       final userId = auth.currentUser?.id;
-                      if (userId == null) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text(
-                              isAr
-                                  ? 'لا يمكن فتح الملف: رقم المستخدم غير متوفر'
-                                  : 'Cannot open profile: missing user id',
-                            ),
-                            backgroundColor: _tone.warning.fg,
-                          ),
-                        );
-                        return;
-                      }
+                      if (userId == null) return;
                       await Navigator.push(
                         context,
                         MaterialPageRoute(
@@ -5762,12 +5811,17 @@ class _DrawerSectionItem {
   /// The words people use for it, which its title does not hold.
   final List<String> keywords;
 
+  /// What cannot be taken back (the system reset): the drawer draws it apart,
+  /// at its bottom, in the error's tone (ADR-057 ق١).
+  final bool danger;
+
   _DrawerSectionItem({
     required this.icon,
     required this.title,
     required this.onSelected,
     this.color,
     this.keywords = const [],
+    this.danger = false,
   });
 }
 

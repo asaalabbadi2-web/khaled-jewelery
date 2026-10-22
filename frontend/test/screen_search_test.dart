@@ -31,6 +31,19 @@ class _Manager extends AuthProvider {
   bool hasPermission(String key) => true;
 }
 
+/// The system admin: the reset is theirs.
+class _Admin extends _Manager {
+  @override
+  String get role => 'system_admin';
+}
+
+/// Counts the sign-outs it is asked for.
+class _Leaving extends _Manager {
+  int logouts = 0;
+  @override
+  Future<void> logout() async => logouts++;
+}
+
 /// A seller holds no report, voucher or safe permission.
 class _Seller extends AuthProvider {
   @override
@@ -368,6 +381,122 @@ void main() {
       await openDrawer(tester);
       expect(tester.getSize(find.byType(Drawer)).width, lessThan(390 * 0.9));
       expect(tester.takeException(), isNull);
+    });
+  });
+
+  // ق١ (ADR-057): the menus say themselves plainly.
+  group('the side menu, ق١', () {
+    Future<void> openDrawer(WidgetTester tester) async {
+      await tester.tap(find.byIcon(Icons.menu_rounded));
+      await settle(tester);
+    }
+
+    testWidgets('every section title is in one colour', (tester) async {
+      await openHome(tester);
+      await openDrawer(tester);
+      Color? colorOf(String title) => tester
+          .widget<Text>(
+            find.descendant(
+              of: find.byType(ExpansionTile),
+              matching: find.text(title),
+            ),
+          )
+          .style
+          ?.color;
+      final onSurface = Theme.of(
+        tester.element(find.byType(Drawer)),
+      ).colorScheme.onSurface;
+      for (final t in ['الفواتير', 'المرتجعات', 'الإعدادات والنظام']) {
+        await tester.scrollUntilVisible(
+          find.descendant(
+            of: find.byType(ExpansionTile),
+            matching: find.text(t),
+          ),
+          200,
+          scrollable: find.descendant(
+            of: find.byType(Drawer),
+            matching: find.byType(Scrollable),
+          ),
+        );
+        expect(colorOf(t), onSurface, reason: t);
+      }
+    });
+
+    testWidgets('the system reset stands apart at the bottom, in the error\'s '
+        'tone', (tester) async {
+      await openHome(tester, auth: _Admin());
+      await openDrawer(tester);
+      final reset = find.byKey(const Key('drawer-danger-إعادة تهيئة النظام'));
+      await tester.scrollUntilVisible(
+        reset,
+        200,
+        scrollable: find.descendant(
+          of: find.byType(Drawer),
+          matching: find.byType(Scrollable),
+        ),
+      );
+      expect(
+        find.ancestor(of: reset, matching: find.byType(ExpansionTile)),
+        findsNothing,
+        reason: 'not one line among the settings',
+      );
+      final error = Theme.of(tester.element(reset)).colorScheme.error;
+      expect(
+        tester
+            .widget<Text>(
+              find.descendant(
+                of: reset,
+                matching: find.text('إعادة تهيئة النظام'),
+              ),
+            )
+            .style
+            ?.color,
+        error,
+      );
+      // Below every section.
+      final lastSection = tester.getRect(find.byType(ExpansionTile).last);
+      expect(tester.getRect(reset).top, greaterThan(lastSection.bottom));
+      await shot(tester, 'drawer_admin_bottom');
+    });
+
+    testWidgets('a manager has no reset', (tester) async {
+      await openHome(tester);
+      await openDrawer(tester);
+      expect(find.textContaining('إعادة تهيئة النظام'), findsNothing);
+    });
+  });
+
+  group('the user menu', () {
+    Future<void> chooseLogout(WidgetTester tester) async {
+      await tester.tap(find.byKey(const Key('user-menu')));
+      await settle(tester);
+      await tester.tap(find.text('تسجيل الخروج'));
+      await settle(tester);
+    }
+
+    testWidgets('signing out asks first; going back keeps the session', (
+      tester,
+    ) async {
+      final auth = _Leaving();
+      await openHome(tester, auth: auth);
+      await chooseLogout(tester);
+      expect(find.text('تسجيل الخروج؟'), findsOneWidget);
+      await tester.tap(find.text('تراجع'));
+      await settle(tester);
+      expect(auth.logouts, 0);
+
+      await chooseLogout(tester);
+      await tester.tap(find.byKey(const Key('confirm-action')));
+      await settle(tester);
+      expect(auth.logouts, 1);
+    });
+
+    testWidgets('no profile item where it cannot open', (tester) async {
+      await openHome(tester);
+      await tester.tap(find.byKey(const Key('user-menu')));
+      await settle(tester);
+      expect(find.text('ملف المستخدم'), findsNothing);
+      expect(find.text('تغيير كلمة المرور'), findsOneWidget);
     });
   });
 }
