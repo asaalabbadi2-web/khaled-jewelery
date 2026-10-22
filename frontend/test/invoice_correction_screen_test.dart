@@ -33,6 +33,22 @@ const _safes = {
   ],
 };
 
+const _categories = [
+  {'id': 37, 'name': 'خاتم ذهب 21', 'karat': '21', 'is_scrap': false},
+  {'id': 38, 'name': 'خاتم ذهب 18', 'karat': '18', 'is_scrap': false},
+  {'id': 66, 'name': 'كسر 18', 'karat': '18', 'is_scrap': true},
+];
+
+/// A sale of a 21k ring that was 18k: its new karat needs its category.
+const _sale = {
+  'id': 77,
+  'invoice_type': 'بيع',
+  'total': 3500.0,
+  'items': [
+    {'id': 9, 'name': 'خاتم', 'karat': 21, 'weight': 5.0, 'net': 3500.0, 'price': 3500.0, 'category_id': 37},
+  ],
+};
+
 const _previewLines = [
   {'account_number': '713100014', 'account_name': 'عهدة عبدالله قرنان', 'side': 'credit', 'amount_type': 'gold', 'amount': 3.3, 'karat': 21},
   {'account_number': '713100014', 'account_name': 'عهدة عبدالله قرنان', 'side': 'debit', 'amount_type': 'gold', 'amount': 1.8, 'karat': 21},
@@ -52,6 +68,7 @@ void main() {
     WidgetTester tester,
     Future<void> Function() steps, {
     Map<String, dynamic>? previewRefusal,
+    Map<String, dynamic>? invoice,
   }) async {
     SharedPreferences.setMockInitialValues({
       'jwt_token': 'token',
@@ -117,7 +134,8 @@ void main() {
         if (path.endsWith('/invoices/77/corrections')) {
           return json({'corrections': [], 'suggested_safe_box_id': 46});
         }
-        if (path.endsWith('/invoices/77')) return json(_invoice);
+        if (path.endsWith('/invoices/77')) return json(invoice ?? _invoice);
+        if (path.endsWith('/categories')) return json(_categories);
         if (path.endsWith('/safe-boxes/balances')) return json(_safes);
         return json(<String, dynamic>{});
       }),
@@ -205,5 +223,35 @@ void main() {
     );
     expect(sent.previewed, hasLength(1));
     expect(sent.posted, isEmpty);
+  });
+
+
+  testWidgets('a sale in another karat takes a category of that karat, its pieces\' not scrap', (tester) async {
+    final sent = await run(
+      tester,
+      () async {
+        await tester.tap(find.text('خاتم'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.widgetWithText(DropdownButtonFormField<int>, 'العيار'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('18').last);
+        await tester.pumpAndSettle();
+        await tester.tap(find.widgetWithText(DropdownButtonFormField<int>, 'التصنيف'));
+        await tester.pumpAndSettle();
+        expect(find.text('كسر 18'), findsNothing, reason: 'a sale\'s line is a piece, not scrap');
+        await tester.tap(find.text('خاتم ذهب 18').last);
+        await tester.pumpAndSettle();
+        await tester.enterText(find.widgetWithText(TextField, 'سبب التصحيح'), 'عيار خاطئ');
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('معاينة القيد ثم التصحيح'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.widgetWithText(FilledButton, 'تأكيد التصحيح'));
+        await tester.pumpAndSettle();
+      },
+      invoice: _sale,
+    );
+    expect(sent.posted.single['lines'], [
+      {'karat': 18, 'weight': 5.0, 'price': 3500.0, 'category_id': 38},
+    ]);
   });
 }

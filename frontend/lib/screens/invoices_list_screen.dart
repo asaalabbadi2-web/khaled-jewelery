@@ -2675,10 +2675,13 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
             icon: Icons.check_circle_outline,
             label: isAr ? 'ترحيل' : 'Post',
           ),
-        // «تصحيح فاتورة» (ADR-056): a posted customer purchase's line put
-        // right by its difference -- one document, not a return and a re-entry.
+        // «تصحيح فاتورة» (ADR-056): a posted sale's or customer purchase's
+        // line put right by its difference -- one document, not a return and
+        // a re-entry.
         if (isPosted &&
-            (invoice['invoice_type'] ?? '').toString() == 'شراء من عميل' &&
+            const ['شراء من عميل', 'بيع'].contains(
+              (invoice['invoice_type'] ?? '').toString(),
+            ) &&
             Provider.of<AuthProvider>(
               context,
               listen: false,

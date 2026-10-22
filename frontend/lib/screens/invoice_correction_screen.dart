@@ -48,6 +48,7 @@ class _RightLine {
       price = TextEditingController(text: price > 0 ? _plain(price) : '');
 
   int karat;
+  int? categoryId;
   final TextEditingController weight;
   final TextEditingController price;
 
@@ -65,6 +66,7 @@ class _InvoiceCorrectionScreenState extends State<InvoiceCorrectionScreen> {
 
   Map<String, dynamic>? _invoice;
   List<SafeBoxModel> _safes = const [];
+  List<Map<String, dynamic>> _categories = const [];
   List<Map<String, dynamic>> _corrections = const [];
   Object? _error;
   bool _loading = true;
@@ -99,9 +101,13 @@ class _InvoiceCorrectionScreenState extends State<InvoiceCorrectionScreen> {
       final invoice = await widget.api.getInvoiceById(widget.invoiceId);
       final listed = await widget.api.invoiceCorrections(widget.invoiceId);
       final safes = await widget.api.getSafeBoxBalances(type: 'gold');
+      final categories = await widget.api.getCategories();
       if (!mounted) return;
       setState(() {
         _invoice = invoice;
+        _categories = [
+          for (final c in categories) Map<String, dynamic>.from(c as Map),
+        ];
         _corrections = [
           for (final c in (listed['corrections'] as List? ?? const []))
             Map<String, dynamic>.from(c as Map),
@@ -125,7 +131,8 @@ class _InvoiceCorrectionScreenState extends State<InvoiceCorrectionScreen> {
       Map<String, dynamic>.from(l as Map),
   ];
 
-  double _num(Object? v) => (v as num?)?.toDouble() ?? double.tryParse('$v') ?? 0.0;
+  // A number from the server: a number, or its text (a category's karat is '21').
+  double _num(Object? v) => v is num ? v.toDouble() : double.tryParse('${v ?? ''}') ?? 0.0;
 
   double _priceOf(Map<String, dynamic> line) =>
       _num(line['net'] ?? line['price']);
@@ -139,10 +146,11 @@ class _InvoiceCorrectionScreenState extends State<InvoiceCorrectionScreen> {
         ..clear()
         ..add(
           _RightLine(
-            karat: _num(line['karat']).round(),
-            weight: _num(line['weight']),
-            price: _priceOf(line),
-          ),
+              karat: _num(line['karat']).round(),
+              weight: _num(line['weight']),
+              price: _priceOf(line),
+            )
+            ..categoryId = (line['category_id'] as num?)?.toInt(),
         );
       _line = line;
     });
@@ -169,7 +177,12 @@ class _InvoiceCorrectionScreenState extends State<InvoiceCorrectionScreen> {
     'reason': _reason.text.trim(),
     'lines': [
       for (final l in _right)
-        {'karat': l.karat, 'weight': l.weightValue, 'price': l.priceValue},
+        {
+          'karat': l.karat,
+          'weight': l.weightValue,
+          'price': l.priceValue,
+          'category_id': ?l.categoryId,
+        },
     ],
   };
 
@@ -385,6 +398,15 @@ class _InvoiceCorrectionScreenState extends State<InvoiceCorrectionScreen> {
     );
   }
 
+  bool get _isSale => (_invoice?['invoice_type'] ?? '').toString() == 'بيع';
+
+  /// The categories a right line of [karat] may take: a sale's pieces, a
+  /// purchase's scrap.
+  List<Map<String, dynamic>> _categoriesOf(int karat) => [
+    for (final c in _categories)
+      if (_num(c['karat']).round() == karat && (c['is_scrap'] == true) != _isSale) c,
+  ];
+
   Widget _rightRow(int i, _RightLine l) => Padding(
     padding: const EdgeInsets.symmetric(vertical: AppSpace.xs),
     child: Row(
@@ -397,7 +419,30 @@ class _InvoiceCorrectionScreenState extends State<InvoiceCorrectionScreen> {
             items: [
               for (final k in _karats) DropdownMenuItem(value: k, child: Text('$k')),
             ],
-            onChanged: (v) => setState(() => l.karat = v ?? l.karat),
+            onChanged: (v) => setState(() {
+              l.karat = v ?? l.karat;
+              if (!_categoriesOf(l.karat).any((c) => c['id'] == l.categoryId)) {
+                l.categoryId = null;
+              }
+            }),
+          ),
+        ),
+        const SizedBox(width: AppSpace.sm),
+        SizedBox(
+          width: 160,
+          child: DropdownButtonFormField<int>(
+            key: ValueKey('category-$i-${l.karat}'),
+            initialValue: l.categoryId,
+            isExpanded: true,
+            decoration: const InputDecoration(labelText: 'التصنيف'),
+            items: [
+              for (final c in _categoriesOf(l.karat))
+                DropdownMenuItem(
+                  value: (c['id'] as num).toInt(),
+                  child: Text('${c['name'] ?? ''}', overflow: TextOverflow.ellipsis),
+                ),
+            ],
+            onChanged: (v) => setState(() => l.categoryId = v),
           ),
         ),
         const SizedBox(width: AppSpace.sm),

@@ -134,9 +134,9 @@ def test_gold_the_safe_does_not_hold_is_refused(auth_headers, world):
     assert resp.status_code == 400 and resp.get_json()['error'] == 'insufficient_balance'
 
 
-def test_a_sale_is_not_built_yet(auth_headers, world):
+def test_a_suppliers_invoice_is_not_built_yet(auth_headers, world):
     from datetime import datetime
-    sale = Invoice(invoice_type='بيع', total=100.0, is_posted=True, invoice_type_id=987654, date=datetime(2026, 10, 22))
+    sale = Invoice(invoice_type='شراء', total=100.0, is_posted=True, invoice_type_id=987654, date=datetime(2026, 10, 22))
     db.session.add(sale)
     db.session.flush()
     resp = _correct(auth_headers, sale.id, {'line_id': 1, 'reason': 'تصحيح', 'safe_box_id': 1,

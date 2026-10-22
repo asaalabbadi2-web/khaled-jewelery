@@ -15,16 +15,17 @@ document instead (docs/plans/invoice-correction-study.md):
   - the invoice's profit stays as it was paid: its points move in the
     correction's period (ت-2).
 
-This release corrects a customer's scrap purchase (the karat cases measured
-are all of them). A sale -- its VAT and its wages -- and a supplier's invoice
-come after; refused by name until then.
+It corrects a customer's scrap purchase and a sale -- its VAT at its own
+invoice's rate, its wage released with the weight sold, from the gold-cost
+day its gold's cost. A supplier's invoice comes after; refused by name.
 """
 from __future__ import annotations
 
 from models import (Account, Customer, Invoice, InvoiceCorrection, InvoiceItem, JournalEntry, JournalEntryLine,
                     SafeBox, db)
 
-CORRECTABLE = ('شراء من عميل',)
+SALE = 'بيع'
+CORRECTABLE = ('شراء من عميل', SALE)
 KARATS = (18, 21, 22, 24)
 GRAM = 0.0005
 CENT = 0.005
@@ -119,6 +120,22 @@ def _profits(invoice: Invoice, old_line: dict, new_lines: list, cash_delta: floa
     return paid, {'profit_gold': round(right, 3), 'profit_cash': paid['profit_cash']}
 
 
+def _sale_profits(invoice: Invoice, old_line: dict, new_lines: list, net_delta: float) -> tuple[dict, dict, float]:
+    """A sale's profit as paid, and as it is right, and its cost's difference
+    (ت-2). A sale earns its riyals less its cost (and its payment fees): the
+    cost a main-karat gram is the invoice's own (its total cost over its main
+    grams), so the gold's difference costs at it; the profit in grams is the
+    riyals' at the price of its day, kept on the invoice."""
+    paid = {'profit_gold': round(_f(invoice.profit_gold), 3), 'profit_cash': round(_f(invoice.profit_cash), 2)}
+    grams = _main([_line_of(i) for i in InvoiceItem.query.filter_by(invoice_id=invoice.id).all()])
+    per_gram = _f(invoice.total_cost) / grams if grams > GRAM else 0.0
+    cost_delta = round(per_gram * (_main(new_lines) - _main([old_line])), 2)
+    right_cash = round(paid['profit_cash'] + net_delta - cost_delta, 2)
+    price = _f(invoice.profit_weight_price_per_gram)
+    right_gold = round(right_cash / price, 3) if price > 0 else paid['profit_gold']
+    return paid, {'profit_gold': right_gold, 'profit_cash': right_cash}, cost_delta
+
+
 def _grams(karat_weights: dict) -> dict:
     return {k: round(w, 6) for k, w in karat_weights.items() if abs(w) > GRAM}
 
@@ -145,6 +162,10 @@ def correct_line(invoice: Invoice, *, line_id, lines, safe_box_id, reason: str, 
     if Invoice.query.filter(Invoice.original_invoice_id == invoice.id, Invoice.is_posted.is_(True)).first():
         raise CorrectionRefused('correction_after_return_not_built',
                                 'للفاتورة مرتجع: تصحيح فاتورة أُرجع منها شيء لم يُبنَ بعد')
+    from models import InvoiceKaratLine
+    if InvoiceKaratLine.query.filter_by(invoice_id=invoice.id).first():
+        raise CorrectionRefused('correction_karat_lines_not_built',
+                                'فاتورة بأسطر عيار (لا أصناف): تصحيحها لم يُبنَ بعد')
     old = db.session.get(InvoiceItem, int(line_id)) if line_id else None
     if old is None or old.invoice_id != invoice.id:
         raise CorrectionRefused('correction_line_not_found', 'السطر ليس من هذه الفاتورة')
@@ -156,31 +177,52 @@ def correct_line(invoice: Invoice, *, line_id, lines, safe_box_id, reason: str, 
         raise CorrectionRefused('correction_safe_invalid', 'اختر خزينة الذهب التي فيها ذهب السطر الآن')
 
     before_line = _line_of(old)
-    cash_delta = round(sum(l['price'] for l in new) - before_line['price'], 2)
-    if abs(cash_delta) > CENT and _f(old.tax) > CENT:
+    sale = (invoice.invoice_type or '').strip() == SALE
+    if sale:
+        # A sale's VAT at its own invoice's rate (the owner, 22 Oct 2026: the
+        # correction puts that invoice right); the price is the line's net.
+        rate = _f(old.tax) / before_line['price'] if before_line['price'] > CENT and _f(old.tax) > CENT else 0.0
+        for l in new:
+            l['tax'] = round(l['price'] * rate, 2)
+        before_line['tax'] = round(_f(old.tax), 2)
+    else:
+        for l in new:
+            l['tax'] = 0.0
+        before_line['tax'] = 0.0
+    net_delta = round(sum(l['price'] for l in new) - before_line['price'], 2)
+    tax_delta = round(sum(l['tax'] for l in new) - before_line['tax'], 2)
+    cash_delta = round(net_delta + tax_delta, 2)
+    if not sale and abs(cash_delta) > CENT and _f(old.tax) > CENT:
         raise CorrectionRefused('correction_vat_not_built', 'تصحيح سعر سطر عليه ضريبة لم يُبنَ بعد')
+    if sale:
+        from models import Category
+        old_category = db.session.get(Category, old.category_id) if old.category_id else None
+        for l in new:
+            if l['karat'] != before_line['karat'] and not l['category_id'] and old_category is not None:
+                raise CorrectionRefused('correction_category_required',
+                                        f'اختر تصنيف عيار {l["karat"]} للسطر الصحيح')
 
-    # The gold that leaves the safe, per karat, net: the safe holds it.
+    # The gold that leaves the safe, per karat, net: the safe holds it. A
+    # purchase's old line leaves and its right lines enter; a sale's old line
+    # comes back and its right lines leave.
+    sign = -1.0 if sale else 1.0
     delta = {k: 0.0 for k in KARATS}
-    delta[before_line['karat']] -= before_line['weight']
+    delta[before_line['karat']] -= sign * before_line['weight']
     for l in new:
-        delta[l['karat']] += l['weight']
+        delta[l['karat']] += sign * l['weight']
     for karat, grams in _grams(delta).items():
         if grams < 0 and -grams > safe_gold_available(safe, karat) + 1e-6:
             raise CorrectionRefused('insufficient_balance',
                                     f'«{safe.name}» لا تحمل {-grams:.3f} غ عيار {karat}: أين ذهب السطر الآن؟',
                                     karat=karat, available=round(safe_gold_available(safe, karat), 3))
 
-    purchases = (get_account_id_for_mapping('شراء من عميل', 'purchases_gold_scrap')
-                 or get_account_id_for_mapping('شراء من عميل', 'purchases_gold')
-                 or require_account('شراء من عميل', 'purchases_gold_scrap'))
-    purchases_weight = getattr(db.session.get(Account, purchases), 'memo_account_id', None) or purchases
     customer = db.session.get(Customer, invoice.customer_id) if invoice.customer_id else None
     party = getattr(customer, 'account_id', None)
-    if abs(cash_delta) > CENT and not party:
-        raise CorrectionRefused('correction_party_missing', 'لا حساب للعميل يُقيَّد عليه فرق السعر')
+    if (sale or abs(cash_delta) > CENT) and not party:
+        raise CorrectionRefused('correction_party_missing', 'لا حساب للعميل يُقيَّد عليه الفرق')
 
-    profit_before, profit_after = _profits(invoice, before_line, new, cash_delta)
+    profit_before, profit_after, cost_delta = (_sale_profits(invoice, before_line, new, net_delta) if sale
+                                               else (*_profits(invoice, before_line, new, cash_delta), cash_delta))
     correction = InvoiceCorrection(invoice_id=invoice.id, invoice_item_id=old.id, safe_box_id=safe.id, reason=reason,
                                    before={'snapshot_schema_version': 1, 'lines': [before_line],
                                            'invoice': _invoice_of(invoice), 'profit': profit_before},
@@ -195,51 +237,89 @@ def correct_line(invoice: Invoice, *, line_id, lines, safe_box_id, reason: str, 
     db.session.add(entry)
     db.session.flush()
 
-    # The old line's gold out of the safe, the new lines' in -- each with its
-    # category -- against the purchases' weight side, as the purchase posted it.
+    def line(account_id, what, **amounts):
+        create_dual_journal_entry(journal_entry_id=entry.id, account_id=account_id, apply_golden_rule=False,
+                                  description=f'تصحيح فاتورة #{invoice.id} — {what}', **amounts)
+
+    def cash(account_id, amount, what, **kw):
+        if abs(amount) > CENT:
+            line(account_id, what, **({'cash_debit': round(amount, 2)} if amount > 0
+                                      else {'cash_credit': round(-amount, 2)}), **kw)
+
+    # The gold, each line with its category: the line as posted undone, the
+    # right lines done, against the side the invoice posted it against.
+    if sale:
+        counter = getattr(db.session.get(Account, party), 'memo_account_id', None) or party
+    else:
+        purchases = (get_account_id_for_mapping('شراء من عميل', 'purchases_gold_scrap')
+                     or get_account_id_for_mapping('شراء من عميل', 'purchases_gold')
+                     or require_account('شراء من عميل', 'purchases_gold_scrap'))
+        counter = getattr(db.session.get(Account, purchases), 'memo_account_id', None) or purchases
     stock_lines = []
 
     def gold(karat, grams, category_id, what):
-        side = 'debit' if grams > 0 else 'credit'
-        other = 'credit' if grams > 0 else 'debit'
-        create_dual_journal_entry(journal_entry_id=entry.id, account_id=safe.account_id, apply_golden_rule=False,
-                                  description=f'تصحيح فاتورة #{invoice.id} — {what}',
-                                  **{f'{side}_{karat}k': abs(grams)})
-        create_dual_journal_entry(journal_entry_id=entry.id, account_id=purchases_weight, apply_golden_rule=False,
-                                  description=f'تصحيح فاتورة #{invoice.id} — {what}',
-                                  **{f'{other}_{karat}k': abs(grams)})
+        """+grams into the safe, -grams out of it."""
+        side, other = ('debit', 'credit') if grams > 0 else ('credit', 'debit')
+        line(safe.account_id, what, **{f'{side}_{karat}k': abs(grams)})
+        line(counter, what, **{f'{other}_{karat}k': abs(grams)})
         db.session.flush()
-        line = (JournalEntryLine.query.filter_by(journal_entry_id=entry.id, account_id=safe.account_id)
-                .order_by(JournalEntryLine.id.desc()).first())
-        stock_lines.append((line, karat, category_id, grams))
+        written_line = (JournalEntryLine.query.filter_by(journal_entry_id=entry.id, account_id=safe.account_id)
+                        .order_by(JournalEntryLine.id.desc()).first())
+        stock_lines.append((written_line, karat, category_id, grams))
 
-    gold(before_line['karat'], -before_line['weight'], before_line['category_id'], 'السطر كما رُحِّل')
+    gold(before_line['karat'], -sign * before_line['weight'], before_line['category_id'], 'السطر كما رُحِّل')
     for l in new:
-        gold(l['karat'], l['weight'], l['category_id'], 'السطر الصحيح')
+        gold(l['karat'], sign * l['weight'], l['category_id'], 'السطر الصحيح')
 
-    # The price's difference: the purchase's cost against the customer. From
-    # the settings' day the cost is the gold's value in its pool (ADR-042).
     from services.gold_cost_postings import applies as gold_cost_applies
-    if abs(cash_delta) > CENT:
+    pool = 'worked' if safe.stock_location in ('showroom', 'workshop', 'transit') else 'scrap'
+    if sale:
+        # The price's difference: the customer owes it, the sale earns it, its VAT as invoiced.
+        revenue = (get_account_id_for_mapping('بيع', 'sales_gold_scrap' if invoice.gold_type == 'scrap'
+                                              else 'sales_gold_new')
+                   or get_account_id_for_mapping('بيع', 'revenue') or require_account('بيع', 'sales_gold_new'))
+        cash(party, cash_delta, 'فرق السعر', customer_id=invoice.customer_id)
+        cash(revenue, -net_delta, 'فرق الإيراد')
+        if abs(tax_delta) > CENT:
+            from accounting.mappings import require_vat_account
+            cash(get_account_id_for_mapping('بيع', 'vat_payable') or require_vat_account('بيع', 'vat_payable'),
+                 -tax_delta, 'فرق الضريبة')
+        # The wage released with the weight sold, when wages are capitalized (ADR-039).
+        from accounting.wages import (manufacturing_wage_expense_account_id, manufacturing_wage_inventory_account_id,
+                                      wage_mode_of, wages_are_capitalized)
+        wage_delta = round(_f(old.wage) * (sum(l['weight'] for l in new) - before_line['weight']), 2)
+        if abs(wage_delta) > CENT and wages_are_capitalized(wage_mode_of(invoice)):
+            cash(manufacturing_wage_expense_account_id() or require_account('بيع', 'manufacturing_wage'),
+                 wage_delta, 'فرق الأجور المحمّلة')
+            cash(manufacturing_wage_inventory_account_id() or require_account('شراء', 'manufacturing_wage_inventory'),
+                 -wage_delta, 'فرق الأجور المحمّلة')
+        # From the settings' day the gold sold carries its cost (ADR-042):
+        # its difference at the sale's own cost a gram.
+        if gold_cost_applies(now):
+            from services.gold_cost_postings import _value_account, posted_sale_cost
+            posted = posted_sale_cost(invoice)
+            grams_before = _main([_line_of(i) for i in InvoiceItem.query.filter_by(invoice_id=invoice.id)])
+            if posted and grams_before > GRAM:
+                per_gram = sum(posted.values()) / grams_before
+                cost = round(per_gram * (_main(new) - _main([before_line])), 2)
+                cash(next(iter(posted)), cost, 'فرق تكلفة الذهب المباع')
+                cash(_value_account(pool), -cost, 'فرق تكلفة الذهب المباع')
+    elif abs(cash_delta) > CENT:
+        # The price's difference: the purchase's cost against the customer. From
+        # the settings' day the cost is the gold's value in its pool (ADR-042).
         cost_account = purchases
         if gold_cost_applies(now):
             from services.gold_cost_postings import _value_account
-            cost_account = _value_account('worked' if safe.stock_location in ('showroom', 'workshop', 'transit')
-                                          else 'scrap')
-        cost_side = {'cash_debit': cash_delta} if cash_delta > 0 else {'cash_credit': -cash_delta}
-        party_side = {'cash_credit': cash_delta} if cash_delta > 0 else {'cash_debit': -cash_delta}
-        create_dual_journal_entry(journal_entry_id=entry.id, account_id=cost_account, apply_golden_rule=False,
-                                  description=f'تصحيح فاتورة #{invoice.id} — فرق السعر', **cost_side)
-        create_dual_journal_entry(journal_entry_id=entry.id, account_id=party, apply_golden_rule=False,
-                                  customer_id=invoice.customer_id,
-                                  description=f'تصحيح فاتورة #{invoice.id} — فرق السعر', **party_side)
+            cost_account = _value_account(pool)
+        cash(cost_account, cash_delta, 'فرق السعر')
+        cash(party, -cash_delta, 'فرق السعر', customer_id=invoice.customer_id)
     db.session.flush()
     verify_dual_balance(entry.id)
 
     from services.stock_ledger import allocate
-    for line, karat, category_id, grams in stock_lines:
+    for written_line, karat, category_id, grams in stock_lines:
         if category_id:
-            allocate(line, karat, category_id, grams, now=now, by=by)
+            allocate(written_line, karat, category_id, grams, now=now, by=by)
     _rebuild_safe_box_transactions_for_journal_entry(
         entry, JournalEntryLine.query.filter_by(journal_entry_id=entry.id, is_deleted=False).all(), created_by=by)
 
@@ -248,18 +328,20 @@ def correct_line(invoice: Invoice, *, line_id, lines, safe_box_id, reason: str, 
     written = []
     for item, l in [(old, first)] + [(None, l) for l in rest]:
         if item is None:
-            item = InvoiceItem(invoice_id=invoice.id, quantity=1, price=0.0)
+            item = InvoiceItem(invoice_id=invoice.id, quantity=1, price=0.0, wage=old.wage)
             db.session.add(item)
         written.append(item)
         item.name, item.karat, item.weight = l['name'], float(l['karat']), l['weight']
         item.standing_weight, item.stones_weight = l['weight'], 0.0
-        item.net = item.price = l['price']
+        item.net, item.tax = l['price'], l['tax']
+        item.price = round(l['price'] + l['tax'], 2)
         item.category_id = l['category_id']
     db.session.flush()
     items = InvoiceItem.query.filter_by(invoice_id=invoice.id).order_by(InvoiceItem.id).all()
     invoice.total = round(_f(invoice.total) + cash_delta, 2)
+    invoice.total_tax = round(_f(invoice.total_tax) + tax_delta, 2)
     invoice.net_amount = round(_f(invoice.net_amount) + cash_delta, 2)
-    invoice.total_cost = round(_f(invoice.total_cost) + cash_delta, 2)
+    invoice.total_cost = round(_f(invoice.total_cost) + cost_delta, 2)
     invoice.total_weight = round(sum(_f(i.weight) for i in items), 3)
 
     correction.journal_entry_id = entry.id

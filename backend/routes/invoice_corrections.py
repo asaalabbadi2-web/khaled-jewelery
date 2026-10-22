@@ -83,9 +83,9 @@ def create_invoice_correction(invoice_id: int):
 @require_permission('invoices.view')
 def list_invoice_corrections(invoice_id: int):
     """The invoice's corrections, and the safe a correction would start from:
-    the one its purchase put its gold in (the screen suggests it; the gold may
-    have moved since)."""
-    from services.return_lines import purchase_gold_safe_id
+    the one its entry moved its gold in or out of -- a purchase's, a sale's
+    showroom (the screen suggests it; the gold may have moved since)."""
+    from services.return_lines import invoice_gold_safe_id
     rows = InvoiceCorrection.query.filter_by(invoice_id=invoice_id).order_by(InvoiceCorrection.id).all()
     return jsonify({'corrections': [r.to_dict() for r in rows],
-                    'suggested_safe_box_id': purchase_gold_safe_id(invoice_id)}), 200
+                    'suggested_safe_box_id': invoice_gold_safe_id(invoice_id)}), 200
