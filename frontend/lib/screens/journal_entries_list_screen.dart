@@ -14,6 +14,8 @@ import '../widgets/cancelled_vouchers_bar.dart';
 import '../widgets/widgets.dart';
 import 'journal_entry_form.dart';
 import '../widgets/app_feedback.dart';
+import '../widgets/confirm_financial_action.dart';
+import '../utils/bidi.dart';
 
 enum _JournalEntriesListView { table, cards }
 
@@ -666,7 +668,34 @@ class _JournalEntriesListScreenState extends State<JournalEntriesListScreen>
     }
   }
 
+  /// What the confirmation says the entry is: its number, what it says, its
+  /// totals (ADR-050 ر٠).
+  List<(String, String)> _entryFacts(Map<String, dynamic> entry) {
+    final isAr = widget.isArabic;
+    final cash = (entry['cash_total'] as num?)?.toDouble() ?? 0.0;
+    final gold = (entry['gold_total_main_karat'] as num?)?.toDouble() ?? 0.0;
+    final description = (entry['description'] ?? '').toString().trim();
+    return [
+      (
+        isAr ? 'القيد' : 'Entry',
+        ltrIsolate((entry['entry_number'] ?? '#${entry['id']}').toString()),
+      ),
+      if (description.isNotEmpty)
+        (isAr ? 'البيان' : 'Description', description),
+      if (cash.abs() > 0.004)
+        (isAr ? 'النقد' : 'Cash', ltrIsolate(cu.formatAmount(cash))),
+      if (gold.abs() > 0.0004)
+        (
+          isAr ? 'الذهب (بالعيار الرئيسي)' : 'Gold (main karat)',
+          '${ltrIsolate(cu.formatGrams(gold))} ${isAr ? 'جم' : 'g'}',
+        ),
+    ];
+  }
+
+  /// Posting puts the entry in the balances: asked first -- it was one press
+  /// (ADR-050 ر٠). A refusal says the server's reason.
   Future<void> _postEntry(Map<String, dynamic> entry) async {
+    final isAr = widget.isArabic;
     final auth = context.read<AuthProvider>();
     final postedBy = auth.username.trim().isNotEmpty
         ? auth.username.trim()
@@ -674,144 +703,99 @@ class _JournalEntriesListScreenState extends State<JournalEntriesListScreen>
 
     if (postedBy.isEmpty) {
       _showSnackBar(
-        widget.isArabic
-            ? 'تعذر تحديد المستخدم الحالي'
-            : 'Unable to resolve current user',
+        isAr ? 'تعذر تحديد المستخدم الحالي' : 'Unable to resolve current user',
         isError: true,
       );
       return;
     }
 
+    final go = await confirmFinancialAction(
+      context,
+      title: isAr ? 'ترحيل القيد؟' : 'Post the entry?',
+      effect: isAr
+          ? 'يدخل القيد الأرصدة والكشوف والتقارير الآن. ويمكن فكّ ترحيله لاحقًا.'
+          : 'The entry enters the balances, statements and reports now. It can be unposted later.',
+      confirmLabel: isAr ? 'ترحيل' : 'Post',
+      facts: _entryFacts(entry),
+      destructive: false,
+      backLabel: isAr ? 'تراجع' : 'Back',
+    );
+    if (go == null || !mounted) return;
+
     try {
       await _apiService.postJournalEntry(_asInt(entry['id']) ?? 0, postedBy);
-      _showSnackBar(
-        widget.isArabic ? 'تم ترحيل القيد' : 'Entry posted successfully',
-      );
+      _showSnackBar(isAr ? 'رُحِّل القيد' : 'Entry posted');
       await _loadEntries(page: _currentPage, forceRefresh: true);
     } catch (e) {
-      _showSnackBar(
-        widget.isArabic ? 'فشل ترحيل القيد' : 'Failed to post entry',
-        isError: true,
+      if (!mounted) return;
+      AppFeedback.error(
+        context,
+        e,
+        title: isAr ? 'لم يُرحَّل القيد' : 'The entry was not posted',
       );
     }
   }
 
   Future<void> _unpostEntry(Map<String, dynamic> entry) async {
-    final confirmed = await _confirmAction(
-      title: widget.isArabic ? 'فك ترحيل القيد' : 'Unpost entry',
-      message: widget.isArabic
-          ? 'سيتم إزالة تأثير القيد من الأرصدة. هل تريد المتابعة؟'
-          : 'This removes the entry impact from balances. Continue?',
+    final isAr = widget.isArabic;
+    final go = await confirmFinancialAction(
+      context,
+      title: isAr ? 'فكّ ترحيل القيد؟' : 'Unpost the entry?',
+      effect: isAr
+          ? 'يخرج القيد من الأرصدة والكشوف والتقارير، ويعود قابلًا للتعديل والحذف.'
+          : 'The entry leaves the balances, statements and reports, and can be edited or deleted again.',
+      confirmLabel: isAr ? 'فكّ الترحيل' : 'Unpost',
+      facts: _entryFacts(entry),
+      backLabel: isAr ? 'تراجع' : 'Back',
     );
-    if (!confirmed) {
-      return;
-    }
+    if (go == null || !mounted) return;
 
     try {
       await _apiService.unpostJournalEntry(_asInt(entry['id']) ?? 0);
-      _showSnackBar(
-        widget.isArabic ? 'تم فك ترحيل القيد' : 'Entry unposted successfully',
-      );
+      _showSnackBar(isAr ? 'فُكَّ ترحيل القيد' : 'Entry unposted');
       await _loadEntries(page: _currentPage, forceRefresh: true);
     } catch (e) {
-      _showSnackBar(
-        widget.isArabic ? 'فشل فك ترحيل القيد' : 'Failed to unpost entry',
-        isError: true,
+      if (!mounted) return;
+      AppFeedback.error(
+        context,
+        e,
+        title: isAr ? 'لم يُفكّ ترحيل القيد' : 'The entry was not unposted',
       );
     }
   }
 
+  /// One dialog: what is deleted, and the reason it requires -- it was two,
+  /// the reason first, then «إلغاء» beside «حذف».
   Future<void> _deleteEntry(Map<String, dynamic> entry) async {
-    final reason = await _promptDeletionReason();
-    if (reason == null || reason.trim().isEmpty) {
-      return;
-    }
-
-    final confirmed = await _confirmAction(
-      title: widget.isArabic ? 'حذف القيد' : 'Delete entry',
-      message: widget.isArabic
-          ? 'سيتم حذف القيد حذفًا ناعمًا ويمكن استرجاعه لاحقًا.'
-          : 'The entry will be soft-deleted and can be restored later.',
+    final isAr = widget.isArabic;
+    final reason = await confirmFinancialAction(
+      context,
+      title: isAr ? 'حذف القيد؟' : 'Delete the entry?',
+      effect: isAr
+          ? 'يُحذف القيد غير المرحَّل حذفًا ناعمًا، ويمكن استرجاعه لاحقًا.'
+          : 'The unposted entry is soft-deleted and can be restored later.',
+      confirmLabel: isAr ? 'حذف القيد' : 'Delete entry',
+      facts: _entryFacts(entry),
+      reasonLabel: isAr ? 'سبب الحذف' : 'Reason',
+      backLabel: isAr ? 'تراجع' : 'Back',
     );
-    if (!confirmed) {
-      return;
-    }
+    if (reason == null || reason.trim().isEmpty || !mounted) return;
 
     try {
       await _apiService.deleteUnpostedJournalEntry(
         _asInt(entry['id']) ?? 0,
         reason: reason.trim(),
       );
-      _showSnackBar(
-        widget.isArabic ? 'تم حذف القيد' : 'Entry deleted successfully',
-      );
+      _showSnackBar(isAr ? 'حُذف القيد' : 'Entry deleted');
       await _loadEntries(page: _currentPage, forceRefresh: true);
     } catch (e) {
-      _showSnackBar(
-        widget.isArabic ? 'فشل حذف القيد' : 'Failed to delete entry',
-        isError: true,
+      if (!mounted) return;
+      AppFeedback.error(
+        context,
+        e,
+        title: isAr ? 'لم يُحذف القيد' : 'The entry was not deleted',
       );
     }
-  }
-
-  Future<String?> _promptDeletionReason() async {
-    final controller = TextEditingController();
-    final result = await showDialog<String>(
-      context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: Text(widget.isArabic ? 'سبب الحذف' : 'Deletion reason'),
-          content: TextField(
-            controller: controller,
-            autofocus: true,
-            maxLines: 3,
-            decoration: InputDecoration(
-              hintText: widget.isArabic
-                  ? 'مثال: قيد أُدخل بالخطأ'
-                  : 'Example: created by mistake',
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: Text(widget.isArabic ? 'إلغاء' : 'Cancel'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.of(context).pop(controller.text),
-              child: Text(widget.isArabic ? 'متابعة' : 'Continue'),
-            ),
-          ],
-        );
-      },
-    );
-    controller.dispose();
-    return result;
-  }
-
-  Future<bool> _confirmAction({
-    required String title,
-    required String message,
-  }) async {
-    final result = await showDialog<bool>(
-      context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: Text(title),
-          content: Text(message),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(false),
-              child: Text(widget.isArabic ? 'إلغاء' : 'Cancel'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.of(context).pop(true),
-              child: Text(widget.isArabic ? 'تأكيد' : 'Confirm'),
-            ),
-          ],
-        );
-      },
-    );
-    return result ?? false;
   }
 
   Future<void> _handleRowAction(

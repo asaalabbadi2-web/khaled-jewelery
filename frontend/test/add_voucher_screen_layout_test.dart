@@ -298,4 +298,22 @@ void main() {
         reason: 'the number alone on its line, not cut');
     expect(said('المتبقي: 6,104.00 ر.س'), findsOneWidget);
   });
+
+  // ADR-050 ر٠: a failed load is said, with a retry -- it was a message
+  // over an empty form that took typing, with no accounts to pick.
+  testWidgets('a failed load is said, with a retry, and no form to type in', (
+    tester,
+  ) async {
+    final api = FakeVoucherApi(failLoads: 1);
+    await openVoucher(tester, api: api);
+
+    expect(find.text('تعذّر تحميل بيانات السند'), findsOneWidget);
+    expect(find.text('حفظ السند'), findsNothing);
+    expect(account(), findsNothing);
+
+    await tester.tap(find.text('إعادة المحاولة'));
+    await tester.pumpAndSettle();
+    expect(find.text('تعذّر تحميل بيانات السند'), findsNothing);
+    expect(account(), findsOneWidget);
+  });
 }

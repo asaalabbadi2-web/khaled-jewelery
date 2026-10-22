@@ -20,6 +20,7 @@ class FakeVoucherApi extends ApiService {
     this.openCash = const [],
     this.openGold = const [],
     this.plan,
+    this.failLoads = 0,
     this.appConfig = const {},
   });
 
@@ -48,8 +49,17 @@ class FakeVoucherApi extends ApiService {
   @override
   Future<List<dynamic>> getCustomers() async => customers;
 
+  /// How many of the next loads of the screen's data fail (ADR-050 ر٠).
+  int failLoads;
+
   @override
-  Future<List<dynamic>> getSuppliers() async => suppliers;
+  Future<List<dynamic>> getSuppliers() async {
+    if (failLoads > 0) {
+      failLoads--;
+      throw ApiException.text('تعذّر الوصول إلى الخادم');
+    }
+    return suppliers;
+  }
 
   @override
   Future<Map<String, dynamic>> getEmployees({

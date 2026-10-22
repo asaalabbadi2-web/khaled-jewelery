@@ -82,7 +82,19 @@ class TestLiveBalancePayload:
 
     def test_emits_exactly_the_five_json_keys_the_frontend_reads(self):
         """suppliers_screen.dart reads these names; the contract must not
-        change just because the storage did."""
+        change just because the storage did. The five are as they were."""
+        payload = _live_balance_payload(_supplier())
+        assert {
+            'balance_cash',
+            'balance_gold_18k',
+            'balance_gold_21k',
+            'balance_gold_22k',
+            'balance_gold_24k',
+        } <= set(payload)
+
+    def test_and_the_gold_at_the_main_karat_and_nothing_else(self):
+        """The sixth, `balance_gold_main`: the gold at the main karat the
+        suppliers screen worked out itself (ADR-057 ر٠)."""
         payload = _live_balance_payload(_supplier())
         assert set(payload) == {
             'balance_cash',
@@ -90,11 +102,13 @@ class TestLiveBalancePayload:
             'balance_gold_21k',
             'balance_gold_22k',
             'balance_gold_24k',
+            'balance_gold_main',
         }
 
     def test_zero_for_a_supplier_with_no_ledger_activity(self):
         payload = _live_balance_payload(_supplier())
-        assert all(v == 0.0 for v in payload.values())
+        assert all(v == 0.0 for k, v in payload.items() if k != 'balance_gold_main')
+        assert payload['balance_gold_main'] in (0.0, None)  # None: no main karat set
 
     def test_reflects_the_ledger_in_the_debit_minus_credit_convention(self):
         supplier = _supplier()

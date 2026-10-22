@@ -29,6 +29,7 @@ from auth_decorators import require_permission
 from party_account_service import ensure_supplier_accounts
 from pricing.gold_price_service import get_current_gold_price
 from services.party_live_balances import compute_live_supplier_balances
+from pricing.gold_price_service import MainKaratNotSet
 from pricing.karat_service import by_karat_in_main_karat, convert_to_main_karat, get_main_karat
 from accounting.statement_verification import (
     _build_statement_qr_signed_payload,
@@ -78,10 +79,25 @@ def _live_balance_payload(supplier, *, prefetched=None) -> dict:
     if prefetched is None:
         prefetched = compute_live_supplier_balances([supplier])
     bal = prefetched.get(int(supplier.id)) or {}
-    return {
+    payload = {
         key: round(float(bal.get(source, 0.0) or 0.0), digits)
         for key, source, digits in BALANCE_KEYS_BY_KARAT
     }
+    payload['balance_gold_main'] = _gold_in_main_karat(payload)
+    return payload
+
+
+def _gold_in_main_karat(payload: dict):
+    """The supplier's gold at the main karat, by the one conversion
+    (pricing.karat_service). The suppliers screen worked it out itself, with
+    its own formula (ADR-050 ر٠); None while the settings hold no main karat
+    -- the list still loads, the screen says the karat is unset."""
+    try:
+        return round(by_karat_in_main_karat({
+            f'{k}k': payload[f'balance_gold_{k}k'] for k in (18, 21, 22, 24)
+        }), 3)
+    except MainKaratNotSet:
+        return None
 
 
 def _current_balance_payload(supplier) -> dict:

@@ -10,6 +10,9 @@ import 'add_supplier_screen.dart';
 import 'add_voucher_screen.dart';
 import 'purchase_invoice_screen.dart';
 import 'supplier_ledger_screen.dart';
+import '../widgets/app_feedback.dart';
+import '../widgets/confirm_financial_action.dart';
+import '../utils/bidi.dart';
 import 'supplier_settlements_screen.dart';
 
 enum _SuppliersViewMode { cards, compact }
@@ -185,22 +188,27 @@ class SuppliersScreenState extends State<SuppliersScreen> {
     return _toDouble(supplier['balance_cash']);
   }
 
-  double _goldMainEquivalent(Map<String, dynamic> supplier) {
-    final b18 = _toDouble(supplier['balance_gold_18k']);
-    final b21 = _toDouble(supplier['balance_gold_21k']);
-    final b22 = _toDouble(supplier['balance_gold_22k']);
-    final b24 = _toDouble(supplier['balance_gold_24k']);
-
-    final main = _mainKarat.toDouble();
-    return (b18 * (18.0 / main)) +
-        (b21 * (21.0 / main)) +
-        (b22 * (22.0 / main)) +
-        (b24 * (24.0 / main));
+  /// The supplier's gold at the main karat, as the server converts it
+  /// (`balance_gold_main`, ADR-050 ر٠) -- the screen worked it out with its
+  /// own formula. Null while the settings hold no main karat.
+  double? _goldMain(Map<String, dynamic> supplier) {
+    final value = supplier['balance_gold_main'];
+    return value is num ? value.toDouble() : null;
   }
 
+  double _goldMainEquivalent(Map<String, dynamic> supplier) =>
+      _goldMain(supplier) ?? 0.0;
+
+  /// Gold held either way, at any karat -- known with or without a main karat.
+  bool _hasGold(Map<String, dynamic> supplier) => [
+    'balance_gold_18k',
+    'balance_gold_21k',
+    'balance_gold_22k',
+    'balance_gold_24k',
+  ].any((k) => _toDouble(supplier[k]).abs() > _epsGold);
+
   bool _hasPendingBalance(Map<String, dynamic> supplier) {
-    return _cashBalance(supplier).abs() > _epsCash ||
-        _goldMainEquivalent(supplier).abs() > _epsGold;
+    return _cashBalance(supplier).abs() > _epsCash || _hasGold(supplier);
   }
 
   void _filterSuppliers() {
@@ -515,51 +523,49 @@ class SuppliersScreenState extends State<SuppliersScreen> {
     final id = supplier['id'] as int?;
     if (id == null) return;
 
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: Text(isAr ? 'تأكيد الإجراء' : 'Confirm action'),
-          content: Text(
-            isAr
-                ? 'سيتم حذف المورد إن لم يكن عليه أي أرصدة أو مسودات. إن كان لديه تاريخ حركات سيتم تعطيله بدلاً من الحذف.'
-                : 'Supplier will be deleted if safe; otherwise it will be deactivated when history exists.',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(false),
-              child: Text(isAr ? 'إلغاء' : 'Cancel'),
-            ),
-            ElevatedButton(
-              onPressed: () => Navigator.of(context).pop(true),
-              child: Text(isAr ? 'متابعة' : 'Continue'),
-            ),
-          ],
-        );
-      },
+    // Which supplier, and what happens to it (ADR-050 ر٠): the dialog said
+    // «تأكيد الإجراء» and «متابعة», and the error came as an exception.
+    final name = _supplierName(supplier);
+    final code = _supplierCode(supplier);
+    final go = await confirmFinancialAction(
+      context,
+      title: isAr ? 'حذف المورد؟' : 'Delete the supplier?',
+      // The server's rule (routes/suppliers.py): refused with a balance or an
+      // unposted invoice; deactivated with posted history; else deleted with
+      // its account.
+      effect: isAr
+          ? 'لا يُحذف مورد له رصيد أو فاتورة غير مرحَّلة. وإن كانت له فواتير أو قيود مرحَّلة يُعطَّل وتبقى حركاته؛ وإلا يُحذف هو وحسابه.'
+          : 'Refused with a balance or an unposted invoice; deactivated with posted history, which is kept; else deleted with its account.',
+      confirmLabel: isAr ? 'حذف أو تعطيل' : 'Delete or deactivate',
+      facts: [
+        (isAr ? 'المورد' : 'Supplier', name),
+        if (code.isNotEmpty) (isAr ? 'الرمز' : 'Code', ltrIsolate(code)),
+      ],
+      backLabel: isAr ? 'تراجع' : 'Back',
     );
-
-    if (confirmed != true) return;
+    if (go == null || !mounted) return;
 
     try {
       final result = await widget.api.deleteSupplier(id);
       if (!mounted) return;
       await _fetchSuppliers();
+      if (!mounted) return;
 
-      final action = (result['action'] ?? '').toString();
-      final msg = action == 'deactivated'
-          ? (isAr ? 'تم تعطيل المورد بنجاح' : 'Supplier deactivated')
-          : (isAr ? 'تم حذف المورد بنجاح' : 'Supplier deleted');
-
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+      final deactivated = (result['action'] ?? '').toString() == 'deactivated';
+      AppFeedback.success(
+        context,
+        deactivated
+            ? (isAr
+                  ? 'عُطِّل المورد «$name» — له تاريخ فلم يُحذف'
+                  : 'Supplier «$name» deactivated -- it has history')
+            : (isAr ? 'حُذف المورد «$name»' : 'Supplier «$name» deleted'),
+      );
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            isAr ? 'تعذر حذف المورد: $e' : 'Failed to delete supplier: $e',
-          ),
-        ),
+      AppFeedback.error(
+        context,
+        e,
+        title: isAr ? 'لم يُحذف المورد' : 'The supplier was not deleted',
       );
     }
   }
@@ -771,7 +777,12 @@ class SuppliersScreenState extends State<SuppliersScreen> {
           title: widget.isArabic
               ? 'إجمالي الذهب الدائن (مكافئ $_mainKarat)'
               : 'Total gold credit ($_mainKarat equiv)',
-          value: weightFmt.format(totalGoldCredit),
+          // Without a main karat the server says no equivalent: «—», not 0.
+          value: _filteredSuppliers.any(
+                    (s) => _hasGold(s) && _goldMain(s) == null,
+                  )
+              ? '—'
+              : weightFmt.format(totalGoldCredit),
           subtitle: widget.isArabic
               ? 'موردون بأرصدة وزنية'
               : 'Weighted supplier balances',

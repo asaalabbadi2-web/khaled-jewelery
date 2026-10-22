@@ -22,6 +22,7 @@ import '../utils/bidi.dart';
 import '../utils/party_balance.dart';
 import '../utils/currency_utils.dart';
 import '../widgets/app_feedback.dart';
+import '../widgets/app_state_views.dart';
 import '../widgets/app_shortcuts.dart';
 
 class GoldLineEntryModel {
@@ -297,6 +298,10 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
   int? _selectedOtherAccountId;
 
   bool _isLoading = false;
+
+  /// The data the voucher needs did not load (ADR-050 ر٠): said, with a
+  /// retry -- it was a message over an empty form that took typing.
+  Object? _loadError;
   bool _isSaving = false;
 
   /// The review is open: nothing is being sent yet.
@@ -1192,7 +1197,10 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
   }
 
   Future<void> _loadData() async {
-    setState(() => _isLoading = true);
+    setState(() {
+      _isLoading = true;
+      _loadError = null;
+    });
 
     try {
       final results = await Future.wait([
@@ -1290,10 +1298,11 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
         (_) => _smartFillDescriptionAndReceiver(),
       );
     } catch (e) {
-      setState(() => _isLoading = false);
-      if (mounted) {
-        AppFeedback.error(context, e, title: 'خطأ في تحميل البيانات');
-      }
+      if (!mounted) return;
+      setState(() {
+        _isLoading = false;
+        _loadError = e;
+      });
     }
   }
 
@@ -4258,7 +4267,9 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
         onAddLine: _addNewLine,
         child: Builder(
           builder: (context) => Scaffold(
-            bottomNavigationBar: _isLoading ? null : _buildFooter(accentColor),
+            bottomNavigationBar: _isLoading || _loadError != null
+                ? null
+                : _buildFooter(accentColor),
             appBar: AppBar(
               title: Text(title),
               backgroundColor: _cs.primary,
@@ -4290,7 +4301,13 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
               ],
             ),
             body: _isLoading
-                ? const Center(child: CircularProgressIndicator())
+                ? const AppLoadingView(summaryBlocks: 2, rows: 4)
+                : _loadError != null
+                ? AppErrorView(
+                    title: 'تعذّر تحميل بيانات السند',
+                    error: _loadError,
+                    onRetry: _loadData,
+                  )
                 : SafeArea(
                     child: SingleChildScrollView(
                       padding: const EdgeInsets.symmetric(
