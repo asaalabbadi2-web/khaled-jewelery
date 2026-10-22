@@ -71,6 +71,7 @@ try:
 	from routes.clearing import clearing_bp
 	from routes.gold_advances import gold_advances_bp
 	from routes.office_reservations import office_reservations_bp
+	from routes.invoice_corrections import invoice_corrections_bp
 	from routes.admin import admin_bp
 	from routes.system import system_bp
 	from routes.vat_returns import vat_returns_bp
@@ -475,6 +476,7 @@ app.register_blueprint(vouchers_bp, url_prefix='/api')  # Vouchers domain
 app.register_blueprint(clearing_bp, url_prefix='/api')  # Clearing & weight-closing domain
 app.register_blueprint(gold_advances_bp, url_prefix='/api')  # Gold Advance & Allocation domain (Phase 15C)
 app.register_blueprint(office_reservations_bp, url_prefix='/api')  # Office reservations domain
+app.register_blueprint(invoice_corrections_bp, url_prefix='/api')  # «تصحيح فاتورة» (ت-1)
 app.register_blueprint(admin_bp, url_prefix='/api')     # Admin & temp-pdf domain
 app.register_blueprint(system_bp, url_prefix='/api')    # System domain (debug, settings, reset, backup)
 app.register_blueprint(vat_returns_bp, url_prefix='/api')  # VAT returns (ADR-043 rule 5)

@@ -66,6 +66,7 @@ INVOICE_PERMISSIONS = {
     'invoices.cancel': 'إلغاء فواتير معتمدة',
     'invoices.unpost': 'فك ترحيل الفواتير',
     'invoices.supplier': 'فواتير الموردين: الشراء ومرتجعه',
+    'invoices.correct': 'تصحيح سطر فاتورة مرحّلة: عياره أو وزنه أو سعره',
 }
 
 # 4. العملاء والموردين
@@ -187,7 +188,7 @@ ROLE_PERMISSIONS = {
         'bonus_rule.view', 'bonus_rule.create', 'bonus_rule.update', 'bonus_rule.delete',
         'invoices.view', 'invoices.create', 'invoices.edit', 'invoices.delete',
         'invoices.view_others', 'invoices.edit_others', 'invoices.delete_others', 'invoices.approve', 'invoices.cancel',
-        'invoices.unpost', 'invoices.supplier',
+        'invoices.unpost', 'invoices.supplier', 'invoices.correct',
         'customers.view', 'customers.create', 'customers.edit', 'customers.delete',
         'suppliers.view', 'suppliers.create', 'suppliers.edit', 'suppliers.delete',
         'items.view', 'items.create', 'items.edit', 'items.delete', 'items.adjust',

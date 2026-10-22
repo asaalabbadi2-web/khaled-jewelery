@@ -49,6 +49,7 @@ MATRIX = {
     'invoices.view': 'MCE', 'invoices.create': 'MCE', 'invoices.edit': 'MCE', 'invoices.delete': 'MC',
     'invoices.edit_others': 'MC', 'invoices.delete_others': 'MC', 'invoices.approve': 'M',
     'invoices.cancel': 'M', 'invoices.unpost': 'M', 'invoices.supplier': 'MC', 'invoices.view_others': 'MC',
+    'invoices.correct': 'M',     # «تصحيح فاتورة»: a separate permission (the owner, 22 Oct 2026)
     'customers.view': 'MCE', 'customers.create': 'MCE', 'customers.edit': 'MC', 'customers.delete': 'M',
     'suppliers.view': 'MCE', 'suppliers.create': 'MC', 'suppliers.edit': 'MC', 'suppliers.delete': 'M',
     'items.view': 'MCSE', 'items.create': 'MS', 'items.edit': 'MS', 'items.delete': 'M', 'items.adjust': 'M',

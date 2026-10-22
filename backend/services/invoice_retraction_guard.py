@@ -73,6 +73,8 @@ REFERENCES = {
     ('office_reservation', 'purchase_invoice_id'): ('invoice', EVIDENCE),
     ('weight_closing_execution', 'source_invoice_id'): ('invoice', EVIDENCE),
     ('bonus_invoice_link', 'invoice_id'): ('invoice', EVIDENCE),
+    ('invoice_correction', 'invoice_id'): ('invoice', EVIDENCE),            # «تصحيح فاتورة» (ت-1)
+    ('invoice_correction', 'invoice_item_id'): ('invoice_item', EVIDENCE),
     ('bonus_clawback_candidate', 'original_invoice_id'): ('invoice', EVIDENCE),
     ('bonus_clawback_candidate', 'return_invoice_id'): ('invoice', EVIDENCE),
     ('supplier_gold_transaction', 'invoice_id'): ('invoice', EVIDENCE),
@@ -103,6 +105,8 @@ _EVIDENCE_NAMES = {
     ('office_reservation', 'purchase_invoice_id'): 'حجز مكتب',
     ('weight_closing_execution', 'source_invoice_id'): 'تنفيذ تسكير',
     ('bonus_invoice_link', 'invoice_id'): 'مكافأة موظف',
+    ('invoice_correction', 'invoice_id'): 'تصحيح فاتورة',
+    ('invoice_correction', 'invoice_item_id'): 'تصحيح فاتورة',
     ('bonus_clawback_candidate', 'original_invoice_id'): 'استرداد مكافأة',
     ('bonus_clawback_candidate', 'return_invoice_id'): 'استرداد مكافأة',
     ('supplier_gold_transaction', 'invoice_id'): 'حركة ذهب مورد',

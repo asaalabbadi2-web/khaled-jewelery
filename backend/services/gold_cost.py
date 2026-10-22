@@ -347,6 +347,17 @@ def replay(*, opening_price: float, since: date | None = None, until: date | Non
         # valued at the average, not a price -- or a party's, on «ذهب لدى الأطراف»
         by_nature = bool(accounts & (expense_accounts | sales_twin | pools_of['gold_with_parties']))
 
+        # An invoice corrected (its karat, weight or price entered wrong): what
+        # was bought is restated -- its gold at the value the correction writes
+        # (its price's difference; none for a karat alone), not a movement.
+        if e.reference_type == 'invoice_correction':
+            for name, grams in d.items():
+                if abs(grams) > EPS or abs(written[name]) > EPS:
+                    pools[name].add(grams, written[name])
+                    m.purchases_g += grams
+                    m.purchases_value += written[name]
+            continue
+
         # transfer: the pools move opposite each other (a supplier's gold for gold)
         if d['scrap'] * d['worked'] < 0:
             src, dst = ('scrap', 'worked') if d['worked'] > 0 else ('worked', 'scrap')
@@ -661,6 +672,8 @@ def unvalued_movements() -> list[dict]:
         moved = {n: sum(_grams(l) for l in lines if l.account_id in pools[n]) for n in ('worked', 'scrap')}
         valued = any(abs(float(l.cash_debit or 0)) + abs(float(l.cash_credit or 0)) > 0.005
                      for l in lines if l.account_id in values)
+        # a correction restates a purchase at the value it writes -- none for a karat alone
+        valued = valued or db.session.get(JournalEntry, entry_id).reference_type == 'invoice_correction'
         if any(abs(g) > EPS for g in moved.values()) and not valued:
             entry = db.session.get(JournalEntry, entry_id)
             out.append({'entry_id': entry_id, 'entry_number': entry.entry_number, 'date': entry.date,

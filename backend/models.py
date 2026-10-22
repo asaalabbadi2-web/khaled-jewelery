@@ -1614,6 +1614,37 @@ class CategoryWeightMovement(db.Model):
         }
 
 
+class InvoiceCorrection(db.Model):
+    """A posted invoice's line corrected (the owner, 22 Oct 2026): its karat,
+    weight or price entered wrong. The line is corrected in place -- the
+    invoice says what happened -- and the difference is one posted entry dated
+    the day of the correction, so the books of the past are not rewritten.
+    This row is what was and what is, why, who and when
+    (docs/plans/invoice-correction-study.md)."""
+    __tablename__ = 'invoice_correction'
+
+    id = db.Column(db.Integer, primary_key=True)
+    invoice_id = db.Column(db.Integer, db.ForeignKey('invoice.id'), nullable=False, index=True)
+    invoice_item_id = db.Column(db.Integer, db.ForeignKey('invoice_item.id'), nullable=True)
+    journal_entry_id = db.Column(db.Integer, db.ForeignKey('journal_entry.id'), nullable=True)
+    safe_box_id = db.Column(db.Integer, db.ForeignKey('safe_box.id'), nullable=True)
+    reason = db.Column(db.Text, nullable=False)
+    # {'snapshot_schema_version': 1, 'lines': [...], 'invoice': {...}} as posted, and as corrected
+    before = db.Column(db.JSON, nullable=False)
+    after = db.Column(db.JSON, nullable=False)
+    cash_delta = db.Column(db.Float, nullable=False, default=0.0)
+    created_by = db.Column(db.String(100), nullable=True)
+    created_at = db.Column(db.DateTime, nullable=False)
+
+    def to_dict(self):
+        entry = db.session.get(JournalEntry, self.journal_entry_id) if self.journal_entry_id else None
+        return {'id': self.id, 'invoice_id': self.invoice_id, 'invoice_item_id': self.invoice_item_id,
+                'entry_number': entry.entry_number if entry else None, 'safe_box_id': self.safe_box_id,
+                'reason': self.reason, 'before': self.before, 'after': self.after,
+                'cash_delta': self.cash_delta, 'created_by': self.created_by,
+                'created_at': self.created_at.isoformat() if self.created_at else None}
+
+
 class InvoiceKaratLine(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     invoice_id = db.Column(db.Integer, db.ForeignKey('invoice.id'), nullable=False)
