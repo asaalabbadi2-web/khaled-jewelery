@@ -28,6 +28,121 @@ import 'admin_dashboard_screen.dart';
 import 'weight_position_screen.dart';
 
 /// مركز التقارير الموحد - قاعدة البناء لجميع تقارير النظام
+/// The screen a report's route opens (ADR-057 ق٠) -- one place for the
+/// reports centre and the home screen's search. Null for a route not built.
+Widget? reportDestination(String route, ApiService api, bool isArabic) {
+  switch (route) {
+    case 'admin_dashboard':
+      return AdminDashboardScreen(
+        api: api,
+        isArabic: isArabic,
+      );
+    case 'weight_position':
+      return WeightPositionScreen(api: api, isArabic: isArabic);
+    case 'reconciliation_findings':
+      return ReconciliationFindingsScreen(
+        api: api,
+        isArabic: isArabic,
+      );
+    case 'vat_returns':
+      return VatReturnsScreen(
+        api: api,
+        isArabic: isArabic,
+      );
+    case 'analytics_dashboard':
+      return AnalyticsDashboardScreen(
+        api: api,
+        isArabic: isArabic,
+      );
+    case 'sales_overview':
+      return SalesOverviewReportScreen(
+        api: api,
+        isArabic: isArabic,
+      );
+    case 'income_statement':
+      return IncomeStatementReportScreen(
+        api: api,
+        isArabic: isArabic,
+      );
+    case 'sales_by_customer':
+      return SalesByCustomerReportScreen(
+        api: api,
+        isArabic: isArabic,
+      );
+    case 'sales_by_item':
+      return SalesByItemReportScreen(
+        api: api,
+        isArabic: isArabic,
+      );
+    case 'sales_by_karat':
+      return SalesByKaratReportScreen(
+        api: api,
+        isArabic: isArabic,
+      );
+    case 'sales_vs_purchases_trend':
+      return SalesVsPurchasesTrendReportScreen(
+        api: api,
+        isArabic: isArabic,
+      );
+    case 'customer_balances_aging':
+      return CustomerBalancesAgingReportScreen(
+        api: api,
+        isArabic: isArabic,
+      );
+    case 'customer_gold_balances':
+      return CustomerGoldBalancesReportScreen(
+        api: api,
+        isArabic: isArabic,
+      );
+    case 'category_weight_audit':
+      return CategoryWeightAuditReportScreen(
+        api: api,
+        isArabic: isArabic,
+      );
+    case 'gold_price_history':
+      return GoldPriceHistoryReportScreen(
+        api: api,
+        isArabic: isArabic,
+      );
+    case 'gold_position':
+      return GoldPositionReportScreen(
+        api: api,
+        isArabic: isArabic,
+      );
+    case 'gold_weight_trial_balance':
+      return GoldWeightTrialBalanceReportScreen(
+        api: api,
+        isArabic: isArabic,
+      );
+    case 'safe_boxes_screen':
+      return SafeBoxesScreen(
+        api: api,
+        initialFilterType: 'gold',
+        lockFilterType: true,
+        titleOverride: isArabic
+            ? 'جرد صناديق الذهب (عهد الموظفين)'
+            : 'Gold Safe Boxes Inventory (Employees)',
+      );
+    case 'trial_balance':
+      return const TrialBalanceScreenV2();
+    case 'general_ledger':
+      return const GeneralLedgerScreenV2();
+    case 'account_statement':
+      return const AccountsScreen(initialOnlyDetailAccounts: true);
+    case 'payroll_report':
+      return PayrollReportScreen(
+        api: api,
+        isArabic: isArabic,
+      );
+    case 'bonus_payables':
+      return BonusPayablesReportScreen(
+        api: api,
+        isArabic: isArabic,
+      );
+  }
+  return null;
+}
+
 class ReportsMainScreen extends StatefulWidget {
   final ApiService api;
   final bool isArabic;
@@ -319,140 +434,11 @@ class _ReportsMainScreenState extends State<ReportsMainScreen> {
   }
 
   Future<void> _openReport(ReportDescriptor report) async {
-    Widget? destination;
-
-    switch (report.route) {
-      case 'admin_dashboard':
-        destination = AdminDashboardScreen(
-          api: widget.api,
-          isArabic: widget.isArabic,
-        );
-        break;
-      case 'weight_position':
-        destination = WeightPositionScreen(api: widget.api, isArabic: widget.isArabic);
-        break;
-      case 'reconciliation_findings':
-        destination = ReconciliationFindingsScreen(
-          api: widget.api,
-          isArabic: widget.isArabic,
-        );
-        break;
-      case 'vat_returns':
-        destination = VatReturnsScreen(
-          api: widget.api,
-          isArabic: widget.isArabic,
-        );
-        break;
-      case 'analytics_dashboard':
-        destination = AnalyticsDashboardScreen(
-          api: widget.api,
-          isArabic: widget.isArabic,
-        );
-        break;
-      case 'sales_overview':
-        destination = SalesOverviewReportScreen(
-          api: widget.api,
-          isArabic: widget.isArabic,
-        );
-        break;
-      case 'income_statement':
-        destination = IncomeStatementReportScreen(
-          api: widget.api,
-          isArabic: widget.isArabic,
-        );
-        break;
-      case 'sales_by_customer':
-        destination = SalesByCustomerReportScreen(
-          api: widget.api,
-          isArabic: widget.isArabic,
-        );
-        break;
-      case 'sales_by_item':
-        destination = SalesByItemReportScreen(
-          api: widget.api,
-          isArabic: widget.isArabic,
-        );
-        break;
-      case 'sales_by_karat':
-        destination = SalesByKaratReportScreen(
-          api: widget.api,
-          isArabic: widget.isArabic,
-        );
-        break;
-      case 'sales_vs_purchases_trend':
-        destination = SalesVsPurchasesTrendReportScreen(
-          api: widget.api,
-          isArabic: widget.isArabic,
-        );
-        break;
-      case 'customer_balances_aging':
-        destination = CustomerBalancesAgingReportScreen(
-          api: widget.api,
-          isArabic: widget.isArabic,
-        );
-        break;
-      case 'customer_gold_balances':
-        destination = CustomerGoldBalancesReportScreen(
-          api: widget.api,
-          isArabic: widget.isArabic,
-        );
-        break;
-      case 'category_weight_audit':
-        destination = CategoryWeightAuditReportScreen(
-          api: widget.api,
-          isArabic: widget.isArabic,
-        );
-        break;
-      case 'gold_price_history':
-        destination = GoldPriceHistoryReportScreen(
-          api: widget.api,
-          isArabic: widget.isArabic,
-        );
-        break;
-      case 'gold_position':
-        destination = GoldPositionReportScreen(
-          api: widget.api,
-          isArabic: widget.isArabic,
-        );
-        break;
-      case 'gold_weight_trial_balance':
-        destination = GoldWeightTrialBalanceReportScreen(
-          api: widget.api,
-          isArabic: widget.isArabic,
-        );
-        break;
-      case 'safe_boxes_screen':
-        destination = SafeBoxesScreen(
-          api: widget.api,
-          initialFilterType: 'gold',
-          lockFilterType: true,
-          titleOverride: widget.isArabic
-              ? 'جرد صناديق الذهب (عهد الموظفين)'
-              : 'Gold Safe Boxes Inventory (Employees)',
-        );
-        break;
-      case 'trial_balance':
-        destination = const TrialBalanceScreenV2();
-        break;
-      case 'general_ledger':
-        destination = const GeneralLedgerScreenV2();
-        break;
-      case 'account_statement':
-        destination = const AccountsScreen(initialOnlyDetailAccounts: true);
-        break;
-      case 'payroll_report':
-        destination = PayrollReportScreen(
-          api: widget.api,
-          isArabic: widget.isArabic,
-        );
-        break;
-      case 'bonus_payables':
-        destination = BonusPayablesReportScreen(
-          api: widget.api,
-          isArabic: widget.isArabic,
-        );
-        break;
-    }
+    final destination = reportDestination(
+      report.route,
+      widget.api,
+      widget.isArabic,
+    );
 
     if (destination == null) {
       final message = widget.isArabic
@@ -471,6 +457,6 @@ class _ReportsMainScreenState extends State<ReportsMainScreen> {
 
     await Navigator.of(
       context,
-    ).push(MaterialPageRoute(builder: (_) => destination!));
+    ).push(MaterialPageRoute(builder: (_) => destination));
   }
 }

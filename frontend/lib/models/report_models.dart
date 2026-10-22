@@ -13,6 +13,10 @@ class ReportDescriptor {
   final bool requiresFilters;
   final bool available;
 
+  /// The words people use for it, which its title does not hold -- the home
+  /// screen's search finds it by them (ADR-057 ق٠).
+  final List<String> keywords;
+
   const ReportDescriptor({
     required this.id,
     required this.icon,
@@ -24,6 +28,7 @@ class ReportDescriptor {
     required this.type,
     this.requiresFilters = true,
     this.available = false,
+    this.keywords = const [],
   });
 
   String localizedTitle(bool isArabic) => isArabic ? titleAr : titleEn;

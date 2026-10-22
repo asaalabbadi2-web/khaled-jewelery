@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'package:intl/intl.dart' hide TextDirection;
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_staggered_animations/flutter_staggered_animations.dart';
 import '../api_service.dart';
 import '../theme/app_theme.dart';
@@ -17,6 +19,8 @@ import '../widgets/user_avatar_widget.dart';
 import '../widgets/gold_price_ticker_bar.dart';
 import '../widgets/gold_sparkline_enhanced.dart';
 import '../widgets/app_logo.dart';
+import '../widgets/app_screen_search.dart';
+import '../models/report_catalog.dart';
 import '../app_route_observer.dart';
 import 'items_screen_enhanced.dart';
 import 'add_customer_screen.dart';
@@ -72,6 +76,12 @@ import '../widgets/goal_achievement_celebration.dart';
 import '../widgets/goal_progress_ring.dart';
 import 'inventory_balance_screen.dart';
 import 'inventory_audit_screen.dart';
+import 'gold_reservations_list_screen.dart';
+import 'safe_transfer_screen.dart';
+import 'accounting_mapping_screen_enhanced.dart';
+import 'backup_restore_screen.dart';
+import 'weight_closing_settings_screen.dart';
+import 'supplier_settlement_policy_screen.dart';
 
 class HomeScreenEnhanced extends StatefulWidget {
   final VoidCallback? onToggleLocale;
@@ -161,6 +171,10 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
 
   // Bottom Navigation
   int _selectedNavIndex = 0;
+
+  /// The side menu's sections left open, on this device (ADR-057 ق٠).
+  static const _openSectionsKey = 'drawer_open_sections';
+  Set<String> _openDrawerSections = {};
   final List<String> _bottomNavItems = [
     'home',
     'invoices',
@@ -280,6 +294,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
       CurvedAnimation(parent: _sunController, curve: Curves.easeInOut),
     );
     _loadAllData();
+    _loadOpenDrawerSections();
 
     // Check for unseen achievements after the first frame
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -892,6 +907,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
                           ),
                         ],
                       ),
+                      if (auth.role.isNotEmpty) ...[
                       const SizedBox(height: 2),
                       Text(
                         isAr
@@ -907,60 +923,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
                           ),
                         ),
                       ),
-                      const SizedBox(height: 10),
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 6,
-                        children: [
-                          ActionChip(
-                            avatar: const Icon(Icons.person_outline, size: 16),
-                            label: Text(isAr ? 'ملفي' : 'Profile'),
-                            onPressed: () async {
-                              final userId = auth.currentUser?.id;
-                              Navigator.of(context).pop();
-                              if (userId == null) return;
-                              await Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (_) => UserProfileScreen(
-                                    api: api,
-                                    userId: userId,
-                                    isArabic: isAr,
-                                  ),
-                                ),
-                              );
-                              await _loadAllData();
-                            },
-                          ),
-                          ActionChip(
-                            avatar: const Icon(Icons.lock_outline, size: 16),
-                            label: Text(isAr ? 'كلمة المرور' : 'Password'),
-                            onPressed: () async {
-                              Navigator.of(context).pop();
-                              await Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (_) => const ChangePasswordScreen(),
-                                ),
-                              );
-                            },
-                          ),
-                          ActionChip(
-                            avatar: const Icon(Icons.security, size: 16),
-                            label: Text(isAr ? 'الجلسات' : 'Sessions'),
-                            onPressed: () async {
-                              Navigator.of(context).pop();
-                              await Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (_) =>
-                                      const SecuritySessionsScreen(),
-                                ),
-                              );
-                            },
-                          ),
-                        ],
-                      ),
+                      ],
                     ],
                   ),
                 ),
@@ -970,46 +933,6 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
         ),
       ),
     );
-
-    // Sections collection: each section has a title, color and list of items
-    final List<_DrawerSection> sections = [];
-    _DrawerSection? currentSection;
-
-    void addDivider() {
-      // keep for readability in the builder below; visual separation happens
-      // when rendering sections.
-      currentSection = null;
-    }
-
-    void addSection(String title, Color color) {
-      currentSection = _DrawerSection(title: title, color: color);
-      sections.add(currentSection!);
-    }
-
-    void addDestination({
-      required IconData icon,
-      required String title,
-      required Future<void> Function() onSelected,
-      Color? color,
-    }) {
-      // Ensure every destination belongs to a titled section (collapsible).
-      currentSection ??= _DrawerSection(
-        title: isAr ? 'القائمة' : 'Menu',
-        color: gold,
-      );
-      if (!sections.contains(currentSection)) {
-        sections.add(currentSection!);
-      }
-
-      currentSection!.items.add(
-        _DrawerSectionItem(
-          icon: icon,
-          title: title,
-          onSelected: onSelected,
-          color: color,
-        ),
-      );
-    }
 
     drawerChildren.add(const SizedBox(height: 12));
 
@@ -1055,6 +978,362 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
         ),
       ),
     );
+    final sections = _menuSections(isAr, gold);
+    // Build section widgets as collapsible ExpansionTiles (card style)
+    for (final sec in sections) {
+      if (sec.items.isEmpty) continue;
+
+      drawerChildren.add(
+        Padding(
+          padding: const EdgeInsetsDirectional.fromSTEB(12, 0, 12, 10),
+          child: Card(
+            elevation: 0,
+            color: theme.colorScheme.surface,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(14),
+              side: BorderSide(
+                color: theme.dividerColor.withValues(alpha: 0.55),
+              ),
+            ),
+            child: Theme(
+              data: theme.copyWith(dividerColor: Colors.transparent),
+              child: ExpansionTile(
+                key: PageStorageKey('drawer-section-${sec.title}'),
+                initiallyExpanded: _openDrawerSections.contains(sec.title),
+                onExpansionChanged: (open) =>
+                    _rememberDrawerSection(sec.title, open),
+                tilePadding: const EdgeInsetsDirectional.fromSTEB(14, 2, 14, 2),
+                childrenPadding: const EdgeInsetsDirectional.fromSTEB(
+                  10,
+                  0,
+                  10,
+                  10,
+                ),
+                collapsedIconColor: theme.iconTheme.color,
+                iconColor: theme.colorScheme.primary,
+                title: Row(
+                  children: [
+                    Container(
+                      width: 10,
+                      height: 10,
+                      decoration: BoxDecoration(
+                        color: sec.color.withValues(alpha: 0.95),
+                        borderRadius: BorderRadius.circular(3),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        sec.title,
+                        style: sectionStyle.copyWith(color: sec.color),
+                      ),
+                    ),
+                  ],
+                ),
+                children: sec.items.map((it) {
+                  final iconColor = it.color ?? theme.iconTheme.color;
+                  return Padding(
+                    padding: const EdgeInsetsDirectional.only(top: 6),
+                    child: ListTile(
+                      dense: true,
+                      visualDensity: VisualDensity.compact,
+                      contentPadding: const EdgeInsetsDirectional.fromSTEB(
+                        8,
+                        0,
+                        8,
+                        0,
+                      ),
+                      leading: Container(
+                        width: 34,
+                        height: 34,
+                        decoration: BoxDecoration(
+                          color:
+                              iconColor?.withValues(alpha: 0.12) ??
+                              theme.colorScheme.primary.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Icon(it.icon, color: iconColor, size: 20),
+                      ),
+                      minLeadingWidth: 34,
+                      title: Text(it.title, style: baseLabelStyle),
+                      trailing: Icon(
+                        isAr ? Icons.chevron_left : Icons.chevron_right,
+                        color: theme.iconTheme.color?.withValues(alpha: 0.6),
+                      ),
+                      onTap: () async {
+                        Navigator.of(context).pop();
+                        await it.onSelected();
+                      },
+                    ),
+                  );
+                }).toList(),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    return Drawer(
+      width: (MediaQuery.sizeOf(context).width * 0.85).clamp(0.0, 360.0),
+      child: Container(
+        color: theme.drawerTheme.backgroundColor ?? theme.colorScheme.surface,
+        child: ListView(padding: EdgeInsets.zero, children: drawerChildren),
+      ),
+    );
+  }
+
+  Future<void> _loadOpenDrawerSections() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final open = prefs.getStringList(_openSectionsKey);
+      if (open == null || !mounted) return;
+      setState(() => _openDrawerSections = open.toSet());
+    } catch (_) {}
+  }
+
+  Future<void> _rememberDrawerSection(String title, bool open) async {
+    open
+        ? _openDrawerSections.add(title)
+        : _openDrawerSections.remove(title);
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setStringList(
+        _openSectionsKey,
+        _openDrawerSections.toList(),
+      );
+    } catch (_) {}
+  }
+
+  Future<void> _push(Widget screen) =>
+      Navigator.push(context, MaterialPageRoute(builder: (_) => screen));
+
+  /// Every screen the header's search can open (ADR-057 ق٠): the side menu's,
+  /// the reports catalog's, and those opened from inside another screen --
+  /// the settings' tabs and pages, the account's. Each held to what the user
+  /// may open, as where it is opened from holds it. A screen that needs a
+  /// record (a supplier's settlements, an invoice) is not here: it opens
+  /// from that record.
+  List<ScreenDestination> _screenDestinations(bool isAr) {
+    final auth = context.read<AuthProvider>();
+    final settingsSection = isAr ? 'الإعدادات والنظام' : 'Settings & System';
+    ScreenDestination screen(
+      String title,
+      String section,
+      IconData icon,
+      Widget Function() build, {
+      List<String> keywords = const [],
+    }) => ScreenDestination(
+      title: title,
+      section: section,
+      icon: icon,
+      keywords: keywords,
+      open: () => _push(build()),
+    );
+
+    final out = <ScreenDestination>[
+      for (final sec in _menuSections(isAr, _cs.primary))
+        for (final it in sec.items)
+          ScreenDestination(
+            title: it.title,
+            section: sec.title,
+            icon: it.icon,
+            keywords: it.keywords,
+            open: it.onSelected,
+          ),
+    ];
+
+    // The reports: as the reports centre lists them, each one that opens.
+    if (_holdsAnyReport(auth)) {
+      final reports = isAr ? 'التقارير' : 'Reports';
+      for (final category in ReportCatalog.buildDefaultCatalog()) {
+        for (final r in category.reports) {
+          if (!r.available ||
+              reportDestination(r.route, api, isAr) == null) {
+            continue;
+          }
+          out.add(
+            screen(
+              r.localizedTitle(isAr),
+              '$reports · ${category.localizedName(isAr)}',
+              r.icon,
+              () => reportDestination(r.route, api, isAr)!,
+              keywords: [r.localizedDescription(isAr), ...r.keywords],
+            ),
+          );
+        }
+      }
+    }
+
+    out.add(
+      screen(
+        isAr ? 'حجوزات الذهب الخام' : 'Gold Reservations',
+        isAr ? 'التسكير والذهب الخام' : 'Gold & Closing',
+        Icons.list_alt,
+        () => GoldReservationsListScreen(api: api, isArabic: isAr),
+        keywords: const ['حجز', 'تسكير'],
+      ),
+    );
+    if (auth.hasPermission('safe_boxes.transfer')) {
+      out.add(
+        screen(
+          isAr ? 'تحويل بين الخزائن' : 'Safe Transfer',
+          isAr ? 'الأدوات' : 'Tools',
+          Icons.swap_horiz,
+          () => SafeTransferScreen(api: api, isArabic: isAr),
+          keywords: const ['خزنة', 'نقل', 'صندوق'],
+        ),
+      );
+    }
+    out.add(
+      screen(
+        isAr ? 'تخصيص الوصول السريع' : 'Customize Quick Access',
+        isAr ? 'الأدوات' : 'Tools',
+        Icons.dashboard_customize,
+        () => const CustomizeQuickActionsScreen(),
+        keywords: const ['أزرار', 'اختصارات'],
+      ),
+    );
+
+    // The settings: its tabs, and the pages opened from them.
+    if (auth.isManager) {
+      const tabs = [
+        ('عام', 'General', Icons.tune),
+        ('الشركة والفواتير', 'Company & Invoices', Icons.business),
+        ('المدفوعات', 'Payments', Icons.payments),
+        ('محاسبة', 'Accounting', Icons.account_tree),
+        ('الطباعة', 'Printing', Icons.print),
+        ('النظام', 'System', Icons.settings_applications),
+      ];
+      for (var i = 0; i < tabs.length; i++) {
+        final (ar, en, icon) = tabs[i];
+        out.add(
+          screen(
+            isAr ? 'الإعدادات: $ar' : 'Settings: $en',
+            settingsSection,
+            icon,
+            () => SettingsScreenEnhanced(initialTabIndex: i),
+          ),
+        );
+      }
+      out.addAll([
+        screen(
+          isAr ? 'الربط المحاسبي' : 'Accounting Mapping',
+          settingsSection,
+          Icons.account_tree_outlined,
+          () => const AccountingMappingScreenEnhanced(),
+          keywords: const ['ربط الحسابات', 'حسابات العمليات'],
+        ),
+        screen(
+          isAr ? 'إعدادات التسكير' : 'Weight Closing Settings',
+          settingsSection,
+          Icons.lock_clock,
+          () => const WeightClosingSettingsScreen(),
+          keywords: const ['تسكير', 'وزن'],
+        ),
+        screen(
+          isAr ? 'سياسة تسوية الموردين' : 'Supplier Settlement Policy',
+          settingsSection,
+          Icons.policy_outlined,
+          () => SupplierSettlementPolicyScreen(api: api, isArabic: isAr),
+          keywords: const ['مورد', 'تسوية', 'سماحية'],
+        ),
+      ]);
+    }
+    if (auth.isSystemAdmin) {
+      out.add(
+        screen(
+          isAr ? 'النسخ الاحتياطي والاستعادة' : 'Backup & Restore',
+          settingsSection,
+          Icons.backup_outlined,
+          () => BackupRestoreScreen(isArabic: isAr),
+          keywords: const ['نسخة', 'استعادة', 'باك اب'],
+        ),
+      );
+    }
+
+    // The account's: as the user menu opens them.
+    final account = isAr ? 'حسابي' : 'My account';
+    final userId = auth.currentUser?.id;
+    if (userId != null) {
+      out.add(
+        screen(
+          isAr ? 'ملف المستخدم' : 'User Profile',
+          account,
+          Icons.person_outline,
+          () => UserProfileScreen(api: api, userId: userId, isArabic: isAr),
+        ),
+      );
+    }
+    out.addAll([
+      screen(
+        isAr ? 'تغيير كلمة المرور' : 'Change Password',
+        account,
+        Icons.lock_outline,
+        () => const ChangePasswordScreen(),
+      ),
+      screen(
+        isAr ? 'إدارة الجلسات' : 'Sessions',
+        account,
+        Icons.security,
+        () => const SecuritySessionsScreen(),
+        keywords: const ['أجهزة', 'دخول'],
+      ),
+    ]);
+    return out;
+  }
+
+  Future<void> _openScreenSearch() =>
+      showScreenSearch(context, _screenDestinations(widget.isArabic));
+
+  /// The side menu's sections, each with what the user may open -- the
+  /// drawer draws them and the header's search finds in them (ADR-057 ق٠).
+  List<_DrawerSection> _menuSections(bool isAr, Color gold) {
+    final auth = context.read<AuthProvider>();
+    final theme = Theme.of(context);
+
+    // Sections collection: each section has a title, color and list of items
+    final List<_DrawerSection> sections = [];
+    _DrawerSection? currentSection;
+
+    void addDivider() {
+      // keep for readability in the builder below; visual separation happens
+      // when rendering sections.
+      currentSection = null;
+    }
+
+    void addSection(String title, Color color) {
+      currentSection = _DrawerSection(title: title, color: color);
+      sections.add(currentSection!);
+    }
+
+    void addDestination({
+      required IconData icon,
+      required String title,
+      required Future<void> Function() onSelected,
+      Color? color,
+      List<String> keywords = const [],
+    }) {
+      // Ensure every destination belongs to a titled section (collapsible).
+      currentSection ??= _DrawerSection(
+        title: isAr ? 'القائمة' : 'Menu',
+        color: gold,
+      );
+      if (!sections.contains(currentSection)) {
+        sections.add(currentSection!);
+      }
+
+      currentSection!.items.add(
+        _DrawerSectionItem(
+          icon: icon,
+          title: title,
+          onSelected: onSelected,
+          color: color,
+          keywords: keywords,
+        ),
+      );
+    }
+
     // ════════════════════════════════════════════════════════════════════════
     // 1. الفواتير
     // ════════════════════════════════════════════════════════════════════════
@@ -1079,6 +1358,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
     addDestination(
       icon: Icons.recycling_outlined,
       title: isAr ? 'بيع ذهب كسر' : 'Scrap Gold Sale',
+      keywords: const ['فاتورة بيع كسر'],
       color: _tone.sectionOrange.fg,
       onSelected: () async {
         final result = await Navigator.push(
@@ -1097,6 +1377,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
     addDestination(
       icon: Icons.shopping_basket,
       title: isAr ? 'شراء كسر' : 'Buy Scrap from Customer',
+      keywords: const ['فاتورة شراء كسر'],
       color: _tone.sectionAmber.fg,
       onSelected: () async {
         final result = await Navigator.push(
@@ -1113,6 +1394,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
     addDestination(
       icon: Icons.business,
       title: isAr ? 'شراء جديد' : 'Purchase Invoice',
+      keywords: const ['فاتورة شراء', 'مورد'],
       color: _tone.sectionBlue.fg,
       onSelected: () async {
         final result = await Navigator.push(
@@ -1125,6 +1407,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
     addDestination(
       icon: Icons.receipt_long,
       title: isAr ? 'جميع الفواتير' : 'All Invoices',
+      keywords: const ['فواتير', 'بحث عن فاتورة'],
       color: _tone.sectionSlate.fg,
       onSelected: () async {
         await Navigator.push(
@@ -1136,6 +1419,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
     addDestination(
       icon: Icons.check_circle_outline,
       title: isAr ? 'اعتماد الترحيل' : 'Posting Management',
+      keywords: const ['ترحيل', 'موافقة', 'اعتماد'],
       color: _tone.sectionTeal.fg,
       onSelected: () async {
         await Navigator.push(
@@ -1155,6 +1439,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
     addDestination(
       icon: Icons.keyboard_return,
       title: isAr ? 'مرتجع بيع' : 'Sales Return',
+      keywords: const ['فاتورة مرتجع'],
       color: _tone.sectionRed.fg,
       onSelected: () async {
         final result = await Navigator.push(
@@ -1170,6 +1455,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
     addDestination(
       icon: Icons.undo,
       title: isAr ? 'مرتجع شراء كسر' : 'Scrap Purchase Return',
+      keywords: const ['فاتورة مرتجع'],
       color: _tone.sectionRed.fg,
       onSelected: () async {
         final result = await Navigator.push(
@@ -1185,6 +1471,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
     addDestination(
       icon: Icons.assignment_return,
       title: isAr ? 'مرتجع شراء جديد' : 'Supplier Return',
+      keywords: const ['فاتورة مرتجع', 'مورد'],
       color: _tone.sectionRed.fg,
       onSelected: () async {
         final result = await Navigator.push(
@@ -1273,6 +1560,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
     addDestination(
       icon: Icons.autorenew,
       title: isAr ? 'التجديد والتكسير' : 'Melting & Renewal',
+      keywords: const ['صهر', 'تكسير'],
       color: _tone.sectionOrange.fg,
       onSelected: () async {
         await Navigator.push(
@@ -1296,6 +1584,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
     addDestination(
       icon: Icons.lock_clock,
       title: isAr ? 'حجز ذهب خام' : 'Gold Reservation',
+      keywords: const ['تسكير', 'حجز'],
       color: _cs.primary,
       onSelected: () async {
         final result = await Navigator.push(
@@ -1310,6 +1599,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
     addDestination(
       icon: Icons.business,
       title: isAr ? 'مكاتب التسكير' : 'Closing Offices',
+      keywords: const ['مكتب', 'تسكير'],
       color: _tone.gold.fg,
       onSelected: () async {
         await Navigator.push(
@@ -1374,6 +1664,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
       addDestination(
         icon: Icons.event_available,
         title: isAr ? 'الحضور والانصراف' : 'Attendance',
+        keywords: const ['دوام', 'بصمة'],
         color: _tone.sectionSlate.fg,
         onSelected: () async {
           await Navigator.push(
@@ -1430,6 +1721,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
       addDestination(
         icon: Icons.receipt_long,
         title: isAr ? 'السندات' : 'Vouchers',
+        keywords: const ['قبض', 'صرف', 'سند'],
         color: _tone.sectionCyan.fg,
         onSelected: () async {
           await Navigator.push(
@@ -1469,6 +1761,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
       addDestination(
         icon: Icons.assessment,
         title: isAr ? 'كشوفات الحسابات' : 'Account Statements',
+        keywords: const ['كشف حساب'],
         onSelected: () async {
           await Navigator.push(
             context,
@@ -1543,6 +1836,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
       addDestination(
         icon: Icons.account_tree,
         title: isAr ? 'دليل الحسابات' : 'Chart of Accounts',
+        keywords: const ['شجرة الحسابات'],
         onSelected: () async {
           await Navigator.push(
             context,
@@ -1649,6 +1943,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
       addDestination(
         icon: Icons.savings,
         title: isAr ? 'إدارة الخزائن' : 'Safe Boxes',
+        keywords: const ['خزنة', 'صندوق', 'نقدية'],
         color: _tone.sectionAmber.fg,
         onSelected: () async {
           await Navigator.push(
@@ -1665,6 +1960,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
       addDestination(
         icon: Icons.fact_check,
         title: isAr ? 'إغلاق اليومية' : 'Shift Closing',
+        keywords: const ['تقفيل', 'وردية', 'شفت'],
         color: _tone.sectionTeal.fg,
         onSelected: () async {
           await Navigator.push(
@@ -1724,6 +2020,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
     addDestination(
       icon: Icons.monetization_on,
       title: isAr ? 'تحديث سعر الذهب' : 'Update Gold Price',
+      keywords: const ['سعر', 'أونصة'],
       color: gold,
       onSelected: () async {
         if (!auth.hasPermission('gold_price.update')) {
@@ -1848,105 +2145,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
       },
     );
 
-
-    // Build section widgets as collapsible ExpansionTiles (card style)
-    for (final sec in sections) {
-      if (sec.items.isEmpty) continue;
-
-      drawerChildren.add(
-        Padding(
-          padding: const EdgeInsetsDirectional.fromSTEB(12, 0, 12, 10),
-          child: Card(
-            elevation: 0,
-            color: theme.colorScheme.surface,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(14),
-              side: BorderSide(
-                color: theme.dividerColor.withValues(alpha: 0.55),
-              ),
-            ),
-            child: Theme(
-              data: theme.copyWith(dividerColor: Colors.transparent),
-              child: ExpansionTile(
-                tilePadding: const EdgeInsetsDirectional.fromSTEB(14, 2, 14, 2),
-                childrenPadding: const EdgeInsetsDirectional.fromSTEB(
-                  10,
-                  0,
-                  10,
-                  10,
-                ),
-                collapsedIconColor: theme.iconTheme.color,
-                iconColor: theme.colorScheme.primary,
-                title: Row(
-                  children: [
-                    Container(
-                      width: 10,
-                      height: 10,
-                      decoration: BoxDecoration(
-                        color: sec.color.withValues(alpha: 0.95),
-                        borderRadius: BorderRadius.circular(3),
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Text(
-                        sec.title,
-                        style: sectionStyle.copyWith(color: sec.color),
-                      ),
-                    ),
-                  ],
-                ),
-                children: sec.items.map((it) {
-                  final iconColor = it.color ?? theme.iconTheme.color;
-                  return Padding(
-                    padding: const EdgeInsetsDirectional.only(top: 6),
-                    child: ListTile(
-                      dense: true,
-                      visualDensity: VisualDensity.compact,
-                      contentPadding: const EdgeInsetsDirectional.fromSTEB(
-                        8,
-                        0,
-                        8,
-                        0,
-                      ),
-                      leading: Container(
-                        width: 34,
-                        height: 34,
-                        decoration: BoxDecoration(
-                          color:
-                              iconColor?.withValues(alpha: 0.12) ??
-                              theme.colorScheme.primary.withValues(alpha: 0.12),
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: Icon(it.icon, color: iconColor, size: 20),
-                      ),
-                      minLeadingWidth: 34,
-                      title: Text(it.title, style: baseLabelStyle),
-                      trailing: Icon(
-                        isAr ? Icons.chevron_left : Icons.chevron_right,
-                        color: theme.iconTheme.color?.withValues(alpha: 0.6),
-                      ),
-                      onTap: () async {
-                        Navigator.of(context).pop();
-                        await it.onSelected();
-                      },
-                    ),
-                  );
-                }).toList(),
-              ),
-            ),
-          ),
-        ),
-      );
-    }
-
-    return Drawer(
-      width: 360,
-      child: Container(
-        color: theme.drawerTheme.backgroundColor ?? theme.colorScheme.surface,
-        child: ListView(padding: EdgeInsets.zero, children: drawerChildren),
-      ),
-    );
+    return sections;
   }
 
   @override
@@ -1971,8 +2170,25 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
       });
     }
 
+    // The header's search (ADR-057 ق٠): a field on a wide screen, an icon on
+    // a phone; Ctrl/⌘+K opens it from anywhere on the home screen.
+    final wideHeader = MediaQuery.sizeOf(context).width >= 700;
+    final search = ScreenSearchButton(
+      onOpen: _openScreenSearch,
+      foreground: _onBar,
+    );
+
     return Directionality(
       textDirection: isAr ? TextDirection.rtl : TextDirection.ltr,
+      child: CallbackShortcuts(
+      bindings: {
+        const SingleActivator(LogicalKeyboardKey.keyK, control: true):
+            _openScreenSearch,
+        const SingleActivator(LogicalKeyboardKey.keyK, meta: true):
+            _openScreenSearch,
+      },
+      child: FocusScope(
+      autofocus: true,
       child: Scaffold(
         drawer: _buildDrawer(isAr, _cs.primary),
         appBar: AppBar(
@@ -2001,10 +2217,12 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
                 width: 32,
                 height: 32,
               ),
+              // On a phone the logo alone: the icons leave the name «مج…».
+              if (wideHeader) ...[
               const SizedBox(width: 10),
-              Expanded(
-                child: Text(
+              Text(
                   isAr ? 'مجوهرات خالد' : 'Khaled Jewelery',
+                  overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     color: _onBar,
                     fontWeight: FontWeight.w700,
@@ -2012,10 +2230,14 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
                     fontSize: 16,
                   ),
                 ),
-              ),
+                const SizedBox(width: AppSpace.lg),
+                Expanded(child: Center(child: search)),
+                const SizedBox(width: AppSpace.lg),
+              ],
             ],
           ),
           actions: [
+            if (!wideHeader) search,
             if (_systemAlertsCount > 0)
               _pendingChip(
                 isAr: isAr,
@@ -2090,7 +2312,8 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
                     const SizedBox(width: 6),
                     // ─── الـ PopupMenuButton: يحتوي فقط على الاسم ───
                     PopupMenuButton<String>(
-                  tooltip: '',
+                  key: const Key('user-menu'),
+                  tooltip: isAr ? 'قائمة المستخدم' : 'User menu',
                   offset: const Offset(0, 48),
                   child: SizedBox(
                     height: kToolbarHeight,
@@ -2098,8 +2321,9 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          // اسم العرض (الاسم الكامل) + اسم المستخدم أصغر
-                          ConstrainedBox(
+                          // اسم العرض (الاسم الكامل) + اسم المستخدم أصغر؛
+                          // على الهاتف في رأس القائمة وحده، لتتّسع الأيقونات.
+                          if (wideHeader) ConstrainedBox(
                             constraints: const BoxConstraints(maxWidth: 120),
                             child: Column(
                               mainAxisSize: MainAxisSize.min,
@@ -2300,6 +2524,8 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
           isAr,
           _cs.primary,
         ),
+      ),
+      ),
       ),
     );
   }
@@ -3084,42 +3310,19 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
                           ],
                         ),
                       ),
-                      const SizedBox(width: 12),
-                      SegmentedButton<String>(
-                        segments: <ButtonSegment<String>>[
-                          ButtonSegment<String>(
-                            value: 'today',
-                            label: Text(isAr ? 'اليوم' : 'Today'),
-                          ),
-                          ButtonSegment<String>(
-                            value: 'week',
-                            label: Text(isAr ? 'الأسبوع' : 'Week'),
-                          ),
-                          ButtonSegment<String>(
-                            value: 'month',
-                            label: Text(isAr ? 'الشهر' : 'Month'),
-                          ),
-                        ],
-                        selected: <String>{_leaderboardPeriod},
-                        onSelectionChanged: _leaderboardLoading
-                            ? null
-                            : (selection) {
-                                final next = selection.isNotEmpty
-                                    ? selection.first
-                                    : _leaderboardPeriod;
-                                if (next == _leaderboardPeriod) return;
-                                setState(() {
-                                  _leaderboardPeriod = next;
-                                  _showAllLeaderboardEmployees = false;
-                                });
-                                _loadLeaderboard(period: next);
-                                _checkForAchievements();
-                              },
-                        showSelectedIcon: false,
-                        style: _leaderboardSegmentedButtonStyle(theme),
-                      ),
+                      if (!_narrowRaceHeader) ...[
+                        const SizedBox(width: 12),
+                        _leaderboardPeriodPicker(isAr, theme),
+                      ],
                     ],
                   ),
+                  if (_narrowRaceHeader) ...[
+                    const SizedBox(height: AppSpace.sm),
+                    Align(
+                      alignment: AlignmentDirectional.centerEnd,
+                      child: _leaderboardPeriodPicker(isAr, theme),
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -3683,6 +3886,46 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
             ),
           ],
         ),
+    );
+  }
+
+  bool get _narrowRaceHeader => MediaQuery.sizeOf(context).width < 600;
+
+  /// The race's period: beside the title, or under it on a phone, where the
+  /// two do not fit side by side (ADR-057 ق٠).
+  Widget _leaderboardPeriodPicker(bool isAr, ThemeData theme) {
+    return SegmentedButton<String>(
+      segments: <ButtonSegment<String>>[
+        ButtonSegment<String>(
+          value: 'today',
+          label: Text(isAr ? 'اليوم' : 'Today'),
+        ),
+        ButtonSegment<String>(
+          value: 'week',
+          label: Text(isAr ? 'الأسبوع' : 'Week'),
+        ),
+        ButtonSegment<String>(
+          value: 'month',
+          label: Text(isAr ? 'الشهر' : 'Month'),
+        ),
+      ],
+      selected: <String>{_leaderboardPeriod},
+      onSelectionChanged: _leaderboardLoading
+          ? null
+          : (selection) {
+              final next = selection.isNotEmpty
+                  ? selection.first
+                  : _leaderboardPeriod;
+              if (next == _leaderboardPeriod) return;
+              setState(() {
+                _leaderboardPeriod = next;
+                _showAllLeaderboardEmployees = false;
+              });
+              _loadLeaderboard(period: next);
+              _checkForAchievements();
+            },
+      showSelectedIcon: false,
+      style: _leaderboardSegmentedButtonStyle(theme),
     );
   }
 
@@ -5516,11 +5759,15 @@ class _DrawerSectionItem {
   final Future<void> Function() onSelected;
   final Color? color;
 
+  /// The words people use for it, which its title does not hold.
+  final List<String> keywords;
+
   _DrawerSectionItem({
     required this.icon,
     required this.title,
     required this.onSelected,
     this.color,
+    this.keywords = const [],
   });
 }
 

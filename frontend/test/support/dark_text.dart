@@ -7,7 +7,10 @@ import 'package:flutter_test/flutter_test.dart';
 /// «on…» colors (onPrimary on the bright gold, and the like): those are
 /// pairs the theme sets with their background, tested in
 /// theme_contrast_test.
-void expectNoTextVanishesOnDark(WidgetTester tester) {
+///
+/// [within] holds the check to a part of the screen (the search over the
+/// home screen).
+void expectNoTextVanishesOnDark(WidgetTester tester, {Finder? within}) {
   final scheme = Theme.of(
     tester.element(find.byType(Scaffold).first),
   ).colorScheme;
@@ -20,7 +23,9 @@ void expectNoTextVanishesOnDark(WidgetTester tester) {
   };
   final dark = <String>[];
   for (final p in tester.renderObjectList<RenderParagraph>(
-    find.byType(RichText),
+    within == null
+        ? find.byType(RichText)
+        : find.descendant(of: within, matching: find.byType(RichText)),
   )) {
     final color = p.text.style?.color;
     if (color != null &&

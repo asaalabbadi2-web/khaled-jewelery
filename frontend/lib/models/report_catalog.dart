@@ -94,6 +94,7 @@ class ReportCatalog {
             route: 'income_statement',
             type: ReportType.financial,
             available: true,
+            keywords: ['أرباح', 'خسائر', 'ميزانية'],
             requiresFilters: true,
           ),
           ReportDescriptor(
