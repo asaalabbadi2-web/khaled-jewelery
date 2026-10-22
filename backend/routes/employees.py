@@ -1862,7 +1862,9 @@ def check_goal_progress():
                         return or_(original.employee_id == employee_id, original.posted_by == _goal_username)
                     return original.employee_id == employee_id
 
-                invoices = invoices + returns_against(_sold_by, start_dt, end_dt)
+                from points.engine import corrections_against
+                invoices = invoices + returns_against(_sold_by, start_dt, end_dt) \
+                    + corrections_against(_sold_by, start_dt, end_dt)
                 return compute_invoices_points(
                     invoices,
                     points_source=_race_points_source,

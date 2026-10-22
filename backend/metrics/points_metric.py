@@ -120,6 +120,15 @@ class PointsMetric(RaceMetric):
 
         return None
 
+    period = None   # (start, end) -- set by the caller to bring the period's corrections
+
+    def _corrections_in_period(self) -> list:
+        if not self.period:
+            return []
+        from points.engine import corrections_against
+        start, end = self.period
+        return corrections_against(lambda o: o.invoice_type.in_(['بيع', 'شراء من عميل']), start, end)
+
     @staticmethod
     def _is_return(inv) -> bool:
         from points.engine import is_return
@@ -172,7 +181,7 @@ class PointsMetric(RaceMetric):
             counts, actor_name_map, sales_amount, purchase_amount,
             pts_total, pts_sales, pts_purchase
         """
-        from points.engine import compute_invoices_points
+        from points.engine import compute_invoices_points, is_correction
 
         counts:          dict[int, int]   = {}
         actor_name_map:  dict[int, str]   = {}
@@ -194,6 +203,17 @@ class PointsMetric(RaceMetric):
             aid = int(actor_id)
             actor_name_map[aid] = actor_name
             inv_total = float(getattr(inv, 'total', 0.0) or 0.0)
+            if is_correction(inv):
+                # A correction is its invoice's difference, in its own period (ADR-056):
+                # no invoice counted, its amount's difference with its kind.
+                counts.setdefault(aid, 0)
+                if self._is_purchase(inv):
+                    purchase_amount[aid] = purchase_amount.get(aid, 0.0) + inv_total
+                    actor_purchase_invs.setdefault(aid, []).append(inv)
+                else:
+                    sales_amount[aid] = sales_amount.get(aid, 0.0) + inv_total
+                    actor_sales_invs.setdefault(aid, []).append(inv)
+                continue
             if self._is_return(inv):
                 counts.setdefault(aid, 0)
                 if self._is_purchase(getattr(inv, 'original_invoice', None)):
@@ -242,8 +262,9 @@ class PointsMetric(RaceMetric):
     ) -> tuple[list[dict], list]:
         from models import Employee
 
-        # Phase 1
-        invoices = self._load_invoices(base_filters)
+        # Phase 1 -- and the corrections made in the period (ADR-056), when the
+        # caller says the period (the leaderboard does)
+        invoices = self._load_invoices(base_filters) + self._corrections_in_period()
 
         # Phases 2 + 3
         (
@@ -297,9 +318,11 @@ class PointsMetric(RaceMetric):
         aux: object = None,
     ) -> tuple[float, int]:
         from models import Invoice
-        from points.engine import compute_invoices_points, returned_share
+        from points.engine import compute_invoices_points, is_correction, returned_share
 
         loaded = aux if aux is not None else Invoice.query.filter(*base_filters).all()
+        corrections = [inv for inv in loaded if is_correction(inv)]
+        loaded = [inv for inv in loaded if not is_correction(inv)]
         invoices = [inv for inv in loaded if not self._is_return(inv)]
         returns = [inv for inv in loaded if self._is_return(inv) and getattr(inv, 'original_invoice', None)]
 
@@ -357,6 +380,20 @@ class PointsMetric(RaceMetric):
                 team_weight_g -= share * sum(max(0.0, float(i.weight or 0.0)) for i in (original.items or []))
             else:
                 team_weight_g -= share * max(0.0, float(original.profit_gold or 0.0))
+        # Each correction adds its difference: its points, and its measure's.
+        if corrections:
+            team_points += int(round(compute_invoices_points(
+                corrections, points_source=self._points_source,
+                cash_amount_per_point=self._cash_amount_per_point,
+                points_per_gram=points_per_gram, point_rules=self._rules,
+                points_per_invoice=self._points_per_invoice)))
+            for c in corrections:
+                if self._points_source in ('profit_cash', 'sales_amount'):
+                    team_weight_g += c.profit_cash if self._points_source == 'profit_cash' else c.total
+                elif self._points_source == 'sold_weight':
+                    team_weight_g += c.weight
+                elif self._points_source != 'invoice_count':
+                    team_weight_g += c.profit_gold
         if returns:
             team_points -= int(round(-compute_invoices_points(
                 returns, points_source=self._points_source,

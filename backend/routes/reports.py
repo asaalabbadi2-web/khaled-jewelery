@@ -1529,6 +1529,7 @@ def get_home_leaderboard():
         except Exception:
             return default
 
+    metric_obj.period = (start_dt, end_dt)   # its corrections (ADR-056), where the metric reads them
     ranking_raw, _metric_aux = metric_obj.collect(base_filters, points_per_gram)
     metric_key = metric_obj.key
 

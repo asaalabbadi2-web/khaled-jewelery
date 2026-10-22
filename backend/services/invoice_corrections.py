@@ -97,6 +97,28 @@ def _new_lines(raw, old: InvoiceItem) -> list[dict]:
     return lines
 
 
+def _main(lines) -> float:
+    from pricing.gold_price_service import get_main_karat
+    main = float(get_main_karat())
+    return sum(_f(l['weight']) * _f(l['karat']) / main for l in lines)
+
+
+def _profits(invoice: Invoice, old_line: dict, new_lines: list, cash_delta: float) -> tuple[dict, dict]:
+    """The purchase's profit as paid, and as it is right (ت-2). A customer's
+    purchase earns the grams it bought over what its riyals buy at the price of
+    its day: profit = main grams - riyals / price. That price is not kept; it
+    is the paid profit's (riyals / (main grams - profit)). A purchase that
+    earned nothing tells no price: its right profit is nothing too."""
+    paid = {'profit_gold': round(_f(invoice.profit_gold), 3), 'profit_cash': round(_f(invoice.profit_cash), 2)}
+    lines = [_line_of(i) for i in InvoiceItem.query.filter_by(invoice_id=invoice.id).all()]
+    grams = _main(lines)
+    grams_right = grams - _main([old_line]) + _main(new_lines)
+    cash = _f(invoice.total)
+    price = cash / (grams - paid['profit_gold']) if paid['profit_gold'] > GRAM and grams - paid['profit_gold'] > GRAM else None
+    right = max(0.0, grams_right - (cash + cash_delta) / price) if price else 0.0
+    return paid, {'profit_gold': round(right, 3), 'profit_cash': paid['profit_cash']}
+
+
 def _grams(karat_weights: dict) -> dict:
     return {k: round(w, 6) for k, w in karat_weights.items() if abs(w) > GRAM}
 
@@ -158,9 +180,10 @@ def correct_line(invoice: Invoice, *, line_id, lines, safe_box_id, reason: str, 
     if abs(cash_delta) > CENT and not party:
         raise CorrectionRefused('correction_party_missing', 'لا حساب للعميل يُقيَّد عليه فرق السعر')
 
+    profit_before, profit_after = _profits(invoice, before_line, new, cash_delta)
     correction = InvoiceCorrection(invoice_id=invoice.id, invoice_item_id=old.id, safe_box_id=safe.id, reason=reason,
                                    before={'snapshot_schema_version': 1, 'lines': [before_line],
-                                           'invoice': _invoice_of(invoice)},
+                                           'invoice': _invoice_of(invoice), 'profit': profit_before},
                                    after={}, cash_delta=cash_delta, created_by=by, created_at=now)
     db.session.add(correction)
     db.session.flush()
@@ -241,7 +264,7 @@ def correct_line(invoice: Invoice, *, line_id, lines, safe_box_id, reason: str, 
 
     correction.journal_entry_id = entry.id
     correction.after = {'snapshot_schema_version': 1, 'lines': [_line_of(i) for i in written],
-                        'invoice': _invoice_of(invoice)}
+                        'invoice': _invoice_of(invoice), 'profit': profit_after}
     db.session.flush()
 
     from services.invoice_payment_state_service import InvoicePaymentStateService

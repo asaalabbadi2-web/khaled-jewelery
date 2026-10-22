@@ -67,6 +67,76 @@ def returns_against(original_filter, start_dt, end_dt, *, end_inclusive: bool = 
             .all())
 
 
+class CorrectionDelta:
+    """A correction (ADR-056) as the engine reads it: its invoice's points'
+    difference, in the correction's own period, against the invoice's actor
+    (the owner, 22 Oct 2026). Carries the original's type, employee and
+    poster, what it was paid on and what is right."""
+    is_correction = True
+    items: list = []
+
+    def __init__(self, correction, original):
+        self.correction_id = correction.id
+        self.original_invoice = original
+        self.invoice_type = original.invoice_type
+        self.employee_id = original.employee_id
+        self.posted_by = original.posted_by
+        self.date = correction.created_at
+        before, after = correction.before or {}, correction.after or {}
+        self.paid = before.get('profit') or {}
+        self.right = after.get('profit') or {}
+        self.total = float(correction.cash_delta or 0.0)
+        self.weight = (float((after.get('invoice') or {}).get('total_weight') or 0.0)
+                       - float((before.get('invoice') or {}).get('total_weight') or 0.0))
+        self.profit_cash = float(self.right.get('profit_cash') or 0.0) - float(self.paid.get('profit_cash') or 0.0)
+        self.profit_gold = float(self.right.get('profit_gold') or 0.0) - float(self.paid.get('profit_gold') or 0.0)
+
+
+def is_correction(inv) -> bool:
+    # strictly the delta's own flag: a stand-in invoice (a mock) answers any name
+    return getattr(inv, 'is_correction', False) is True
+
+
+def corrections_against(original_filter, start_dt, end_dt, *, end_inclusive: bool = False) -> list:
+    """The corrections made in [start_dt, end_dt) of posted invoices whose
+    original matches *original_filter* (as returns_against): each its points'
+    difference in its own period, from the invoice's actor."""
+    from models import Invoice, InvoiceCorrection
+    upper = InvoiceCorrection.created_at <= end_dt if end_inclusive else InvoiceCorrection.created_at < end_dt
+    rows = (db_query(InvoiceCorrection, Invoice)
+            .join(Invoice, Invoice.id == InvoiceCorrection.invoice_id)
+            .filter(InvoiceCorrection.created_at >= start_dt, upper, Invoice.is_posted.is_(True),
+                    original_filter(Invoice))
+            .order_by(InvoiceCorrection.id).all())
+    return [CorrectionDelta(c, o) for c, o in rows]
+
+
+def db_query(*entities):
+    from models import db
+    return db.session.query(*entities)
+
+
+def _correction_points(c, *, points_source, cash_amount_per_point, points_per_gram, **_):
+    """A correction's points: the right profit's points less the paid's, by the
+    formula an invoice is scored by (each clamped at nothing, as it is)."""
+    cpp, ppg = max(0.01, float(cash_amount_per_point)), max(0.0, float(points_per_gram))
+    purchase = str(c.invoice_type or '').strip() == 'شراء من عميل'
+
+    def scored(profit):
+        pc = max(0.0, float(profit.get('profit_cash') or 0.0))
+        pg = max(0.0, float(profit.get('profit_gold') or 0.0))
+        if points_source == 'profit_cash':
+            return pc / cpp if pc > 0 else (pg * ppg if purchase else 0.0)
+        return pg * ppg                           # gold_weight: the invoice's grams of profit
+    if points_source == 'sales_amount':
+        return c.total / cpp
+    if points_source == 'invoice_count':
+        return 0.0
+    if points_source == 'sold_weight':
+        return c.weight * ppg
+    return scored(c.right) - scored(c.paid)
+
+
 def compute_invoices_points(
     invoices: list,
     *,
@@ -88,9 +158,11 @@ def compute_invoices_points(
     kwargs = dict(points_source=points_source, cash_amount_per_point=cash_amount_per_point,
                   points_per_gram=points_per_gram, point_rules=point_rules,
                   main_karat=main_karat, points_per_invoice=points_per_invoice)
+    corrections = [i for i in invoices if is_correction(i)]
     returns = [i for i in invoices if is_return(i)]
-    others = [i for i in invoices if not is_return(i)]
+    others = [i for i in invoices if not is_return(i) and not is_correction(i)]
     total = _points_of(others, **kwargs) if others else 0.0
+    total += sum(_correction_points(c, **kwargs) for c in corrections)
     for ret in returns:
         original = getattr(ret, 'original_invoice', None)
         if original is None or not getattr(original, 'is_posted', False):
@@ -160,11 +232,14 @@ def _points_of(
 
     # ── sold_weight mode ──────────────────────────────────────────────────────
     if points_source == 'sold_weight':
+        # A corrected invoice is read as it was posted (ADR-056): its lines'
+        # weight less its corrections' -- those count in their own periods.
+        corrected = _corrections_weight([getattr(inv, 'id', None) for inv in invoices])
         total_w = sum(
             max(0.0, float(item.weight or 0.0))
             for inv in invoices
             for item in (getattr(inv, 'items', None) or [])
-        )
+        ) - sum(corrected.get(getattr(inv, 'id', None), 0.0) for inv in invoices)
         return total_w * _ppg
 
     # ── gold_weight mode (default) ────────────────────────────────────────────
@@ -210,3 +285,17 @@ def _points_of(
         total += profit * multiplier
 
     return total
+
+
+def _corrections_weight(invoice_ids) -> dict:
+    """Each corrected invoice's weight changed by its corrections (ADR-056)."""
+    ids = [i for i in invoice_ids if i]
+    if not ids:
+        return {}
+    from models import InvoiceCorrection
+    out: dict = {}
+    for c in InvoiceCorrection.query.filter(InvoiceCorrection.invoice_id.in_(ids)).all():
+        before, after = (c.before or {}).get('invoice') or {}, (c.after or {}).get('invoice') or {}
+        out[c.invoice_id] = out.get(c.invoice_id, 0.0) + (float(after.get('total_weight') or 0.0)
+                                                          - float(before.get('total_weight') or 0.0))
+    return out

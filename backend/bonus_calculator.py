@@ -385,6 +385,9 @@ class BonusCalculator:
             return original.employee_id == employee.id
 
         invoices += returns_against(_sold_by, start_dt, end_dt, end_inclusive=True)
+        # and a correction made in it, its invoice's difference (ADR-056)
+        from points.engine import corrections_against
+        invoices += corrections_against(_sold_by, start_dt, end_dt, end_inclusive=True)
 
         # ── Resolve engine parameters from race settings (single source of truth) ──
         race_cfg            = get_race_points_config()
