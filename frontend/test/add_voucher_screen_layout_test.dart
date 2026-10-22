@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:frontend/theme/app_theme.dart';
 
 import 'support/fake_voucher_api.dart';
+import 'support/shots.dart';
 import 'support/voucher_screen_harness.dart';
 
 /// The voucher screen review, release 2 (the owner, 20 Oct 2026: «تأكد أن
@@ -42,12 +45,20 @@ void main() {
   testWidgets('cash or gold is asked before where from, and choosing a safe '
       'does not move it', (tester) async {
     await openVoucher(tester);
-    expect(tester.getCenter(kind()).dy, lessThan(tester.getCenter(account()).dy));
+    expect(
+      tester.getCenter(kind()).dy,
+      lessThan(tester.getCenter(account()).dy),
+    );
 
     final before = tester.getCenter(kind());
     await pickSafe(tester, 'الصندوق');
-    expect(tester.getCenter(kind()), before, reason: 'the safe\'s balance '
-        'used to be put above the choice, which then moved under the hand');
+    expect(
+      tester.getCenter(kind()),
+      before,
+      reason:
+          'the safe\'s balance '
+          'used to be put above the choice, which then moved under the hand',
+    );
   });
 
   testWidgets('the party is said with what is between us', (tester) async {
@@ -83,7 +94,10 @@ void main() {
     final summary = find.byKey(const Key('voucher-summary'));
     expect(summary, findsOneWidget);
     expect(
-      tester.widget<Text>(summary).data!.replaceAll(RegExp('[\u2066-\u2069]'), ''),
+      tester
+          .widget<Text>(summary)
+          .data!
+          .replaceAll(RegExp('[\u2066-\u2069]'), ''),
       'تصرف 500.00 ر.س من الصندوق إلى مورد الذهب',
     );
   });
@@ -139,7 +153,9 @@ void main() {
   });
 
   testWidgets('the expense template leaves the expense to the employee, and '
-      'offers operating expenses only (the owner, 20 Oct 2026)', (tester) async {
+      'offers operating expenses only (the owner, 20 Oct 2026)', (
+    tester,
+  ) async {
     final api = FakeVoucherApi(
       appConfig: const {
         'account_groups': {
@@ -157,14 +173,20 @@ void main() {
     await openVoucher(tester, api: api);
     await tester.tap(find.text('مصروف تشغيلي'));
     await tester.pumpAndSettle();
-    expect(find.textContaining('خسارة الوزن'), findsNothing,
-        reason: 'the first expense in the tree was chosen for them');
+    expect(
+      find.textContaining('خسارة الوزن'),
+      findsNothing,
+      reason: 'the first expense in the tree was chosen for them',
+    );
 
     await tester.tap(find.text('اختر حساب المصروف'));
     await tester.pumpAndSettle();
     expect(find.textContaining('كهرباء'), findsOneWidget);
-    expect(find.textContaining('مشتريات ذهب'), findsNothing,
-        reason: 'a purchase is cost of sales, not an operating expense');
+    expect(
+      find.textContaining('مشتريات ذهب'),
+      findsNothing,
+      reason: 'a purchase is cost of sales, not an operating expense',
+    );
     expect(find.textContaining('مورد الذهب'), findsNothing);
   });
 
@@ -195,8 +217,18 @@ void main() {
         'balance_gold_21k': -2748.71,
         'balance_gold_24k': 2265.87,
       },
-      {'id': 6, 'name': 'مفيد الحبيشي', 'account_id': 60, 'supplier_code': 'S-000013'},
-      {'id': 7, 'name': 'مكتب الراقي', 'account_id': 70, 'supplier_code': 'S-000020'},
+      {
+        'id': 6,
+        'name': 'مفيد الحبيشي',
+        'account_id': 60,
+        'supplier_code': 'S-000013',
+      },
+      {
+        'id': 7,
+        'name': 'مكتب الراقي',
+        'account_id': 70,
+        'supplier_code': 'S-000020',
+      },
     ];
 
     Finder search() => find.descendant(
@@ -210,7 +242,11 @@ void main() {
         for (var i = 0; i < more; i++)
           {'id': 100 + i, 'name': 'مورد $i', 'account_id': 200 + i},
       ];
-      await openVoucher(tester, api: FakeVoucherApi(suppliers: suppliers), supplierId: null);
+      await openVoucher(
+        tester,
+        api: FakeVoucherApi(suppliers: suppliers),
+        supplierId: null,
+      );
       // The whole list, the field's button away.
       await tester.tap(find.byKey(const Key('voucher-party-show-all')));
       await tester.pumpAndSettle();
@@ -242,40 +278,66 @@ void main() {
       await openPicker(tester, more: 20);
       // The dialog's surface, not the barrier around it.
       final dialog = find
-          .descendant(of: find.byType(AlertDialog), matching: find.byType(Material))
+          .descendant(
+            of: find.byType(AlertDialog),
+            matching: find.byType(Material),
+          )
           .first;
       final before = tester.getRect(dialog);
       await tester.enterText(search(), 'مفيد');
       await tester.pumpAndSettle();
-      expect(tester.getRect(dialog), before, reason: 'the one result moved from '
-          'under the hand as the list shrank');
+      expect(
+        tester.getRect(dialog),
+        before,
+        reason:
+            'the one result moved from '
+            'under the hand as the list shrank',
+      );
     });
   });
 
-  testWidgets('a safe is offered with what it holds, not a kind already chosen', (
-    tester,
-  ) async {
-    await openVoucher(tester);
-    await tester.tap(find.text('ذهب').first);
-    await tester.pumpAndSettle();
-    // Under the field as it is typed in ...
-    await tester.tap(find.byKey(const Key('voucher-line-account-0')));
-    await tester.pumpAndSettle();
-    final option = find.byKey(const Key('type-to-pick-option-80'));
-    expect(find.descendant(of: option, matching: said('فيها 410.600 جم بالعيار 21')), findsOneWidget);
-    expect(find.text('كلاهما'), findsNothing);
+  testWidgets(
+    'a safe is offered with what it holds, not a kind already chosen',
+    (tester) async {
+      await openVoucher(tester);
+      await tester.tap(find.text('ذهب').first);
+      await tester.pumpAndSettle();
+      // Under the field as it is typed in ...
+      await tester.tap(find.byKey(const Key('voucher-line-account-0')));
+      await tester.pumpAndSettle();
+      final option = find.byKey(const Key('type-to-pick-option-80'));
+      expect(
+        find.descendant(
+          of: option,
+          matching: said('فيها 410.600 جم بالعيار 21'),
+        ),
+        findsOneWidget,
+      );
+      expect(find.text('كلاهما'), findsNothing);
 
-    // ... and in the whole list.
-    await tester.tap(find.byKey(const Key('voucher-line-account-show-all-0')));
-    await tester.pumpAndSettle();
-    final sheet = find.byType(BottomSheet);
-    expect(find.descendant(of: sheet, matching: said('فيها 410.600 جم بالعيار 21')), findsOneWidget);
-    expect(find.descendant(of: sheet, matching: find.text('كلاهما')), findsNothing);
-    final search = tester.widget<TextField>(
-      find.descendant(of: sheet, matching: find.byType(TextField)),
-    );
-    expect(search.autofocus, isTrue);
-  });
+      // ... and in the whole list.
+      await tester.tap(
+        find.byKey(const Key('voucher-line-account-show-all-0')),
+      );
+      await tester.pumpAndSettle();
+      final sheet = find.byType(BottomSheet);
+      expect(
+        find.descendant(
+          of: sheet,
+          matching: said('فيها 410.600 جم بالعيار 21'),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: sheet, matching: find.text('كلاهما')),
+        findsNothing,
+      );
+      final search = tester.widget<TextField>(
+        find.descendant(of: sheet, matching: find.byType(TextField)),
+      );
+      expect(search.autofocus, isTrue);
+    },
+  );
 
   testWidgets('an invoice is listed whole, with what is left on it said so, '
       'on a phone too', (tester) async {
@@ -294,8 +356,11 @@ void main() {
         ],
       ),
     );
-    expect(find.text('SUPP-2026-005'), findsOneWidget,
-        reason: 'the number alone on its line, not cut');
+    expect(
+      find.text('SUPP-2026-005'),
+      findsOneWidget,
+      reason: 'the number alone on its line, not cut',
+    );
     expect(said('المتبقي: 6,104.00 ر.س'), findsOneWidget);
   });
 
@@ -315,5 +380,31 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('تعذّر تحميل بيانات السند'), findsNothing);
     expect(account(), findsOneWidget);
+  });
+
+  // The owner, 22 Oct 2026: «الشريط العلوي لشاشة إنشاء السند في الوضع
+  // الداكن لا تطابق باقي الصفحات فلونه ذهبي فاتح والأزرار بنفس اللون».
+  testWidgets('its bar is the theme\'s, its button apart from it, in the '
+      'dark theme too', (tester) async {
+    await openVoucher(
+      tester,
+      theme: DarkTheme.theme,
+      size: const Size(1440, 1000),
+    );
+    await shot(tester, 'voucher_dark_bar');
+    final bar = tester.widget<AppBar>(find.byType(AppBar).last);
+    expect(bar.backgroundColor, isNull, reason: 'the theme\'s bar');
+    final barColor = Theme.of(
+      tester.element(find.byType(AppBar).last),
+    ).appBarTheme.backgroundColor;
+    final later = tester.renderObject<RenderParagraph>(
+      find.descendant(
+        of: find.byKey(const Key('voucher-later')),
+        matching: find.text('إكمال لاحقاً'),
+      ),
+    );
+    final said = later.text.style?.color;
+    expect(said, isNotNull);
+    expect(said, isNot(barColor), reason: 'the button apart from its bar');
   });
 }

@@ -32,6 +32,7 @@ Future<FakeVoucherApi> openVoucher(
   int? otherAccountId,
   Map<String, dynamic>? existing,
   Size size = const Size(1440, 2400),
+  ThemeData? theme,
 }) async {
   api ??= FakeVoucherApi();
   SharedPreferences.setMockInitialValues({
@@ -49,7 +50,7 @@ Future<FakeVoucherApi> openVoucher(
         ChangeNotifierProvider.value(value: settings),
       ],
       child: MaterialApp(
-        theme: LightTheme.theme,
+        theme: theme ?? LightTheme.theme,
         home: Directionality(
           textDirection: TextDirection.rtl,
           child: Builder(

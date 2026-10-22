@@ -101,7 +101,7 @@ class _CustomizeQuickActionsScreenState
             ),
             PopupMenuButton<String>(
               onSelected: (value) {
-                if (value == 'reset') _showResetConfirmDialog();
+                if (value == 'reset') _resetToDefaults();
               },
               itemBuilder: (context) => [
                 const PopupMenuItem(
@@ -436,27 +436,9 @@ class _CustomizeQuickActionsScreenState
         trailing: Switch(
           value: active,
           activeThumbColor: _tone.ready.fg,
-          onChanged: (_) async {
-            final bool success;
-            if (onToggleOverride != null) {
-              success = await onToggleOverride();
-            } else {
-              success = await provider.toggleAction(action.id);
-            }
-            if (success && mounted) {
-              AppFeedback.success(context, !active
-                        ? 'تم تفعيل "${action.label}"'
-                        : 'تم تعطيل "${action.label}"');
-            }
-          },
+          onChanged: (_) => _toggle(action, provider, onToggleOverride),
         ),
-        onTap: () async {
-          if (onToggleOverride != null) {
-            await onToggleOverride();
-          } else {
-            await provider.toggleAction(action.id);
-          }
-        },
+        onTap: () => _toggle(action, provider, onToggleOverride),
       ),
     );
   }
@@ -474,51 +456,43 @@ class _CustomizeQuickActionsScreenState
     );
   }
 
-  void _showResetConfirmDialog() {
-    final theme = Theme.of(context);
-    showDialog(
-      context: context,
-      builder: (context) => Directionality(
-        textDirection: TextDirection.rtl,
-        child: AlertDialog(
-          backgroundColor:
-              theme.dialogTheme.backgroundColor ?? theme.colorScheme.surface,
-          title: Row(
-            children: [
-              Icon(Icons.warning_amber_rounded, color: _tone.warning.fg),
-              const SizedBox(width: 12),
-              Text('إعادة تعيين', style: theme.textTheme.titleLarge),
-            ],
-          ),
-          content: Text(
-            'هل أنت متأكد من إعادة جميع الأزرار إلى الإعدادات الافتراضية؟\n\nسيتم فقد جميع التخصيصات الحالية.',
-            style: theme.textTheme.bodyMedium,
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: Text('إلغاء', style: TextStyle(color: theme.hintColor)),
-            ),
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: theme.colorScheme.error,
-                foregroundColor: theme.colorScheme.onError,
-              ),
-              onPressed: () async {
-                Navigator.pop(context);
-                final p = Provider.of<QuickActionsProvider>(
-                  context,
-                  listen: false,
-                );
-                final success = await p.resetToDefaults();
-                if (success && mounted) {
-                  AppFeedback.success(context, 'تم إعادة التعيين بنجاح');
-                }
-              },
-              child: const Text('إعادة تعيين'),
-            ),
-          ],
-        ),
+  /// The switch says what it is: a message only when the device would not
+  /// keep it (ADR-057 ر٤) -- every turn of a switch said «تم تفعيل ...».
+  Future<void> _toggle(
+    QuickActionItem action,
+    QuickActionsProvider provider,
+    Future<bool> Function()? onToggleOverride,
+  ) async {
+    final saved = onToggleOverride != null
+        ? await onToggleOverride()
+        : await provider.toggleAction(action.id);
+    if (!saved && mounted) {
+      AppFeedback.error(context, 'لم يُحفظ تغيير «${action.label}»، حاول مرة أخرى');
+    }
+  }
+
+  /// Back to the defaults at once, with «تراجع» that puts the buttons back
+  /// as they were (ADR-057 ر٤) -- it asked first, and could not be undone.
+  Future<void> _resetToDefaults() async {
+    final p = Provider.of<QuickActionsProvider>(context, listen: false);
+    final before = [for (final item in p.actions) item.copyWith()];
+    final ok = await p.resetToDefaults();
+    if (!mounted) return;
+    if (!ok) {
+      AppFeedback.error(context, 'لم تُحفظ إعادة التعيين، حاول مرة أخرى');
+      return;
+    }
+    AppFeedback.success(
+      context,
+      'أُعيدت الأزرار إلى الافتراضي',
+      action: (
+        label: 'تراجع',
+        onPressed: () async {
+          final restored = await p.restoreActions(before);
+          if (!restored && mounted) {
+            AppFeedback.error(context, 'لم يُستعد التخصيص السابق');
+          }
+        },
       ),
     );
   }

@@ -2996,10 +2996,17 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
     final ready = blocker == null;
     final tones = AppSemanticColors.of(context);
     final tone = ready ? tones.ready : tones.blocked;
+    // A line above it, as the other screens' bars (ADR-057): its shadow read
+    // as a black band in the dark theme.
     return Material(
-      elevation: 8,
-      color: theme.colorScheme.surface,
-      child: SafeArea(
+      color: theme.colorScheme.surfaceContainer,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          border: Border(
+            top: BorderSide(color: theme.colorScheme.outlineVariant),
+          ),
+        ),
+        child: SafeArea(
         top: false,
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 10),
@@ -3068,6 +3075,7 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
           ),
         ),
       ),
+      )
     );
   }
 
@@ -4270,14 +4278,14 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
             bottomNavigationBar: _isLoading || _loadError != null
                 ? null
                 : _buildFooter(accentColor),
+            // The theme's bar, as every page has it (the owner, 22 Oct 2026:
+            // in the dark theme it was a light gold, its button the same).
             appBar: AppBar(
               title: Text(title),
-              backgroundColor: _cs.primary,
-              foregroundColor: _cs.onPrimary,
-              elevation: 2,
               actions: [
                 if (widget.existingVoucher == null)
                   TextButton.icon(
+                    key: const Key('voucher-later'),
                     onPressed: _isSaving
                         ? null
                         : () async {
@@ -4286,16 +4294,8 @@ class _AddVoucherScreenState extends State<AddVoucherScreen> {
                               Navigator.of(context).pop(false);
                             }
                           },
-                    icon: Icon(
-                      Icons.schedule,
-                      color: _cs.onPrimary.withValues(alpha: 0.8),
-                    ),
-                    label: Text(
-                      'إكمال لاحقاً',
-                      style: TextStyle(
-                        color: _cs.onPrimary.withValues(alpha: 0.8),
-                      ),
-                    ),
+                    icon: const Icon(Icons.schedule),
+                    label: const Text('إكمال لاحقاً'),
                   ),
                 const SizedBox(width: 8),
               ],

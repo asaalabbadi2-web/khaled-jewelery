@@ -12,6 +12,12 @@ import 'support/shots.dart';
 
 /// The quick access customization (ADR-057). Its settings are this device's
 /// (SharedPreferences) -- a convenience of the one who uses it.
+/// A device that will not keep a switch's turn.
+class _Unsaving extends QuickActionsProvider {
+  @override
+  Future<bool> toggleAction(String id) async => false;
+}
+
 void main() {
   setUpAll(() async {
     final cairo = FontLoader('Cairo');
@@ -25,12 +31,13 @@ void main() {
     WidgetTester tester, {
     ThemeData? theme,
     Size size = const Size(1200, 1600),
+    QuickActionsProvider? provider,
   }) async {
     SharedPreferences.setMockInitialValues({});
     tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
-    final provider = QuickActionsProvider();
+    provider ??= QuickActionsProvider();
     await tester.pumpWidget(
       ChangeNotifierProvider.value(
         value: provider,
@@ -83,5 +90,43 @@ void main() {
       findsOneWidget,
     );
   });
-}
 
+  // ر٤ (ADR-057): a switch says nothing when it is kept; a reset is undone.
+  bool activeOf(QuickActionsProvider p, String id) =>
+      p.actions.firstWhere((a) => a.id == id).isActive;
+
+  testWidgets('a switch kept says nothing', (tester) async {
+    final p = await open(tester);
+    expect(activeOf(p, 'sales_invoice'), isTrue);
+    await tester.tap(find.byType(Switch).at(1));
+    await tester.pumpAndSettle();
+    expect(find.byType(SnackBar), findsNothing);
+  });
+
+  testWidgets('a switch the device would not keep is said', (tester) async {
+    await open(tester, provider: _Unsaving());
+    await tester.tap(find.byType(Switch).at(1));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('لم يُحفظ تغيير'), findsOneWidget);
+  });
+
+  testWidgets('a reset happens at once, and «تراجع» puts the buttons back', (
+    tester,
+  ) async {
+    final p = await open(tester);
+    await p.toggleAction('sales_invoice');
+    await tester.pumpAndSettle();
+    expect(activeOf(p, 'sales_invoice'), isFalse);
+
+    await tester.tap(find.byType(PopupMenuButton<String>));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('إعادة للإعدادات الافتراضية'));
+    await tester.pumpAndSettle();
+    expect(find.byType(AlertDialog), findsNothing, reason: 'no question first');
+    expect(activeOf(p, 'sales_invoice'), isTrue, reason: 'the defaults');
+
+    await tester.tap(find.text('تراجع'));
+    await tester.pumpAndSettle();
+    expect(activeOf(p, 'sales_invoice'), isFalse, reason: 'as it was');
+  });
+}

@@ -124,12 +124,19 @@ class QuickActionsProvider extends ChangeNotifier {
     final index = _actions.indexWhere((item) => item.id == id);
     if (index == -1) return false;
 
-    _actions[index] = _actions[index].copyWith(
-      isActive: !_actions[index].isActive,
-    );
+    final before = _actions[index];
+    _actions[index] = before.copyWith(isActive: !before.isActive);
 
     notifyListeners();
-    return await _saveActions();
+    final saved = await _saveActions();
+    // Not saved, not shown (ADR-057 ر٤): the switch goes back, and the screen
+    // says so -- it stayed turned while the device kept the old setting.
+    if (!saved) {
+      final i = _actions.indexWhere((item) => item.id == id);
+      if (i != -1) _actions[i] = before;
+      notifyListeners();
+    }
+    return saved;
   }
 
   /// إعادة ترتيب الأزرار
@@ -174,6 +181,15 @@ class QuickActionsProvider extends ChangeNotifier {
       }
     }
 
+    notifyListeners();
+    return await _saveActions();
+  }
+
+  /// The buttons as they were before a reset, put back -- its «تراجع»
+  /// (ADR-057 ر٤). False when the device would not keep them.
+  Future<bool> restoreActions(List<QuickActionItem> previous) async {
+    _actions = [for (final item in previous) item.copyWith()];
+    _sortActionsByOrder();
     notifyListeners();
     return await _saveActions();
   }
