@@ -14,6 +14,7 @@ import '../services/data_sync_bus.dart';
 import '../utils/invoice_direct_print.dart';
 import '../widgets/widgets.dart';
 import 'add_return_invoice_screen.dart';
+import 'invoice_correction_screen.dart';
 import 'purchase_invoice_screen.dart';
 import 'sales_invoice_screen_v2.dart';
 import 'scrap_purchase_invoice_screen.dart';
@@ -55,7 +56,16 @@ enum _InvoiceCreationTarget {
 
 enum _InvoiceListView { table, cards }
 
-enum _InvoiceRowAction { view, editContent, print, changeEmployee, post, unpost, delete }
+enum _InvoiceRowAction {
+  view,
+  editContent,
+  print,
+  changeEmployee,
+  post,
+  correct,
+  unpost,
+  delete,
+}
 
 class _InvoiceTabConfig {
   final String labelAr;
@@ -2665,6 +2675,19 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
             icon: Icons.check_circle_outline,
             label: isAr ? 'ترحيل' : 'Post',
           ),
+        // «تصحيح فاتورة» (ADR-056): a posted customer purchase's line put
+        // right by its difference -- one document, not a return and a re-entry.
+        if (isPosted &&
+            (invoice['invoice_type'] ?? '').toString() == 'شراء من عميل' &&
+            Provider.of<AuthProvider>(
+              context,
+              listen: false,
+            ).hasPermission('invoices.correct'))
+          item(
+            value: _InvoiceRowAction.correct,
+            icon: Icons.rule_outlined,
+            label: isAr ? 'تصحيح' : 'Correct',
+          ),
         if (isPosted && isManager)
           item(
             value: _InvoiceRowAction.unpost,
@@ -2710,6 +2733,9 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
         break;
       case _InvoiceRowAction.post:
         await _postInvoiceAction(invoice);
+        break;
+      case _InvoiceRowAction.correct:
+        await _correctInvoice(invoice);
         break;
       case _InvoiceRowAction.unpost:
         await _unpostInvoiceAction(invoice);
@@ -2767,6 +2793,18 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
       if (!mounted) return;
       AppFeedback.error(context, e, title: isAr ? 'فشل الترحيل' : 'Post failed');
     }
+  }
+
+  Future<void> _correctInvoice(Map<String, dynamic> invoice) async {
+    final invoiceId = invoice['id'] as int?;
+    if (invoiceId == null) return;
+    final corrected = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(
+        builder: (_) =>
+            InvoiceCorrectionScreen(api: _apiService, invoiceId: invoiceId),
+      ),
+    );
+    if (corrected == true && mounted) await _loadInvoices();
   }
 
   Future<void> _unpostInvoiceAction(Map<String, dynamic> invoice) async {

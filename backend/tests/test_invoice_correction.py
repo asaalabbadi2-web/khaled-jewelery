@@ -152,7 +152,10 @@ def test_the_preview_says_the_entry_and_keeps_nothing(auth_headers, world):
         'lines': [{'karat': 21, 'weight': 1.8, 'price': 180.0}, {'karat': 18, 'weight': 1.5, 'price': 150.0}]},
         preview=True)
     assert resp.status_code == 200, resp.get_data(as_text=True)[:400]
-    assert resp.get_json()['preview'] is True and resp.get_json()['lines']
+    assert resp.get_json()['preview'] is True
+    shown = {(l['side'], l['amount_type'], l['amount'], l['karat']) for l in resp.get_json()['lines']}
+    assert {('credit', 'gold', 3.3, 21), ('debit', 'gold', 1.8, 21), ('debit', 'gold', 1.5, 18)} <= shown, \
+        'shown as the melting shows its entry: a side, an amount, a karat'
     db.session.expire_all()
     assert JournalEntry.query.count() == entries
     assert InvoiceCorrection.query.filter_by(invoice_id=invoice['id']).count() == 0
@@ -224,3 +227,14 @@ def test_a_scrap_line_in_another_karat_takes_that_karats_scrap_category(auth_hea
     assert resp.status_code == 201, resp.get_data(as_text=True)[:400]
     items = InvoiceItem.query.filter_by(invoice_id=invoice['id']).order_by(InvoiceItem.id).all()
     assert [(int(i.karat), i.category_id) for i in items] == [(21, scrap21.id), (18, scrap18.id)]
+
+
+def test_the_list_says_its_corrections_and_the_safe_to_start_from(auth_headers, world):
+    invoice, line = _bought(auth_headers, world)
+    custody_safe = SafeBox.query.filter_by(account_id=world['custody'].id).one()
+    listed = flask_app.test_client().get(f'/api/invoices/{invoice["id"]}/corrections', headers=auth_headers).get_json()
+    assert listed == {'corrections': [], 'suggested_safe_box_id': custody_safe.id}
+    _correct(auth_headers, invoice['id'], {'line_id': line.id, 'reason': 'تصحيح عيار', 'safe_box_id': custody_safe.id,
+                                           'lines': [{'karat': 18, 'weight': 3.3, 'price': 330.0}]})
+    listed = flask_app.test_client().get(f'/api/invoices/{invoice["id"]}/corrections', headers=auth_headers).get_json()
+    assert [c['reason'] for c in listed['corrections']] == ['تصحيح عيار']

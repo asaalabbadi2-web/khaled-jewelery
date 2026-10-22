@@ -5379,7 +5379,7 @@ class ApiService {
     required List<MeltingRenewalLine> lines,
     double? damageWageAmount,
     String? notes,
-  }) => _postMeltingRenewal(
+  }) => _postJson(
     '/melting-renewal',
     _meltingRenewalPayload(
       operationType: operationType,
@@ -5403,7 +5403,7 @@ class ApiService {
     required List<MeltingRenewalLine> lines,
     double? damageWageAmount,
     String? notes,
-  }) => _postMeltingRenewal(
+  }) => _postJson(
     '/melting-renewal/preview',
     _meltingRenewalPayload(
       operationType: operationType,
@@ -5443,7 +5443,7 @@ class ApiService {
     if (notes != null && notes.isNotEmpty) 'notes': notes,
   };
 
-  Future<Map<String, dynamic>> _postMeltingRenewal(
+  Future<Map<String, dynamic>> _postJson(
     String path,
     Map<String, dynamic> payload, {
     required String fallback,
@@ -5461,6 +5461,44 @@ class ApiService {
     }
     throw _apiError(response, fallback: fallback);
   }
+
+  // ── «تصحيح فاتورة» (ADR-056) ──────────────────────────────────────────
+
+  /// The invoice's corrections and the safe a correction starts from -- the
+  /// one its purchase put its gold in. `{corrections, suggested_safe_box_id}`.
+  Future<Map<String, dynamic>> invoiceCorrections(int invoiceId) async {
+    final response = await _authedGet(
+      Uri.parse('$_baseUrl/invoices/$invoiceId/corrections'),
+    );
+    if (response.statusCode != 200) {
+      throw _apiError(response, fallback: 'تعذّر تحميل تصحيحات الفاتورة');
+    }
+    return json.decode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
+  }
+
+  /// The correction's entry before it is saved: the server builds it with the
+  /// same code and keeps nothing -- `{preview, lines, before, after,
+  /// cash_delta}`; it refuses as the correction refuses.
+  Future<Map<String, dynamic>> previewInvoiceCorrection(
+    int invoiceId,
+    Map<String, dynamic> body,
+  ) => _postJson(
+    '/invoices/$invoiceId/corrections/preview',
+    body,
+    fallback: 'تعذّر عرض قيد التصحيح',
+  );
+
+  /// A posted line corrected in place, its difference one entry (ADR-056).
+  /// [body]: `{line_id, lines: [{karat, weight, price, category_id?}],
+  /// safe_box_id, reason}`.
+  Future<Map<String, dynamic>> correctInvoice(
+    int invoiceId,
+    Map<String, dynamic> body,
+  ) => _postJson(
+    '/invoices/$invoiceId/corrections',
+    body,
+    fallback: 'تعذّر تسجيل التصحيح',
+  );
 
   Future<Map<String, dynamic>> correctSafeBoxKarat({
     required int safeBoxId,

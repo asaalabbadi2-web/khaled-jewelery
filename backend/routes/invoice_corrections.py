@@ -33,14 +33,24 @@ def _refused(refused: CorrectionRefused):
 
 
 def _entry_lines(entry_id):
+    """The entry's lines as the melting's preview shows them (ت2): one row a
+    side and amount -- its account, debit or credit, cash or gold, its karat."""
     rows = (db.session.query(JournalEntryLine, Account).join(Account, Account.id == JournalEntryLine.account_id)
             .filter(JournalEntryLine.journal_entry_id == entry_id, JournalEntryLine.is_deleted.is_(False))
             .order_by(JournalEntryLine.id).all())
-    return [{'account_number': a.account_number, 'account_name': a.name,
-             'cash_debit': round(float(l.cash_debit or 0), 2), 'cash_credit': round(float(l.cash_credit or 0), 2),
-             **{f'{side}_{k}k': round(float(getattr(l, f'{side}_{k}k') or 0), 3)
-                for k in (18, 21, 22, 24) for side in ('debit', 'credit') if getattr(l, f'{side}_{k}k')},
-             'description': l.description} for l, a in rows]
+    out = []
+    for line, account in rows:
+        base = {'account_id': account.id, 'account_number': account.account_number, 'account_name': account.name,
+                'description': line.description}
+        for side in ('debit', 'credit'):
+            cash = float(getattr(line, f'cash_{side}') or 0)
+            if cash:
+                out.append({**base, 'side': side, 'amount_type': 'cash', 'amount': round(cash, 2), 'karat': None})
+            for k in (18, 21, 22, 24):
+                grams = float(getattr(line, f'{side}_{k}k') or 0)
+                if grams:
+                    out.append({**base, 'side': side, 'amount_type': 'gold', 'amount': round(grams, 3), 'karat': k})
+    return out
 
 
 @invoice_corrections_bp.route('/invoices/<int:invoice_id>/corrections/preview', methods=['POST'])
@@ -72,5 +82,10 @@ def create_invoice_correction(invoice_id: int):
 @invoice_corrections_bp.route('/invoices/<int:invoice_id>/corrections', methods=['GET'])
 @require_permission('invoices.view')
 def list_invoice_corrections(invoice_id: int):
+    """The invoice's corrections, and the safe a correction would start from:
+    the one its purchase put its gold in (the screen suggests it; the gold may
+    have moved since)."""
+    from services.return_lines import purchase_gold_safe_id
     rows = InvoiceCorrection.query.filter_by(invoice_id=invoice_id).order_by(InvoiceCorrection.id).all()
-    return jsonify([r.to_dict() for r in rows]), 200
+    return jsonify({'corrections': [r.to_dict() for r in rows],
+                    'suggested_safe_box_id': purchase_gold_safe_id(invoice_id)}), 200
