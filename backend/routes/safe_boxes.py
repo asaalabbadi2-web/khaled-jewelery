@@ -31,6 +31,8 @@ from services.live_balances import (
 )
 
 from pricing.karat_service import convert_to_main_karat, get_main_karat
+from accounting.mappings import DEFAULT_MAPPING_OPERATION_TYPE, AccountNotMapped, require_account
+from services.gold_cost_postings import GoldCostRefused
 from accounting.voucher_engine import (
     generate_voucher_number,
     post_entry_of_approved_voucher,
@@ -1582,6 +1584,23 @@ def correct_safe_box_karat(safe_box_id):
                 amount=weight,
                 karat=karat_val,
             ))
+        # The purity's difference (the owner, 22 Oct 2026: «فرق النقاوة إما فقد
+        # وزن أو وزن مكتسب»), in main-karat grams: found lower, a weight lost;
+        # found higher -- bought as a lower karat, assayed higher -- a weight
+        # gained. Its role is mapped in «الربط المحاسبي» (SAFE-KARAT-001).
+        main = float(get_main_karat())
+        purity = round(weight * (to_karat - from_karat) / main, 6)
+        if abs(purity) > 1e-6:
+            role = 'karat_correction_gain' if purity > 0 else 'karat_correction_loss'
+            db.session.add(VoucherAccountLine(
+                voucher_id=voucher.id,
+                account_id=require_account(DEFAULT_MAPPING_OPERATION_TYPE, role),
+                line_type='credit' if purity > 0 else 'debit',
+                amount_type='gold',
+                amount=abs(purity),
+                karat=main,
+                description='فرق النقاوة — ' + ('وزن مكتسب' if purity > 0 else 'فقد وزن'),
+            ))
 
         # Born approved, born posted (APPROVED-ENTRY-001): raises if no entry.
         journal_entry = post_entry_of_approved_voucher(voucher, posted_by=created_by)
@@ -1628,6 +1647,12 @@ def correct_safe_box_karat(safe_box_id):
             },
         }), 201
 
+    except AccountNotMapped as exc:
+        db.session.rollback()
+        return jsonify({'error': 'account_not_mapped', 'message': str(exc)}), 400
+    except GoldCostRefused as refused:
+        db.session.rollback()
+        return jsonify({'error': refused.code, 'message': refused.message}), 400
     except Exception as e:
         db.session.rollback()
         import traceback
