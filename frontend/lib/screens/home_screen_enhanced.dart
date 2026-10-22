@@ -175,6 +175,10 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
   // Bottom Navigation
   int _selectedNavIndex = 0;
 
+  /// The theme's type scale: every size on the home is one of its sizes
+  /// (ADR-049 م٠; ADR-057 ق٢).
+  TextTheme get _type => Theme.of(context).textTheme;
+
   /// The side menu's sections left open, on this device (ADR-057 ق٠).
   static const _openSectionsKey = 'drawer_open_sections';
   Set<String> _openDrawerSections = {};
@@ -663,7 +667,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
                 label,
                 style: TextStyle(
                   color: _onBar.withValues(alpha: 0.9),
-                  fontSize: 12,
+                  fontSize: _type.bodySmall?.fontSize,
                   fontWeight: FontWeight.w700,
                   fontFamily: 'Cairo',
                 ),
@@ -811,12 +815,12 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
     final TextStyle baseLabelStyle =
         theme.textTheme.bodyMedium?.copyWith(
           fontFamily: 'Cairo',
-          fontSize: 14,
+          fontSize: _type.bodyLarge?.fontSize,
           color: theme.colorScheme.onSurface,
         ) ??
-        const TextStyle(fontFamily: 'Cairo', fontSize: 14);
+        TextStyle(fontFamily: 'Cairo', fontSize: _type.bodyLarge?.fontSize);
     final TextStyle sectionStyle = baseLabelStyle.copyWith(
-      fontSize: 15,
+      fontSize: _type.titleLarge?.fontSize,
       fontWeight: FontWeight.bold,
     );
 
@@ -856,7 +860,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
                           fontFamily: 'Cairo',
-                          fontSize: 20,
+                          fontSize: _type.headlineMedium?.fontSize,
                           fontWeight: FontWeight.bold,
                           color: theme.colorScheme.onSurface,
                         ),
@@ -868,7 +872,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
                           fontFamily: 'Cairo',
-                          fontSize: 13,
+                          fontSize: _type.bodyMedium?.fontSize,
                           color: theme.colorScheme.onSurface.withValues(
                             alpha: 0.8,
                           ),
@@ -894,7 +898,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
                               overflow: TextOverflow.ellipsis,
                               style: TextStyle(
                                 fontFamily: 'Cairo',
-                                fontSize: 13,
+                                fontSize: _type.bodyMedium?.fontSize,
                                 fontWeight: FontWeight.w600,
                                 color: theme.colorScheme.onSurface.withValues(
                                   alpha: 0.9,
@@ -914,7 +918,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
                           fontFamily: 'Cairo',
-                          fontSize: 12,
+                          fontSize: _type.bodySmall?.fontSize,
                           color: theme.colorScheme.onSurface.withValues(
                             alpha: 0.75,
                           ),
@@ -2260,7 +2264,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
                     color: _onBar,
                     fontWeight: FontWeight.w700,
                     fontFamily: 'Cairo',
-                    fontSize: 16,
+                    fontSize: _type.titleLarge?.fontSize,
                   ),
                 ),
                 const SizedBox(width: AppSpace.lg),
@@ -2284,7 +2288,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
                   '$_pendingApprovalsCount',
                   style: TextStyle(
                     color: _onBar,
-                    fontSize: 11,
+                    fontSize: _type.labelSmall?.fontSize,
                     fontWeight: FontWeight.w800,
                     fontFamily: 'Cairo',
                   ),
@@ -2369,7 +2373,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
                                   style: TextStyle(
                                     color: _onBar,
                                     fontWeight: FontWeight.w700,
-                                    fontSize: 13,
+                                    fontSize: _type.bodyMedium?.fontSize,
                                     fontFamily: 'Cairo',
                                   ),
                                 ),
@@ -2380,7 +2384,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
                                     overflow: TextOverflow.ellipsis,
                                     style: TextStyle(
                                       color: _onBar.withValues(alpha: 0.65),
-                                      fontSize: 10,
+                                      fontSize: _type.labelSmall?.fontSize,
                                       fontFamily: 'Cairo',
                                     ),
                                   ),
@@ -2618,7 +2622,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
                         item.label ?? '',
                         style: TextStyle(
                           fontFamily: 'Cairo',
-                          fontSize: 11,
+                          fontSize: _type.labelSmall?.fontSize,
                           fontWeight: selected
                               ? FontWeight.bold
                               : FontWeight.normal,
@@ -3071,7 +3075,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
                               style: TextStyle(
                                 fontFamily: 'Cairo',
                                 fontWeight: FontWeight.w700,
-                                fontSize: 14,
+                                fontSize: _type.bodyLarge?.fontSize,
                                 color: colorScheme.onSurface,
                               ),
                             ),
@@ -3089,7 +3093,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
                               style: TextStyle(
                                 fontFamily: 'Cairo',
                                 fontWeight: FontWeight.w700,
-                                fontSize: 10,
+                                fontSize: _type.labelSmall?.fontSize,
                                 color: roleBadgeColor,
                               ),
                             ),
@@ -3202,7 +3206,9 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
                         style: TextStyle(
                           fontFamily: 'Cairo',
                           fontWeight: FontWeight.w900,
-                          fontSize: index == 0 ? 22 : 18,
+                          fontSize: index == 0
+                              ? _type.displaySmall?.fontSize
+                              : _type.headlineSmall?.fontSize,
                           color: index == 0 ? _tone.gold.fg : medalAccent,
                           height: 1.1,
                         ),
@@ -3212,7 +3218,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
                         scoreUnitText,
                         style: TextStyle(
                           fontFamily: 'Cairo',
-                          fontSize: 9,
+                          fontSize: _type.labelSmall?.fontSize,
                           color: colorScheme.onSurface.withValues(alpha: 0.44),
                           fontWeight: FontWeight.w600,
                         ),
@@ -3670,7 +3676,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
                                     style: TextStyle(
                                       fontFamily: 'Cairo',
                                       fontWeight: FontWeight.w800,
-                                      fontSize: 14,
+                                      fontSize: _type.bodyLarge?.fontSize,
                                       color: _tone.info.fg,
                                     ),
                                   ),
@@ -3688,7 +3694,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
                                     style: TextStyle(
                                       fontFamily: 'Cairo',
                                       fontWeight: FontWeight.w700,
-                                      fontSize: 11,
+                                      fontSize: _type.labelSmall?.fontSize,
                                       color: _tone.info.fg,
                                     ),
                                   ),
@@ -3699,7 +3705,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
                                     style: TextStyle(
                                       fontFamily: 'Cairo',
                                       fontWeight: FontWeight.w700,
-                                      fontSize: 14,
+                                      fontSize: _type.bodyLarge?.fontSize,
                                       color: colorScheme.onSurface,
                                     ),
                                   ),
@@ -3710,7 +3716,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
                                         : (isAr ? 'خارج الترتيب • ابدأ بتسجيل أول فاتورة' : 'Outside ranking • Record first invoice'),
                                     style: TextStyle(
                                       fontFamily: 'Cairo',
-                                      fontSize: 10.5,
+                                      fontSize: _type.labelSmall?.fontSize,
                                       color: _tone.info.fg.withValues(alpha: 0.60),
                                       fontWeight: FontWeight.w500,
                                     ),
@@ -3737,7 +3743,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
                                     style: TextStyle(
                                       fontFamily: 'Cairo',
                                       fontWeight: FontWeight.w900,
-                                      fontSize: 20,
+                                      fontSize: _type.headlineMedium?.fontSize,
                                       color: _tone.info.fg,
                                       height: 1.1,
                                     ),
@@ -3746,7 +3752,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
                                     meScoreUnit,
                                     style: TextStyle(
                                       fontFamily: 'Cairo',
-                                      fontSize: 9,
+                                      fontSize: _type.labelSmall?.fontSize,
                                       color: _tone.info.fg.withValues(alpha: 0.55),
                                       fontWeight: FontWeight.w600,
                                     ),
@@ -4106,7 +4112,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
             child: RichText(
               text: TextSpan(
                 style: TextStyle(
-                  fontSize: 12,
+                  fontSize: _type.bodySmall?.fontSize,
                   fontFamily: 'Cairo',
                   height: 1.5,
                   color: _cs.onSurface,
@@ -4153,7 +4159,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
             style: TextStyle(
               fontFamily: 'Cairo',
               fontWeight: FontWeight.w900,
-              fontSize: 20,
+              fontSize: _type.headlineMedium?.fontSize,
               color: index < 3 ? _cs.onPrimary : medalAccent,
               shadows: index < 3
                   ? [Shadow(color: _cs.shadow.withValues(alpha: 0.45), blurRadius: 5)]
@@ -4177,7 +4183,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
           child: Text(
             '👑',
             style: TextStyle(
-              fontSize: 26,
+              fontSize: _type.displaySmall?.fontSize,
               height: 1.0,
               shadows: [
                 Shadow(color: _cs.shadow.withValues(alpha: 0.38), blurRadius: 5, offset: const Offset(0, 3)),
@@ -4217,7 +4223,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
           ),
         RichText(
           text: TextSpan(
-            style: const TextStyle(fontSize: 11.5, fontFamily: 'Cairo'),
+            style: TextStyle(fontSize: _type.labelSmall?.fontSize, fontFamily: 'Cairo'),
             children: [
               ...cu.sarAwareSpans(
                 value,
@@ -4265,7 +4271,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
         ),
         RichText(
           text: TextSpan(
-            style: const TextStyle(fontSize: 11.5, fontFamily: 'Cairo'),
+            style: TextStyle(fontSize: _type.labelSmall?.fontSize, fontFamily: 'Cairo'),
             children: [
               TextSpan(
                 text: '$label: ',
@@ -4287,7 +4293,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
                   style: TextStyle(
                     fontWeight: FontWeight.w700,
                     color: pointsColor,
-                    fontSize: 9.5,
+                    fontSize: _type.labelSmall?.fontSize,
                   ),
                 ),
                 if (amount != null)
@@ -4308,7 +4314,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
                   style: TextStyle(
                     fontWeight: FontWeight.w700,
                     color: valueColor,
-                    fontSize: 9.5,
+                    fontSize: _type.labelSmall?.fontSize,
                   ),
                 ),
               ],
@@ -4362,7 +4368,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
             Text(
               label,
               style: TextStyle(
-                fontSize: 10.5,
+                fontSize: _type.labelSmall?.fontSize,
                 fontFamily: 'Cairo',
                 fontWeight: FontWeight.w600,
                 color: _cs.onSurfaceVariant,
@@ -4373,7 +4379,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
             Text(
               value,
               style: TextStyle(
-                fontSize: 14,
+                fontSize: _type.bodyLarge?.fontSize,
                 fontFamily: 'Cairo',
                 fontWeight: FontWeight.w800,
                 color: _cs.onSurface,
@@ -4472,7 +4478,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
                       label,
                       style: TextStyle(
                         fontFamily: 'Cairo',
-                        fontSize: 11.5,
+                        fontSize: _type.labelSmall?.fontSize,
                         fontWeight: FontWeight.w500,
                         color: colorScheme.onSurface.withValues(alpha: 0.52),
                       ),
@@ -4485,7 +4491,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
                         fontFamily: 'Cairo',
-                        fontSize: 16,
+                        fontSize: _type.titleLarge?.fontSize,
                         fontWeight: FontWeight.w900,
                         color: accent,
                         height: 1.2,
@@ -4536,7 +4542,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
           style: theme.textTheme.titleSmall?.copyWith(
             fontWeight: FontWeight.w700,
             color: theme.colorScheme.onSurface.withValues(alpha: 0.72),
-            fontSize: 13,
+            fontSize: _type.bodyMedium?.fontSize,
           ),
         ),
       ],
@@ -4594,7 +4600,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
                           style: TextStyle(
                             fontFamily: 'Cairo',
                             fontWeight: FontWeight.w600,
-                            fontSize: 12.5,
+                            fontSize: _type.bodySmall?.fontSize,
                             color: theme.colorScheme.onSurface.withValues(alpha: 0.60),
                           ),
                         ),
@@ -5058,7 +5064,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
                             isAr ? 'فاتورة بيع جديدة' : 'New Sales Invoice',
                             style: TextStyle(
                               color: _cs.onPrimary,
-                              fontSize: 15,
+                              fontSize: _type.titleLarge?.fontSize,
                               fontWeight: FontWeight.w800,
                               fontFamily: 'Cairo',
                               height: 1.3,
@@ -5069,7 +5075,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
                             isAr ? 'السريع · الأكثر استخداماً' : 'Quick · Most used',
                             style: TextStyle(
                               color: _cs.onPrimary.withValues(alpha: 0.80),
-                              fontSize: 11,
+                              fontSize: _type.labelSmall?.fontSize,
                               fontFamily: 'Cairo',
                               fontWeight: FontWeight.w500,
                               height: 1.2,
@@ -5113,7 +5119,6 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
     final subtitle = compact ? null : _getActionSubtitle(action.route);
     final iconBoxSize = compact ? 32.0 : 38.0;
     final iconSize = compact ? 18.0 : 20.0;
-    final labelSize = compact ? 10.0 : 11.0;
     var hovered = false;
 
     return StatefulBuilder(
@@ -5197,7 +5202,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
                       style: TextStyle(
                         fontFamily: 'Cairo',
                         fontWeight: FontWeight.w800,
-                        fontSize: labelSize,
+                        fontSize: _type.labelSmall?.fontSize,
                         height: 1.25,
                         color: theme.colorScheme.onSurface,
                       ),
@@ -5214,7 +5219,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
                         overflow: TextOverflow.ellipsis,
                         textAlign: TextAlign.center,
                         style: TextStyle(
-                          fontSize: 9,
+                          fontSize: _type.labelSmall?.fontSize,
                           fontFamily: 'Cairo',
                           color: theme.colorScheme.onSurface.withValues(alpha: 0.45),
                           height: 1.2,
