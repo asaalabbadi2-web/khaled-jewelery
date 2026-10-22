@@ -34,9 +34,12 @@ class AppLoadingView extends StatelessWidget {
         borderRadius: BorderRadius.circular(AppRadius.control),
       ),
     );
+    // In a short space (a phone, under a toolbar) the shape is cut, not
+    // overflowed -- it is a picture of the page, not the page (ADR-057 ر٢).
     return Semantics(
       label: 'جارٍ التحميل',
-      child: Padding(
+      child: SingleChildScrollView(
+        physics: const NeverScrollableScrollPhysics(),
         padding: const EdgeInsets.all(AppSpace.lg),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,

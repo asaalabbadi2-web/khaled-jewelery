@@ -85,4 +85,27 @@ void main() {
       await shot(tester, 'state_loading_$name');
     });
   }
+
+  // ADR-057 ر٢: on a phone, under a toolbar, the space is short -- the
+  // suppliers' skeleton overflowed by 157 px there.
+  testWidgets('the skeleton fits a short space, cut, not overflowed', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Scaffold(
+          body: Center(
+            child: SizedBox(
+              width: 390,
+              height: 220,
+              child: AppLoadingView(summaryBlocks: 3, rows: 6),
+            ),
+          ),
+        ),
+      ),
+    );
+    expect(tester.takeException(), isNull);
+    expect(find.bySemanticsLabel('جارٍ التحميل'), findsOneWidget);
+  });
 }
+

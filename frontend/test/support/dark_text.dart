@@ -54,7 +54,16 @@ void expectNoLightSurfaceOnDark(WidgetTester tester) {
   for (final c in tester.widgetList<Card>(find.byType(Card))) {
     check(c.color, 'Card');
   }
-  for (final c in tester.widgetList<Container>(find.byType(Container))) {
+  for (final element in find.byType(Container).evaluate()) {
+    // An accent line or a dot (the 3-px bar beside a heading) holds no text:
+    // a surface is one a word can sit on.
+    final box = element.renderObject;
+    if (box is RenderBox &&
+        box.hasSize &&
+        (box.size.width < 24 || box.size.height < 24)) {
+      continue;
+    }
+    final c = element.widget as Container;
     check(c.color, 'Container');
     final d = c.decoration;
     if (d is BoxDecoration) check(d.color, 'Container');

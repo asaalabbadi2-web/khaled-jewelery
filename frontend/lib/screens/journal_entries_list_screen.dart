@@ -9,6 +9,8 @@ import '../api_service.dart';
 import '../app_route_observer.dart';
 import '../providers/auth_provider.dart';
 import '../providers/settings_provider.dart';
+import '../theme/app_button_styles.dart';
+import '../theme/app_semantic_colors.dart';
 import '../utils/currency_utils.dart' as cu;
 import '../widgets/cancelled_vouchers_bar.dart';
 import '../widgets/widgets.dart';
@@ -35,6 +37,9 @@ class JournalEntriesListScreen extends StatefulWidget {
 class _JournalEntriesListScreenState extends State<JournalEntriesListScreen>
     with RouteAware {
   final ApiService _apiService = ApiService();
+
+  // ADR-057 ر٢: colours by meaning, from the theme, in both modes.
+  AppSemanticColors get _tone => AppSemanticColors.of(context);
   final TextEditingController _searchController = TextEditingController();
   final ScrollController _contentScrollController = ScrollController();
   final ScrollController _tableHorizontalController = ScrollController();
@@ -882,7 +887,7 @@ class _JournalEntriesListScreenState extends State<JournalEntriesListScreen>
         ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.05),
+            color: Theme.of(context).colorScheme.shadow.withValues(alpha: 0.05),
             blurRadius: 14,
             offset: const Offset(0, 6),
           ),
@@ -997,14 +1002,14 @@ class _JournalEntriesListScreenState extends State<JournalEntriesListScreen>
         value: '$postedCount',
         subtitle: widget.isArabic ? 'مرتبطة بالأرصدة' : 'Affects balances',
         icon: Icons.verified_outlined,
-        color: Colors.green,
+        color: _tone.ready.fg,
       ),
       _buildSummaryCard(
         title: widget.isArabic ? 'قيود غير مرحلة' : 'Unposted',
         value: '$unpostedCount',
         subtitle: widget.isArabic ? 'جاهزة للمراجعة' : 'Ready for review',
         icon: Icons.pending_actions_outlined,
-        color: Colors.orange,
+        color: _tone.warning.fg,
       ),
       _buildSummaryCard(
         title: widget.isArabic ? 'إجمالي النقد' : 'Total cash',
@@ -1013,7 +1018,7 @@ class _JournalEntriesListScreenState extends State<JournalEntriesListScreen>
             ? 'على النتائج المطابقة'
             : 'Across matching results',
         icon: Icons.payments_outlined,
-        color: Colors.blue,
+        color: _tone.cash.fg,
       ),
       _buildSummaryCard(
         title: widget.isArabic ? 'إجمالي الذهب' : 'Total gold',
@@ -1022,7 +1027,7 @@ class _JournalEntriesListScreenState extends State<JournalEntriesListScreen>
             ? 'بالمكافئ على العيار الرئيسي $_mainKarat'
             : 'Main karat equivalent $_mainKarat',
         icon: Icons.scale_outlined,
-        color: const Color(0xFFD4A017),
+        color: _tone.gold.fg,
         emphasize: true,
       ),
     ];
@@ -1082,7 +1087,7 @@ class _JournalEntriesListScreenState extends State<JournalEntriesListScreen>
   Widget _statusChip({
     required String value,
     required String label,
-    required Color color,
+    required SemanticTone tone,
   }) {
     final theme = Theme.of(context);
     final selected = _status == value;
@@ -1090,12 +1095,12 @@ class _JournalEntriesListScreenState extends State<JournalEntriesListScreen>
       label: Text(label),
       selected: selected,
       labelStyle: theme.textTheme.bodySmall?.copyWith(
-        color: selected ? Colors.white : color,
+        color: selected ? tone.onContainer : tone.fg,
         fontWeight: FontWeight.w700,
       ),
-      selectedColor: color,
-      backgroundColor: color.withValues(alpha: 0.08),
-      side: BorderSide(color: color.withValues(alpha: 0.25)),
+      selectedColor: tone.container,
+      backgroundColor: tone.fg.withValues(alpha: 0.08),
+      side: BorderSide(color: tone.fg.withValues(alpha: 0.25)),
       onSelected: (_) async {
         setState(() {
           _status = value;
@@ -1131,17 +1136,17 @@ class _JournalEntriesListScreenState extends State<JournalEntriesListScreen>
                     _statusChip(
                       value: 'all',
                       label: widget.isArabic ? 'الكل' : 'All',
-                      color: theme.colorScheme.primary,
+                      tone: SemanticTone(theme.colorScheme.primary, theme.colorScheme.primaryContainer, theme.colorScheme.onPrimaryContainer),
                     ),
                     _statusChip(
                       value: 'posted',
                       label: widget.isArabic ? 'مرحلة' : 'Posted',
-                      color: Colors.green,
+                      tone: _tone.ready,
                     ),
                     _statusChip(
                       value: 'unposted',
                       label: widget.isArabic ? 'غير مرحلة' : 'Unposted',
-                      color: Colors.orange,
+                      tone: _tone.warning,
                     ),
                   ],
                 ),
@@ -1400,7 +1405,11 @@ class _JournalEntriesListScreenState extends State<JournalEntriesListScreen>
                 label: Text(
                   _minCash == null && _maxCash == null
                       ? (widget.isArabic ? 'قيمة نقدية' : 'Cash range')
-                      : '${_minCash?.toStringAsFixed(_currencyDecimalPlaces) ?? '0'} - ${_maxCash?.toStringAsFixed(_currencyDecimalPlaces) ?? '∞'}',
+                      // The range said as the app writes money, kept LTR.
+                      : ltrIsolate(
+                          '${cu.formatAmount(_minCash ?? 0, decimals: _currencyDecimalPlaces)} – '
+                          '${_maxCash == null ? '∞' : cu.formatAmount(_maxCash!, decimals: _currencyDecimalPlaces)}',
+                        ),
                 ),
               ),
               SizedBox(
@@ -1550,16 +1559,16 @@ class _JournalEntriesListScreenState extends State<JournalEntriesListScreen>
     Color color;
     switch (type) {
       case 'افتتاحي':
-        color = Colors.blue;
+        color = _tone.info.fg;
         break;
       case 'دوري':
-        color = Colors.purple;
+        color = _tone.gold.fg;
         break;
       case 'إقفال':
-        color = Colors.redAccent;
+        color = _tone.warning.fg;
         break;
       case 'تسوية':
-        color = Colors.teal;
+        color = _tone.ready.fg;
         break;
       default:
         color = theme.colorScheme.primary;
@@ -1585,7 +1594,7 @@ class _JournalEntriesListScreenState extends State<JournalEntriesListScreen>
 
   Widget _buildStatusBadge(bool isPosted) {
     final theme = Theme.of(context);
-    final color = isPosted ? Colors.green : Colors.orange;
+    final color = isPosted ? _tone.ready.fg : _tone.warning.fg;
     final label = isPosted
         ? (widget.isArabic ? 'مرحّل' : 'Posted')
         : (widget.isArabic ? 'غير مرحّل' : 'Unposted');
@@ -1714,7 +1723,7 @@ class _JournalEntriesListScreenState extends State<JournalEntriesListScreen>
                     textAlign: TextAlign.center,
                     style: theme.textTheme.labelMedium?.copyWith(
                       fontWeight: FontWeight.w800,
-                      color: isActive ? color : Colors.grey.shade800,
+                      color: isActive ? color : theme.colorScheme.onSurfaceVariant,
                       height: 1.0,
                     ),
                   ),
@@ -2006,7 +2015,7 @@ class _JournalEntriesListScreenState extends State<JournalEntriesListScreen>
                           unit: _currencySymbol,
                           width: widths['cash']!,
                           icon: Icons.payments_outlined,
-                          color: Colors.blue.shade700,
+                          color: _tone.cash.fg,
                           onTap: () => _changeSort('cash'),
                           isActive: _sortBy == 'cash',
                         ),
@@ -2017,7 +2026,7 @@ class _JournalEntriesListScreenState extends State<JournalEntriesListScreen>
                               : '${_mainKarat}k / g',
                           width: widths['gold']!,
                           icon: Icons.scale_outlined,
-                          color: const Color(0xFFD4A017),
+                          color: _tone.gold.fg,
                           onTap: () => _changeSort('gold'),
                           isActive: _sortBy == 'gold',
                         ),
@@ -2207,7 +2216,7 @@ class _JournalEntriesListScreenState extends State<JournalEntriesListScreen>
                                       width: widths['cash']!,
                                       value: _formatCash(entry['cash_total']),
                                       icon: Icons.payments_outlined,
-                                      color: Colors.blue.shade700,
+                                      color: _tone.cash.fg,
                                       emphasize: false,
                                     ),
                                     _buildMetricValueCell(
@@ -2216,7 +2225,7 @@ class _JournalEntriesListScreenState extends State<JournalEntriesListScreen>
                                         entry['gold_total_main_karat'],
                                       ),
                                       icon: Icons.scale_outlined,
-                                      color: const Color(0xFFD4A017),
+                                      color: _tone.gold.fg,
                                       emphasize: true,
                                     ),
                                     _buildBodyCell(
@@ -2357,7 +2366,7 @@ class _JournalEntriesListScreenState extends State<JournalEntriesListScreen>
                       icon: Icons.payments_outlined,
                       label: widget.isArabic ? 'النقد' : 'Cash',
                       value: _formatCash(entry['cash_total']),
-                      accent: Colors.blue.shade700,
+                      accent: _tone.cash.fg,
                     ),
                   ),
                   const SizedBox(width: 8),
@@ -2366,7 +2375,7 @@ class _JournalEntriesListScreenState extends State<JournalEntriesListScreen>
                       icon: Icons.scale_outlined,
                       label: widget.isArabic ? 'وزن الذهب' : 'Gold weight',
                       value: _formatGold(entry['gold_total_main_karat']),
-                      accent: const Color(0xFFD4A017),
+                      accent: _tone.gold.fg,
                       emphasize: true,
                     ),
                   ),
@@ -2519,7 +2528,7 @@ class _JournalEntriesListScreenState extends State<JournalEntriesListScreen>
                           ? FontWeight.bold
                           : FontWeight.normal,
                       color: isActive
-                          ? Colors.white
+                          ? theme.colorScheme.onPrimary
                           : theme.colorScheme.onSurface.withValues(alpha: 0.7),
                     ),
                   ),
@@ -2707,17 +2716,20 @@ class _JournalEntryDetailSheet extends StatelessWidget {
     this.onDelete,
   });
 
-  static const Color _gold = Color(0xFFB8860B);
-  static const Color _goldLight = Color(0xFFFFF8E1);
-
   double _toDouble(dynamic v) =>
       v == null ? 0.0 : (v is num ? v.toDouble() : double.tryParse(v.toString()) ?? 0.0);
 
-  String _fmt(double v, {int decimals = 3}) => v.toStringAsFixed(decimals);
+  /// A number as the app writes it: thousands, the minus kept whole, LTR
+  /// inside the Arabic (ADR-057 ر٢).
+  String _fmt(double v, {int decimals = 3}) =>
+      ltrIsolate(cu.formatAmount(v, decimals: decimals));
 
+  // ADR-057 ر٢: the sheet was drawn for the light theme (white, grey 50,
+  // blue 50, a fixed gold); its colours are the theme's, by meaning.
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final cs = theme.colorScheme;
     final isPosted = entry['is_posted'] == true;
     final entryNumber = entry['entry_number']?.toString() ?? '-';
     final date = _parseDate(entry['date']);
@@ -2738,14 +2750,14 @@ class _JournalEntryDetailSheet extends StatelessWidget {
       expand: false,
       builder: (_, scrollController) {
         return Container(
-          decoration: const BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+          decoration: BoxDecoration(
+            color: cs.surface,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
           ),
           child: Column(
             children: [
               // ── مقبض السحب ──────────────────────────────────────────
-              _buildHandle(),
+              _buildHandle(context),
 
               // ── رأس الـ Sheet ────────────────────────────────────────
               _buildHeader(context, entryNumber, date, isPosted, entryType, createdBy),
@@ -2758,7 +2770,7 @@ class _JournalEntryDetailSheet extends StatelessWidget {
                     width: double.infinity,
                     padding: const EdgeInsets.all(10),
                     decoration: BoxDecoration(
-                      color: Colors.grey[100],
+                      color: cs.surfaceContainerLow,
                       borderRadius: BorderRadius.circular(8),
                     ),
                     child: Text(
@@ -2798,14 +2810,14 @@ class _JournalEntryDetailSheet extends StatelessWidget {
     );
   }
 
-  Widget _buildHandle() => Padding(
+  Widget _buildHandle(BuildContext context) => Padding(
     padding: const EdgeInsets.symmetric(vertical: 10),
     child: Center(
       child: Container(
         width: 40,
         height: 4,
         decoration: BoxDecoration(
-          color: Colors.grey[300],
+          color: Theme.of(context).colorScheme.outlineVariant,
           borderRadius: BorderRadius.circular(2),
         ),
       ),
@@ -2815,15 +2827,14 @@ class _JournalEntryDetailSheet extends StatelessWidget {
   Widget _buildHeader(BuildContext context, String number, String date,
       bool isPosted, String type, String creator) {
     final theme = Theme.of(context);
+    final gold = AppSemanticColors.of(context).gold;
+    final status = isPosted
+        ? AppSemanticColors.of(context).ready
+        : AppSemanticColors.of(context).warning;
+    final muted = gold.onContainer.withValues(alpha: 0.75);
     return Container(
       padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [_gold, const Color(0xFFA07010)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-      ),
+      color: gold.container,
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -2833,13 +2844,13 @@ class _JournalEntryDetailSheet extends StatelessWidget {
               children: [
                 Row(
                   children: [
-                    const Icon(Icons.receipt_long, color: Colors.white, size: 18),
+                    Icon(Icons.receipt_long, color: gold.onContainer, size: 18),
                     const SizedBox(width: 6),
                     Flexible(
                       child: Text(
                         '${ isArabic ? "قيد يومي" : "Journal Entry"} $number',
                         style: theme.textTheme.titleMedium?.copyWith(
-                          color: Colors.white,
+                          color: gold.onContainer,
                           fontWeight: FontWeight.bold,
                         ),
                       ),
@@ -2847,13 +2858,13 @@ class _JournalEntryDetailSheet extends StatelessWidget {
                   ],
                 ),
                 const SizedBox(height: 6),
-                Row(
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 4,
                   children: [
-                    _chip(date, Icons.calendar_today, Colors.white70),
-                    const SizedBox(width: 8),
-                    _chip(type, Icons.label_outline, Colors.white70),
-                    const SizedBox(width: 8),
-                    _chip(creator, Icons.person_outline, Colors.white70),
+                    _chip(context, date, Icons.calendar_today, muted),
+                    _chip(context, type, Icons.label_outline, muted),
+                    _chip(context, creator, Icons.person_outline, muted),
                   ],
                 ),
               ],
@@ -2862,14 +2873,17 @@ class _JournalEntryDetailSheet extends StatelessWidget {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
             decoration: BoxDecoration(
-              color: isPosted ? Colors.green[700] : Colors.orange[700],
+              color: status.container,
               borderRadius: BorderRadius.circular(20),
             ),
             child: Text(
               isArabic
                   ? (isPosted ? 'مرحَّل' : 'غير مرحَّل')
                   : (isPosted ? 'Posted' : 'Unposted'),
-              style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
+              style: theme.textTheme.labelSmall?.copyWith(
+                color: status.onContainer,
+                fontWeight: FontWeight.bold,
+              ),
             ),
           ),
         ],
@@ -2877,39 +2891,46 @@ class _JournalEntryDetailSheet extends StatelessWidget {
     );
   }
 
-  Widget _chip(String label, IconData icon, Color color) => Row(
+  Widget _chip(BuildContext context, String label, IconData icon, Color color) => Row(
     mainAxisSize: MainAxisSize.min,
     children: [
       Icon(icon, size: 11, color: color),
       const SizedBox(width: 3),
-      Text(label, style: TextStyle(fontSize: 11, color: color)),
+      Text(
+        label,
+        style: Theme.of(context).textTheme.labelSmall?.copyWith(color: color),
+      ),
     ],
   );
 
   Widget _buildTotalsRow(BuildContext context, double cashDebit, double cashCredit, double goldDebit, double goldCredit, List<Map<String, dynamic>> lines) {
-
+    final cs = Theme.of(context).colorScheme;
+    final tone = AppSemanticColors.of(context);
+    final currency = context.read<SettingsProvider>().currencySymbolText;
+    final gram = isArabic ? 'جم' : 'g';
+    Widget rule() => Container(width: 1, height: 40, color: cs.outlineVariant);
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: _goldLight,
+        color: cs.surfaceContainerLow,
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: const Color(0xFFE6C800).withOpacity(0.4)),
+        border: Border.all(color: cs.outlineVariant),
       ),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceAround,
         children: [
           _totalCard(context, isArabic ? 'مدين نقد' : 'Cash Debit', _fmt(cashDebit, decimals: 2),
-              context.read<SettingsProvider>().currencySymbolText, Colors.green[700]!),
-          Container(width: 1, height: 40, color: Colors.grey[300]),
+              currency, tone.debit.fg),
+          rule(),
           _totalCard(context, isArabic ? 'دائن نقد' : 'Cash Credit', _fmt(cashCredit, decimals: 2),
-              context.read<SettingsProvider>().currencySymbolText, Colors.red[700]!),
-          Container(width: 1, height: 40, color: Colors.grey[300]),
+              currency, tone.credit.fg),
+          rule(),
           _totalCard(context, isArabic ? 'مدين ذهب' : 'Gold Debit', _fmt(goldDebit),
-              isArabic ? 'جم' : 'g', _gold),
-          Container(width: 1, height: 40, color: Colors.grey[300]),
+              gram, tone.debit.fg),
+          rule(),
           _totalCard(context, isArabic ? 'دائن ذهب' : 'Gold Credit', _fmt(goldCredit),
-              isArabic ? 'جم' : 'g', Colors.orange[700]!),
+              gram, tone.credit.fg),
         ],
       ),
     );
@@ -2917,19 +2938,29 @@ class _JournalEntryDetailSheet extends StatelessWidget {
 
   Widget _totalCard(BuildContext context, String label, String value, String unit, Color color) {
     final isNewSar = context.read<SettingsProvider>().currencyIsNewSar;
+    final text = Theme.of(context).textTheme;
+    final muted = Theme.of(context).colorScheme.onSurfaceVariant;
+    final small = text.labelSmall?.copyWith(color: muted);
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Text(label, style: TextStyle(fontSize: 11, color: Colors.grey[600])),
+        Text(label, style: small),
         const SizedBox(height: 2),
-        RichText(text: TextSpan(
+        Text.rich(TextSpan(
           children: [
-            TextSpan(text: value, style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: color)),
+            TextSpan(
+              text: value,
+              style: text.titleMedium?.copyWith(
+                fontWeight: FontWeight.bold,
+                color: color,
+                fontFeatures: const [FontFeature.tabularFigures()],
+              ),
+            ),
             const TextSpan(text: ' '),
-            if (isNewSar)
-              cu.SarSymbolSpan(fontSize: 11, color: Colors.grey[600]!)
+            if (isNewSar && unit != 'جم' && unit != 'g')
+              cu.SarSymbolSpan(fontSize: small?.fontSize ?? 11, color: muted)
             else
-              TextSpan(text: unit, style: TextStyle(fontSize: 11, color: Colors.grey[600])),
+              TextSpan(text: unit, style: small),
           ],
         )),
       ],
@@ -2937,7 +2968,10 @@ class _JournalEntryDetailSheet extends StatelessWidget {
   }
 
   Widget _buildLinesHeader(BuildContext context) {
-    final style = TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: Colors.grey[700]);
+    final style = Theme.of(context).textTheme.labelSmall?.copyWith(
+      fontWeight: FontWeight.bold,
+      color: Theme.of(context).colorScheme.onSurfaceVariant,
+    );
     return Directionality(
       textDirection: TextDirection.rtl,
       child: Padding(
@@ -2956,6 +2990,9 @@ class _JournalEntryDetailSheet extends StatelessWidget {
   }
 
   Widget _buildLineRow(BuildContext context, Map<String, dynamic> line) {
+    final cs = Theme.of(context).colorScheme;
+    final text = Theme.of(context).textTheme;
+    final tone = AppSemanticColors.of(context);
     final accountName = line['account_name']?.toString() ??
         line['account']?.toString() ?? '-';
     final accountNumber = line['account_number']?.toString() ?? '';
@@ -2971,9 +3008,9 @@ class _JournalEntryDetailSheet extends StatelessWidget {
         margin: const EdgeInsets.symmetric(vertical: 3),
         padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
         decoration: BoxDecoration(
-          color: Colors.grey[50],
+          color: cs.surfaceContainerLow,
           borderRadius: BorderRadius.circular(6),
-          border: Border.all(color: Colors.grey[200]!),
+          border: Border.all(color: cs.outlineVariant),
         ),
         child: Row(
           children: [
@@ -2984,34 +3021,37 @@ class _JournalEntryDetailSheet extends StatelessWidget {
                 children: [
                   Text(
                     accountNumber.isNotEmpty ? '$accountNumber - $accountName' : accountName,
-                    style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                    style: text.bodySmall?.copyWith(fontWeight: FontWeight.w600),
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                   ),
                   if (desc.isNotEmpty)
-                    Text(desc, style: TextStyle(fontSize: 10, color: Colors.grey[600])),
+                    Text(
+                      desc,
+                      style: text.labelSmall?.copyWith(color: cs.onSurfaceVariant),
+                    ),
                 ],
               ),
             ),
-            _amountCell(drCash > 0 ? _fmt(drCash, decimals: 2) : '-', Colors.green[700]!, 80),
-            _amountCell(crCash > 0 ? _fmt(crCash, decimals: 2) : '-', Colors.red[700]!, 80),
-            _amountCell(drGoldStr.isNotEmpty ? drGoldStr : '-', Colors.amber[800]!, 90),
-            _amountCell(crGoldStr.isNotEmpty ? crGoldStr : '-', Colors.orange[800]!, 90),
+            _amountCell(context, drCash > 0 ? _fmt(drCash, decimals: 2) : '-', tone.debit.fg, 80),
+            _amountCell(context, crCash > 0 ? _fmt(crCash, decimals: 2) : '-', tone.credit.fg, 80),
+            _amountCell(context, drGoldStr.isNotEmpty ? drGoldStr : '-', tone.debit.fg, 90),
+            _amountCell(context, crGoldStr.isNotEmpty ? crGoldStr : '-', tone.credit.fg, 90),
           ],
         ),
       ),
     );
   }
 
-  Widget _amountCell(String text, Color color, double width) => SizedBox(
+  Widget _amountCell(BuildContext context, String text, Color color, double width) => SizedBox(
     width: width,
     child: Text(
       text,
       textAlign: TextAlign.center,
-      style: TextStyle(
-        fontSize: 11,
-        color: text == '-' ? Colors.grey[400] : color,
+      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+        color: text == '-' ? Theme.of(context).colorScheme.outline : color,
         fontWeight: text == '-' ? FontWeight.normal : FontWeight.bold,
+        fontFeatures: const [FontFeature.tabularFigures()],
       ),
     ),
   );
@@ -3022,32 +3062,33 @@ class _JournalEntryDetailSheet extends StatelessWidget {
     final notes = entry['notes']?.toString() ?? '';
     if (refType.isEmpty && refNumber.isEmpty && notes.isEmpty) return const SizedBox.shrink();
 
+    final info = AppSemanticColors.of(context).info;
+    final style = Theme.of(context).textTheme.bodySmall?.copyWith(color: info.onContainer);
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: Colors.blue[50],
+        color: info.container,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.blue[100]!),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           if (refType.isNotEmpty || refNumber.isNotEmpty) ...[
             Row(children: [
-              const Icon(Icons.link, size: 14, color: Colors.blueGrey),
+              Icon(Icons.link, size: 14, color: info.onContainer),
               const SizedBox(width: 4),
               Text(
                 '${isArabic ? "مرجع" : "Ref"}: $refType ${refNumber.isNotEmpty ? "($refNumber)" : ""}'.trim(),
-                style: const TextStyle(fontSize: 12, color: Colors.blueGrey),
+                style: style,
               ),
             ]),
           ],
           if (notes.isNotEmpty) ...[
             if (refType.isNotEmpty) const SizedBox(height: 4),
             Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              const Icon(Icons.note_outlined, size: 14, color: Colors.blueGrey),
+              Icon(Icons.note_outlined, size: 14, color: info.onContainer),
               const SizedBox(width: 4),
-              Expanded(child: Text(notes, style: const TextStyle(fontSize: 12, color: Colors.blueGrey))),
+              Expanded(child: Text(notes, style: style)),
             ]),
           ],
         ],
@@ -3099,7 +3140,10 @@ class _JournalEntryDetailSheet extends StatelessWidget {
             Expanded(
               child: FilledButton.icon(
                 onPressed: onPost,
-                style: FilledButton.styleFrom(backgroundColor: Colors.green[700]),
+                style: AppButtonStyles.primary(
+                  context,
+                  AppSemanticColors.of(context).ready,
+                ),
                 icon: const Icon(Icons.check_circle_outline),
                 label: Text(isArabic ? 'ترحيل' : 'Post'),
               ),
@@ -3110,7 +3154,7 @@ class _JournalEntryDetailSheet extends StatelessWidget {
             IconButton(
               onPressed: onDelete,
               icon: const Icon(Icons.delete_outline),
-              color: Colors.red[700],
+              color: Theme.of(context).colorScheme.error,
               tooltip: isArabic ? 'حذف' : 'Delete',
             ),
           ],

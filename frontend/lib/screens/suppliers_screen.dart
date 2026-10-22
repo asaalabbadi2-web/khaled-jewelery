@@ -4,7 +4,7 @@ import 'package:provider/provider.dart';
 
 import '../api_service.dart';
 import '../providers/settings_provider.dart';
-import '../theme/app_theme.dart' as app_theme;
+import '../theme/app_semantic_colors.dart';
 import 'account_statement_screen.dart';
 import 'add_supplier_screen.dart';
 import 'add_voucher_screen.dart';
@@ -53,6 +53,9 @@ class SuppliersScreenState extends State<SuppliersScreen> {
 
   static const double _epsCash = 0.01;
   static const double _epsGold = 0.0005;
+
+  // ADR-057 ر٢: colours by meaning, from the theme, in both modes.
+  AppSemanticColors get _tone => AppSemanticColors.of(context);
 
   String get _currencySymbol =>
       context.read<SettingsProvider>().currencySymbolText;
@@ -304,12 +307,14 @@ class SuppliersScreenState extends State<SuppliersScreen> {
     if (value < 0) {
       return (
         label: widget.isArabic ? 'له' : 'Credit',
-        color: app_theme.AppColors.error,
+        // What we owe the supplier is its normal state, not an error: the
+        // books' credit tone, not red (ADR-057 ر٢).
+        color: _tone.credit.fg,
       );
     }
     return (
       label: widget.isArabic ? 'عليه' : 'Due',
-      color: app_theme.AppColors.success,
+      color: _tone.debit.fg,
     );
   }
 
@@ -481,8 +486,8 @@ class SuppliersScreenState extends State<SuppliersScreen> {
                         final e = nonZeroKarats[ki];
                         final isNeg = e.value < 0;
                         final chipColor = isNeg
-                            ? app_theme.AppColors.error
-                            : const Color(0xFFC69214);
+                            ? _tone.credit.fg
+                            : _tone.debit.fg;
                         return Container(
                           padding: const EdgeInsets.symmetric(
                             horizontal: 5,
@@ -500,11 +505,11 @@ class SuppliersScreenState extends State<SuppliersScreen> {
                             textAlign: TextAlign.center,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              fontSize: 10,
-                              fontWeight: FontWeight.w600,
-                              color: chipColor,
-                            ),
+                            style: Theme.of(context).textTheme.labelSmall
+                                ?.copyWith(
+                                  fontWeight: FontWeight.w600,
+                                  color: chipColor,
+                                ),
                           ),
                         );
                       },
@@ -745,10 +750,7 @@ class SuppliersScreenState extends State<SuppliersScreen> {
       return value < 0 ? sum + (-value) : sum;
     });
 
-    return Wrap(
-      spacing: 10,
-      runSpacing: 10,
-      children: [
+    final cards = <Widget>[
         _buildSummaryCard(
           title: widget.isArabic ? 'الموردون المطابقون' : 'Matching suppliers',
           value: '$totalSuppliers',
@@ -765,14 +767,14 @@ class SuppliersScreenState extends State<SuppliersScreen> {
               ? 'جاهزون للحركة والشراء'
               : 'Ready for transactions',
           icon: Icons.verified_user_outlined,
-          color: Colors.blue,
+          color: _tone.info.fg,
         ),
         _buildSummaryCard(
           title: widget.isArabic ? 'إجمالي النقد الدائن' : 'Total cash credit',
           value: moneyFmt.format(totalCashCredit),
           subtitle: widget.isArabic ? 'مستحق للموردين' : 'Due to suppliers',
           icon: Icons.payments_outlined,
-          color: Colors.green,
+          color: _tone.cash.fg,
         ),
         _buildSummaryCard(
           title: widget.isArabic
@@ -788,16 +790,35 @@ class SuppliersScreenState extends State<SuppliersScreen> {
               ? 'موردون بأرصدة وزنية'
               : 'Weighted supplier balances',
           icon: Icons.scale_outlined,
-          color: const Color(0xFFD4A017),
+          color: _tone.gold.fg,
         ),
         _buildSummaryCard(
           title: widget.isArabic ? 'موردون برصيد' : 'Suppliers with balance',
           value: '$suppliersWithBalance',
           subtitle: widget.isArabic ? 'نقدي أو ذهبي' : 'Cash or gold balances',
           icon: Icons.account_balance_wallet_outlined,
-          color: Colors.teal,
+          color: _tone.ready.fg,
         ),
-      ],
+    ];
+
+    // On a phone the five cards stacked filled the screen and the suppliers
+    // were not seen (ADR-057 ر٢): one row that scrolls sideways instead.
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        if (constraints.maxWidth >= 600) {
+          return Wrap(spacing: 10, runSpacing: 10, children: cards);
+        }
+        return SizedBox(
+          key: const Key('suppliers-summary-row'),
+          height: 104,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            itemCount: cards.length,
+            separatorBuilder: (_, _) => const SizedBox(width: 10),
+            itemBuilder: (_, i) => cards[i],
+          ),
+        );
+      },
     );
   }
 
@@ -1049,8 +1070,7 @@ class SuppliersScreenState extends State<SuppliersScreen> {
           ],
           Text(
             label,
-            style: TextStyle(
-              fontSize: 12,
+            style: Theme.of(context).textTheme.labelMedium?.copyWith(
               fontWeight: FontWeight.w700,
               color: color,
             ),
@@ -1216,7 +1236,9 @@ class SuppliersScreenState extends State<SuppliersScreen> {
                         label: active
                             ? (widget.isArabic ? 'نشط' : 'Active')
                             : (widget.isArabic ? 'معطل' : 'Inactive'),
-                        color: active ? Colors.green : Colors.grey,
+                        color: active
+                            ? _tone.ready.fg
+                            : Theme.of(context).colorScheme.outline,
                         icon: active
                             ? Icons.check_circle_outline
                             : Icons.block_outlined,
@@ -1226,7 +1248,7 @@ class SuppliersScreenState extends State<SuppliersScreen> {
                           label: widget.isArabic
                               ? 'مكتب تسكير'
                               : 'Closing office',
-                          color: Colors.blue,
+                          color: _tone.info.fg,
                           icon: Icons.apartment_outlined,
                         ),
                       if (safeBoxName.isNotEmpty)
@@ -1278,6 +1300,22 @@ class SuppliersScreenState extends State<SuppliersScreen> {
                 isClosingOffice: isClosingOffice,
               );
 
+              final statementButton = FilledButton.icon(
+                onPressed: () => _openSupplierStatement(supplier),
+                icon: const Icon(Icons.assessment_outlined, size: 18),
+                label: Text(widget.isArabic ? 'كشف الحساب' : 'Statement'),
+              );
+              final voucherButton = OutlinedButton.icon(
+                onPressed: () => _openPaymentVoucher(supplier),
+                icon: const Icon(Icons.call_made_outlined, size: 18),
+                label: Text(widget.isArabic ? 'سند صرف' : 'Payment'),
+              );
+              final purchaseButton = OutlinedButton.icon(
+                onPressed: () => _openPurchaseInvoice(supplier),
+                icon: const Icon(Icons.shopping_cart_outlined, size: 18),
+                label: Text(widget.isArabic ? 'شراء' : 'Purchase'),
+              );
+
               return Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -1296,38 +1334,29 @@ class SuppliersScreenState extends State<SuppliersScreen> {
                     balancePanel,
                   ],
                   const SizedBox(height: 12),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: FilledButton.icon(
-                          onPressed: () => _openSupplierStatement(supplier),
-                          icon: const Icon(Icons.assessment_outlined, size: 18),
-                          label: Text(
-                            widget.isArabic ? 'كشف الحساب' : 'Statement',
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          onPressed: () => _openPaymentVoucher(supplier),
-                          icon: const Icon(Icons.call_made_outlined, size: 18),
-                          label: Text(widget.isArabic ? 'سند صرف' : 'Payment'),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          onPressed: () => _openPurchaseInvoice(supplier),
-                          icon: const Icon(
-                            Icons.shopping_cart_outlined,
-                            size: 18,
-                          ),
-                          label: Text(widget.isArabic ? 'شراء' : 'Purchase'),
-                        ),
-                      ),
-                    ],
-                  ),
+                  // On a phone the three squeezed «كشف الحساب» a letter a
+                  // line (ADR-057 ر٢): the statement alone, the two below.
+                  if (isWide)
+                    Row(
+                      children: [
+                        Expanded(child: statementButton),
+                        const SizedBox(width: 8),
+                        Expanded(child: voucherButton),
+                        const SizedBox(width: 8),
+                        Expanded(child: purchaseButton),
+                      ],
+                    )
+                  else ...[
+                    SizedBox(width: double.infinity, child: statementButton),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Expanded(child: voucherButton),
+                        const SizedBox(width: 8),
+                        Expanded(child: purchaseButton),
+                      ],
+                    ),
+                  ],
                 ],
               );
             },
@@ -1401,7 +1430,7 @@ class SuppliersScreenState extends State<SuppliersScreen> {
                   textAlign: TextAlign.end,
                   style: theme.textTheme.bodyMedium?.copyWith(
                     fontWeight: FontWeight.w700,
-                    color: Colors.green.shade700,
+                    color: _tone.cash.fg,
                   ),
                 ),
               ),
@@ -1413,7 +1442,7 @@ class SuppliersScreenState extends State<SuppliersScreen> {
                   textAlign: TextAlign.end,
                   style: theme.textTheme.bodyMedium?.copyWith(
                     fontWeight: FontWeight.w700,
-                    color: const Color(0xFFD4A017),
+                    color: _tone.gold.fg,
                   ),
                 ),
               ),

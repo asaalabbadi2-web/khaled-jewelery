@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/quick_actions_provider.dart';
 import '../models/quick_action_item.dart';
+import '../theme/app_semantic_colors.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_bar_tab_bar.dart';
 import '../widgets/app_state_views.dart';
@@ -69,6 +70,9 @@ class _CustomizeQuickActionsScreenState
 
   QuickActionGroup get _currentGroup => _groups[_tabController.index];
 
+  // ADR-057 ر٢: colours by meaning, from the theme, in both modes.
+  AppSemanticColors get _tone => AppSemanticColors.of(context);
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -84,7 +88,7 @@ class _CustomizeQuickActionsScreenState
                 Icons.add_circle_outline,
                 color: _isReordering
                     ? theme.disabledColor
-                    : AppColors.primaryGold,
+                    : _tone.gold.fg,
               ),
               tooltip: 'إضافة زر',
               onPressed: _isReordering ? null : _openAddActionSheet,
@@ -154,20 +158,19 @@ class _CustomizeQuickActionsScreenState
       margin: const EdgeInsets.fromLTRB(16, 12, 16, 0),
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       decoration: BoxDecoration(
-        color: AppColors.info.withValues(alpha: 0.1),
+        color: _tone.info.container,
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: AppColors.info.withValues(alpha: 0.3)),
       ),
       child: Row(
         children: [
-          Icon(Icons.info_outline, color: AppColors.info, size: 20),
+          Icon(Icons.info_outline, color: _tone.info.onContainer, size: 20),
           const SizedBox(width: 10),
           Expanded(
             child: Text(
               _isReordering
                   ? 'اسحب الأزرار لتغيير ترتيبها داخل القسم'
                   : 'فعّل/عطّل الأزرار التي تريد عرضها في كل قسم',
-              style: theme.textTheme.bodySmall?.copyWith(color: AppColors.info),
+              style: theme.textTheme.bodySmall?.copyWith(color: _tone.info.onContainer),
             ),
           ),
         ],
@@ -186,7 +189,7 @@ class _CustomizeQuickActionsScreenState
       ),
       child: SwitchListTile(
         value: provider.showSalesRaceCard,
-        activeColor: AppColors.success,
+        activeThumbColor: _tone.ready.fg,
         title: const Text('عرض كرت سباق المبيعات'),
         subtitle: const Text('إظهار/إخفاء كرت التحدي في الرئيسية'),
         onChanged: (value) async {
@@ -244,7 +247,7 @@ class _CustomizeQuickActionsScreenState
           _buildReorderableSliver(provider, active, theme)
         else ...[
           if (active.isNotEmpty) ...[
-            SliverToBoxAdapter(child: _buildSubHeader(theme, 'مفعّلة', AppColors.success)),
+            SliverToBoxAdapter(child: _buildSubHeader(theme, 'مفعّلة', _tone.ready.fg)),
             SliverList(
               delegate: SliverChildBuilderDelegate(
                 (_, i) => _buildToggleItem(active[i], provider, theme, active: true),
@@ -301,7 +304,7 @@ class _CustomizeQuickActionsScreenState
       ),
       child: Row(
         children: [
-          Icon(icon, size: 20, color: AppColors.primaryGold),
+          Icon(icon, size: 20, color: _tone.gold.fg),
           const SizedBox(width: 10),
           Expanded(
             child: Text(
@@ -312,13 +315,13 @@ class _CustomizeQuickActionsScreenState
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
             decoration: BoxDecoration(
-              color: AppColors.success.withValues(alpha: 0.12),
+              color: _tone.ready.container,
               borderRadius: BorderRadius.circular(20),
             ),
             child: Text(
               '$active / $total مفعّل',
               style: theme.textTheme.bodySmall?.copyWith(
-                color: AppColors.success,
+                color: _tone.ready.onContainer,
                 fontWeight: FontWeight.w600,
               ),
             ),
@@ -419,19 +422,19 @@ class _CustomizeQuickActionsScreenState
           ),
           child: Icon(
             action.icon,
-            color: active ? color : theme.disabledColor,
+            color: active ? color : theme.colorScheme.onSurfaceVariant,
             size: 22,
           ),
         ),
         title: Text(
           action.label,
           style: theme.textTheme.titleSmall?.copyWith(
-            color: active ? null : theme.disabledColor,
+            color: active ? null : theme.colorScheme.onSurfaceVariant,
           ),
         ),
         trailing: Switch(
           value: active,
-          activeThumbColor: AppColors.success,
+          activeThumbColor: _tone.ready.fg,
           onChanged: (_) async {
             final bool success;
             if (onToggleOverride != null) {
@@ -481,7 +484,7 @@ class _CustomizeQuickActionsScreenState
               theme.dialogTheme.backgroundColor ?? theme.colorScheme.surface,
           title: Row(
             children: [
-              Icon(Icons.warning_amber_rounded, color: AppColors.warning),
+              Icon(Icons.warning_amber_rounded, color: _tone.warning.fg),
               const SizedBox(width: 12),
               Text('إعادة تعيين', style: theme.textTheme.titleLarge),
             ],
@@ -497,8 +500,8 @@ class _CustomizeQuickActionsScreenState
             ),
             ElevatedButton(
               style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.error,
-                foregroundColor: Colors.white,
+                backgroundColor: theme.colorScheme.error,
+                foregroundColor: theme.colorScheme.onError,
               ),
               onPressed: () async {
                 Navigator.pop(context);
@@ -631,7 +634,7 @@ class _CustomizeQuickActionsScreenState
                                       title: Text(action.label),
                                       trailing: IconButton(
                                         icon: const Icon(Icons.add_circle_outline),
-                                        color: AppColors.primaryGold,
+                                        color: _tone.gold.fg,
                                         onPressed: handleTap,
                                       ),
                                       onTap: handleTap,

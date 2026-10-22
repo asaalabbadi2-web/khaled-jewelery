@@ -11,6 +11,9 @@ import 'package:frontend/widgets/app_state_views.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'support/dark_text.dart';
+import 'support/shots.dart';
+
 /// The suppliers screen (ADR-050 ر٠): the gold at the main karat is the
 /// server's (`balance_gold_main`) -- the screen worked it out with its own
 /// formula; deleting says which supplier and what the server will do, and a
@@ -74,11 +77,16 @@ void main() {
     await cairo.load();
   });
 
-  Future<void> open(WidgetTester tester, _FakeApi api) async {
+  Future<void> open(
+    WidgetTester tester,
+    _FakeApi api, {
+    ThemeData? theme,
+    Size size = const Size(1440, 1600),
+  }) async {
     SharedPreferences.setMockInitialValues({
       'app_settings': jsonEncode({'main_karat': 21}),
     });
-    tester.view.physicalSize = const Size(1440, 1600);
+    tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
     final settings = SettingsProvider();
@@ -87,7 +95,7 @@ void main() {
       ChangeNotifierProvider.value(
         value: settings,
         child: MaterialApp(
-          theme: LightTheme.theme,
+          theme: theme ?? LightTheme.theme,
           home: Directionality(
             textDirection: TextDirection.rtl,
             child: SuppliersScreen(api: api),
@@ -196,4 +204,28 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('مورد الذهب'), findsWidgets);
   });
+
+  // ر٢ (ADR-057): the screen reads in the dark theme.
+  for (final (name, size) in [
+    ('desktop', const Size(1440, 1600)),
+    ('phone', const Size(390, 844)),
+  ]) {
+    testWidgets('it reads in the dark theme on a $name', (tester) async {
+      await open(
+        tester,
+        _FakeApi(
+          rows: [
+            _supplier(),
+            {..._supplier(), 'id': 6, 'name': 'مورد موقوف', 'active': false},
+          ],
+        ),
+        theme: DarkTheme.theme,
+        size: size,
+      );
+      expect(tester.takeException(), isNull);
+      await shot(tester, 'suppliers_dark_$name');
+      expectNoTextVanishesOnDark(tester);
+      expectNoLightSurfaceOnDark(tester);
+    });
+  }
 }

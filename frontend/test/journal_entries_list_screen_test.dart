@@ -12,6 +12,9 @@ import 'package:http/testing.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'support/dark_text.dart';
+import 'support/shots.dart';
+
 /// The journal entries list (ADR-050 ر٠): posting puts an entry in the
 /// balances -- it was one press, now asked first, saying which entry and its
 /// totals; a refusal says the server's reason (it said «فشل ترحيل القيد»);
@@ -53,12 +56,14 @@ void main() {
     Future<void> Function() steps, {
     String? refuse,
     bool listFails = false,
+    ThemeData? theme,
+    Size size = const Size(1440, 1200),
   }) async {
     SharedPreferences.setMockInitialValues({
       'jwt_token': 'token',
       'app_settings': jsonEncode({'main_karat': 21}),
     });
-    tester.view.physicalSize = const Size(1440, 1200);
+    tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
     final settings = SettingsProvider();
@@ -81,7 +86,7 @@ void main() {
               ChangeNotifierProvider.value(value: settings),
             ],
             child: MaterialApp(
-              theme: LightTheme.theme,
+              theme: theme ?? LightTheme.theme,
               home: const Directionality(
                 textDirection: TextDirection.rtl,
                 child: JournalEntriesListScreen(),
@@ -104,6 +109,26 @@ void main() {
             return json({'error': 'refused', 'message': refuse}, 400);
           }
           return json({'success': true});
+        }
+        if (path.endsWith('/journal_entries/7')) {
+          return json({
+            ..._entry,
+            'notes': 'سُوّي فرق الجرد',
+            'lines': [
+              {
+                'account_number': '1110',
+                'account_name': 'الصندوق',
+                'cash_debit': 1500.0,
+                'cash_credit': 0.0,
+              },
+              {
+                'account_number': '4910',
+                'account_name': 'فروقات',
+                'cash_debit': 0.0,
+                'cash_credit': 1500.0,
+              },
+            ],
+          });
         }
         if (path.endsWith('/journal_entries') && listFails) {
           return json({
@@ -207,6 +232,33 @@ void main() {
       expect(find.text('تعذّر تحميل قيود اليومية'), findsOneWidget);
       expect(find.text('قاعدة البيانات مشغولة'), findsOneWidget);
       expect(find.text('إعادة المحاولة'), findsOneWidget);
+    });
+  });
+
+  // ر٢ (ADR-057): the list reads in the dark theme, in its table and cards.
+  for (final (name, size) in [
+    ('desktop', const Size(1440, 1200)),
+    ('phone', const Size(390, 844)),
+  ]) {
+    testWidgets('it reads in the dark theme on a $name', (tester) async {
+      await open(theme: DarkTheme.theme, size: size, tester, () async {
+        expect(tester.takeException(), isNull);
+        await shot(tester, 'journal_list_dark_$name');
+        expectNoTextVanishesOnDark(tester);
+        expectNoLightSurfaceOnDark(tester);
+      });
+    });
+  }
+
+  testWidgets('the entry\'s sheet reads in the dark theme', (tester) async {
+    // ر٢ (ADR-057): the sheet was drawn white, grey and blue on any theme.
+    await open(theme: DarkTheme.theme, tester, () async {
+      await act(tester, 'عرض');
+      expect(find.textContaining('JE-2026-00042'), findsWidgets);
+      expect(find.textContaining('1,500.00'), findsWidgets);
+      await shot(tester, 'journal_sheet_dark');
+      expectNoTextVanishesOnDark(tester);
+      expectNoLightSurfaceOnDark(tester);
     });
   });
 }
