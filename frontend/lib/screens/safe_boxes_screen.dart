@@ -428,7 +428,7 @@ class _SafeBoxesScreenState extends State<SafeBoxesScreen> {
 
   Widget _body() {
     if (_loading && _overview == null) {
-      return const Center(child: CircularProgressIndicator());
+      return const AppLoadingView();
     }
     if (_error != null && _overview == null) {
       return AppErrorView(

@@ -7,6 +7,7 @@ import 'package:frontend/api_service.dart';
 import 'package:frontend/providers/settings_provider.dart';
 import 'package:frontend/screens/suppliers_screen.dart';
 import 'package:frontend/theme/app_theme.dart';
+import 'package:frontend/widgets/app_state_views.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -15,7 +16,15 @@ import 'package:shared_preferences/shared_preferences.dart';
 /// formula; deleting says which supplier and what the server will do, and a
 /// refusal comes in the server's words, not «Exception: ...».
 class _FakeApi extends ApiService {
-  _FakeApi({required this.rows, this.deleteAnswer, this.deleteRefusal});
+  _FakeApi({
+    required this.rows,
+    this.deleteAnswer,
+    this.deleteRefusal,
+    this.failLoads = 0,
+  });
+
+  /// How many of the next loads fail.
+  int failLoads;
 
   final List<Map<String, dynamic>> rows;
   final Map<String, dynamic>? deleteAnswer;
@@ -23,7 +32,13 @@ class _FakeApi extends ApiService {
   final deleted = <int>[];
 
   @override
-  Future<List<dynamic>> getSuppliers() async => rows;
+  Future<List<dynamic>> getSuppliers() async {
+    if (failLoads > 0) {
+      failLoads--;
+      throw ApiException.text('انقطع الاتصال بالخادم');
+    }
+    return rows;
+  }
 
   @override
   Future<Map<String, dynamic>> deleteSupplier(int id) async {
@@ -152,5 +167,33 @@ void main() {
       expect(find.textContaining('لا يمكن حذف مورد لديه رصيد'), findsOneWidget);
       expect(find.textContaining('Exception'), findsNothing);
     });
+  });
+
+  // ر١ (ADR-057): the app's error and empty views.
+  testWidgets('a failed load says the server\'s words, and tries again', (
+    tester,
+  ) async {
+    await open(tester, _FakeApi(rows: [_supplier()], failLoads: 1));
+    expect(find.text('تعذّر تحميل الموردين'), findsOneWidget);
+    expect(find.text('انقطع الاتصال بالخادم'), findsOneWidget);
+    await tester.tap(find.text('إعادة المحاولة'));
+    await tester.pumpAndSettle();
+    expect(find.text('مورد الذهب'), findsWidgets);
+  });
+
+  testWidgets('a search that finds nothing offers to clear it', (tester) async {
+    await open(tester, _FakeApi(rows: [_supplier()]));
+    await tester.enterText(find.byType(TextField).first, 'لا أحد');
+    await tester.pumpAndSettle();
+    expect(find.text('لا توجد نتائج مطابقة'), findsOneWidget);
+    // The empty view's own -- the toolbar has one too.
+    await tester.tap(
+      find.descendant(
+        of: find.byType(AppEmptyView),
+        matching: find.text('مسح الفلاتر'),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('مورد الذهب'), findsWidgets);
   });
 }

@@ -15,6 +15,7 @@ import '../theme/app_theme.dart' as theme;
 import '../widgets/app_feedback.dart';
 import '../utils/currency_utils.dart';
 import '../widgets/voucher_actions.dart';
+import '../widgets/app_state_views.dart';
 import '../utils/invoice_type_label.dart';
 
 Future<bool?> showVoucherDetailsSheet(
@@ -551,11 +552,11 @@ class _VoucherDetailsScreenState extends State<VoucherDetailsScreen> {
       return widget.asSheet
           ? Material(
               color: _cs.surfaceContainerLowest,
-              child: Center(child: CircularProgressIndicator()),
+              child: const AppLoadingView(summaryBlocks: 2, rows: 4),
             )
           : Scaffold(
               appBar: AppBar(title: const Text('تفاصيل السند')),
-              body: const Center(child: CircularProgressIndicator()),
+              body: const AppLoadingView(summaryBlocks: 2, rows: 4),
             );
     }
 

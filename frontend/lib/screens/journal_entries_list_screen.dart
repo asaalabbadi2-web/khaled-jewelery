@@ -15,6 +15,7 @@ import '../widgets/widgets.dart';
 import 'journal_entry_form.dart';
 import '../widgets/app_feedback.dart';
 import '../widgets/confirm_financial_action.dart';
+import '../widgets/app_state_views.dart';
 import '../utils/bidi.dart';
 
 enum _JournalEntriesListView { table, cards }
@@ -53,7 +54,7 @@ class _JournalEntriesListScreenState extends State<JournalEntriesListScreen>
   bool _includeCancelled = false;
   int _cancelledCount = 0;
   bool _cancelledHidden = false;
-  String? _error;
+  Object? _error;
 
   int _currencyDecimalPlaces = 2;
   // The settings' main karat from the start -- never a fixed one.
@@ -243,15 +244,20 @@ class _JournalEntriesListScreenState extends State<JournalEntriesListScreen>
         return;
       }
       setState(() {
-        _error = e.toString();
+        _error = e;
         _isLoading = false;
       });
-      _showSnackBar(
-        widget.isArabic
-            ? 'فشل تحميل قيود اليومية'
-            : 'Failed to load journal entries',
-        isError: true,
-      );
+      // With entries on screen the error view does not show: said here, in
+      // the server's words (ADR-057 ر١).
+      if (_entries.isNotEmpty) {
+        AppFeedback.error(
+          context,
+          e,
+          title: widget.isArabic
+              ? 'تعذّر تحميل قيود اليومية'
+              : 'Unable to load journal entries',
+        );
+      }
     }
   }
 
@@ -652,7 +658,13 @@ class _JournalEntriesListScreenState extends State<JournalEntriesListScreen>
       if (loaderVisible && mounted) {
         Navigator.of(context, rootNavigator: true).pop();
       }
-      if (mounted) _showSnackBar(widget.isArabic ? 'فشل تحميل القيد: $e' : 'Failed to load entry: $e', isError: true);
+      if (mounted) {
+        AppFeedback.error(
+          context,
+          e,
+          title: widget.isArabic ? 'تعذّر تحميل القيد' : 'Unable to load the entry',
+        );
+      }
     }
   }
 
@@ -2532,76 +2544,30 @@ class _JournalEntriesListScreenState extends State<JournalEntriesListScreen>
     );
   }
 
-  Widget _buildEmptyState() {
-    final theme = Theme.of(context);
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(
-            Icons.receipt_long_outlined,
-            size: 64,
-            color: theme.colorScheme.primary.withValues(alpha: 0.35),
-          ),
-          const SizedBox(height: 16),
-          Text(
-            _activeFiltersCount > 0
-                ? (widget.isArabic
-                      ? 'لا توجد نتائج مطابقة'
-                      : 'No matching entries')
-                : (widget.isArabic
-                      ? 'لا توجد قيود يومية'
-                      : 'No journal entries'),
-            style: theme.textTheme.titleMedium?.copyWith(
-              color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            widget.isArabic
-                ? 'أضف قيدًا جديدًا أو عدّل الفلاتر الحالية'
-                : 'Add a new entry or adjust the current filters',
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: theme.colorScheme.onSurface.withValues(alpha: 0.55),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   Widget _buildBody() {
+    // The app's loading, error and empty views (ADR-057 ر١).
+    final isAr = widget.isArabic;
     if (_error != null && _entries.isEmpty && !_isLoading) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Text(
-                widget.isArabic ? 'تعذر تحميل البيانات' : 'Unable to load data',
-                style: Theme.of(context).textTheme.titleMedium,
-              ),
-              const SizedBox(height: 8),
-              Text(_error!, textAlign: TextAlign.center),
-              const SizedBox(height: 12),
-              FilledButton.icon(
-                onPressed: () => _loadEntries(forceRefresh: true),
-                icon: const Icon(Icons.refresh),
-                label: Text(widget.isArabic ? 'إعادة المحاولة' : 'Retry'),
-              ),
-            ],
-          ),
-        ),
+      return AppErrorView(
+        title: isAr ? 'تعذّر تحميل قيود اليومية' : 'Unable to load journal entries',
+        error: _error,
+        onRetry: () => _loadEntries(forceRefresh: true),
       );
     }
 
-    if (_isLoading && _entries.isEmpty) {
-      return const Center(child: CircularProgressIndicator());
-    }
+    if (_isLoading && _entries.isEmpty) return const AppLoadingView();
 
     if (_entries.isEmpty) {
-      return _buildEmptyState();
+      final filtered = _activeFiltersCount > 0;
+      return AppEmptyView(
+        icon: Icons.receipt_long_outlined,
+        title: filtered
+            ? (isAr ? 'لا توجد نتائج مطابقة' : 'No matching entries')
+            : (isAr ? 'لا توجد قيود يومية' : 'No journal entries'),
+        hint: isAr
+            ? 'أضف قيدًا جديدًا أو عدّل الفلاتر.'
+            : 'Add a new entry or adjust the filters.',
+      );
     }
 
     if (_viewMode == _JournalEntriesListView.table) {

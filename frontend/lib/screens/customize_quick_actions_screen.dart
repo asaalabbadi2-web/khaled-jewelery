@@ -4,6 +4,8 @@ import '../providers/quick_actions_provider.dart';
 import '../models/quick_action_item.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_bar_tab_bar.dart';
+import '../widgets/app_state_views.dart';
+import '../widgets/app_feedback.dart';
 
 class _AddActionResult {
   final QuickActionItem? action;
@@ -123,11 +125,7 @@ class _CustomizeQuickActionsScreenState
         ),
         body: Consumer<QuickActionsProvider>(
           builder: (context, provider, _) {
-            if (provider.isLoading) {
-              return Center(
-                child: CircularProgressIndicator(color: AppColors.primaryGold),
-              );
-            }
+            if (provider.isLoading) return const AppLoadingView(rows: 5);
 
             return Column(
               children: [
@@ -194,13 +192,7 @@ class _CustomizeQuickActionsScreenState
         onChanged: (value) async {
           final ok = await provider.setShowSalesRaceCard(value);
           if (!mounted || ok) return;
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: const Text('تعذر حفظ الإعداد، حاول مرة أخرى'),
-              backgroundColor: AppColors.error,
-              duration: const Duration(seconds: 2),
-            ),
-          );
+          AppFeedback.error(context, 'تعذر حفظ الإعداد، حاول مرة أخرى');
         },
       ),
     );
@@ -448,17 +440,9 @@ class _CustomizeQuickActionsScreenState
               success = await provider.toggleAction(action.id);
             }
             if (success && mounted) {
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text(
-                    !active
+              AppFeedback.success(context, !active
                         ? 'تم تفعيل "${action.label}"'
-                        : 'تم تعطيل "${action.label}"',
-                  ),
-                  backgroundColor: !active ? AppColors.success : theme.hintColor,
-                  duration: const Duration(seconds: 2),
-                ),
-              );
+                        : 'تم تعطيل "${action.label}"');
             }
           },
         ),
@@ -524,12 +508,7 @@ class _CustomizeQuickActionsScreenState
                 );
                 final success = await p.resetToDefaults();
                 if (success && mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: const Text('تم إعادة التعيين بنجاح'),
-                      backgroundColor: AppColors.success,
-                    ),
-                  );
+                  AppFeedback.success(context, 'تم إعادة التعيين بنجاح');
                 }
               },
               child: const Text('إعادة تعيين'),
@@ -550,13 +529,7 @@ class _CustomizeQuickActionsScreenState
         groupCatalog.where((a) => !existingIds.contains(a.id)).toList();
 
     if (availableItems.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: const Text('جميع عناصر هذا القسم مضافة بالفعل'),
-          backgroundColor: Theme.of(context).hintColor,
-          duration: const Duration(seconds: 2),
-        ),
-      );
+      AppFeedback.info(context, 'جميع عناصر هذا القسم مضافة بالفعل');
       return;
     }
 
@@ -679,45 +652,20 @@ class _CustomizeQuickActionsScreenState
 
     if (!mounted || result == null) return;
 
-    final theme = Theme.of(context);
     final label = result.action?.label ?? '';
 
     switch (result.status) {
       case QuickActionAddStatus.added:
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('تمت إضافة "$label"'),
-            backgroundColor: AppColors.success,
-            duration: const Duration(seconds: 2),
-          ),
-        );
+        AppFeedback.success(context, 'تمت إضافة "$label"');
         break;
       case QuickActionAddStatus.reactivated:
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('تم تفعيل "$label" من جديد'),
-            backgroundColor: AppColors.success,
-            duration: const Duration(seconds: 2),
-          ),
-        );
+        AppFeedback.success(context, 'تم تفعيل "$label" من جديد');
         break;
       case QuickActionAddStatus.alreadyExists:
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('"$label" موجود بالفعل'),
-            backgroundColor: theme.hintColor,
-            duration: const Duration(seconds: 2),
-          ),
-        );
+        AppFeedback.info(context, '"$label" موجود بالفعل');
         break;
       case QuickActionAddStatus.failed:
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Text('تعذر الإضافة، حاول مرة أخرى'),
-            backgroundColor: AppColors.error,
-            duration: const Duration(seconds: 2),
-          ),
-        );
+        AppFeedback.error(context, 'تعذر الإضافة، حاول مرة أخرى');
         break;
     }
   }

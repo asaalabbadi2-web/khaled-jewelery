@@ -52,6 +52,7 @@ void main() {
     WidgetTester tester,
     Future<void> Function() steps, {
     String? refuse,
+    bool listFails = false,
   }) async {
     SharedPreferences.setMockInitialValues({
       'jwt_token': 'token',
@@ -103,6 +104,12 @@ void main() {
             return json({'error': 'refused', 'message': refuse}, 400);
           }
           return json({'success': true});
+        }
+        if (path.endsWith('/journal_entries') && listFails) {
+          return json({
+            'error': 'down',
+            'message': 'قاعدة البيانات مشغولة',
+          }, 503);
         }
         if (path.endsWith('/journal_entries')) {
           return json({
@@ -190,5 +197,16 @@ void main() {
     });
     expect(sent, hasLength(1));
     expect(sent.single, startsWith('DELETE /journal-entries/7?reason='));
+  });
+
+  // ر١ (ADR-057): a failed load is the app's error view, in the server's words.
+  testWidgets('a failed load says the server\'s words, with a retry', (
+    tester,
+  ) async {
+    await open(listFails: true, tester, () async {
+      expect(find.text('تعذّر تحميل قيود اليومية'), findsOneWidget);
+      expect(find.text('قاعدة البيانات مشغولة'), findsOneWidget);
+      expect(find.text('إعادة المحاولة'), findsOneWidget);
+    });
   });
 }

@@ -13,6 +13,7 @@ import 'supplier_ledger_screen.dart';
 import '../widgets/app_feedback.dart';
 import '../widgets/confirm_financial_action.dart';
 import '../utils/bidi.dart';
+import '../widgets/app_state_views.dart';
 import 'supplier_settlements_screen.dart';
 
 enum _SuppliersViewMode { cards, compact }
@@ -36,7 +37,7 @@ class SuppliersScreenState extends State<SuppliersScreen> {
   List<Map<String, dynamic>> _filteredSuppliers = const [];
 
   bool _isLoading = true;
-  String? _error;
+  Object? _error;
 
   bool _filterNonZero = false;
   bool _onlyActive = false;
@@ -110,7 +111,7 @@ class SuppliersScreenState extends State<SuppliersScreen> {
       if (!mounted) return;
       setState(() {
         _isLoading = false;
-        _error = e.toString();
+        _error = e;
         _allSuppliers = const [];
         _filteredSuppliers = const [];
       });
@@ -1425,82 +1426,38 @@ class SuppliersScreenState extends State<SuppliersScreen> {
     );
   }
 
-  Widget _buildEmptyState() {
-    final theme = Theme.of(context);
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(
-            Icons.groups_2_outlined,
-            size: 64,
-            color: theme.colorScheme.primary.withValues(alpha: 0.35),
-          ),
-          const SizedBox(height: 16),
-          Text(
-            _activeFiltersCount > 0
-                ? (widget.isArabic
-                      ? 'لا توجد نتائج مطابقة'
-                      : 'No matching suppliers')
-                : (widget.isArabic
-                      ? 'لا يوجد موردون للعرض'
-                      : 'No suppliers to display'),
-            style: theme.textTheme.titleMedium?.copyWith(
-              color: theme.colorScheme.onSurface.withValues(alpha: 0.7),
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            widget.isArabic
-                ? 'جرّب تعديل البحث أو إزالة بعض الفلاتر الحالية'
-                : 'Try adjusting the search or clearing some filters',
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: theme.colorScheme.onSurface.withValues(alpha: 0.55),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildErrorState() {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Text(
-              widget.isArabic
-                  ? 'تعذر تحميل الموردين'
-                  : 'Unable to load suppliers',
-              style: Theme.of(context).textTheme.titleMedium,
-            ),
-            const SizedBox(height: 8),
-            Text(_error ?? '', textAlign: TextAlign.center),
-            const SizedBox(height: 12),
-            FilledButton.icon(
-              onPressed: _fetchSuppliers,
-              icon: const Icon(Icons.refresh),
-              label: Text(widget.isArabic ? 'إعادة المحاولة' : 'Retry'),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
   Widget _buildBody() {
-    if (_isLoading) {
-      return const Center(child: CircularProgressIndicator());
-    }
+    // The app's loading, error and empty views (ADR-057 ر١): the error said
+    // the exception's text.
+    final isAr = widget.isArabic;
+    if (_isLoading) return const AppLoadingView();
 
     if (_error != null && _filteredSuppliers.isEmpty) {
-      return _buildErrorState();
+      return AppErrorView(
+        title: isAr ? 'تعذّر تحميل الموردين' : 'Unable to load suppliers',
+        error: _error,
+        onRetry: _fetchSuppliers,
+      );
     }
 
     if (_filteredSuppliers.isEmpty) {
-      return _buildEmptyState();
+      final filtered = _activeFiltersCount > 0;
+      return AppEmptyView(
+        icon: Icons.groups_2_outlined,
+        title: filtered
+            ? (isAr ? 'لا توجد نتائج مطابقة' : 'No matching suppliers')
+            : (isAr ? 'لا يوجد موردون بعد' : 'No suppliers yet'),
+        hint: filtered
+            ? (isAr
+                  ? 'جرّب تعديل البحث أو إزالة بعض الفلاتر.'
+                  : 'Try another search, or clear some filters.')
+            : null,
+        actionLabel: filtered
+            ? (isAr ? 'مسح الفلاتر' : 'Clear filters')
+            : (isAr ? 'إضافة مورد' : 'Add supplier'),
+        actionIcon: filtered ? Icons.filter_alt_off : Icons.add,
+        onAction: filtered ? _clearFilters : () => _navigateToAddSupplier(),
+      );
     }
 
     if (_viewMode == _SuppliersViewMode.compact) {
