@@ -65,4 +65,23 @@ void main() {
       expectNoLightSurfaceOnDark(tester);
     });
   }
+
+  // ر٣ (ADR-057): the add sheet's search, as people write.
+  testWidgets('the add sheet finds a button as people write its name', (
+    tester,
+  ) async {
+    await open(tester);
+    await tester.tap(find.byTooltip('إضافة زر'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).last, 'فاتوره مرتجع');
+    await tester.pumpAndSettle();
+    expect(
+      find.descendant(
+        of: find.byType(BottomSheet),
+        matching: find.text('فاتورة مرتجع'),
+      ),
+      findsOneWidget,
+    );
+  });
 }
+

@@ -28,6 +28,7 @@ class _FakeApi extends ApiService {
 
   /// How many of the next loads fail.
   int failLoads;
+  int loads = 0;
 
   final List<Map<String, dynamic>> rows;
   final Map<String, dynamic>? deleteAnswer;
@@ -36,6 +37,7 @@ class _FakeApi extends ApiService {
 
   @override
   Future<List<dynamic>> getSuppliers() async {
+    loads++;
     if (failLoads > 0) {
       failLoads--;
       throw ApiException.text('انقطع الاتصال بالخادم');
@@ -228,4 +230,46 @@ void main() {
       expectNoLightSurfaceOnDark(tester);
     });
   }
+
+  // ر٣ (ADR-057): the keys of every list, and a search as people write.
+  testWidgets('a search finds a name as people write it', (tester) async {
+    await open(
+      tester,
+      _FakeApi(
+        rows: [
+          _supplier(),
+          {..._supplier(), 'id': 7, 'name': 'أحمد للذهب'},
+        ],
+      ),
+    );
+    await tester.enterText(find.byType(TextField).first, 'احمد');
+    await tester.pumpAndSettle();
+    expect(find.text('أحمد للذهب'), findsOneWidget);
+    expect(find.text('مورد الذهب'), findsNothing);
+  });
+
+  testWidgets('Ctrl+F puts the cursor in the search; F5 loads again', (
+    tester,
+  ) async {
+    final api = _FakeApi(rows: [_supplier()]);
+    await open(tester, api);
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyF);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+    await tester.pumpAndSettle();
+    expect(
+      tester
+          .widget<TextField>(find.byType(TextField).first)
+          .focusNode
+          ?.hasFocus,
+      isTrue,
+    );
+
+    final loads = api.loads;
+    FocusManager.instance.primaryFocus?.unfocus();
+    await tester.pump();
+    await tester.sendKeyEvent(LogicalKeyboardKey.f5);
+    await tester.pumpAndSettle();
+    expect(api.loads, loads + 1);
+  });
 }

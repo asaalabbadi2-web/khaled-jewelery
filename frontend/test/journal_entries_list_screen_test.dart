@@ -39,6 +39,9 @@ const _entry = {
   'line_count': 2,
 };
 
+/// How many times the list was asked for.
+var listLoads = 0;
+
 void main() {
   setUpAll(() async {
     final cairo = FontLoader('Cairo');
@@ -137,6 +140,7 @@ void main() {
           }, 503);
         }
         if (path.endsWith('/journal_entries')) {
+          listLoads++;
           return json({
             'journal_entries': [_entry],
             'total': 1,
@@ -259,6 +263,37 @@ void main() {
       await shot(tester, 'journal_sheet_dark');
       expectNoTextVanishesOnDark(tester);
       expectNoLightSurfaceOnDark(tester);
+    });
+  });
+
+  // ر٣ (ADR-057): the keys of every list.
+  testWidgets('Ctrl+F puts the cursor in the search; F5 loads again', (
+    tester,
+  ) async {
+    await open(tester, () async {
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyF);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+      await tester.pumpAndSettle();
+      expect(
+        tester
+            .widget<TextField>(
+              find.widgetWithText(
+                TextField,
+                'ابحث برقم القيد أو الوصف أو المرجع',
+              ),
+            )
+            .focusNode
+            ?.hasFocus,
+        isTrue,
+      );
+
+      final before = listLoads;
+      FocusManager.instance.primaryFocus?.unfocus();
+      await tester.pump();
+      await tester.sendKeyEvent(LogicalKeyboardKey.f5);
+      await tester.pumpAndSettle();
+      expect(listLoads, before + 1);
     });
   });
 }

@@ -14,6 +14,8 @@ import '../widgets/app_feedback.dart';
 import '../widgets/confirm_financial_action.dart';
 import '../utils/bidi.dart';
 import '../widgets/app_state_views.dart';
+import '../utils/arabic_search.dart';
+import '../widgets/app_shortcuts.dart';
 import 'supplier_settlements_screen.dart';
 
 enum _SuppliersViewMode { cards, compact }
@@ -30,6 +32,7 @@ class SuppliersScreen extends StatefulWidget {
 
 class SuppliersScreenState extends State<SuppliersScreen> {
   final TextEditingController _searchController = TextEditingController();
+  final _searchFocus = FocusNode();
   final ScrollController _scrollController = ScrollController();
   final GlobalKey _topChromeKey = GlobalKey();
 
@@ -84,6 +87,7 @@ class SuppliersScreenState extends State<SuppliersScreen> {
   @override
   void dispose() {
     _searchController.dispose();
+    _searchFocus.dispose();
     _scrollController.dispose();
     super.dispose();
   }
@@ -216,14 +220,15 @@ class SuppliersScreenState extends State<SuppliersScreen> {
   }
 
   void _filterSuppliers() {
-    final query = _searchController.text.trim().toLowerCase();
+    // As people write it (ADR-057 ر٣): «احمد» finds «أحمد», «نوره» «نورة».
+    final query = normalizeForSearch(_searchController.text);
     final filtered = _allSuppliers
         .where((supplier) {
-          final name = _supplierName(supplier).toLowerCase();
-          final code = _supplierCode(supplier).toLowerCase();
-          final phone = _supplierPhone(supplier).toLowerCase();
-          final tax = _supplierTaxNumber(supplier).toLowerCase();
-          final safeBox = _defaultSafeBoxName(supplier).toLowerCase();
+          final name = normalizeForSearch(_supplierName(supplier));
+          final code = normalizeForSearch(_supplierCode(supplier));
+          final phone = normalizeForSearch(_supplierPhone(supplier));
+          final tax = normalizeForSearch(_supplierTaxNumber(supplier));
+          final safeBox = normalizeForSearch(_defaultSafeBoxName(supplier));
 
           final matchesQuery =
               query.isEmpty ||
@@ -939,6 +944,7 @@ class SuppliersScreenState extends State<SuppliersScreen> {
                 width: 420,
                 child: TextField(
                   controller: _searchController,
+                  focusNode: _searchFocus,
                   decoration: InputDecoration(
                     hintText: widget.isArabic
                         ? 'ابحث بالاسم أو الكود أو الهاتف أو الرقم الضريبي أو الخزنة'
@@ -1576,8 +1582,15 @@ class SuppliersScreenState extends State<SuppliersScreen> {
     );
   }
 
+  /// Ctrl+F to search, F5 to load again (ADR-049 م٦, ADR-057 ر٣).
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => AppListShortcuts(
+    searchFocus: _searchFocus,
+    onRefresh: _fetchSuppliers,
+    child: _buildScreen(context),
+  );
+
+  Widget _buildScreen(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: Text(widget.isArabic ? 'الموردين' : 'Suppliers'),

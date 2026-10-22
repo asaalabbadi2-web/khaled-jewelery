@@ -6,6 +6,7 @@ import '../theme/app_semantic_colors.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_bar_tab_bar.dart';
 import '../widgets/app_state_views.dart';
+import '../utils/arabic_search.dart';
 import '../widgets/app_feedback.dart';
 
 class _AddActionResult {
@@ -551,10 +552,11 @@ class _CustomizeQuickActionsScreenState
             child: StatefulBuilder(
               builder: (sheetContext, setSheetState) {
                 final filtered = availableItems.where((item) {
-                  final q = searchQuery.trim().toLowerCase();
+                  // As people write it (ADR-057 ر٣).
+                  final q = normalizeForSearch(searchQuery);
                   return q.isEmpty ||
-                      item.label.toLowerCase().contains(q) ||
-                      item.id.toLowerCase().contains(q);
+                      normalizeForSearch(item.label).contains(q) ||
+                      normalizeForSearch(item.id).contains(q);
                 }).toList();
 
                 return SizedBox(

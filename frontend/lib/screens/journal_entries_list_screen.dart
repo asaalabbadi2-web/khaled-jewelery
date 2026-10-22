@@ -18,6 +18,7 @@ import 'journal_entry_form.dart';
 import '../widgets/app_feedback.dart';
 import '../widgets/confirm_financial_action.dart';
 import '../widgets/app_state_views.dart';
+import '../widgets/app_shortcuts.dart';
 import '../utils/bidi.dart';
 
 enum _JournalEntriesListView { table, cards }
@@ -41,6 +42,7 @@ class _JournalEntriesListScreenState extends State<JournalEntriesListScreen>
   // ADR-057 ر٢: colours by meaning, from the theme, in both modes.
   AppSemanticColors get _tone => AppSemanticColors.of(context);
   final TextEditingController _searchController = TextEditingController();
+  final _searchFocus = FocusNode();
   final ScrollController _contentScrollController = ScrollController();
   final ScrollController _tableHorizontalController = ScrollController();
   final GlobalKey _toolbarKey = GlobalKey();
@@ -119,6 +121,7 @@ class _JournalEntriesListScreenState extends State<JournalEntriesListScreen>
     routeObserver.unsubscribe(this);
     _searchDebounce?.cancel();
     _searchController.dispose();
+    _searchFocus.dispose();
     _contentScrollController.dispose();
     _tableHorizontalController.dispose();
     super.dispose();
@@ -1169,6 +1172,7 @@ class _JournalEntriesListScreenState extends State<JournalEntriesListScreen>
                 width: 430,
                 child: TextField(
                   controller: _searchController,
+                  focusNode: _searchFocus,
                   textInputAction: TextInputAction.search,
                   onChanged: (_) => _scheduleSearch(),
                   onSubmitted: (_) {
@@ -2610,8 +2614,15 @@ class _JournalEntriesListScreenState extends State<JournalEntriesListScreen>
     );
   }
 
+  /// Ctrl+F to search, F5 to load again (ADR-049 م٦, ADR-057 ر٣).
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => AppListShortcuts(
+    searchFocus: _searchFocus,
+    onRefresh: () => _loadEntries(page: _currentPage, forceRefresh: true),
+    child: _buildScreen(context),
+  );
+
+  Widget _buildScreen(BuildContext context) {
     context.watch<SettingsProvider>();
 
     return Directionality(
