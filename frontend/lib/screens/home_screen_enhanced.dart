@@ -21,6 +21,8 @@ import '../widgets/gold_sparkline_enhanced.dart';
 import '../widgets/app_logo.dart';
 import '../widgets/app_screen_search.dart';
 import '../widgets/confirm_financial_action.dart';
+import '../widgets/app_feedback.dart';
+import '../widgets/app_state_views.dart';
 import '../models/report_catalog.dart';
 import '../app_route_observer.dart';
 import 'items_screen_enhanced.dart';
@@ -747,9 +749,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
     final auth = context.read<AuthProvider>();
     if (!auth.isAuthenticated) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('يلزم تسجيل الدخول لتحديث السعر')),
-      );
+      AppFeedback.warning(context, 'يلزم تسجيل الدخول لتحديث السعر');
       return;
     }
 
@@ -762,14 +762,10 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
       await _loadGoldPrice();
 
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('تم تحديث سعر الأونصة بنجاح')),
-      );
+      AppFeedback.success(context, 'حُدِّث سعر الأونصة');
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('فشل تحديث السعر: $e')));
+      AppFeedback.error(context, e, title: 'لم يُحدَّث السعر');
     } finally {
       if (mounted) {
         setState(() {
@@ -1326,8 +1322,10 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
     return out;
   }
 
-  Future<void> _openScreenSearch() =>
-      showScreenSearch(context, _screenDestinations(widget.isArabic));
+  final _screenSearch = GlobalKey<ScreenSearchBarState>();
+
+  Future<void> _openScreenSearch() async =>
+      _screenSearch.currentState?.open();
 
   /// The side menu's sections, each with what the user may open -- the
   /// drawer draws them and the header's search finds in them (ADR-057 ق٠).
@@ -2062,25 +2060,14 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
         );
       },
     );
+    // The price is everyone's to read; its screen offers the update to who
+    // may make it (ADR-057 ق٢) -- it was refused whole to the others.
     addDestination(
       icon: Icons.monetization_on,
-      title: isAr ? 'تحديث سعر الذهب' : 'Update Gold Price',
-      keywords: const ['سعر', 'أونصة'],
+      title: isAr ? 'سعر الذهب' : 'Gold Price',
+      keywords: const ['تحديث سعر الذهب', 'أونصة'],
       color: gold,
       onSelected: () async {
-        if (!auth.hasPermission('gold_price.update')) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                isAr
-                    ? 'ليس لديك صلاحية تحديث سعر الذهب'
-                    : 'You do not have permission to update gold price',
-              ),
-              backgroundColor: _tone.warning.fg,
-            ),
-          );
-          return;
-        }
         await Navigator.push(
           context,
           MaterialPageRoute(
@@ -2218,8 +2205,9 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
     // The header's search (ADR-057 ق٠): a field on a wide screen, an icon on
     // a phone; Ctrl/⌘+K opens it from anywhere on the home screen.
     final wideHeader = MediaQuery.sizeOf(context).width >= 700;
-    final search = ScreenSearchButton(
-      onOpen: _openScreenSearch,
+    final search = ScreenSearchBar(
+      key: _screenSearch,
+      destinations: () => _screenDestinations(isAr),
       foreground: _onBar,
     );
 
@@ -2562,12 +2550,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
           ],
         ),
         body: isLoading
-            ? Center(
-                child: CircularProgressIndicator(
-                  color: _cs.primary,
-                  strokeWidth: 3,
-                ),
-              )
+            ? const AppLoadingView()
             : _buildSelectedTabContent(isAr),
         bottomNavigationBar: _buildBottomNavigationBar(
           isAr,
@@ -2870,16 +2853,16 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
     final goalPercentText =
       '${(effectiveTargetProgress * 100).round()}%';
     final goalCurrentText = usePointsGoal
-      ? '${(goalCurrentValue ?? 0).toStringAsFixed(0)} ${isAr ? 'نقطة' : 'pts'}'
-      : '${(goalCurrentValue ?? 0).toStringAsFixed(1)} ${isAr ? 'جم' : 'g'}';
+      ? '${cu.formatAmount((goalCurrentValue ?? 0), decimals: 0)} ${isAr ? 'نقطة' : 'pts'}'
+      : '${cu.formatGrams((goalCurrentValue ?? 0), decimals: 1)} ${isAr ? 'جم' : 'g'}';
     final goalTargetText = usePointsGoal
-      ? '${(goalTargetValue ?? 0).toStringAsFixed(0)} ${isAr ? 'نقطة' : 'pts'}'
-      : '${(goalTargetValue ?? 0).toStringAsFixed(0)} ${isAr ? 'جم' : 'g'}';
+      ? '${cu.formatAmount((goalTargetValue ?? 0), decimals: 0)} ${isAr ? 'نقطة' : 'pts'}'
+      : '${cu.formatGrams((goalTargetValue ?? 0), decimals: 0)} ${isAr ? 'جم' : 'g'}';
     final goalRemainingText = goalRemainingValue == null
       ? null
       : (usePointsGoal
-          ? '${goalRemainingValue.toStringAsFixed(0)} ${isAr ? 'نقطة' : 'pts'}'
-          : '${goalRemainingValue.toStringAsFixed(0)} ${isAr ? 'جم' : 'g'}');
+          ? '${cu.formatAmount(goalRemainingValue, decimals: 0)} ${isAr ? 'نقطة' : 'pts'}'
+          : '${cu.formatGrams(goalRemainingValue, decimals: 0)} ${isAr ? 'جم' : 'g'}');
 
 
     String? effectivePeriodText() {
@@ -2985,8 +2968,8 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
             : (isAr ? 'فواتير بيع' : 'Sales activity'));
       final scoreValueText = switch (metric) {
         'count' => count.toString(),
-        'points' => score.toStringAsFixed(0),
-        _ => score.toStringAsFixed(1),
+        'points' => cu.formatAmount(score, decimals: 0),
+        _ => cu.formatGrams(score, decimals: 1),
       };
       final scoreUnitText = switch (metric) {
         'count' => isAr ? 'فاتورة' : 'Invoices',
@@ -3633,8 +3616,8 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
                     final meScore = (meRow['score'] as num?)?.toDouble() ?? 0.0;
                     final meScoreText = switch (metric) {
                       'count' => (meRow['count'] as num?)?.toInt().toString() ?? '0',
-                      'points' => meScore.toStringAsFixed(0),
-                      _ => meScore.toStringAsFixed(1),
+                      'points' => cu.formatAmount(meScore, decimals: 0),
+                      _ => cu.formatGrams(meScore, decimals: 1),
                     };
                     final meScoreUnit = switch (metric) {
                       'count' => isAr ? 'فاتورة' : 'Invoice',
@@ -4826,8 +4809,9 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
     return Consumer<QuickActionsProvider>(
       builder: (context, provider, child) {
         if (provider.isLoading) {
-          return Center(
-            child: CircularProgressIndicator(color: _cs.primary),
+          return const SizedBox(
+            height: 220,
+            child: AppLoadingView(summaryBlocks: 0, rows: 2),
           );
         }
 
@@ -5325,22 +5309,11 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
                 ? _holdsAnyReport(auth)
                 : auth.hasPermission(required);
     if (!allowed) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Row(children: [
-            Icon(Icons.lock_outline, color: _cs.onError, size: 20),
-            const SizedBox(width: 10),
-            Expanded(child: Text(
-              widget.isArabic
-                  ? 'ليس لديك صلاحية لاستعراض هذا القسم'
-                  : 'You do not have permission to access this section',
-              style: TextStyle(fontWeight: FontWeight.w600, color: _cs.onError),
-            )),
-          ]),
-          backgroundColor: _cs.error,
-          behavior: SnackBarBehavior.floating,
-          duration: const Duration(seconds: 3),
-        ),
+      AppFeedback.warning(
+        context,
+        widget.isArabic
+            ? 'ليس لديك صلاحية لاستعراض هذا القسم'
+            : 'You do not have permission to access this section',
       );
       return false;
     }
@@ -5619,22 +5592,6 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
         break;
       case 'gold_price':
         {
-          final auth = context.read<AuthProvider>();
-          if (!auth.hasPermission('gold_price.update')) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text(
-                  widget.isArabic
-                      ? 'ليس لديك صلاحية تحديث سعر الذهب'
-                      : 'You do not have permission to update gold price',
-                ),
-                backgroundColor: _tone.warning.fg,
-              ),
-            );
-            result = false;
-            break;
-          }
-
           await Navigator.push(
             context,
             MaterialPageRoute(
@@ -5762,26 +5719,15 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
             ),
           );
           if (scanned != null && scanned.isNotEmpty && mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text(
-                  widget.isArabic
-                      ? 'تم المسح: $scanned'
-                      : 'Scanned: $scanned',
-                ),
-                duration: const Duration(seconds: 3),
-              ),
+            AppFeedback.info(
+              context,
+              widget.isArabic ? 'تم المسح: $scanned' : 'Scanned: $scanned',
             );
           }
         }
         break;
       default:
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('هذه الميزة غير متوفرة حالياً'),
-            backgroundColor: _tone.warning.fg,
-          ),
-        );
+        AppFeedback.warning(context, 'هذه الميزة غير متوفرة حالياً');
     }
 
     if (result == true) {

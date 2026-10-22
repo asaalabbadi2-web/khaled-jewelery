@@ -8,9 +8,11 @@ import 'package:frontend/providers/quick_actions_provider.dart';
 import 'package:frontend/providers/sales_race_refresh_provider.dart';
 import 'package:frontend/providers/settings_provider.dart';
 import 'package:frontend/screens/customize_quick_actions_screen.dart';
+import 'package:frontend/screens/gold_price_manual_screen_enhanced.dart';
 import 'package:frontend/screens/home_screen_enhanced.dart';
 import 'package:frontend/theme/app_theme.dart';
 import 'package:frontend/widgets/app_screen_search.dart';
+import 'package:frontend/widgets/app_state_views.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -158,8 +160,10 @@ void main() {
   }
 
   // A result, not the field's own text.
+  final panel = find.byKey(const Key('screen-search-panel'));
+
   Finder result(String title) => find.descendant(
-    of: find.byType(Dialog),
+    of: panel,
     matching: find.descendant(
       of: find.byType(ListView),
       matching: find.text(title),
@@ -174,9 +178,42 @@ void main() {
     await shot(tester, 'home_header_desktop');
     await tester.tap(find.byKey(const Key('screen-search-open')));
     await settle(tester);
-    expect(find.byKey(const Key('screen-search-field')), findsOneWidget);
+    expect(panel, findsOneWidget);
     await search(tester, 'كشف');
     await shot(tester, 'screen_search_desktop');
+  });
+
+  // The owner: «في نفس الحقل … قائمة منسدلة بخلفية مائية بنفس الشاشة وليس
+  // نافذة منبثقة».
+  testWidgets('one types in the header\'s field itself; the results drop '
+      'under it on the same screen, not in a window', (tester) async {
+    await openHome(tester);
+    final field = find.byKey(const Key('screen-search-field'));
+    expect(
+      find.descendant(of: find.byType(AppBar), matching: field),
+      findsOneWidget,
+    );
+    await tester.enterText(field, 'سند');
+    await settle(tester);
+    expect(find.byType(Dialog), findsNothing);
+    expect(result('سند قبض'), findsOneWidget);
+    // Under the field, and the page behind dimmed.
+    expect(
+      tester.getRect(panel).top,
+      greaterThanOrEqualTo(tester.getRect(field).bottom),
+    );
+    expect(find.byKey(const Key('screen-search-backdrop')), findsOneWidget);
+    expect(find.byType(BackdropFilter), findsWidgets);
+  });
+
+  testWidgets('a tap on the page behind closes it', (tester) async {
+    await openHome(tester);
+    await tester.enterText(find.byKey(const Key('screen-search-field')), 'سند');
+    await settle(tester);
+    await tester.tapAt(const Offset(60, 900));
+    await settle(tester);
+    expect(panel, findsNothing);
+    expect(find.byType(HomeScreenEnhanced), findsOneWidget);
   });
 
   testWidgets('Ctrl+K opens it, and Esc closes it', (tester) async {
@@ -185,10 +222,10 @@ void main() {
     await tester.sendKeyEvent(LogicalKeyboardKey.keyK);
     await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
     await settle(tester);
-    expect(find.byKey(const Key('screen-search-field')), findsOneWidget);
+    expect(panel, findsOneWidget);
     await tester.sendKeyEvent(LogicalKeyboardKey.escape);
     await settle(tester);
-    expect(find.byKey(const Key('screen-search-field')), findsNothing);
+    expect(panel, findsNothing);
   });
 
   testWidgets('it finds screens the side menu does not hold', (tester) async {
@@ -279,8 +316,8 @@ void main() {
     await tester.tap(find.byKey(const Key('screen-search-open')));
     await settle(tester);
     await search(tester, 'مرتجع');
-    final dialog = tester.getSize(find.byType(Dialog));
-    expect(dialog.width, 390);
+    expect(tester.getSize(panel).width, 390);
+    expect(find.byType(Dialog), findsNothing);
     expect(tester.takeException(), isNull);
     await shot(tester, 'screen_search_phone');
   });
@@ -298,7 +335,7 @@ void main() {
       await search(tester, 'فاتورة');
       expect(tester.takeException(), isNull);
       await shot(tester, 'screen_search_dark_$name');
-      expectNoTextVanishesOnDark(tester, within: find.byType(Dialog));
+      expectNoTextVanishesOnDark(tester, within: panel);
     });
   }
 
@@ -497,6 +534,90 @@ void main() {
       await settle(tester);
       expect(find.text('ملف المستخدم'), findsNothing);
       expect(find.text('تغيير كلمة المرور'), findsOneWidget);
+    });
+  });
+
+  // ق٢ (ADR-057): the home says itself through the app's views.
+  group('the home, ق٢', () {
+    // The owner: «سعر الذهب المباشر يجب أن يراه كل مستخدم فليس سرًّا». The
+    // server reads it to all (GET /gold_price); only the update asks
+    // gold_price.update.
+    testWidgets('every user finds the gold price', (tester) async {
+      await openHome(tester, auth: _Seller());
+      await tester.tap(find.byKey(const Key('screen-search-open')));
+      await settle(tester);
+      await search(tester, 'سعر الذهب');
+      expect(result('سعر الذهب'), findsOneWidget);
+    });
+
+    Future<void> openPrice(WidgetTester tester, AuthProvider auth) async {
+      SharedPreferences.setMockInitialValues({
+        'app_settings': jsonEncode({'main_karat': 21}),
+      });
+      final settings = SettingsProvider();
+      await settings.loadSettings(fetchRemote: false);
+      await tester.pumpWidget(
+        MultiProvider(
+          providers: [
+            ChangeNotifierProvider<AuthProvider>.value(value: auth),
+            ChangeNotifierProvider.value(value: settings),
+          ],
+          child: MaterialApp(
+            theme: LightTheme.theme,
+            home: const Directionality(
+              textDirection: TextDirection.rtl,
+              child: GoldPriceManualScreenEnhanced(),
+            ),
+          ),
+        ),
+      );
+      await settle(tester);
+    }
+
+    testWidgets('its screen offers the update only to who may make it', (
+      tester,
+    ) async {
+      await openPrice(tester, _Seller());
+      expect(find.text('سعر الذهب'), findsOneWidget);
+      expect(find.text('تحديث فوري من الإنترنت'), findsNothing);
+
+      await openPrice(tester, _Manager());
+      expect(find.text('تحديث سعر الذهب'), findsOneWidget);
+      expect(find.text('تحديث فوري من الإنترنت'), findsOneWidget);
+    });
+
+    testWidgets('the first load is the page\'s shape, not a spinner', (
+      tester,
+    ) async {
+      SharedPreferences.setMockInitialValues({
+        'app_settings': jsonEncode({'main_karat': 21}),
+      });
+      tester.view.physicalSize = const Size(1440, 1000);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final settings = SettingsProvider();
+      await settings.loadSettings(fetchRemote: false);
+      await tester.pumpWidget(
+        MultiProvider(
+          providers: [
+            ChangeNotifierProvider<AuthProvider>(create: (_) => _Manager()),
+            ChangeNotifierProvider.value(value: settings),
+            ChangeNotifierProvider(create: (_) => ThemeProvider()),
+            ChangeNotifierProvider(create: (_) => QuickActionsProvider()),
+            ChangeNotifierProvider(create: (_) => SalesRaceRefreshProvider()),
+          ],
+          child: MaterialApp(
+            theme: LightTheme.theme,
+            home: const HomeScreenEnhanced(),
+          ),
+        ),
+      );
+      // The first frame, before any answer.
+      expect(find.byType(AppLoadingView), findsOneWidget);
+      expect(find.byType(CircularProgressIndicator), findsNothing);
+      await settle(tester);
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump(const Duration(seconds: 1));
     });
   });
 }

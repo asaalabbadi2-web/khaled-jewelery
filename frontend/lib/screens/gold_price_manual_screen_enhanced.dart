@@ -4,6 +4,7 @@ import '../api_service.dart';
 import '../utils.dart';
 import 'package:provider/provider.dart';
 import '../providers/settings_provider.dart';
+import '../providers/auth_provider.dart';
 import '../utils/currency_utils.dart' as cu;
 import '../widgets/app_feedback.dart';
 
@@ -292,6 +293,11 @@ class _GoldPriceManualScreenEnhancedState
   @override
   Widget build(BuildContext context) {
     context.watch<SettingsProvider>();
+    // The price is everyone's to read (GET /gold_price asks no permission);
+    // the update is gold_price.update's, as the server holds it (ADR-057 ق٢).
+    final canUpdate = context.watch<AuthProvider>().hasPermission(
+      'gold_price.update',
+    );
 
     return Scaffold(
       backgroundColor: Colors.grey.shade50,
@@ -302,7 +308,7 @@ class _GoldPriceManualScreenEnhancedState
             Icon(Icons.monetization_on, color: Colors.white, size: 28),
             SizedBox(width: 12),
             Text(
-              'تحديث سعر الذهب',
+              canUpdate ? 'تحديث سعر الذهب' : 'سعر الذهب',
               style: TextStyle(
                 fontWeight: FontWeight.bold,
                 fontSize: 22,
@@ -357,6 +363,7 @@ class _GoldPriceManualScreenEnhancedState
                   // بطاقة السعر الحالي
                   _buildCurrentPriceCard(),
 
+                  if (canUpdate) ...[
                   SizedBox(height: 20),
 
                   // بطاقة تحديث السعر
@@ -366,6 +373,7 @@ class _GoldPriceManualScreenEnhancedState
 
                   // معلومات إضافية
                   _buildInfoCard(),
+                  ],
 
                   SizedBox(height: 20),
 
