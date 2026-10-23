@@ -486,6 +486,8 @@ def build_sale_je(
     weights: WeightByKarat,          # الأوزان المباعة
     cash_received: Decimal,          # النقد المستلم فعلاً
     description: str = "بيع ذهب",
+    stones_sales_account_id: Optional[int] = None,
+    stones_cash: Decimal = Decimal("0"),  # أحجار مبيعة بقيمتها (ADR-050 ت6ج)، من المبيعات
 ) -> JournalEntry:
     """
     قيد بيع ذهب:
@@ -517,8 +519,10 @@ def build_sale_je(
         je.add(_cash_credit(customer.financial_account_id, -remaining_receivable,
                             f"{description} - رصيد زائد للعميل [{customer.party_name}]"))
 
-    # ── دائن: مبيعات ──
-    je.add(_cash_credit(accounts.sales_account_id, sale_cash, f"{description} - إيراد مبيعات"))
+    # ── دائن: مبيعات، ومبيعات الأحجار بقيمتها منها ──
+    je.add(_cash_credit(accounts.sales_account_id, sale_cash - stones_cash, f"{description} - إيراد مبيعات"))
+    if stones_cash > 0:
+        je.add(_cash_credit(stones_sales_account_id, stones_cash, f"{description} - مبيعات أحجار بقيمتها"))
 
     # ── دائن: ض.ق.م. ──
     if vat > 0:

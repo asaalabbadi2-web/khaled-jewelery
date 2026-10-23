@@ -1189,4 +1189,53 @@ void main() {
     expectNoTextVanishesOnDark(tester);
     await shotWidths(tester, 'sales_dark');
   });
+
+  // ت6ج (ADR-050): a piece renewed with its stones as stones -- on the
+  // showroom's counter -- is sold as gold plus their value (the owner, 23 Oct
+  // 2026: «تُباع ذهبًا + قيمة أحجار»). The line's weight is its gold; its
+  // stones and their value are said on it, inside its price.
+  group('stones sold by their value', () {
+    testWidgets('a line says its stones and their value, inside its price', (
+      tester,
+    ) async {
+      final api = FakeSalesApi();
+      await open(tester, api: api, saved: draft(payments: paidInFull));
+
+      await tester.tap(find.byTooltip('أحجار تُباع بقيمتها'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byKey(const Key('stones-weight')), '2.5');
+      await tester.enterText(find.byKey(const Key('stones-value')), '300');
+      await tester.tap(
+        find.descendant(of: find.byType(AlertDialog), matching: find.text('حفظ')),
+      );
+      await tester.pumpAndSettle();
+      expect(find.textContaining('أحجار 2.500'), findsOneWidget);
+
+      await tester.tap(saveButton());
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('حفظ الفاتورة').last);
+      await settle(tester);
+      final line = (api.added.single['items'] as List).single as Map;
+      expect(line['stones_kind'], 'priced');
+      expect(line['stones_weight'], 2.5);
+      expect(line['stones_value'], 300.0);
+      expect(line['weight'], 10.0, reason: 'the gold, not the standing weight');
+      expect(line['price'], closeTo(1000.0, 0.01), reason: 'inside the price');
+    });
+
+    testWidgets('a value that leaves the gold nothing is refused', (
+      tester,
+    ) async {
+      await open(tester, api: FakeSalesApi(), saved: draft());
+      await tester.tap(find.byTooltip('أحجار تُباع بقيمتها'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byKey(const Key('stones-weight')), '2.5');
+      await tester.enterText(find.byKey(const Key('stones-value')), '1000');
+      await tester.tap(
+        find.descendant(of: find.byType(AlertDialog), matching: find.text('حفظ')),
+      );
+      await tester.pumpAndSettle();
+      expect(find.textContaining('لا تترك للذهب'), findsOneWidget);
+    });
+  });
 }

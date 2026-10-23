@@ -3391,6 +3391,26 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
                             'message': f'قيمة الأحجار وضريبتها ({priced_stones_value:.2f} + {priced_stones_tax:.2f}) '
                                        f'لا تطابق ما أُرسل ({sent[0]:.2f} + {sent[1]:.2f})'}), 400
 
+    # A sale line's stones sold by their value (ADR-050 ت6ج): its weight is its
+    # gold, its stones leave the gold safe's counter, their value goes to the
+    # role «مبيعات الأحجار». A return of such a line is refused until built.
+    from services import sale_stones as _sale_stones
+    try:
+        sold_stones = _sale_stones.normalize(invoice_type, data)
+    except StonesRefused as refused:
+        return jsonify({'error': refused.code, 'message': refused.message}), 400
+    sold_stones_value = round(sum(v['value'] for v in sold_stones.values()), 2)
+    sold_stones_account_id = None
+    if sold_stones:
+        from accounting import mappings as _stones_mappings
+        try:
+            sold_stones_account_id = _stones_mappings.require_account(
+                _stones_mappings.DEFAULT_MAPPING_OPERATION_TYPE, _sale_stones.ROLE)
+        except _stones_mappings.AccountNotMapped:
+            return jsonify({'error': 'account_not_mapped', 'role': _sale_stones.ROLE,
+                            'message': 'حساب «مبيعات الأحجار» غير مربوط: يُضبط في «الربط المحاسبي»، '
+                                       'ولا تُباع أحجار بقيمتها دونه'}), 400
+
     def _to_positive_int(raw_value):
         try:
             if raw_value in (None, '', False):
@@ -4790,6 +4810,9 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
             if str(invoice_type).strip() == 'بيع':
                 # Effective sale value excluding VAT (and excluding commissions already in net_amount).
                 effective_sale_cash_ex_vat = _safe_float(new_invoice.net_amount, 0.0) - _safe_float(new_invoice.total_tax, 0.0)
+                # The gold's price, not its stones' (ADR-050 ت6ج): their value
+                # would hide gold sold below its cost.
+                effective_sale_cash_ex_vat -= sold_stones_value
                 effective_sale_cash_ex_vat = round(max(effective_sale_cash_ex_vat, 0.0), 2)
 
                 # Prefer client-provided total_cost if available (it is later used for profit computation as well).
@@ -6388,6 +6411,24 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
             # الربح بالذهب = الربح النقدي ÷ متوسط سعر الشراء
             # ============================================
             
+            # Stones sold by their value leave the counter of the safe the
+            # sale's gold leaves, within it (ADR-050 ت6ج): what entered as
+            # gold is sold as gold.
+            if sold_stones:
+                from posting_routes import _resolve_gold_safe_for_invoice
+                from services.safe_stones import stones_of
+                for _karat, _sold in sorted(sold_stones.items()):
+                    _safe = _resolve_gold_safe_for_invoice(new_invoice, _karat)
+                    _held = (stones_of(_safe.id, excluding_invoice_id=new_invoice.id)[str(_karat)]
+                             if _safe else 0.0)
+                    if _sold['stones'] - _held > 1e-6:
+                        # Said before the rollback: it takes the safe with it.
+                        refusal = {'error': f'insufficient_stones_{_karat}k', 'available': round(_held, 3),
+                                   'message': f'أحجار عيار {_karat} في «{getattr(_safe, "name", "خزينة البيع")}» '
+                                              f'{_held:.3f} جم فقط: ما دخل المعروض ذهبًا يُباع ذهبًا'}
+                        db.session.rollback()
+                        return jsonify(refusal), 400
+
             # الحصول على الحسابات من الربط المحاسبي
             cash_acc_id = get_account_id_for_mapping('بيع', 'cash')
             _sales_new_acc_id  = get_account_id_for_mapping('بيع', 'sales_gold_new') or get_account_id_for_mapping('بيع', 'revenue')
@@ -6524,12 +6565,22 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
                     total_cash=_ar_cash_for_je,
                     total_tax=_total_tax_for_je,
                     customer_id=new_invoice.customer_id,
+                    stones_sales_account_id=sold_stones_account_id,
+                    stones_cash=sold_stones_value,
                 )
             else:
                 # Fallback: لا يوجد حساب عميل — ندين الصندوق مباشرة
                 _fb_cash = cash_acc_id or (cash_account.id if cash_account else None)
                 if _fb_cash:
-                    _sales_amt_fb = total_cash - _total_tax_for_je
+                    _sales_amt_fb = total_cash - _total_tax_for_je - sold_stones_value
+                    if sold_stones_value > 0:
+                        create_dual_journal_entry(
+                            journal_entry_id=journal_entry.id,
+                            account_id=sold_stones_account_id,
+                            cash_credit=sold_stones_value,
+                            description="مبيعات أحجار بقيمتها",
+                            apply_golden_rule=False,
+                        )
                     create_dual_journal_entry(
                         journal_entry_id=journal_entry.id,
                         account_id=_fb_cash,

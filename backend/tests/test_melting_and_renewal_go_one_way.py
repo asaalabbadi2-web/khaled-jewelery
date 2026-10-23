@@ -62,7 +62,8 @@ def _holds(box, karat, grams, stones=0.0):
     ])
     if stones:
         db.session.add(SafeBoxTransaction(safe_box_id=box.id, direction='in', ref_type='journal_entry',
-                                          ref_id=je.id, stones_weight=stones, amount_cash=0.0))
+                                          ref_id=je.id, stones_weight=stones, amount_cash=0.0,
+                                          **{f'stones_{karat}k': stones}))
     db.session.flush()
 
 

@@ -587,7 +587,13 @@ void main() {
             ...(row as Map<String, dynamic>),
             'balance': {
               'cash': 0.0,
-              'weight': {'18k': 0.0, '21k': 0.0, '22k': 0.0, '24k': 0.0, 'total': 0.0},
+              'weight': {
+                '18k': 0.0,
+                '21k': 0.0,
+                '22k': 0.0,
+                '24k': 0.0,
+                'total': 0.0,
+              },
             },
           },
       ],
@@ -625,7 +631,10 @@ void main() {
     tester,
   ) async {
     await run(tester, () async {
-      await tester.enterText(find.widgetWithText(TextFormField, '0.000').first, '2');
+      await tester.enterText(
+        find.widgetWithText(TextFormField, '0.000').first,
+        '2',
+      );
       await tester.enterText(
         find.widgetWithText(TextFormField, 'فصوص، حديد…').first,
         '1',
@@ -635,5 +644,75 @@ void main() {
       expect(find.text('تأكيد التكسير'), findsWidgets);
       expect(find.textContaining('لا قيد'), findsNothing);
     });
+  });
+
+  // ت6ب (ADR-050): a renewed piece's stones are counted as gold (today's) or
+  // sold by their value -- the owner: «تُسجَّل كأحجار وليس ذهبًا وتُباع ذهبًا +
+  // قيمة أحجار». A renewal line with what is not gold says which.
+  testWidgets('a renewal line says how its stones are sold', (tester) async {
+    final scrapHolds = {
+      'rows': [
+        for (final row in _safes['rows'] as List)
+          (row as Map)['stock_location'] == 'scrap'
+              ? {
+                  ...row,
+                  'balance': {
+                    'cash': 0.0,
+                    'weight': {
+                      '18k': 0.0,
+                      '21k': 10.0,
+                      '22k': 0.0,
+                      '24k': 0.0,
+                      'total': 0.0,
+                    },
+                  },
+                }
+              : row,
+      ],
+    };
+    final sent = await run(safes: scrapHolds, tester, () async {
+      expect(
+        find.text('تُباع بقيمتها'),
+        findsNothing,
+        reason: 'not on a melting',
+      );
+      await tester.tap(find.text('تجديد القطع'));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.widgetWithText(TextFormField, '0.000').first,
+        '2',
+      );
+      expect(
+        find.text('تُباع بقيمتها'),
+        findsNothing,
+        reason: 'no stones, no kind',
+      );
+      await tester.enterText(
+        find.widgetWithText(TextFormField, 'فصوص، حديد…').first,
+        '1',
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('تُحسب ذهبًا'), findsOneWidget);
+      await tester.tap(find.text('تُباع بقيمتها'));
+      await tester.pumpAndSettle();
+      final field = find.widgetWithText(
+        DropdownButtonFormField<int>,
+        'يدخل المعروض بتصنيف',
+      );
+      await tester.ensureVisible(field);
+      await tester.tap(field);
+      await tester.pumpAndSettle();
+      await tester.tap(find.textContaining('اختبار').last);
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('تنفيذ التجديد'));
+      await tester.tap(find.text('تنفيذ التجديد'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('إلى عدّاد المعروض'), findsOneWidget);
+      await tester.tap(find.text('تأكيد التجديد').last);
+      await tester.pumpAndSettle();
+    });
+    final line = (sent.single['lines'] as List).single as Map;
+    expect(line['stones_weight'], 1.0);
+    expect(line['stones_kind'], 'priced');
   });
 }

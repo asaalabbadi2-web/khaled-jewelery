@@ -120,3 +120,57 @@ def test_what_is_not_gold_is_one_field_and_the_source_gives_the_stones_it_has(au
     assert (out.weight_18k, out.stones_weight) == (pytest.approx(27.3), pytest.approx(2.0))
     (into,) = SafeBoxTransaction.query.filter_by(safe_box_id=dst.id, ref_type='voucher', ref_id=vid).all()
     assert into.weight_18k == pytest.approx(34.0)
+
+
+# ت6ب (ADR-050): the owner (23 Oct 2026) -- a piece renewed with its stones
+# «تُسجَّل كأحجار وليس ذهبًا وتُباع ذهبًا + قيمة أحجار», or as today. A line's
+# non-gold says its kind, ADR-055's words: `as_gold` (today's) or `priced`.
+
+def _priced(src, dst, category, stones):
+    body = _renewal(src, dst, category, stones)
+    body['lines'][0]['stones_kind'] = 'priced'
+    return body
+
+
+def test_stones_sold_by_their_value_move_counter_to_counter_and_post_nothing(auth_headers):
+    AccountingMapping.query.filter_by(account_type=ROLE).delete()     # no revenue: nothing is gained
+    sets = _category('طقم', 18)
+    _category('كسر', 18, scrap=True)
+    src, dst = _safe('scrap'), _safe('showroom')
+    _holds(src, 18, 30.0, stones=6.7)
+    resp = _post(auth_headers, _priced(src, dst, sets, 6.7))
+    assert resp.status_code == 201, resp.get_data(as_text=True)[:300]
+    vid = resp.get_json()['voucher']['id']
+
+    lines = VoucherAccountLine.query.filter_by(voucher_id=vid).all()
+    assert sorted((l.line_type, l.account_id, l.amount) for l in lines) == sorted([
+        ('credit', src.account_id, 27.3), ('debit', dst.account_id, 27.3)])
+    (out,) = SafeBoxTransaction.query.filter_by(safe_box_id=src.id, ref_type='voucher', ref_id=vid).all()
+    assert (out.weight_18k, out.stones_weight, out.stones_18k) == (
+        pytest.approx(27.3), pytest.approx(6.7), pytest.approx(6.7))
+    (into,) = SafeBoxTransaction.query.filter_by(safe_box_id=dst.id, ref_type='voucher', ref_id=vid).all()
+    assert (into.weight_18k, into.stones_weight, into.stones_18k) == (
+        pytest.approx(27.3), pytest.approx(6.7), pytest.approx(6.7))
+
+
+def test_stones_sold_by_their_value_are_the_sources_stones(auth_headers):
+    sets = _category('طقم', 18)
+    _category('كسر', 18, scrap=True)
+    src, dst = _safe('custody'), _safe('showroom')
+    _holds(src, 18, 30.0, stones=2.0)
+    resp = _post(auth_headers, _priced(src, dst, sets, 6.7))
+    assert resp.status_code == 400, resp.get_data(as_text=True)[:300]
+    assert resp.get_json()['error'] == 'insufficient_stones_18k'
+    assert resp.get_json()['available'] == pytest.approx(2.0)
+
+
+def test_a_melting_does_not_take_stones_sold_by_their_value_yet(auth_headers):
+    sets = _category('طقم', 18)
+    _category('كسر', 18, scrap=True)
+    src, dst = _safe('showroom'), _safe('scrap')
+    _holds(src, 18, 30.0, stones=2.0)
+    body = _priced(src, dst, sets, 1.0)
+    body['operation_type'] = 'melting'
+    resp = _post(auth_headers, body)
+    assert resp.status_code == 400, resp.get_data(as_text=True)[:300]
+    assert resp.get_json()['error'] == 'priced_stones_melting_not_built'

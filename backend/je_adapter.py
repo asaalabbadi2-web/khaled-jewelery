@@ -257,6 +257,8 @@ def sale_je_for_invoice(
     total_cash: float,           # إجمالي الفاتورة (مع الضريبة)
     total_tax: float,            # قيمة الضريبة
     customer_id: Optional[int] = None,
+    stones_sales_account_id: Optional[int] = None,
+    stones_cash: float = 0.0,    # stones sold by their value (ADR-050 ت6ج), out of the sale
 ):
     """
     ينشئ قيد البيع الكامل ويحفظه في DB.
@@ -292,6 +294,8 @@ def sale_je_for_invoice(
         weights=weights,
         cash_received=cash_received,
         description=f"بيع ذهب {'كسر' if gold_type == 'scrap' else 'جديد'}",
+        stones_sales_account_id=stones_sales_account_id,
+        stones_cash=_d(stones_cash),
     )
 
     apply_je_to_db(je, journal_entry_id, customer_id=customer_id)

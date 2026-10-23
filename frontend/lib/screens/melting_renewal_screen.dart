@@ -89,6 +89,10 @@ class _WeightLine {
   /// The category it leaves the showroom from (melting) or joins it in
   /// (renewal) -- ت3; the other side is its karat's scrap category.
   int? categoryId;
+
+  /// A renewal's stones sold by their value -- on the showroom's counter, not
+  /// in its gold -- rather than counted as gold (ت6ب; the owner, 23 Oct 2026).
+  bool stonesByValue = false;
   final TextEditingController goldCtrl = TextEditingController();
   final TextEditingController stonesCtrl = TextEditingController();
 
@@ -367,6 +371,7 @@ class _OperationFormState extends State<_OperationForm> {
           goldWeight: line.goldWeight,
           stonesWeight: line.stonesWeight,
           categoryId: line.categoryId,
+          stonesByValue: !_isMelting && line.stonesByValue,
         ),
     ];
     final wage = (_isMelting && wageAmt > 0) ? wageAmt : null;
@@ -491,6 +496,14 @@ class _OperationFormState extends State<_OperationForm> {
                   '${ltrIsolate('${l['account_number'] ?? ''}')} ${l['account_name'] ?? ''}',
                   amountOf(l),
                 ),
+              if (!_isMelting)
+                for (final l in _lines.where(
+                  (l) => l.stonesByValue && l.stonesWeight > 0,
+                ))
+                  _cRow(
+                    'أحجار ${l.karat}k تُباع بقيمتها — إلى عدّاد المعروض',
+                    _grams(l.stonesWeight),
+                  ),
             ],
           ),
         ),
@@ -674,9 +687,7 @@ class _OperationFormState extends State<_OperationForm> {
                 isDestination: true,
               );
               if (box.maxWidth < 600) {
-                return Column(
-                  children: [from, const SizedBox(height: 12), to],
-                );
+                return Column(children: [from, const SizedBox(height: 12), to]);
               }
               return Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -728,6 +739,7 @@ class _OperationFormState extends State<_OperationForm> {
                     categoryLabel: _isMelting
                         ? 'تصنيف ما يُكسَّر'
                         : 'يدخل المعروض بتصنيف',
+                    asksStonesKind: !_isMelting,
                     availableKarats: _availableKarats,
                     goldAvailable: (k) => _goldAvailable(_fromSafeId, k),
                     canRemove: _lines.length > 1,
@@ -830,10 +842,7 @@ class _OperationFormState extends State<_OperationForm> {
                 child: FilledButton.icon(
                   onPressed: _submitting ? null : _submit,
                   style: _isMelting
-                      ? AppButtonStyles.primary(
-                          context,
-                          semantic.warning,
-                        )
+                      ? AppButtonStyles.primary(context, semantic.warning)
                       : null,
                   icon: _submitting
                       ? const SizedBox(
@@ -863,6 +872,9 @@ class _WeightLineRow extends StatefulWidget {
   final _WeightLine line;
   final List<Map<String, dynamic>> categories;
   final String categoryLabel;
+
+  /// A renewal asks how a line's stones are sold (ت6ب).
+  final bool asksStonesKind;
   final List<int> availableKarats;
   final double Function(int karat) goldAvailable;
   final bool canRemove;
@@ -874,6 +886,7 @@ class _WeightLineRow extends StatefulWidget {
     required this.line,
     required this.categories,
     required this.categoryLabel,
+    this.asksStonesKind = false,
     required this.availableKarats,
     required this.goldAvailable,
     required this.canRemove,
@@ -1016,6 +1029,33 @@ class _WeightLineRowState extends State<_WeightLineRow> {
               ),
             ],
           ),
+
+          // ── كيف تُباع الأحجار (ت6ب) ────────────────────
+          if (widget.asksStonesKind && widget.line.stonesWeight > 0)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: SegmentedButton<bool>(
+                segments: const [
+                  ButtonSegment(
+                    value: false,
+                    label: Text('تُحسب ذهبًا'),
+                    tooltip: 'تدخل المعروض بالوزن القائم، وتُباع ذهبًا',
+                  ),
+                  ButtonSegment(
+                    value: true,
+                    label: Text('تُباع بقيمتها'),
+                    tooltip:
+                        'تبقى أحجارًا في عدّاد المعروض، وتُباع ذهبًا + قيمتها',
+                  ),
+                ],
+                selected: {widget.line.stonesByValue},
+                showSelectedIcon: false,
+                onSelectionChanged: (v) {
+                  setState(() => widget.line.stonesByValue = v.first);
+                  widget.onChanged();
+                },
+              ),
+            ),
 
           // ── التصنيف (ت3) ───────────────────────────────
           Padding(

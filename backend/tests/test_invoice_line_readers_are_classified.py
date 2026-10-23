@@ -37,6 +37,7 @@ READERS = {
     'routes/office_reservations.py': 'write',        # the reservation's purchase invoice
     'services/stock_ledger.py': 'write',             # allocate_invoice at posting
     'services/purchase_stones.py': 'write',          # a supplier line's stones at posting
+    'services/sale_stones.py': 'write',              # a sale line's stones sold by their value (ت6ج)
     'services/gold_allocation_service.py': 'write',  # the supplier's gold owed (ت-4: from the corrected lines)
     'category_weight_tracking.py': 'write',          # category weight movements at posting
     'routes/reports.py': 'derived',                  # sales by item, by karat, the dashboard, gram profit

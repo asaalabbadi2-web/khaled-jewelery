@@ -2830,6 +2830,19 @@ def _melting_renewal(*, preview: bool):
         return jsonify({'error': 'karat_change_refused',
                         'message': 'التكسير والتجديد لا يغيّران العيار؛ يُصحَّح العيار من شاشة الخزائن «تصحيح العيار»'}), 400
 
+    # What is not gold says its kind (ت6ب, ADR-055's words): counted as gold
+    # (today's -- into the showroom's gold, against the weight revenue) or
+    # sold by its value (stones: counter to counter, nothing posted; the sale
+    # sells them by their value, ت6ج).
+    for line, raw in zip(op_lines, raw_lines):
+        line['stones_kind'] = raw.get('stones_kind') or 'as_gold'
+    if any(l['stones_kind'] not in ('as_gold', 'priced') for l in op_lines):
+        return jsonify({'error': 'invalid_stones_kind',
+                        'message': 'غير الذهب يُحسب ذهبًا أو يُباع بقيمته'}), 400
+    if operation_type == 'melting' and any(l['stones_kind'] == 'priced' for l in op_lines):
+        return jsonify({'error': 'priced_stones_melting_not_built',
+                        'message': 'تكسير قطعة أحجارها تُباع بقيمتها لم يُبنَ بعد'}), 400
+
     try:
         for line, raw in zip(op_lines, raw_lines):
             line['gold_weight'] = float(raw.get('gold_weight') or 0)
@@ -2876,7 +2889,8 @@ def _melting_renewal(*, preview: bool):
                                        'ولا يُعدم ما ليس ذهبًا (فصوص، حديد…) دونه'}), 400
 
     stones_revenue_account_id = None
-    if operation_type == 'renewal' and any(l['stones_weight'] > 0 for l in op_lines):
+    if operation_type == 'renewal' and any(l['stones_weight'] > 0 and l['stones_kind'] == 'as_gold'
+                                           for l in op_lines):
         from accounting.mappings import DEFAULT_MAPPING_OPERATION_TYPE, AccountNotMapped, require_account
         try:
             stones_revenue_account_id = require_account(DEFAULT_MAPPING_OPERATION_TYPE, 'renewal_stones_revenue')
@@ -2951,7 +2965,6 @@ def _melting_renewal(*, preview: bool):
         # Gold from the ledger -- the balance the screen shows (BALANCE-001 B2);
         # stones have no ledger weight and stay on the safe-box rows below.
         from services.live_balances import safe_gold_available
-        q_src = SafeBoxTransaction.query.filter_by(safe_box_id=from_safe_id)
 
         # Per karat, all the operation's lines of it together: two lines of
         # 21k each within the balance may not be within it together.
@@ -2974,15 +2987,22 @@ def _melting_renewal(*, preview: bool):
         # renewal's source gives the stones it holds (its rows' weight, never
         # below nothing); the rest is a part added, not a refusal. It refused
         # anything beyond the source's stones.
-        source_stones = 0.0
+        source_stones = {}
         if stones_weight > 0 and operation_type == 'renewal':
-            s_in  = float(q_src.with_entities(
-                func.coalesce(func.sum(SafeBoxTransaction.stones_weight), 0.0))
-                .filter(SafeBoxTransaction.direction == 'in').scalar() or 0.0)
-            s_out = float(q_src.with_entities(
-                func.coalesce(func.sum(SafeBoxTransaction.stones_weight), 0.0))
-                .filter(SafeBoxTransaction.direction == 'out').scalar() or 0.0)
-            source_stones = max(0.0, round(s_in - s_out, 6))
+            from services.safe_stones import stones_of
+            source_stones = {int(k): v for k, v in stones_of(from_safe_id).items() if k != 'total'}
+            # Stones sold by their value are the source's stones, by karat (ت6ب).
+            priced_by_karat = {}
+            for line in op_lines:
+                if line['stones_kind'] == 'priced':
+                    priced_by_karat[line['karat']] = priced_by_karat.get(line['karat'], 0.0) + line['stones_weight']
+            for karat, asked in priced_by_karat.items():
+                if asked - source_stones.get(karat, 0.0) > 1e-6:
+                    return jsonify({'error': f'insufficient_stones_{karat}k',
+                                    'available': round(source_stones.get(karat, 0.0), 3),
+                                    'message': f'أحجار عيار {karat} في «{from_safe.name}» '
+                                               f'{source_stones.get(karat, 0.0):.3f} جم فقط'}), 400
+                source_stones[karat] = source_stones.get(karat, 0.0) - asked
 
         created_by = getattr(getattr(g, 'current_user', None), 'username', None) or 'system'
 
@@ -3051,7 +3071,7 @@ def _melting_renewal(*, preview: bool):
                         description=f"{what} ({line['stones_weight']:.3f} جم)"))
         if stones_revenue_account_id:
             for line in op_lines:
-                if line['stones_weight'] <= 0:
+                if line['stones_weight'] <= 0 or line['stones_kind'] != 'as_gold':
                     continue
                 for lt, acct_id, what in (('debit', to_safe.account_id, 'غير الذهب في التجديد يدخل المعروض ذهبًا'),
                                           ('credit', stones_revenue_account_id, 'إيراد غير الذهب في التجديد')):
@@ -3109,7 +3129,8 @@ def _melting_renewal(*, preview: bool):
                 # a renewal (ت5أ), leaving by a melting (ت5).
                 with_stones = ((stones_revenue_account_id and account_id == to_safe.account_id)
                                or (stones_expense_account_id and account_id == from_safe.account_id))
-                parts = [(l[which], None, l['gold_weight'] + (l['stones_weight'] if with_stones else 0.0))
+                parts = [(l[which], None, l['gold_weight']
+                          + (l['stones_weight'] if with_stones and l['stones_kind'] == 'as_gold' else 0.0))
                          for l in op_lines if l['karat'] == karat]
                 spread(on_account, karat, parts, now=voucher_dt, by=created_by, what=f'{op_label} {voucher_number}')
 
@@ -3149,9 +3170,15 @@ def _melting_renewal(*, preview: bool):
             stones_out_as_gold = line['stones_weight'] if stones_expense_account_id else 0.0
             out_stones_kw = {} if stones_out_as_gold else line_stones_kw
             if operation_type == 'renewal' and out_stones_kw.get('stones_weight'):
-                given = min(out_stones_kw['stones_weight'], source_stones)
-                source_stones = round(source_stones - given, 6)
-                out_stones_kw = {'stones_weight': round(given, 6)} if given > 0 else {}
+                # Priced: its stones, checked above. Counted as gold: the
+                # source's stones as far as they go, the rest a part added.
+                if line['stones_kind'] == 'priced':
+                    given = line['stones_weight']
+                else:
+                    given = max(0.0, min(out_stones_kw['stones_weight'], source_stones.get(line['karat'], 0.0)))
+                    source_stones[line['karat']] = source_stones.get(line['karat'], 0.0) - given
+                out_stones_kw = ({'stones_weight': round(given, 6), f"stones_{line['karat']}k": round(given, 6)}
+                                 if given > 0 else {})
             db.session.add(SafeBoxTransaction(
                 safe_box_id=from_safe_id,
                 direction='out',
@@ -3166,7 +3193,12 @@ def _melting_renewal(*, preview: bool):
 
             # SafeBoxTransaction: دخول إلى الوجهة (وزن صافي + فصوص معلوماتي)؛
             # وفصوص التجديد ذهبٌ في المعرض (ت5أ): تدخل وزنًا لا فصوصًا.
-            stones_as_gold = line['stones_weight'] if stones_revenue_account_id else 0.0
+            stones_as_gold = (line['stones_weight']
+                              if stones_revenue_account_id and line['stones_kind'] == 'as_gold' else 0.0)
+            # Sold by their value, they join the showroom's counter (ت6ب).
+            if line['stones_kind'] == 'priced' and line['stones_weight'] > 0:
+                line_stones_kw = {'stones_weight': round(line['stones_weight'], 6),
+                                  f"stones_{line['to_karat']}k": round(line['stones_weight'], 6)}
             db.session.add(SafeBoxTransaction(
                 safe_box_id=to_safe_id,
                 direction='in',

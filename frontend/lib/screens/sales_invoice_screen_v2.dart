@@ -255,6 +255,8 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
               'tax_rate': i.taxRate,
               'has_manual_total': i.hasManualTotal,
               'manual_total': i.manualTargetTotal,
+              'stones_weight': i.stonesWeight,
+              'stones_value': i.stonesValue,
             },
           )
           .toList(),
@@ -378,6 +380,8 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
           avgManufacturingCostPerMainGram: _avgManufacturingCostPerMainGram,
         );
         item.profit = toDouble(map['profit']);
+        item.stonesWeight = toDouble(map['stones_weight']);
+        item.stonesValue = toDouble(map['stones_value']);
         final hasManual = map['has_manual_total'] == true;
         final manualTotal = map['manual_total'];
         if (hasManual && manualTotal != null) {
@@ -593,9 +597,13 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
             avgGoldCostPerMainGram: _avgGoldCostPerMainGram,
             avgManufacturingCostPerMainGram: _avgManufacturingCostPerMainGram,
           );
+          if (m['stones_kind'] == 'priced') {
+            item.stonesWeight = _parseDouble(m['stones_weight']);
+            item.stonesValue = _parseDouble(m['stones_value']);
+          }
           // Restore profit so the totals match the original invoice
           final cost = item.cost;
-          item.profit = net - cost;
+          item.profit = net - cost - item.stonesValue;
           // A scrap sale is priced by hand: each line keeps the total it was
           // saved with, whatever the gold price is by the time it loads.
           if (widget.scrap) {
@@ -2103,6 +2111,29 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
     item.profit = requiredProfit;
   }
 
+  /// A line's stones sold by their value (ADR-050 ت6ج): their weight, off
+  /// the showroom's counter, and their value, inside the line's price. The
+  /// line's weight stays its gold.
+  Future<void> _showStonesDialog(int index) async {
+    final item = _items[index];
+    final result = await showDialog<(double, double)>(
+      context: context,
+      builder: (_) => _StonesDialog(
+        item: item,
+        currency: _settingsProvider.currencySymbolText,
+      ),
+    );
+    if (result == null || !mounted) return;
+    setState(() {
+      final manual = item.hasManualTotal ? item.manualTargetTotal : null;
+      item.stonesWeight = result.$1;
+      item.stonesValue = result.$2;
+      // A fixed total stays fixed: the stones' value comes out of the gold's
+      // profit. Otherwise the price grows by it.
+      if (manual != null) item.setManualTotal(manual);
+    });
+  }
+
   void _removeItem(int index) {
     final removed = _items[index];
     setState(() {
@@ -2136,8 +2167,10 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
         ? targetTotal
         : targetTotal / (1 + _effectiveVatRate);
 
-    // الخطوة 3: حساب الربح المتاح للتوزيع
-    final profitPool = amountWithoutTax - totalCosts;
+    // الخطوة 3: حساب الربح المتاح للتوزيع -- the stones' value is theirs
+    // (ADR-050 ت6ج), not the gold's profit.
+    final stonesValues = _items.fold<double>(0.0, (s, i) => s + i.stonesValue);
+    final profitPool = amountWithoutTax - totalCosts - stonesValues;
 
     // الخطوة 4: حساب إجمالي الأوزان
     final totalWeight = _items.fold<double>(
@@ -2188,7 +2221,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
         for (final i in _items)
           SalesLineFacts(weight: i.weight, karat: i.karat),
       ],
-      net: total - totalTax,
+      net: total - totalTax - _items.fold<double>(0.0, (s, i) => s + i.stonesValue),
       goldPrice24k: _goldPrice24k,
       formatCash: (v) => '${cu.formatAmount(v)} $currency',
     );
@@ -4291,7 +4324,25 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
           return DataRow(
             cells: [
               DataCell(Text('${index + 1}', style: cellStyle)),
-              DataCell(Text(item.name, style: cellStyle)),
+              DataCell(
+                item.sellsStones
+                    ? Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(item.name, style: cellStyle),
+                          Text(
+                            'أحجار ${cu.formatGrams(item.stonesWeight)} جم · '
+                            '${cu.formatAmount(item.stonesValue)} '
+                            '${_settingsProvider.currencySymbolText}',
+                            style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                              color: _tone.gold.fg,
+                            ),
+                          ),
+                        ],
+                      )
+                    : Text(item.name, style: cellStyle),
+              ),
               DataCell(Text('${item.count}', style: cellStyle)),
               DataCell(
                 InkWell(
@@ -4386,6 +4437,17 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
               DataCell(
                 Row(
                   children: [
+                    IconButton(
+                      icon: Icon(
+                        item.sellsStones
+                            ? Icons.diamond
+                            : Icons.diamond_outlined,
+                        size: 20,
+                        color: item.sellsStones ? _tone.gold.fg : null,
+                      ),
+                      onPressed: () => _showStonesDialog(index),
+                      tooltip: 'أحجار تُباع بقيمتها',
+                    ),
                     IconButton(
                       icon: Icon(
                         Icons.delete,
@@ -5477,6 +5539,13 @@ class InvoiceItem {
   // الربح الموزع (يتم حسابه في _distributeAmount)
   double profit = 0.0;
 
+  /// Stones sold by their value (ADR-050 ت6ج): on the showroom's counter,
+  /// not in [weight] -- the line's gold. Their value is inside the line's
+  /// price, at no cost.
+  double stonesWeight = 0.0;
+  double stonesValue = 0.0;
+  bool get sellsStones => stonesWeight > 0 && stonesValue > 0;
+
   // علامة لتتبع إذا تم تحديد الإجمالي يدوياً
   bool _hasManualTotal = false;
   double? _targetTotal;
@@ -5529,7 +5598,7 @@ class InvoiceItem {
       // إذا تم تحديد إجمالي يدوي، احسب الصافي من الإجمالي
       return _targetTotal! / (1 + taxRate);
     }
-    return cost + profit;
+    return cost + profit + stonesValue;
   }
 
   // الضريبة 15% على الصافي
@@ -5557,7 +5626,7 @@ class InvoiceItem {
     _targetTotal = total;
     // إعادة حساب الربح بناءً على الإجمالي الجديد
     final targetNet = total / (1 + taxRate);
-    profit = targetNet - cost;
+    profit = targetNet - cost - stonesValue;
   }
 
   // مسح الإجمالي اليدوي عند تعديل الحقول
@@ -5592,6 +5661,11 @@ class InvoiceItem {
       'tax': tax,
       'price': totalWithTax, // الـ backend يتوقع 'price' بدلاً من 'total'
       'quantity': count, // 🆕 عدد فعلي
+      if (sellsStones) ...{
+        'stones_kind': 'priced',
+        'stones_weight': stonesWeight,
+        'stones_value': stonesValue,
+      },
       'calculated_selling_price_per_gram': calculateSellingPricePerGram(),
       'avg_manufacturing_cost_per_gram': _avgManufacturingCostPerMainGram,
     };
@@ -5599,6 +5673,114 @@ class InvoiceItem {
 }
 
 // ==================== Category Line Dialog Widget ====================
+/// The stones a sale line sells by their value (ADR-050 ت6ج): (weight,
+/// value), (0, 0) to take them off, null to leave the line as it was.
+class _StonesDialog extends StatefulWidget {
+  const _StonesDialog({required this.item, required this.currency});
+
+  final InvoiceItem item;
+  final String currency;
+
+  @override
+  State<_StonesDialog> createState() => _StonesDialogState();
+}
+
+class _StonesDialogState extends State<_StonesDialog> {
+  late final _weight = TextEditingController(
+    text: widget.item.stonesWeight > 0
+        ? cu.formatGrams(widget.item.stonesWeight)
+        : '',
+  );
+  late final _value = TextEditingController(
+    text: widget.item.stonesValue > 0 ? '${widget.item.stonesValue}' : '',
+  );
+  String? _error;
+
+  @override
+  void dispose() {
+    _weight.dispose();
+    _value.dispose();
+    super.dispose();
+  }
+
+  void _save() {
+    final item = widget.item;
+    final w = readTypedNumber(_weight.text) ?? 0;
+    final v = readTypedNumber(_value.text) ?? 0;
+    if (w <= 0 || v <= 0) {
+      setState(() => _error = 'الوزن والقيمة مطلوبان');
+      return;
+    }
+    // A fixed total keeps its price: the stones' value must leave the gold
+    // something of it.
+    if (item.hasManualTotal && v >= item.net - 0.01) {
+      setState(
+        () => _error =
+            'قيمة الأحجار لا تترك للذهب شيئًا من سعر السطر '
+            '(${cu.formatAmount(item.net)})',
+      );
+      return;
+    }
+    Navigator.pop(context, (w, v));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return AlertDialog(
+      title: const Text('أحجار تُباع بقيمتها'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            'لقطعة جُدِّدت وأحجارها أحجار لا ذهب: وزن السطر ذهبها وحده، '
+            'والأحجار تخرج من عدّاد المعروض، وقيمتها داخل سعر السطر.',
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            key: const Key('stones-weight'),
+            controller: _weight,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            inputFormatters: [NormalizeNumberFormatter()],
+            decoration: const InputDecoration(
+              labelText: 'وزن الأحجار',
+              suffixText: 'جم',
+            ),
+          ),
+          const SizedBox(height: 8),
+          TextField(
+            key: const Key('stones-value'),
+            controller: _value,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            inputFormatters: [NormalizeNumberFormatter()],
+            decoration: InputDecoration(
+              labelText: 'قيمتها',
+              suffixText: widget.currency,
+              errorText: _error,
+            ),
+          ),
+        ],
+      ),
+      actions: [
+        if (widget.item.sellsStones)
+          TextButton(
+            onPressed: () => Navigator.pop(context, (0.0, 0.0)),
+            child: const Text('إزالة'),
+          ),
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('إلغاء'),
+        ),
+        FilledButton(onPressed: _save, child: const Text('حفظ')),
+      ],
+    );
+  }
+}
+
 class _CategoryLineDialog extends StatefulWidget {
   final List<Map<String, dynamic>> categories;
   final int mainKarat;

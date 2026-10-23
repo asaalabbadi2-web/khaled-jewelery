@@ -917,7 +917,10 @@ def invoice_gold_plan(invoice: Invoice, *, posted: bool = True) -> list:
 
             # استخراج وزن الفصوص لهذا الصنف (للفواتير الصنفية)
             sw = _to_float(getattr(inv_item, 'stones_weight', 0.0))
-            if sw > 0 and is_customer_scrap_purchase:
+            # A sale's stones sold by their value leave the counter with
+            # their gold (ADR-050 ت6ج); stones counted as gold are its gold.
+            sold_by_value = invoice_type == 'بيع' and getattr(inv_item, 'stones_kind', None) == 'priced'
+            if sw > 0 and (is_customer_scrap_purchase or sold_by_value):
                 stones_by_karat[karat] += sw
 
     direction = _direction_for_invoice_gold(getattr(invoice, 'invoice_type', None))

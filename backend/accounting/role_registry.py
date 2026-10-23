@@ -85,6 +85,8 @@ ROLES: dict[str, Role] = dict((
     _r('sales_gold_new', 'مبيعات ذهب جديد', G_TRADE, 'إيراد بيع الذهب الجديد.', operations=TRADE_OPS),
     _r('sales_gold_scrap', 'مبيعات ذهب كسر', G_TRADE, 'إيراد بيع الكسر.', operations=TRADE_OPS),
     _r('sales_returns', 'مردودات المبيعات', G_TRADE, 'يُقيَّد عليه مرتجع البيع.', operations=TRADE_OPS),
+    _r('stones_sales', 'مبيعات الأحجار', G_TRADE,
+       'قيمة الأحجار المبيعة بقيمتها مع قطعتها، لا ذهبًا (ADR-050 ت6ج)؛ تكلفتها صفر، جاءت مع الكسر.'),
     _r('purchases_gold', 'مشتريات الذهب', G_TRADE,
        'ثمن الذهب المشترى حين لا يُميَّز الجديد من الكسر.', operations=TRADE_OPS),
     _r('purchases_gold_new', 'مشتريات ذهب جديد من العملاء', G_TRADE,
