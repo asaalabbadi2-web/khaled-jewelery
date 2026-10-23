@@ -98,3 +98,25 @@ def test_a_renewal_without_stones_needs_no_role(auth_headers):
     _holds(src, 18, 30.0)
     resp = _post(auth_headers, _renewal(src, dst, sets, 0.0))
     assert resp.status_code == 201, resp.get_data(as_text=True)[:300]
+
+
+def test_what_is_not_gold_is_one_field_and_the_source_gives_the_stones_it_has(auth_headers):
+    """The owner (23 Oct 2026): «خانة واحدة لكل ما هو غير ذهب سواء بالتجديد أو
+    التكسير» -- stones, iron, a clasp. A renewal's non-gold beyond the stones
+    its source holds is a part added, not a refusal; the source's stones go
+    down by what it has, never below nothing."""
+    revenue = _map_role()
+    sets = _category('طقم', 18)
+    _category('كسر', 18, scrap=True)
+    src, dst = _safe('custody'), _safe('showroom')
+    _holds(src, 18, 30.0, stones=2.0)
+    resp = _post(auth_headers, _renewal(src, dst, sets, 6.7))
+    assert resp.status_code == 201, resp.get_data(as_text=True)[:300]
+    vid = resp.get_json()['voucher']['id']
+
+    entered = VoucherAccountLine.query.filter_by(voucher_id=vid, account_id=revenue.id).one()
+    assert (entered.line_type, entered.amount) == ('credit', pytest.approx(6.7))
+    (out,) = SafeBoxTransaction.query.filter_by(safe_box_id=src.id, ref_type='voucher', ref_id=vid).all()
+    assert (out.weight_18k, out.stones_weight) == (pytest.approx(27.3), pytest.approx(2.0))
+    (into,) = SafeBoxTransaction.query.filter_by(safe_box_id=dst.id, ref_type='voucher', ref_id=vid).all()
+    assert into.weight_18k == pytest.approx(34.0)

@@ -107,10 +107,12 @@ void main() {
     ThemeData? theme,
     Size size = const Size(1200, 2400),
     bool overAPage = false,
+    int mainKarat = 21,
+    int failingLoads = 0,
   }) async {
     SharedPreferences.setMockInitialValues({
       'jwt_token': 'token',
-      'app_settings': jsonEncode({'main_karat': 21}),
+      'app_settings': jsonEncode({'main_karat': mainKarat}),
     });
     tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1;
@@ -158,6 +160,14 @@ void main() {
       },
       () => MockClient((request) async {
         final path = request.url.path;
+        if (path.endsWith('/safe-boxes/balances') && failingLoads > 0) {
+          failingLoads--;
+          return http.Response(
+            jsonEncode({'error': 'الخادم مشغول'}),
+            500,
+            headers: {'content-type': 'application/json; charset=utf-8'},
+          );
+        }
         if (request.method == 'POST' &&
             path.endsWith('/melting-renewal/preview')) {
           // The server's entry before it is saved (ت2).
@@ -329,7 +339,10 @@ void main() {
         find.widgetWithText(TextFormField, '0.000').first,
         '6',
       );
-      await tester.enterText(find.widgetWithText(TextFormField, '—').first, '5');
+      await tester.enterText(
+        find.widgetWithText(TextFormField, 'فصوص، حديد…').first,
+        '5',
+      );
       await tester.pumpAndSettle();
       await pickCategories(tester);
       await execute(tester);
@@ -516,6 +529,111 @@ void main() {
       await press(tester, LogicalKeyboardKey.escape);
       expect(find.text('الخروج دون حفظ؟'), findsNothing);
       expect(find.byType(MeltingRenewalScreen), findsNothing);
+    });
+  });
+
+  // ر٥ (ADR-057): the owner, 23 Oct 2026 -- the header's text did not read.
+  // The chosen tab was the light bar's own gold; the screen was witnessed
+  // only in the dark.
+  testWidgets('the chosen tab reads on the light theme\'s bar', (tester) async {
+    await run(tester, () async {
+      final bar = LightTheme.theme.appBarTheme;
+      final tabs = tester.widget<TabBar>(find.byType(TabBar));
+      expect(tabs.labelColor, bar.foregroundColor);
+      expect(tabs.labelColor, isNot(bar.backgroundColor));
+    });
+  });
+
+  testWidgets('a load that fails says so, with a retry, and no form', (
+    tester,
+  ) async {
+    await run(failingLoads: 1, tester, () async {
+      expect(find.text('إعادة المحاولة'), findsOneWidget);
+      expect(find.text('تنفيذ التكسير'), findsNothing);
+      expect(find.text('0.000'), findsNothing);
+      await tester.tap(find.text('إعادة المحاولة'));
+      await tester.pumpAndSettle();
+      expect(find.text('تنفيذ التكسير'), findsOneWidget);
+    });
+  });
+
+  testWidgets('no scrap safe: it says why and where it is set', (tester) async {
+    final showroomOnly = {
+      'rows': [(_safes['rows'] as List).first],
+    };
+    await run(safes: showroomOnly, tester, () async {
+      expect(find.text('لا خزينة كسر'), findsOneWidget);
+      expect(find.text('إدارة الخزائن'), findsOneWidget);
+      expect(find.text('تنفيذ التكسير'), findsNothing);
+    });
+  });
+
+  testWidgets('on a phone the safes stack and nothing overflows', (
+    tester,
+  ) async {
+    await run(size: const Size(390, 844), tester, () async {
+      expect(tester.takeException(), isNull);
+      final from = tester.getTopLeft(find.text('خزينة المصدر'));
+      final to = tester.getTopLeft(find.text('خزينة الوجهة'));
+      expect(to.dy, greaterThan(from.dy));
+    });
+  });
+
+  testWidgets('a line on an empty source is of the main karat', (tester) async {
+    final empty = {
+      'rows': [
+        for (final row in _safes['rows'] as List)
+          {
+            ...(row as Map<String, dynamic>),
+            'balance': {
+              'cash': 0.0,
+              'weight': {'18k': 0.0, '21k': 0.0, '22k': 0.0, '24k': 0.0, 'total': 0.0},
+            },
+          },
+      ],
+    };
+    await run(safes: empty, mainKarat: 18, tester, () async {
+      expect(
+        tester
+            .widget<DropdownButtonFormField<int>>(
+              find.byType(DropdownButtonFormField<int>).at(2),
+            )
+            .initialValue,
+        18,
+      );
+    });
+  });
+
+  // The owner, 23 Oct 2026: «خانة واحدة لكل ما هو غير ذهب سواء بالتجديد أو
+  // التكسير» -- the field said «فصوص» alone; iron and a clasp had no place.
+  testWidgets('one field takes what is not gold, in both operations', (
+    tester,
+  ) async {
+    await run(tester, () async {
+      expect(find.text('غير الذهب (جم)'), findsOneWidget);
+      expect(find.widgetWithText(TextFormField, 'فصوص، حديد…'), findsOneWidget);
+      await tester.tap(find.text('تجديد القطع'));
+      await tester.pumpAndSettle();
+      expect(find.text('غير الذهب (جم)'), findsOneWidget);
+      expect(find.widgetWithText(TextFormField, 'فصوص، حديد…'), findsOneWidget);
+    });
+  });
+
+  // The confirmation said «(وزن، لا قيد)» under an entry that posts them
+  // (ت5, ت5أ): it says the server's entry alone.
+  testWidgets('the confirmation says no line the entry does not post', (
+    tester,
+  ) async {
+    await run(tester, () async {
+      await tester.enterText(find.widgetWithText(TextFormField, '0.000').first, '2');
+      await tester.enterText(
+        find.widgetWithText(TextFormField, 'فصوص، حديد…').first,
+        '1',
+      );
+      await pickCategories(tester);
+      await execute(tester);
+      expect(find.text('تأكيد التكسير'), findsWidgets);
+      expect(find.textContaining('لا قيد'), findsNothing);
     });
   });
 }

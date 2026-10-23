@@ -11,8 +11,10 @@ import '../utils/bidi.dart';
 import '../utils/currency_utils.dart';
 import '../widgets/app_feedback.dart';
 import '../widgets/app_leave_guard.dart';
+import '../widgets/app_bar_tab_bar.dart';
 import '../widgets/app_shortcuts.dart';
 import '../widgets/app_state_views.dart';
+import 'safe_boxes_screen.dart' show SafeBoxesScreen, stockPlaceLabels;
 import 'voucher_details_screen.dart';
 
 /// Grams as Arabic reads them: the number whole and left-to-right, then its
@@ -56,14 +58,11 @@ class _MeltingRenewalScreenState extends State<MeltingRenewalScreen>
   Widget build(BuildContext context) {
     context.watch<SettingsProvider>();
 
-    final cs = Theme.of(context).colorScheme;
     return Scaffold(
       appBar: AppBar(
         title: const Text('التجديد والتكسير'),
-        bottom: TabBar(
+        bottom: AppBarTabBar(
           controller: _tabController,
-          indicatorColor: cs.primary,
-          labelColor: cs.primary,
           tabs: const [
             Tab(icon: Icon(Icons.recycling), text: 'تكسير المخزون'),
             Tab(icon: Icon(Icons.auto_fix_high), text: 'تجديد القطع'),
@@ -93,7 +92,7 @@ class _WeightLine {
   final TextEditingController goldCtrl = TextEditingController();
   final TextEditingController stonesCtrl = TextEditingController();
 
-  _WeightLine({this.karat = 21});
+  _WeightLine({required this.karat});
 
   double get goldWeight => double.tryParse(goldCtrl.text.trim()) ?? 0.0;
   double get stonesWeight => double.tryParse(stonesCtrl.text.trim()) ?? 0.0;
@@ -126,6 +125,10 @@ class _OperationFormState extends State<_OperationForm> {
       {}; // safe_box_id → {total, 18, 21, 22, 24}
   bool _loading = true;
 
+  /// Why the safes did not load: said with a retry, not over an empty form
+  /// that takes typing (ADR-057 ر٥).
+  Object? _loadError;
+
   // The showroom's categories (not scrap), each line's of its karat (ت3).
   List<Map<String, dynamic>> _categories = [];
 
@@ -134,7 +137,7 @@ class _OperationFormState extends State<_OperationForm> {
   int? _toSafeId;
 
   // ── أسطر الأوزان ─────────────────────────────────────────────
-  final List<_WeightLine> _lines = [_WeightLine()];
+  final List<_WeightLine> _lines = [];
 
   // ── مصنعية تالفة (تكسير فقط) ─────────────────────────────────
   // Its account is its role's, «المصنعية التالفة بالتكسير» in «الربط
@@ -156,8 +159,13 @@ class _OperationFormState extends State<_OperationForm> {
   @override
   void initState() {
     super.initState();
+    _lines.add(_WeightLine(karat: _mainKarat));
     _load();
   }
+
+  /// A new line's karat: the settings' main karat, never a fixed one, until
+  /// the source safe's fullest karat is known.
+  int get _mainKarat => context.read<SettingsProvider>().mainKarat;
 
   @override
   void dispose() {
@@ -171,7 +179,10 @@ class _OperationFormState extends State<_OperationForm> {
 
   // ── تحميل البيانات ───────────────────────────────────────────
   Future<void> _load() async {
-    setState(() => _loading = true);
+    setState(() {
+      _loading = true;
+      _loadError = null;
+    });
     try {
       final results = await Future.wait([
         widget.api.getSafeBoxBalances(type: 'gold'),
@@ -208,8 +219,10 @@ class _OperationFormState extends State<_OperationForm> {
       });
     } catch (e) {
       if (mounted) {
-        setState(() => _loading = false);
-        AppFeedback.error(context, e, title: 'تعذّر تحميل الخزائن والحسابات');
+        setState(() {
+          _loading = false;
+          _loadError = e;
+        });
       }
     }
   }
@@ -267,9 +280,7 @@ class _OperationFormState extends State<_OperationForm> {
   }
 
   // ── مساعدات الرصيد ───────────────────────────────────────────
-  SafeBoxModel? _safeById(int? id) => id == null
-      ? null
-      : _safes.firstWhere((s) => s.id == id, orElse: () => _safes.first);
+  SafeBoxModel? _safeById(int? id) => _safeIn(_safes, id);
 
   double _goldAvailable(int? safeId, int karat) {
     final s = _safeById(safeId);
@@ -290,11 +301,6 @@ class _OperationFormState extends State<_OperationForm> {
 
   double _stonesFor(int? safeId) =>
       safeId == null ? 0.0 : (_stonesMap[safeId]?['total'] ?? 0.0);
-
-  Map<String, double> _stonesInfoFor(int? safeId) => safeId == null
-      ? const {'total': 0.0, '18': 0.0, '21': 0.0, '22': 0.0, '24': 0.0}
-      : (_stonesMap[safeId] ??
-            const {'total': 0.0, '18': 0.0, '21': 0.0, '22': 0.0, '24': 0.0});
 
   // ── إدارة الأسطر ─────────────────────────────────────────────
   void _addLine() {
@@ -485,14 +491,6 @@ class _OperationFormState extends State<_OperationForm> {
                   '${ltrIsolate('${l['account_number'] ?? ''}')} ${l['account_name'] ?? ''}',
                   amountOf(l),
                 ),
-              if (_lines.any((l) => l.stonesWeight > 0)) ...[
-                const Divider(),
-                for (final l in _lines.where((l) => l.stonesWeight > 0))
-                  _cRow(
-                    'فصوص ${l.karat}k (وزن، لا قيد)',
-                    _grams(l.stonesWeight),
-                  ),
-              ],
             ],
           ),
         ),
@@ -543,7 +541,7 @@ class _OperationFormState extends State<_OperationForm> {
         l.dispose();
       }
       _lines.clear();
-      _lines.add(_WeightLine());
+      _lines.add(_WeightLine(karat: _mainKarat));
       _fromSafeId = null;
       _toSafeId = null;
       _wageCtrl.clear();
@@ -555,6 +553,30 @@ class _OperationFormState extends State<_OperationForm> {
   void _snack(String msg, {bool error = false}) {
     if (!mounted) return;
     error ? AppFeedback.error(context, msg) : AppFeedback.success(context, msg);
+  }
+
+  /// No safe on one side of the operation's way: said, with where a safe's
+  /// place is set -- an empty list said nothing (ADR-057 ر٥).
+  Widget _noSafe(BuildContext context, Set<String> places) {
+    String named(Set<String> p) =>
+        p.map((k) => '«${stockPlaceLabels[k] ?? k}»').join(' أو ');
+    final (from, to) = _ways[widget.opType]!;
+    return AppEmptyView(
+      icon: Icons.inventory_2_outlined,
+      title:
+          'لا خزينة ${places.map((k) => stockPlaceLabels[k] ?? k).join(' ولا ')}',
+      hint:
+          '${_isMelting ? 'التكسير' : 'التجديد'} ينقل الذهب من خزينة ${named(from)} '
+          'إلى خزينة ${named(to)}. حدّد «أين هذا الذهب؟» لخزينة من «إدارة الخزائن».',
+      actionLabel: 'إدارة الخزائن',
+      actionIcon: Icons.account_balance_outlined,
+      onAction: () async {
+        await Navigator.of(context).push(
+          MaterialPageRoute(builder: (_) => SafeBoxesScreen(api: widget.api)),
+        );
+        if (mounted) _load();
+      },
+    );
   }
 
   /// Something typed that leaving would lose (ADR-050, خ٤). The lines come
@@ -576,6 +598,19 @@ class _OperationFormState extends State<_OperationForm> {
   @override
   Widget build(BuildContext context) {
     if (_loading) return const AppLoadingView(summaryBlocks: 2, rows: 3);
+    if (_loadError != null) {
+      return AppErrorView(
+        title: 'تعذّر تحميل الخزائن',
+        error: _loadError,
+        onRetry: _load,
+      );
+    }
+    final missing = _sourceSafes.isEmpty
+        ? _ways[widget.opType]!.$1
+        : _targetSafes.isEmpty
+        ? _ways[widget.opType]!.$2
+        : null;
+    if (missing != null) return _noSafe(context, missing);
     return AppLeaveGuard(
       controllers: const [],
       isDirty: () => _typed,
@@ -591,9 +626,8 @@ class _OperationFormState extends State<_OperationForm> {
 
   Widget _buildForm(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    final opColor = _isMelting
-        ? AppSemanticColors.of(context).warning.fg
-        : cs.primary;
+    final semantic = AppSemanticColors.of(context);
+    final tone = _isMelting ? semantic.warning : semantic.gold;
     final header = Theme.of(
       context,
     ).textTheme.labelSmall?.copyWith(color: cs.onSurfaceVariant);
@@ -605,47 +639,54 @@ class _OperationFormState extends State<_OperationForm> {
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         children: [
           // ── بانر توضيحي ──────────────────────────────────────
-          _InfoBanner(isMelting: _isMelting, color: opColor),
+          _InfoBanner(isMelting: _isMelting, tone: tone),
           const SizedBox(height: 14),
 
-          // ── الخزائن (صف جنباً إلى جنب على الشاشات الواسعة) ──
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                child: _VaultCard(
-                  title: 'خزينة المصدر',
-                  icon: Icons.output,
-                  color: opColor,
-                  safes: _sourceSafes,
-                  value: _fromSafeId,
-                  excludeId: _toSafeId,
-                  stonesBalance: _stonesFor(_fromSafeId),
-                  onChanged: (v) => setState(() {
-                    _fromSafeId = v;
-                    _applyDefaults();
-                  }),
-                  highlightKarats: _lines.map((l) => l.karat).toSet(),
-                  goldAvailable: (k) => _goldAvailable(_fromSafeId, k),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _VaultCard(
-                  title: 'خزينة الوجهة',
-                  icon: Icons.input,
-                  color: opColor,
-                  safes: _targetSafes,
-                  value: _toSafeId,
-                  excludeId: _fromSafeId,
-                  stonesBalance: _stonesFor(_toSafeId),
-                  onChanged: (v) => setState(() => _toSafeId = v),
-                  highlightKarats: const {},
-                  goldAvailable: (k) => _goldAvailable(_toSafeId, k),
-                  isDestination: true,
-                ),
-              ),
-            ],
+          // ── الخزائن: جنبًا إلى جنب، وعلى الهاتف واحدة فوق الأخرى ──
+          LayoutBuilder(
+            builder: (context, box) {
+              final from = _VaultCard(
+                title: 'خزينة المصدر',
+                icon: Icons.output,
+                tone: tone,
+                safes: _sourceSafes,
+                value: _fromSafeId,
+                excludeId: _toSafeId,
+                stonesBalance: _stonesFor(_fromSafeId),
+                onChanged: (v) => setState(() {
+                  _fromSafeId = v;
+                  _applyDefaults();
+                }),
+                highlightKarats: _lines.map((l) => l.karat).toSet(),
+                goldAvailable: (k) => _goldAvailable(_fromSafeId, k),
+              );
+              final to = _VaultCard(
+                title: 'خزينة الوجهة',
+                icon: Icons.input,
+                tone: tone,
+                safes: _targetSafes,
+                value: _toSafeId,
+                excludeId: _fromSafeId,
+                stonesBalance: _stonesFor(_toSafeId),
+                onChanged: (v) => setState(() => _toSafeId = v),
+                highlightKarats: const {},
+                goldAvailable: (k) => _goldAvailable(_toSafeId, k),
+                isDestination: true,
+              );
+              if (box.maxWidth < 600) {
+                return Column(
+                  children: [from, const SizedBox(height: 12), to],
+                );
+              }
+              return Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(child: from),
+                  const SizedBox(width: 12),
+                  Expanded(child: to),
+                ],
+              );
+            },
           ),
           const SizedBox(height: 14),
 
@@ -653,7 +694,7 @@ class _OperationFormState extends State<_OperationForm> {
           _SectionCard(
             title: 'أسطر الأوزان',
             icon: Icons.scale,
-            color: opColor,
+            tone: tone,
             child: Column(
               children: [
                 // رأس الجدول
@@ -670,7 +711,7 @@ class _OperationFormState extends State<_OperationForm> {
                       ),
                       Expanded(child: Text('وزن الذهب (جم)', style: header)),
                       const SizedBox(width: 8),
-                      Expanded(child: Text('فصوص (جم)', style: header)),
+                      Expanded(child: Text('غير الذهب (جم)', style: header)),
                       const SizedBox(width: 32),
                     ],
                   ),
@@ -689,7 +730,6 @@ class _OperationFormState extends State<_OperationForm> {
                         : 'يدخل المعروض بتصنيف',
                     availableKarats: _availableKarats,
                     goldAvailable: (k) => _goldAvailable(_fromSafeId, k),
-                    stonesInfo: _stonesInfoFor(_fromSafeId),
                     canRemove: _lines.length > 1,
                     onRemove: () => _removeLine(i),
                     onChanged: () => setState(() {}),
@@ -705,7 +745,7 @@ class _OperationFormState extends State<_OperationForm> {
                       onPressed: _addLine,
                       icon: const Icon(Icons.add_circle_outline, size: 18),
                       label: const Text('إضافة سطر عيار'),
-                      style: TextButton.styleFrom(foregroundColor: opColor),
+                      style: TextButton.styleFrom(foregroundColor: tone.fg),
                     ),
                     const Spacer(),
                     _TotalBadge(
@@ -727,7 +767,7 @@ class _OperationFormState extends State<_OperationForm> {
             _SectionCard(
               title: 'مصنعية تالفة (اختياري)',
               icon: Icons.construction_outlined,
-              color: AppSemanticColors.of(context).warning.fg,
+              tone: semantic.warning,
               child: Column(
                 children: [
                   TextFormField(
@@ -792,7 +832,7 @@ class _OperationFormState extends State<_OperationForm> {
                   style: _isMelting
                       ? AppButtonStyles.primary(
                           context,
-                          AppSemanticColors.of(context).warning,
+                          semantic.warning,
                         )
                       : null,
                   icon: _submitting
@@ -825,7 +865,6 @@ class _WeightLineRow extends StatefulWidget {
   final String categoryLabel;
   final List<int> availableKarats;
   final double Function(int karat) goldAvailable;
-  final Map<String, double> stonesInfo;
   final bool canRemove;
   final VoidCallback onRemove;
   final VoidCallback onChanged;
@@ -837,7 +876,6 @@ class _WeightLineRow extends StatefulWidget {
     required this.categoryLabel,
     required this.availableKarats,
     required this.goldAvailable,
-    required this.stonesInfo,
     required this.canRemove,
     required this.onRemove,
     required this.onChanged,
@@ -944,8 +982,10 @@ class _WeightLineRowState extends State<_WeightLineRow> {
                     setState(() {});
                     widget.onChanged();
                   },
+                  // What is not gold, one field (the owner, 23 Oct 2026):
+                  // stones, iron, a clasp.
                   decoration: const InputDecoration(
-                    hintText: '—',
+                    hintText: 'فصوص، حديد…',
                     suffixText: 'جم',
                     prefixIcon: Icon(Icons.diamond_outlined, size: 14),
                     border: OutlineInputBorder(),
@@ -1016,8 +1056,6 @@ class _WeightLineRowState extends State<_WeightLineRow> {
             child: _InlineBalance(
               karat: widget.line.karat,
               goldAvail: avail,
-              stonesAvail: widget.stonesInfo['${widget.line.karat}'] ?? 0.0,
-              stonesTotal: widget.stonesInfo['total'] ?? 0.0,
               over: over,
               cs: cs,
             ),
@@ -1034,16 +1072,12 @@ class _WeightLineRowState extends State<_WeightLineRow> {
 class _InlineBalance extends StatelessWidget {
   final int karat;
   final double goldAvail;
-  final double stonesAvail; // فصوص خاصة بهذا العيار
-  final double stonesTotal; // إجمالي الفصوص في الخزينة
   final bool over;
   final ColorScheme cs;
 
   const _InlineBalance({
     required this.karat,
     required this.goldAvail,
-    required this.stonesAvail,
-    required this.stonesTotal,
     required this.over,
     required this.cs,
   });
@@ -1054,7 +1088,6 @@ class _InlineBalance extends StatelessWidget {
         ? cs.error
         : (goldAvail > 0 ? AppSemanticColors.of(context).ready.fg : cs.outline);
     final small = Theme.of(context).textTheme.labelSmall;
-    final stonesColor = AppSemanticColors.of(context).gold.fg;
 
     return Wrap(
       spacing: 10,
@@ -1076,23 +1109,6 @@ class _InlineBalance extends StatelessWidget {
             ),
           ],
         ),
-        // فصوص — عرض مدمج (عيار محدد أو إجمالي)
-        if (stonesAvail > 0.0001 || stonesTotal > 0.0001)
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.diamond_outlined, size: 11, color: stonesColor),
-              const SizedBox(width: 3),
-              Text(
-                stonesAvail > 0.0001
-                    ? '♦ ${_grams(stonesAvail)}'
-                    : '♦ ${_grams(stonesTotal)}',
-                style: small?.copyWith(
-                  color: stonesAvail > 0.0001 ? stonesColor : cs.outline,
-                ),
-              ),
-            ],
-          ),
       ],
     );
   }
@@ -1104,7 +1120,7 @@ class _InlineBalance extends StatelessWidget {
 class _VaultCard extends StatelessWidget {
   final String title;
   final IconData icon;
-  final Color color;
+  final SemanticTone tone;
   final List<SafeBoxModel> safes;
   final int? value;
   final int? excludeId;
@@ -1117,7 +1133,7 @@ class _VaultCard extends StatelessWidget {
   const _VaultCard({
     required this.title,
     required this.icon,
-    required this.color,
+    required this.tone,
     required this.safes,
     required this.value,
     required this.onChanged,
@@ -1128,9 +1144,7 @@ class _VaultCard extends StatelessWidget {
     this.isDestination = false,
   });
 
-  SafeBoxModel? _safe() => value == null
-      ? null
-      : safes.firstWhere((s) => s.id == value, orElse: () => safes.first);
+  SafeBoxModel? _safe() => _safeIn(safes, value);
 
   @override
   Widget build(BuildContext context) {
@@ -1142,7 +1156,7 @@ class _VaultCard extends StatelessWidget {
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
-          color: value != null ? color.withOpacity(0.4) : cs.outlineVariant,
+          color: value != null ? tone.fg : cs.outlineVariant,
           width: value != null ? 1.5 : 1,
         ),
       ),
@@ -1153,20 +1167,20 @@ class _VaultCard extends StatelessWidget {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
             decoration: BoxDecoration(
-              color: color.withOpacity(0.08),
+              color: tone.container,
               borderRadius: const BorderRadius.vertical(
                 top: Radius.circular(11),
               ),
             ),
             child: Row(
               children: [
-                Icon(icon, size: 15, color: color),
+                Icon(icon, size: 15, color: tone.onContainer),
                 const SizedBox(width: 6),
                 Text(
                   title,
                   style: theme.textTheme.labelLarge?.copyWith(
                     fontWeight: FontWeight.bold,
-                    color: color,
+                    color: tone.onContainer,
                   ),
                 ),
               ],
@@ -1375,7 +1389,7 @@ class _TotalBadge extends StatelessWidget {
         ),
         if (stonesTotal > 0)
           Text(
-            'إجمالي الفصوص: ${_grams(stonesTotal)}',
+            'إجمالي غير الذهب: ${_grams(stonesTotal)}',
             style: Theme.of(context).textTheme.labelSmall?.copyWith(
               fontWeight: FontWeight.w500,
               color: AppSemanticColors.of(context).gold.fg,
@@ -1391,35 +1405,36 @@ class _TotalBadge extends StatelessWidget {
 // ═══════════════════════════════════════════════════════════════════
 class _InfoBanner extends StatelessWidget {
   final bool isMelting;
-  final Color color;
+  final SemanticTone tone;
 
-  const _InfoBanner({required this.isMelting, required this.color});
+  const _InfoBanner({required this.isMelting, required this.tone});
 
   @override
   Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.07),
+        color: tone.container,
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: color.withOpacity(0.2)),
       ),
       child: Row(
         children: [
           Icon(
             isMelting ? Icons.recycling : Icons.auto_fix_high,
-            color: color,
+            color: tone.onContainer,
             size: 18,
           ),
           const SizedBox(width: 8),
           Expanded(
             child: Text(
               isMelting
-                  ? 'نقل الذهب الصافي من خزينة المعروض إلى صندوق الكسر. يمكن إضافة أكثر من سطر عيار.'
-                  : 'نقل الذهب الصافي من المصدر إلى خزينة المعروض. الفصوص تُسجَّل كأصل وإيراد تلقائياً.',
+                  ? 'نقل الذهب الصافي من خزينة المعروض إلى صندوق الكسر. '
+                        'غير الذهب (فصوص، حديد…) يخرج من المعروض ويُعدم.'
+                  : 'نقل الذهب الصافي من المصدر إلى خزينة المعروض. '
+                        'غير الذهب (فصوص، حديد…) يدخل المعروض ذهبًا مقابل إيراد وزني.',
               style: Theme.of(
                 context,
-              ).textTheme.bodySmall?.copyWith(color: color),
+              ).textTheme.bodySmall?.copyWith(color: tone.onContainer),
             ),
           ),
         ],
@@ -1431,13 +1446,13 @@ class _InfoBanner extends StatelessWidget {
 class _SectionCard extends StatelessWidget {
   final String title;
   final IconData icon;
-  final Color color;
+  final SemanticTone tone;
   final Widget child;
 
   const _SectionCard({
     required this.title,
     required this.icon,
-    required this.color,
+    required this.tone,
     required this.child,
   });
 
@@ -1455,20 +1470,20 @@ class _SectionCard extends StatelessWidget {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
             decoration: BoxDecoration(
-              color: color.withOpacity(0.07),
+              color: tone.container,
               borderRadius: const BorderRadius.vertical(
                 top: Radius.circular(11),
               ),
             ),
             child: Row(
               children: [
-                Icon(icon, size: 16, color: color),
+                Icon(icon, size: 16, color: tone.onContainer),
                 const SizedBox(width: 8),
                 Text(
                   title,
                   style: Theme.of(context).textTheme.titleSmall?.copyWith(
                     fontWeight: FontWeight.bold,
-                    color: color,
+                    color: tone.onContainer,
                   ),
                 ),
               ],
@@ -1479,4 +1494,11 @@ class _SectionCard extends StatelessWidget {
       ),
     );
   }
+}
+
+SafeBoxModel? _safeIn(List<SafeBoxModel> safes, int? id) {
+  for (final s in safes) {
+    if (s.id == id) return s;
+  }
+  return null;
 }

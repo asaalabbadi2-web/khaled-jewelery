@@ -9,6 +9,7 @@ import 'audit_log_screen.dart';
 import '../providers/auth_provider.dart';
 import '../utils/currency_utils.dart' as cu;
 import '../widgets/app_feedback.dart';
+import '../widgets/app_bar_tab_bar.dart';
 import '../utils/invoice_type_label.dart';
 
 /// شاشة إدارة الترحيل (Posting Management)
@@ -1267,8 +1268,6 @@ class _PostingManagementScreenState extends State<PostingManagementScreen>
               ],
             ],
           ),
-          backgroundColor: theme.AppColors.darkGold,
-          foregroundColor: Colors.white,
           actions: [
             IconButton(
               icon: const Icon(Icons.history),
@@ -1306,13 +1305,9 @@ class _PostingManagementScreenState extends State<PostingManagementScreen>
                     },
             ),
           ],
-          bottom: TabBar(
+          bottom: AppBarTabBar(
             controller: _tabController,
             isScrollable: true,
-            indicatorColor: Colors.white,
-            indicatorWeight: 3,
-            labelColor: Colors.white,
-            unselectedLabelColor: Colors.white70,
             tabs: [
               Tab(
                 child: Row(

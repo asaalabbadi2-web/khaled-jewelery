@@ -3,6 +3,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:intl/intl.dart';
 import '../api_service.dart';
 import '../widgets/app_feedback.dart';
+import '../widgets/app_bar_tab_bar.dart';
 
 /// شاشة ملف المستخدم - عرض تفاصيل كاملة للمستخدم
 class UserProfileScreen extends StatefulWidget {
@@ -121,14 +122,8 @@ class _UserProfileScreenState extends State<UserProfileScreen>
     return Scaffold(
       appBar: AppBar(
         title: Text(widget.isArabic ? 'ملف المستخدم' : 'User Profile'),
-        backgroundColor: const Color(0xFFFFD700),
-        foregroundColor: Colors.black87,
-        elevation: 0,
-        bottom: TabBar(
+        bottom: AppBarTabBar(
           controller: _tabController,
-          labelColor: Colors.black87,
-          unselectedLabelColor: Colors.black45,
-          indicatorColor: Colors.black87,
           tabs: [
             Tab(
               icon: const Icon(Icons.info_outline),

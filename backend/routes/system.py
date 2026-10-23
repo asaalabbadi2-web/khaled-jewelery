@@ -2872,8 +2872,8 @@ def _melting_renewal(*, preview: bool):
             stones_expense_account_id = require_account(DEFAULT_MAPPING_OPERATION_TYPE, 'melting_stones_expense')
         except AccountNotMapped:
             return jsonify({'error': 'account_not_mapped', 'role': 'melting_stones_expense',
-                            'message': 'حساب «فصوص التكسير» غير مربوط: يُضبط في «الربط المحاسبي»، '
-                                       'ولا تُعدم فصوص التكسير دونه'}), 400
+                            'message': 'حساب «غير الذهب في التكسير» غير مربوط: يُضبط في «الربط المحاسبي»، '
+                                       'ولا يُعدم ما ليس ذهبًا (فصوص، حديد…) دونه'}), 400
 
     stones_revenue_account_id = None
     if operation_type == 'renewal' and any(l['stones_weight'] > 0 for l in op_lines):
@@ -2882,8 +2882,8 @@ def _melting_renewal(*, preview: bool):
             stones_revenue_account_id = require_account(DEFAULT_MAPPING_OPERATION_TYPE, 'renewal_stones_revenue')
         except AccountNotMapped:
             return jsonify({'error': 'account_not_mapped', 'role': 'renewal_stones_revenue',
-                            'message': 'حساب «إيراد فصوص التجديد» غير مربوط: يُضبط في «الربط المحاسبي»، '
-                                       'ولا تدخل فصوص التجديد المعروضَ دونه'}), 400
+                            'message': 'حساب «إيراد غير الذهب في التجديد» غير مربوط: يُضبط في «الربط المحاسبي»، '
+                                       'ولا يدخل ما ليس ذهبًا (فصوص، حديد…) المعروضَ دونه'}), 400
 
     notes = (data.get('notes') or '').strip() or None
 
@@ -2969,8 +2969,12 @@ def _melting_renewal(*, preview: bool):
                     'available': round(available, 3),
                 }), 400
 
-        # تحقق من رصيد الفصوص إذا أُدخل وزن فصوص -- فصوص الكسر أو العهدة
-        # في التجديد؛ فصوص المعرض ذهبه، وُزنت معه أعلاه (ت5).
+        # What is not gold is one field (the owner, 23 Oct 2026: «خانة واحدة لكل
+        # ما هو غير ذهب سواء بالتجديد أو التكسير») -- stones, iron, a clasp. A
+        # renewal's source gives the stones it holds (its rows' weight, never
+        # below nothing); the rest is a part added, not a refusal. It refused
+        # anything beyond the source's stones.
+        source_stones = 0.0
         if stones_weight > 0 and operation_type == 'renewal':
             s_in  = float(q_src.with_entities(
                 func.coalesce(func.sum(SafeBoxTransaction.stones_weight), 0.0))
@@ -2978,13 +2982,7 @@ def _melting_renewal(*, preview: bool):
             s_out = float(q_src.with_entities(
                 func.coalesce(func.sum(SafeBoxTransaction.stones_weight), 0.0))
                 .filter(SafeBoxTransaction.direction == 'out').scalar() or 0.0)
-            stones_available = round(s_in - s_out, 6)
-            if stones_weight > stones_available + 1e-6:
-                return jsonify({
-                    'error': 'insufficient_stones_balance',
-                    'message': f'وزن الفصوص المطلوب ({stones_weight:.3f} جم) يتجاوز الرصيد المتاح ({stones_available:.3f} جم)',
-                    'stones_available': round(stones_available, 3),
-                }), 400
+            source_stones = max(0.0, round(s_in - s_out, 6))
 
         created_by = getattr(getattr(g, 'current_user', None), 'username', None) or 'system'
 
@@ -3003,7 +3001,7 @@ def _melting_renewal(*, preview: bool):
             f'إلى: {to_safe.name}',
         ]
         if stones_weight > 0:
-            desc_parts.append(f'فصوص: {stones_weight:.3f} جم')
+            desc_parts.append(f'غير الذهب: {stones_weight:.3f} جم')
         if damage_wage_amount > 0 and operation_type == 'melting':
             desc_parts.append(f'مصنعية تالفة: {damage_wage_amount:.2f}')
 
@@ -3045,8 +3043,8 @@ def _melting_renewal(*, preview: bool):
             for line in op_lines:
                 if line['stones_weight'] <= 0:
                     continue
-                for lt, acct_id, what in (('credit', from_safe.account_id, 'فصوص تكسير تخرج من المعروض ذهبًا'),
-                                          ('debit', stones_expense_account_id, 'فصوص التكسير تُعدم')):
+                for lt, acct_id, what in (('credit', from_safe.account_id, 'غير الذهب يخرج من المعروض ذهبًا'),
+                                          ('debit', stones_expense_account_id, 'غير الذهب في التكسير يُعدم')):
                     db.session.add(VoucherAccountLine(
                         voucher_id=voucher.id, account_id=acct_id, line_type=lt, amount_type='gold',
                         amount=line['stones_weight'], karat=float(line['karat']),
@@ -3055,8 +3053,8 @@ def _melting_renewal(*, preview: bool):
             for line in op_lines:
                 if line['stones_weight'] <= 0:
                     continue
-                for lt, acct_id, what in (('debit', to_safe.account_id, 'فصوص تجديد تدخل المعروض ذهبًا'),
-                                          ('credit', stones_revenue_account_id, 'إيراد فصوص التجديد')):
+                for lt, acct_id, what in (('debit', to_safe.account_id, 'غير الذهب في التجديد يدخل المعروض ذهبًا'),
+                                          ('credit', stones_revenue_account_id, 'إيراد غير الذهب في التجديد')):
                     db.session.add(VoucherAccountLine(
                         voucher_id=voucher.id, account_id=acct_id, line_type=lt, amount_type='gold',
                         amount=line['stones_weight'], karat=float(line['to_karat']),
@@ -3149,6 +3147,11 @@ def _melting_renewal(*, preview: bool):
             # SafeBoxTransaction: خروج من المصدر (وزن صافي + فصوص معلوماتي)؛
             # وفصوص التكسير ذهبُ المعرض (ت5): تخرج وزنًا لا فصوصًا.
             stones_out_as_gold = line['stones_weight'] if stones_expense_account_id else 0.0
+            out_stones_kw = {} if stones_out_as_gold else line_stones_kw
+            if operation_type == 'renewal' and out_stones_kw.get('stones_weight'):
+                given = min(out_stones_kw['stones_weight'], source_stones)
+                source_stones = round(source_stones - given, 6)
+                out_stones_kw = {'stones_weight': round(given, 6)} if given > 0 else {}
             db.session.add(SafeBoxTransaction(
                 safe_box_id=from_safe_id,
                 direction='out',
@@ -3158,7 +3161,7 @@ def _melting_renewal(*, preview: bool):
                 notes=f"{op_label} — خروج {line['karat']}k",
                 amount_cash=0.0,
                 **{f"weight_{line['karat']}k": round(line['gold_weight'] + stones_out_as_gold, 6)},
-                **({} if stones_out_as_gold else line_stones_kw),
+                **out_stones_kw,
             ))
 
             # SafeBoxTransaction: دخول إلى الوجهة (وزن صافي + فصوص معلوماتي)؛

@@ -10,6 +10,7 @@ import '../widgets/user_avatar_widget.dart';
 import '../providers/settings_provider.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_feedback.dart';
+import '../widgets/app_bar_tab_bar.dart';
 
 /// نظام إدارة سباق المبيعات المتكامل.
 /// Tab 1 – لوحة المتابعة (متاح للجميع): الترتيب، هدف الأسبوع، بطل اليوم.
@@ -289,16 +290,15 @@ class _SalesRaceManagementScreenState extends State<SalesRaceManagementScreen> {
         backgroundColor: Theme.of(context).scaffoldBackgroundColor,
         appBar: AppBar(
           title: Text(isAr ? 'سباق الأداء' : 'Performance Race'),
-          backgroundColor: AppColors.darkGold,
           actions: [
             IconButton(
               icon: _loading
-                  ? const SizedBox(
+                  ? SizedBox(
                       width: 20,
                       height: 20,
                       child: CircularProgressIndicator(
                         strokeWidth: 2,
-                        color: Colors.white,
+                        color: Theme.of(context).appBarTheme.foregroundColor,
                       ),
                     )
                   : const Icon(Icons.refresh_rounded),
@@ -306,9 +306,7 @@ class _SalesRaceManagementScreenState extends State<SalesRaceManagementScreen> {
               onPressed: _loading ? null : _loadLeaderboard,
             ),
           ],
-          bottom: TabBar(
-            labelColor: Colors.black,
-            indicatorColor: AppColors.primaryGold,
+          bottom: AppBarTabBar(
             tabs: [
               Tab(
                 text: isAr ? 'لوحة المتابعة' : 'Live Board',
