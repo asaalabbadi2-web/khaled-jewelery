@@ -141,6 +141,10 @@ Future<Map<String, dynamic>?> showAccountPickerBottomSheet({
         final id = toInt(a['id']);
         if (id == null || accountTracksWeight(a)) continue;
         if (parentIds.contains(id)) continue;
+        // A twin hides behind its financial side only where that side is
+        // offered: a weight role's picker offers no financial account, and
+        // hid every leaf weight twin («الربط المحاسبي», 23 Oct 2026: 7430).
+        if (predicate != null && !predicate(a)) continue;
         final memoId = toInt(a['memo_account_id'] ?? a['memoAccountId']);
         if (memoId == null) continue;
         final memo = accountsById[memoId];

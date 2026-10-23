@@ -230,4 +230,51 @@ void main() {
     await tester.pumpAndSettle();
     expect(api.calls, contains('create مرتجع بيع cash 99'));
   });
+
+  // The owner (23 Oct 2026): «إيراد غير الذهب في التجديد اردت ربطه ب 7430
+  // ولكنه لا يظهر لي». A weight role takes weight accounts; the picker hid a
+  // leaf weight twin behind its financial side -- which a weight role never
+  // shows -- so no paired weight account could be picked.
+  testWidgets('a weight role is offered the weight twin of a financial account', (tester) async {
+    final api = _WeightRoleApi();
+    await _pump(tester, api, {'accounting.mapping'});
+
+    final role = find.byKey(const ValueKey('role-renewal_stones_revenue'));
+    await tester.tap(find.descendant(of: role, matching: find.byTooltip('تغيير الحساب')));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('7430'), findsOneWidget);
+    expect(find.textContaining('احجار وفصوص التجديد —'), findsNothing,
+        reason: 'not the financial side: a weight role takes weight accounts');
+    await tester.tap(find.textContaining('7430'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'حفظ'));
+    await tester.pumpAndSettle();
+    expect(api.calls, contains('create افتراضي renewal_stones_revenue 1174'));
+  });
+}
+
+class _WeightRoleApi extends _FakeApi {
+  @override
+  Future<Map<String, dynamic>> getAccountingRoles() async => {
+        'groups': ['مخزون الذهب وتكلفته'],
+        'summary': {'required': 0, 'required_mapped': 0},
+        'roles': [
+          {
+            'key': 'renewal_stones_revenue', 'label': 'إيراد غير الذهب في التجديد',
+            'group': 'مخزون الذهب وتكلفته', 'purpose': 'وزنًا.', 'kind': 'weight',
+            'needs_twin': false, 'retired': false, 'required': false, 'overridable': [],
+            'operations': [
+              {'operation': 'افتراضي', 'required': false, 'mapping_id': null, 'account': null, 'source': null},
+            ],
+          },
+        ],
+      };
+
+  @override
+  Future<List<dynamic>> getAccounts({bool skipBalances = false}) async => [
+        {'id': 1173, 'account_number': '430', 'name': 'احجار وفصوص التجديد', 'tracks_weight': false,
+         'is_active': true, 'memo_account_id': 1174},
+        {'id': 1174, 'account_number': '7430', 'name': 'احجار وفصوص التجديد وزني', 'tracks_weight': true,
+         'is_active': true},
+      ];
 }
