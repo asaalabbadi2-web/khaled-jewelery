@@ -1028,6 +1028,18 @@ def _create_achievement_for_bonus(bonus: EmployeeBonus, employee):
         existing = GoalAchievement.query.filter_by(bonus_id=bonus.id).first()
         if existing:
             return
+        # The goal of this period reached already is this bonus's achievement
+        # (bonus study م1): it takes the bonus, not a second celebration.
+        from services.goal_achievements import period_key_for
+        key = period_key_for(bonus.period_start, bonus.period_end) if bonus.period_start and bonus.period_end else None
+        if key is not None:
+            goal = GoalAchievement.query.filter_by(employee_id=bonus.employee_id, period_key=key,
+                                                   bonus_id=None).first()
+            if goal is not None:
+                goal.bonus_id = bonus.id
+                goal.bonus_rule_id = bonus.bonus_rule_id
+                goal.bonus_amount = bonus.amount
+                return
 
         rule = bonus.rule
         goal_name = (rule.name if rule else None) or _bonus_type_label(bonus.bonus_type)
@@ -2075,97 +2087,6 @@ def employee_bonus_summary(employee_id):
 # 🎯 أهداف موظف شخصية — فحص وإشعار الاحتفالية
 # ==========================================
 
-def _build_period_key(period_name: str, today: date) -> str:
-    """يبني مفتاح الفترة بصيغة موحّدة: daily-YYYY-MM-DD | weekly-YYYY-W## | monthly-YYYY-MM."""
-    if period_name == 'daily':
-        return f"daily-{today.isoformat()}"
-    elif period_name == 'weekly':
-        iso = today.isocalendar()
-        return f"weekly-{iso[0]}-W{iso[1]:02d}"
-    else:  # monthly
-        return f"monthly-{today.year}-{today.month:02d}"
-
-
-def _get_period_goal_target(emp: Employee, period_name: str, metric: str):
-    """يعيد قيمة الهدف للفترة والمقياس المحدد، أو None إذا لم يُعيَّن."""
-    if period_name == 'daily':
-        mapping = {'weight': emp.goal_weight_daily, 'points': emp.goal_points_daily, 'invoices': emp.goal_invoices_daily}
-    elif period_name == 'weekly':
-        mapping = {'weight': emp.goal_weight_weekly, 'points': emp.goal_points_weekly, 'invoices': emp.goal_invoices_weekly}
-    else:
-        mapping = {'weight': emp.goal_weight_monthly, 'points': emp.goal_points_monthly, 'invoices': emp.goal_invoices_monthly}
-    return mapping.get(metric)
-
-
-def _calc_employee_period_performance(employee_id: int, metric: str, start: date, end: date) -> float:
-    """يحسب الأداء الفعلي للموظف في الفترة المحددة من الفواتير المرحّلة."""
-    from sqlalchemy import func as sqlfunc
-    # نحسب فقط فواتير البيع المرحّلة (posted)
-    from sqlalchemy import or_ as _or
-    from datetime import datetime as _datetime, timedelta as _timedelta
-    # للنقاط: نشمل "شراء من عميل" تطابقاً مع لوحة المبيعات
-    inv_types = ['بيع', 'sell', 'sale', 'شراء من عميل'] if metric == 'points' else ['بيع', 'sell', 'sale']
-    # تحويل date إلى datetime لضمان شمول فواتير كامل اليوم الأخير
-    start_dt = _datetime.combine(start, _datetime.min.time()) if not isinstance(start, _datetime) else start
-    end_dt = _datetime.combine(end + _timedelta(days=1), _datetime.min.time()) if not isinstance(end, _datetime) else end
-    base_q = (
-        Invoice.query
-        .filter(
-            Invoice.employee_id == employee_id,
-            Invoice.invoice_type.in_(inv_types),
-            _or(Invoice.is_posted.is_(True), Invoice.status == 'posted'),
-            Invoice.date >= start_dt,
-            Invoice.date < end_dt,
-        )
-    )
-    if metric == 'invoices':
-        return float(base_q.count())
-    elif metric == 'points':
-        result = base_q.with_entities(sqlfunc.sum(Invoice.profit_gold)).scalar()
-        raw = float(result or 0)
-        # نقاط = profit_gold × points_per_gram (نفس حساب لوحة المبيعات)
-        try:
-            from models import Settings
-            s = Settings.query.first()
-            import json as _json
-            _src = s and getattr(s, 'sales_race_settings', None)
-            _ppg = 10.0
-            if _src:
-                _p = _json.loads(_src) if isinstance(_src, str) else _src
-                _ppg = max(0.001, float(_p.get('points_per_gram') or 10.0))
-        except Exception:
-            _ppg = 10.0
-        return raw * _ppg
-    else:  # weight (default)
-        result = base_q.with_entities(sqlfunc.sum(Invoice.total_weight)).scalar()
-        return float(result or 0)
-
-
-def _calc_goal_bonus(emp: Employee, period_name: str, actual: float = 0.0) -> float:
-    """يحسب مبلغ المكافأة بناءً على نوع المكافأة (ثابت أو قاعدة)."""
-    reward_type = getattr(emp, f'goal_reward_type_{period_name}') or 'fixed'
-    if reward_type == 'rule':
-        rule_id = getattr(emp, f'goal_bonus_rule_id_{period_name}')
-        if rule_id:
-            rule = BonusRule.query.get(rule_id)
-            if rule:
-                bonus_type = (getattr(rule, 'bonus_type', None) or 'fixed').strip().lower()
-                bonus_val  = float(getattr(rule, 'bonus_value', None) or 0.0)
-                if bonus_type in ('points_per_unit', 'percentage_of_sales', 'per_gram', 'per_invoice'):
-                    amount = actual * bonus_val
-                else:
-                    amount = bonus_val
-                min_bonus = getattr(rule, 'min_bonus', None)
-                max_bonus = getattr(rule, 'max_bonus', None)
-                if min_bonus is not None:
-                    amount = max(amount, float(min_bonus))
-                if max_bonus is not None:
-                    amount = min(amount, float(max_bonus))
-                return amount
-    # fixed أو fallback
-    return float(getattr(emp, f'goal_bonus_{period_name}') or 0)
-
-
 @bonus_bp.route('/employees/<int:employee_id>/goals', methods=['PUT'])
 @require_permission('employees.bonuses')
 @require_auth
@@ -2230,86 +2151,18 @@ def check_employee_personal_goals(employee_id):
     refused = refuse_unless_self(emp.id)
     if refused:
         return refused
-    today = date.today()
-
-    week_start  = today - timedelta(days=today.weekday())  # الاثنين
-    month_start = today.replace(day=1)
-
-    metric = emp.goal_metric or 'weight'
-
-    periods = [
-        ('daily',   bool(emp.goal_daily_enabled),   today,        today,      'اليومي'),
-        ('weekly',  bool(emp.goal_weekly_enabled),  week_start,   today,      'الأسبوعي'),
-        ('monthly', bool(emp.goal_monthly_enabled), month_start,  today,      'الشهري'),
-    ]
-
-    new_achievements = []
-
-    for period_name, enabled, p_start, p_end, period_label in periods:
-        if not enabled:
-            continue
-
-        target = _get_period_goal_target(emp, period_name, metric)
-        if target is None or (isinstance(target, (int, float)) and target <= 0):
-            continue
-
-        period_key = _build_period_key(period_name, today)
-
-        # البحث أولاً بالعمود المخصص، ثم داخل metrics للتوافق مع السجلات القديمة
-        existing = GoalAchievement.query.filter_by(
-            employee_id=emp.id,
-            period_key=period_key,
-        ).first()
-        if not existing:
-            for a in GoalAchievement.query.filter_by(employee_id=emp.id).all():
-                m = a.metrics if isinstance(a.metrics, dict) else {}
-                if m.get('period_key') == period_key:
-                    existing = a
-                    break
-
-        if existing:
-            # أُنجز من قبل — أعده إذا لم يُشاهَد بعد
-            if not existing.seen_by_user:
-                new_achievements.append(existing.to_dict())
-            continue
-
-        # قياس الأداء الفعلي
-        actual = _calc_employee_period_performance(emp.id, metric, p_start, p_end)
-        if actual < float(target):
-            continue
-
-        # تحقّق الهدف!
-        bonus_amount = _calc_goal_bonus(emp, period_name, actual)
-        achievement = GoalAchievement(
-            employee_id=emp.id,
-            goal_name=emp.goal_name or f'هدف {period_label}',
-            goal_description=f'تحقيق هدف {period_label}: {actual:.1f} / {float(target):.1f}',
-            bonus_amount=bonus_amount,
-            currency='SAR',
-            metrics={
-                'period': period_name,
-                'actual': round(actual, 2),
-                'target': round(float(target), 2),
-                'metric': metric,
-            },
-            period_key=period_key,
-            goal_period=period_name,
-            achieved_at=datetime.utcnow(),
-        )
-        db.session.add(achievement)
-        try:
-            db.session.flush()
-            new_achievements.append(achievement.to_dict())
-        except Exception:
-            db.session.rollback()
-            continue
-
+    # The server decides what was reached (services/goal_achievements, bonus
+    # study م1) -- the daily run records it for everyone; this records it for
+    # one -- and the app is told what it has not shown yet.
+    from services.goal_achievements import record_goal_achievements
+    record_goal_achievements(date.today(), datetime.utcnow(), employee=emp)
     try:
         db.session.commit()
     except Exception:
         db.session.rollback()
-
-    return jsonify({'achievements': new_achievements}), 200
+    unseen = (GoalAchievement.query.filter_by(employee_id=emp.id, seen_by_user=False)
+              .order_by(GoalAchievement.achieved_at.desc()).all())
+    return jsonify({'achievements': [a.to_dict() for a in unseen]}), 200
 
 
 @bonus_bp.route('/goal-achievements/<int:achievement_id>/mark-seen', methods=['POST'])

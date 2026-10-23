@@ -72,53 +72,9 @@ class PointsMetric(RaceMetric):
 
     @staticmethod
     def _infer_employee_id(inv) -> int | None:
-        from models import AppUser, Employee
-        from sqlalchemy import func as sa_func
-
-        try:
-            if getattr(inv, 'employee_id', None) not in (None, '', 0, '0', False):
-                return int(inv.employee_id)
-        except Exception:
-            pass
-
-        posted_by = PointsMetric._normalize_key(
-            str(getattr(inv, 'posted_by', '') or '')
-        )
-        if not posted_by:
-            return None
-
-        try:
-            app_user = AppUser.query.filter(
-                sa_func.lower(sa_func.trim(AppUser.username)) == posted_by
-            ).first()
-            if app_user and getattr(app_user, 'employee_id', None):
-                return int(app_user.employee_id)
-        except Exception:
-            pass
-
-        try:
-            app_user = AppUser.query.filter(
-                sa_func.lower(sa_func.trim(
-                    sa_func.coalesce(AppUser.full_name, '')
-                )) == posted_by
-            ).first()
-            if app_user and getattr(app_user, 'employee_id', None):
-                return int(app_user.employee_id)
-        except Exception:
-            pass
-
-        try:
-            emp = Employee.query.filter(
-                sa_func.lower(sa_func.trim(
-                    sa_func.coalesce(Employee.name, '')
-                )) == posted_by
-            ).first()
-            if emp:
-                return int(emp.id)
-        except Exception:
-            pass
-
-        return None
+        # The one rule, shared with the goals and the bonuses (bonus study م1).
+        from services.performance_measures import actor_of
+        return actor_of(inv)
 
     period = None   # (start, end) -- set by the caller to bring the period's corrections
 

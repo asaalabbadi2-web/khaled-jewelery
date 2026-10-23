@@ -107,34 +107,12 @@ class BonusCalculator:
 
     @staticmethod
     def calculate_sales_bonus(employee, rule, period_start, period_end):
-        """حساب مكافأة المبيعات (sales_target)."""
-        try:
-            period_start_dt = datetime.combine(period_start, datetime.min.time())
-            period_end_dt = datetime.combine(period_end, datetime.max.time())
-        except (TypeError, AttributeError):
+        """حساب مكافأة المبيعات (sales_target): المبيعات من المقياس الواحد -- للبائع،
+        والمرتجع يأخذ نصيبه في فترته (bonus study م1)."""
+        from services.performance_measures import measure
+        if not employee.id:
             return None
-
-        username = None
-        if hasattr(employee, "user_account") and employee.user_account:
-            username = employee.user_account.username
-
-        if username:
-            attr_filter = or_(Invoice.employee_id == employee.id, Invoice.posted_by == username)
-        elif employee.id:
-            attr_filter = Invoice.employee_id == employee.id
-        else:
-            return None
-
-        sales_query = db.session.query(func.sum(Invoice.total)).filter(
-            and_(
-                attr_filter,
-                Invoice.date >= period_start_dt,
-                Invoice.date <= period_end_dt,
-                Invoice.invoice_type == "بيع",
-                Invoice.is_posted.is_(True),
-            )
-        )
-        total_sales = sales_query.scalar() or 0.0
+        total_sales = measure('sales', employee.id, period_start, period_end)
 
         conditions = rule.conditions or {}
         sales_target = conditions.get("sales_target", 0)
@@ -223,38 +201,18 @@ class BonusCalculator:
 
     @staticmethod
     def calculate_profit_bonus(employee, rule, period_start, period_end):
-        """حساب مكافأة الأرباح (profit_based)."""
-        try:
-            period_start_dt = datetime.combine(period_start, datetime.min.time())
-            period_end_dt = datetime.combine(period_end, datetime.max.time())
-        except (TypeError, AttributeError):
-            return None
-
-        username = None
-        if hasattr(employee, "user_account") and employee.user_account:
-            username = employee.user_account.username
-
-        if username:
-            attr_filter = or_(Invoice.employee_id == employee.id, Invoice.posted_by == username)
-        elif employee.id:
-            attr_filter = Invoice.employee_id == employee.id
-        else:
+        """حساب مكافأة الأرباح (profit_based): فواتير الموظف من المقياس الواحد -- للبائع،
+        والمرتجع يأخذ نصيب أصله من الربح في فترته (bonus study م1)."""
+        from points.engine import is_correction, is_return, returned_share
+        from services.performance_measures import CUSTOMER_BUY, SALE, activity
+        if not employee.id:
             return None
 
         applicable_types = rule.applicable_invoice_types
-
-        eligible_invoices_query = Invoice.query.filter(
-            and_(
-                attr_filter,
-                Invoice.date >= period_start_dt,
-                Invoice.date <= period_end_dt,
-                Invoice.is_posted.is_(True),
-            )
-        )
-        if applicable_types and len(applicable_types) > 0:
-            eligible_invoices_query = eligible_invoices_query.filter(Invoice.invoice_type.in_(applicable_types))
-
-        eligible_invoices = eligible_invoices_query.all()
+        types = tuple(applicable_types) if applicable_types else (SALE, CUSTOMER_BUY)
+        activity_list = activity(employee.id, period_start, period_end, types)
+        eligible_invoices = [i for i in activity_list if not is_return(i) and not is_correction(i)]
+        returns = [i for i in activity_list if is_return(i)]
 
         # نحسب الربح لكل فاتورة بنفس منطق السباق (profit_gold = وزن العيار الرئيسي)
         # حتى لا تُسقط فاتورة بخسارة مكافأة الفترة بالكامل.
@@ -302,6 +260,21 @@ class BonusCalculator:
                 profitable_per_invoice_profit.append(profit_val)
                 total_profit_cash += inv_profit_cash
                 total_profit_gold += inv_profit_gold
+
+        # A return takes back its original's profit, in the share it returns, in
+        # its own period -- as the race takes its points back.
+        for ret in returns:
+            original = getattr(ret, 'original_invoice', None)
+            if original is None:
+                continue
+            share = returned_share(ret, original)
+            back_gold = float(original.profit_gold or 0.0) * share
+            back_cash = 0.0 if original.invoice_type in PURCHASE_TYPES else share * (
+                float(original.total or 0) - float(original.total_tax or 0)
+                - float(original.total_cost or 0) - float(original.commission_amount or 0))
+            if max(back_cash, back_gold) > 0:
+                total_profit_cash -= max(back_cash, 0.0)
+                total_profit_gold -= max(back_gold, 0.0)
 
         invoice_count = len(profitable_invoice_ids)
         if invoice_count == 0:
@@ -371,37 +344,11 @@ class BonusCalculator:
         else:
             end_dt = period_end
 
-        username = None
-        if hasattr(employee, "user_account") and employee.user_account:
-            username = employee.user_account.username
-
-        if username:
-            attr_filter = or_(Invoice.employee_id == employee.id, Invoice.posted_by == username)
-        else:
-            attr_filter = Invoice.employee_id == employee.id
-
-        invoices = Invoice.query.filter(and_(
-            Invoice.is_posted.is_(True),
-            Invoice.invoice_type.in_(["بيع", "شراء من عميل"]),
-            Invoice.date >= start_dt,
-            Invoice.date <= end_dt,
-            attr_filter,
-        )).all()
-
-        # A return made in this period takes back the points of what it returns,
-        # from the one who sold or bought it (the owner, 10 Oct 2026; purchases
-        # 22 Oct 2026). Bonuses of earlier periods stay as they were paid.
-        from points.engine import returns_against
-
-        def _sold_by(original):
-            if username:
-                return or_(original.employee_id == employee.id, original.posted_by == username)
-            return original.employee_id == employee.id
-
-        invoices += returns_against(_sold_by, start_dt, end_dt, end_inclusive=True)
-        # and a correction made in it, its invoice's difference (ADR-056)
-        from points.engine import corrections_against
-        invoices += corrections_against(_sold_by, start_dt, end_dt, end_inclusive=True)
+        # The employee's own, from the one measure (bonus study م1): the seller,
+        # else the poster -- it credited both -- with the returns and the
+        # corrections of theirs made in the period (ADR-056).
+        from services.performance_measures import activity
+        invoices = activity(employee.id, start_dt, end_dt)
 
         # ── Resolve engine parameters from race settings (single source of truth) ──
         race_cfg            = get_race_points_config()
@@ -467,6 +414,32 @@ class BonusCalculator:
             return False  # safe-deny عند أي خطأ في قراءة الإعدادات
 
     @staticmethod
+    def _compute(employee, rule, period_start, period_end):
+        """(raw, amount, data, min_applied, max_applied) by the rule's type, or None."""
+        calculators = {
+            'sales_target': BonusCalculator.calculate_sales_bonus,
+            'attendance': BonusCalculator.calculate_attendance_bonus,
+            'performance': BonusCalculator.calculate_performance_bonus,
+            'fixed': BonusCalculator.calculate_fixed_bonus,
+            'profit_based': BonusCalculator.calculate_profit_bonus,
+            'points_based': BonusCalculator.calculate_points_bonus,
+        }
+        calculate = calculators.get(rule.rule_type)
+        return calculate(employee, rule, period_start, period_end) if calculate else None
+
+    @staticmethod
+    def estimate(employee, rule, period_start, period_end) -> float:
+        """What the rule would pay the employee for the period so far -- the
+        amount a goal promises is what its bonus pays (bonus study م1). Nothing
+        is written."""
+        if not rule.is_active or not rule.is_valid_for_employee(employee):
+            return 0.0
+        if not BonusCalculator._is_rule_type_enabled(rule.rule_type):
+            return 0.0
+        result = BonusCalculator._compute(employee, rule, period_start, period_end)
+        return float(result[1]) if result else 0.0
+
+    @staticmethod
     def calculate_bonus(employee, rule, period_start, period_end):
         """حساب المكافأة بناءً على نوع القاعدة."""
         if not rule.is_active or not rule.is_valid_for_employee(employee):
@@ -476,20 +449,7 @@ class BonusCalculator:
         if not BonusCalculator._is_rule_type_enabled(rule.rule_type):
             return None
 
-        result = None
-        if rule.rule_type == "sales_target":
-            result = BonusCalculator.calculate_sales_bonus(employee, rule, period_start, period_end)
-        elif rule.rule_type == "attendance":
-            result = BonusCalculator.calculate_attendance_bonus(employee, rule, period_start, period_end)
-        elif rule.rule_type == "performance":
-            result = BonusCalculator.calculate_performance_bonus(employee, rule, period_start, period_end)
-        elif rule.rule_type == "fixed":
-            result = BonusCalculator.calculate_fixed_bonus(employee, rule, period_start, period_end)
-        elif rule.rule_type == "profit_based":
-            result = BonusCalculator.calculate_profit_bonus(employee, rule, period_start, period_end)
-        elif rule.rule_type == "points_based":
-            result = BonusCalculator.calculate_points_bonus(employee, rule, period_start, period_end)
-
+        result = BonusCalculator._compute(employee, rule, period_start, period_end)
         if not result:
             return None
 

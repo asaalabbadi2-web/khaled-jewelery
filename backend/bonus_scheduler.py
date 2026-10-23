@@ -82,6 +82,21 @@ class BonusScheduler:
                 _write_log(self.app, 'daily', period_start, period_end, error=e)
                 return
         _write_log(self.app, 'daily', period_start, period_end, bonuses=bonuses)
+        self.record_goals(today)
+
+    def record_goals(self, today):
+        """The goals reached so far, recorded by the server -- not when the app
+        opens (bonus study م1). Its own transaction: a failure here leaves the
+        bonuses computed."""
+        with self.app.app_context():
+            from models import db
+            from services import goal_achievements
+            try:
+                goal_achievements.record_goal_achievements(today, datetime.utcnow())
+                db.session.commit()
+            except Exception as e:
+                db.session.rollback()
+                print(f'[BonusScheduler] ❌ خطأ في تسجيل الأهداف: {e}')
 
     def calculate_weekly_bonuses(self):
         """حساب المكافآت الأسبوعية."""
