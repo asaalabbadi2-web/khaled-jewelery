@@ -4,6 +4,7 @@
     "from_safe_box_id": 30,
     "notes": "ملاحظة",
     "stones": {
+      "18k": 2.5,
       "21k": 1.0
     },
     "to_safe_box_id": 31,

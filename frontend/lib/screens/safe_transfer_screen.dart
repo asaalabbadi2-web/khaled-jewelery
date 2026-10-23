@@ -82,7 +82,10 @@ class _SafeTransferScreenState extends State<SafeTransferScreen> {
 
   /// Karats shown beyond those the source holds («عيار آخر»).
   final Set<int> _extraKarats = {};
-  bool _showStones = false;
+
+  /// Karats whose stones the employee typed; the others follow their gold.
+  final Set<int> _stonesTyped = {};
+  bool _fillingStones = false;
   bool _showNotes = false;
 
   static const double _epsilon = 0.0001;
@@ -104,8 +107,37 @@ class _SafeTransferScreenState extends State<SafeTransferScreen> {
     _stones21kController.addListener(_onInputChanged);
     _stones18kController.addListener(_onInputChanged);
     _corrWeightController.addListener(_onInputChanged);
+    for (final k in _karats) {
+      _weightOf(k).addListener(_fillStones);
+      _stonesOf(k).addListener(() {
+        if (!_fillingStones) _stonesTyped.add(k);
+      });
+    }
 
     _loadSafes();
+  }
+
+  /// Stones move with their gold (ADR-050 ت6أ; the owner, 23 Oct 2026: «يجب
+  /// أن يتم تحويله مع الذهب»): while a karat's gold moves, its stones field
+  /// holds the source's stones of it -- the employee changes it when part of
+  /// the pieces moves. They moved only when typed, behind «فصوص (اختياري)».
+  void _fillStones() {
+    if (_mode != 'gold') return;
+    _fillingStones = true;
+    for (final k in _karats) {
+      if (_stonesTyped.contains(k)) continue;
+      final held = _stonesHeld(_fromSafeId, k);
+      final moves = _parseDouble(_weightOf(k).text) > _epsilon;
+      final text = moves && held > _epsilon ? _typed(held) : '';
+      if (_stonesOf(k).text != text) _stonesOf(k).text = text;
+    }
+    _fillingStones = false;
+  }
+
+  /// Another source: its stones, not the last one's.
+  void _sourceChanged() {
+    _stonesTyped.clear();
+    _fillStones();
   }
 
   void _onInputChanged() {
@@ -721,6 +753,7 @@ class _SafeTransferScreenState extends State<SafeTransferScreen> {
         _stones22kController.clear();
         _stones21kController.clear();
         _stones18kController.clear();
+        _stonesTyped.clear();
         _notesController.clear();
       });
 
@@ -872,7 +905,7 @@ class _SafeTransferScreenState extends State<SafeTransferScreen> {
       }
       _corrWeightController.clear();
       _extraKarats.clear();
-      _showStones = false;
+      _stonesTyped.clear();
     });
     _loadSafes();
   }
@@ -1080,7 +1113,10 @@ class _SafeTransferScreenState extends State<SafeTransferScreen> {
         key: const Key('transfer-from'),
         label: isAr ? 'خزينة المصدر' : 'Source safe',
         value: _fromSafeId,
-        onChanged: (v) => setState(() => _fromSafeId = v),
+        onChanged: (v) => setState(() {
+          _fromSafeId = v;
+          _sourceChanged();
+        }),
         validator: (v) => v == null ? (isAr ? 'مطلوب' : 'Required') : null,
       ),
     );
@@ -1111,6 +1147,7 @@ class _SafeTransferScreenState extends State<SafeTransferScreen> {
             final t = _fromSafeId;
             _fromSafeId = _toSafeId;
             _toSafeId = t;
+            _sourceChanged();
           }),
           icon: Icon(wide ? Icons.swap_horiz : Icons.swap_vert),
         );
@@ -1165,9 +1202,6 @@ class _SafeTransferScreenState extends State<SafeTransferScreen> {
       for (final k in _karats)
         if (!shown.contains(k)) k,
     ];
-    final stonesOn =
-        _showStones ||
-        [for (final k in _karats) _stonesOf(k).text].any((t) => t.isNotEmpty);
     return Card.outlined(
       margin: EdgeInsets.zero,
       child: Padding(
@@ -1193,8 +1227,7 @@ class _SafeTransferScreenState extends State<SafeTransferScreen> {
                   )
                 else ...[
                   if (wide) _tableHeader(),
-                  for (final k in shown)
-                    _goldRow(source, k, wide: wide, stonesOn: stonesOn),
+                  for (final k in shown) _goldRow(source, k, wide: wide),
                 ],
                 const SizedBox(height: AppSpace.sm),
                 Wrap(
@@ -1224,15 +1257,6 @@ class _SafeTransferScreenState extends State<SafeTransferScreen> {
                               ),
                             ],
                           ),
-                        ),
-                      ),
-                    if (!stonesOn)
-                      TextButton.icon(
-                        key: const Key('transfer-show-stones'),
-                        onPressed: () => setState(() => _showStones = true),
-                        icon: const Icon(Icons.diamond_outlined, size: 18),
-                        label: Text(
-                          isAr ? 'فصوص (اختياري)' : 'Stones (optional)',
                         ),
                       ),
                   ],
@@ -1270,12 +1294,7 @@ class _SafeTransferScreenState extends State<SafeTransferScreen> {
     );
   }
 
-  Widget _goldRow(
-    SafeBoxModel source,
-    int k, {
-    required bool wide,
-    required bool stonesOn,
-  }) {
+  Widget _goldRow(SafeBoxModel source, int k, {required bool wide}) {
     final isAr = widget.isArabic;
     final available = _goldOf(source, k);
     final entered = _parseDouble(_weightOf(k).text);
@@ -1307,25 +1326,28 @@ class _SafeTransferScreenState extends State<SafeTransferScreen> {
       ),
     );
     final stonesAvailable = _stonesHeld(source.id, k);
-    final stones = stonesOn
+    final stonesField = _gramsField(
+      key: Key('transfer-stones-$k'),
+      controller: _stonesOf(k),
+      label: isAr ? 'فصوص' : 'Stones',
+      error: _stonesOverdraftError('${k}k'),
+      helper: isAr
+          ? 'فصوص متاحة ${_fmtWeight(stonesAvailable)}'
+          : 'Stones held ${_fmtWeight(stonesAvailable)}',
+    );
+    // A karat's stones are there when the source holds some: nothing else
+    // may move (the server refuses beyond them).
+    final stones = stonesAvailable > _epsilon || _stonesOf(k).text.isNotEmpty
         ? Padding(
             padding: const EdgeInsets.only(top: AppSpace.sm),
             child: Row(
               children: [
                 if (wide) const SizedBox(width: 72),
                 if (wide) const Spacer(),
-                SizedBox(
-                  width: wide ? 200 : null,
-                  child: _gramsField(
-                    key: Key('transfer-stones-$k'),
-                    controller: _stonesOf(k),
-                    label: isAr ? 'فصوص' : 'Stones',
-                    error: _stonesOverdraftError('${k}k'),
-                    helper: isAr
-                        ? 'فصوص متاحة ${_fmtWeight(stonesAvailable)}'
-                        : 'Stones held ${_fmtWeight(stonesAvailable)}',
-                  ),
-                ),
+                if (wide)
+                  SizedBox(width: 200, child: stonesField)
+                else
+                  Expanded(child: stonesField),
                 if (wide) const SizedBox(width: 72),
                 if (wide) const Spacer(),
               ],
@@ -1538,7 +1560,10 @@ class _SafeTransferScreenState extends State<SafeTransferScreen> {
           key: const Key('transfer-from'),
           label: isAr ? 'الخزينة' : 'Safe',
           value: _fromSafeId,
-          onChanged: (v) => setState(() => _fromSafeId = v),
+          onChanged: (v) => setState(() {
+            _fromSafeId = v;
+            _sourceChanged();
+          }),
           validator: (v) => v == null ? (isAr ? 'مطلوب' : 'Required') : null,
         ),
       ),

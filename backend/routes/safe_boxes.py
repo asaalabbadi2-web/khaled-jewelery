@@ -199,59 +199,11 @@ def safe_boxes_stones_balance():
     2. إذا لم تكن مُعبّأة (بيانات قديمة) → استنتج العيار من حقول الذهب (weight_18k..24k) في نفس الـ SBT.
     """
     safe_box_id_filter = request.args.get('safe_box_id', type=int)
-
+    from services.safe_stones import stones_by_karat
     try:
-        q = db.session.query(SafeBoxTransaction).filter(
-            SafeBoxTransaction.stones_weight > 0
-        )
-        if safe_box_id_filter:
-            q = q.filter(SafeBoxTransaction.safe_box_id == safe_box_id_filter)
-        sbts = q.all()
+        safe_totals = stones_by_karat(safe_box_id_filter)
     except Exception:
         return jsonify({'safes': []})
-
-    # تجميع البيانات لكل خزينة
-    safe_totals = {}   # safe_box_id -> {'total': float, '18': float, ...}
-
-    for sbt in sbts:
-        sid = sbt.safe_box_id
-        if sid not in safe_totals:
-            safe_totals[sid] = {'total': 0.0, '18': 0.0, '21': 0.0, '22': 0.0, '24': 0.0}
-
-        sw = float(sbt.stones_weight or 0.0)
-        sign = 1.0 if sbt.direction == 'in' else -1.0
-        safe_totals[sid]['total'] += sign * sw
-
-        # هل البيانات المفصّلة بالعيار موجودة؟
-        s18 = float(getattr(sbt, 'stones_18k', 0.0) or 0.0)
-        s21 = float(getattr(sbt, 'stones_21k', 0.0) or 0.0)
-        s22 = float(getattr(sbt, 'stones_22k', 0.0) or 0.0)
-        s24 = float(getattr(sbt, 'stones_24k', 0.0) or 0.0)
-        karat_sum = s18 + s21 + s22 + s24
-
-        if karat_sum > 0.0001:
-            # بيانات مفصّلة موجودة → استخدمها مباشرة
-            safe_totals[sid]['18'] += sign * s18
-            safe_totals[sid]['21'] += sign * s21
-            safe_totals[sid]['22'] += sign * s22
-            safe_totals[sid]['24'] += sign * s24
-        elif sw > 0.0001:
-            # بيانات قديمة → استنتج العيار من أوزان الذهب في نفس الـ SBT
-            w18 = float(getattr(sbt, 'weight_18k', 0.0) or 0.0)
-            w21 = float(getattr(sbt, 'weight_21k', 0.0) or 0.0)
-            w22 = float(getattr(sbt, 'weight_22k', 0.0) or 0.0)
-            w24 = float(getattr(sbt, 'weight_24k', 0.0) or 0.0)
-            gold_total = w18 + w21 + w22 + w24
-
-            if gold_total > 0.0001:
-                # توزيع الفصوص بنسبة الذهب في كل عيار
-                safe_totals[sid]['18'] += sign * sw * (w18 / gold_total)
-                safe_totals[sid]['21'] += sign * sw * (w21 / gold_total)
-                safe_totals[sid]['22'] += sign * sw * (w22 / gold_total)
-                safe_totals[sid]['24'] += sign * sw * (w24 / gold_total)
-            else:
-                # لا يوجد معلومات عيار → يُضاف للإجمالي فقط بدون تفصيل
-                pass
 
     # بناء الاستجابة
     all_safe_ids = list(safe_totals.keys())
@@ -1294,6 +1246,31 @@ def create_safe_box_transfer_voucher():
             if requested > eps and (requested - (w_bal.get(key, 0.0) or 0.0)) > eps:
                 return jsonify({'error': f'insufficient_balance_{key}',
                                 'available': round(w_bal.get(key, 0.0), 3)}), 400
+
+        # Stones move with their gold (ADR-050 ت6أ; the owner, 23 Oct 2026: «يجب
+        # أن يتم تحويله مع الذهب»): within the source's stones of their karat,
+        # and a karat emptied takes its stones. They stayed on the counters of
+        # custodies whose scrap had gone (3.3 g on the 21 Oct copy).
+        from services.safe_stones import stones_of
+        held_stones = stones_of(from_safe.id)
+        stones_raw = data.get('stones') if isinstance(data.get('stones'), dict) else {}
+        for requested, key in ((w_24, '24k'), (w_22, '22k'), (w_21, '21k'), (w_18, '18k')):
+            karat = key[:-1]
+            asked = _f(stones_raw.get(key))
+            if asked < 0:
+                return jsonify({'error': 'negative_weight_not_allowed'}), 400
+            if asked - held_stones[karat] > eps:
+                return jsonify({'error': f'insufficient_stones_{key}',
+                                'available': round(held_stones[karat], 3),
+                                'message': f'فصوص عيار {karat} في «{from_safe.name}» '
+                                           f'{held_stones[karat]:.3f} جم فقط'}), 400
+            emptied = requested > eps and (w_bal.get(key, 0.0) or 0.0) - requested <= eps
+            if emptied and held_stones[karat] - asked > eps:
+                return jsonify({'error': f'stones_left_behind_{key}',
+                                'stones': round(held_stones[karat], 3),
+                                'message': f'ذهب عيار {karat} كله يخرج من «{from_safe.name}»، '
+                                           f'ومعه فصوصه {held_stones[karat]:.3f} جم: '
+                                           'الفصوص تُحوَّل مع ذهبها'}), 400
 
     # ------------------------------------------------------------------
     # Cash transfer (amount_cash)

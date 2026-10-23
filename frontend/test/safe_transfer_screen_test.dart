@@ -203,8 +203,6 @@ void main() {
       final sent = await run(tester, 'gold', () async {
         await type(tester, 'transfer-weight-21', '5.7');
         await type(tester, 'transfer-weight-18', '2');
-        await tester.tap(find.byKey(const Key('transfer-show-stones')));
-        await tester.pumpAndSettle();
         await type(tester, 'transfer-stones-21', '1');
         await submitAndConfirm(tester);
       });
@@ -384,5 +382,37 @@ void main() {
         );
       });
     }
+  });
+
+  // ت6أ (ADR-050): stones move with their gold (the owner, 23 Oct 2026: «يجب
+  // أن يتم تحويله مع الذهب»). They moved only when typed behind «فصوص
+  // (اختياري)», and none of 201 custody transfers typed them.
+  group('stones move with their gold', () {
+    String stones(WidgetTester tester, int k) => tester
+        .widget<TextField>(find.byKey(Key('transfer-stones-$k')))
+        .controller!
+        .text;
+
+    testWidgets('a karat\'s stones come with its gold', (tester) async {
+      await run(tester, 'gold', () async {
+        expect(find.byKey(const Key('transfer-show-stones')), findsNothing);
+        await type(tester, 'transfer-weight-21', '5.7');
+        expect(stones(tester, 21), '10.000');
+        await tester.tap(find.byKey(const Key('transfer-all-18')));
+        await tester.pumpAndSettle();
+        expect(stones(tester, 18), '2.500');
+        await type(tester, 'transfer-weight-21', '');
+        expect(stones(tester, 21), '');
+      });
+    });
+
+    testWidgets('what the employee types stays', (tester) async {
+      await run(tester, 'gold', () async {
+        await type(tester, 'transfer-weight-21', '5.7');
+        await type(tester, 'transfer-stones-21', '1');
+        await type(tester, 'transfer-weight-21', '6');
+        expect(stones(tester, 21), '1');
+      });
+    });
   });
 }
