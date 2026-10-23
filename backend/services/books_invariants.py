@@ -75,6 +75,7 @@ CLEARING_DUE_DRIFT = 'CLEARING_DUE_DRIFT'
 GOLD_COST_DRIFT = 'GOLD_COST_DRIFT'
 GOLD_MOVED_UNVALUED = 'GOLD_MOVED_UNVALUED'
 GOLD_WITH_PARTY_ADRIFT = 'GOLD_WITH_PARTY_ADRIFT'
+BONUS_RUN_FAILED = 'BONUS_RUN_FAILED'
 
 KINDS = (
     ORPHAN_POSTED_ENTRY,
@@ -92,6 +93,7 @@ KINDS = (
     GOLD_COST_DRIFT,
     GOLD_MOVED_UNVALUED,
     GOLD_WITH_PARTY_ADRIFT,
+    BONUS_RUN_FAILED,
 )
 
 # An invoice in one of these states is retracted: its entries must not count
@@ -613,6 +615,27 @@ def check_gold_with_parties_adrift() -> list:
                  round(p['books_grams'] - p['valued_grams'], 3), p) for p in parties_adrift()]
 
 
+def check_bonus_runs_failed() -> list:
+    """A bonus run whose period has not run well since it failed (bonus study
+    م0, ث13): 49 runs failed from May to 19 Sep 2026 -- four months with no
+    bonus computed by the scheduler -- and nobody was told. Keyed
+    'bonus_run:<period>'; it clears when a run of that period succeeds."""
+    from models import BonusCalculationLog
+    facts = []
+    for (period,) in BonusCalculationLog.query.with_entities(BonusCalculationLog.period_type).distinct():
+        last_ok = (BonusCalculationLog.query.filter_by(period_type=period, status='success')
+                   .order_by(BonusCalculationLog.run_at.desc()).first())
+        failed = BonusCalculationLog.query.filter_by(period_type=period, status='failed')
+        if last_ok is not None:
+            failed = failed.filter(BonusCalculationLog.run_at > last_ok.run_at)
+        failed = failed.order_by(BonusCalculationLog.run_at).all()
+        if failed:
+            facts.append(Fact(BONUS_RUN_FAILED, f'bonus_run:{period}', len(failed), {
+                'period_type': period, 'failures': len(failed), 'since': failed[0].run_at.isoformat(),
+                'last_message': failed[-1].message}))
+    return facts
+
+
 CHECKS = {
     ORPHAN_POSTED_ENTRY: check_orphan_posted_entries,
     UNPOSTED_ENTRY_IN_LIMBO: check_unposted_entries_in_limbo,
@@ -630,6 +653,7 @@ CHECKS = {
     GOLD_COST_DRIFT: check_gold_cost_drift,
     GOLD_MOVED_UNVALUED: check_gold_moved_unvalued,
     GOLD_WITH_PARTY_ADRIFT: check_gold_with_parties_adrift,
+    BONUS_RUN_FAILED: check_bonus_runs_failed,
 }
 
 

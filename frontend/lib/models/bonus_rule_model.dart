@@ -153,6 +153,21 @@ class BonusRuleModel {
     'custom', // مخصصة
   ];
 
+  /// What a rule's form offers: the types the server computes (bonus study
+  /// م0, ث10) -- «مخصصة» has no calculator, «الحضور» and «الأداء» are refused
+  /// by their flag -- and [current], when a rule is already of another.
+  static const List<String> computedRuleTypes = [
+    'sales_target',
+    'fixed',
+    'profit_based',
+    'points_based',
+  ];
+
+  static List<String> ruleTypesFor(String? current) => [
+    ...computedRuleTypes,
+    if (current != null && !computedRuleTypes.contains(current)) current,
+  ];
+
   /// أنواع احتساب المكافأة
   static const List<String> bonusTypes = [
     'percentage', // نسبة من الراتب

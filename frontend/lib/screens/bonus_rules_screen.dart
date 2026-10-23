@@ -702,7 +702,7 @@ class _BonusRuleDialogState extends State<_BonusRuleDialog> {
                     labelText: isAr ? 'نوع القاعدة' : 'Rule Type',
                     border: const OutlineInputBorder(),
                   ),
-                  items: BonusRuleModel.ruleTypes
+                  items: BonusRuleModel.ruleTypesFor(widget.rule?.ruleType)
                       .map(
                         (t) => DropdownMenuItem(
                           value: t,

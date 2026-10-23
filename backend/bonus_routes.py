@@ -18,6 +18,7 @@ from flask import Blueprint, request, jsonify, g
 from services.record_ownership import refuse_unless_self
 from models import db, Employee, BonusRule, EmployeeBonus, Voucher, VoucherAccountLine, Account, Office, SafeBox, GoalAchievement, Invoice, BonusInvoiceLink
 from bonus_calculator import BonusCalculator
+from services.approval_policy import actor
 from datetime import datetime, date, timedelta
 from auth_decorators import require_auth, require_permission, require_any_permission
 from sqlalchemy import or_, func
@@ -38,6 +39,18 @@ _FLAGGED_TYPES = {
     'attendance':  ('bonus_attendance_enabled',  'Attendance'),
     'performance': ('bonus_performance_enabled', 'Performance'),
 }
+
+# The rule types the calculator computes (bonus study م0, ث10): «مخصصة» has no
+# branch in it -- a rule of it was saved and paid nothing, unsaid.
+NOT_BUILT_RULE_TYPES = {'custom'}
+
+
+def _refuse_rule_type_not_built(rule_type):
+    if rule_type in NOT_BUILT_RULE_TYPES:
+        return jsonify({'success': False, 'error': 'rule_type_not_built',
+                        'message': 'نوع القاعدة «مخصصة» لا يُحسب: اختر نوعًا يحسبه النظام'}), 400
+    return None
+
 
 def _check_bonus_type_flag(rule_type: str):
     """
@@ -294,6 +307,10 @@ def create_bonus_rule():
                     'message': f'الحقل {field} مطلوب'
                 }), 400
         
+        refused = _refuse_rule_type_not_built(data.get('rule_type'))
+        if refused:
+            return refused
+
         # Feature Flag: attendance و performance محظوران ما لم يُفعَّلا من الإعدادات
         flag_check = _check_bonus_type_flag(data.get('rule_type', ''))
         if flag_check is not None:
@@ -348,7 +365,7 @@ def create_bonus_rule():
             is_active=data.get('is_active', True),
             valid_from=valid_from,
             valid_to=valid_to,
-            created_by=data.get('created_by')
+            created_by=actor(),
         )
         
         db.session.add(rule)
@@ -379,6 +396,9 @@ def update_bonus_rule(rule_id):
 
         # Feature Flag: الـ rule_type الفعلي بعد التحديث يجب أن يكون مُفعَّلاً
         effective_type = data.get('rule_type', rule.rule_type)
+        refused = _refuse_rule_type_not_built(effective_type)
+        if refused:
+            return refused
         flag_check = _check_bonus_type_flag(effective_type)
         if flag_check is not None:
             _, msg = flag_check
@@ -597,11 +617,11 @@ def create_bonus():
             status=status,
             notes=data.get('notes'),
             created_at=datetime.now(),
-            created_by=getattr(g, 'username', None),
+            created_by=actor(),
         )
 
         if status == 'approved':
-            bonus.approved_by = getattr(g, 'username', 'system')
+            bonus.approved_by = actor()
             bonus.approved_at = datetime.now()
 
         db.session.add(bonus)
@@ -971,7 +991,7 @@ def approve_bonus(bonus_id):
     سند: BAPP-{bonus_id}
     """
     data = request.get_json(silent=True) or {}
-    approved_by = data.get('approved_by') or getattr(g, 'username', None) or 'system'
+    approved_by = actor()   # the session's, never the body's (ADR-036 R4; bonus study ث8)
 
     ok, payload = _approve_single_bonus(bonus_id, approved_by)
 
@@ -1073,7 +1093,7 @@ def bulk_approve_bonuses():
     """
     data = request.get_json(silent=True) or {}
     ids = data.get('ids') or data.get('bonus_ids') or []
-    approved_by = data.get('approved_by') or getattr(g, 'username', None) or 'system'
+    approved_by = actor()   # the session's, never the body's (ADR-036 R4; bonus study ث8)
 
     if not isinstance(ids, list) or not ids:
         return jsonify({'success': False, 'message': 'قائمة المعرفات مطلوبة'}), 400
@@ -1121,7 +1141,7 @@ def reject_bonus(bonus_id):
             }), 400
         
         reason      = data.get('reason')
-        rejected_by = data.get('rejected_by') or data.get('approved_by', 'system')
+        rejected_by = actor()
         try:
             bonus.reject(reason=reason, rejected_by=rejected_by)
         except ValueError as ve:
@@ -1164,7 +1184,7 @@ def bulk_reject_bonuses():
 
         for bonus in bonuses:
             if bonus.status == 'pending':
-                bonus.reject(reason)
+                bonus.reject(reason, rejected_by=actor())
                 rejected.append(bonus.id)
             else:
                 skipped.append({'id': bonus.id, 'status': bonus.status})
@@ -1245,7 +1265,7 @@ def pay_bonus(bonus_id):
         
         payment_method = data.get('payment_method', 'cash')
         paid_date = datetime.strptime(data.get('paid_date'), '%Y-%m-%d').date() if data.get('paid_date') else date.today()
-        created_by = data.get('created_by', 'system')
+        created_by = actor()
         
         # الحصول على معلومات الموظف
         employee = Employee.query.get(bonus.employee_id)
@@ -2340,11 +2360,7 @@ def reverse_bonus(bonus_id):
     from models import BonusClawbackCandidate
 
     data = request.get_json(silent=True) or {}
-    reversed_by = (
-        data.get('reversed_by')
-        or getattr(g, 'username', None)
-        or 'system'
-    )
+    reversed_by = actor()
     reason = data.get('reason') or None
 
     ok, payload = BonusReversalService.reverse(bonus_id, reversed_by, reason)

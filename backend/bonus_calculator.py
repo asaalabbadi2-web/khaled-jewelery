@@ -29,6 +29,20 @@ from models import (
 )
 
 
+# A rule's period, from what its form saves (bonus study م0, ث1). The scheduler
+# runs each rule on its own period alone: it ran every rule daily, weekly and
+# monthly, and the only rule on production -- monthly -- would have paid a
+# week's 1,000 points again inside the month's. A rule without one is monthly.
+_POINTS_PERIODS = {'today': 'daily', 'week': 'weekly', 'month': 'monthly'}
+PERIODS = ('daily', 'weekly', 'monthly')
+
+
+def rule_period(rule) -> str:
+    conditions = rule.conditions or {}
+    period = conditions.get('period') or _POINTS_PERIODS.get(conditions.get('points_period'))
+    return period if period in PERIODS else 'monthly'
+
+
 def _apply_limits(rule, raw_amount: float) -> tuple:
     """يُطبّق min_bonus / max_bonus ويُعيد (final_amount, min_applied, max_applied)."""
     amount = raw_amount
@@ -511,7 +525,8 @@ class BonusCalculator:
         return bonus
 
     @staticmethod
-    def calculate_all_bonuses_for_period(period_start, period_end, employee_ids=None, rule_ids=None, refresh_results=True):
+    def calculate_all_bonuses_for_period(period_start, period_end, employee_ids=None, rule_ids=None, refresh_results=True,
+                                         period_type=None):
         """
         الاحتساب التلقائي للمكافآت — Scheduler هو المصدر الوحيد لاستدعاء هذه الدالة.
 
@@ -542,6 +557,10 @@ class BonusCalculator:
         if rule_ids:
             rules_query = rules_query.filter(BonusRule.id.in_(rule_ids))
         rules = rules_query.all()
+        # A scheduled run applies the rules of its period alone (ث1); a manual
+        # one names its dates and rules itself.
+        if period_type is not None:
+            rules = [rule for rule in rules if rule_period(rule) == period_type]
 
         def _sync_invoice_links(bonus_obj, invoice_ids):
             if invoice_ids is None:
@@ -606,11 +625,11 @@ class BonusCalculator:
                     existing.calculation_data = bonus.calculation_data
                     existing.status = 'pending'
 
-                    # rule_snapshot و calculation_snapshot: write-once
-                    if existing.rule_snapshot is None:
-                        existing.rule_snapshot = bonus.rule_snapshot
-                    if existing.calculation_snapshot is None:
-                        existing.calculation_snapshot = bonus.calculation_snapshot
+                    # A pending bonus carries the snapshot of what computed it
+                    # (ث7): its amount followed the rule and its snapshot stayed
+                    # the first. An approved or paid one is never here.
+                    existing.rule_snapshot = bonus.rule_snapshot
+                    existing.calculation_snapshot = bonus.calculation_snapshot
 
                     invoice_ids = bonus.calculation_data.get('invoice_ids') if bonus.calculation_data else None
                     if invoice_ids is not None:

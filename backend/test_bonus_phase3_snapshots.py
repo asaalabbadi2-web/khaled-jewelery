@@ -18,7 +18,7 @@ test_bonus_phase3_snapshots.py
          (فترة مختلفة → مكافأة جديدة)
        - تحقق: bonus_1.rule_snapshot['bonus_value'] == 500 (القيمة القديمة)
        - تحقق: bonus_2.rule_snapshot['bonus_value'] == 999 (القيمة الجديدة)
-       - تحقق: إعادة حساب الفترة الأولى لا تُغيّر snapshot الـ bonus_1
+       - (إعادة حساب مكافأة معلّقة تحمل لقطة ما حسبها: tests/test_bonus_money_safety.py)
 """
 
 import pytest
@@ -147,7 +147,6 @@ class TestSnapshotImmutability:
         2. احسب مكافأة للفترة أغسطس 2026 → bonus_1 يحفظ snapshot بـ bonus_value=500
         3. عدّل القاعدة إلى bonus_value=999
         4. احسب مكافأة للفترة سبتمبر 2026 → bonus_2 يحفظ snapshot بـ bonus_value=999
-        5. أعد حساب فترة أغسطس → bonus_1 يجب أن يحتفظ بـ bonus_value=500
         """
         with app.app_context():
             emp = Employee.query.first()
@@ -184,7 +183,6 @@ class TestSnapshotImmutability:
             assert bonus_1.rule_snapshot['bonus_value'] == 500.0, (
                 f"snapshot_v1.bonus_value={bonus_1.rule_snapshot['bonus_value']} ≠ 500"
             )
-            bonus_1_id = bonus_1.id
 
             # ── 3. تعديل القاعدة ─────────────────────────────────────────
             rule.bonus_value = 999.0
@@ -208,19 +206,7 @@ class TestSnapshotImmutability:
                 f"snapshot_v2.bonus_value={bonus_2.rule_snapshot['bonus_value']} ≠ 999"
             )
 
-            # ── 5. إعادة حساب فترة أغسطس → snapshot الأول يجب أن يبقى ─
-            BonusCalculator.calculate_all_bonuses_for_period(
-                date(2026, 8, 1), date(2026, 8, 31),
-                employee_ids=[emp.id],
-                rule_ids=[rule_id],
-            )
-
-            bonus_1_refreshed = EmployeeBonus.query.get(bonus_1_id)
-            assert bonus_1_refreshed.rule_snapshot['bonus_value'] == 500.0, (
-                f"انتهاك write-once: rule_snapshot.bonus_value تغيّر إلى "
-                f"{bonus_1_refreshed.rule_snapshot['bonus_value']} بعد إعادة الحساب"
-            )
-            assert bonus_1_refreshed.rule_snapshot['name'] == 'immutability_test', (
-                f"انتهاك write-once: rule_snapshot.name تغيّر إلى "
-                f"{bonus_1_refreshed.rule_snapshot['name']}"
-            )
+            # A pending bonus recomputed carries the snapshot of what computed
+            # it, with its amount (bonus study م0, ث7): it was pinned here to
+            # keep its first snapshot while its amount followed the rule. The
+            # law and its witness: tests/test_bonus_money_safety.py.

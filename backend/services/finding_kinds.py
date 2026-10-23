@@ -108,6 +108,12 @@ KIND_INFO: dict = {
         'explanation_ar': 'جرامات الطرف في دفتره تخالف الجرامات التي قُيّدت قيمتها في «ذهب لدى الأطراف»؛ '
                           'غالبًا انتقل ذهب من طرف إلى طرف دون مرور بمخزن، فبقيت قيمته عند الأول.',
     },
+    'BONUS_RUN_FAILED': {
+        'rank': 45,
+        'title_ar': 'احتساب المكافآت فشل',
+        'explanation_ar': 'آخر تشغيل لاحتساب مكافآت هذه الفترة فشل، ولم ينجح بعده تشغيل لها؛ '
+                          'فالمكافآت لم تُحسب. السبب في رسالة الخطأ، ويختفي التنبيه حين ينجح تشغيل.',
+    },
     'STOCK_ALLOCATION_INVALID': {
         'rank': 35,
         'title_ar': 'توزيع مخزون يخالف سطره',
@@ -150,6 +156,9 @@ def subject_label(subject_key: Optional[str]) -> str:
     kind, _, ident = subject_key.partition(':')
     if kind == 'gold_pool':                        # 'gold_pool:worked' -- a cost pool (ADR-042)
         return {'worked': 'مخزن المشغول', 'scrap': 'مخزن الكسر'}.get(ident, subject_key)
+    if kind == 'bonus_run':                        # 'bonus_run:daily' -- a bonus run's period
+        return {'daily': 'احتساب المكافآت اليومي', 'weekly': 'احتساب المكافآت الأسبوعي',
+                'monthly': 'احتساب المكافآت الشهري'}.get(ident, f'احتساب المكافآت ({ident})')
     prefix = _SUBJECTS.get(kind)
     if kind == 'karat' and ident.endswith('k'):   # 'karat:21k' -- a karat of the whole stock
         return f'{prefix} {ident[:-1]}'

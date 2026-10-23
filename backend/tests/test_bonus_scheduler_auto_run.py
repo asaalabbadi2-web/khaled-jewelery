@@ -54,6 +54,9 @@ def scheduler_employee_and_rule():
             bonus_value=250.0,
             is_active=True,
             created_by='test',
+            # A daily rule: a run applies the rules of its period alone (bonus
+            # study م0, ث1) -- a rule with none is monthly, not paid each day.
+            conditions={'points_period': 'today'},
         )
         db.session.add(rule)
         db.session.commit()
