@@ -167,8 +167,13 @@ class _WeightPositionSummaryCardState extends State<WeightPositionSummaryCard> {
             style: theme.textTheme.bodySmall?.copyWith(color: theme.hintColor)),
         if (s['buys_now_grams'] != null) ...[
           const SizedBox(height: 8),
-          Text('يشتري الآن ${_g(s['buys_now_grams'])} بسعرك ${_ltr(_price.format(_d(s['purchase_price'])))}',
+          Text('يشتري الآن ${_g(s['buys_now_grams'])} بسعر الكسر ${_ltr(_price.format(_d(s['price_now'])))}',
               key: const ValueKey('wps-buys'), style: theme.textTheme.bodyMedium),
+          // Its sales' scrap prices, by their grams (the owner, 23 Oct 2026).
+          if (s['closing_price'] != null)
+            Text('سعر التسكير ${_ltr(_price.format(_d(s['closing_price'])))}',
+                key: const ValueKey('wps-closing'),
+                style: theme.textTheme.bodySmall?.copyWith(color: theme.hintColor)),
         ],
       ],
     ]);
@@ -177,7 +182,7 @@ class _WeightPositionSummaryCardState extends State<WeightPositionSummaryCard> {
     final month = _d(s['month_realized']);
     final tiles = Row(children: [
       if (count > 0) ...[
-        Expanded(child: _tile(context, 'غير المحقَّق', _g(unrealized, signed: true),
+        Expanded(child: _tile(context, 'لو سُكِّر الآن', _g(unrealized, signed: true),
             unrealized >= 0 ? tones.ready : tones.blocked, key: const ValueKey('wps-unrealized'))),
         const SizedBox(width: 8),
         Expanded(child: _tile(context, 'كل ${_ltr('1%')} صعود في السعر',

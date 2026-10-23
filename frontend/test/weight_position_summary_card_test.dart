@@ -15,7 +15,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 Map<String, dynamic> _summary({bool raised = true, int count = 51}) => {
       'as_of': '2026-10-16', 'open_cash': 261822.43, 'open_count': count, 'buys_now_grams': 619.378,
-      'purchase_price': 422.7182, 'purchase_price_source': 'متوسط شراء الكسر في آخر 7 أيام شراء',
+      'closing_price': 428.93, 'price_now': 422.7182, 'price_now_source': 'سعر الكسر: السوق × 0.99',
+      'expected_at_closing_price': 140.0, 'price_effect_since_sale': 8.869,
       'unrealized': 148.869, 'grams_per_price_percent': 6.132, 'oldest_date': '2026-10-08T19:37:30',
       'oldest_age_days': 8, 'alert': {'oldest_over_days': raised ? 7 : 10, 'raised': raised},
       'age_buckets': [
@@ -40,8 +41,8 @@ class _Api extends ApiService {
   @override
   Future<Map<String, dynamic>> getWeightPosition({DateTime? asOf}) async => {
         'open_cash': 0.0, 'open_grams_sold': 0.0, 'open_count': 0, 'buys_now_grams': 0.0,
-        'purchase_price': 422.72, 'purchase_price_source': '', 'unrealized': 0.0, 'market_price': 0.0,
-        'unrealized_at_market': 0.0, 'grams_per_price_percent': 0.0, 'oldest': null, 'lots': [],
+        'closing_price': null, 'price_now': 422.72, 'price_now_source': '', 'paid_average': 0.0,
+        'paid_average_source': '', 'unrealized': 0.0, 'market_price': 0.0, 'grams_per_price_percent': 0.0, 'oldest': null, 'lots': [],
         'recent_closings': [], 'where_the_riyals_are': {'in_hand': 0.0, 'with_customers': 0.0, 'with_employees': 0.0},
       };
 
@@ -74,7 +75,8 @@ void main() {
     await _pump(tester, _Api(() async => _summary()));
     expect(_text(tester, 'wps-open'), '\u2066261,822\u2069 ر.س');
     expect(_text(tester, 'wps-count'), 'من \u206651\u2069 بيعًا');
-    expect(_text(tester, 'wps-buys'), 'يشتري الآن \u2066619.4\u2069 غ بسعرك \u2066422.72\u2069');
+    expect(_text(tester, 'wps-buys'), 'يشتري الآن \u2066619.4\u2069 غ بسعر الكسر \u2066422.72\u2069');
+    expect(_text(tester, 'wps-closing'), 'سعر التسكير \u2066428.93\u2069');
     expect(find.descendant(of: find.byKey(const ValueKey('wps-unrealized')), matching: find.text('\u2066+148.9\u2069 غ')),
         findsOneWidget);
     expect(find.descendant(of: find.byKey(const ValueKey('wps-grip')), matching: find.text('\u2066−6.1\u2069 غ')),

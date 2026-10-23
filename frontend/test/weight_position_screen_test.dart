@@ -9,13 +9,15 @@ import 'package:frontend/screens/reports/weight_position_screen.dart';
 Map<String, dynamic> _position() => {
       'as_of': '2026-10-15',
       'open_cash': 251537.07, 'open_grams_sold': 290.7, 'open_count': 2, 'buys_now_grams': 604.0,
-      'purchase_price': 416.44, 'purchase_price_source': 'متوسط شراء الكسر في آخر 7 أيام',
-      'unrealized': 313.3, 'market_price': 436.09, 'unrealized_at_market': 286.1,
+      'closing_price': 428.93, 'price_now': 420.17, 'price_now_source': 'سعر الكسر: السوق × 0.99',
+      'expected_at_closing_price': 43.33, 'price_effect_since_sale': 4.87,
+      'paid_average': 429.52, 'paid_average_source': 'متوسط شراء الكسر في آخر 7 أيام',
+      'unrealized': 48.2, 'market_price': 424.41,
       'grams_per_price_percent': 5.98, 'oldest': '2026-10-08T18:45:30',
       'lots': [
         {'ref': 'بيع #1618', 'kind': 'sold', 'invoice_id': 3280, 'invoice_number': 1618, 'customer': 'عميل نقدي',
          'date': '2026-10-08T18:45:30', 'age_days': 7, 'cash': 13000.0, 'cash_open': 323.8, 'grams_open': 0.563,
-         'expected_at_sale': 7.337, 'unrealized': 0.215},
+         'expected_at_sale': 7.337, 'closing_price': 431.2, 'unrealized': 0.215},
         {'ref': 'إيرادات 2026-10-14', 'kind': 'revenue', 'invoice_id': null, 'invoice_number': null,
          'customer': null, 'date': '2026-10-14T23:59:00', 'age_days': 1, 'cash': 500.0, 'cash_open': 500.0,
          'grams_open': 0.0, 'expected_at_sale': null, 'unrealized': 1.2},
@@ -63,12 +65,27 @@ Future<_FakeApi> _pump(WidgetTester tester) async {
 }
 
 void main() {
+  // The owner (23 Oct 2026): what waits is measured against its closing price
+  // -- its sales' scrap prices, weighted by their grams -- and the scrap
+  // price now; what the shop paid is shown beside, no longer the value.
+  testWidgets('what waits, against its closing price and the scrap price now', (tester) async {
+    await _pump(tester);
+    String text(String key) => tester.widget<Text>(find.byKey(ValueKey(key))).data!;
+    expect(text('wp-closing-price'), '428.93');
+    expect(text('wp-price-now'), '420.17');
+    expect(text('wp-expected'), '\u2066+43.3\u2069 غ');
+    expect(text('wp-price-effect'), '\u2066+4.9\u2069 غ');
+    expect(text('wp-unrealized'), '\u2066+48.2\u2069 غ');
+    expect(find.textContaining('429.52'), findsOneWidget, reason: 'what was paid, beside');
+    expect(find.textContaining('سعر تسكيره 431.20'), findsOneWidget);
+  });
+
   testWidgets('what waits, what it buys at your price, and the price\'s grip on it', (tester) async {
     await _pump(tester);
-    expect(find.text('\u2066+313.3\u2069 غ'), findsWidgets);
+    expect(find.text('\u2066+48.2\u2069 غ'), findsWidgets);
     expect(find.byKey(const ValueKey('wp-sensitivity')), findsOneWidget);
     expect(find.textContaining('\u20666.0\u2069 غ'), findsWidgets);           // 5.98 per 1 %
-    expect(find.text('متوسط شراء الكسر في آخر 7 أيام'), findsOneWidget);
+    expect(find.textContaining('متوسط شراء الكسر في آخر 7 أيام'), findsOneWidget);
   });
 
   testWidgets('the five layers and their total, as the server gives them', (tester) async {

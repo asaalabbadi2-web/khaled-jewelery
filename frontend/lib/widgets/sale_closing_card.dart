@@ -182,7 +182,7 @@ class _SaleClosingCardState extends State<SaleClosingCard> {
                     realized >= 0 ? tones.ready : tones.blocked, key: const ValueKey('sale-closing-closed'))),
               if (closings.isNotEmpty && waiting) const SizedBox(width: 8),
               if (waiting)
-                Expanded(child: _tile(context, 'تقدير المنتظر بسعر شراء المحل', _g(unreal, signed: true),
+                Expanded(child: _tile(context, 'تقدير المنتظر بسعر الكسر الآن', _g(unreal, signed: true),
                     unreal >= 0 ? tones.ready : tones.blocked, key: const ValueKey('sale-closing-open'))),
             ]),
             if (closings.isNotEmpty) ...[

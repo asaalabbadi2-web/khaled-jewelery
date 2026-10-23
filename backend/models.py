@@ -1033,6 +1033,10 @@ class Invoice(db.Model):
     profit_cash = db.Column(db.Float, default=0.0)  # الربح النقدي (ر.س)
     profit_gold = db.Column(db.Float, default=0.0)  # الربح بالذهب (جم)
     profit_weight_price_per_gram = db.Column(db.Float, default=0.0)  # سعر التحويل المستخدم للربح الوزني
+    # A sale's scrap price when it is recorded -- the market times the buy ratio,
+    # per gram of the main karat. What waits to be closed is measured against
+    # it (ADR-048 decision 5, the owner 23 Oct 2026). Frozen: the ratio moves.
+    scrap_buy_price_at_sale = db.Column(db.Float, nullable=True)
 
     # عمولة السداد بذهب صافي (عيار 24)
     gold24k_settlement = db.Column(db.Boolean, default=False)

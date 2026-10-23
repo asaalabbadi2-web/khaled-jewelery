@@ -4029,7 +4029,7 @@ def get_sale_weight_closing(invoice_id):
 def get_weight_performance():
     """The weight profit of a period, in its five layers, and month by month (ADR-048)."""
     from services.weight_position import (collect_events, performance, performance_by_month,
-                                          purchase_prices, year_start)
+                                          scrap_prices, year_start)
     try:
         end = _report_date('end_date', datetime.now().date())
         start = _report_date('start_date', end.replace(day=1))
@@ -4037,9 +4037,9 @@ def get_weight_performance():
         return jsonify({'error': 'invalid_date', 'message': 'start_date و end_date بصيغة YYYY-MM-DD'}), 400
     if start > end:
         return jsonify({'error': 'invalid_range', 'message': 'بداية الفترة بعد نهايتها'}), 400
-    # The year's books and purchase prices read once, for the period and its months.
+    # The year's books and scrap prices read once, for the period and its months.
     events = collect_events(year_start(end), datetime.combine(end, datetime.max.time()))
-    prices = purchase_prices(end)
+    prices = scrap_prices(end)
     return jsonify({'period': performance(start, end, events, prices),
                     'months': performance_by_month(start, end, events, prices)}), 200
 
@@ -4392,7 +4392,7 @@ def get_gram_profit_report():
         price_effect_weight          = _layers['price_effect']                  # ⑤
         gross_profit_weight          = trading_profit_weight
         net_profit_weight            = _perf['weight_profit']
-        valuation_price              = _perf['purchase_price'] or avg_buy_per_gram
+        valuation_price              = _perf['valuation_price'] or avg_buy_per_gram
         net_profit_cash      = net_profit_weight * valuation_price if valuation_price else None
         net_margin_pct       = ((net_profit_cash / total_sales_cash * 100)
                                 if net_profit_cash is not None and total_sales_cash > 0 else None)
@@ -4448,7 +4448,7 @@ def get_gram_profit_report():
             'unrealized_start_weight': _perf['unrealized_start'],
             'unrealized_end_weight': _perf['unrealized_end'],
             'valuation_price_per_gram': _rn(valuation_price, 4),
-            'valuation_price_source': _perf['purchase_price_source'],
+            'valuation_price_source': _perf['valuation_price_source'],
 
             # النتيجة النهائية
             'gross_profit': round(gross_profit, 2),

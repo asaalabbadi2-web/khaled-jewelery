@@ -160,17 +160,33 @@ class _WeightPositionScreenState extends State<WeightPositionScreen> {
           row('ينتظر التسكير', '${_money.format(_d(p['open_cash']))} ر.س — ${_counts(p)}',
               style: text.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
           row('مقابل غرامات مُباعة', _g(p['open_grams_sold'])),
-          row('تشتري الآن بسعرك', '${_g(p['buys_now_grams'])} بسعر ${_price.format(_d(p['purchase_price']))}'),
-          Text('${p['purchase_price_source'] ?? ''}', style: text.bodySmall?.copyWith(color: tone.onContainer)),
+          // Measured against its closing price -- its sales' scrap prices,
+          // by their grams -- and the scrap price now (the owner, 23 Oct 2026).
+          if (p['closing_price'] != null) ...[
+            row('سعر التسكير', _price.format(_d(p['closing_price'])), key: const ValueKey('wp-closing-price')),
+            Text('متوسط سعر الكسر وقت كل بيع، بوزنه المنتظر',
+                style: text.bodySmall?.copyWith(color: tone.onContainer)),
+          ],
+          row('سعر الكسر الآن', _price.format(_d(p['price_now'])), key: const ValueKey('wp-price-now')),
+          Text('${p['price_now_source'] ?? ''}', style: text.bodySmall?.copyWith(color: tone.onContainer)),
           const Divider(),
-          row('غير محقَّق', _g(unrealized, signed: true),
+          if (p['expected_at_closing_price'] != null)
+            row('ربح المبيعات بسعر التسكير', _g(p['expected_at_closing_price'], signed: true),
+                key: const ValueKey('wp-expected')),
+          if (p['price_effect_since_sale'] != null)
+            row('أثر السعر منذ البيع', _g(p['price_effect_since_sale'], signed: true),
+                key: const ValueKey('wp-price-effect')),
+          row('لو سُكِّر الآن', _g(unrealized, signed: true),
               key: const ValueKey('wp-unrealized'),
               style: text.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
-          row('— بسعر السوق ${_price.format(_d(p['market_price']))}', _g(p['unrealized_at_market'], signed: true)),
+          row('تشتري الآن', _g(p['buys_now_grams'])),
+          const SizedBox(height: 4),
+          Text('ما دفعته فعلًا ${_price.format(_d(p['paid_average']))} — ${p['paid_average_source'] ?? ''}',
+              style: text.bodySmall?.copyWith(color: tone.onContainer)),
           if (oldest != null) row('أقدم مفتوح', DateFormat('yyyy-MM-dd').format(oldest)),
           const SizedBox(height: 8),
           Text(
-            'كل 1% يصعد فيه سعر شرائك ينقص غير المحقَّق ${_g(p['grams_per_price_percent'])}.',
+            'كل 1% يصعد فيه سعر الكسر ينقص غير المحقَّق ${_g(p['grams_per_price_percent'])}.',
             key: const ValueKey('wp-sensitivity'),
             style: text.bodySmall?.copyWith(color: tone.onContainer, fontWeight: FontWeight.w600),
           ),
@@ -327,7 +343,8 @@ class _WeightPositionScreenState extends State<WeightPositionScreen> {
                 : 'بيع #${lot['invoice_number'] ?? '—'} — ${lot['customer'] ?? ''}'),
             subtitle: Text('${'${lot['date']}'.split('T').first} · '
                 '${_money.format(_d(lot['cash_open']))} ر.س من ${_money.format(_d(lot['cash']))} · '
-                '${_g(lot['grams_open'])} مُباعة'),
+                '${_g(lot['grams_open'])} مُباعة'
+                '${lot['closing_price'] == null ? '' : ' · سعر تسكيره ${_price.format(_d(lot['closing_price']))}'}'),
             trailing: Column(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
                   Text(_g(lot['unrealized'], signed: true)),

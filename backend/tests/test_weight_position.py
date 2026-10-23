@@ -286,8 +286,8 @@ def test_the_position_and_the_performance_are_served_to_who_reads_the_profits(ap
     position = _get('/api/reports/weight-position?as_of=2031-03-31', _headers('accountant'))
     assert position.status_code == 200, position.get_data(as_text=True)[:300]
     body = position.get_json()
-    for key in ('open_cash', 'purchase_price', 'unrealized', 'grams_per_price_percent', 'lots',
-                'recent_closings', 'where_the_riyals_are'):
+    for key in ('open_cash', 'closing_price', 'price_now', 'paid_average', 'unrealized', 'grams_per_price_percent',
+                'lots', 'recent_closings', 'where_the_riyals_are'):
         assert key in body, key
     perf = _get('/api/reports/weight-performance?start_date=2031-03-01&end_date=2031-03-31', _headers('manager'))
     assert perf.status_code == 200, perf.get_data(as_text=True)[:300]
@@ -353,7 +353,8 @@ def test_the_summary_says_what_waits_and_raises_the_owner_s_alert_past_his_days(
     assert _put_settings({'position_oldest_alert_days': 7}).status_code == 200
     body = _get('/api/reports/weight-position/summary?as_of=2036-05-10', _headers('accountant')).get_json()
     assert (body['open_cash'], body['open_count'], body['oldest_age_days']) == (1000.0, 1, 9)
-    for key in ('buys_now_grams', 'purchase_price', 'unrealized', 'grams_per_price_percent', 'month_realized'):
+    for key in ('buys_now_grams', 'closing_price', 'price_now', 'unrealized', 'grams_per_price_percent',
+                'month_realized'):
         assert key in body, key
     assert body['alert'] == {'oldest_over_days': 7, 'raised': True}
     # What waits, by age -- the card's bar: the server cuts it at 3 days and at

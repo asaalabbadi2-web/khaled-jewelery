@@ -4,8 +4,10 @@ The owner, 16 Oct 2026: the shop measures itself in gold; cash is a passing
 state. A sale turns grams into riyals; a cash purchase of gold, or a marked
 expense, turns them back -- first in, first out, by the riyal. What the
 riyals bought back, less what was sold for them, is the weight profit:
-realized when they are spent, unrealized while they wait (valued at the
-shop's own recent purchase price, from its invoices -- no live feed).
+realized when they are spent, unrealized while they wait -- valued at the
+scrap price now, against the scrap price of their own sales (the owner,
+23 Oct 2026: ADR-048 decision 5 restated; it was the shop's purchase average
+of 7 days, which lagged the market a week).
 
 Derived from the posted books, never stored: an edit, a return or an
 unposting changes the books, and the next reading follows. Three parts:
@@ -31,7 +33,7 @@ CUSTOMER, OFFICE, EXPENSE = 'customer', 'office', 'expense'
 SOLD, REVENUE = 'sold', 'revenue'
 # A weight line's side.
 REVENUE_SIDE, EXPENSE_SIDE = 'revenue', 'expense'
-PURCHASE_PRICE_DAYS = 7          # the window the open riyals are valued at (the owner, 16 Oct 2026)
+PURCHASE_PRICE_DAYS = 7          # the window of what the shop paid, shown beside (the owner, 16 Oct 2026)
 RECENT_DAYS = 3                  # the manager's card: what waits up to 3 days is recent
 
 
@@ -45,6 +47,7 @@ class Lot:
     price_at_sale: float | None = None
     invoice_id: int | None = None
     kind: str = SOLD
+    scrap_price: float | None = None    # the scrap price when it was sold (ADR-048 decision 5)
     cash_open: float = field(init=False)
     grams_open: float = field(init=False)
     returned_cash: float = field(init=False, default=0.0)    # what its returns took off the open riyals
@@ -297,6 +300,8 @@ def collect_events(start: dt.datetime, end: dt.datetime) -> Events:
     from services.gram_profit_accounts import gram_profit_accounts
     from services.sales_vat import posted_sales_vat
 
+    from pricing.buy_price import buy_price_ratio
+    ratio = buy_price_ratio()
     events = Events()
     invoices = (_with_weight_lines(Invoice.query)
                 .filter(Invoice.is_posted.is_(True), Invoice.date >= start, Invoice.date <= end)
@@ -313,8 +318,12 @@ def collect_events(start: dt.datetime, end: dt.datetime) -> Events:
             cash = float(inv.total or 0) - float(inv.total_tax or 0)
         grams = _invoice_weight_in_main_karat(inv)
         if kind == SALE:
+            market = float(inv.profit_weight_price_per_gram or 0) or None
+            # Saved when it was recorded; a sale from before: its market price
+            # times today's ratio.
+            scrap = float(inv.scrap_buy_price_at_sale or 0) or (market * ratio if market else None)
             events.openings.append(Lot(f'بيع #{inv.invoice_type_id}', inv.date, cash, grams,
-                                       float(inv.profit_weight_price_per_gram or 0) or None, inv.id))
+                                       market, inv.id, scrap_price=scrap))
         elif kind == CUSTOMER_BUY_RETURN:      # gold given back for riyals: like a sale
             events.openings.append(Lot(f'مرتجع شراء كسر #{inv.invoice_type_id}', inv.date, cash, grams, None, inv.id))
         elif kind == SALE_RETURN and inv.original_invoice_id:
@@ -359,6 +368,41 @@ def collect_events(start: dt.datetime, end: dt.datetime) -> Events:
         if amounts['expense'] > 0.005:
             events.closings.append(Closing(when, EXPENSE, amounts['expense']))
     return events
+
+
+def scrap_prices(until: dt.date):
+    """price_on(day) -> (the scrap price per gram of the main karat, where it
+    came from), for any day up to *until*: the day's last market price times
+    the settings' buy ratio -- the rule a sale saves its own by. A day with no
+    new price keeps the last; before any price, nothing. One reading."""
+    import bisect
+    from models import GoldPrice, db
+    from pricing.buy_price import buy_price_ratio
+    from pricing.constants import SAR_USD_PEG, TROY_OZ_TO_GRAMS
+    from pricing.gold_price_service import get_main_karat
+    end = dt.datetime.combine(until, dt.time.max)
+    last = (db.session.query(db.func.max(GoldPrice.date).label('at'))
+            .filter(GoldPrice.date <= end).group_by(db.func.date(GoldPrice.date)).subquery())
+    rows = (db.session.query(GoldPrice.date, GoldPrice.price)
+            .filter(GoldPrice.date.in_(db.select(last.c.at))).order_by(GoldPrice.date).all())
+    days = [when.date() for when, _ in rows]
+    ratio, main = buy_price_ratio(), float(get_main_karat())
+
+    def price_on(day: dt.date):
+        at = bisect.bisect_right(days, day) - 1
+        if at < 0 or not rows[at][1]:
+            return 0.0, 'لا سعر'
+        market = float(rows[at][1]) / TROY_OZ_TO_GRAMS * SAR_USD_PEG * main / 24.0
+        return market * ratio, f'سعر الكسر: السوق × {ratio:g}'
+    return price_on
+
+
+def closing_price(lots) -> float | None:
+    """The open sales' scrap prices, weighted by their grams still waiting
+    (the owner: 1 g at 440, 1 g at 435, 1 g at 430 close at 435)."""
+    priced = [lot for lot in lots if lot.scrap_price and lot.grams_open > 0]
+    grams = sum(lot.grams_open for lot in priced)
+    return sum(lot.grams_open * lot.scrap_price for lot in priced) / grams if grams else None
 
 
 def purchase_prices(until: dt.date, days: int = PURCHASE_PRICE_DAYS):
@@ -428,6 +472,23 @@ def _where_the_riyals_are() -> dict:
             'with_employees': cash_of(employees)}
 
 
+def against_closing_price(lots, cash: float, grams: float, price: float, source: str) -> dict:
+    """What waits, against its closing price and the scrap price now: expected
+    at the closing price (its sales' own profit) plus the price's move since
+    is what closing now would make."""
+    closing = closing_price(lots)
+    expected = unrealized(cash, grams, closing) if closing else None
+    now = unrealized(cash, grams, price)
+    return {
+        'closing_price': round(closing, 4) if closing else None,
+        'price_now': round(price, 4), 'price_now_source': source,
+        'buys_now_grams': round(cash / price, 3) if price else None,
+        'expected_at_closing_price': round(expected, 3) if expected is not None else None,
+        'price_effect_since_sale': round(now - expected, 3) if expected is not None else None,
+        'unrealized': round(now, 3),
+    }
+
+
 def position(as_of: dt.date) -> dict:
     """What waits to become gold on *as_of*, what it would buy, and what closed lately."""
     from models import Customer, Invoice
@@ -436,7 +497,8 @@ def position(as_of: dt.date) -> dict:
     lots = sorted(result.open_lots, key=lambda lot: lot.when)
     cash = sum(lot.cash_open for lot in lots)
     grams = sum(lot.grams_open for lot in lots)
-    price, source = purchase_price(as_of)
+    price, source = scrap_prices(as_of)(as_of)
+    paid, paid_source = purchase_price(as_of)
     market = float(get_current_gold_price().get('price_per_gram_main_karat') or 0)
     invoices = {inv.id: inv for inv in Invoice.query.filter(
         Invoice.id.in_({lot.invoice_id for lot in lots if lot.invoice_id} or {-1}))}
@@ -454,6 +516,7 @@ def position(as_of: dt.date) -> dict:
                 'grams_open': round(lot.grams_open, 3),
                 'expected_at_sale': (round(lot.cash / lot.price_at_sale - lot.grams, 3)
                                      if lot.price_at_sale else None),
+                'closing_price': round(lot.scrap_price, 4) if lot.scrap_price else None,
                 'unrealized': round(unrealized(lot.cash_open, lot.grams_open, price), 3)}
 
     closings = collections.OrderedDict()
@@ -473,10 +536,9 @@ def position(as_of: dt.date) -> dict:
     return {
         'as_of': as_of.isoformat(),
         'open_cash': round(cash, 2), 'open_grams_sold': round(grams, 3), 'open_count': len(lots),
-        'buys_now_grams': round(cash / price, 3) if price else None,
-        'purchase_price': round(price, 4), 'purchase_price_source': source,
-        'unrealized': round(unrealized(cash, grams, price), 3),
-        'market_price': round(market, 4), 'unrealized_at_market': round(unrealized(cash, grams, market), 3),
+        **against_closing_price(lots, cash, grams, price, source),
+        'paid_average': round(paid, 4), 'paid_average_source': paid_source,
+        'market_price': round(market, 4),
         # Each 1 % the purchase price rises takes this many grams off the unrealized.
         'grams_per_price_percent': round((cash / price - cash / (price * 1.01)) if price else 0.0, 3),
         'oldest': lots[0].when.isoformat() if lots else None,
@@ -493,7 +555,7 @@ def summary(as_of: dt.date) -> dict:
     from accounting.weight_closing import _load_weight_closing_settings
     hi = dt.datetime.combine(as_of, dt.time.max)
     events = collect_events(year_start(as_of), hi)
-    prices = purchase_prices(as_of)
+    prices = scrap_prices(as_of)
     lots = sorted(replay(_until(events, hi)).open_lots, key=lambda lot: lot.when)
     cash = sum(lot.cash_open for lot in lots)
     grams = sum(lot.grams_open for lot in lots)
@@ -514,9 +576,7 @@ def summary(as_of: dt.date) -> dict:
     return {
         'as_of': as_of.isoformat(),
         'open_cash': round(cash, 2), 'open_count': len(lots),
-        'buys_now_grams': round(cash / price, 3) if price else None,
-        'purchase_price': round(price, 4), 'purchase_price_source': source,
-        'unrealized': round(unrealized(cash, grams, price), 3),
+        **against_closing_price(lots, cash, grams, price, source),
         'grams_per_price_percent': round((cash / price - cash / (price * 1.01)) if price else 0.0, 3),
         'oldest_date': lots[0].when.isoformat() if lots else None, 'oldest_age_days': oldest_days,
         'alert': {'oldest_over_days': limit, 'raised': oldest_days is not None and oldest_days > limit},
@@ -535,7 +595,7 @@ def sale_closing(invoice_id: int, as_of: dt.date) -> dict | None:
         return None
     until = max(min(as_of, dt.date(inv.date.year, 12, 31)), inv.date.date())
     events = collect_events(year_start(until), dt.datetime.combine(until, dt.time.max))
-    price, source = purchase_price(until)
+    price, source = scrap_prices(until)(until)
     view = sale_view(replay(events), events, invoice_id, price)
     if view is None:
         return None
@@ -543,8 +603,10 @@ def sale_closing(invoice_id: int, as_of: dt.date) -> dict | None:
         Invoice.id.in_({c['invoice_id'] for c in view['closings'] if c['invoice_id']} or {-1}))}
     for closing in view['closings']:
         closing['invoice_number'], closing['invoice_type'] = numbers.get(closing['invoice_id'], (None, None))
+    lot = next((l for l in events.openings if l.invoice_id == invoice_id), None)
     view.update({'as_of': until.isoformat(), 'invoice_number': inv.invoice_type_id,
-                 'purchase_price': round(price, 4), 'purchase_price_source': source})
+                 'price_now': round(price, 4), 'price_now_source': source,
+                 'closing_price': round(lot.scrap_price, 4) if lot is not None and lot.scrap_price else None})
     return view
 
 
@@ -553,7 +615,7 @@ def performance_by_month(start: dt.date, end: dt.date, events: Events = None, pr
     *events* / *prices*: the year's books and purchase prices already read."""
     hi = dt.datetime.combine(end, dt.time.max)
     events = events if events is not None else collect_events(year_start(end), hi)
-    prices = prices or purchase_prices(end)
+    prices = prices or scrap_prices(end)
     result = replay(_until(events, hi))
     rows, previous_u = [], 0.0
     first_month = dt.date(start.year, start.month, 1)
@@ -569,7 +631,7 @@ def performance_by_month(start: dt.date, end: dt.date, events: Events = None, pr
             layers = split_layers([s for s in result.slices if lo <= s.when <= hi],
                                   [d for d in result.direct if lo <= d[0] <= hi])
             layers['price_effect'] = u - previous_u
-            rows.append({'month': m, 'purchase_price': round(price, 4), 'open_cash': round(cash_m, 2),
+            rows.append({'month': m, 'valuation_price': round(price, 4), 'open_cash': round(cash_m, 2),
                          'unrealized': round(u, 3), 'layers': {k: round(v, 3) for k, v in layers.items()},
                          'weight_profit': round(sum(layers.values()), 3)})
         previous_u = u
@@ -582,7 +644,7 @@ def performance(start: dt.date, end: dt.date, events: Events = None, prices=None
     of the day before *start* (nothing before the year) to the end of *end*."""
     lo, hi = dt.datetime.combine(start, dt.time.min), dt.datetime.combine(end, dt.time.max)
     events = events if events is not None else collect_events(year_start(end), hi)
-    prices = prices or purchase_prices(end)
+    prices = prices or scrap_prices(end)
     result = replay(_until(events, hi))
     taken = [s for s in result.slices if lo <= s.when <= hi]
     by_kind = collections.Counter()
@@ -613,5 +675,5 @@ def performance(start: dt.date, end: dt.date, events: Events = None, prices=None
         'weight_profit': round(realized + direct + after - before, 3),
         'realized_by_kind': {k: round(v, 3) for k, v in by_kind.items()},
         'layers': {k: round(v, 3) for k, v in layers.items()},
-        'purchase_price': round(price, 4), 'purchase_price_source': source,
+        'valuation_price': round(price, 4), 'valuation_price_source': source,
     }

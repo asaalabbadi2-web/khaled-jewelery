@@ -6697,6 +6697,10 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
             new_invoice.profit_cash = round(profit_cash, 2)
             new_invoice.profit_gold = round(profit_gold, 3)
             new_invoice.profit_weight_price_per_gram = round(_direct_price_main, 4)
+            # Its scrap price now, kept (ADR-048 decision 5): what its riyals
+            # waiting to become gold are measured against.
+            from pricing.buy_price import buy_price_ratio
+            new_invoice.scrap_buy_price_at_sale = round(_direct_price_main * buy_price_ratio(), 4)
 
             # A sale opens no stored weight-closing order: its riyals waiting to
             # become gold are derived from the posted books (ADR-048 phase 3,
