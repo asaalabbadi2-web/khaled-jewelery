@@ -94,24 +94,32 @@ def activity(employee_id: int, start, end, types=(SALE, CUSTOMER_BUY)) -> list:
             + corrections_against(theirs, lo, hi, end_inclusive=True))
 
 
-def engine_settings(name: str) -> dict:
-    """The engine's mode and units for a measure: points by the race's settings;
-    the others in their own unit (riyals, grams, invoices)."""
+#: The race's settings a point is made of; [points] overrides them in a
+#: preview (bonus study م3د).
+POINTS_SETTINGS = ('points_source', 'cash_amount_per_point', 'points_per_gram', 'points_per_invoice')
+
+
+def engine_settings(name: str, points: dict | None = None) -> dict:
+    """The engine's mode and units for a measure: points by the race's settings
+    (or [points] over them, to preview a change); the others in their own unit
+    (riyals, grams, invoices). Points per invoice are the race's too: the goals
+    and bonuses counted 1 whatever the race counted."""
     from models import get_race_points_config
     if name == 'points':
-        cfg = get_race_points_config()
+        cfg = {**get_race_points_config(), **(points or {})}
         return dict(points_source=cfg['points_source'], cash_amount_per_point=float(cfg['cash_amount_per_point']),
-                    points_per_gram=float(cfg['points_per_gram']), point_rules=cfg.get('point_rules') or [])
+                    points_per_gram=float(cfg['points_per_gram']), point_rules=cfg.get('point_rules') or [],
+                    points_per_invoice=float(cfg.get('points_per_invoice') or 1.0))
     return {'sales': dict(points_source='sales_amount', cash_amount_per_point=1.0, points_per_gram=1.0),
             'sold_weight': dict(points_source='sold_weight', cash_amount_per_point=1.0, points_per_gram=1.0),
             'count': dict(points_source='invoice_count', cash_amount_per_point=1.0, points_per_gram=1.0,
                           points_per_invoice=1.0)}[name]
 
 
-def measure(name: str, employee_id: int, start, end) -> float:
+def measure(name: str, employee_id: int, start, end, points: dict | None = None) -> float:
     """One of MEASURES for the employee in the period, returns and corrections
-    taken in their own period."""
+    taken in their own period. [points]: race settings to preview."""
     from points.engine import compute_invoices_points
     if name not in TYPES:
         raise ValueError(f'unknown measure {name!r}')
-    return compute_invoices_points(activity(employee_id, start, end, TYPES[name]), **engine_settings(name))
+    return compute_invoices_points(activity(employee_id, start, end, TYPES[name]), **engine_settings(name, points))

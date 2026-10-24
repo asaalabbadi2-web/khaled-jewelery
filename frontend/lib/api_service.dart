@@ -4866,6 +4866,24 @@ class ApiService {
     throw ApiException.text(msg?.toString() ?? 'فشل حفظ إعدادات سباق المبيعات');
   }
 
+  /// What a change of the race's points settings does to the open period,
+  /// before it is saved (bonus study م3د): each employee's points this month
+  /// now and with it, and what each open points rule pays now and with it.
+  Future<Map<String, dynamic>> previewSalesRaceConfig(
+    Map<String, dynamic> points,
+  ) async {
+    final response = await _authedPost(
+      Uri.parse('$_baseUrl/sales-race/config/preview'),
+      body: json.encode(points),
+    );
+    if (response.statusCode == 200) {
+      return Map<String, dynamic>.from(
+        json.decode(utf8.decode(response.bodyBytes)) as Map,
+      );
+    }
+    throw _apiError(response, fallback: 'تعذّرت معاينة إعدادات النقاط');
+  }
+
   // ---------------------------------------------------------------------------
   // Payroll API
   // ---------------------------------------------------------------------------

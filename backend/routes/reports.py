@@ -1198,6 +1198,74 @@ def get_sales_race_config():
             pass
     return jsonify(config)
 
+@reports_bp.route('/sales-race/config/preview', methods=['POST'])
+@require_permission('system.settings')
+def preview_sales_race_config():
+    """What a change of the race's points settings does to the open period
+    (bonus study م3د; the owner: «حيّ مع تحذير ومعاينة»): the settings are
+    read live, so the change measures the whole period gone so far. Body: any
+    of points_source, cash_amount_per_point, points_per_gram,
+    points_per_invoice. Says each employee's points this month now and with
+    them, and what each open points rule pays now and with them. Writes
+    nothing."""
+    from bonus_calculator import _apply_limits
+    from models import BonusRule
+    from services.bonus_tiers import pays, tier_for
+    from services.performance_measures import POINTS_SETTINGS, measure
+    data = request.get_json(silent=True) or {}
+    proposed = {}
+    for key in POINTS_SETTINGS:
+        if key not in data:
+            continue
+        if key == 'points_source':
+            if data[key] not in {'gold_weight', 'profit_cash', 'sales_amount', 'invoice_count', 'sold_weight'}:
+                proposed = None
+                break
+            proposed[key] = data[key]
+            continue
+        try:
+            proposed[key] = float(data[key])
+        except (TypeError, ValueError):
+            proposed = None
+            break
+    if proposed is None:
+        return jsonify({'success': False, 'error': 'invalid_race_settings',
+                        'message': 'إعداد النقاط غير مقروء: المصدر من القائمة، والقيم أرقام'}), 400
+
+    today = date.today()
+    month = (today.replace(day=1), today)
+    open_periods = {'daily': (today, today), 'weekly': (today - timedelta(days=today.weekday()), today),
+                    'monthly': month}
+    employees = Employee.query.filter_by(is_active=True).order_by(Employee.name).all()
+
+    def points(emp, window, settings):
+        return int(round(measure('points', emp.id, *window, points=settings)))
+
+    rows = []
+    for emp in employees:
+        now, new = points(emp, month, None), points(emp, month, proposed)
+        if now or new:
+            rows.append({'employee_id': emp.id, 'employee': emp.name, 'points_now': now, 'points_new': new})
+    rules = []
+    for rule in BonusRule.query.filter_by(is_active=True, rule_type='tiered', measure='points').order_by(BonusRule.id):
+        window = rule.valid_window(*open_periods.get(rule.period or 'monthly', month))
+        if window is None:
+            continue
+        for emp in employees:
+            if not rule.applies_to(emp):
+                continue
+            amounts = []
+            for settings in (None, proposed):
+                value = points(emp, window, settings)
+                tier = tier_for(rule.tiers, value)
+                amounts.append(round(_apply_limits(rule, pays(tier, value))[0], 2) if tier is not None else 0.0)
+            if any(amounts):
+                rules.append({'rule_id': rule.id, 'rule': rule.name, 'employee_id': emp.id, 'employee': emp.name,
+                              'period': rule.period or 'monthly', 'amount_now': amounts[0], 'amount_new': amounts[1]})
+    return jsonify({'success': True, 'period_start': month[0].isoformat(), 'period_end': today.isoformat(),
+                    'employees': rows, 'rules': rules}), 200
+
+
 @reports_bp.route('/sales-race/config', methods=['PUT'])
 @require_permission('system.settings')
 def update_sales_race_config():

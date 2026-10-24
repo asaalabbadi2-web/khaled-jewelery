@@ -9,7 +9,9 @@ import '../providers/sales_race_refresh_provider.dart';
 import '../widgets/user_avatar_widget.dart';
 import '../providers/settings_provider.dart';
 import '../theme/app_theme.dart';
+import '../utils/currency_utils.dart' as cu;
 import '../widgets/app_feedback.dart';
+import '../widgets/confirm_financial_action.dart';
 import '../widgets/app_bar_tab_bar.dart';
 
 /// نظام إدارة سباق المبيعات المتكامل.
@@ -52,6 +54,10 @@ class _SalesRaceManagementScreenState extends State<SalesRaceManagementScreen> {
   String _pointsSource = 'gold_weight';
   double _cashAmountPerPoint = 100.0;
   double _pointsPerInvoice = 1.0;
+
+  /// The points settings as saved: a change of them is previewed before it
+  /// is saved (bonus study م3د).
+  Map<String, Object> _savedPoints = const {};
   bool _allowFallback = true;
   bool _showInvoiceCount = true;
   bool _showChampion = true;
@@ -149,6 +155,12 @@ class _SalesRaceManagementScreenState extends State<SalesRaceManagementScreen> {
         .contains(rawSource) ? rawSource : 'gold_weight';
     _cashAmountPerPoint = (cfg['cash_amount_per_point'] as num?)?.toDouble() ?? 100.0;
     _pointsPerInvoice = (cfg['points_per_invoice'] as num?)?.toDouble() ?? 1.0;
+    _savedPoints = {
+      'points_source': _pointsSource,
+      'cash_amount_per_point': _cashAmountPerPoint,
+      'points_per_gram': _pointsPerGram,
+      'points_per_invoice': _pointsPerInvoice,
+    };
     _allowFallback = cfg['allow_fallback_to_latest_period'] as bool? ?? true;
     _showInvoiceCount = cfg['show_invoice_count'] as bool? ?? true;
     _showChampion = cfg['show_champion'] as bool? ?? true;
@@ -234,6 +246,18 @@ class _SalesRaceManagementScreenState extends State<SalesRaceManagementScreen> {
       );
       return;
     }
+    final points = <String, Object>{
+      'points_source': _pointsSource,
+      'cash_amount_per_point': parsedCashAmount,
+      'points_per_gram': parsedPoints,
+      'points_per_invoice': parsedPointsPerInvoice,
+    };
+    final changed = {
+      for (final e in points.entries)
+        if (_savedPoints[e.key] != e.value) e.key: e.value,
+    };
+    if (changed.isNotEmpty && !await _confirmPointsChange(changed)) return;
+    if (!mounted) return;
     setState(() => _configSaving = true);
     try {
       final saved = await widget.api.updateSalesRaceConfig({
@@ -265,6 +289,44 @@ class _SalesRaceManagementScreenState extends State<SalesRaceManagementScreen> {
     } finally {
       if (mounted) setState(() => _configSaving = false);
     }
+  }
+
+  /// The settings are read live (the owner: «حيّ مع تحذير ومعاينة»): a
+  /// change measures the whole open period by them. Before it is saved the
+  /// page says it in figures, from the server's preview.
+  Future<bool> _confirmPointsChange(Map<String, Object> changed) async {
+    Map<String, dynamic> preview;
+    try {
+      preview = await widget.api.previewSalesRaceConfig(changed);
+    } catch (e) {
+      if (mounted) AppFeedback.error(context, e, title: 'تعذّرت معاينة الأثر، فلم يُحفظ شيء');
+      return false;
+    }
+    if (!mounted) return false;
+    final currency = context.read<SettingsProvider>().currencySymbolText;
+    String n(num v) => cu.formatAmount(v, decimals: 0);
+    final employees = ((preview['employees'] as List?) ?? const []).whereType<Map>().toList();
+    final rules = ((preview['rules'] as List?) ?? const []).whereType<Map>().toList();
+    num sum(String key) => rules.fold<num>(0, (s, r) => s + ((r[key] as num?) ?? 0));
+    final moved = employees.where((e) => e['points_now'] != e['points_new']).toList();
+    final go = await confirmFinancialAction(
+      context,
+      title: 'تغيير إعدادات النقاط',
+      facts: [
+        for (final e in moved.take(6))
+          ('${e['employee']}', '${n(e['points_now'] as num)} ← ${n(e['points_new'] as num)} نقطة'),
+        if (moved.length > 6) ('وغيرهم', '${moved.length - 6} موظف'),
+        if (rules.isNotEmpty)
+          ('قواعد النقاط المفتوحة', '${cu.formatAmount(sum('amount_now'))} ← ${cu.formatAmount(sum('amount_new'))} $currency'),
+      ],
+      effect: 'النقاط تُقرأ بالإعداد الجديد من لحظة الحفظ، للفترة الجارية كلها منذ '
+          '${preview['period_start']}، لا مما بعد الحفظ فقط. والمكافآت المعلّقة تتغيّر '
+          'بشرائحها حين يُعاد احتسابها، والمعتمدة والمدفوعة لا تُمس.'
+          '${moved.isEmpty ? '\nلا تتغيّر نقاط أحد هذا الشهر.' : ''}',
+      confirmLabel: 'احفظ التغيير',
+      destructive: false,
+    );
+    return go != null;
   }
 
   void _showSnack(String msg, {bool isError = false}) {

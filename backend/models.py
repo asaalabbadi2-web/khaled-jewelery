@@ -42,6 +42,7 @@ def get_race_points_config() -> dict:
         'cash_amount_per_point': 100.0,
         'points_per_gram':       10.0,
         'point_rules':           None,
+        'points_per_invoice':    1.0,
     }
     try:
         # Use the same canonical row picker as the settings API
@@ -55,7 +56,7 @@ def get_race_points_config() -> dict:
                 decoded = _json.loads(raw) if isinstance(raw, str) else raw
                 if isinstance(decoded, dict):
                     for k in ('points_source', 'cash_amount_per_point',
-                              'points_per_gram', 'point_rules'):
+                              'points_per_gram', 'point_rules', 'points_per_invoice'):
                         if k in decoded and decoded[k] is not None:
                             cfg[k] = decoded[k]
     except Exception as _e:
