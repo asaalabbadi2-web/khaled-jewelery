@@ -19,10 +19,27 @@ import 'goal_ring_tile.dart';
 /// دائري»). [framed]: a card of its own, where the race card is not shown;
 /// otherwise a strip inside the race card.
 class MyGoalCard extends StatefulWidget {
-  const MyGoalCard({super.key, required this.api, this.framed = true, this.alongside});
+  const MyGoalCard({
+    super.key,
+    required this.api,
+    this.framed = true,
+    this.alongside,
+    this.refreshedAt,
+    this.periods,
+  });
+
+  /// The goals' periods shown ('daily', 'weekly', 'monthly'): the race
+  /// card's own period (the owner: «يتم التبديل بين الأسبوع والشهر حسب
+  /// الفترة»). Null: all.
+  final Set<String>? periods;
 
   final ApiService api;
   final bool framed;
+
+  /// When the card around it last loaded: a new one reloads the goals with
+  /// it, so they live and end with the card's other figures -- they stayed
+  /// shown, from the first load, after the session had ended.
+  final Object? refreshedAt;
 
   /// Beside the goals in the same row (the owner: «في صف واحد وليس في
   /// عمود») -- the team's goal in the race card. Shown alone without a goal.
@@ -42,16 +59,43 @@ class _MyGoalCardState extends State<MyGoalCard> {
     _load();
   }
 
-  Future<void> _load() async {
-    setState(() {
-      _goals = null;
-      _error = null;
-    });
+  @override
+  void didUpdateWidget(MyGoalCard old) {
+    super.didUpdateWidget(old);
+    if (widget.refreshedAt != old.refreshedAt) _load(quietly: true);
+  }
+
+  /// [quietly]: the figures shown stay until the new ones come.
+  Future<void> _load({bool quietly = false}) async {
+    if (!quietly) {
+      setState(() {
+        _goals = null;
+        _error = null;
+      });
+    }
     try {
       final goals = await widget.api.getMyGoalProgress();
-      if (mounted) setState(() => _goals = goals);
+      if (mounted) {
+        setState(() {
+          _goals = goals;
+          _error = null;
+        });
+      }
+    } on ApiAuthException {
+      // The session ended: nothing of it is shown, as the card's figures go.
+      if (mounted) {
+        setState(() {
+          _goals = const [];
+          _error = null;
+        });
+      }
     } catch (e) {
-      if (mounted) setState(() => _error = e);
+      if (mounted) {
+        setState(() {
+          _goals = null;
+          _error = e;
+        });
+      }
     }
   }
 
@@ -61,15 +105,23 @@ class _MyGoalCardState extends State<MyGoalCard> {
       ? Card(child: Padding(padding: const EdgeInsets.all(AppSpace.lg), child: child))
       : Padding(padding: const EdgeInsets.only(bottom: AppSpace.md), child: child);
 
-  Widget _row(List<Widget> tiles) => Row(
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          for (final (i, tile) in tiles.indexed) ...[
-            if (i > 0) const SizedBox(width: AppSpace.md),
-            Expanded(child: tile),
-          ],
-        ],
-      );
+  /// One goal alone is a line; two or more stand side by side, each on its
+  /// own ground (the owner, 24 Oct 2026).
+  Widget _row(List<Widget> tiles) => tiles.length == 1
+      ? GoalTileStyle(linear: true, boxed: false, child: tiles.single)
+      : GoalTileStyle(
+          linear: false,
+          boxed: true,
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              for (final (i, tile) in tiles.indexed) ...[
+                if (i > 0) const SizedBox(width: AppSpace.md),
+                Expanded(child: tile),
+              ],
+            ],
+          ),
+        );
 
   @override
   Widget build(BuildContext context) {
@@ -92,7 +144,10 @@ class _MyGoalCardState extends State<MyGoalCard> {
     if (goals == null && widget.framed) {
       return const Card(child: SizedBox(height: 120, child: AppLoadingView(summaryBlocks: 1, rows: 1)));
     }
-    final tiles = [for (final g in goals ?? const <Map<String, dynamic>>[]) _goal(context, g)];
+    final tiles = [
+      for (final g in goals ?? const <Map<String, dynamic>>[])
+        if (widget.periods == null || widget.periods!.contains(g['period'])) _goal(context, g),
+    ];
     if (alongside != null) tiles.add(alongside);
     if (tiles.isEmpty) return const SizedBox.shrink();
     return _frame(_row(tiles));

@@ -5,6 +5,7 @@ import 'package:frontend/providers/auth_provider.dart';
 import 'package:frontend/providers/sales_race_refresh_provider.dart';
 import 'package:frontend/providers/settings_provider.dart';
 import 'package:frontend/screens/sales_race_management_screen.dart';
+import 'package:frontend/widgets/race_rank_row.dart';
 import 'package:frontend/theme/app_theme.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:provider/provider.dart';
@@ -133,13 +134,17 @@ void main() {
     await tester.pumpAndSettle();
     expect(api.previewed, isNull);
     expect(api.saved, isNotNull);
+    expect(api.saved!.containsKey('weekly_sales_target_weight'), isFalse,
+        reason: 'the week\'s team goal is the month\'s share, no setting');
   });
 
   testWidgets('the race board and its settings read in the dark theme, ranks in the medal tones', (tester) async {
     await _pump(tester, theme: DarkTheme.theme, settingsTab: false);
     expect(find.text('1,200'), findsWidgets, reason: 'points in the one number format');
     expect(find.bySemanticsLabel('تصدّر السباق 7 أشهر'), findsOneWidget);
-    expect(find.text('4,200 من 5,000 نقطة'), findsOneWidget, reason: 'the team goal is a ring, every period');
+    expect(find.text('4,200 من 5,000 نقطة'), findsOneWidget);
+    expect(find.byKey(const Key('goal-line')), findsOneWidget, reason: 'alone on the board: a line');
+    expect(find.byType(RaceRankRow), findsNWidgets(4), reason: 'one row for the race, the home card\'s');
     expect(find.text('84%'), findsOneWidget);
     expect(find.bySemanticsLabel('بلغ هدفه 2 مرات'), findsOneWidget);
     expectNoTextVanishesOnDark(tester);

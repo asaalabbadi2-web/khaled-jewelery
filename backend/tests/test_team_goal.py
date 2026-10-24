@@ -80,15 +80,68 @@ def test_no_monthly_goal_no_team_goal():
     assert team_goal(TODAY) is None
 
 
-def test_the_race_carries_the_team_goal_whatever_its_period_and_not_the_weekly_one(auth_headers):
+def _race(headers, period):
+    g.pop('current_user', None)
+    resp = flask_app.test_client().get(f'/api/home/leaderboard?period={period}&metric=points', headers=headers)
+    assert resp.status_code == 200, resp.get_data(as_text=True)[:300]
+    return resp.get_json()
+
+
+def test_the_race_carries_the_team_goal_in_the_month_s_view_and_no_weekly_one(auth_headers):
+    """The owner: the month is where the employee looks to see where they are;
+    the goals are shown there."""
     a = _employee(goal=1000)
     _sale(a, 1200)
-    for period in ('today', 'week', 'month'):
-        g.pop('current_user', None)
-        resp = flask_app.test_client().get(f'/api/home/leaderboard?period={period}&metric=points',
-                                           headers=auth_headers)
-        assert resp.status_code == 200, resp.get_data(as_text=True)[:300]
-        body = resp.get_json()
-        assert body['team_goal']['target'] == 1000
-        assert body['team_goal']['value'] == 1200
-        assert 'weekly_target_points' not in body and 'weekly_target_weight_g' not in body
+    body = _race(auth_headers, 'month')
+    assert (body['team_goal']['target'], body['team_goal']['value']) == (1000, 1200)
+    assert 'weekly_target_points' not in body and 'weekly_target_weight_g' not in body
+    assert _race(auth_headers, 'today')['team_goal'] is None
+
+
+def test_the_week_s_team_goal_is_the_week_s_share_of_the_monthly_one(auth_headers):
+    """The owner: «من نقاط الموظفين الشهري مقسمًا على عدد الأسابيع» -- the
+    monthly target times 7 over the month's days, against the week's points."""
+    from calendar import monthrange
+    a, b = _employee(goal=1000), _employee(goal=800)
+    _sale(a, 120)
+    _sale(b, 30)
+    week = _race(auth_headers, 'week')['team_goal']
+    days = monthrange(TODAY.year, TODAY.month)[1]
+    assert (week['period'], week['unit'], week['share_of']) == ('weekly', 'نقطة', 'monthly')
+    assert week['target'] == round(1800 * 7 / days)
+    assert week['value'] == 150
+
+def test_everyone_sees_the_team_goal_where_the_team_summary_is_the_manager_s():
+    """The owner: «الجميع دائمًا» -- the team summary's money stays the
+    manager's; the team's goal, in points or grams, is everyone's."""
+    from models import AppUser
+    from auth_decorators import generate_token
+    settings = Settings.query.first()
+    cfg = json.loads(settings.sales_race_settings)
+    cfg['period_visibility'] = {'month': {'team_summary': 'admin_only'}}
+    settings.sales_race_settings = json.dumps(cfg)
+    a = _employee(goal=1000)
+    _sale(a, 1200)
+    seller = AppUser(username=f't{uuid.uuid4().hex[:8]}', employee_id=a.id, role='employee', is_active=True,
+                     password_hash='x')
+    db.session.add(seller)
+    db.session.flush()
+    body = _race({'Authorization': f'Bearer {generate_token(seller)}'}, 'month')
+    assert (body['team_goal']['target'], body['team_goal']['value']) == (1000, 1200)
+    assert body.get('admin_summary') is None, 'the summary stays the manager\'s'
+
+
+def test_the_team_goal_in_points_is_not_said_where_the_points_are_the_manager_s():
+    from models import AppUser
+    from auth_decorators import generate_token
+    settings = Settings.query.first()
+    cfg = json.loads(settings.sales_race_settings)
+    cfg['period_visibility'] = {'month': {'points': 'admin_only'}}
+    settings.sales_race_settings = json.dumps(cfg)
+    a = _employee(goal=1000)
+    _sale(a, 1200)
+    seller = AppUser(username=f't{uuid.uuid4().hex[:8]}', employee_id=a.id, role='employee', is_active=True,
+                     password_hash='x')
+    db.session.add(seller)
+    db.session.flush()
+    assert _race({'Authorization': f'Bearer {generate_token(seller)}'}, 'month')['team_goal'] is None

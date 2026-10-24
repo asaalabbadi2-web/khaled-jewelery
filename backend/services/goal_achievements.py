@@ -182,14 +182,11 @@ def goal_progress(employee, today: date) -> list:
     return goals
 
 
-def team_goal(today: date) -> dict | None:
-    """The team's monthly goal (bonus study م3ح; the owner: «مجموع أهداف
-    الموظفين»): the active employees with a monthly goal, their targets summed
-    and their values this month summed, each by the measure and target that
-    pay it. Goals of another metric than most of theirs are left out and
-    counted in `other_metric`. None without a monthly goal."""
+def _team(start: date, end: date, scale: float) -> dict | None:
+    """The employees with a monthly goal: their targets summed times *scale*,
+    their values from *start* to *end* summed, each by the measure and target
+    that pay it; goals of another metric than most are left out and counted."""
     from models import Employee
-    start, end = _bounds('monthly', today)
     by_metric: dict = {}
     for emp in Employee.query.filter(Employee.is_active.is_(True), Employee.goal_monthly_enabled.is_(True)).all():
         metric = emp.goal_metric or 'weight'
@@ -203,7 +200,7 @@ def team_goal(today: date) -> dict | None:
         if metric == 'points':
             value = int(round(value))
         acc = by_metric.setdefault(metric, {'target': 0.0, 'value': 0.0, 'employees': 0})
-        acc['target'] += float(target)
+        acc['target'] += float(target) * scale
         acc['value'] += value
         acc['employees'] += 1
     if not by_metric:
@@ -214,8 +211,30 @@ def team_goal(today: date) -> dict | None:
     if digits == 0:
         target, value = int(target), int(value)
     return {
-        'period': 'monthly', 'period_label': 'الشهري', 'metric': metric, 'unit': UNITS[metric],
-        'value': value, 'target': target, 'progress': round(value / target, 4) if target else 0.0,
-        'reached': value >= target, 'employees': acc['employees'],
+        'metric': metric, 'unit': UNITS[metric], 'value': value, 'target': target,
+        'progress': round(value / target, 4) if target else 0.0, 'reached': value >= target,
+        'employees': acc['employees'],
         'other_metric': sum(a['employees'] for m, a in by_metric.items() if m != metric),
     }
+
+
+def team_goal(today: date) -> dict | None:
+    """The team's monthly goal (bonus study م3ح; the owner: «مجموع أهداف
+    الموظفين»): the active employees with a monthly goal, their targets summed
+    and their values this month summed, each by the measure and target that
+    pay it. None without a monthly goal."""
+    start, end = _bounds('monthly', today)
+    goal = _team(start, end, 1.0)
+    return goal and {'period': 'monthly', 'period_label': 'الشهري', **goal}
+
+
+def team_week_goal(today: date) -> dict | None:
+    """The team's weekly goal: the week's share of the monthly one -- its
+    target times 7 over the month's days -- against the team's value from
+    Monday to today, by the same measure (the owner, 24 Oct 2026: «من نقاط
+    الموظفين الشهري مقسمًا على عدد الأسابيع»; it was the settings' grams).
+    None without a monthly goal."""
+    from calendar import monthrange
+    start, end = _bounds('weekly', today)
+    goal = _team(start, end, 7 / monthrange(today.year, today.month)[1])
+    return goal and {'period': 'weekly', 'period_label': 'الأسبوعي', 'share_of': 'monthly', **goal}

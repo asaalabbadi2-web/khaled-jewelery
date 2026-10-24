@@ -32,7 +32,8 @@ Map<String, dynamic> _goal({int value = 1200, Map<String, dynamic>? tier, Map<St
 };
 
 Future<void> _pump(WidgetTester tester, ApiService api,
-    {ThemeData? theme, Size size = const Size(900, 900), bool framed = true, Widget? alongside}) async {
+    {ThemeData? theme, Size size = const Size(900, 900), bool framed = true, Widget? alongside,
+    Set<String>? periods}) async {
   SharedPreferences.setMockInitialValues({});
   final settings = SettingsProvider();
   await settings.loadSettings(fetchRemote: false);
@@ -43,11 +44,14 @@ Future<void> _pump(WidgetTester tester, ApiService api,
     value: settings,
     child: MaterialApp(
       theme: theme ?? LightTheme.theme,
-      home: Directionality(textDirection: TextDirection.rtl, child: Scaffold(body: MyGoalCard(api: api, framed: framed, alongside: alongside))),
+      home: Directionality(textDirection: TextDirection.rtl, child: Scaffold(body: MyGoalCard(api: api, framed: framed, alongside: alongside, periods: periods))),
     ),
   ));
   await tester.pumpAndSettle();
 }
+
+const team = {'period': 'monthly', 'period_label': 'الشهري', 'unit': 'نقطة', 'value': 4200, 'target': 5000,
+              'progress': 0.84, 'reached': false, 'employees': 5};
 
 void main() {
   testWidgets('it says the value, the target, what is paid so far and the next tier', (tester) async {
@@ -92,12 +96,20 @@ void main() {
     });
   }
 
-  testWidgets('each goal is a ring with its percent, not another linear bar', (tester) async {
+  testWidgets('a goal alone is a line, not a ring', (tester) async {
     await _pump(tester, _Api(() async => [_goal(value: 800, reached: false, toNext: 200, amount: 0)]));
-    final ring = find.byKey(const Key('goal-ring'));
-    expect(ring, findsOneWidget);
+    expect(find.byKey(const Key('goal-line')), findsOneWidget);
+    expect(find.byKey(const Key('goal-ring')), findsNothing);
+    expect(find.text('80%'), findsOneWidget);
+  });
+
+  testWidgets('beside another, each is a ring on its own plain ground', (tester) async {
+    await _pump(tester, _Api(() async => [_goal(value: 800, reached: false, toNext: 200, amount: 0)]),
+        framed: false, alongside: TeamGoalTile(goal: team, format: (v) => '$v'));
+    expect(find.byKey(const Key('goal-ring')), findsNWidgets(2));
+    expect(find.byKey(const Key('goal-ground')), findsNWidgets(2));
+    final ring = find.byKey(const Key('goal-ring')).first;
     expect(find.descendant(of: ring, matching: find.text('80%')), findsOneWidget);
-    expect(find.descendant(of: ring, matching: find.byType(CircularProgressIndicator)), findsOneWidget);
     expect(find.byType(LinearProgressIndicator), findsNothing);
   });
 
@@ -107,16 +119,14 @@ void main() {
     expect(find.byType(Card), findsNothing);
   });
 
-  const team = {'period': 'monthly', 'period_label': 'الشهري', 'unit': 'نقطة', 'value': 4200, 'target': 5000,
-                'progress': 0.84, 'reached': false, 'employees': 5};
 
   for (final (name, size) in [('desktop', const Size(900, 900)), ('phone', const Size(360, 800))]) {
     testWidgets('mine and the team\'s side by side in one row, on a $name', (tester) async {
       await _pump(tester, _Api(() async => [_goal()]), framed: false, size: size,
           alongside: TeamGoalTile(goal: team, format: (v) => '$v'));
       expect(tester.takeException(), isNull);
-      final mine = tester.getCenter(find.byKey(const Key('my-goal-monthly')));
-      final ours = tester.getCenter(find.byKey(const Key('team-goal')));
+      final mine = tester.getTopLeft(find.byKey(const Key('my-goal-monthly')));
+      final ours = tester.getTopLeft(find.byKey(const Key('team-goal')));
       expect((mine.dy - ours.dy).abs(), lessThan(1), reason: 'one row, not a column');
       expect(find.text('ينقص الفريق 800 نقطة'), findsOneWidget);
     });
@@ -125,5 +135,88 @@ void main() {
   testWidgets('no goal of mine, the team\'s alone', (tester) async {
     await _pump(tester, _Api(() async => []), framed: false, alongside: TeamGoalTile(goal: team, format: (v) => '$v'));
     expect(find.byKey(const Key('team-goal')), findsOneWidget);
+  });
+
+  testWidgets('it lives with the card: a new load reloads it, an ended session empties it', (tester) async {
+    var calls = 0;
+    var ended = false;
+    final api = _Api(() async {
+      calls++;
+      if (ended) throw ApiAuthException('انتهت الجلسة');
+      return [_goal()];
+    });
+    Future<void> show(Object refreshedAt) async {
+      await tester.pumpWidget(ChangeNotifierProvider.value(
+        value: SettingsProvider(),
+        child: MaterialApp(
+          theme: LightTheme.theme,
+          home: Scaffold(body: MyGoalCard(api: api, framed: false, refreshedAt: refreshedAt)),
+        ),
+      ));
+      await tester.pumpAndSettle();
+    }
+
+    SharedPreferences.setMockInitialValues({});
+    await show(1);
+    expect(find.text('هدفي الشهري'), findsOneWidget);
+    ended = true;
+    await show(2);
+    expect(calls, 2, reason: 'reloaded with the card');
+    expect(find.text('هدفي الشهري'), findsNothing, reason: 'the session ended, its figures go');
+    expect(find.textContaining('تعذّر'), findsNothing);
+  });
+
+  testWidgets('it comes in on opening: faded in, filling, its percent counting up', (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    final settings = SettingsProvider();
+    await settings.loadSettings(fetchRemote: false);
+    await tester.pumpWidget(ChangeNotifierProvider.value(
+      value: settings,
+      child: MaterialApp(
+        theme: LightTheme.theme,
+        home: Scaffold(body: MyGoalCard(api: _Api(() async => [_goal(value: 800, reached: false)]), framed: false)),
+      ),
+    ));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 60));
+    final opacity = tester.widget<Opacity>(
+        find.ancestor(of: find.byKey(const Key('goal-line')), matching: find.byType(Opacity)).first);
+    expect(opacity.opacity, lessThan(1), reason: 'it fades in');
+    expect(find.text('80%'), findsNothing, reason: 'the percent counts up');
+    await tester.pumpAndSettle();
+    expect(find.text('80%'), findsOneWidget);
+  });
+
+  testWidgets('the card\'s period picks the goals: the week\'s in its week', (tester) async {
+    final weekly = _goal()..['period'] = 'weekly'..['period_label'] = 'الأسبوعي';
+    await _pump(tester, _Api(() async => [_goal(), weekly]), framed: false, periods: {'weekly'});
+    expect(find.text('هدفي الأسبوعي'), findsOneWidget);
+    expect(find.text('هدفي الشهري'), findsNothing);
+  });
+
+  const week = {'period_label': 'الأسبوعي', 'unit': 'نقطة', 'value': 800, 'target': 1129, 'progress': 0.71,
+                'reached': false, 'employees': 5, 'share_of': 'monthly'};
+
+  testWidgets('the week\'s team goal says it is the week\'s share of the month\'s, as a ring', (tester) async {
+    final weekly = _goal()..['period'] = 'weekly'..['period_label'] = 'الأسبوعي';
+    await _pump(tester, _Api(() async => [weekly]), framed: false, periods: {'weekly'},
+        alongside: TeamGoalTile(goal: week, format: (v) => '$v'));
+    expect(find.text('هدف الفريق الأسبوعي'), findsOneWidget);
+    expect(find.text('حصة الأسبوع من أهداف 5 موظفين'), findsOneWidget);
+  });
+
+  testWidgets('alone, as a line, it says how far the team is and drops the share line', (tester) async {
+    await _pump(tester, _Api(() async => []), framed: false, alongside: TeamGoalTile(goal: week, format: (v) => '$v'));
+    expect(find.byKey(const Key('goal-line')), findsOneWidget);
+    expect(find.text('ينقص الفريق 329 نقطة'), findsOneWidget);
+    expect(find.text('حصة الأسبوع من أهداف 5 موظفين'), findsNothing);
+  });
+
+  testWidgets('a goal alone, as a line, is no taller than a ring', (tester) async {
+    await _pump(tester, _Api(() async => [_goal()]), framed: false, size: const Size(900, 900));
+    final line = tester.getSize(find.byKey(const Key('goal-line'))).height;
+    expect(line, lessThanOrEqualTo(58), reason: 'the ring is 58 high');
+    expect(find.textContaining('المكافأة حتى الآن'), findsOneWidget);
+    expect(find.textContaining('ينقصك'), findsOneWidget, reason: 'beside it, on the same line');
   });
 }

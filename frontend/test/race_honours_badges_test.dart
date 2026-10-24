@@ -15,7 +15,8 @@ void main() {
     await _pump(tester, {'crowns': 3, 'goals_reached': 5});
     expect(find.descendant(of: find.byKey(const Key('race-crowns')), matching: find.text('3')), findsOneWidget);
     expect(find.descendant(of: find.byKey(const Key('race-goals')), matching: find.text('5')), findsOneWidget);
-    expect(find.byIcon(Icons.track_changes_rounded), findsOneWidget);
+    expect(find.descendant(of: find.byKey(const Key('race-goals')), matching: find.byType(CustomPaint)),
+        findsWidgets);
     expect(find.bySemanticsLabel('تصدّر السباق 3 أشهر'), findsOneWidget);
     expect(find.bySemanticsLabel('بلغ هدفه 5 مرات'), findsOneWidget);
   });
@@ -30,12 +31,16 @@ void main() {
   });
 
   for (final (name, theme) in [('light', LightTheme.theme), ('dark', DarkTheme.theme)]) {
-    testWidgets('plain, in one quiet colour, in the $name theme', (tester) async {
+    testWidgets('a crown and a target, plain, in one quiet colour with their numbers, in the $name theme',
+        (tester) async {
       await _pump(tester, {'crowns': 2, 'goals_reached': 4}, theme: theme);
       final quiet = theme.colorScheme.onSurfaceVariant;
       expect(tester.widget<Text>(find.text('2')).style?.color, quiet);
       expect(tester.widget<Text>(find.text('4')).style?.color, quiet);
-      expect(tester.widget<Icon>(find.byIcon(Icons.track_changes_rounded)).color, quiet);
+      final painters = tester.widgetList<CustomPaint>(find.byType(CustomPaint)).map((p) => p.painter);
+      expect(painters.whereType<RaceCrownPainter>().single.gold, quiet);
+      final target = painters.whereType<RaceTargetPainter>().single;
+      expect((target.rings, target.arrow), (quiet, quiet));
       expect(find.byType(DecoratedBox), findsNothing, reason: 'no fill behind them');
     });
   }

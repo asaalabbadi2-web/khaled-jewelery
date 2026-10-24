@@ -1,19 +1,17 @@
 import 'package:flutter/material.dart';
-import 'dart:ui' show ImageFilter;
 import 'package:intl/intl.dart' hide TextDirection;
 import 'package:provider/provider.dart';
 
 import '../api_service.dart';
 import '../providers/auth_provider.dart';
 import '../providers/sales_race_refresh_provider.dart';
-import '../widgets/user_avatar_widget.dart';
 import '../providers/settings_provider.dart';
 import '../theme/app_theme.dart';
 import '../utils/currency_utils.dart' as cu;
 import '../widgets/app_feedback.dart';
 import '../widgets/app_state_views.dart';
 import '../widgets/confirm_financial_action.dart';
-import '../widgets/race_honours_badges.dart';
+import '../widgets/race_rank_row.dart';
 import '../widgets/goal_ring_tile.dart';
 import '../widgets/app_bar_tab_bar.dart';
 
@@ -65,17 +63,6 @@ class _SalesRaceManagementScreenState extends State<SalesRaceManagementScreen> {
   // The colours are the theme's, as on the home screen's race (bonus study م3).
   ColorScheme get _cs => Theme.of(context).colorScheme;
   AppSemanticColors get _tones => AppSemanticColors.of(context);
-
-  /// A light sheen over a card: white in light mode, the text colour in dark.
-  Color get _sheen =>
-      Theme.of(context).brightness == Brightness.dark ? _cs.onSurface : _cs.surfaceContainerLowest;
-
-  /// The crown's light gold on its purple, in both modes.
-  Color get _crownGold =>
-      Theme.of(context).brightness == Brightness.dark ? _tones.gold.fg : _tones.gold.container;
-
-  SemanticTone _medal(int index) =>
-      switch (index) { 0 => _tones.gold, 1 => _tones.silver, _ => _tones.bronze };
 
   static String _typed(double v) => v == v.truncateToDouble() ? '${v.toInt()}' : '$v';
   bool _allowFallback = true;
@@ -399,9 +386,14 @@ class _SalesRaceManagementScreenState extends State<SalesRaceManagementScreen> {
               // the board shows.
               if (_data!['team_goal'] is Map) ...[
                 _card(
-                  child: TeamGoalTile(
-                    goal: _data!['team_goal'] as Map,
-                    format: (v) => cu.formatAmount(v, decimals: v == v.truncate() ? 0 : 1),
+                  // Alone here: a line, not a ring (the owner, 24 Oct 2026).
+                  child: GoalTileStyle(
+                    linear: true,
+                    boxed: false,
+                    child: TeamGoalTile(
+                      goal: _data!['team_goal'] as Map,
+                      format: (v) => cu.formatAmount(v, decimals: v == v.truncate() ? 0 : 1),
+                    ),
                   ),
                 ),
                 const SizedBox(height: 16),
@@ -690,13 +682,10 @@ class _SalesRaceManagementScreenState extends State<SalesRaceManagementScreen> {
     final metric = (data['metric'] ?? 'weight_g').toString();
     final champion = data['champion'] as Map?;
     final championName = (champion?['name'] ?? '').toString().trim();
-    final currency = context.read<SettingsProvider>().currencySymbolText;
     final showInvoiceCount = config?['show_invoice_count'] != false;
     final showAmounts = config?['amounts_visible'] as bool? ?? true;
-    final showShare = config?['share_visible'] as bool? ?? true;
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
-    final isDark = theme.brightness == Brightness.dark;
     final rankingRows = ranking.whereType<Map>().toList(growable: false);
 
     if (rankingRows.isEmpty) {
@@ -725,43 +714,6 @@ class _SalesRaceManagementScreenState extends State<SalesRaceManagementScreen> {
           ),
         ),
       );
-    }
-
-    String rankRoleLabel(int i) {
-      if (i == 0) return isAr ? 'المتصدر' : 'Leader';
-      if (i == 1) return isAr ? 'الثاني' : 'Second';
-      if (i == 2) return isAr ? 'الثالث' : 'Third';
-      return isAr ? 'مشارك' : 'Ranked';
-    }
-
-    String metricValueText(Map row) {
-      final score = (row['score'] as num?)?.toDouble() ?? 0.0;
-      final count = (row['count'] as num?)?.toInt() ?? 0;
-      if (metric == 'count') {
-        return count.toString();
-      }
-      if (metric == 'points') {
-        return cu.formatAmount(score, decimals: 0);
-      }
-      return cu.formatAmount(score, decimals: 1);
-    }
-
-    String metricUnitText() {
-      if (metric == 'count') return isAr ? 'فاتورة' : 'Invoices';
-      if (metric == 'points') return isAr ? 'نقطة' : 'Points';
-      return isAr ? 'جم' : 'g';
-    }
-
-    String invoiceSummaryText(int count) {
-      if (!showInvoiceCount) {
-        return metric == 'points'
-            ? (isAr ? 'حركة مبيعات ومشتريات' : 'Sales and purchases activity')
-            : (isAr ? 'حركة بيع' : 'Sales activity');
-      }
-      final invoiceLabelEn = count == 1 ? 'invoice' : 'invoices';
-      return metric == 'points'
-          ? (isAr ? '$count حركة' : '$count transactions')
-          : (isAr ? '$count فاتورة بيع' : '$count sales $invoiceLabelEn');
     }
 
     return _card(
@@ -869,413 +821,22 @@ class _SalesRaceManagementScreenState extends State<SalesRaceManagementScreen> {
             ),
           ],
           const SizedBox(height: 16),
-          ...List.generate(rankingRows.length, (i) {
-            final row = rankingRows[i];
-            final name = (row['name'] ?? '').toString();
-            final photo = row['photo'] as String?;
-            final share = (row['share'] as num?)?.toDouble() ?? 0.0;
-            final salesAmount =
-                (row['sales_amount'] as num?)?.toDouble() ?? 0.0;
-            final purchaseAmount =
-              (row['purchase_amount'] as num?)?.toDouble() ?? 0.0;
-            final isLeader = i == 0;
-            final Color valueColor = isLeader
-                ? colorScheme.primary
-                : colorScheme.secondary;
-            final Color progressColor = switch (i) {
-              1 => _tones.silver.fg,
-              2 => _tones.bronze.fg,
-              _ => valueColor,
-            };
-            final medalAccent = switch (i) {
-              0 => _tones.gold.fg,
-              1 => _tones.silver.fg,
-              2 => _tones.bronze.fg,
-              _ => valueColor,
-            };
-            final isTopThree = i < 3;
-            final glassBaseColor = isDark
-                ? colorScheme.surfaceContainerHigh.withValues(
-                    alpha: isTopThree ? 0.48 : 0.62,
-                  )
-                : _sheen.withValues(alpha: isTopThree ? 0.72 : 0.92);
-            final glassTintColor = isDark
-                ? medalAccent.withValues(alpha: isTopThree ? 0.08 : 0.03)
-                : medalAccent.withValues(alpha: isTopThree ? 0.06 : 0.02);
-            final roleBadgeColor = i == 0
-                ? _tones.gold.fg
-                : colorScheme.onSurface.withValues(alpha: 0.62);
-
-            return Padding(
-              padding: const EdgeInsets.only(bottom: 12),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(18),
-                child: BackdropFilter(
-                  filter: ImageFilter.blur(
-                    sigmaX: isTopThree ? 6 : 4,
-                    sigmaY: isTopThree ? 6 : 4,
-                  ),
-                  child: Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 14,
-                  vertical: 12,
-                ),
-                decoration: BoxDecoration(
-                  color: glassBaseColor,
-                  gradient: LinearGradient(
-                    begin: AlignmentDirectional.topStart,
-                    end: AlignmentDirectional.bottomEnd,
-                    colors: [
-                      _sheen.withValues(alpha: isDark ? 0.09 : 0.24),
-                      glassBaseColor,
-                      glassTintColor,
-                    ],
-                  ),
-                  borderRadius: BorderRadius.circular(18),
-                  border: Border.all(
-                    color: isTopThree
-                        ? _sheen.withValues(alpha: isDark ? 0.20 : 0.62)
-                        : colorScheme.onSurface.withValues(alpha: 0.08),
-                  ),
-                  boxShadow: isTopThree
-                      ? [
-                          BoxShadow(
-                            color: medalAccent.withValues(
-                              alpha: isDark ? 0.12 : (i == 0 ? 0.12 : 0.08),
-                            ),
-                            blurRadius: i == 0 ? 16 : 10,
-                            offset: Offset(0, i == 0 ? 6 : 3),
-                          ),
-                        ]
-                      : null,
-                ),
-                foregroundDecoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(18),
-                  gradient: LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: [
-                      _sheen.withValues(alpha: isDark ? 0.08 : 0.22),
-                      _sheen.withValues(alpha: 0),
-                      _cs.shadow.withValues(alpha: isDark ? 0.04 : 0),
-                    ],
-                  ),
-                ),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.center,
-                  children: [
-                    _buildRoyalRankBadge(i, medalAccent),
-                    const SizedBox(width: 8),
-                    EmployeeAvatarWidget(
-                      name: name,
-                      photoBase64: photo,
-                      radius: 21,
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  name,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: theme.textTheme.bodyMedium?.copyWith(
-                                    fontWeight: FontWeight.w700,
-                                    color: colorScheme.onSurface,
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 9,
-                                  vertical: 4,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: roleBadgeColor.withValues(alpha: 0.08),
-                                  borderRadius: BorderRadius.circular(999),
-                                ),
-                                child: Text(
-                                  rankRoleLabel(i),
-                                  style: theme.textTheme.labelSmall?.copyWith(
-                                    color: roleBadgeColor,
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(width: 6),
-                              RaceHonoursBadges.of(row),
-                            ],
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            invoiceSummaryText(
-                              (row['count'] as num?)?.toInt() ?? 0,
-                            ),
-                            style: theme.textTheme.bodySmall?.copyWith(
-                              color: colorScheme.onSurface.withValues(
-                                alpha: 0.58,
-                              ),
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                          if (showAmounts) ...[
-                          const SizedBox(height: 3),
-                          Text(
-                            isAr
-                                ? (purchaseAmount > 0
-                                      ? 'مبيعات ${cu.formatAmount(salesAmount)} $currency • مشتريات ${cu.formatAmount(purchaseAmount)} $currency'
-                                      : '${cu.formatAmount(salesAmount)} $currency مبيعات')
-                                : (purchaseAmount > 0
-                                      ? 'Sales ${cu.formatAmount(salesAmount)} $currency • Purchases ${cu.formatAmount(purchaseAmount)} $currency'
-                                      : '${cu.formatAmount(salesAmount)} $currency sales'),
-                            style: theme.textTheme.bodySmall?.copyWith(
-                              color: _tones.gold.fg,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                          ],
-                          if (showShare) ...[
-                          const SizedBox(height: 6),
-                          ClipRRect(
-                            borderRadius: BorderRadius.circular(999),
-                            child: Container(
-                              height: 9,
-                              color: colorScheme.onSurface.withValues(
-                                alpha: 0.07,
-                              ),
-                              child: TweenAnimationBuilder<double>(
-                                tween: Tween<double>(
-                                  begin: 0,
-                                  end: share.clamp(0.0, 1.0),
-                                ),
-                                duration: Duration(
-                                  milliseconds: 650 + (i * 120),
-                                ),
-                                curve: Curves.easeOutCubic,
-                                builder: (context, value, child) {
-                                  return Stack(
-                                    children: [
-                                      FractionallySizedBox(
-                                        alignment:
-                                            AlignmentDirectional.centerStart,
-                                        widthFactor: value,
-                                        child: Container(
-                                          decoration: BoxDecoration(
-                                            gradient: LinearGradient(
-                                              begin: AlignmentDirectional
-                                                  .centerStart,
-                                              end: AlignmentDirectional
-                                                  .centerEnd,
-                                              colors: [
-                                                progressColor.withValues(
-                                                  alpha: 0.72,
-                                                ),
-                                                medalAccent,
-                                              ],
-                                            ),
-                                            boxShadow: [
-                                              BoxShadow(
-                                                color: medalAccent.withValues(
-                                                  alpha: 0.18,
-                                                ),
-                                                blurRadius: 8,
-                                                offset: const Offset(0, 2),
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                      ),
-                                    ],
-                                  );
-                                },
-                              ),
-                            ),
-                          ),
-                          ],
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    ConstrainedBox(
-                      constraints: const BoxConstraints(minWidth: 72),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.end,
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 13,
-                              vertical: 10,
-                            ),
-                            decoration: BoxDecoration(
-                              color: i == 0
-                                  ? _cs.primary.withValues(
-                                      alpha: 0.14,
-                                    )
-                                  : valueColor.withValues(alpha: 0.08),
-                              borderRadius: BorderRadius.circular(14),
-                              border: Border.all(
-                                color: i == 0
-                                    ? _cs.primary.withValues(
-                                        alpha: 0.28,
-                                      )
-                                    : valueColor.withValues(alpha: 0.14),
-                              ),
-                            ),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.end,
-                              children: [
-                                Text(
-                                  metricValueText(row),
-                                  style: theme.textTheme.titleLarge?.copyWith(
-                                    color: medalAccent,
-                                    fontWeight: FontWeight.w800,
-                                    fontSize: i == 0 ? 23 : null,
-                                  ),
-                                ),
-                                const SizedBox(height: 1),
-                                Text(
-                                  metricUnitText(),
-                                  style: theme.textTheme.labelSmall?.copyWith(
-                                    color: colorScheme.onSurface.withValues(
-                                      alpha: 0.46,
-                                    ),
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-                  ),
-                ),
-              ),
-            );
-          }),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildRoyalRankBadge(int index, Color medalAccent) {
-    return SizedBox(
-      width: 50,
-      height: index == 0 ? 60 : 50,
-      child: Stack(
-        clipBehavior: Clip.none,
-        alignment: Alignment.center,
-        children: [
-          Positioned(
-            bottom: 0,
-            left: 0,
-            right: 0,
-            child: Container(
-              width: 50,
-              height: 50,
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: switch (index) {
-                    < 3 => [
-                        _medal(index).fg,
-                        Color.lerp(_medal(index).fg, _medal(index).onContainer, 0.5)!,
-                      ],
-                    _ => [
-                        medalAccent.withValues(alpha: 0.22),
-                        medalAccent.withValues(alpha: 0.10),
-                      ],
-                  },
-                ),
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(
-                  color: index < 3
-                      ? _sheen.withValues(alpha: 0.55)
-                      : medalAccent.withValues(alpha: 0.20),
-                ),
-              ),
-              child: Center(
-                child: Text(
-                  '${index + 1}',
-                  style: TextStyle(
-                    fontFamily: 'Cairo',
-                    fontWeight: FontWeight.w900,
-                    fontSize: Theme.of(context).textTheme.titleLarge?.fontSize,
-                    color: index < 3 ? _cs.onPrimary : medalAccent,
-                  ),
-                ),
-              ),
-            ),
-          ),
-          if (index == 0)
-            Positioned(
-              top: 0,
-              left: 0,
-              right: 0,
-              child: Center(
-                child: Container(
-                  width: 22,
-                  height: 22,
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: AlignmentDirectional.topStart,
-                      end: AlignmentDirectional.bottomEnd,
-                      colors: [
-                        _tones.sectionPurple.fg,
-                        Color.lerp(_tones.sectionPurple.fg, _cs.shadow, 0.35)!,
-                      ],
-                    ),
-                    shape: BoxShape.circle,
-                    border: Border.all(
-                      color: _crownGold.withValues(alpha: 0.85),
-                      width: 1,
-                    ),
-                    boxShadow: [
-                      BoxShadow(
-                        color: _tones.sectionPurple.fg.withValues(alpha: 0.35),
-                        blurRadius: 4,
-                        offset: const Offset(0, 1),
-                      ),
-                    ],
-                  ),
-                  child: Stack(
-                    alignment: Alignment.center,
-                    children: [
-                      Icon(
-                        Icons.workspace_premium_rounded,
-                        size: 13,
-                        color: _crownGold,
-                      ),
-                      Positioned(
-                        top: 4,
-                        child: Container(
-                          width: 3,
-                          height: 3,
-                          decoration: BoxDecoration(
-                            color: _crownGold,
-                            shape: BoxShape.circle,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
+          // One row of the race, as the home card draws it (bonus study م3).
+          for (final (i, row) in rankingRows.indexed)
+            RaceRankRow(
+              row: row,
+              index: i,
+              metric: metric,
+              isAr: isAr,
+              showInvoiceCount: showInvoiceCount,
+              showAmounts: showAmounts,
+              showPoints: config?['points_visible'] as bool? ?? true,
             ),
         ],
       ),
     );
   }
+
 
   Widget _buildErrorCard(bool isAr) {
     return _card(
@@ -1411,7 +972,8 @@ class _SalesRaceManagementScreenState extends State<SalesRaceManagementScreen> {
           // monthly goals summed (bonus study م3ح).
           _buildNoticeCard(
             icon: Icons.flag_outlined,
-            message: 'هدف الفريق الشهري مجموع أهداف الموظفين الشهرية، يُضبط من هدف كل موظف.',
+            message: 'هدف الفريق الشهري مجموع أهداف الموظفين الشهرية، يُضبط من هدف كل موظف؛ '
+                'والأسبوعي حصة الأسبوع منه.',
           ),
           const SizedBox(height: 20),
           _buildSectionHeader(

@@ -1449,12 +1449,7 @@ def get_home_leaderboard():
             _lb_user = _gcv()
         except Exception:
             _lb_user = None
-    _can_view_admin = bool(getattr(_lb_user, 'is_admin', False))
-    if not _can_view_admin and _lb_user is not None:
-        try:
-            _can_view_admin = bool(_lb_user.has_permission('reports.financial'))
-        except Exception:
-            _can_view_admin = False
+    from services.race_visibility import race_visibility
 
     # ── Visibility flags ──────────────────────────────────────────────────────
     _enabled_periods = sales_race_config.get('enabled_periods') or ['today', 'week', 'month']
@@ -1473,19 +1468,13 @@ def get_home_leaderboard():
     if period not in _enabled_periods:
         period = default_period
 
-    # Resolve visibility per-period first, fall back to flat global settings.
-    _period_vis = (sales_race_config.get('period_visibility') or {}).get(period, {})
-
-    def _resolve_vis(key: str) -> bool:
-        per_period = _period_vis.get(key)
-        if per_period:
-            return per_period == 'all'
-        return sales_race_config.get(f'{key}_visibility', 'all') == 'all'
-
-    can_view_amounts      = _can_view_admin or _resolve_vis('amounts')
-    can_view_points       = _can_view_admin or _resolve_vis('points')
-    can_view_share        = _can_view_admin or _resolve_vis('share')
-    can_view_team_summary = _can_view_admin or _resolve_vis('team_summary')
+    # Who sees what: one reading for the race and «هدفي» (bonus study م3ي).
+    _vis = race_visibility(_lb_user, period, sales_race_config)
+    _can_view_admin = _vis['admin']
+    can_view_amounts = _vis['amounts']
+    can_view_points = _vis['points']
+    can_view_share = _vis['share']
+    can_view_team_summary = _vis['team_summary']
 
     try:
         points_per_gram = max(0.0, float(sales_race_config.get('points_per_gram') or 10.0))
@@ -1708,8 +1697,20 @@ def get_home_leaderboard():
     # The team's monthly goal: its employees' monthly goals summed, by the one
     # measure (bonus study م3ح) -- whatever period the race shows. It was a
     # weight in the settings turned into points by the points per gram.
-    from services.goal_achievements import team_goal as _team_goal
-    team_goal = _team_goal(date.today())
+    # Shown in the month's view alone (the owner: the employee opens the month
+    # to see where they are), to whom the team summary is shown.
+    # The week's: the settings' weekly target in grams (the owner: «الهدف
+    # الأسبوعي للفريق من الإعدادات»). None in the day's view.
+    from services.goal_achievements import team_goal as _team_goal, team_week_goal as _team_week_goal
+    # Everyone sees it (the owner: «الجميع دائمًا») -- a goal in points or
+    # grams, not the team summary's money; hidden only where its points are.
+    team_goal = None
+    if period == 'month':
+        team_goal = _team_goal(date.today())
+    elif period == 'week':
+        team_goal = _team_week_goal(date.today())
+    if team_goal is not None and team_goal['metric'] == 'points' and not can_view_points:
+        team_goal = None
 
     payload = {
         'period': period,
