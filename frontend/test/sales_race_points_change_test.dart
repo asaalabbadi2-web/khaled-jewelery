@@ -46,7 +46,8 @@ class _Api extends ApiService {
         'ranking': [
           for (final (i, name) in ['مسعد المهري', 'يوسف الشعبي', 'صالح العبادي', 'خالد الحربي'].indexed)
             {'name': name, 'score': 1200.0 - i * 200, 'share': 0.4 - i * 0.1, 'count': 10 - i,
-             'sales_amount': 40000.0 - i * 5000, 'purchase_amount': 5000.0},
+             'sales_amount': 40000.0 - i * 5000, 'purchase_amount': 5000.0,
+             'crowns': i == 0 ? 7 : 0, 'goals_reached': i == 0 ? 5 : (i == 1 ? 2 : 0)},
         ],
       };
 
@@ -136,6 +137,8 @@ void main() {
   testWidgets('the race board and its settings read in the dark theme, ranks in the medal tones', (tester) async {
     await _pump(tester, theme: DarkTheme.theme, settingsTab: false);
     expect(find.text('1,200'), findsWidgets, reason: 'points in the one number format');
+    expect(find.bySemanticsLabel('تصدّر السباق 7 أشهر'), findsOneWidget);
+    expect(find.bySemanticsLabel('بلغ هدفه 2 مرات'), findsOneWidget);
     expectNoTextVanishesOnDark(tester);
     expectNoLightSurfaceOnDark(tester);
     await tester.tap(find.text('الإعدادات'));

@@ -5238,6 +5238,34 @@ class BonusInvoiceLink(db.Model):
     invoice_id = db.Column(db.Integer, db.ForeignKey('invoice.id'), nullable=False)
 
 
+class RaceHonour(db.Model):
+    """A closed period that an employee led the race, or in which they reached
+    their goal (bonus study م3هـ). Kept once when the period closes: a later
+    change of the race's settings, or of an invoice, does not rewrite who led.
+
+    kind 'leader': a month (the owner: «الأشهر دائمًا»), by points; a tie at
+    the top crowns each. kind 'goal': a period of the employee's own goal
+    (daily, weekly or monthly) whose value reached its target, by the one
+    measure that pays it (ADR-058).
+    """
+
+    __tablename__ = 'race_honour'
+    __table_args__ = (
+        db.UniqueConstraint('employee_id', 'kind', 'period', 'period_start', name='uq_race_honour_once'),
+        db.CheckConstraint("kind IN ('leader', 'goal')", name='ck_race_honour_kind'),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    employee_id = db.Column(db.Integer, db.ForeignKey('employee.id'), nullable=False, index=True)
+    kind = db.Column(db.String(10), nullable=False)
+    period = db.Column(db.String(10), nullable=False)
+    period_start = db.Column(db.Date, nullable=False)
+    period_end = db.Column(db.Date, nullable=False)
+    value = db.Column(db.Float, nullable=False)
+    target = db.Column(db.Float, nullable=True)
+    recorded_at = db.Column(db.DateTime, nullable=False)
+
+
 class GoalAchievement(db.Model):
     """سجل الإنجازات التي يحققها الموظف عند تجاوز أهداف المبيعات/النقاط.
     

@@ -86,6 +86,7 @@ import 'accounting_mapping_screen_enhanced.dart';
 import 'backup_restore_screen.dart';
 import 'weight_closing_settings_screen.dart';
 import 'supplier_settlement_policy_screen.dart';
+import '../widgets/race_honours_badges.dart';
 
 class HomeScreenEnhanced extends StatefulWidget {
   final VoidCallback? onToggleLocale;
@@ -3117,6 +3118,8 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
                               ),
                             ),
                           ),
+                          const SizedBox(width: 5),
+                          RaceHonoursBadges.of(row),
                         ],
                       ),
                       const SizedBox(height: 5),

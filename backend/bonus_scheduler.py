@@ -97,6 +97,15 @@ class BonusScheduler:
             except Exception as e:
                 db.session.rollback()
                 print(f'[BonusScheduler] ❌ خطأ في تسجيل الأهداف: {e}')
+            # The race card's crowns and targets: the periods just closed, kept
+            # once (bonus study م3هـ).
+            from services import race_honours
+            try:
+                race_honours.record_closed(today, datetime.utcnow())
+                db.session.commit()
+            except Exception as e:
+                db.session.rollback()
+                print(f'[BonusScheduler] ❌ خطأ في تسجيل الصدارة والأهداف: {e}')
 
     def calculate_weekly_bonuses(self):
         """حساب المكافآت الأسبوعية."""

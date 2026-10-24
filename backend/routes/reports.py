@@ -1687,6 +1687,13 @@ def get_home_leaderboard():
             continue
         ranking.append(row_entry)
 
+    # The months each led and the goal periods each reached, as kept when
+    # their periods closed (bonus study م3هـ).
+    from services.race_honours import honours_of
+    _honours = honours_of([r['id'] for r in ranking if int(r['id'] or 0) > 0])
+    for r in ranking:
+        r.update(_honours.get(r['id'], {'crowns': 0, 'goals_reached': 0}))
+
     # Recompute after visibility filtering so total always = sum of displayed cards.
     _display_total_points = sum(max(0, int(r.get('score', 0) or 0)) for r in ranking)
 

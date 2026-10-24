@@ -13,6 +13,7 @@ import '../utils/currency_utils.dart' as cu;
 import '../widgets/app_feedback.dart';
 import '../widgets/app_state_views.dart';
 import '../widgets/confirm_financial_action.dart';
+import '../widgets/race_honours_badges.dart';
 import '../widgets/app_bar_tab_bar.dart';
 
 /// نظام إدارة سباق المبيعات المتكامل.
@@ -1281,6 +1282,8 @@ class _SalesRaceManagementScreenState extends State<SalesRaceManagementScreen> {
                                   ),
                                 ),
                               ),
+                              const SizedBox(width: 6),
+                              RaceHonoursBadges.of(row),
                             ],
                           ),
                           const SizedBox(height: 4),
