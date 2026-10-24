@@ -1411,7 +1411,7 @@ def pay_bonus(bonus_id):
     Body Parameters:
         - safe_box_id: معرف الخزينة (مفضل)
         - office_id: معرف الخزينة (قديم - للتوافق فقط)
-        - payment_method: طريقة الدفع ('cash', 'transfer', 'add_to_payroll')
+        - payment_method: طريقة الدفع ('cash', 'transfer'); 'add_to_payroll' مرفوضة (م4)
         - paid_date: تاريخ الدفع (اختياري)
         - created_by: اسم المستخدم (اختياري)
     """
@@ -1435,24 +1435,14 @@ def pay_bonus(bonus_id):
         if not employee:
             return jsonify({'success': False, 'message': 'الموظف غير موجود'}), 404
         
-        # إذا كان الدفع عن طريق إضافة للراتب، نسجل فقط ولا ننشئ سند
+        # «Add to payroll» marked a bonus paid with no entry -- the books went on
+        # owing it -- and no screen offered it, nor was it ever used. Removed
+        # (the owner, 24 Oct 2026; bonus study م4): a bonus is paid from a safe.
         if payment_method == 'add_to_payroll':
-            # تحقق مزدوج من الحالة (يمنع double-pay عبر add_to_payroll)
-            if bonus.status == 'paid':
-                return jsonify({
-                    'success': False,
-                    'message': 'المكافأة مدفوعة مسبقاً'
-                }), 409
-            bonus.mark_as_paid('سيتم الدفع مع الراتب', paid_by=created_by)
-            bonus.notes = f"{bonus.notes or ''}\nسيتم إضافة المكافأة لراتب الشهر القادم"
-            db.session.commit()
-            
-            return jsonify({
-                'success': True,
-                'message': 'تم تسجيل المكافأة لإضافتها للراتب',
-                'bonus': bonus.to_dict(include_employee=True, include_rule=True)
-            }), 200
-        
+            return jsonify({'success': False, 'error': 'payroll_payment_removed',
+                            'message': 'الصرف مع الراتب غير متاح: اصرف المكافأة من خزينة نقد أو بنك، '
+                                       'فيُسجَّل قيد صرفها.'}), 400
+
         # التحقق من الخزينة (SafeBox مفضل) مع الحفاظ على office_id للتوافق
         safe_box_id = data.get('safe_box_id')
         office_id = data.get('office_id')

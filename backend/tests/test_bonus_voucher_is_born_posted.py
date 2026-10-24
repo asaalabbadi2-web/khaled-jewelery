@@ -85,10 +85,13 @@ def test_the_payment_voucher_is_born_posted(auth_headers, auto_post_off, vworld)
     bonus_id = _bonus('approved')
     safe = SafeBox.query.filter_by(account_id=vworld['cash']).one()
     resp = flask_app.test_client().post(f'/api/bonuses/{bonus_id}/pay', headers=auth_headers,
-                                        json={'safe_box_id': safe.id, 'payment_method': 'cash'})
+                                        json={'safe_box_id': safe.id, 'payment_method': 'cash',
+                                              'created_by': 'مزيّف'})
     assert resp.status_code == 200, resp.get_data(as_text=True)[:300]
     v = Voucher.query.filter_by(reference_type='bonus', reference_id=bonus_id, voucher_type='payment').one()
     _born_posted(v.voucher_number)
+    # Who paid is the signed-in user, never the body's (bonus study ث8).
+    assert db.session.get(EmployeeBonus, bonus_id).paid_by == 'admin'
 
 
 def test_no_entry_fails_the_whole_approval(auto_post_off, monkeypatch):

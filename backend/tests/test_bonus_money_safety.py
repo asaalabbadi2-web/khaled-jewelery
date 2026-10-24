@@ -134,14 +134,24 @@ def test_who_rejected_and_who_paid_is_the_signed_in_user(auth_headers):
     assert resp.status_code == 200, resp.get_data(as_text=True)[:300]
     assert db.session.get(EmployeeBonus, bonus.id).rejected_by == 'admin'
 
-    other = EmployeeBonus(employee_id=emp.id, bonus_rule_id=rule.id, bonus_type='fixed', amount=10.0,
+    # Who paid is witnessed on a real payment from a safe, in
+    # test_bonus_voucher_is_born_posted (bonus study م4).
+
+
+def test_a_bonus_is_not_marked_paid_with_the_payroll_and_no_entry(auth_headers):
+    """«Add to payroll» marked a bonus paid with no entry -- the books went
+    on owing it; it was never used and no screen offered it. Removed (the
+    owner, 24 Oct 2026; bonus study م4)."""
+    emp, rule = _employee(), _rule('month')
+    bonus = EmployeeBonus(employee_id=emp.id, bonus_rule_id=rule.id, bonus_type='fixed', amount=10.0,
                           status='approved', period_start=date(2031, 6, 1), period_end=date(2031, 6, 30))
-    db.session.add(other)
+    db.session.add(bonus)
     db.session.flush()
-    resp = _post(f'/api/bonuses/{other.id}/pay', auth_headers,
-                 {'payment_method': 'add_to_payroll', 'created_by': 'مزيّف'})
-    assert resp.status_code == 200, resp.get_data(as_text=True)[:300]
-    assert db.session.get(EmployeeBonus, other.id).paid_by == 'admin'
+    resp = _post(f'/api/bonuses/{bonus.id}/pay', auth_headers, {'payment_method': 'add_to_payroll'})
+    assert resp.status_code == 400, resp.get_data(as_text=True)[:300]
+    assert resp.get_json()['error'] == 'payroll_payment_removed'
+    db.session.refresh(bonus)
+    assert (bonus.status, bonus.paid_at) == ('approved', None)
 
 
 # ── ث10: what cannot be computed is not offered ─────────────────────────
