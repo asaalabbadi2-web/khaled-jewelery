@@ -1,16 +1,22 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:provider/provider.dart';
 
 import '../api_service.dart';
 import '../models/bonus_rule_model.dart';
 import '../models/employee_model.dart';
 import '../models/invoice_type_model.dart';
-import 'package:provider/provider.dart';
 import '../providers/settings_provider.dart';
+import '../theme/app_theme.dart';
+import '../utils/currency_utils.dart' as cu;
 import '../widgets/app_feedback.dart';
+import '../widgets/app_state_views.dart';
+import '../widgets/confirm_financial_action.dart';
 import '../widgets/tiered_rule_editor.dart';
 
+/// Bonus rules (bonus study م3ج): each rule said as the calculator reads it --
+/// its measure or payout, its employees by name, its floor and cap, its
+/// validity -- and the form offers only what the calculator reads.
 class BonusRulesScreen extends StatefulWidget {
   final ApiService api;
   final bool isArabic;
@@ -30,7 +36,10 @@ class BonusRulesScreen extends StatefulWidget {
 class _BonusRulesScreenState extends State<BonusRulesScreen> {
   List<BonusRuleModel> _rules = [];
   bool _loading = false;
+  Object? _error;
   bool? _activeFilter;
+
+  static final _day = DateFormat('yyyy-MM-dd');
 
   @override
   void initState() {
@@ -39,27 +48,21 @@ class _BonusRulesScreenState extends State<BonusRulesScreen> {
   }
 
   Future<void> _loadRules() async {
-    setState(() => _loading = true);
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
     try {
       final data = await widget.api.getBonusRules(isActive: _activeFilter);
       if (!mounted) return;
-      final rules = data
-          .map((json) => BonusRuleModel.fromJson(json as Map<String, dynamic>))
-          .toList();
-      setState(() => _rules = rules);
+      setState(() => _rules = [
+            for (final json in data)
+              BonusRuleModel.fromJson(json as Map<String, dynamic>),
+          ]);
     } catch (e) {
-      if (mounted) _showSnack(e.toString(), isError: true);
+      if (mounted) setState(() => _error = e);
     } finally {
       if (mounted) setState(() => _loading = false);
-    }
-  }
-
-  void _showSnack(String message, {bool isError = false}) {
-    if (!mounted) return;
-    if (isError) {
-      AppFeedback.error(context, message);
-    } else {
-      AppFeedback.success(context, message);
     }
   }
 
@@ -71,67 +74,80 @@ class _BonusRulesScreenState extends State<BonusRulesScreen> {
         isArabic: widget.isArabic,
         rule: rule,
         onSaved: () {
-          _loadRules();
           Navigator.of(ctx).pop();
+          AppFeedback.success(context, rule == null ? 'أُضيفت القاعدة' : 'حُفظت القاعدة');
+          _loadRules();
         },
       ),
     );
   }
 
-  Future<void> _deleteRule(BonusRuleModel rule) async {
-    final isAr = widget.isArabic;
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text(isAr ? 'تأكيد الحذف' : 'Confirm Delete'),
-        content: Text(
-          isAr
-              ? 'هل أنت متأكد من حذف قاعدة "${rule.name}"؟'
-              : 'Are you sure you want to delete rule "${rule.name}"?',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: Text(isAr ? 'إلغاء' : 'Cancel'),
-          ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-            onPressed: () => Navigator.pop(ctx, true),
-            child: Text(isAr ? 'حذف' : 'Delete'),
-          ),
-        ],
-      ),
-    );
+  /// Stopping a rule keeps it and its bonuses; it computes nothing more.
+  Future<void> _toggle(BonusRuleModel rule) async {
+    if (rule.id == null) return;
+    try {
+      await widget.api.updateBonusRule(rule.id!, {'is_active': !rule.isActive});
+      if (!mounted) return;
+      AppFeedback.success(context,
+          rule.isActive ? 'أُوقفت «${rule.name}»: لا تُحسب بها مكافأة بعد اليوم' : 'فُعّلت «${rule.name}»');
+      _loadRules();
+    } catch (e) {
+      if (mounted) AppFeedback.error(context, e, title: 'لم يتغيّر');
+    }
+  }
 
-    if (confirm == true && rule.id != null) {
-      try {
-        await widget.api.deleteBonusRule(rule.id!);
-        if (!mounted) return;
-        _showSnack(isAr ? 'تم الحذف بنجاح' : 'Deleted successfully');
-        _loadRules();
-      } catch (e) {
-        if (mounted) _showSnack(e.toString(), isError: true);
+  Future<void> _deleteRule(BonusRuleModel rule) async {
+    if (rule.id == null) return;
+    final go = await confirmFinancialAction(
+      context,
+      title: 'حذف «${rule.name}»',
+      effect: 'تُحذف القاعدة نهائيًّا. وما كانت له مكافآت أو كان هدف موظف لا يُحذف: '
+          'يُوقَف بدلًا من ذلك، فتبقى مكافآته وتاريخه.',
+      confirmLabel: 'حذف',
+    );
+    if (go == null || !mounted) return;
+    try {
+      await widget.api.deleteBonusRule(rule.id!);
+      if (!mounted) return;
+      AppFeedback.success(context, 'حُذفت «${rule.name}»');
+      _loadRules();
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      if (e.code == 'rule_in_use') {
+        AppFeedback.warning(context, e.message,
+            action: rule.isActive ? (label: 'أوقفها', onPressed: () => _toggle(rule)) : null);
+      } else {
+        AppFeedback.error(context, e, title: 'لم تُحذف');
       }
+    } catch (e) {
+      if (mounted) AppFeedback.error(context, e, title: 'لم تُحذف');
     }
   }
 
   @override
   Widget build(BuildContext context) {
     final isAr = widget.isArabic;
-    final content = _loading
-        ? const Center(child: CircularProgressIndicator())
-        : _rules.isEmpty
-        ? Center(
-            child: Text(
-              isAr ? 'لا توجد قواعد مكافآت' : 'No bonus rules',
-              style: const TextStyle(fontSize: 18, color: Colors.grey),
-            ),
-          )
-        : ListView.builder(
-            padding: const EdgeInsets.all(16),
-            itemCount: _rules.length,
-            itemBuilder: (ctx, i) => _buildRuleCard(_rules[i]),
-          );
+    final Widget content;
+    if (_loading) {
+      content = const AppLoadingView(summaryBlocks: 0, rows: 4);
+    } else if (_error != null) {
+      content = AppErrorView(title: 'تعذّر تحميل القواعد', error: _error!, onRetry: _loadRules);
+    } else if (_rules.isEmpty) {
+      content = AppEmptyView(
+        title: _activeFilter == null ? 'لا قواعد مكافآت' : 'لا قواعد بهذا الفلتر',
+        hint: 'القاعدة تقول ما يُقاس، وفترته، وما يُصرف عليه.',
+        icon: Icons.rule_rounded,
+        actionLabel: 'إضافة قاعدة',
+        actionIcon: Icons.add,
+        onAction: () => _showRuleDialog(),
+      );
+    } else {
+      content = ListView.builder(
+        padding: const EdgeInsets.fromLTRB(AppSpace.lg, AppSpace.lg, AppSpace.lg, 96),
+        itemCount: _rules.length,
+        itemBuilder: (ctx, i) => _buildRuleCard(_rules[i]),
+      );
+    }
 
     final body = widget.embedded
         ? Column(
@@ -162,37 +178,35 @@ class _BonusRulesScreenState extends State<BonusRulesScreen> {
 
   List<Widget> _buildAppBarActions(bool isAr) {
     return [
-      IconButton(icon: const Icon(Icons.refresh), onPressed: _loadRules),
+      IconButton(
+        icon: const Icon(Icons.refresh),
+        tooltip: 'تحديث',
+        onPressed: _loading ? null : _loadRules,
+      ),
       PopupMenuButton<bool?>(
         icon: const Icon(Icons.filter_list),
+        tooltip: 'الحالة',
         onSelected: (value) {
           setState(() => _activeFilter = value);
           _loadRules();
         },
         itemBuilder: (ctx) => [
           PopupMenuItem(value: null, child: Text(isAr ? 'الكل' : 'All')),
-          PopupMenuItem(
-            value: true,
-            child: Text(isAr ? 'نشطة فقط' : 'Active Only'),
-          ),
-          PopupMenuItem(
-            value: false,
-            child: Text(isAr ? 'غير نشطة فقط' : 'Inactive Only'),
-          ),
+          PopupMenuItem(value: true, child: Text(isAr ? 'نشطة فقط' : 'Active Only')),
+          PopupMenuItem(value: false, child: Text(isAr ? 'موقوفة فقط' : 'Stopped Only')),
         ],
       ),
     ];
   }
 
   Widget _buildEmbeddedHeader(bool isAr) {
-    if (!widget.embedded) return const SizedBox.shrink();
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
       child: Row(
         children: [
           Text(
             isAr ? 'قواعد المكافآت' : 'Bonus Rules',
-            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
           ),
           const Spacer(),
           ..._buildAppBarActions(isAr),
@@ -201,183 +215,133 @@ class _BonusRulesScreenState extends State<BonusRulesScreen> {
     );
   }
 
-  Widget _buildRuleCard(BonusRuleModel rule) {
-    final isAr = widget.isArabic;
-    final dateFormat = DateFormat('yyyy-MM-dd');
+  String _money(num v) => '${cu.formatAmount(v)} ${context.read<SettingsProvider>().currencySymbolText}';
 
-    return Card(
-      margin: const EdgeInsets.only(bottom: 12),
-      elevation: 2,
-      child: ExpansionTile(
-        leading: Icon(
-          rule.isActive ? Icons.check_circle : Icons.cancel,
-          color: rule.isActive ? Colors.green : Colors.grey,
-        ),
-        title: Text(
-          rule.name,
-          style: const TextStyle(fontWeight: FontWeight.bold),
-        ),
-        subtitle: Text(rule.summaryAr),
-        children: [
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                if (rule.description != null) ...[
-                  Text(
-                    isAr ? 'الوصف:' : 'Description:',
-                    style: const TextStyle(fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(rule.description!),
-                  const SizedBox(height: 12),
-                ],
-                if (rule.ruleType != 'tiered')
-                  _buildInfoRow(
-                    isAr ? 'القيمة:' : 'Value:',
-                    '${rule.bonusValue}',
-                  ),
-                _buildInfoRow(
-                  isAr ? 'الحد الأدنى:' : 'Min:',
-                  '${rule.minBonus}',
-                ),
-                if (rule.maxBonus != null)
-                  _buildInfoRow(
-                    isAr ? 'الحد الأقصى:' : 'Max:',
-                    '${rule.maxBonus}',
-                  ),
-                if (rule.validFrom != null)
-                  _buildInfoRow(
-                    isAr ? 'من تاريخ:' : 'From:',
-                    dateFormat.format(rule.validFrom!),
-                  ),
-                if (rule.validTo != null)
-                  _buildInfoRow(
-                    isAr ? 'إلى تاريخ:' : 'To:',
-                    dateFormat.format(rule.validTo!),
-                  ),
-                if (rule.targetDepartments != null &&
-                    rule.targetDepartments!.isNotEmpty)
-                  _buildInfoRow(
-                    isAr ? 'الأقسام:' : 'Departments:',
-                    rule.targetDepartments!.join(', '),
-                  ),
-                if (rule.targetPositions != null &&
-                    rule.targetPositions!.isNotEmpty)
-                  _buildInfoRow(
-                    isAr ? 'الوظائف:' : 'Positions:',
-                    rule.targetPositions!.join(', '),
-                  ),
-                if (rule.isPointsBased) ...[
-                  _buildInfoRow(
-                    isAr ? 'فترة النقاط:' : 'Points period:',
-                    BonusRuleModel.getPointsPeriodNameAr(
-                      (rule.conditions?['points_period'] as String?) ?? 'month',
-                    ),
-                  ),
-                  if (rule.conditions?['min_points'] != null)
-                    _buildInfoRow(
-                      isAr ? 'حد أدنى نقاط:' : 'Min points:',
-                      '${rule.conditions!['min_points']}',
-                    ),
-                ],
-                if (rule.targetEmployeeIds != null &&
-                    rule.targetEmployeeIds!.isNotEmpty)
-                  _buildInfoRow(
-                    isAr ? 'الموظفين:' : 'Employees:',
-                    rule.targetEmployeeIds!.map((id) => '#$id').join(', '),
-                  ),
-                if (rule.applicableInvoiceTypes != null &&
-                    rule.applicableInvoiceTypes!.isNotEmpty)
-                  Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 4),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          isAr ? 'أنواع الفواتير:' : 'Invoice Types:',
-                          style: const TextStyle(fontWeight: FontWeight.w600),
-                        ),
-                        const SizedBox(height: 4),
-                        Wrap(
-                          spacing: 6,
-                          runSpacing: 6,
-                          children: rule.applicableInvoiceTypes!
-                              .map(
-                                (type) => Chip(
-                                  label: Text(
-                                    type,
-                                    style: const TextStyle(fontSize: 12),
-                                  ),
-                                  backgroundColor: const Color(
-                                    0xFFD4AF37,
-                                  ).withValues(alpha: 0.2),
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 8,
-                                    vertical: 2,
-                                  ),
-                                  materialTapTargetSize:
-                                      MaterialTapTargetSize.shrinkWrap,
-                                ),
-                              )
-                              .toList(),
-                        ),
-                      ],
-                    ),
-                  ),
-                const SizedBox(height: 16),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.end,
-                  children: [
-                    TextButton.icon(
-                      onPressed: () => _showRuleDialog(rule: rule),
-                      icon: const Icon(Icons.edit, size: 18),
-                      label: Text(isAr ? 'تعديل' : 'Edit'),
-                    ),
-                    const SizedBox(width: 8),
-                    TextButton.icon(
-                      onPressed: () => _deleteRule(rule),
-                      icon: const Icon(
-                        Icons.delete,
-                        size: 18,
-                        color: Colors.red,
-                      ),
-                      label: Text(
-                        isAr ? 'حذف' : 'Delete',
-                        style: const TextStyle(color: Colors.red),
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        ],
+  static String _n(Object? v) =>
+      v is num ? cu.formatAmount(v, decimals: v == v.truncate() ? 0 : 2) : '${v ?? '—'}';
+
+  /// What the rule is said by, line by line, as the calculator reads it.
+  List<(String, String)> _factsOf(BonusRuleModel rule) {
+    final c = rule.conditions ?? const <String, dynamic>{};
+    final valid = [
+      if (rule.validFrom != null) 'من ${_day.format(rule.validFrom!)}',
+      if (rule.validTo != null) 'إلى ${_day.format(rule.validTo!)}',
+    ];
+    return [
+      if (rule.description != null && rule.description!.isNotEmpty) ('الوصف', rule.description!),
+      (
+        'يُصرف لـ',
+        rule.targetEmployeeNames.isNotEmpty
+            ? rule.targetEmployeeNames.join('، ')
+            : (rule.targetEmployeeIds?.isNotEmpty ?? false)
+                ? '${rule.targetEmployeeIds!.length} موظف'
+                : 'كل الموظفين',
       ),
-    );
+      if (rule.ruleType != 'tiered')
+        ('المكافأة', '${BonusRuleModel.getBonusTypeNameAr(rule.bonusType)}: ${_n(rule.bonusValue)}'),
+      if (rule.ruleType == 'sales_target') ('هدف المبيعات', _money((c['sales_target'] as num?) ?? 0)),
+      if (rule.ruleType == 'profit_based') ...[
+        ('أقل ربح', _n(c['min_profit'] ?? 0)),
+        ('الربح', c['profit_type'] == 'gold' ? 'بالذهب' : 'بالنقد'),
+        (
+          'الفواتير',
+          (rule.applicableInvoiceTypes?.isNotEmpty ?? false)
+              ? rule.applicableInvoiceTypes!.join('، ')
+              : 'البيع وشراء الكسر',
+        ),
+      ],
+      if (rule.isPointsBased) ...[
+        (
+          'فترة النقاط',
+          BonusRuleModel.getPointsPeriodNameAr((c['points_period'] as String?) ?? 'month'),
+        ),
+        if (c['min_points'] != null) ('أقل نقاط', _n(c['min_points'])),
+      ],
+      if (rule.minBonus > 0) ('أقل مبلغ يُصرف', _money(rule.minBonus)),
+      if (rule.maxBonus != null) ('سقف المكافأة', _money(rule.maxBonus!)),
+      if (valid.isNotEmpty) ('الصلاحية', valid.join(' ')),
+      if (rule.targetDepartments?.isNotEmpty ?? false) ('الأقسام', rule.targetDepartments!.join('، ')),
+      if (rule.targetPositions?.isNotEmpty ?? false) ('الوظائف', rule.targetPositions!.join('، ')),
+    ];
   }
 
-  Widget _buildInfoRow(String label, String value) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Row(
-        children: [
-          SizedBox(
-            width: 100,
-            child: Text(
-              label,
-              style: const TextStyle(fontWeight: FontWeight.w600),
-            ),
+  Widget _buildRuleCard(BonusRuleModel rule) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    final tones = AppSemanticColors.of(context);
+    final tone = rule.isActive ? tones.ready : tones.sectionSlate;
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: AppSpace.md),
+      child: ExpansionTile(
+        shape: const Border(),
+        leading: Container(
+          padding: const EdgeInsets.symmetric(horizontal: AppSpace.sm, vertical: AppSpace.xs),
+          decoration: BoxDecoration(
+            color: tone.container,
+            borderRadius: BorderRadius.circular(AppRadius.chip),
           ),
-          Expanded(child: Text(value)),
+          child: Text(
+            rule.isActive ? 'نشطة' : 'موقوفة',
+            style: theme.textTheme.labelSmall?.copyWith(color: tone.onContainer, fontWeight: FontWeight.w600),
+          ),
+        ),
+        title: Text(rule.name, style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold)),
+        subtitle: Text(rule.summaryAr, style: theme.textTheme.bodySmall?.copyWith(color: cs.onSurfaceVariant)),
+        childrenPadding: const EdgeInsets.fromLTRB(AppSpace.lg, 0, AppSpace.lg, AppSpace.md),
+        children: [
+          for (final (label, value) in _factsOf(rule))
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: AppSpace.xs),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  SizedBox(
+                    width: 120,
+                    child: Text(label,
+                        style: theme.textTheme.bodySmall?.copyWith(color: cs.onSurfaceVariant)),
+                  ),
+                  Expanded(child: Text(value, style: theme.textTheme.bodyMedium)),
+                ],
+              ),
+            ),
+          const SizedBox(height: AppSpace.sm),
+          Wrap(
+            alignment: WrapAlignment.end,
+            spacing: AppSpace.sm,
+            children: [
+              TextButton.icon(
+                onPressed: () => _showRuleDialog(rule: rule),
+                icon: const Icon(Icons.edit, size: 18),
+                label: const Text('تعديل'),
+              ),
+              TextButton.icon(
+                key: Key('rule-toggle-${rule.id}'),
+                onPressed: () => _toggle(rule),
+                icon: Icon(rule.isActive ? Icons.pause_circle_outline : Icons.play_circle_outline, size: 18),
+                label: Text(rule.isActive ? 'إيقاف' : 'تفعيل'),
+              ),
+              TextButton.icon(
+                key: Key('rule-delete-${rule.id}'),
+                onPressed: () => _deleteRule(rule),
+                style: TextButton.styleFrom(foregroundColor: cs.error),
+                icon: const Icon(Icons.delete_outline, size: 18),
+                label: const Text('حذف'),
+              ),
+            ],
+          ),
         ],
       ),
     );
   }
 }
 
-// Dialog for adding/editing bonus rules
+/// A rule's form. It offers what the calculator reads, and nothing else
+/// (bonus study م3ج): per type its payouts and its own condition -- a sales
+/// target, a least profit, a points period -- and invoice types where they
+/// are read (a profit rule). The fields nobody read («حد أدنى للمبيعات»,
+/// «ربح % من الفاتورة», «نسبة حضور») are gone; a sales rule's target, which
+/// no field set, is offered.
 class _BonusRuleDialog extends StatefulWidget {
   final ApiService api;
   final bool isArabic;
@@ -396,169 +360,94 @@ class _BonusRuleDialog extends StatefulWidget {
 }
 
 class _BonusRuleDialogState extends State<_BonusRuleDialog> {
-  final _formKey = GlobalKey<FormState>();
-  late TextEditingController _nameController;
-  late TextEditingController _descController;
-  late TextEditingController _valueController;
-  late TextEditingController _minController;
-  late TextEditingController _maxController;
-  late TextEditingController _minSalesController;
-  late TextEditingController _minProfitController;
-  late TextEditingController _minAttendanceController;
-  late TextEditingController _profitPercentInvoiceController;
-  late TextEditingController _minPointsController;
+  /// The condition keys the form owns; the rest of a rule's conditions are
+  /// kept as they are. The last three were read by no calculator.
+  static const _ownedConditions = {
+    'sales_target', 'min_profit', 'profit_type', 'min_points', 'points_period',
+    'min_sales', 'min_profit_percent_of_invoice', 'min_attendance_rate',
+  };
 
-  String _selectedRuleType = 'tiered';
+  final _formKey = GlobalKey<FormState>();
+  late final _nameController = TextEditingController(text: widget.rule?.name ?? '');
+  late final _descController = TextEditingController(text: widget.rule?.description ?? '');
+  late final _valueController = TextEditingController(text: _typed(widget.rule?.bonusValue ?? 0));
+  late final _minController = TextEditingController(text: _typed(widget.rule?.minBonus ?? 0));
+  late final _maxController =
+      TextEditingController(text: widget.rule?.maxBonus == null ? '' : _typed(widget.rule!.maxBonus!));
+  late final _salesTargetController = TextEditingController(text: _condition('sales_target'));
+  late final _minProfitController = TextEditingController(text: _condition('min_profit'));
+  late final _minPointsController = TextEditingController(text: _condition('min_points'));
+
+  late String _ruleType = widget.rule?.ruleType ?? 'tiered';
 
   /// A tiered rule's measure, period and tiers (bonus study م2).
-  late TieredTerms _tiered;
-  String _selectedBonusType = 'percentage';
-  String _selectedPointsPeriod = 'month';
-  bool _isActive = true;
-  DateTime? _validFrom;
-  DateTime? _validTo;
+  late TieredTerms _tiered =
+      widget.rule?.ruleType == 'tiered' ? TieredTerms.of(widget.rule!) : TieredTerms.blank();
+  late String _bonusType = _payoutFor(_ruleType, widget.rule?.bonusType);
+  late String _pointsPeriod = (widget.rule?.conditions?['points_period'] as String?) ?? 'month';
+  late String _profitType = (widget.rule?.conditions?['profit_type'] as String?) ?? 'cash';
+  late bool _isActive = widget.rule?.isActive ?? true;
+  late DateTime? _validFrom = widget.rule?.validFrom;
+  late DateTime? _validTo = widget.rule?.validTo;
   bool _saving = false;
 
-  // 🆕 للموظفين وأنواع الفواتير
   List<EmployeeModel> _allEmployees = [];
-  List<int> _selectedEmployeeIds = [];
+  late final List<int> _selectedEmployeeIds = [...?widget.rule?.targetEmployeeIds];
   List<InvoiceTypeModel> _availableInvoiceTypes = [];
-  List<String> _selectedInvoiceTypes = [];
+  late final List<String> _selectedInvoiceTypes = [...?widget.rule?.applicableInvoiceTypes];
   bool _loadingData = false;
+  Object? _dataError;
+
+  static final _day = DateFormat('yyyy-MM-dd');
+
+  static String _typed(double v) => v == v.truncateToDouble() ? '${v.toInt()}' : '$v';
+
+  String _condition(String key) {
+    final v = widget.rule?.conditions?[key];
+    return v is num ? _typed(v.toDouble()) : '';
+  }
+
+  /// [current] when its type computes it, else the type's first payout.
+  static String _payoutFor(String ruleType, String? current) {
+    final offered = BonusRuleModel.bonusTypesByRule[ruleType];
+    if (offered == null) return current ?? 'fixed';
+    return offered.contains(current) ? current! : offered.first;
+  }
 
   @override
   void initState() {
     super.initState();
-    final rule = widget.rule;
-    _nameController = TextEditingController(text: rule?.name ?? '');
-    _descController = TextEditingController(text: rule?.description ?? '');
-    _valueController = TextEditingController(
-      text: rule?.bonusValue.toString() ?? '0',
-    );
-    _minController = TextEditingController(
-      text: rule?.minBonus.toString() ?? '0',
-    );
-    _maxController = TextEditingController(
-      text: rule?.maxBonus?.toString() ?? '',
-    );
-    _minSalesController = TextEditingController(
-      text: rule?.conditions != null && rule!.conditions!['min_sales'] != null
-          ? rule.conditions!['min_sales'].toString()
-          : '',
-    );
-    _minProfitController = TextEditingController(
-      text: rule?.conditions != null && rule!.conditions!['min_profit'] != null
-          ? rule.conditions!['min_profit'].toString()
-          : '',
-    );
-    _minAttendanceController = TextEditingController(
-      text:
-          rule?.conditions != null &&
-              rule!.conditions!['min_attendance_rate'] != null
-          ? rule.conditions!['min_attendance_rate'].toString()
-          : '',
-    );
-    _profitPercentInvoiceController = TextEditingController(
-      text:
-          rule?.conditions != null &&
-              rule!.conditions!['min_profit_percent_of_invoice'] != null
-          ? rule.conditions!['min_profit_percent_of_invoice'].toString()
-          : '',
-    );
-    _minPointsController = TextEditingController(
-      text:
-          rule?.conditions != null &&
-              rule!.conditions!['min_points'] != null
-          ? rule.conditions!['min_points'].toString()
-          : '',
-    );
-    _selectedRuleType = rule?.ruleType ?? 'tiered';
-    _tiered = rule?.ruleType == 'tiered' ? TieredTerms.of(rule!) : TieredTerms.blank();
-    _selectedBonusType = rule?.bonusType ?? 'percentage';
-    _selectedPointsPeriod =
-        (rule?.conditions?['points_period'] as String?) ?? 'month';
-    _isActive = rule?.isActive ?? true;
-    _validFrom = rule?.validFrom;
-    _validTo = rule?.validTo;
-
-    // 🆕 تحميل الموظفين المحددين وأنواع الفواتير
-    _selectedEmployeeIds = rule?.targetEmployeeIds ?? [];
-    _selectedInvoiceTypes = rule?.applicableInvoiceTypes ?? [];
     _loadInitialData();
   }
 
-  /// 🆕 تحميل البيانات الأولية (الموظفين وأنواع الفواتير)
   Future<void> _loadInitialData() async {
-    setState(() => _loadingData = true);
+    setState(() {
+      _loadingData = true;
+      _dataError = null;
+    });
     try {
-      // تحميل الموظفين
-      final employeesResponse = await widget.api.getEmployees(
-        isActive: true,
-        perPage: 100,
-      );
-
-      // التحقق من نوع البيانات المُرجعة
+      final employeesResponse = await widget.api.getEmployees(isActive: true, perPage: 100);
       final employeesData = employeesResponse['employees'];
-      List<EmployeeModel> employees;
-      if (employeesData is List<EmployeeModel>) {
-        employees = employeesData;
-      } else if (employeesData is List) {
-        employees = employeesData
-            .map((json) => EmployeeModel.fromJson(json as Map<String, dynamic>))
-            .toList();
-      } else {
-        throw Exception(
-          'Unexpected employees data type: ${employeesData.runtimeType}',
-        );
-      }
-
-      // تحميل أنواع الفواتير (قد تكون قائمة نصوص أو كائنات)
+      final employees = employeesData is List<EmployeeModel>
+          ? employeesData
+          : [
+              for (final json in (employeesData as List? ?? const []))
+                EmployeeModel.fromJson(json as Map<String, dynamic>),
+            ];
       final invoiceTypesData = await widget.api.getInvoiceTypes();
-      late final List<InvoiceTypeModel> invoiceTypes;
-      if (invoiceTypesData.isNotEmpty && invoiceTypesData.first is Map) {
-        invoiceTypes = invoiceTypesData
-            .map(
-              (json) => InvoiceTypeModel.fromJson(json as Map<String, dynamic>),
-            )
-            .toList();
-      } else {
-        invoiceTypes = invoiceTypesData
-            .map((val) => val.toString())
-            .map(
-              (label) => InvoiceTypeModel(
-                value: label,
-                label: label,
-                description: label,
-              ),
-            )
-            .toList();
-      }
-
+      final invoiceTypes = [
+        for (final t in invoiceTypesData)
+          t is Map
+              ? InvoiceTypeModel.fromJson(Map<String, dynamic>.from(t))
+              : InvoiceTypeModel(value: '$t', label: '$t', description: '$t'),
+      ];
+      if (!mounted) return;
       setState(() {
         _allEmployees = employees;
         _availableInvoiceTypes = invoiceTypes;
       });
-
-      // 🔍 Debug: طباعة البيانات المحملة
-      if (kDebugMode) {
-        debugPrint('✅ Loaded ${employees.length} employees');
-        debugPrint('✅ Loaded ${invoiceTypes.length} invoice types');
-        debugPrint(
-          '📋 Invoice types: ${invoiceTypes.map((t) => t.label).join(", ")}',
-        );
-      }
     } catch (e) {
-      if (kDebugMode) {
-        debugPrint('❌ Error loading data: $e');
-      }
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('خطأ في تحميل البيانات: $e'),
-            backgroundColor: Colors.orange,
-          ),
-        );
-      }
+      if (mounted) setState(() => _dataError = e);
     } finally {
       if (mounted) setState(() => _loadingData = false);
     }
@@ -566,116 +455,167 @@ class _BonusRuleDialogState extends State<_BonusRuleDialog> {
 
   @override
   void dispose() {
-    _nameController.dispose();
-    _descController.dispose();
-    _valueController.dispose();
-    _minController.dispose();
-    _maxController.dispose();
-    _minSalesController.dispose();
-    _minProfitController.dispose();
-    _minAttendanceController.dispose();
-    _profitPercentInvoiceController.dispose();
-    _minPointsController.dispose();
+    for (final c in [
+      _nameController, _descController, _valueController, _minController, _maxController,
+      _salesTargetController, _minProfitController, _minPointsController,
+    ]) {
+      c.dispose();
+    }
     super.dispose();
   }
 
+  static double? _number(TextEditingController c) =>
+      c.text.trim().isEmpty ? null : double.tryParse(c.text.trim());
+
+  String? _numberOrEmpty(String? v) =>
+      v == null || v.trim().isEmpty || double.tryParse(v.trim()) != null ? null : 'رقم';
+
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
-    final tiered = _selectedRuleType == 'tiered';
+    final tiered = _ruleType == 'tiered';
     if (tiered && _tiered.error != null) {
       AppFeedback.error(context, _tiered.error!, title: 'الشرائح');
       return;
     }
 
+    final conditions = <String, dynamic>{
+      for (final e in (widget.rule?.conditions ?? const <String, dynamic>{}).entries)
+        if (!_ownedConditions.contains(e.key)) e.key: e.value,
+      if (_ruleType == 'sales_target') 'sales_target': _number(_salesTargetController) ?? 0.0,
+      if (_ruleType == 'profit_based') ...{
+        'min_profit': _number(_minProfitController) ?? 0.0,
+        'profit_type': _profitType,
+      },
+      if (_ruleType == 'points_based') ...{
+        if (_number(_minPointsController) != null) 'min_points': _number(_minPointsController),
+        'points_period': _pointsPeriod,
+      },
+    };
+
+    final payload = <String, dynamic>{
+      'name': _nameController.text.trim(),
+      'description': _descController.text.trim().isEmpty ? null : _descController.text.trim(),
+      'rule_type': _ruleType,
+      if (tiered) ..._tiered.toJson(),
+      if (!tiered) 'bonus_type': _bonusType,
+      if (!tiered) 'bonus_value': _number(_valueController) ?? 0.0,
+      'min_bonus': _number(_minController) ?? 0.0,
+      'max_bonus': _number(_maxController),
+      'conditions': conditions,
+      'target_employee_ids': _selectedEmployeeIds.isEmpty ? null : _selectedEmployeeIds,
+      // Read by the profit rule alone; the others keep what they hold.
+      if (_ruleType == 'profit_based')
+        'applicable_invoice_types': _selectedInvoiceTypes.isEmpty ? null : _selectedInvoiceTypes,
+      'is_active': _isActive,
+      'valid_from': _validFrom == null ? null : _day.format(_validFrom!),
+      'valid_to': _validTo == null ? null : _day.format(_validTo!),
+    };
+
     setState(() => _saving = true);
     try {
-      final payload = {
-        'name': _nameController.text.trim(),
-        'description': _descController.text.trim().isEmpty
-            ? null
-            : _descController.text.trim(),
-        'rule_type': _selectedRuleType,
-        if (tiered) ..._tiered.toJson(),
-        if (!tiered) 'bonus_type': _selectedBonusType,
-        if (!tiered) 'bonus_value': double.parse(_valueController.text),
-        'min_bonus': double.parse(_minController.text),
-        'max_bonus': _maxController.text.isEmpty
-            ? null
-            : double.parse(_maxController.text),
-        'conditions': {},
-        'target_employee_ids': _selectedEmployeeIds.isEmpty
-            ? null
-            : _selectedEmployeeIds, // 🆕
-        'applicable_invoice_types': _selectedInvoiceTypes.isEmpty
-            ? null
-            : _selectedInvoiceTypes, // 🆕
-        'is_active': _isActive,
-        'valid_from': _validFrom?.toIso8601String().split('T').first,
-        'valid_to': _validTo?.toIso8601String().split('T').first,
-      };
-
-      // تعبئة الشروط الاختيارية
-      double? tryParse(String v) =>
-          v.trim().isEmpty ? null : double.tryParse(v.trim());
-      final minSales = tryParse(_minSalesController.text);
-      final minProfit = tryParse(_minProfitController.text);
-      final minAttendance = tryParse(_minAttendanceController.text);
-      final minProfitPercentInvoice = tryParse(
-        _profitPercentInvoiceController.text,
-      );
-
-      final conditions = <String, dynamic>{};
-      if (tiered) {
-        // a tiered rule says all its terms in them; nothing in conditions
-      } else {
-      if (minSales != null) conditions['min_sales'] = minSales;
-      if (minProfit != null) conditions['min_profit'] = minProfit;
-      if (minAttendance != null) {
-        conditions['min_attendance_rate'] = minAttendance;
-      }
-      if (minProfitPercentInvoice != null) {
-        conditions['min_profit_percent_of_invoice'] = minProfitPercentInvoice;
-      }
-      if (_selectedRuleType == 'points_based') {
-        final minPts = tryParse(_minPointsController.text);
-        if (minPts != null) conditions['min_points'] = minPts;
-        conditions['points_period'] = _selectedPointsPeriod;
-      }
-      }
-      if (conditions.isNotEmpty) {
-        payload['conditions'] = conditions;
-      }
-
-      // 🔍 Debug: طباعة البيانات المرسلة
-      if (kDebugMode) {
-        debugPrint('📤 Sending bonus rule payload:');
-        debugPrint('   Target Employees: $_selectedEmployeeIds');
-        debugPrint('   Invoice Types: $_selectedInvoiceTypes');
-        debugPrint('   Full payload: $payload');
-      }
-
       if (widget.rule?.id != null) {
         await widget.api.updateBonusRule(widget.rule!.id!, payload);
       } else {
         await widget.api.createBonusRule(payload);
       }
-
       widget.onSaved();
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(e.toString()), backgroundColor: Colors.red),
-        );
-      }
+      if (mounted) AppFeedback.error(context, e, title: 'لم تُحفظ القاعدة');
     } finally {
       if (mounted) setState(() => _saving = false);
     }
   }
 
+  Widget _section(String title, {String? hint}) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.only(top: AppSpace.lg, bottom: AppSpace.sm),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(title, style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.bold)),
+          if (hint != null)
+            Text(hint, style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
+        ],
+      ),
+    );
+  }
+
+  Widget _numberField(TextEditingController c, String label, {String? helper, Key? key}) => TextFormField(
+        key: key,
+        controller: c,
+        decoration: InputDecoration(labelText: label, helperText: helper),
+        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+        validator: _numberOrEmpty,
+      );
+
+  Widget _date(String label, DateTime? value, ValueChanged<DateTime?> set) => Expanded(
+        child: InkWell(
+          onTap: () async {
+            final picked = await showDatePicker(
+              context: context,
+              initialDate: value ?? DateTime.now(),
+              firstDate: DateTime(2020),
+              lastDate: DateTime(2100),
+            );
+            if (picked != null) setState(() => set(picked));
+          },
+          child: InputDecorator(
+            decoration: InputDecoration(
+              labelText: label,
+              suffixIcon: value == null
+                  ? null
+                  : IconButton(
+                      tooltip: 'مسح',
+                      icon: const Icon(Icons.clear, size: 18),
+                      onPressed: () => setState(() => set(null)),
+                    ),
+            ),
+            child: Text(value != null ? _day.format(value) : 'بلا حد'),
+          ),
+        ),
+      );
+
+  Widget _chips<T>({
+    required List<T> all,
+    required List<T> selected,
+    required String Function(T) label,
+    required String empty,
+  }) {
+    final theme = Theme.of(context);
+    if (_loadingData) return const SizedBox(height: 80, child: AppLoadingView(summaryBlocks: 0, rows: 1));
+    if (_dataError != null) {
+      return Row(children: [
+        Expanded(
+          child: Text('تعذّر التحميل: ${AppFeedback.messageOf(_dataError!)}',
+              style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.error)),
+        ),
+        TextButton(onPressed: _loadInitialData, child: const Text('إعادة المحاولة')),
+      ]);
+    }
+    if (all.isEmpty) {
+      return Text(empty, style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant));
+    }
+    return Wrap(
+      spacing: AppSpace.sm,
+      runSpacing: AppSpace.sm,
+      children: [
+        for (final item in all)
+          FilterChip(
+            label: Text(label(item)),
+            selected: selected.contains(item),
+            onSelected: (on) => setState(() => on ? selected.add(item) : selected.remove(item)),
+          ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final isAr = widget.isArabic;
-    final dateFormat = DateFormat('yyyy-MM-dd');
+    final currency = context.read<SettingsProvider>().currencySymbolText;
+    final payouts = BonusRuleModel.bonusTypesByRule[_ruleType] ?? const <String>[];
+    final employees = _allEmployees.where((e) => e.id != null).toList();
 
     return AlertDialog(
       title: Text(
@@ -684,592 +624,158 @@ class _BonusRuleDialogState extends State<_BonusRuleDialog> {
             : (isAr ? 'تعديل قاعدة المكافأة' : 'Edit Bonus Rule'),
       ),
       content: SizedBox(
-        width: 500,
+        width: 520,
         child: Form(
           key: _formKey,
           child: SingleChildScrollView(
             child: Column(
               mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 TextFormField(
                   controller: _nameController,
-                  decoration: InputDecoration(
-                    labelText: isAr ? 'الاسم' : 'Name',
-                    border: const OutlineInputBorder(),
-                  ),
-                  validator: (v) =>
-                      v == null || v.trim().isEmpty ? 'مطلوب' : null,
+                  decoration: InputDecoration(labelText: isAr ? 'الاسم' : 'Name'),
+                  validator: (v) => v == null || v.trim().isEmpty ? 'مطلوب' : null,
                 ),
-                const SizedBox(height: 12),
+                const SizedBox(height: AppSpace.md),
                 TextFormField(
                   controller: _descController,
-                  decoration: InputDecoration(
-                    labelText: isAr ? 'الوصف' : 'Description',
-                    border: const OutlineInputBorder(),
-                  ),
+                  decoration: InputDecoration(labelText: isAr ? 'الوصف' : 'Description'),
                   maxLines: 2,
                 ),
-                const SizedBox(height: 12),
+                const SizedBox(height: AppSpace.md),
                 DropdownButtonFormField<String>(
-                  value: _selectedRuleType,
-                  decoration: InputDecoration(
-                    labelText: isAr ? 'نوع القاعدة' : 'Rule Type',
-                    border: const OutlineInputBorder(),
-                  ),
-                  items: BonusRuleModel.ruleTypesFor(widget.rule?.ruleType)
-                      .map(
-                        (t) => DropdownMenuItem(
-                          value: t,
-                          child: Text(BonusRuleModel.getRuleTypeNameAr(t)),
-                        ),
-                      )
-                      .toList(),
+                  value: _ruleType,
+                  decoration: InputDecoration(labelText: isAr ? 'نوع القاعدة' : 'Rule Type'),
+                  items: [
+                    for (final t in BonusRuleModel.ruleTypesFor(widget.rule?.ruleType))
+                      DropdownMenuItem(value: t, child: Text(BonusRuleModel.getRuleTypeNameAr(t))),
+                  ],
                   onChanged: (v) => setState(() {
-                    _selectedRuleType = v!;
-                    // عند اختيار النقاط، القيمة الافتراضية لنوع المكافأة هي مبلغ لكل نقطة
-                    if (_selectedRuleType == 'points_based' &&
-                        _selectedBonusType != 'points_per_unit' &&
-                        _selectedBonusType != 'fixed') {
-                      _selectedBonusType = 'points_per_unit';
-                    }
+                    _ruleType = v!;
+                    _bonusType = _payoutFor(_ruleType, _bonusType);
                   }),
                 ),
-                const SizedBox(height: 12),
-                if (_selectedRuleType == 'tiered') ...[
+                const SizedBox(height: AppSpace.md),
+                if (_ruleType == 'tiered')
                   TieredRuleEditor(
                     initial: _tiered,
                     api: widget.api,
                     scope: () => {
-                      if (_selectedEmployeeIds.isNotEmpty)
-                        'target_employee_ids': _selectedEmployeeIds,
-                      'min_bonus': double.tryParse(_minController.text) ?? 0.0,
-                      if (_maxController.text.trim().isNotEmpty)
-                        'max_bonus': double.tryParse(_maxController.text),
+                      if (_selectedEmployeeIds.isNotEmpty) 'target_employee_ids': _selectedEmployeeIds,
+                      'min_bonus': _number(_minController) ?? 0.0,
+                      if (_number(_maxController) != null) 'max_bonus': _number(_maxController),
                     },
                     onChanged: (t) => _tiered = t,
+                  )
+                else ...[
+                  DropdownButtonFormField<String>(
+                    key: const Key('rule-payout'),
+                    value: _bonusType,
+                    decoration: InputDecoration(labelText: isAr ? 'نوع المكافأة' : 'Bonus Type'),
+                    items: [
+                      for (final t in payouts)
+                        DropdownMenuItem(value: t, child: Text(BonusRuleModel.getBonusTypeNameAr(t))),
+                    ],
+                    onChanged: (v) => setState(() => _bonusType = v!),
                   ),
-                  const SizedBox(height: 12),
-                ],
-                if (_selectedRuleType != 'tiered')
-                DropdownButtonFormField<String>(
-                  value: _selectedBonusType,
-                  decoration: InputDecoration(
-                    labelText: isAr ? 'نوع المكافأة' : 'Bonus Type',
-                    border: const OutlineInputBorder(),
+                  const SizedBox(height: AppSpace.md),
+                  _numberField(
+                    _valueController,
+                    switch (_bonusType) {
+                      'points_per_unit' => 'المبلغ لكل نقطة',
+                      'fixed' => 'المبلغ',
+                      _ => 'النسبة %',
+                    },
+                    helper: _bonusType == 'points_per_unit' ? 'مثال: 0.5 يعني 0.5 $currency لكل نقطة' : null,
                   ),
-                  items: BonusRuleModel.bonusTypes
-                      .map(
-                        (t) => DropdownMenuItem(
-                          value: t,
-                          child: Text(BonusRuleModel.getBonusTypeNameAr(t)),
-                        ),
-                      )
-                      .toList(),
-                  onChanged: (v) => setState(() => _selectedBonusType = v!),
-                ),
-                if (_selectedRuleType != 'tiered') const SizedBox(height: 12),
-                if (_selectedRuleType != 'tiered')
-                TextFormField(
-                  controller: _valueController,
-                  decoration: InputDecoration(
-                    labelText: _selectedRuleType == 'points_based' &&
-                            _selectedBonusType == 'points_per_unit'
-                        ? (isAr ? 'المبلغ لكل نقطة' : 'Amount per point')
-                        : (isAr ? 'القيمة' : 'Value'),
-                    helperText: _selectedRuleType == 'points_based' &&
-                            _selectedBonusType == 'points_per_unit'
-                        ? (isAr
-                            ? 'مثال: 0.5 يعني 0.5 ${context.read<SettingsProvider>().currencySymbolText} لكل نقطة'
-                            : 'e.g. 0.5 = 0.5 ${context.read<SettingsProvider>().currencySymbolText} per point')
-                        : null,
-                    border: const OutlineInputBorder(),
-                  ),
-                  keyboardType: TextInputType.number,
-                  validator: (v) => v == null || double.tryParse(v) == null
-                      ? 'رقم مطلوب'
-                      : null,
-                ),
-                const SizedBox(height: 12),
-                Row(
-                  children: [
-                    Expanded(
-                      child: TextFormField(
-                        controller: _minController,
-                        decoration: InputDecoration(
-                          labelText: isAr ? 'الحد الأدنى' : 'Min',
-                          border: const OutlineInputBorder(),
-                        ),
-                        keyboardType: TextInputType.number,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: TextFormField(
-                        controller: _maxController,
-                        decoration: InputDecoration(
-                          labelText: isAr ? 'الحد الأقصى' : 'Max',
-                          border: const OutlineInputBorder(),
-                        ),
-                        keyboardType: TextInputType.number,
-                      ),
+                  if (_ruleType == 'sales_target') ...[
+                    const SizedBox(height: AppSpace.md),
+                    _numberField(
+                      _salesTargetController,
+                      'هدف المبيعات',
+                      key: const Key('rule-sales-target'),
+                      helper: 'لا تُصرف المكافأة إلا إذا بلغت مبيعات الموظف في الفترة هذا الرقم',
                     ),
                   ],
-                ),
-                const SizedBox(height: 12),
-
-                // قسم إعدادات النقاط — يظهر فقط لنوع points_based
-                if (_selectedRuleType == 'points_based') ...[
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFFFD700).withValues(alpha: 0.08),
-                      border: Border.all(
-                        color: const Color(0xFFD4AF37).withValues(alpha: 0.5),
-                      ),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            const Icon(
-                              Icons.stars_rounded,
-                              color: Color(0xFFD4AF37),
-                              size: 20,
-                            ),
-                            const SizedBox(width: 8),
-                            Text(
-                              isAr
-                                  ? 'إعدادات سباق النقاط'
-                                  : 'Points Race Settings',
-                              style: const TextStyle(
-                                fontWeight: FontWeight.bold,
-                                color: Color(0xFF8B6914),
-                              ),
-                            ),
+                  if (_ruleType == 'profit_based') ...[
+                    const SizedBox(height: AppSpace.md),
+                    Row(children: [
+                      Expanded(child: _numberField(_minProfitController, 'أقل ربح')),
+                      const SizedBox(width: AppSpace.md),
+                      Expanded(
+                        child: DropdownButtonFormField<String>(
+                          value: _profitType,
+                          decoration: const InputDecoration(labelText: 'الربح'),
+                          items: const [
+                            DropdownMenuItem(value: 'cash', child: Text('بالنقد')),
+                            DropdownMenuItem(value: 'gold', child: Text('بالذهب')),
                           ],
-                        ),
-                        const SizedBox(height: 12),
-                        DropdownButtonFormField<String>(
-                          value: _selectedPointsPeriod,
-                          decoration: InputDecoration(
-                            labelText:
-                                isAr ? 'فترة احتساب النقاط' : 'Points Period',
-                            helperText: isAr
-                                ? 'الفترة التي تُحسب منها نقاط الموظف'
-                                : 'Period from which employee points are counted',
-                            border: const OutlineInputBorder(),
-                          ),
-                          items: BonusRuleModel.pointsPeriods
-                              .map(
-                                (p) => DropdownMenuItem(
-                                  value: p,
-                                  child: Text(
-                                    BonusRuleModel.getPointsPeriodNameAr(p),
-                                  ),
-                                ),
-                              )
-                              .toList(),
-                          onChanged: (v) =>
-                              setState(() => _selectedPointsPeriod = v!),
-                        ),
-                        const SizedBox(height: 12),
-                        TextFormField(
-                          controller: _minPointsController,
-                          decoration: InputDecoration(
-                            labelText: isAr
-                                ? 'حد أدنى للنقاط (اختياري)'
-                                : 'Min points (optional)',
-                            helperText: isAr
-                                ? 'لا تُمنح المكافأة إلا إذا تجاوز الموظف هذا العدد'
-                                : 'Bonus only granted if employee exceeds this threshold',
-                            border: const OutlineInputBorder(),
-                            prefixIcon: const Icon(Icons.star_border),
-                          ),
-                          keyboardType: TextInputType.number,
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                ],
-
-                // الشروط الاختيارية — مخفية لـ points_based
-                if (_selectedRuleType != 'points_based') ...[
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: Text(
-                      isAr
-                          ? 'شروط الاستحقاق (اختياري)'
-                          : 'Eligibility (optional)',
-                      style: const TextStyle(fontWeight: FontWeight.bold),
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: TextFormField(
-                          controller: _minSalesController,
-                          decoration: InputDecoration(
-                            labelText:
-                                isAr ? 'حد أدنى للمبيعات' : 'Min sales',
-                            helperText: isAr
-                                ? 'بالريال أو الوزن حسب الفاتورة'
-                                : 'In currency/weight per invoice',
-                            border: const OutlineInputBorder(),
-                          ),
-                          keyboardType: TextInputType.number,
+                          onChanged: (v) => setState(() => _profitType = v!),
                         ),
                       ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: TextFormField(
-                          controller: _minProfitController,
-                          decoration: InputDecoration(
-                            labelText:
-                                isAr ? 'حد أدنى للربح' : 'Min profit',
-                            helperText:
-                                isAr ? 'قيمة ثابتة' : 'Fixed value',
-                            border: const OutlineInputBorder(),
-                          ),
-                          keyboardType: TextInputType.number,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: TextFormField(
-                          controller: _profitPercentInvoiceController,
-                          decoration: InputDecoration(
-                            labelText: isAr
-                                ? 'ربح % من الفاتورة'
-                                : 'Profit % of invoice',
-                            helperText: isAr
-                                ? 'مثال: 5 يعني ربح ≥5% من إجمالي الفاتورة'
-                                : 'e.g. 5 means profit ≥5% of invoice total',
-                            border: const OutlineInputBorder(),
-                          ),
-                          keyboardType: TextInputType.number,
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: TextFormField(
-                          controller: _minAttendanceController,
-                          decoration: InputDecoration(
-                            labelText:
-                                isAr ? 'نسبة حضور %' : 'Attendance %',
-                            border: const OutlineInputBorder(),
-                          ),
-                          keyboardType: TextInputType.number,
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-                const SizedBox(height: 12),
-                Row(
-                  children: [
-                    Expanded(
-                      child: InkWell(
-                        onTap: () async {
-                          final picked = await showDatePicker(
-                            context: context,
-                            initialDate: _validFrom ?? DateTime.now(),
-                            firstDate: DateTime(2020),
-                            lastDate: DateTime(2100),
-                          );
-                          if (picked != null) {
-                            setState(() => _validFrom = picked);
-                          }
-                        },
-                        child: InputDecorator(
-                          decoration: InputDecoration(
-                            labelText: isAr ? 'من تاريخ' : 'From Date',
-                            border: const OutlineInputBorder(),
-                          ),
-                          child: Text(
-                            _validFrom != null
-                                ? dateFormat.format(_validFrom!)
-                                : (isAr ? 'اختر تاريخ' : 'Select Date'),
-                          ),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: InkWell(
-                        onTap: () async {
-                          final picked = await showDatePicker(
-                            context: context,
-                            initialDate: _validTo ?? DateTime.now(),
-                            firstDate: DateTime(2020),
-                            lastDate: DateTime(2100),
-                          );
-                          if (picked != null) {
-                            setState(() => _validTo = picked);
-                          }
-                        },
-                        child: InputDecorator(
-                          decoration: InputDecoration(
-                            labelText: isAr ? 'إلى تاريخ' : 'To Date',
-                            border: const OutlineInputBorder(),
-                          ),
-                          child: Text(
-                            _validTo != null
-                                ? dateFormat.format(_validTo!)
-                                : (isAr ? 'اختر تاريخ' : 'Select Date'),
-                          ),
-                        ),
-                      ),
-                    ),
+                    ]),
                   ],
-                ),
-                const SizedBox(height: 12),
+                  if (_ruleType == 'points_based') ...[
+                    const SizedBox(height: AppSpace.md),
+                    Row(children: [
+                      Expanded(
+                        child: DropdownButtonFormField<String>(
+                          value: _pointsPeriod,
+                          decoration: const InputDecoration(labelText: 'فترة النقاط'),
+                          items: [
+                            for (final p in BonusRuleModel.pointsPeriods)
+                              DropdownMenuItem(value: p, child: Text(BonusRuleModel.getPointsPeriodNameAr(p))),
+                          ],
+                          onChanged: (v) => setState(() => _pointsPeriod = v!),
+                        ),
+                      ),
+                      const SizedBox(width: AppSpace.md),
+                      Expanded(child: _numberField(_minPointsController, 'أقل نقاط')),
+                    ]),
+                  ],
+                ],
+                const SizedBox(height: AppSpace.md),
+                Row(children: [
+                  Expanded(child: _numberField(_minController, 'أقل مبلغ يُصرف')),
+                  const SizedBox(width: AppSpace.md),
+                  Expanded(child: _numberField(_maxController, 'سقف المكافأة', helper: 'فارغ: بلا سقف')),
+                ]),
+                _section('الصلاحية', hint: 'فارغ: بلا حد.'),
+                Row(children: [
+                  _date('من تاريخ', _validFrom, (v) => _validFrom = v),
+                  const SizedBox(width: AppSpace.md),
+                  _date('إلى تاريخ', _validTo, (v) => _validTo = v),
+                ]),
                 SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
                   title: Text(isAr ? 'نشطة' : 'Active'),
+                  subtitle: const Text('الموقوفة لا تُحسب بها مكافأة، وتبقى مكافآتها'),
                   value: _isActive,
                   onChanged: (v) => setState(() => _isActive = v),
                 ),
-                const Divider(height: 32),
-
-                // 🆕 قسم تخصيص الموظفين
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(
-                      isAr ? '🎯 تخصيص الموظفين' : '🎯 Target Employees',
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.bold,
-                        color: const Color(0xFFD4AF37),
-                      ),
-                    ),
-                    if (_selectedEmployeeIds.isNotEmpty)
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 4,
-                        ),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFD4AF37),
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: Text(
-                          '${_selectedEmployeeIds.length} ${isAr ? 'محدد' : 'selected'}',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 12,
-                          ),
-                        ),
-                      ),
-                  ],
+                _section(
+                  'الموظفون${_selectedEmployeeIds.isEmpty ? '' : ' (${_selectedEmployeeIds.length})'}',
+                  hint: 'لا أحد محدد: تُطبَّق على الجميع.',
                 ),
-                const SizedBox(height: 8),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Expanded(
-                      child: Text(
-                        isAr
-                            ? 'اختر الموظفين الذين تنطبق عليهم هذه القاعدة (اترك فارغاً للجميع)'
-                            : 'Select employees for this rule (leave empty for all)',
-                        style: Theme.of(context).textTheme.bodySmall,
-                      ),
-                    ),
-                    if (_selectedEmployeeIds.isNotEmpty)
-                      TextButton.icon(
-                        onPressed: () {
-                          setState(() {
-                            _selectedEmployeeIds.clear();
-                          });
-                        },
-                        icon: const Icon(Icons.clear, size: 16),
-                        label: Text(isAr ? 'مسح الكل' : 'Clear All'),
-                        style: TextButton.styleFrom(
-                          foregroundColor: Colors.red,
-                          padding: const EdgeInsets.symmetric(horizontal: 8),
-                        ),
-                      ),
-                  ],
+                _chips<int>(
+                  all: [for (final e in employees) e.id!],
+                  selected: _selectedEmployeeIds,
+                  label: (id) => employees.firstWhere((e) => e.id == id).name,
+                  empty: 'لا موظفين نشطين',
                 ),
-                const SizedBox(height: 12),
-                if (_loadingData)
-                  const Center(child: CircularProgressIndicator())
-                else
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      border: Border.all(color: Colors.grey.shade300),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: _allEmployees.isEmpty
-                        ? Text(
-                            isAr ? 'لا يوجد موظفين' : 'No employees',
-                            style: TextStyle(color: Colors.grey.shade600),
-                          )
-                        : Wrap(
-                            spacing: 8,
-                            runSpacing: 8,
-                            children: _allEmployees.map((emp) {
-                              final isSelected = _selectedEmployeeIds.contains(
-                                emp.id,
-                              );
-                              return ChoiceChip(
-                                label: Text(emp.name),
-                                selected: isSelected,
-                                onSelected: (selected) {
-                                  setState(() {
-                                    if (selected) {
-                                      _selectedEmployeeIds.add(emp.id!);
-                                    } else {
-                                      _selectedEmployeeIds.remove(emp.id);
-                                    }
-                                  });
-                                },
-                                selectedColor: const Color(
-                                  0xFFD4AF37,
-                                ).withValues(alpha: 0.3),
-                                checkmarkColor: const Color(0xFF8B6914),
-                                backgroundColor: Colors.grey.shade100,
-                                labelStyle: TextStyle(
-                                  color: isSelected
-                                      ? const Color(0xFF8B6914)
-                                      : Colors.black87,
-                                  fontWeight: isSelected
-                                      ? FontWeight.bold
-                                      : FontWeight.normal,
-                                ),
-                              );
-                            }).toList(),
-                          ),
+                if (_ruleType == 'profit_based') ...[
+                  _section(
+                    'أنواع الفواتير${_selectedInvoiceTypes.isEmpty ? '' : ' (${_selectedInvoiceTypes.length})'}',
+                    hint: 'لا شيء محدد: البيع وشراء الكسر.',
                   ),
-
-                const Divider(height: 32),
-
-                // 🆕 قسم تحديد أنواع الفواتير
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(
-                      isAr
-                          ? '📋 أنواع الفواتير المستهدفة'
-                          : '📋 Target Invoice Types',
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.bold,
-                        color: const Color(0xFFD4AF37),
-                      ),
-                    ),
-                    if (_selectedInvoiceTypes.isNotEmpty)
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 4,
-                        ),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFD4AF37),
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: Text(
-                          '${_selectedInvoiceTypes.length} ${isAr ? 'محدد' : 'selected'}',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 12,
-                          ),
-                        ),
-                      ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Expanded(
-                      child: Text(
-                        isAr
-                            ? 'اختر أنواع الفواتير التي تنطبق عليها هذه القاعدة (اترك فارغاً للجميع)'
-                            : 'Select invoice types for this rule (leave empty for all)',
-                        style: Theme.of(context).textTheme.bodySmall,
-                      ),
-                    ),
-                    if (_selectedInvoiceTypes.isNotEmpty)
-                      TextButton.icon(
-                        onPressed: () {
-                          setState(() {
-                            _selectedInvoiceTypes.clear();
-                          });
-                        },
-                        icon: const Icon(Icons.clear, size: 16),
-                        label: Text(isAr ? 'مسح الكل' : 'Clear All'),
-                        style: TextButton.styleFrom(
-                          foregroundColor: Colors.red,
-                          padding: const EdgeInsets.symmetric(horizontal: 8),
-                        ),
-                      ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                if (_loadingData)
-                  const Center(child: CircularProgressIndicator())
-                else
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      border: Border.all(color: Colors.grey.shade300),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: _availableInvoiceTypes.isEmpty
-                        ? Text(
-                            isAr ? 'لا توجد أنواع فواتير' : 'No invoice types',
-                            style: TextStyle(color: Colors.grey.shade600),
-                          )
-                        : Wrap(
-                            spacing: 8,
-                            runSpacing: 8,
-                            children: _availableInvoiceTypes.map((type) {
-                              final isSelected = _selectedInvoiceTypes.contains(
-                                type.value,
-                              );
-                              return ChoiceChip(
-                                label: Text(type.label),
-                                tooltip: type.description,
-                                selected: isSelected,
-                                onSelected: (selected) {
-                                  setState(() {
-                                    if (selected) {
-                                      _selectedInvoiceTypes.add(type.value);
-                                    } else {
-                                      _selectedInvoiceTypes.remove(type.value);
-                                    }
-                                  });
-                                },
-                                selectedColor: const Color(
-                                  0xFFD4AF37,
-                                ).withValues(alpha: 0.3),
-                                checkmarkColor: const Color(0xFF8B6914),
-                                backgroundColor: Colors.grey.shade100,
-                                labelStyle: TextStyle(
-                                  color: isSelected
-                                      ? const Color(0xFF8B6914)
-                                      : Colors.black87,
-                                  fontWeight: isSelected
-                                      ? FontWeight.bold
-                                      : FontWeight.normal,
-                                ),
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 12,
-                                  vertical: 8,
-                                ),
-                              );
-                            }).toList(),
-                          ),
+                  _chips<String>(
+                    all: [for (final t in _availableInvoiceTypes) t.value],
+                    selected: _selectedInvoiceTypes,
+                    label: (v) => _availableInvoiceTypes.firstWhere((t) => t.value == v).label,
+                    empty: 'لا أنواع فواتير',
                   ),
+                ],
               ],
             ),
           ),
@@ -1278,17 +784,12 @@ class _BonusRuleDialogState extends State<_BonusRuleDialog> {
       actions: [
         TextButton(
           onPressed: _saving ? null : () => Navigator.pop(context),
-          child: Text(isAr ? 'إلغاء' : 'Cancel'),
+          child: const Text('تراجع'),
         ),
-        ElevatedButton(
+        FilledButton(
+          key: const Key('rule-save'),
           onPressed: _saving ? null : _save,
-          child: _saving
-              ? const SizedBox(
-                  width: 16,
-                  height: 16,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              : Text(isAr ? 'حفظ' : 'Save'),
+          child: Text(_saving ? 'جارٍ الحفظ…' : (isAr ? 'حفظ' : 'Save')),
         ),
       ],
     );

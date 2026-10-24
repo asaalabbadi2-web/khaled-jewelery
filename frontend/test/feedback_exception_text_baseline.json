@@ -10,7 +10,6 @@
   "lib/screens/audit_log_screen.dart": 1,
   "lib/screens/backup_restore_screen.dart": 9,
   "lib/screens/barcode_print_screen.dart": 2,
-  "lib/screens/bonus_rules_screen.dart": 1,
   "lib/screens/calculate_bonuses_screen.dart": 1,
   "lib/screens/customers_screen.dart": 1,
   "lib/screens/employees_screen.dart": 2,

@@ -5057,6 +5057,11 @@ class BonusRule(db.Model):
             'target_departments': self.target_departments,
             'target_positions': self.target_positions,
             'target_employee_ids': self.target_employee_ids,
+            # Its employees by name, as the page says them (bonus study م3ج).
+            'target_employees': [
+                {'id': e.id, 'name': e.name}
+                for e in Employee.query.filter(Employee.id.in_(self.target_employee_ids)).order_by(Employee.name)
+            ] if self.target_employee_ids else [],
             'applicable_invoice_types': self.applicable_invoice_types,
             'points_source': self.points_source,
             'measure': self.measure,

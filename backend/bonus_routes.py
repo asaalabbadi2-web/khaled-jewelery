@@ -507,10 +507,10 @@ def update_bonus_rule(rule_id):
         if 'is_active' in data:
             rule.is_active = data['is_active']
         
-        if data.get('valid_from'):
-            rule.valid_from = datetime.strptime(data['valid_from'], '%Y-%m-%d').date()
-        if data.get('valid_to'):
-            rule.valid_to = datetime.strptime(data['valid_to'], '%Y-%m-%d').date()
+        # A date sent empty clears it: a validity set once could not be undone.
+        for key in ('valid_from', 'valid_to'):
+            if key in data:
+                setattr(rule, key, datetime.strptime(data[key], '%Y-%m-%d').date() if data[key] else None)
         
         db.session.commit()
         
@@ -537,7 +537,20 @@ def delete_bonus_rule(rule_id):
     """حذف قاعدة مكافأة"""
     try:
         rule = BonusRule.query.get_or_404(rule_id)
-        
+
+        # A rule with bonuses, or that is an employee's goal, is stopped, not
+        # deleted (bonus study م3ج): its bonuses keep their rule and their
+        # history its name. Deleting it answered with the database's words.
+        bonuses = EmployeeBonus.query.filter_by(bonus_rule_id=rule.id).count()
+        goals = Employee.query.filter(or_(Employee.goal_bonus_rule_id_daily == rule.id,
+                                          Employee.goal_bonus_rule_id_weekly == rule.id,
+                                          Employee.goal_bonus_rule_id_monthly == rule.id)).count()
+        if bonuses or goals:
+            used = '، و'.join(part for part in (f'{bonuses} مكافأة' if bonuses else '',
+                                                 f'هدف {goals} موظف' if goals else '') if part)
+            return jsonify({'success': False, 'error': 'rule_in_use', 'bonuses': bonuses, 'goals': goals,
+                            'message': f'لهذه القاعدة {used}. أوقفها بدل حذفها، فتبقى مكافآتها وتاريخها.'}), 409
+
         db.session.delete(rule)
         db.session.commit()
         

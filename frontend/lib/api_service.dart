@@ -7366,14 +7366,7 @@ class ApiService {
       }
       return parsed as Map<String, dynamic>;
     } else {
-      final error = json.decode(utf8.decode(response.bodyBytes));
-      throw ApiException.text(
-        error is Map<String, dynamic>
-            ? (error['error'] ??
-                  error['message'] ??
-                  'فشل في إنشاء قاعدة المكافأة')
-            : 'فشل في إنشاء قاعدة المكافأة',
-      );
+      throw _apiError(response, fallback: 'فشل في إنشاء قاعدة المكافأة');
     }
   }
 
@@ -7385,14 +7378,7 @@ class ApiService {
       body: json.encode(data),
     );
     if (response.statusCode != 200) {
-      final error = json.decode(utf8.decode(response.bodyBytes));
-      throw ApiException.text(
-        error is Map<String, dynamic>
-            ? (error['error'] ??
-                  error['message'] ??
-                  'فشل في تحديث قاعدة المكافأة')
-            : 'فشل في تحديث قاعدة المكافأة',
-      );
+      throw _apiError(response, fallback: 'فشل في تحديث قاعدة المكافأة');
     }
   }
 
@@ -7403,7 +7389,8 @@ class ApiService {
       headers: _jsonHeaders(token: token),
     );
     if (response.statusCode != 200) {
-      throw ApiException.text('فشل في حذف قاعدة المكافأة');
+      // rule_in_use: the rule has bonuses or is a goal -- stop it instead.
+      throw _apiError(response, fallback: 'فشل في حذف قاعدة المكافأة');
     }
   }
 

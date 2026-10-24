@@ -56,7 +56,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('tier-measure')), findsOneWidget);
     expect(find.text('نوع المكافأة'), findsNothing, reason: 'a tiered rule has no bonus type');
-    await tester.tap(find.widgetWithText(ElevatedButton, 'حفظ').last);
+    await tester.tap(find.byKey(const Key('rule-save')));
     await tester.pumpAndSettle();
     final sent = api.updated!;
     expect(sent['rule_type'], 'tiered');

@@ -11,7 +11,6 @@
   "lib/screens/attendance_screen.dart": 1,
   "lib/screens/audit_log_screen.dart": 1,
   "lib/screens/bonus_analytics_screen.dart": 1,
-  "lib/screens/bonus_rules_screen.dart": 3,
   "lib/screens/branches_management_screen.dart": 1,
   "lib/screens/calculate_bonuses_screen.dart": 1,
   "lib/screens/customers_screen.dart": 1,

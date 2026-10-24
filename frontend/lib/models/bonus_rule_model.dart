@@ -11,6 +11,9 @@ class BonusRuleModel {
   final List<String>? targetDepartments;
   final List<String>? targetPositions;
   final List<int>? targetEmployeeIds;
+
+  /// Its employees' names, as the server says them (bonus study م3ج).
+  final List<String> targetEmployeeNames;
   final List<String>? applicableInvoiceTypes;
   final bool isActive;
   final DateTime? validFrom;
@@ -37,6 +40,7 @@ class BonusRuleModel {
     this.targetDepartments,
     this.targetPositions,
     this.targetEmployeeIds,
+    this.targetEmployeeNames = const [],
     this.applicableInvoiceTypes,
     this.isActive = true,
     this.validFrom,
@@ -68,8 +72,12 @@ class BonusRuleModel {
           ?.map((e) => e.toString())
           .toList(),
       targetEmployeeIds: (json['target_employee_ids'] as List<dynamic>?)
-          ?.map((e) => e as int)
+          ?.map((e) => (e as num).toInt())
           .toList(),
+      targetEmployeeNames: [
+        for (final e in (json['target_employees'] as List<dynamic>?) ?? const [])
+          if (e is Map) '${e['name']}',
+      ],
       applicableInvoiceTypes:
           (json['applicable_invoice_types'] as List<dynamic>?)
               ?.map((e) => e.toString())
@@ -147,6 +155,7 @@ class BonusRuleModel {
       targetDepartments: targetDepartments ?? this.targetDepartments,
       targetPositions: targetPositions ?? this.targetPositions,
       targetEmployeeIds: targetEmployeeIds ?? this.targetEmployeeIds,
+      targetEmployeeNames: targetEmployeeNames,
       applicableInvoiceTypes:
           applicableInvoiceTypes ?? this.applicableInvoiceTypes,
       isActive: isActive ?? this.isActive,
@@ -181,6 +190,15 @@ class BonusRuleModel {
     ...computedRuleTypes,
     if (current != null && !computedRuleTypes.contains(current)) current,
   ];
+
+  /// The payouts each rule type computes (bonus_calculator); another pays
+  /// nothing, unsaid -- the form offers only these (bonus study م3ج).
+  static const Map<String, List<String>> bonusTypesByRule = {
+    'sales_target': ['percentage', 'fixed', 'sales_percentage'],
+    'fixed': ['percentage', 'fixed'],
+    'profit_based': ['percentage', 'fixed', 'profit_percentage'],
+    'points_based': ['points_per_unit', 'fixed', 'percentage'],
+  };
 
   /// أنواع احتساب المكافأة
   static const List<String> bonusTypes = [
