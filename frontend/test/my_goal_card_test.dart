@@ -30,7 +30,8 @@ Map<String, dynamic> _goal({int value = 1200, Map<String, dynamic>? tier, Map<St
   'next_tier': next ?? {'from': 1500, 'per_unit': 3.0}, 'to_next': toNext,
 };
 
-Future<void> _pump(WidgetTester tester, ApiService api, {ThemeData? theme, Size size = const Size(900, 900)}) async {
+Future<void> _pump(WidgetTester tester, ApiService api,
+    {ThemeData? theme, Size size = const Size(900, 900), bool framed = true}) async {
   SharedPreferences.setMockInitialValues({});
   final settings = SettingsProvider();
   await settings.loadSettings(fetchRemote: false);
@@ -41,7 +42,7 @@ Future<void> _pump(WidgetTester tester, ApiService api, {ThemeData? theme, Size 
     value: settings,
     child: MaterialApp(
       theme: theme ?? LightTheme.theme,
-      home: Directionality(textDirection: TextDirection.rtl, child: Scaffold(body: MyGoalCard(api: api))),
+      home: Directionality(textDirection: TextDirection.rtl, child: Scaffold(body: MyGoalCard(api: api, framed: framed))),
     ),
   ));
   await tester.pumpAndSettle();
@@ -89,4 +90,19 @@ void main() {
       expectNoTextVanishesOnDark(tester);
     });
   }
+
+  testWidgets('each goal is a ring with its percent, not another linear bar', (tester) async {
+    await _pump(tester, _Api(() async => [_goal(value: 800, reached: false, toNext: 200, amount: 0)]));
+    final ring = find.byKey(const Key('my-goal-ring'));
+    expect(ring, findsOneWidget);
+    expect(find.descendant(of: ring, matching: find.text('80%')), findsOneWidget);
+    expect(find.descendant(of: ring, matching: find.byType(CircularProgressIndicator)), findsOneWidget);
+    expect(find.byType(LinearProgressIndicator), findsNothing);
+  });
+
+  testWidgets('inside the race card it is a strip, no card of its own', (tester) async {
+    await _pump(tester, _Api(() async => [_goal()]), framed: false);
+    expect(find.text('هدفي الشهري'), findsOneWidget);
+    expect(find.byType(Card), findsNothing);
+  });
 }

@@ -2780,8 +2780,7 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.stretch,
                                   children: [
-                                    // «هدفي» (bonus study م3): hidden without a goal
-                                    MyGoalCard(api: api),
+                                    // «هدفي» is inside the race card (bonus study م3).
                                     _buildLeaderboardCard(isAr),
                                   ],
                                 ),
@@ -2798,11 +2797,11 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
                           children: [
                             _buildQuickActions(),
                             const SizedBox(height: 16),
-                            MyGoalCard(api: api),
-                            if (showSalesRaceCard) ...[
-                              const SizedBox(height: 16),
-                              _buildLeaderboardCard(isAr),
-                            ],
+                            // «هدفي» is inside the race card; alone without it.
+                            if (showSalesRaceCard)
+                              _buildLeaderboardCard(isAr)
+                            else
+                              MyGoalCard(api: api),
                           ],
                         );
                       },
@@ -3391,6 +3390,9 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+            // «هدفي» (bonus study م3): the signed-in employee's goals, a ring
+            // each, at the head of the race; nothing without a goal.
+            MyGoalCard(key: const Key('race-my-goal'), api: api, framed: false),
             // ── إذا لم يكن هناك بيانات للفترة الحالية: اعرض البانر فقط ──
             if (isFallback) ...[
               _buildNewDayBanner(isAr, isMonth, isWeek),
