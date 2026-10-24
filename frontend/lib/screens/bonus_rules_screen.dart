@@ -665,6 +665,8 @@ class _BonusRuleDialogState extends State<_BonusRuleDialog> {
                       if (_selectedEmployeeIds.isNotEmpty) 'target_employee_ids': _selectedEmployeeIds,
                       'min_bonus': _number(_minController) ?? 0.0,
                       if (_number(_maxController) != null) 'max_bonus': _number(_maxController),
+                      if (_validFrom != null) 'valid_from': _day.format(_validFrom!),
+                      if (_validTo != null) 'valid_to': _day.format(_validTo!),
                     },
                     onChanged: (t) => _tiered = t,
                   )
@@ -741,7 +743,7 @@ class _BonusRuleDialogState extends State<_BonusRuleDialog> {
                   const SizedBox(width: AppSpace.md),
                   Expanded(child: _numberField(_maxController, 'سقف المكافأة', helper: 'فارغ: بلا سقف')),
                 ]),
-                _section('الصلاحية', hint: 'فارغ: بلا حد.'),
+                _section('الصلاحية', hint: 'فارغ: بلا حد. فترة تقع بعضها فيها يُحسب منها ما وقع فيها فقط.'),
                 Row(children: [
                   _date('من تاريخ', _validFrom, (v) => _validFrom = v),
                   const SizedBox(width: AppSpace.md),

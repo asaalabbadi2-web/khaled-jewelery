@@ -38,6 +38,10 @@ class _Api extends ApiService {
       'tier': {'from': 1000, 'per_unit': 2.5}, 'employee_points': 1165,
     }),
     _bonus(2, 'يوسف الشعبي', 'pending', 300.0),
+    _bonus(4, 'خالد الحربي', 'paid', 3000.0, rule: _rule, data: {
+      'measure': 'points', 'value': 1200, 'tier': {'from': 1000, 'per_unit': 2.5},
+      'measured_from': '2026-09-15', 'measured_to': '2026-09-30',
+    }),
     _bonus(3, 'صالح العبادي', 'approved', 500.0, rule: _rule),
   ];
 
@@ -108,6 +112,8 @@ void main() {
   testWidgets('a bonus says why it is its amount: its measure, its value, its tier', (tester) async {
     await _pump(tester);
     expect(find.text('النقاط 1,165 · شريحة من 1,000 بـ 2.50 لكل وحدة'), findsOneWidget);
+    expect(find.text('النقاط 1,200 · شريحة من 1,000 بـ 2.50 لكل وحدة · عن 2026-09-15 → 2026-09-30'),
+        findsOneWidget, reason: 'a rule valid for part of the period says the days it counted');
   });
 
   testWidgets('approve asks first, says the entry, and then says its number', (tester) async {

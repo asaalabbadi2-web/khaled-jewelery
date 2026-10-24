@@ -1541,6 +1541,13 @@ class _PeriodChip extends StatelessWidget {
 String? bonusWhy(EmployeeBonusModel b, String currency) {
   final data = b.calculationData;
   if (data == null) return null;
+  final why = _whyOf(data, currency);
+  // A rule valid for part of the period counted those days alone (م3ج).
+  if (why == null || data['measured_from'] == null) return why;
+  return '$why · عن ${data['measured_from']} → ${data['measured_to']}';
+}
+
+String? _whyOf(Map<String, dynamic> data, String currency) {
   String n(Object? v) => v is num
       ? cu.formatAmount(v, decimals: v == v.truncate() ? 0 : 2)
       : '${v ?? '—'}';

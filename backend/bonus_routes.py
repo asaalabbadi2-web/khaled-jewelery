@@ -392,9 +392,15 @@ def preview_bonus_rule():
     except (TypeError, ValueError):
         return jsonify({'success': False, 'error': 'invalid_preview',
                         'message': 'until بصيغة YYYY-MM-DD، وperiods عدد'}), 400
+    try:
+        validity = {key: datetime.strptime(body[key], '%Y-%m-%d').date() if body.get(key) else None
+                    for key in ('valid_from', 'valid_to')}
+    except (TypeError, ValueError):
+        return jsonify({'success': False, 'error': 'invalid_preview',
+                        'message': 'تاريخا الصلاحية بصيغة YYYY-MM-DD'}), 400
     rule = BonusRule(rule_type='tiered', measure=measure_name, period=period, tiers=tiers,
                      min_bonus=body.get('min_bonus') or 0.0, max_bonus=body.get('max_bonus'),
-                     target_employee_ids=body.get('target_employee_ids'), is_active=True)
+                     target_employee_ids=body.get('target_employee_ids'), is_active=True, **validity)
 
     windows = []
     if period == 'monthly':
@@ -413,11 +419,13 @@ def preview_bonus_rule():
     windows.reverse()
 
     employees = [e for e in Employee.query.filter_by(is_active=True).order_by(Employee.id)
-                 if rule.is_valid_for_employee(e)]
+                 if rule.applies_to(e)]
     rows, total, total_paid = [], 0.0, 0.0
     for start, end in windows:
+        # Each period by the days it shares with the validity (bonus study م3ج).
+        window = rule.valid_window(start, end)
         for emp in employees:
-            value = measure(measure_name, emp.id, start, end)
+            value = measure(measure_name, emp.id, *window) if window else 0
             if measure_name == 'points':
                 value = int(round(value))
             tier = tier_for(tiers, value)
@@ -2549,7 +2557,7 @@ def bonus_estimate_for_invoice(invoice_id):
     estimates = []
 
     for rule in rules:
-        if not rule.is_valid_for_employee(employee):
+        if not rule.applies_to(employee):
             continue
         # One dispatch (bonus study م2): the calculator's own, tiers included.
         result = BonusCalculator._compute(employee, rule, period_start, period_end)

@@ -5022,13 +5022,18 @@ class BonusRule(db.Model):
     created_at = db.Column(db.DateTime, default=db.func.now())
     created_by = db.Column(db.String(100))
 
-    def is_valid_for_employee(self, employee):
-        today = date.today()
-        if self.valid_from and today < self.valid_from:
-            return False
-        if self.valid_to and today > self.valid_to:
-            return False
+    def valid_window(self, start, end):
+        """The days of [start, end] inside the rule's validity, or None when
+        they share none (bonus study م3ج; the owner: «بالأيام المشتركة»). The
+        validity was read on the day of the run, which computes the period
+        gone: a rule ending 30 Sep never paid September."""
+        start = max(start, self.valid_from) if self.valid_from else start
+        end = min(end, self.valid_to) if self.valid_to else end
+        return (start, end) if start <= end else None
 
+    def applies_to(self, employee):
+        """Whether the rule targets the employee: their department, position,
+        or the rule's employees. Its dates are the period's (valid_window)."""
         if self.target_departments:
             if not employee.department or employee.department not in self.target_departments:
                 return False

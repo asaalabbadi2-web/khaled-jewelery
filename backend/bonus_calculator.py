@@ -393,14 +393,22 @@ class BonusCalculator:
             'points_based': BonusCalculator.calculate_points_bonus,
         }
         calculate = calculators.get(rule.rule_type)
-        return calculate(employee, rule, period_start, period_end) if calculate else None
+        # Only the days the period shares with the rule's validity count
+        # (bonus study م3ج); the bonus stays the period's, and says them.
+        window = rule.valid_window(period_start, period_end)
+        if calculate is None or window is None:
+            return None
+        result = calculate(employee, rule, *window)
+        if result and window != (period_start, period_end):
+            result[2]['measured_from'], result[2]['measured_to'] = window[0].isoformat(), window[1].isoformat()
+        return result
 
     @staticmethod
     def estimate(employee, rule, period_start, period_end) -> float:
         """What the rule would pay the employee for the period so far -- the
         amount a goal promises is what its bonus pays (bonus study م1). Nothing
         is written."""
-        if not rule.is_active or not rule.is_valid_for_employee(employee):
+        if not rule.is_active or not rule.applies_to(employee):
             return 0.0
         result = BonusCalculator._compute(employee, rule, period_start, period_end)
         return float(result[1]) if result else 0.0
@@ -408,7 +416,7 @@ class BonusCalculator:
     @staticmethod
     def calculate_bonus(employee, rule, period_start, period_end):
         """حساب المكافأة بناءً على نوع القاعدة."""
-        if not rule.is_active or not rule.is_valid_for_employee(employee):
+        if not rule.is_active or not rule.applies_to(employee):
             return None
 
         result = BonusCalculator._compute(employee, rule, period_start, period_end)
