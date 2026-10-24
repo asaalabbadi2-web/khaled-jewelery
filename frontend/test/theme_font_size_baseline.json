@@ -52,7 +52,6 @@
   "lib/screens/reports/sales_vs_purchases_trend_report_screen.dart": 9,
   "lib/screens/reports/widgets/dashboard_summary_tabs_card.dart": 20,
   "lib/screens/roles_management_screen.dart": 2,
-  "lib/screens/sales_race_management_screen.dart": 6,
   "lib/screens/supplier_ledger_screen.dart": 21,
   "lib/screens/supplier_settlement_policy_screen.dart": 11,
   "lib/screens/supplier_settlements_screen.dart": 9,

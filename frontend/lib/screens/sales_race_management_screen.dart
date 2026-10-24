@@ -11,6 +11,7 @@ import '../providers/settings_provider.dart';
 import '../theme/app_theme.dart';
 import '../utils/currency_utils.dart' as cu;
 import '../widgets/app_feedback.dart';
+import '../widgets/app_state_views.dart';
 import '../widgets/confirm_financial_action.dart';
 import '../widgets/app_bar_tab_bar.dart';
 
@@ -58,6 +59,23 @@ class _SalesRaceManagementScreenState extends State<SalesRaceManagementScreen> {
   /// The points settings as saved: a change of them is previewed before it
   /// is saved (bonus study م3د).
   Map<String, Object> _savedPoints = const {};
+
+  // The colours are the theme's, as on the home screen's race (bonus study م3).
+  ColorScheme get _cs => Theme.of(context).colorScheme;
+  AppSemanticColors get _tones => AppSemanticColors.of(context);
+
+  /// A light sheen over a card: white in light mode, the text colour in dark.
+  Color get _sheen =>
+      Theme.of(context).brightness == Brightness.dark ? _cs.onSurface : _cs.surfaceContainerLowest;
+
+  /// The crown's light gold on its purple, in both modes.
+  Color get _crownGold =>
+      Theme.of(context).brightness == Brightness.dark ? _tones.gold.fg : _tones.gold.container;
+
+  SemanticTone _medal(int index) =>
+      switch (index) { 0 => _tones.gold, 1 => _tones.silver, _ => _tones.bronze };
+
+  static String _typed(double v) => v == v.truncateToDouble() ? '${v.toInt()}' : '$v';
   bool _allowFallback = true;
   bool _showInvoiceCount = true;
   bool _showChampion = true;
@@ -182,21 +200,11 @@ class _SalesRaceManagementScreenState extends State<SalesRaceManagementScreen> {
         (cfg['weekly_sales_target_weight'] as num?)?.toDouble() ?? 2000.0;
     _monthlyTarget =
         (cfg['monthly_sales_target_weight'] as num?)?.toDouble() ?? 8000.0;
-    _pointsCtrl.text = _pointsPerGram.toStringAsFixed(
-      _pointsPerGram == _pointsPerGram.truncateToDouble() ? 0 : 1,
-    );
-    _cashAmountCtrl.text = _cashAmountPerPoint.toStringAsFixed(
-      _cashAmountPerPoint == _cashAmountPerPoint.truncateToDouble() ? 0 : 2,
-    );
-    _pointsPerInvoiceCtrl.text = _pointsPerInvoice.toStringAsFixed(
-      _pointsPerInvoice == _pointsPerInvoice.truncateToDouble() ? 0 : 1,
-    );
-    _weeklyTargetCtrl.text = _weeklyTarget.toStringAsFixed(
-      _weeklyTarget == _weeklyTarget.truncateToDouble() ? 0 : 1,
-    );
-    _monthlyTargetCtrl.text = _monthlyTarget.toStringAsFixed(
-      _monthlyTarget == _monthlyTarget.truncateToDouble() ? 0 : 1,
-    );
+    _pointsCtrl.text = _typed(_pointsPerGram);
+    _cashAmountCtrl.text = _typed(_cashAmountPerPoint);
+    _pointsPerInvoiceCtrl.text = _typed(_pointsPerInvoice);
+    _weeklyTargetCtrl.text = _typed(_weeklyTarget);
+    _monthlyTargetCtrl.text = _typed(_monthlyTarget);
   }
 
   Future<void> _saveConfig() async {
@@ -397,7 +405,7 @@ class _SalesRaceManagementScreenState extends State<SalesRaceManagementScreen> {
   Widget _buildDashboardTab(bool isAr) {
     return RefreshIndicator(
       onRefresh: _loadLeaderboard,
-      color: AppColors.primaryGold,
+      color: _cs.primary,
       child: SingleChildScrollView(
         physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.all(16),
@@ -407,12 +415,7 @@ class _SalesRaceManagementScreenState extends State<SalesRaceManagementScreen> {
             _buildPeriodAndMetricSelectors(isAr),
             const SizedBox(height: 16),
             if (_loading)
-              const Center(
-                child: Padding(
-                  padding: EdgeInsets.symmetric(vertical: 48),
-                  child: CircularProgressIndicator(),
-                ),
-              )
+              const SizedBox(height: 420, child: AppLoadingView(summaryBlocks: 2, rows: 4))
             else if (_error != null)
               _buildErrorCard(isAr)
             else if (_data == null)
@@ -574,7 +577,7 @@ class _SalesRaceManagementScreenState extends State<SalesRaceManagementScreen> {
       child: Container(
         padding: const EdgeInsets.all(2),
         decoration: BoxDecoration(
-          color: AppColors.lightGold.withValues(alpha: 0.18),
+          color: _tones.gold.container,
           borderRadius: BorderRadius.circular(16),
         ),
         child: Row(
@@ -583,11 +586,11 @@ class _SalesRaceManagementScreenState extends State<SalesRaceManagementScreen> {
               width: 52,
               height: 52,
               decoration: BoxDecoration(
-                color: AppColors.primaryGold.withValues(alpha: 0.16),
+                color: _cs.primary.withValues(alpha: 0.16),
                 borderRadius: BorderRadius.circular(16),
               ),
-              child: const Center(
-                child: Text('🥇', style: TextStyle(fontSize: 30)),
+              child: Center(
+                child: Text('🥇', style: Theme.of(context).textTheme.headlineMedium),
               ),
             ),
             const SizedBox(width: 12),
@@ -609,7 +612,7 @@ class _SalesRaceManagementScreenState extends State<SalesRaceManagementScreen> {
                     name,
                     style: Theme.of(context).textTheme.titleMedium?.copyWith(
                       fontWeight: FontWeight.bold,
-                      color: AppColors.deepGold,
+                      color: _tones.gold.fg,
                     ),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
@@ -639,7 +642,7 @@ class _SalesRaceManagementScreenState extends State<SalesRaceManagementScreen> {
               Icon(
                 Icons.bar_chart_rounded,
                 size: 20,
-                color: AppColors.primaryGold,
+                color: _cs.primary,
               ),
               const SizedBox(width: 8),
               Text(
@@ -657,15 +660,15 @@ class _SalesRaceManagementScreenState extends State<SalesRaceManagementScreen> {
           if (totalSalesAmount != null)
             _summaryRow(
               isAr ? 'مبلغ المبيعات' : 'Sales Amount',
-              '${totalSalesAmount.toStringAsFixed(2)} $currency',
-              color: AppColors.primaryGold,
+              '${cu.formatAmount(totalSalesAmount)} $currency',
+              color: _tones.invoiceSale.fg,
             ),
           if (totalPurchaseAmount != null) ...[
             const SizedBox(height: 6),
             _summaryRow(
               isAr ? 'مبلغ المشتريات' : 'Purchases Amount',
-              '${totalPurchaseAmount.toStringAsFixed(2)} $currency',
-              color: AppColors.darkGold,
+              '${cu.formatAmount(totalPurchaseAmount)} $currency',
+              color: _tones.invoicePurchaseScrap.fg,
             ),
           ],
           if (totalPoints != null) ...[
@@ -673,7 +676,7 @@ class _SalesRaceManagementScreenState extends State<SalesRaceManagementScreen> {
             _summaryRow(
               isAr ? 'إجمالي النقاط' : 'Total Points',
               isAr ? '$totalPoints نقطة' : '$totalPoints pts',
-              color: AppColors.deepGold,
+              color: _tones.gold.fg,
             ),
           ],
         ],
@@ -727,18 +730,13 @@ class _SalesRaceManagementScreenState extends State<SalesRaceManagementScreen> {
         currentValue != null && targetValue != null &&
         targetValue > 0 && currentValue >= targetValue;
     final goalColor = isGoalAchieved
-        ? AppColors.success
-        : (effectiveTargetProgress < 0.5 ? AppColors.warning : AppColors.info);
+        ? _tones.ready.fg
+        : (effectiveTargetProgress < 0.5 ? _tones.warning.fg : _tones.info.fg);
 
-    final teamVal = usePoints
-        ? teamPoints?.toStringAsFixed(0)
-        : teamWeight?.toStringAsFixed(1);
-    final targetVal = usePoints
-        ? weeklyTargetPoints?.toStringAsFixed(0)
-        : weeklyTarget?.toStringAsFixed(0);
-    final remainingVal = usePoints
-        ? remainingPoints?.toStringAsFixed(0)
-        : remainingWeight?.toStringAsFixed(1);
+    String? n(num? v, int decimals) => v == null ? null : cu.formatAmount(v, decimals: decimals);
+    final teamVal = usePoints ? n(teamPoints, 0) : n(teamWeight, 1);
+    final targetVal = usePoints ? n(weeklyTargetPoints, 0) : n(weeklyTarget, 0);
+    final remainingVal = usePoints ? n(remainingPoints, 0) : n(remainingWeight, 1);
     final unit = usePoints ? (isAr ? ' نقطة' : ' pts') : (isAr ? ' جم' : ' g');
     final percentText = '${(effectiveTargetProgress * 100).round()}%';
 
@@ -827,7 +825,7 @@ class _SalesRaceManagementScreenState extends State<SalesRaceManagementScreen> {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
             decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.82),
+              color: _sheen.withValues(alpha: 0.82),
               borderRadius: BorderRadius.circular(18),
               border: Border.all(
                 color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.06),
@@ -877,7 +875,7 @@ class _SalesRaceManagementScreenState extends State<SalesRaceManagementScreen> {
                     Text(
                       '$targetVal$unit',
                       style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        color: AppColors.primaryGold,
+                        color: _cs.primary,
                         fontWeight: FontWeight.w800,
                       ),
                     ),
@@ -893,9 +891,9 @@ class _SalesRaceManagementScreenState extends State<SalesRaceManagementScreen> {
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                 decoration: BoxDecoration(
-                  color: AppColors.warning.withValues(alpha: 0.08),
+                  color: _tones.warning.fg.withValues(alpha: 0.08),
                   borderRadius: BorderRadius.circular(999),
-                  border: Border.all(color: AppColors.warning.withValues(alpha: 0.16)),
+                  border: Border.all(color: _tones.warning.fg.withValues(alpha: 0.16)),
                 ),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
@@ -903,13 +901,13 @@ class _SalesRaceManagementScreenState extends State<SalesRaceManagementScreen> {
                     Icon(
                       Icons.timelapse_rounded,
                       size: 15,
-                      color: AppColors.warning,
+                      color: _tones.warning.fg,
                     ),
                     const SizedBox(width: 6),
                     Text(
                       isAr ? 'المتبقي: $remainingVal$unit' : 'Remaining: $remainingVal$unit',
                       style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                        color: AppColors.warning,
+                        color: _tones.warning.fg,
                         fontWeight: FontWeight.w700,
                       ),
                     ),
@@ -1016,9 +1014,9 @@ class _SalesRaceManagementScreenState extends State<SalesRaceManagementScreen> {
         return count.toString();
       }
       if (metric == 'points') {
-        return score.toStringAsFixed(0);
+        return cu.formatAmount(score, decimals: 0);
       }
-      return score.toStringAsFixed(1);
+      return cu.formatAmount(score, decimals: 1);
     }
 
     String metricUnitText() {
@@ -1054,7 +1052,7 @@ class _SalesRaceManagementScreenState extends State<SalesRaceManagementScreen> {
               ),
               Icon(
                 Icons.emoji_events_rounded,
-                color: AppColors.primaryGold,
+                color: _cs.primary,
                 size: 22,
               ),
             ],
@@ -1070,10 +1068,10 @@ class _SalesRaceManagementScreenState extends State<SalesRaceManagementScreen> {
                   vertical: 6,
                 ),
                 decoration: BoxDecoration(
-                  color: AppColors.lightGold.withValues(alpha: 0.35),
+                  color: _tones.gold.container,
                   borderRadius: BorderRadius.circular(999),
                   border: Border.all(
-                    color: AppColors.primaryGold.withValues(alpha: 0.18),
+                    color: _cs.primary.withValues(alpha: 0.18),
                   ),
                 ),
                 child: Text(
@@ -1083,7 +1081,7 @@ class _SalesRaceManagementScreenState extends State<SalesRaceManagementScreen> {
                     _ => isAr ? 'عرض حسب الوزن' : 'Weight view',
                   },
                   style: theme.textTheme.labelSmall?.copyWith(
-                    color: AppColors.deepGold,
+                    color: _tones.gold.fg,
                     fontWeight: FontWeight.w700,
                   ),
                 ),
@@ -1114,10 +1112,10 @@ class _SalesRaceManagementScreenState extends State<SalesRaceManagementScreen> {
                     vertical: 6,
                   ),
                   decoration: BoxDecoration(
-                    color: AppColors.primaryGold.withValues(alpha: 0.08),
+                    color: _cs.primary.withValues(alpha: 0.08),
                     borderRadius: BorderRadius.circular(999),
                     border: Border.all(
-                      color: AppColors.primaryGold.withValues(alpha: 0.16),
+                      color: _cs.primary.withValues(alpha: 0.16),
                     ),
                   ),
                   child: Text(
@@ -1125,7 +1123,7 @@ class _SalesRaceManagementScreenState extends State<SalesRaceManagementScreen> {
                         ? 'المتصدر الآن: $championName'
                         : 'Current leader: $championName',
                     style: theme.textTheme.labelSmall?.copyWith(
-                      color: AppColors.deepGold,
+                      color: _tones.gold.fg,
                       fontWeight: FontWeight.w700,
                     ),
                   ),
@@ -1158,14 +1156,14 @@ class _SalesRaceManagementScreenState extends State<SalesRaceManagementScreen> {
                 ? colorScheme.primary
                 : colorScheme.secondary;
             final Color progressColor = switch (i) {
-              1 => const Color(0xFF98A2B3),
-              2 => const Color(0xFFCD7F32),
+              1 => _tones.silver.fg,
+              2 => _tones.bronze.fg,
               _ => valueColor,
             };
             final medalAccent = switch (i) {
-              0 => const Color(0xFFB88913),
-              1 => const Color(0xFF8F99A7),
-              2 => const Color(0xFFA56A36),
+              0 => _tones.gold.fg,
+              1 => _tones.silver.fg,
+              2 => _tones.bronze.fg,
               _ => valueColor,
             };
             final isTopThree = i < 3;
@@ -1173,12 +1171,12 @@ class _SalesRaceManagementScreenState extends State<SalesRaceManagementScreen> {
                 ? colorScheme.surfaceContainerHigh.withValues(
                     alpha: isTopThree ? 0.48 : 0.62,
                   )
-                : Colors.white.withValues(alpha: isTopThree ? 0.72 : 0.92);
+                : _sheen.withValues(alpha: isTopThree ? 0.72 : 0.92);
             final glassTintColor = isDark
                 ? medalAccent.withValues(alpha: isTopThree ? 0.08 : 0.03)
                 : medalAccent.withValues(alpha: isTopThree ? 0.06 : 0.02);
             final roleBadgeColor = i == 0
-                ? AppColors.darkGold
+                ? _tones.gold.fg
                 : colorScheme.onSurface.withValues(alpha: 0.62);
 
             return Padding(
@@ -1201,7 +1199,7 @@ class _SalesRaceManagementScreenState extends State<SalesRaceManagementScreen> {
                     begin: AlignmentDirectional.topStart,
                     end: AlignmentDirectional.bottomEnd,
                     colors: [
-                      Colors.white.withValues(alpha: isDark ? 0.09 : 0.24),
+                      _sheen.withValues(alpha: isDark ? 0.09 : 0.24),
                       glassBaseColor,
                       glassTintColor,
                     ],
@@ -1209,7 +1207,7 @@ class _SalesRaceManagementScreenState extends State<SalesRaceManagementScreen> {
                   borderRadius: BorderRadius.circular(18),
                   border: Border.all(
                     color: isTopThree
-                        ? Colors.white.withValues(alpha: isDark ? 0.20 : 0.62)
+                        ? _sheen.withValues(alpha: isDark ? 0.20 : 0.62)
                         : colorScheme.onSurface.withValues(alpha: 0.08),
                   ),
                   boxShadow: isTopThree
@@ -1230,9 +1228,9 @@ class _SalesRaceManagementScreenState extends State<SalesRaceManagementScreen> {
                     begin: Alignment.topCenter,
                     end: Alignment.bottomCenter,
                     colors: [
-                      Colors.white.withValues(alpha: isDark ? 0.08 : 0.22),
-                      Colors.white.withValues(alpha: 0),
-                      Colors.black.withValues(alpha: isDark ? 0.04 : 0),
+                      _sheen.withValues(alpha: isDark ? 0.08 : 0.22),
+                      _sheen.withValues(alpha: 0),
+                      _cs.shadow.withValues(alpha: isDark ? 0.04 : 0),
                     ],
                   ),
                 ),
@@ -1302,13 +1300,13 @@ class _SalesRaceManagementScreenState extends State<SalesRaceManagementScreen> {
                           Text(
                             isAr
                                 ? (purchaseAmount > 0
-                                      ? 'مبيعات ${salesAmount.toStringAsFixed(2)} $currency • مشتريات ${purchaseAmount.toStringAsFixed(2)} $currency'
-                                      : '${salesAmount.toStringAsFixed(2)} $currency مبيعات')
+                                      ? 'مبيعات ${cu.formatAmount(salesAmount)} $currency • مشتريات ${cu.formatAmount(purchaseAmount)} $currency'
+                                      : '${cu.formatAmount(salesAmount)} $currency مبيعات')
                                 : (purchaseAmount > 0
-                                      ? 'Sales ${salesAmount.toStringAsFixed(2)} $currency • Purchases ${purchaseAmount.toStringAsFixed(2)} $currency'
-                                      : '${salesAmount.toStringAsFixed(2)} $currency sales'),
+                                      ? 'Sales ${cu.formatAmount(salesAmount)} $currency • Purchases ${cu.formatAmount(purchaseAmount)} $currency'
+                                      : '${cu.formatAmount(salesAmount)} $currency sales'),
                             style: theme.textTheme.bodySmall?.copyWith(
-                              color: AppColors.darkGold,
+                              color: _tones.gold.fg,
                               fontWeight: FontWeight.w700,
                             ),
                           ),
@@ -1388,14 +1386,14 @@ class _SalesRaceManagementScreenState extends State<SalesRaceManagementScreen> {
                             ),
                             decoration: BoxDecoration(
                               color: i == 0
-                                  ? AppColors.primaryGold.withValues(
+                                  ? _cs.primary.withValues(
                                       alpha: 0.14,
                                     )
                                   : valueColor.withValues(alpha: 0.08),
                               borderRadius: BorderRadius.circular(14),
                               border: Border.all(
                                 color: i == 0
-                                    ? AppColors.primaryGold.withValues(
+                                    ? _cs.primary.withValues(
                                         alpha: 0.28,
                                       )
                                     : valueColor.withValues(alpha: 0.14),
@@ -1460,9 +1458,10 @@ class _SalesRaceManagementScreenState extends State<SalesRaceManagementScreen> {
                   begin: Alignment.topLeft,
                   end: Alignment.bottomRight,
                   colors: switch (index) {
-                    0 => const [Color(0xFFF7EAC6), Color(0xFFD1AF68)],
-                    1 => const [Color(0xFFF5F7FA), Color(0xFFBEC7D3)],
-                    2 => const [Color(0xFFF1DCC7), Color(0xFFC18A5A)],
+                    < 3 => [
+                        _medal(index).fg,
+                        Color.lerp(_medal(index).fg, _medal(index).onContainer, 0.5)!,
+                      ],
                     _ => [
                         medalAccent.withValues(alpha: 0.22),
                         medalAccent.withValues(alpha: 0.10),
@@ -1472,7 +1471,7 @@ class _SalesRaceManagementScreenState extends State<SalesRaceManagementScreen> {
                 borderRadius: BorderRadius.circular(14),
                 border: Border.all(
                   color: index < 3
-                      ? Colors.white.withValues(alpha: 0.55)
+                      ? _sheen.withValues(alpha: 0.55)
                       : medalAccent.withValues(alpha: 0.20),
                 ),
               ),
@@ -1482,8 +1481,8 @@ class _SalesRaceManagementScreenState extends State<SalesRaceManagementScreen> {
                   style: TextStyle(
                     fontFamily: 'Cairo',
                     fontWeight: FontWeight.w900,
-                    fontSize: 17,
-                    color: index < 3 ? const Color(0xFF47340E) : medalAccent,
+                    fontSize: Theme.of(context).textTheme.titleLarge?.fontSize,
+                    color: index < 3 ? _cs.onPrimary : medalAccent,
                   ),
                 ),
               ),
@@ -1499,22 +1498,22 @@ class _SalesRaceManagementScreenState extends State<SalesRaceManagementScreen> {
                   width: 22,
                   height: 22,
                   decoration: BoxDecoration(
-                    gradient: const LinearGradient(
+                    gradient: LinearGradient(
                       begin: AlignmentDirectional.topStart,
                       end: AlignmentDirectional.bottomEnd,
                       colors: [
-                        Color(0xFF6C2AA6),
-                        Color(0xFF3F1B78),
+                        _tones.sectionPurple.fg,
+                        Color.lerp(_tones.sectionPurple.fg, _cs.shadow, 0.35)!,
                       ],
                     ),
                     shape: BoxShape.circle,
                     border: Border.all(
-                      color: const Color(0xFFFFE082).withValues(alpha: 0.85),
+                      color: _crownGold.withValues(alpha: 0.85),
                       width: 1,
                     ),
                     boxShadow: [
                       BoxShadow(
-                        color: const Color(0xFF6C2AA6).withValues(alpha: 0.35),
+                        color: _tones.sectionPurple.fg.withValues(alpha: 0.35),
                         blurRadius: 4,
                         offset: const Offset(0, 1),
                       ),
@@ -1523,18 +1522,18 @@ class _SalesRaceManagementScreenState extends State<SalesRaceManagementScreen> {
                   child: Stack(
                     alignment: Alignment.center,
                     children: [
-                      const Icon(
+                      Icon(
                         Icons.workspace_premium_rounded,
                         size: 13,
-                        color: Color(0xFFFFE082),
+                        color: _crownGold,
                       ),
                       Positioned(
                         top: 4,
                         child: Container(
                           width: 3,
                           height: 3,
-                          decoration: const BoxDecoration(
-                            color: Color(0xFFFFF9C4),
+                          decoration: BoxDecoration(
+                            color: _crownGold,
                             shape: BoxShape.circle,
                           ),
                         ),
@@ -1585,7 +1584,7 @@ class _SalesRaceManagementScreenState extends State<SalesRaceManagementScreen> {
 
   Widget _buildSettingsTab(bool isAr) {
     if (_configLoading) {
-      return const Center(child: CircularProgressIndicator());
+      return const AppLoadingView(summaryBlocks: 1, rows: 6);
     }
     if (_configError != null) {
       return Center(
@@ -1629,7 +1628,7 @@ class _SalesRaceManagementScreenState extends State<SalesRaceManagementScreen> {
               ),
               value: _enabled,
               onChanged: (v) => setState(() => _enabled = v),
-              activeColor: AppColors.primaryGold,
+              activeColor: _cs.primary,
             ),
           ),
           const SizedBox(height: 20),
@@ -1774,14 +1773,14 @@ class _SalesRaceManagementScreenState extends State<SalesRaceManagementScreen> {
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                   decoration: BoxDecoration(
-                    color: AppColors.lightGold.withValues(alpha: 0.2),
+                    color: _tones.gold.container,
                     borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: AppColors.primaryGold.withValues(alpha: 0.2)),
+                    border: Border.all(color: _cs.primary.withValues(alpha: 0.2)),
                   ),
                   child: Text(
                     _pointsSourceDescription(isAr),
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: AppColors.deepGold,
+                      color: _tones.gold.fg,
                       fontWeight: FontWeight.w600,
                     ),
                   ),
@@ -1863,7 +1862,7 @@ class _SalesRaceManagementScreenState extends State<SalesRaceManagementScreen> {
                   ),
                   value: _showChampion,
                   onChanged: (v) => setState(() => _showChampion = v),
-                  activeColor: AppColors.primaryGold,
+                  activeColor: _cs.primary,
                 ),
                 const Divider(height: 1),
                 SwitchListTile(
@@ -1875,7 +1874,7 @@ class _SalesRaceManagementScreenState extends State<SalesRaceManagementScreen> {
                   ),
                   value: _showInvoiceCount,
                   onChanged: (v) => setState(() => _showInvoiceCount = v),
-                  activeColor: AppColors.primaryGold,
+                  activeColor: _cs.primary,
                 ),
                 const Divider(height: 1),
                 SwitchListTile(
@@ -1892,7 +1891,7 @@ class _SalesRaceManagementScreenState extends State<SalesRaceManagementScreen> {
                   ),
                   value: _allowFallback,
                   onChanged: (v) => setState(() => _allowFallback = v),
-                  activeColor: AppColors.primaryGold,
+                  activeColor: _cs.primary,
                 ),
               ],
             ),
@@ -1943,7 +1942,7 @@ class _SalesRaceManagementScreenState extends State<SalesRaceManagementScreen> {
                                 entry.$2,
                                 style: TextStyle(
                                   color: _enabledPeriods.contains(entry.$1)
-                                      ? Colors.white
+                                      ? _cs.onPrimary
                                       : Theme.of(context).colorScheme.onSurface,
                                   fontWeight: _enabledPeriods.contains(entry.$1)
                                       ? FontWeight.w700
@@ -1951,13 +1950,13 @@ class _SalesRaceManagementScreenState extends State<SalesRaceManagementScreen> {
                                 ),
                               ),
                               selected: _enabledPeriods.contains(entry.$1),
-                              selectedColor: AppColors.primaryGold,
+                              selectedColor: _cs.primary,
                               backgroundColor: Colors.transparent,
-                              checkmarkColor: Colors.white,
+                              checkmarkColor: _cs.onPrimary,
                               showCheckmark: true,
                               side: BorderSide(
                                 color: _enabledPeriods.contains(entry.$1)
-                                    ? AppColors.primaryGold
+                                    ? _cs.primary
                                     : Theme.of(context).colorScheme.outline.withValues(alpha: 0.45),
                                 width: 1.2,
                               ),
@@ -1986,9 +1985,8 @@ class _SalesRaceManagementScreenState extends State<SalesRaceManagementScreen> {
                         isAr
                             ? 'اختر الفترة لضبط صلاحياتها'
                             : 'Select period to configure',
-                        style: const TextStyle(
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                           fontWeight: FontWeight.w600,
-                          fontSize: 13,
                         ),
                       ),
                       const SizedBox(height: 8),
@@ -2005,8 +2003,8 @@ class _SalesRaceManagementScreenState extends State<SalesRaceManagementScreen> {
                                 label: Text(entry.$2),
                                 selected: _selectedVisibilityPeriod == entry.$1,
                                 selectedColor:
-                                    AppColors.primaryGold.withValues(alpha: 0.2),
-                                checkmarkColor: AppColors.deepGold,
+                                    _cs.primary.withValues(alpha: 0.2),
+                                checkmarkColor: _tones.gold.fg,
                                 onSelected: (_) => setState(
                                   () => _selectedVisibilityPeriod = entry.$1,
                                 ),
@@ -2076,29 +2074,19 @@ class _SalesRaceManagementScreenState extends State<SalesRaceManagementScreen> {
           SizedBox(
             width: double.infinity,
             height: 52,
-            child: ElevatedButton.icon(
+            child: FilledButton.icon(
               onPressed: _configSaving ? null : _saveConfig,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppColors.primaryGold,
-                foregroundColor: Colors.black,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(14),
-                ),
-              ),
               icon: _configSaving
-                  ? const SizedBox(
+                  ? SizedBox(
                       width: 20,
                       height: 20,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: Colors.black,
-                      ),
+                      child: CircularProgressIndicator(strokeWidth: 2, color: _cs.onPrimary),
                     )
                   : const Icon(Icons.save_rounded),
               label: Text(
                 isAr ? 'حفظ الإعدادات' : 'Save Settings',
-                style: const TextStyle(
-                  fontSize: 16,
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  color: _cs.onPrimary,
                   fontWeight: FontWeight.bold,
                 ),
               ),
@@ -2126,7 +2114,7 @@ class _SalesRaceManagementScreenState extends State<SalesRaceManagementScreen> {
         ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.04),
+            color: _cs.shadow.withValues(alpha: 0.04),
             blurRadius: 8,
             offset: const Offset(0, 2),
           ),
@@ -2157,18 +2145,18 @@ class _SalesRaceManagementScreenState extends State<SalesRaceManagementScreen> {
       ),
       foregroundColor: WidgetStateProperty.resolveWith((states) {
         if (states.contains(WidgetState.selected)) {
-          return Colors.white;
+          return _cs.onPrimary;
         }
         return colorScheme.onSurface.withValues(alpha: 0.72);
       }),
       backgroundColor: WidgetStateProperty.resolveWith((states) {
         if (states.contains(WidgetState.selected)) {
-          return AppColors.primaryGold;
+          return _cs.primary;
         }
         return colorScheme.surfaceContainerHighest.withValues(alpha: 0.45);
       }),
       overlayColor: WidgetStateProperty.all(
-        AppColors.primaryGold.withValues(alpha: 0.08),
+        _cs.primary.withValues(alpha: 0.08),
       ),
       elevation: WidgetStateProperty.all(0),
     );
@@ -2183,7 +2171,7 @@ class _SalesRaceManagementScreenState extends State<SalesRaceManagementScreen> {
     bool isAr,
   ) {
     return ListTile(
-      leading: Icon(icon, color: AppColors.primaryGold, size: 22),
+      leading: Icon(icon, color: _cs.primary, size: 22),
       title: Text(title, style: const TextStyle(fontWeight: FontWeight.w600)),
       subtitle: Text(subtitle),
       trailing: DropdownButtonHideUnderline(
@@ -2195,14 +2183,14 @@ class _SalesRaceManagementScreenState extends State<SalesRaceManagementScreen> {
               value: 'all',
               child: Text(
                 isAr ? 'للجميع' : 'Everyone',
-                style: const TextStyle(fontSize: 13),
+                style: Theme.of(context).textTheme.bodyMedium,
               ),
             ),
             DropdownMenuItem(
               value: 'admin_only',
               child: Text(
                 isAr ? 'المسؤول فقط' : 'Admin only',
-                style: const TextStyle(fontSize: 13),
+                style: Theme.of(context).textTheme.bodyMedium,
               ),
             ),
           ],
@@ -2217,13 +2205,13 @@ class _SalesRaceManagementScreenState extends State<SalesRaceManagementScreen> {
   Widget _buildSectionHeader(String title, IconData icon) {
     return Row(
       children: [
-        Icon(icon, size: 18, color: AppColors.primaryGold),
+        Icon(icon, size: 18, color: _cs.primary),
         const SizedBox(width: 8),
         Text(
           title,
           style: Theme.of(context).textTheme.titleSmall?.copyWith(
             fontWeight: FontWeight.bold,
-            color: AppColors.primaryGold,
+            color: _cs.primary,
           ),
         ),
       ],

@@ -6,8 +6,11 @@ import 'package:frontend/providers/sales_race_refresh_provider.dart';
 import 'package:frontend/providers/settings_provider.dart';
 import 'package:frontend/screens/sales_race_management_screen.dart';
 import 'package:frontend/theme/app_theme.dart';
+import 'package:intl/date_symbol_data_local.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+import 'support/dark_text.dart';
 
 /// A change of the race's points settings is said in figures before it is
 /// saved (bonus study م3د; the owner: «حيّ مع تحذير ومعاينة»): the settings are
@@ -35,8 +38,17 @@ class _Api extends ApiService {
   Future<Map<String, dynamic>> getSalesRaceConfig() async => Map<String, dynamic>.from(_config);
 
   @override
-  Future<Map<String, dynamic>> getHomeLeaderboard({String period = 'today', String metric = 'weight'}) async =>
-      {'rows': []};
+  Future<Map<String, dynamic>> getHomeLeaderboard({String period = 'today', String metric = 'weight'}) async => {
+        'metric': 'points',
+        'champion': {'name': 'مسعد المهري'},
+        'admin_summary': {'total_sales_amount': 120000.0, 'total_purchase_amount': 30000.0, 'total_points': 2400},
+        'team_points': 2400, 'weekly_target_points': 3000, 'remaining_points': 600, 'target_progress': 0.8,
+        'ranking': [
+          for (final (i, name) in ['مسعد المهري', 'يوسف الشعبي', 'صالح العبادي', 'خالد الحربي'].indexed)
+            {'name': name, 'score': 1200.0 - i * 200, 'share': 0.4 - i * 0.1, 'count': 10 - i,
+             'sales_amount': 40000.0 - i * 5000, 'purchase_amount': 5000.0},
+        ],
+      };
 
   @override
   Future<Map<String, dynamic>> previewSalesRaceConfig(Map<String, dynamic> points) async {
@@ -59,8 +71,10 @@ class _Api extends ApiService {
   }
 }
 
-Future<_Api> _pump(WidgetTester tester) async {
+Future<_Api> _pump(WidgetTester tester, {ThemeData? theme, bool settingsTab = true}) async {
   SharedPreferences.setMockInitialValues({});
+  await initializeDateFormatting('ar');
+  await initializeDateFormatting('en');
   final settings = SettingsProvider();
   await settings.loadSettings(fetchRemote: false);
   tester.view.physicalSize = const Size(1200, 2600);
@@ -73,11 +87,13 @@ Future<_Api> _pump(WidgetTester tester) async {
       ChangeNotifierProvider<AuthProvider>(create: (_) => _Manager()),
       ChangeNotifierProvider(create: (_) => SalesRaceRefreshProvider()),
     ],
-    child: MaterialApp(theme: LightTheme.theme, home: SalesRaceManagementScreen(api: api)),
+    child: MaterialApp(theme: theme ?? LightTheme.theme, home: SalesRaceManagementScreen(api: api)),
   ));
   await tester.pumpAndSettle();
-  await tester.tap(find.text('الإعدادات'));
-  await tester.pumpAndSettle();
+  if (settingsTab) {
+    await tester.tap(find.text('الإعدادات'));
+    await tester.pumpAndSettle();
+  }
   return api;
 }
 
@@ -115,5 +131,16 @@ void main() {
     await tester.pumpAndSettle();
     expect(api.previewed, isNull);
     expect(api.saved, isNotNull);
+  });
+
+  testWidgets('the race board and its settings read in the dark theme, ranks in the medal tones', (tester) async {
+    await _pump(tester, theme: DarkTheme.theme, settingsTab: false);
+    expect(find.text('1,200'), findsWidgets, reason: 'points in the one number format');
+    expectNoTextVanishesOnDark(tester);
+    expectNoLightSurfaceOnDark(tester);
+    await tester.tap(find.text('الإعدادات'));
+    await tester.pumpAndSettle();
+    expectNoTextVanishesOnDark(tester);
+    expectNoLightSurfaceOnDark(tester);
   });
 }
