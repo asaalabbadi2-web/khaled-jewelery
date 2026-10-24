@@ -711,4 +711,34 @@ void main() {
     expect(tester.takeException(), isNull);
     expectNoTextVanishesOnDark(tester);
   });
+
+  // ADR-060 ف٠: after the save, what the server saved -- its number, what was
+  // paid and its payment state; the summary said the total and the weight.
+  testWidgets('after the save: the number, what was paid, and what is owed', (
+    tester,
+  ) async {
+    final api = FakePurchaseApi()
+      ..saveAnswer = {
+        'invoice_number': 'PUR-2026-031',
+        'amount_paid': 0.0,
+        'cash_obligation': 300.0,
+        'status': 'unpaid',
+      };
+    await open(tester, api: api, saved: draft());
+    await tester.tap(footerSave());
+    await settle(tester);
+    await tester.tap(find.text('حفظ الفاتورة').last);
+    await settle(tester);
+
+    Finder inSummary(Finder f) => find.descendant(
+      of: find.byKey(const Key('invoice-summary')),
+      matching: f,
+    );
+    expect(find.text('تم حفظ الفاتورة'), findsOneWidget);
+    expect(inSummary(find.text('PUR-2026-031')), findsOneWidget);
+    expect(inSummary(find.textContaining('#901')), findsNothing);
+    expect(inSummary(find.text('المدفوع')), findsOneWidget);
+    expect(inSummary(find.textContaining('غير مسدَّدة')), findsOneWidget);
+    expect(inSummary(find.textContaining('متبقي 300.00')), findsOneWidget);
+  });
 }

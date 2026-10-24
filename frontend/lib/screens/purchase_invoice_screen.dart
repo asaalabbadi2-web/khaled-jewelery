@@ -26,6 +26,7 @@ import '../utils/wage_treatment.dart';
 import 'add_supplier_screen.dart';
 import '../utils.dart';
 import '../utils/currency_utils.dart';
+import '../utils/invoice_saved_facts.dart';
 import '../widgets/app_feedback.dart';
 import '../widgets/app_shortcuts.dart';
 
@@ -2553,6 +2554,9 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
             : const [],
       );
 
+      // What the server saved (ADR-060 ف٠): its number, what was paid, and
+      // its payment state -- the dialog said the total and the weight alone.
+      final facts = InvoiceSavedFacts.of(invoiceForPrint);
       final shouldPrint = _uiAutoOpenPrintAfterSave
           ? 'print'
           : await showAdaptiveInvoiceSummaryDialog<String>(
@@ -2564,16 +2568,19 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
                   icon: Icons.check_circle,
                   accentColor: _tone.ready.fg,
                   highlightMessage: _isSupplierReturnMode
-                      ? 'مرتجع الشراء #${invoiceForPrint['id'] ?? ''}'
-                      : 'فاتورة الشراء #${invoiceForPrint['id'] ?? ''}',
-                  statusTitle: 'حالة الفاتورة',
-                  statusMessage: 'الفاتورة جاهزة للطباعة أو المشاركة',
-                  statusTone: InvoiceSummaryStatusTone.success,
+                      ? 'مرتجع الشراء ${facts.number}'
+                      : 'فاتورة الشراء ${facts.number}',
+                  statusTitle: 'حالة السداد',
+                  statusMessage: facts.statusLine(
+                    (v) => '${formatAmount(v)} $currency',
+                  ),
+                  statusTone: facts.owes
+                      ? InvoiceSummaryStatusTone.due
+                      : InvoiceSummaryStatusTone.success,
                   metrics: [
-                    if ((invoiceForPrint['id'] ?? '').toString().isNotEmpty)
                       InvoiceSummaryMetric(
                         label: 'رقم الفاتورة',
-                        value: '#${invoiceForPrint['id'] ?? ''}',
+                        value: facts.number,
                         icon: Icons.tag_rounded,
                         accentColor: _tone.gold.fg,
                       ),
@@ -2588,11 +2595,16 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
                       ),
                     InvoiceSummaryMetric(
                       label: 'الإجمالي',
-                      value:
-                          '${formatAmount((invoiceForPrint['total'] ?? 0.0))} $currency',
+                      value: '${formatAmount(facts.total)} $currency',
                       icon: Icons.payments_outlined,
                       accentColor: _tone.gold.fg,
                       emphasize: true,
+                    ),
+                    InvoiceSummaryMetric(
+                      label: 'المدفوع',
+                      value: '${formatAmount(facts.paid)} $currency',
+                      icon: Icons.account_balance_wallet_outlined,
+                      accentColor: _tone.ready.fg,
                     ),
                     if (totalWeight > 0)
                       InvoiceSummaryMetric(

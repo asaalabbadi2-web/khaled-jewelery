@@ -246,26 +246,12 @@ class _InvoiceSummaryCard<T> extends StatefulWidget {
   State<_InvoiceSummaryCard<T>> createState() => _InvoiceSummaryCardState<T>();
 }
 
+// ADR-060 ف٠: the summary opens at its top -- who, what and how much -- and
+// its notices are there too, under the title. It scrolled itself to the
+// bottom whenever a notice was said, and a credit sale always has one: the
+// total and the lines were out of sight, the save button in it.
 class _InvoiceSummaryCardState<T> extends State<_InvoiceSummaryCard<T>> {
   final ScrollController _scrollController = ScrollController();
-
-  @override
-  void initState() {
-    super.initState();
-    if (widget.notices.isNotEmpty) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        Future.delayed(const Duration(milliseconds: 320), () {
-          if (mounted && _scrollController.hasClients) {
-            _scrollController.animateTo(
-              _scrollController.position.maxScrollExtent,
-              duration: const Duration(milliseconds: 450),
-              curve: Curves.easeOut,
-            );
-          }
-        });
-      });
-    }
-  }
 
   @override
   void dispose() {
@@ -279,6 +265,7 @@ class _InvoiceSummaryCardState<T> extends State<_InvoiceSummaryCard<T>> {
     final colorScheme = theme.colorScheme;
 
     return Container(
+      key: const Key('invoice-summary'),
       constraints: BoxConstraints(
         maxHeight: MediaQuery.of(context).size.height * (widget.isMobile ? 0.90 : 0.82),
       ),
@@ -392,25 +379,10 @@ class _InvoiceSummaryCardState<T> extends State<_InvoiceSummaryCard<T>> {
                       ),
                     ),
                   ],
-                  const SizedBox(height: 20),
-                  Text(
-                    'ملخص الفاتورة',
-                    style: theme.textTheme.titleSmall?.copyWith(
-                      fontWeight: FontWeight.w800,
-                      color: colorScheme.onSurface,
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  _InvoiceSummaryGrid(metrics: widget.metrics),
-                  const SizedBox(height: 16),
-                  _StatusCard(
-                    title: widget.statusTitle,
-                    message: widget.statusMessage,
-                    tone: widget.statusTone,
-                  ),
                   if (widget.notices.isNotEmpty) ...[
                     const SizedBox(height: 16),
                     Container(
+                      key: const Key('invoice-summary-notices'),
                       padding: const EdgeInsets.all(16),
                       decoration: BoxDecoration(
                         color: AppColors.warning.withValues(alpha: 0.10),
@@ -458,6 +430,22 @@ class _InvoiceSummaryCardState<T> extends State<_InvoiceSummaryCard<T>> {
                       ),
                     ),
                   ],
+                  const SizedBox(height: 20),
+                  Text(
+                    'ملخص الفاتورة',
+                    style: theme.textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w800,
+                      color: colorScheme.onSurface,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  _InvoiceSummaryGrid(metrics: widget.metrics),
+                  const SizedBox(height: 16),
+                  _StatusCard(
+                    title: widget.statusTitle,
+                    message: widget.statusMessage,
+                    tone: widget.statusTone,
+                  ),
                 ],
               ),
             ),

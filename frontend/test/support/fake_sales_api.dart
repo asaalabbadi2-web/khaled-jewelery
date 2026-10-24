@@ -34,6 +34,10 @@ class FakeSalesApi extends ApiService {
   final List<SafeBoxModel> safes;
   Completer<void>? hold;
   final added = <Map<String, dynamic>>[];
+
+  /// What the server says besides (its number, its payment state), merged
+  /// into the answer to a save (ADR-060).
+  Map<String, dynamic> saveAnswer = const {};
   final customersAdded = <Map<String, dynamic>>[];
 
   @override
@@ -149,6 +153,7 @@ class FakeSalesApi extends ApiService {
       'total': invoice['total'],
       'amount_paid': invoice['amount_paid'],
       'items': invoice['items'],
+      ...saveAnswer,
     };
   }
 }

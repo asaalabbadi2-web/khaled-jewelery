@@ -16,6 +16,10 @@ class FakePurchaseApi extends ApiService {
   /// The supplier's statement as the server reports it: debit minus credit.
   final Map<String, dynamic> statement;
   final added = <Map<String, dynamic>>[];
+
+  /// What the server says besides (its number, its payment state), merged
+  /// into the answer to a save (ADR-060).
+  Map<String, dynamic> saveAnswer = const {};
   Completer<void>? hold;
 
   @override
@@ -97,7 +101,12 @@ class FakePurchaseApi extends ApiService {
   Future<Map<String, dynamic>> addInvoice(Map<String, dynamic> invoice) async {
     added.add(invoice);
     if (hold != null) await hold!.future;
-    return {'id': 900 + added.length, 'total': invoice['total'], 'items': []};
+    return {
+      'id': 900 + added.length,
+      'total': invoice['total'],
+      'items': [],
+      ...saveAnswer,
+    };
   }
 
   final updated = <Map<String, dynamic>>[];

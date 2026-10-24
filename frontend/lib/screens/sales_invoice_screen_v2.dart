@@ -24,6 +24,7 @@ import '../utils.dart';
 import '../utils/arabic_number_formatter.dart';
 import '../utils/invoice_direct_print.dart';
 import '../utils/currency_utils.dart' as cu;
+import '../utils/invoice_saved_facts.dart';
 import '../utils/sales_readiness.dart';
 import '../widgets/app_feedback.dart';
 import '../widgets/app_shortcuts.dart';
@@ -2212,10 +2213,9 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
     required bool allowPartialPayments,
   }) async {
     final currency = _settingsProvider.currencySymbolText;
-    final warnings = <String>[
-      if (remaining > 0.01)
-        'يبقى ${cu.formatAmount(remaining)} $currency آجلًا على «$customerLabel»',
-    ];
+    // The credit is said once, in the status line (ADR-060 ف٠): it was a
+    // card, the status and a notice.
+    final warnings = <String>[];
     final priceWarnings = salesPriceWarnings(
       lines: [
         for (final i in _items)
@@ -2251,7 +2251,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
           accentColor: AppSemanticColors.of(context).invoice(_kind).fg,
           statusTitle: 'حالة السداد',
           statusMessage: remaining > 0.01
-              ? 'متبقي ${cu.formatAmount(remaining)} $currency'
+              ? 'آجل على «$customerLabel»: ${cu.formatAmount(remaining)} $currency'
               : 'تمت التسوية بالكامل',
           statusTone: remaining > 0.01
               ? InvoiceSummaryStatusTone.due
@@ -2272,13 +2272,6 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
               fullWidth: true,
               details: lineDetails,
             ),
-            if (remaining > 0.01)
-              InvoiceSummaryMetric(
-                label: 'المتبقي',
-                value: '${cu.formatAmount(remaining)} $currency',
-                icon: Icons.pending_outlined,
-                accentColor: _cs.error,
-              ),
             if (_payments.isNotEmpty)
               InvoiceSummaryMetric(
                 label: 'طريقة السداد',
@@ -2323,7 +2316,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                 accentColor: _tone.warning.fg,
               ),
             InvoiceSummaryMetric(
-              label: 'المدفوع (نقدي)',
+              label: 'المدفوع',
               value: '${cu.formatAmount(paidCash)} $currency',
               icon: Icons.account_balance_wallet_outlined,
               accentColor: _tone.ready.fg,
@@ -2591,7 +2584,8 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
             ? '${parts.join('\n')}\nسيتم حفظ الفاتورة لكن لن تُرحَّل حتى اعتماد المدير.'
             : '⚠️ تم حفظ الفاتورة لكن تحتاج اعتماد مدير قبل الترحيل.';
 
-        if (mounted) {
+        // Said in the dialog after the save; alone only when none follows.
+        if (mounted && _uiAutoOpenPrintAfterSave) {
           AppFeedback.warning(context, approvalWarning);
         }
       }
@@ -2768,12 +2762,9 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
       return double.tryParse(value?.toString() ?? '') ?? 0.0;
     }
 
-    final total = asDouble(invoice['total']);
-    final paid = asDouble(invoice['amount_paid']);
-    final remaining = total - paid;
+    final facts = InvoiceSavedFacts.of(invoice);
     final totalWeight = asDouble(invoice['total_weight']);
     final totalTax = asDouble(invoice['total_tax']);
-    final invoiceId = invoice['id']?.toString() ?? '';
 
     final customerName = (invoice['customer_name'] ?? invoice['customer'] ?? '')
         .toString()
@@ -2803,17 +2794,14 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
           ? 'تم حفظ الفاتورة وتنتظر الاعتماد'
           : 'تم حفظ الفاتورة بنجاح',
       statusTitle: 'حالة السداد',
-      statusMessage: remaining > 0.01
-          ? 'متبقي ${cu.formatAmount(remaining)} $currency'
-          : 'تم الدفع بالكامل',
-      statusTone: remaining > 0.01
+      statusMessage: facts.statusLine((v) => '${cu.formatAmount(v)} $currency'),
+      statusTone: facts.owes
           ? InvoiceSummaryStatusTone.due
           : InvoiceSummaryStatusTone.success,
       metrics: [
-        if (invoiceId.isNotEmpty)
           InvoiceSummaryMetric(
             label: 'رقم الفاتورة',
-            value: '#$invoiceId',
+            value: facts.number,
             icon: Icons.tag_rounded,
             accentColor: _tone.gold.fg,
           ),
@@ -2826,22 +2814,16 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
           ),
         InvoiceSummaryMetric(
           label: 'الإجمالي',
-          value: '${cu.formatAmount(total)} $currency',
+          value: '${cu.formatAmount(facts.total)} $currency',
           icon: Icons.payments_outlined,
           accentColor: _tone.gold.fg,
         ),
         InvoiceSummaryMetric(
           label: 'المدفوع',
-          value: '${cu.formatAmount(paid)} $currency',
+          value: '${cu.formatAmount(facts.paid)} $currency',
           icon: Icons.account_balance_wallet_outlined,
           accentColor: _tone.ready.fg,
           emphasize: true,
-        ),
-        InvoiceSummaryMetric(
-          label: 'المتبقي',
-          value: '${cu.formatAmount(remaining)} $currency',
-          icon: Icons.pending_outlined,
-          accentColor: remaining > 0.01 ? _cs.error : _tone.ready.fg,
         ),
         if (totalWeight > 0)
           InvoiceSummaryMetric(

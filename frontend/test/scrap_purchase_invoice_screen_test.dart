@@ -199,6 +199,21 @@ void main() {
       expect(find.text('مراجعة فاتورة شراء كسر'), findsOneWidget);
     });
 
+    // ADR-060 ف٠: an invoice without notes is not a warning -- it buried the
+    // ones that are.
+    testWidgets('the review does not warn of an invoice without notes', (
+      tester,
+    ) async {
+      await open(
+        tester,
+        api: FakeSalesApi(),
+        editing: invoice(payments: [paid(4000)]),
+      );
+      await pressCtrlS(tester);
+      expect(find.text('مراجعة فاتورة شراء كسر'), findsOneWidget);
+      expect(find.textContaining('لا توجد ملاحظات'), findsNothing);
+    });
+
     testWidgets('it is saved once, however often save is pressed', (
       tester,
     ) async {

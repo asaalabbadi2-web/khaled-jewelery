@@ -495,7 +495,7 @@ void main() {
       expect(find.text('مراجعة فاتورة بيع'), findsOneWidget);
       expect(find.textContaining('سلسال'), findsWidgets); // the line
       expect(find.textContaining('مؤسسة الأمل'), findsWidgets);
-      expect(find.textContaining('آجلًا على «مؤسسة الأمل»'), findsOneWidget);
+      expect(find.textContaining('آجل على «مؤسسة الأمل»'), findsOneWidget);
     });
 
     testWidgets('a price far from the market is flagged in the review', (
@@ -1236,6 +1236,71 @@ void main() {
       );
       await tester.pumpAndSettle();
       expect(find.textContaining('لا تترك للذهب'), findsOneWidget);
+    });
+  });
+
+  // ADR-060 ف٠: the review says each thing once and truly; the summary after
+  // the save is the server's.
+  group('the review and the summary after the save', () {
+    testWidgets('the credit is said once, and what was paid is not «نقدي»', (
+      tester,
+    ) async {
+      await open(
+        tester,
+        api: FakeSalesApi(),
+        saved: draft(customerId: 30),
+        customers: [
+          {'id': 30, 'name': 'مؤسسة الأمل'},
+        ],
+        appSettings: {'allow_partial_invoice_payments': true},
+      );
+      await tester.tap(saveButton());
+      await tester.pumpAndSettle();
+      expect(find.text('مراجعة فاتورة بيع'), findsOneWidget);
+      Finder inReview(Finder f) => find.descendant(
+        of: find.byKey(const Key('invoice-summary')),
+        matching: f,
+      );
+      expect(inReview(find.textContaining('آجل')), findsOneWidget);
+      expect(inReview(find.text('المتبقي')), findsNothing);
+      expect(inReview(find.text('المدفوع (نقدي)')), findsNothing);
+      expect(inReview(find.text('المدفوع')), findsOneWidget);
+    });
+
+    Future<FakeSalesApi> saveOne(
+      WidgetTester tester,
+      Map<String, dynamic> answer,
+    ) async {
+      final api = FakeSalesApi()..saveAnswer = answer;
+      await open(tester, api: api, saved: draft(payments: paidInFull));
+      await tester.tap(saveButton());
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('حفظ الفاتورة').last);
+      await settle(tester);
+      return api;
+    }
+
+    testWidgets('after the save: the invoice\'s number, not the row\'s', (
+      tester,
+    ) async {
+      await saveOne(tester, {'invoice_number': 'SELL-2026-412', 'status': 'paid'});
+      expect(find.text('تم حفظ الفاتورة'), findsOneWidget);
+      expect(find.text('SELL-2026-412'), findsOneWidget);
+      expect(find.text('#701'), findsNothing);
+      expect(find.text('مسدَّدة بالكامل'), findsOneWidget);
+    });
+
+    testWidgets('an approval needed is said once, in the summary', (
+      tester,
+    ) async {
+      await saveOne(tester, {
+        'invoice_number': 'SELL-2026-413',
+        'approval_required': true,
+        'approval_reasons': ['below_cost'],
+      });
+      expect(find.text('تم حفظ الفاتورة'), findsOneWidget);
+      expect(find.textContaining('بيع تحت التكلفة'), findsOneWidget);
+      expect(find.byType(SnackBar), findsNothing);
     });
   });
 }

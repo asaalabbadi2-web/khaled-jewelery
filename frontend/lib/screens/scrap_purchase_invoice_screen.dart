@@ -20,6 +20,7 @@ import '../utils/invoice_direct_print.dart';
 import '../utils.dart';
 import '../widgets/app_feedback.dart';
 import '../utils/currency_utils.dart';
+import '../utils/invoice_saved_facts.dart';
 import '../widgets/app_shortcuts.dart';
 
 /// شاشة فاتورة شراء الكسر - نسخة مبسطة
@@ -1319,7 +1320,9 @@ class _ScrapPurchaseInvoiceScreenState
             ? '${parts.join('\n')}\nسيتم حفظ الفاتورة لكن لن تُرحَّل حتى اعتماد المدير.'
             : '⚠️ تم حفظ الفاتورة لكن تحتاج اعتماد مدير قبل الترحيل.';
 
-        if (mounted) {
+        // Said in the dialog after the save; alone when none follows (an
+        // edit, or straight to print).
+        if (mounted && (_isEditMode || _uiAutoOpenPrintAfterSave)) {
           AppFeedback.warning(context, approvalWarning);
         }
       }
@@ -1407,15 +1410,11 @@ class _ScrapPurchaseInvoiceScreenState
       _items.map((item) => item.toJson()),
     );
 
+    // What remains is said once, in the status (ADR-060 ف٠); an invoice
+    // without notes is not a warning -- it buried the ones that are.
     final notices = <String>[];
-    if (remaining > 0.01) {
-      notices.add('يوجد مبلغ متبقي. تأكد من الدفعات قبل الحفظ.');
-    }
     if (imagesCount == 0) {
       notices.add('لم يتم إرفاق صور للذهب.');
-    }
-    if (_purchaseNotesController.text.trim().isEmpty) {
-      notices.add('لا توجد ملاحظات على الفاتورة.');
     }
     notices.addAll(
       scrapPurchasePriceWarnings(
@@ -1466,14 +1465,6 @@ class _ScrapPurchaseInvoiceScreenState
               value: '${formatAmount(paid)} $currency',
               icon: Icons.account_balance_wallet_outlined,
               accentColor: _tone.ready.fg,
-            ),
-            InvoiceSummaryMetric(
-              label: 'المتبقي',
-              value: '${formatAmount(remaining)} $currency',
-              icon: Icons.pending_outlined,
-              accentColor: remaining > 0.01
-                  ? _cs.error
-                  : _tone.ready.fg,
             ),
             if (totalWeight > 0)
               InvoiceSummaryMetric(
@@ -1628,11 +1619,8 @@ class _ScrapPurchaseInvoiceScreenState
       return double.tryParse(value?.toString() ?? '') ?? 0.0;
     }
 
-    final total = asDouble(invoice['total']);
-    final paid = asDouble(invoice['amount_paid']);
-    final remaining = total - paid;
+    final facts = InvoiceSavedFacts.of(invoice);
     final totalWeight = asDouble(invoice['total_weight']);
-    final invoiceId = invoice['id']?.toString() ?? '';
 
     final customerName = (invoice['customer_name'] ?? invoice['customer'] ?? '')
         .toString()
@@ -1651,19 +1639,18 @@ class _ScrapPurchaseInvoiceScreenState
           subtitle: 'تم حفظ فاتورة شراء الكسر بنجاح',
           icon: Icons.check_circle,
           accentColor: _tone.ready.fg,
-          highlightMessage: 'فاتورة الشراء #${invoice['id'] ?? ''}',
-          statusTitle: 'حالة الفاتورة',
+          highlightMessage: 'فاتورة الشراء ${facts.number}',
+          statusTitle: approvalRequired ? 'حالة الفاتورة' : 'حالة السداد',
           statusMessage: approvalRequired
               ? 'تحتاج اعتماد مدير'
-              : 'جاهزة للطباعة والمشاركة',
-          statusTone: approvalRequired
+              : facts.statusLine((v) => '${formatAmount(v)} $currency'),
+          statusTone: approvalRequired || facts.owes
               ? InvoiceSummaryStatusTone.due
               : InvoiceSummaryStatusTone.success,
           metrics: [
-            if (invoiceId.isNotEmpty)
               InvoiceSummaryMetric(
                 label: 'رقم الفاتورة',
-                value: '#$invoiceId',
+                value: facts.number,
                 icon: Icons.tag_rounded,
                 accentColor: _tone.gold.fg,
               ),
@@ -1676,24 +1663,16 @@ class _ScrapPurchaseInvoiceScreenState
               ),
             InvoiceSummaryMetric(
               label: 'الإجمالي',
-              value: '${formatAmount(total)} $currency',
+              value: '${formatAmount(facts.total)} $currency',
               icon: Icons.payments_outlined,
               accentColor: _tone.gold.fg,
               emphasize: true,
             ),
             InvoiceSummaryMetric(
               label: 'المدفوع',
-              value: '${formatAmount(paid)} $currency',
+              value: '${formatAmount(facts.paid)} $currency',
               icon: Icons.account_balance_wallet_outlined,
               accentColor: _tone.ready.fg,
-            ),
-            InvoiceSummaryMetric(
-              label: 'المتبقي',
-              value: '${formatAmount(remaining)} $currency',
-              icon: Icons.pending_outlined,
-              accentColor: remaining > 0.01
-                  ? _cs.error
-                  : _tone.ready.fg,
             ),
             if (totalWeight > 0)
               InvoiceSummaryMetric(
