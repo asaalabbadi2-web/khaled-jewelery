@@ -8,6 +8,11 @@ import '../widgets/user_avatar_widget.dart';
 import '../models/safe_box_model.dart';
 import '../providers/settings_provider.dart';
 import '../theme/app_theme.dart';
+import '../utils/currency_utils.dart' as cu;
+import '../widgets/app_feedback.dart';
+import '../widgets/app_state_views.dart';
+import '../widgets/confirm_financial_action.dart';
+import '../widgets/tiered_rule_editor.dart' show tierMeasures;
 import 'bonus_management_screen.dart';
 import 'calculate_bonuses_screen.dart';
 import '../widgets/bonus_owed_from_books_card.dart';
@@ -54,9 +59,6 @@ class _BonusesScreenState extends State<BonusesScreen>
 
   final _searchController = TextEditingController();
 
-  static const _gold = Color(0xFFD4AF37);
-  static const _goldDark = Color(0xFF8B6914);
-
   @override
   void initState() {
     super.initState();
@@ -80,6 +82,7 @@ class _BonusesScreenState extends State<BonusesScreen>
         dateTo: _periodEnd?.toIso8601String().split('T').first,
       );
       final owed = await widget.api.getBonusesOwed();
+      if (!mounted) return;
       setState(() {
         _bonuses = data
             .map((j) => EmployeeBonusModel.fromJson(j as Map<String, dynamic>))
@@ -90,7 +93,7 @@ class _BonusesScreenState extends State<BonusesScreen>
             .toList();
       });
     } catch (e) {
-      _snack(e.toString(), error: true);
+      if (mounted) AppFeedback.error(context, e, title: 'تعذّر تحميل المكافآت');
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -168,327 +171,181 @@ class _BonusesScreenState extends State<BonusesScreen>
   }
 
   // ─────────────────────────────── Actions ───────────────────────────────
+  // Each act says what it does to the books before it does it, and how it
+  // went in the server's words (bonus study م3ب).
 
-  void _snack(String msg, {bool error = false}) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text(msg),
-      backgroundColor: error ? Colors.red.shade700 : _goldDark,
-      behavior: SnackBarBehavior.floating,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-      duration: const Duration(seconds: 3),
-    ));
-  }
+  String get _currency => context.read<SettingsProvider>().currencySymbolText;
+
+  String _money(num v) => '${cu.formatAmount(v)} $_currency';
+
+  static final _day = DateFormat('yyyy-MM-dd');
+
+  List<(String, String)> _factsOf(EmployeeBonusModel b) => [
+        ('الموظف', b.employee?.fullName ?? '—'),
+        ('المبلغ', _money(b.amount)),
+        ('الفترة', '${_day.format(b.periodStart)} → ${_day.format(b.periodEnd)}'),
+      ];
 
   Future<void> _approve(EmployeeBonusModel b) async {
     if (b.id == null) return;
+    final why = bonusWhy(b, _currency);
+    final go = await confirmFinancialAction(
+      context,
+      title: 'اعتماد مكافأة',
+      facts: _factsOf(b),
+      effect: '${why == null ? '' : '$why.\n'}'
+          'يُسجَّل قيد اعتمادها: مصروف المكافآت مدين، ومكافآت '
+          '${b.employee?.fullName ?? 'الموظف'} المستحقة دائنة بـ ${_money(b.amount)}.',
+      confirmLabel: 'اعتماد',
+      destructive: false,
+    );
+    if (go == null || !mounted) return;
     try {
-      await widget.api.approveBonus(b.id!);
-      _snack(widget.isArabic ? 'تم الاعتماد' : 'Approved');
+      final answer = await widget.api.approveBonus(b.id!);
+      final number = (answer['voucher'] as Map?)?['voucher_number'];
+      if (mounted) {
+        AppFeedback.success(
+            context, number == null ? 'اعتُمدت' : 'اعتُمدت، وقيدها $number');
+      }
       _loadBonuses();
     } catch (e) {
-      _snack(e.toString(), error: true);
+      if (mounted) AppFeedback.error(context, e, title: 'لم تُعتمد');
     }
   }
 
+  /// A pending bonus has no entry yet, so rejecting one makes or undoes none;
+  /// a reason, if one is written, is kept in its note. Null: the user went back.
+  Future<String?> _askRejection(String title) => showDialog<String>(
+        context: context,
+        builder: (_) => _RejectDialog(title: title),
+      );
+
   Future<void> _reject(EmployeeBonusModel b) async {
     if (b.id == null) return;
+    final reason = await _askRejection(
+        'رفض مكافأة ${b.employee?.fullName ?? ''} (${_money(b.amount)})');
+    if (reason == null || !mounted) return;
     try {
-      await widget.api.rejectBonus(b.id!);
-      _snack(widget.isArabic ? 'تم الرفض' : 'Rejected');
+      await widget.api
+          .rejectBonus(b.id!, reason: reason.isEmpty ? null : reason);
+      if (mounted) AppFeedback.success(context, 'رُفضت');
       _loadBonuses();
     } catch (e) {
-      _snack(e.toString(), error: true);
+      if (mounted) AppFeedback.error(context, e, title: 'لم تُرفض');
     }
   }
 
   Future<void> _pay(EmployeeBonusModel bonus) async {
-    final isAr = widget.isArabic;
-    List<SafeBoxModel> safeBoxes = [];
+    if (bonus.id == null) return;
+    List<SafeBoxModel> safes;
     try {
       final all = await widget.api.getSafeBoxes(
           isActive: true, includeBalance: true, includeAccount: false);
-      safeBoxes = all
+      safes = all
           .where((s) => s.safeType == 'cash' || s.safeType == 'bank')
           .toList();
     } catch (e) {
-      _snack('${isAr ? 'فشل تحميل الخزائن' : 'Failed to load safes'}: $e',
-          error: true);
+      if (mounted) AppFeedback.error(context, e, title: 'تعذّر تحميل الخزائن');
       return;
     }
-
-    if (safeBoxes.isEmpty) {
-      _snack(isAr ? 'لا توجد خزائن متاحة' : 'No safe boxes available',
-          error: true);
+    if (!mounted) return;
+    if (safes.isEmpty) {
+      AppFeedback.warning(context, 'لا خزينة نقد أو بنك نشطة يُصرف منها');
       return;
     }
-
-    final selected = await showDialog<SafeBoxModel>(
+    final safe = await showDialog<SafeBoxModel>(
       context: context,
-      builder: (ctx) {
-        SafeBoxModel? choice = safeBoxes.first;
-        return StatefulBuilder(
-          builder: (ctx, ss) => AlertDialog(
-            title: Text(isAr ? 'اختر خزينة الدفع' : 'Select Payment Safe'),
-            content: DropdownButtonFormField<SafeBoxModel>(
-              value: choice,
-              isExpanded: true,
-              decoration: const InputDecoration(border: OutlineInputBorder()),
-              items: safeBoxes.map((sb) {
-                final bal = sb.balance?.cash ?? 0.0;
-                final ok = bal >= bonus.amount;
-                return DropdownMenuItem(
-                  value: sb,
-                  child: Row(
-                    children: [
-                      Expanded(
-                          child: Text(sb.name, overflow: TextOverflow.ellipsis)),
-                      Text(
-                        bal.toStringAsFixed(0),
-                        style: TextStyle(
-                            fontSize: 12,
-                            color: ok ? Colors.green : Colors.red),
-                      ),
-                    ],
-                  ),
-                );
-              }).toList(),
-              onChanged: (v) => ss(() => choice = v),
-            ),
-            actions: [
-              TextButton(
-                  onPressed: () => Navigator.pop(ctx),
-                  child: Text(isAr ? 'إلغاء' : 'Cancel')),
-              ElevatedButton(
-                  onPressed: () => Navigator.pop(ctx, choice),
-                  child: Text(isAr ? 'دفع' : 'Pay')),
-            ],
-          ),
-        );
-      },
+      builder: (_) => _PayDialog(bonus: bonus, safes: safes, money: _money),
     );
-
-    if (selected?.id != null && bonus.id != null) {
-      try {
-        await widget.api.payBonus(
-          bonus.id!,
-          safeBoxId: selected!.id!,
-          paymentMethod: selected.safeType == 'bank' ? 'transfer' : 'cash',
-        );
-        _snack(isAr ? 'تم تسجيل الدفع' : 'Payment recorded');
-        _loadBonuses();
-      } catch (e) {
-        _snack(e.toString(), error: true);
-      }
+    if (safe?.id == null || !mounted) return;
+    try {
+      await widget.api.payBonus(
+        bonus.id!,
+        safeBoxId: safe!.id!,
+        paymentMethod: safe.safeType == 'bank' ? 'transfer' : 'cash',
+      );
+      if (mounted) AppFeedback.success(context, 'صُرفت من ${safe.name}');
+      _loadBonuses();
+    } catch (e) {
+      if (mounted) AppFeedback.error(context, e, title: 'لم تُصرف');
     }
   }
 
   Future<void> _edit(EmployeeBonusModel bonus) async {
-    final isAr = widget.isArabic;
-    if (bonus.status != 'pending') {
-      _snack(isAr ? 'يمكن تعديل المعلقة فقط' : 'Only pending can be edited',
-          error: true);
-      return;
-    }
-    final amtCtrl = TextEditingController(text: bonus.amount.toStringAsFixed(2));
-    final noteCtrl = TextEditingController(text: bonus.notes ?? '');
-    DateTime start = bonus.periodStart;
-    DateTime end = bonus.periodEnd;
-    final fmt = DateFormat('yyyy-MM-dd');
-
-    final ok = await showDialog<bool>(
+    if (bonus.id == null || bonus.status != 'pending') return;
+    final changes = await showDialog<Map<String, dynamic>>(
       context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, ss) => AlertDialog(
-          title: Text(isAr ? 'تعديل المكافأة' : 'Edit Bonus'),
-          content: SizedBox(
-            width: 380,
-            child: Column(mainAxisSize: MainAxisSize.min, children: [
-              TextField(
-                controller: amtCtrl,
-                keyboardType: TextInputType.number,
-                decoration: InputDecoration(
-                  labelText: isAr ? 'المبلغ' : 'Amount',
-                  prefixIcon: const Icon(Icons.attach_money),
-                  border: const OutlineInputBorder(),
-                ),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: noteCtrl,
-                maxLines: 2,
-                decoration: InputDecoration(
-                  labelText: isAr ? 'ملاحظات' : 'Notes',
-                  prefixIcon: const Icon(Icons.notes),
-                  border: const OutlineInputBorder(),
-                ),
-              ),
-              const SizedBox(height: 12),
-              Row(children: [
-                Expanded(
-                  child: InkWell(
-                    onTap: () async {
-                      final p = await showDatePicker(
-                          context: ctx,
-                          initialDate: start,
-                          firstDate: DateTime(2020),
-                          lastDate: DateTime(2100));
-                      if (p != null) ss(() => start = p);
-                    },
-                    child: InputDecorator(
-                      decoration: InputDecoration(
-                          labelText: isAr ? 'من' : 'From',
-                          border: const OutlineInputBorder()),
-                      child: Text(fmt.format(start)),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: InkWell(
-                    onTap: () async {
-                      final p = await showDatePicker(
-                          context: ctx,
-                          initialDate: end,
-                          firstDate: DateTime(2020),
-                          lastDate: DateTime(2100));
-                      if (p != null) ss(() => end = p);
-                    },
-                    child: InputDecorator(
-                      decoration: InputDecoration(
-                          labelText: isAr ? 'إلى' : 'To',
-                          border: const OutlineInputBorder()),
-                      child: Text(fmt.format(end)),
-                    ),
-                  ),
-                ),
-              ]),
-            ]),
-          ),
-          actions: [
-            TextButton(
-                onPressed: () => Navigator.pop(ctx, false),
-                child: Text(isAr ? 'إلغاء' : 'Cancel')),
-            ElevatedButton.icon(
-                onPressed: () => Navigator.pop(ctx, true),
-                icon: const Icon(Icons.save, size: 18),
-                label: Text(isAr ? 'حفظ' : 'Save')),
-          ],
-        ),
-      ),
+      builder: (_) => _EditBonusDialog(bonus: bonus),
     );
-
-    if (ok == true && bonus.id != null) {
-      final amount = double.tryParse(amtCtrl.text.trim());
-      if (amount == null) {
-        _snack(isAr ? 'مبلغ غير صحيح' : 'Invalid amount', error: true);
-        return;
-      }
-      try {
-        await widget.api.updateBonus(bonus.id!, {
-          'amount': amount,
-          'notes':
-              noteCtrl.text.trim().isEmpty ? null : noteCtrl.text.trim(),
-          'period_start': fmt.format(start),
-          'period_end': fmt.format(end),
-        });
-        _snack(isAr ? 'تم التحديث' : 'Updated');
-        _loadBonuses();
-      } catch (e) {
-        _snack(e.toString(), error: true);
-      }
+    if (changes == null || !mounted) return;
+    try {
+      await widget.api.updateBonus(bonus.id!, changes);
+      if (mounted) AppFeedback.success(context, 'حُفظ التعديل');
+      _loadBonuses();
+    } catch (e) {
+      if (mounted) AppFeedback.error(context, e, title: 'لم يُحفظ التعديل');
     }
   }
 
-  Future<void> _bulkApprove(List<int> ids) async {
-    final isAr = widget.isArabic;
-    if (ids.isEmpty) {
-      _snack(isAr ? 'لا توجد مكافآت معلقة' : 'No pending bonuses', error: true);
-      return;
-    }
-    final ok = await _confirm(
-      isAr ? 'اعتماد ${ids.length} مكافأة معلقة؟' : 'Approve ${ids.length} pending bonuses?',
+  Future<void> _bulkApprove(List<EmployeeBonusModel> pending) async {
+    if (pending.isEmpty) return;
+    final total = pending.fold<double>(0, (s, b) => s + b.amount);
+    final names = {for (final b in pending) b.employee?.fullName ?? '—'}.toList();
+    final who = names.length <= 4
+        ? names.join('، ')
+        : '${names.take(4).join('، ')} و${names.length - 4} غيرهم';
+    final go = await confirmFinancialAction(
+      context,
+      title: 'اعتماد المكافآت المعلّقة',
+      facts: [('العدد', '${pending.length}'), ('الإجمالي', _money(total))],
+      effect: 'لـ $who.\n'
+          'يُسجَّل لكل مكافأة قيد اعتمادها: مصروف المكافآت مدين، '
+          'ومكافآت موظفها المستحقة دائنة.',
+      confirmLabel: 'اعتماد الكل',
+      destructive: false,
     );
-    if (!ok) return;
+    if (go == null || !mounted) return;
     setState(() => _bulkLoading = true);
     try {
-      final res = await widget.api.bulkApproveBonuses(ids);
-      _snack(isAr ? 'تم اعتماد ${res['count'] ?? 0}' : 'Approved ${res['count'] ?? 0}');
+      final res = await widget.api
+          .bulkApproveBonuses([for (final b in pending) b.id!]);
+      if (!mounted) return;
+      final failed =
+          ((res['failed'] as List?) ?? const []).whereType<Map>().toList();
+      final done = res['approved_count'] ?? res['count'] ?? 0;
+      if (failed.isEmpty) {
+        AppFeedback.success(context, 'اعتُمدت $done');
+      } else {
+        // Each bonus is approved on its own; one refused does not stop the
+        // rest, and the first refusal is said in the server's words.
+        AppFeedback.warning(context,
+            'اعتُمدت $done، ولم تُعتمد ${failed.length}: ${failed.first['error'] ?? ''}');
+      }
       _loadBonuses();
     } catch (e) {
-      _snack(e.toString(), error: true);
+      if (mounted) AppFeedback.error(context, e, title: 'لم تُعتمد');
     } finally {
       if (mounted) setState(() => _bulkLoading = false);
     }
   }
 
-  Future<void> _bulkReject(List<int> ids) async {
-    final isAr = widget.isArabic;
-    if (ids.isEmpty) {
-      _snack(isAr ? 'لا توجد مكافآت معلقة' : 'No pending bonuses', error: true);
-      return;
-    }
-    String? reason;
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) {
-        final ctrl = TextEditingController();
-        return AlertDialog(
-          title: Text(isAr ? 'رفض ${ids.length} مكافأة' : 'Reject ${ids.length} bonuses'),
-          content: TextField(
-            controller: ctrl,
-            maxLines: 2,
-            decoration: InputDecoration(
-              labelText: isAr ? 'سبب الرفض (اختياري)' : 'Reason (optional)',
-              border: const OutlineInputBorder(),
-            ),
-          ),
-          actions: [
-            TextButton(
-                onPressed: () => Navigator.pop(ctx, false),
-                child: Text(isAr ? 'إلغاء' : 'Cancel')),
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-              onPressed: () {
-                reason = ctrl.text.trim().isEmpty ? null : ctrl.text.trim();
-                Navigator.pop(ctx, true);
-              },
-              child: Text(isAr ? 'رفض' : 'Reject'),
-            ),
-          ],
-        );
-      },
-    );
-    if (ok != true) return;
+  Future<void> _bulkReject(List<EmployeeBonusModel> pending) async {
+    if (pending.isEmpty) return;
+    final reason =
+        await _askRejection('رفض المكافآت المعلّقة (${pending.length})');
+    if (reason == null || !mounted) return;
     setState(() => _bulkLoading = true);
     try {
-      final res = await widget.api.bulkRejectBonuses(ids, reason: reason);
-      _snack(isAr ? 'تم رفض ${res['count'] ?? 0}' : 'Rejected ${res['count'] ?? 0}');
+      final res = await widget.api.bulkRejectBonuses(
+          [for (final b in pending) b.id!],
+          reason: reason.isEmpty ? null : reason);
+      if (mounted) AppFeedback.success(context, 'رُفضت ${res['count'] ?? 0}');
       _loadBonuses();
     } catch (e) {
-      _snack(e.toString(), error: true);
+      if (mounted) AppFeedback.error(context, e, title: 'لم تُرفض');
     } finally {
       if (mounted) setState(() => _bulkLoading = false);
     }
-  }
-
-  Future<bool> _confirm(String message) async {
-    final isAr = widget.isArabic;
-    return await showDialog<bool>(
-          context: context,
-          builder: (ctx) => AlertDialog(
-            content: Text(message),
-            actions: [
-              TextButton(
-                  onPressed: () => Navigator.pop(ctx, false),
-                  child: Text(isAr ? 'إلغاء' : 'Cancel')),
-              ElevatedButton(
-                  onPressed: () => Navigator.pop(ctx, true),
-                  child: Text(isAr ? 'تأكيد' : 'Confirm')),
-            ],
-          ),
-        ) ??
-        false;
   }
 
   // ─────────────────────────────── Bottom Sheet: تفاصيل المكافأة ───────────────────────────────
@@ -496,6 +353,14 @@ class _BonusesScreenState extends State<BonusesScreen>
   void _showDetails(EmployeeBonusModel b) {
     final isAr = widget.isArabic;
     final fmt = DateFormat('yyyy-MM-dd');
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    final tones = AppSemanticColors.of(context);
+    final why = bonusWhy(b, _currency);
+    void then(BuildContext ctx, void Function(EmployeeBonusModel) act) {
+      Navigator.pop(ctx);
+      act(b);
+    }
 
     showModalBottomSheet(
       context: context,
@@ -507,7 +372,7 @@ class _BonusesScreenState extends State<BonusesScreen>
         maxChildSize: 0.92,
         builder: (_, scrollCtrl) => Container(
           decoration: BoxDecoration(
-            color: Theme.of(context).scaffoldBackgroundColor,
+            color: theme.scaffoldBackgroundColor,
             borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
           ),
           child: Column(
@@ -519,7 +384,7 @@ class _BonusesScreenState extends State<BonusesScreen>
                   width: 40,
                   height: 4,
                   decoration: BoxDecoration(
-                    color: Colors.grey.shade300,
+                    color: cs.outlineVariant,
                     borderRadius: BorderRadius.circular(2),
                   ),
                 ),
@@ -538,13 +403,13 @@ class _BonusesScreenState extends State<BonusesScreen>
                         children: [
                           Text(
                             b.employee?.fullName ?? (isAr ? 'غير محدد' : 'Unknown'),
-                            style: const TextStyle(
-                                fontSize: 17, fontWeight: FontWeight.bold),
+                            style: theme.textTheme.titleMedium
+                                ?.copyWith(fontWeight: FontWeight.bold),
                           ),
                           if (b.employee?.position != null)
                             Text(b.employee!.position!,
-                                style: TextStyle(
-                                    color: Colors.grey.shade600, fontSize: 13)),
+                                style: theme.textTheme.bodySmall
+                                    ?.copyWith(color: cs.onSurfaceVariant)),
                         ],
                       ),
                     ),
@@ -562,33 +427,36 @@ class _BonusesScreenState extends State<BonusesScreen>
                   children: [
                     // Amount — بارز
                     Container(
-                      padding: const EdgeInsets.all(16),
+                      padding: const EdgeInsets.all(AppSpace.lg),
                       decoration: BoxDecoration(
-                        color: _gold.withValues(alpha: 0.08),
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(
-                            color: _gold.withValues(alpha: 0.3)),
+                        color: tones.gold.container,
+                        borderRadius: BorderRadius.circular(AppRadius.control),
                       ),
                       child: Row(
                         children: [
-                          const Icon(Icons.monetization_on_rounded,
-                              color: _gold, size: 28),
+                          Icon(Icons.monetization_on_rounded,
+                              color: tones.gold.fg, size: 28),
                           const SizedBox(width: 12),
-                          Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(isAr ? 'المبلغ' : 'Amount',
-                                  style: TextStyle(
-                                      color: Colors.grey.shade600,
-                                      fontSize: 12)),
-                              Text(
-                                '${b.amount.toStringAsFixed(2)} ${context.read<SettingsProvider>().currencySymbolText}',
-                                style: const TextStyle(
-                                    fontSize: 22,
-                                    fontWeight: FontWeight.bold,
-                                    color: _goldDark),
-                              ),
-                            ],
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(isAr ? 'المبلغ' : 'Amount',
+                                    style: theme.textTheme.labelMedium?.copyWith(
+                                        color: tones.gold.onContainer)),
+                                Text(
+                                  _money(b.amount),
+                                  style: theme.textTheme.headlineSmall?.copyWith(
+                                      fontWeight: FontWeight.bold,
+                                      color: tones.gold.onContainer),
+                                ),
+                                if (why != null)
+                                  Text(why,
+                                      key: const Key('bonus-why'),
+                                      style: theme.textTheme.bodyMedium?.copyWith(
+                                          color: tones.gold.onContainer)),
+                              ],
+                            ),
                           ),
                         ],
                       ),
@@ -598,12 +466,8 @@ class _BonusesScreenState extends State<BonusesScreen>
                     // Info grid
                     _DetailRow(
                         label: isAr ? 'القاعدة' : 'Rule',
-                        value: b.bonusRule?.name ?? '—',
+                        value: b.bonusRule?.name ?? (isAr ? 'يدوية' : 'Manual'),
                         icon: Icons.rule_rounded),
-                    _DetailRow(
-                        label: isAr ? 'نوع المكافأة' : 'Bonus type',
-                        value: b.bonusType,
-                        icon: Icons.category_outlined),
                     _DetailRow(
                         label: isAr ? 'الفترة' : 'Period',
                         value:
@@ -627,7 +491,7 @@ class _BonusesScreenState extends State<BonusesScreen>
                     if (b.paymentReference != null &&
                         b.paymentReference!.isNotEmpty)
                       _DetailRow(
-                          label: isAr ? 'مرجع الدفع' : 'Payment ref',
+                          label: isAr ? 'مرجع القيد' : 'Entry ref',
                           value: b.paymentReference!,
                           icon: Icons.receipt_long_outlined),
                     if (b.notes != null && b.notes!.isNotEmpty)
@@ -636,59 +500,57 @@ class _BonusesScreenState extends State<BonusesScreen>
                           value: b.notes!,
                           icon: Icons.notes_rounded),
 
-                    // Calculation data
+                    // What its rule recorded, all of it, folded: the line
+                    // above says it; this keeps every input in reach.
                     if (b.calculationData != null &&
-                        b.calculationData!.isNotEmpty) ...[
-                      const SizedBox(height: 16),
-                      Text(isAr ? 'تفاصيل الاحتساب' : 'Calculation details',
-                          style: TextStyle(
-                              fontSize: 12,
-                              color: Colors.grey.shade500,
-                              fontWeight: FontWeight.w600)),
-                      const SizedBox(height: 8),
-                      ...b.calculationData!.entries
-                          .where((e) => e.value != null)
-                          .map((e) => Padding(
-                                padding:
-                                    const EdgeInsets.symmetric(vertical: 3),
-                                child: Row(children: [
-                                  Text('${e.key}:',
-                                      style: TextStyle(
-                                          fontSize: 12,
-                                          color: Colors.grey.shade600)),
-                                  const SizedBox(width: 8),
-                                  Expanded(
-                                      child: Text('${e.value}',
-                                          style: const TextStyle(
-                                              fontSize: 12,
-                                              fontWeight: FontWeight.w500))),
-                                ]),
-                              )),
-                    ],
+                        b.calculationData!.isNotEmpty)
+                      ExpansionTile(
+                        tilePadding: EdgeInsets.zero,
+                        title: Text(isAr ? 'كل مدخلات الاحتساب' : 'All calculation inputs',
+                            style: theme.textTheme.labelLarge
+                                ?.copyWith(color: cs.onSurfaceVariant)),
+                        children: [
+                          for (final e in b.calculationData!.entries
+                              .where((e) => e.value != null))
+                            Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 3),
+                              child: Row(children: [
+                                Text('${e.key}:',
+                                    style: theme.textTheme.bodySmall
+                                        ?.copyWith(color: cs.onSurfaceVariant)),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                    child: Text('${e.value}',
+                                        style: theme.textTheme.bodySmall)),
+                              ]),
+                            ),
+                        ],
+                      ),
 
-                    // Actions
+                    // Actions: the next step strong, the rest soft (UI-3).
                     if (b.canApprove() || b.canReject() || b.canPay()) ...[
                       const SizedBox(height: 24),
-                      if (b.status == 'pending')
-                        _ActionButton(
-                          label: isAr ? 'تعديل' : 'Edit',
-                          icon: Icons.edit_outlined,
-                          color: Colors.blueGrey,
-                          onTap: () {
-                            Navigator.pop(ctx);
-                            _edit(b);
-                          },
-                        ),
-                      if (b.canApprove()) ...[
-                        const SizedBox(height: 8),
+                      if (b.canApprove())
                         _ActionButton(
                           label: isAr ? 'اعتماد' : 'Approve',
                           icon: Icons.check_circle_outline,
-                          color: Colors.green,
-                          onTap: () {
-                            Navigator.pop(ctx);
-                            _approve(b);
-                          },
+                          tone: tones.ready,
+                          onTap: () => then(ctx, _approve),
+                        ),
+                      if (b.canPay())
+                        _ActionButton(
+                          label: isAr ? 'صرف' : 'Pay',
+                          icon: Icons.payments_outlined,
+                          tone: tones.info,
+                          onTap: () => then(ctx, _pay),
+                        ),
+                      if (b.status == 'pending') ...[
+                        const SizedBox(height: 8),
+                        _ActionButton(
+                          label: isAr ? 'تعديل' : 'Edit',
+                          icon: Icons.edit_outlined,
+                          outlined: true,
+                          onTap: () => then(ctx, _edit),
                         ),
                       ],
                       if (b.canReject()) ...[
@@ -696,24 +558,9 @@ class _BonusesScreenState extends State<BonusesScreen>
                         _ActionButton(
                           label: isAr ? 'رفض' : 'Reject',
                           icon: Icons.cancel_outlined,
-                          color: Colors.red,
+                          tone: tones.blocked,
                           outlined: true,
-                          onTap: () {
-                            Navigator.pop(ctx);
-                            _reject(b);
-                          },
-                        ),
-                      ],
-                      if (b.canPay()) ...[
-                        const SizedBox(height: 8),
-                        _ActionButton(
-                          label: isAr ? 'دفع' : 'Pay',
-                          icon: Icons.payments_outlined,
-                          color: Colors.blue,
-                          onTap: () {
-                            Navigator.pop(ctx);
-                            _pay(b);
-                          },
+                          onTap: () => then(ctx, _reject),
                         ),
                       ],
                     ],
@@ -784,7 +631,7 @@ class _BonusesScreenState extends State<BonusesScreen>
                             width: 40,
                             height: 4,
                             decoration: BoxDecoration(
-                              color: Colors.grey.shade300,
+                              color: Theme.of(context).colorScheme.outlineVariant,
                               borderRadius: BorderRadius.circular(2),
                             ),
                           ),
@@ -792,8 +639,8 @@ class _BonusesScreenState extends State<BonusesScreen>
                         Expanded(
                           child: Text(
                             isAr ? 'تصفية متقدمة' : 'Advanced Filters',
-                            style: const TextStyle(
-                                fontSize: 16, fontWeight: FontWeight.bold),
+                            style: Theme.of(context).textTheme.titleMedium
+                                ?.copyWith(fontWeight: FontWeight.bold),
                             textAlign: TextAlign.center,
                           ),
                         ),
@@ -802,8 +649,7 @@ class _BonusesScreenState extends State<BonusesScreen>
                             Navigator.pop(ctx);
                             _clearFilters();
                           },
-                          child: Text(isAr ? 'مسح' : 'Clear',
-                              style: const TextStyle(color: Colors.red)),
+                          child: Text(isAr ? 'مسح' : 'Clear'),
                         ),
                       ],
                     ),
@@ -985,13 +831,9 @@ class _BonusesScreenState extends State<BonusesScreen>
                         const SizedBox(height: 24),
                         SizedBox(
                           width: double.infinity,
-                          child: ElevatedButton(
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: _gold,
-                              foregroundColor: Colors.white,
+                          child: FilledButton(
+                            style: FilledButton.styleFrom(
                               padding: const EdgeInsets.symmetric(vertical: 14),
-                              shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(12)),
                             ),
                             onPressed: () {
                               setState(() {
@@ -1011,8 +853,7 @@ class _BonusesScreenState extends State<BonusesScreen>
                               Navigator.pop(ctx);
                               _loadBonuses();
                             },
-                            child: Text(isAr ? 'تطبيق الفلاتر' : 'Apply Filters',
-                                style: const TextStyle(fontSize: 15)),
+                            child: Text(isAr ? 'تطبيق الفلاتر' : 'Apply Filters'),
                           ),
                         ),
                       ],
@@ -1034,17 +875,15 @@ class _BonusesScreenState extends State<BonusesScreen>
     context.watch<SettingsProvider>();
     final isAr = widget.isArabic;
     final filtered = _filtered;
-    final pendingIds = filtered
+    final pending = filtered
         .where((b) => b.status == 'pending' && b.id != null)
-        .map((b) => b.id!)
         .toList();
 
     // ── المحتوى المشترك بين المضمّن والمستقل ──
     Widget body = _loading
-        ? const Center(child: CircularProgressIndicator())
+        ? const AppLoadingView(summaryBlocks: 4, rows: 6)
         : RefreshIndicator(
             onRefresh: _loadBonuses,
-            color: _gold,
             child: CustomScrollView(
               physics: const AlwaysScrollableScrollPhysics(),
               slivers: [
@@ -1100,8 +939,8 @@ class _BonusesScreenState extends State<BonusesScreen>
                   ),
                 ),
                 SliverToBoxAdapter(child: _buildStatusTabs(isAr)),
-                if (pendingIds.isNotEmpty)
-                  SliverToBoxAdapter(child: _buildBulkBar(isAr, pendingIds)),
+                if (pending.isNotEmpty)
+                  SliverToBoxAdapter(child: _buildBulkBar(isAr, pending)),
                 if (filtered.isEmpty)
                   SliverToBoxAdapter(
                     child: Padding(
@@ -1114,16 +953,15 @@ class _BonusesScreenState extends State<BonusesScreen>
                           const SizedBox(height: 12),
                           Text(
                             isAr ? 'لا توجد مكافآت' : 'No bonuses',
-                            style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
+                            style: Theme.of(context).textTheme.titleSmall,
                           ),
                           const SizedBox(height: 4),
                           Text(
                             isAr
                                 ? 'ابدأ بـ "احتساب" لإنشاء أول مجموعة'
                                 : 'Start with "Calculate" to create your first batch',
-                            style: TextStyle(
-                                fontSize: 12,
-                                color: Theme.of(context).hintColor),
+                            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                color: Theme.of(context).colorScheme.onSurfaceVariant),
                             textAlign: TextAlign.center,
                           ),
                           const SizedBox(height: 16),
@@ -1135,8 +973,6 @@ class _BonusesScreenState extends State<BonusesScreen>
                             },
                             icon: const Icon(Icons.calculate_rounded, size: 16),
                             label: Text(isAr ? 'احتساب الآن' : 'Calculate now'),
-                            style: FilledButton.styleFrom(
-                                backgroundColor: AppColors.primaryGold),
                           ),
                         ],
                       ),
@@ -1179,7 +1015,7 @@ class _BonusesScreenState extends State<BonusesScreen>
                   top: 8, right: 8,
                   child: Container(
                     width: 7, height: 7,
-                    decoration: const BoxDecoration(color: _gold, shape: BoxShape.circle),
+                    decoration: BoxDecoration(color: Theme.of(context).colorScheme.primary, shape: BoxShape.circle),
                   ),
                 ),
             ]),
@@ -1218,7 +1054,7 @@ class _BonusesScreenState extends State<BonusesScreen>
                 top: 8, right: 8,
                 child: Container(
                   width: 8, height: 8,
-                  decoration: const BoxDecoration(color: _gold, shape: BoxShape.circle),
+                  decoration: BoxDecoration(color: Theme.of(context).colorScheme.primary, shape: BoxShape.circle),
                 ),
               ),
           ]),
@@ -1242,8 +1078,6 @@ class _BonusesScreenState extends State<BonusesScreen>
             builder: (_) => CalculateBonusesScreen(api: widget.api, isArabic: widget.isArabic),
           ),
         ).then((_) => _loadBonuses()),
-        backgroundColor: _gold,
-        foregroundColor: Colors.white,
         icon: const Icon(Icons.calculate_rounded),
         label: Text(isAr ? 'احتساب' : 'Calculate'),
       ),
@@ -1252,6 +1086,7 @@ class _BonusesScreenState extends State<BonusesScreen>
   }
 
   Widget _buildSummary(bool isAr) {
+    final tones = AppSemanticColors.of(context);
     final total = _bonuses.fold<double>(0, (s, b) => s + b.amount);
     final pending = _bonuses.where((b) => b.status == 'pending').length;
     final approved = _bonuses.where((b) => b.status == 'approved').length;
@@ -1274,8 +1109,8 @@ class _BonusesScreenState extends State<BonusesScreen>
       child: Row(children: [
         Expanded(child: _SmartMetricTile(
           label: isAr ? 'الإجمالي' : 'Total',
-          value: '${total.toStringAsFixed(0)} ${context.read<SettingsProvider>().currencySymbolText}',
-          color: AppColors.info,
+          value: '${cu.formatAmount(total, decimals: 0)} $_currency',
+          tone: tones.info,
           icon: Icons.payments_outlined,
           trend: pctChange,
           trendLabel: isAr ? 'عن الفترة السابقة' : 'vs last period',
@@ -1284,7 +1119,7 @@ class _BonusesScreenState extends State<BonusesScreen>
         Expanded(child: _SmartMetricTile(
           label: isAr ? 'معلّقة' : 'Pending',
           value: '$pending',
-          color: AppColors.warning,
+          tone: tones.warning,
           icon: Icons.pending_actions_outlined,
           subtitle: pending > 0 ? (isAr ? 'يحتاج اعتماد' : 'needs review') : (isAr ? 'لا شيء معلق' : 'all clear'),
         )),
@@ -1292,7 +1127,7 @@ class _BonusesScreenState extends State<BonusesScreen>
         Expanded(child: _SmartMetricTile(
           label: isAr ? 'معتمدة' : 'Approved',
           value: '$approved',
-          color: AppColors.success,
+          tone: tones.ready,
           icon: Icons.check_circle_outline,
           subtitle: isAr ? 'جاهزة للدفع' : 'ready to pay',
         )),
@@ -1300,7 +1135,7 @@ class _BonusesScreenState extends State<BonusesScreen>
         Expanded(child: _SmartMetricTile(
           label: isAr ? 'مدفوعة' : 'Paid',
           value: '$paid',
-          color: AppColors.primaryGold,
+          tone: tones.gold,
           icon: Icons.task_alt_rounded,
           subtitle: isAr ? 'كل الفترات' : 'all periods',
         )),
@@ -1324,15 +1159,12 @@ class _BonusesScreenState extends State<BonusesScreen>
               ? (isAr ? 'الكل' : 'All')
               : EmployeeBonusModel.getStatusNameAr(s);
           return ChoiceChip(
-            label: Text(label, style: const TextStyle(fontSize: 11.5)),
+            label: Text(label),
             selected: selected,
-            selectedColor: AppColors.primaryGold.withValues(alpha: 0.2),
-            checkmarkColor: AppColors.darkGold,
             visualDensity: VisualDensity.compact,
             materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 0),
-            labelStyle: TextStyle(
-              color: selected ? AppColors.darkGold : null,
+            labelStyle: Theme.of(context).textTheme.labelMedium?.copyWith(
               fontWeight: selected ? FontWeight.bold : FontWeight.normal,
             ),
             onSelected: (_) {
@@ -1345,39 +1177,39 @@ class _BonusesScreenState extends State<BonusesScreen>
     );
   }
 
-  Widget _buildBulkBar(bool isAr, List<int> pendingIds) {
+  Widget _buildBulkBar(bool isAr, List<EmployeeBonusModel> pending) {
+    final tone = AppSemanticColors.of(context).warning;
+    final total = pending.fold<double>(0, (s, b) => s + b.amount);
     return Container(
       margin: const EdgeInsets.fromLTRB(16, 12, 16, 4),
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
       decoration: BoxDecoration(
-        color: Colors.orange.shade50,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.orange.shade200),
+        color: tone.container,
+        borderRadius: BorderRadius.circular(AppRadius.control),
       ),
       child: Row(children: [
-        Icon(Icons.pending_actions_rounded,
-            color: Colors.orange.shade700, size: 20),
+        Icon(Icons.pending_actions_rounded, color: tone.fg, size: 20),
         const SizedBox(width: 8),
         Expanded(
           child: Text(
-            '${pendingIds.length} ${isAr ? 'معلّقة' : 'pending'}',
-            style: TextStyle(
-                color: Colors.orange.shade800, fontWeight: FontWeight.w600),
+            '${pending.length} ${isAr ? 'معلّقة' : 'pending'} · ${_money(total)}',
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                color: tone.onContainer, fontWeight: FontWeight.w600),
           ),
         ),
         TextButton.icon(
-          onPressed: _bulkLoading ? null : () => _bulkApprove(pendingIds),
+          onPressed: _bulkLoading ? null : () => _bulkApprove(pending),
           icon: _bulkLoading
               ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2))
               : const Icon(Icons.check_circle_outline, size: 16),
           label: Text(isAr ? 'اعتماد الكل' : 'Approve all'),
-          style: TextButton.styleFrom(foregroundColor: Colors.green.shade700),
+          style: TextButton.styleFrom(foregroundColor: tone.onContainer),
         ),
         TextButton.icon(
-          onPressed: _bulkLoading ? null : () => _bulkReject(pendingIds),
+          onPressed: _bulkLoading ? null : () => _bulkReject(pending),
           icon: const Icon(Icons.cancel_outlined, size: 16),
           label: Text(isAr ? 'رفض الكل' : 'Reject all'),
-          style: TextButton.styleFrom(foregroundColor: Colors.red.shade700),
+          style: TextButton.styleFrom(foregroundColor: tone.onContainer),
         ),
       ]),
     );
@@ -1385,6 +1217,19 @@ class _BonusesScreenState extends State<BonusesScreen>
 }
 
 // ─────────────────────────────── Sub-widgets ───────────────────────────────
+
+/// A bonus's status in its tone: waiting (pending), ready to pay (approved),
+/// done (paid), stopped (rejected).
+SemanticTone _statusTone(BuildContext context, String status) {
+  final tones = AppSemanticColors.of(context);
+  return switch (status) {
+    'pending' => tones.warning,
+    'approved' => tones.ready,
+    'paid' => tones.info,
+    'rejected' => tones.blocked,
+    _ => tones.sectionSlate,
+  };
+}
 
 class _BonusTile extends StatelessWidget {
   final EmployeeBonusModel bonus;
@@ -1395,9 +1240,15 @@ class _BonusTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final fmt = DateFormat('d MMM yyyy', 'ar');
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    final tones = AppSemanticColors.of(context);
+    final currency = context.read<SettingsProvider>().currencySymbolText;
+    final why = bonusWhy(bonus, currency);
+    final muted = theme.textTheme.bodySmall?.copyWith(color: cs.onSurfaceVariant);
 
     return Material(
-      color: Theme.of(context).colorScheme.surface,
+      color: cs.surface,
       borderRadius: BorderRadius.circular(14),
       child: InkWell(
         onTap: onTap,
@@ -1413,24 +1264,22 @@ class _BonusTile extends StatelessWidget {
                 children: [
                   Text(
                     bonus.employee?.fullName ?? '—',
-                    style: const TextStyle(
-                        fontWeight: FontWeight.w600, fontSize: 14),
+                    style: theme.textTheme.titleSmall,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    bonus.bonusRule?.name ?? bonus.bonusType,
-                    style: TextStyle(
-                        fontSize: 12, color: Colors.grey.shade500),
+                    '${bonus.bonusRule?.name ?? 'يدوية'} · '
+                    '${fmt.format(bonus.periodStart)} → ${fmt.format(bonus.periodEnd)}',
+                    style: muted,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
-                  const SizedBox(height: 4),
-                  Text(
-                    '${fmt.format(bonus.periodStart)} → ${fmt.format(bonus.periodEnd)}',
-                    style: TextStyle(fontSize: 11, color: Colors.grey.shade400),
-                  ),
+                  if (why != null) ...[
+                    const SizedBox(height: 2),
+                    Text(why, style: muted, maxLines: 2, overflow: TextOverflow.ellipsis),
+                  ],
                 ],
               ),
             ),
@@ -1439,11 +1288,9 @@ class _BonusTile extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
                 Text(
-                  '${bonus.amount.toStringAsFixed(0)} ${context.read<SettingsProvider>().currencySymbolText}',
-                  style: const TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 15,
-                      color: Color(0xFF8B6914)),
+                  '${cu.formatAmount(bonus.amount)} $currency',
+                  style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.bold, color: tones.gold.fg),
                 ),
                 const SizedBox(height: 4),
                 _StatusBadge(status: bonus.status),
@@ -1479,18 +1326,17 @@ class _StatusBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = Color(EmployeeBonusModel.getStatusColor(status));
+    final tone = _statusTone(context, status);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.12),
+        color: tone.container,
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: color.withValues(alpha: 0.4)),
       ),
       child: Text(
         EmployeeBonusModel.getStatusNameAr(status),
-        style: TextStyle(
-            fontSize: 11, color: color, fontWeight: FontWeight.w600),
+        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+            color: tone.onContainer, fontWeight: FontWeight.w600),
       ),
     );
   }
@@ -1499,7 +1345,7 @@ class _StatusBadge extends StatelessWidget {
 class _SmartMetricTile extends StatelessWidget {
   final String label;
   final String value;
-  final Color color;
+  final SemanticTone tone;
   final IconData icon;
   final double? trend;
   final String? trendLabel;
@@ -1508,7 +1354,7 @@ class _SmartMetricTile extends StatelessWidget {
   const _SmartMetricTile({
     required this.label,
     required this.value,
-    required this.color,
+    required this.tone,
     required this.icon,
     this.trend,
     this.trendLabel,
@@ -1517,24 +1363,24 @@ class _SmartMetricTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+    final text = Theme.of(context).textTheme;
+    final small = text.labelSmall?.copyWith(color: tone.onContainer);
     return Container(
       padding: const EdgeInsets.all(11),
       decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.08),
+        color: tone.container,
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: color.withValues(alpha: 0.18)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
           Row(children: [
-            Icon(icon, size: 13, color: color),
+            Icon(icon, size: 13, color: tone.fg),
             const SizedBox(width: 5),
             Flexible(
               child: Text(label,
-                  style: TextStyle(fontSize: 10.5, color: theme.hintColor, fontWeight: FontWeight.w600),
+                  style: small?.copyWith(fontWeight: FontWeight.w600),
                   overflow: TextOverflow.ellipsis),
             ),
           ]),
@@ -1543,7 +1389,8 @@ class _SmartMetricTile extends StatelessWidget {
             fit: BoxFit.scaleDown,
             alignment: AlignmentDirectional.centerStart,
             child: Text(value,
-                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: color, letterSpacing: -0.3)),
+                style: text.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w800, color: tone.onContainer)),
           ),
           const SizedBox(height: 2),
           if (trend != null) ...[
@@ -1551,23 +1398,19 @@ class _SmartMetricTile extends StatelessWidget {
               Icon(
                 trend! >= 0 ? Icons.trending_up_rounded : Icons.trending_down_rounded,
                 size: 11,
-                color: trend! >= 0 ? AppColors.success : AppColors.error,
+                color: tone.onContainer,
               ),
               const SizedBox(width: 2),
               Flexible(
                 child: Text(
-                  '${trend!.abs().toStringAsFixed(1)}% ${trendLabel ?? ""}',
-                  style: TextStyle(fontSize: 9.5,
-                      color: trend! >= 0 ? AppColors.success : AppColors.error,
-                      fontWeight: FontWeight.w600),
+                  '${cu.formatAmount(trend!.abs(), decimals: 1)}% ${trendLabel ?? ""}',
+                  style: small,
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
             ]),
           ] else if (subtitle != null)
-            Text(subtitle!,
-                style: TextStyle(fontSize: 9.5, color: theme.hintColor),
-                overflow: TextOverflow.ellipsis),
+            Text(subtitle!, style: small, overflow: TextOverflow.ellipsis),
         ],
       ),
     );
@@ -1584,76 +1427,70 @@ class _DetailRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final muted = theme.colorScheme.onSurfaceVariant;
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 6),
       child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Icon(icon, size: 16, color: Colors.grey.shade400),
+        Icon(icon, size: 16, color: muted),
         const SizedBox(width: 10),
         SizedBox(
           width: 100,
           child: Text(label,
-              style:
-                  TextStyle(fontSize: 12, color: Colors.grey.shade500)),
+              style: theme.textTheme.bodySmall?.copyWith(color: muted)),
         ),
         Expanded(
           child: Text(value,
-              style: const TextStyle(
-                  fontSize: 13, fontWeight: FontWeight.w500)),
+              style: theme.textTheme.bodyMedium
+                  ?.copyWith(fontWeight: FontWeight.w500)),
         ),
       ]),
     );
   }
 }
 
+/// The sheet's next step (approve, pay) strong in its [tone]; the rest
+/// [outlined] -- reject in its tone, edit plain (UI-3).
 class _ActionButton extends StatelessWidget {
   final String label;
   final IconData icon;
-  final Color color;
+  final SemanticTone? tone;
   final VoidCallback onTap;
   final bool outlined;
 
   const _ActionButton({
     required this.label,
     required this.icon,
-    required this.color,
     required this.onTap,
+    this.tone,
     this.outlined = false,
   });
 
   @override
   Widget build(BuildContext context) {
-    if (outlined) {
-      return SizedBox(
-        width: double.infinity,
-        child: OutlinedButton.icon(
-          onPressed: onTap,
-          icon: Icon(icon, size: 18),
-          label: Text(label),
-          style: OutlinedButton.styleFrom(
-            foregroundColor: color,
-            side: BorderSide(color: color),
-            padding: const EdgeInsets.symmetric(vertical: 12),
-            shape:
-                RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-          ),
-        ),
-      );
-    }
-    return SizedBox(
-      width: double.infinity,
-      child: ElevatedButton.icon(
+    const padding = EdgeInsets.symmetric(vertical: 12);
+    final Widget button;
+    if (tone == null || outlined) {
+      button = OutlinedButton.icon(
         onPressed: onTap,
         icon: Icon(icon, size: 18),
         label: Text(label),
-        style: ElevatedButton.styleFrom(
-          backgroundColor: color,
-          foregroundColor: Colors.white,
-          padding: const EdgeInsets.symmetric(vertical: 12),
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        style: OutlinedButton.styleFrom(
+          foregroundColor: tone?.fg,
+          side: tone == null ? null : BorderSide(color: tone!.fg),
+          padding: padding,
         ),
-      ),
-    );
+      );
+    } else {
+      button = FilledButton.icon(
+        onPressed: onTap,
+        icon: Icon(icon, size: 18),
+        label: Text(label),
+        style: AppButtonStyles.primary(context, tone!)
+            .merge(FilledButton.styleFrom(padding: padding)),
+      );
+    }
+    return SizedBox(width: double.infinity, child: button);
   }
 }
 
@@ -1665,14 +1502,14 @@ class _FilterSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     return Padding(
       padding: const EdgeInsets.only(bottom: 16),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Text(label,
-            style: const TextStyle(
-                fontSize: 12,
+            style: theme.textTheme.labelMedium?.copyWith(
                 fontWeight: FontWeight.w600,
-                color: Colors.grey)),
+                color: theme.colorScheme.onSurfaceVariant)),
         const SizedBox(height: 6),
         child,
       ]),
@@ -1693,9 +1530,345 @@ class _PeriodChip extends StatelessWidget {
     return ChoiceChip(
       label: Text(label),
       selected: selected,
-      selectedColor: const Color(0xFFD4AF37).withValues(alpha: 0.2),
-      checkmarkColor: const Color(0xFF8B6914),
       onSelected: (_) => onTap(),
+    );
+  }
+}
+
+/// Why a bonus is its amount, from what its rule recorded when it computed it
+/// (calculation_data): the measure, its value, the tier it reached. Null when
+/// nothing was recorded to say it by -- a manual bonus, an old rule type.
+String? bonusWhy(EmployeeBonusModel b, String currency) {
+  final data = b.calculationData;
+  if (data == null) return null;
+  String n(Object? v) => v is num
+      ? cu.formatAmount(v, decimals: v == v.truncate() ? 0 : 2)
+      : '${v ?? '—'}';
+  final tier = data['tier'];
+  if (data['measure'] != null && tier is Map) {
+    final measure = tierMeasures[data['measure']] ?? '${data['measure']}';
+    final rate = tier['per_unit'] != null
+        ? 'بـ ${n(tier['per_unit'])} لكل وحدة'
+        : '${n(tier['amount'])} $currency';
+    return '$measure ${n(data['value'])} · شريحة من ${n(tier['from'])} $rate';
+  }
+  if (data['employee_points'] != null) {
+    final least = data['min_points'];
+    return 'النقاط ${n(data['employee_points'])}'
+        '${least is num && least > 0 ? ' · الحد الأدنى ${n(least)}' : ''}';
+  }
+  if (data['sales_target'] != null) {
+    return 'المبيعات ${n(data['sales_amount'])} $currency '
+        'من هدف ${n(data['sales_target'])}';
+  }
+  return null;
+}
+
+class _RejectDialog extends StatefulWidget {
+  const _RejectDialog({required this.title});
+
+  final String title;
+
+  @override
+  State<_RejectDialog> createState() => _RejectDialogState();
+}
+
+class _RejectDialogState extends State<_RejectDialog> {
+  final _reason = TextEditingController();
+
+  @override
+  void dispose() {
+    _reason.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return AlertDialog(
+      title: Text(widget.title),
+      content: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 440),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              'لم تُعتمد بعد، فلا قيد لها يُعكس. السبب يُحفظ في ملاحظتها.',
+              style: theme.textTheme.bodyMedium
+                  ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+            ),
+            const SizedBox(height: AppSpace.md),
+            TextField(
+              key: const Key('reject-reason'),
+              controller: _reason,
+              maxLines: 2,
+              decoration:
+                  const InputDecoration(labelText: 'سبب الرفض (اختياري)'),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('تراجع')),
+        FilledButton(
+          key: const Key('reject-confirm'),
+          style: AppButtonStyles.danger(context),
+          onPressed: () => Navigator.pop(context, _reason.text.trim()),
+          child: const Text('رفض'),
+        ),
+      ],
+    );
+  }
+}
+
+/// The safe to pay a bonus from, its balance beside it, and the voucher the
+/// payment makes. The server reads the balance from the books and refuses a
+/// safe short of the bonus; the dialog only says so first.
+class _PayDialog extends StatefulWidget {
+  const _PayDialog(
+      {required this.bonus, required this.safes, required this.money});
+
+  final EmployeeBonusModel bonus;
+  final List<SafeBoxModel> safes;
+  final String Function(num) money;
+
+  @override
+  State<_PayDialog> createState() => _PayDialogState();
+}
+
+class _PayDialogState extends State<_PayDialog> {
+  late SafeBoxModel _safe = widget.safes.first;
+
+  double _balanceOf(SafeBoxModel s) => s.balance?.cash ?? 0.0;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final tones = AppSemanticColors.of(context);
+    final b = widget.bonus;
+    final name = b.employee?.fullName ?? 'الموظف';
+    final short = _balanceOf(_safe) < b.amount;
+    final tone = short ? tones.warning : tones.info;
+    return AlertDialog(
+      title: Text('صرف مكافأة $name'),
+      content: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 440),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text('المبلغ ${widget.money(b.amount)}',
+                style: theme.textTheme.titleMedium),
+            const SizedBox(height: AppSpace.md),
+            DropdownButtonFormField<SafeBoxModel>(
+              key: const Key('pay-safe'),
+              value: _safe,
+              isExpanded: true,
+              decoration: const InputDecoration(labelText: 'من خزينة'),
+              items: [
+                for (final s in widget.safes)
+                  DropdownMenuItem(
+                    value: s,
+                    child: Row(
+                      children: [
+                        Expanded(
+                            child:
+                                Text(s.name, overflow: TextOverflow.ellipsis)),
+                        Text(
+                          widget.money(_balanceOf(s)),
+                          textDirection: TextDirection.ltr,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: _balanceOf(s) >= b.amount
+                                ? tones.ready.fg
+                                : tones.blocked.fg,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+              ],
+              onChanged: (v) => setState(() => _safe = v ?? _safe),
+            ),
+            const SizedBox(height: AppSpace.md),
+            Container(
+              key: const Key('pay-effect'),
+              padding: const EdgeInsets.all(AppSpace.md),
+              decoration: BoxDecoration(
+                color: tone.container,
+                borderRadius: BorderRadius.circular(AppRadius.control),
+              ),
+              child: Text(
+                short
+                    ? 'رصيد ${_safe.name} ${widget.money(_balanceOf(_safe))} '
+                        'أقل من المكافأة، ويرفض الخادم الصرف منها.'
+                    : 'يُسجَّل سند صرف: مكافآت $name المستحقة مدينة، '
+                        'و${_safe.name} دائنة بـ ${widget.money(b.amount)}.',
+                style: theme.textTheme.bodyMedium
+                    ?.copyWith(color: tone.onContainer),
+              ),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('تراجع')),
+        FilledButton(
+          key: const Key('pay-confirm'),
+          onPressed: () => Navigator.pop(context, _safe),
+          child: const Text('صرف'),
+        ),
+      ],
+    );
+  }
+}
+
+/// A pending bonus's edit. A bonus its rule computed keeps its rule's amount
+/// and period -- the next run recomputes them, and the server refuses a typed
+/// one (computed_by_rule) -- so only its note is offered, and why is said.
+/// A manual bonus is the manager's: amount, note and period.
+class _EditBonusDialog extends StatefulWidget {
+  const _EditBonusDialog({required this.bonus});
+
+  final EmployeeBonusModel bonus;
+
+  @override
+  State<_EditBonusDialog> createState() => _EditBonusDialogState();
+}
+
+class _EditBonusDialogState extends State<_EditBonusDialog> {
+  late final _amount = TextEditingController(text: _typed(widget.bonus.amount));
+  late final _note = TextEditingController(text: widget.bonus.notes ?? '');
+  late DateTime _start = widget.bonus.periodStart;
+  late DateTime _end = widget.bonus.periodEnd;
+  String? _amountError;
+
+  static final _day = DateFormat('yyyy-MM-dd');
+
+  static String _typed(double v) =>
+      v == v.truncateToDouble() ? '${v.toInt()}' : '$v';
+
+  bool get _byRule => widget.bonus.bonusRuleId != null;
+
+  @override
+  void dispose() {
+    _amount.dispose();
+    _note.dispose();
+    super.dispose();
+  }
+
+  void _save() {
+    final note = _note.text.trim().isEmpty ? null : _note.text.trim();
+    if (_byRule) {
+      Navigator.pop(context, <String, dynamic>{'notes': note});
+      return;
+    }
+    final amount = double.tryParse(_amount.text.trim());
+    if (amount == null || amount < 0) {
+      setState(() => _amountError = 'مبلغ غير صحيح');
+      return;
+    }
+    Navigator.pop(context, <String, dynamic>{
+      'amount': amount,
+      'notes': note,
+      'period_start': _day.format(_start),
+      'period_end': _day.format(_end),
+    });
+  }
+
+  Future<void> _pick(bool start) async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: start ? _start : _end,
+      firstDate: DateTime(2020),
+      lastDate: DateTime(2100),
+    );
+    if (picked != null) setState(() => start ? _start = picked : _end = picked);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final tones = AppSemanticColors.of(context);
+    final rule = widget.bonus.bonusRule?.name;
+    Widget date(String label, DateTime value, bool start) => Expanded(
+          child: InkWell(
+            onTap: () => _pick(start),
+            child: InputDecorator(
+              decoration: InputDecoration(labelText: label),
+              child: Text(_day.format(value)),
+            ),
+          ),
+        );
+    return AlertDialog(
+      title: const Text('تعديل المكافأة'),
+      content: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 400),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            if (_byRule) ...[
+              Container(
+                key: const Key('edit-by-rule'),
+                padding: const EdgeInsets.all(AppSpace.md),
+                decoration: BoxDecoration(
+                  color: tones.info.container,
+                  borderRadius: BorderRadius.circular(AppRadius.control),
+                ),
+                child: Text(
+                  'مبلغها وفترتها تحسبهما قاعدتها${rule == null ? '' : ' «$rule»'}، '
+                  'ويعيد التشغيل التالي حسابهما. لمبلغ آخر: ارفضها، وأضف مكافأة '
+                  'يدوية بسببها.',
+                  style: theme.textTheme.bodyMedium
+                      ?.copyWith(color: tones.info.onContainer),
+                ),
+              ),
+              const SizedBox(height: AppSpace.md),
+            ] else ...[
+              TextField(
+                key: const Key('edit-amount'),
+                controller: _amount,
+                keyboardType:
+                    const TextInputType.numberWithOptions(decimal: true),
+                decoration: InputDecoration(
+                    labelText: 'المبلغ', errorText: _amountError),
+                onChanged: (_) {
+                  if (_amountError != null) setState(() => _amountError = null);
+                },
+              ),
+              const SizedBox(height: AppSpace.md),
+            ],
+            TextField(
+              key: const Key('edit-note'),
+              controller: _note,
+              maxLines: 2,
+              decoration: const InputDecoration(labelText: 'ملاحظات'),
+            ),
+            if (!_byRule) ...[
+              const SizedBox(height: AppSpace.md),
+              Row(children: [
+                date('من', _start, true),
+                const SizedBox(width: AppSpace.sm),
+                date('إلى', _end, false),
+              ]),
+            ],
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('تراجع')),
+        FilledButton(
+            key: const Key('edit-save'),
+            onPressed: _save,
+            child: const Text('حفظ')),
+      ],
     );
   }
 }

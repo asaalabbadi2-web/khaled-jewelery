@@ -7516,36 +7516,41 @@ class ApiService {
     }
   }
 
-  Future<void> approveBonus(int id) async {
+  /// The server's answer: its `voucher` holds the approval's entry number.
+  Future<Map<String, dynamic>> approveBonus(int id) async {
     final token = await _requireAuthToken();
     final response = await http.post(
       Uri.parse('$_baseUrl/bonuses/$id/approve'),
       headers: _jsonHeaders(token: token),
     );
-    if (response.statusCode != 200) {
-      final bodyText = utf8.decode(response.bodyBytes);
-      String? cleanMessage;
-      try {
-        final decoded = json.decode(bodyText);
-        if (decoded is Map) {
-          final msg = decoded['message'] ?? decoded['error'];
-          if (msg != null) cleanMessage = msg.toString();
-        }
-      } catch (_) {
-        // ignore JSON parsing errors
-      }
-      throw ApiException.text(
-        cleanMessage ??
-            (bodyText.isNotEmpty ? bodyText : 'فشل في الموافقة على المكافأة'),
+    if (response.statusCode == 200) {
+      return Map<String, dynamic>.from(
+        json.decode(utf8.decode(response.bodyBytes)) as Map,
       );
     }
+    final bodyText = utf8.decode(response.bodyBytes);
+    String? cleanMessage;
+    try {
+      final decoded = json.decode(bodyText);
+      if (decoded is Map) {
+        final msg = decoded['message'] ?? decoded['error'];
+        if (msg != null) cleanMessage = msg.toString();
+      }
+    } catch (_) {
+      // ignore JSON parsing errors
+    }
+    throw ApiException.text(
+      cleanMessage ??
+          (bodyText.isNotEmpty ? bodyText : 'فشل في الموافقة على المكافأة'),
+    );
   }
 
-  Future<void> rejectBonus(int id) async {
+  Future<void> rejectBonus(int id, {String? reason}) async {
     final token = await _requireAuthToken();
     final response = await http.post(
       Uri.parse('$_baseUrl/bonuses/$id/reject'),
       headers: _jsonHeaders(token: token),
+      body: json.encode({if (reason != null) 'reason': reason}),
     );
     if (response.statusCode != 200) {
       final bodyText = utf8.decode(response.bodyBytes);
@@ -7578,7 +7583,6 @@ class ApiService {
       body: json.encode({
         'safe_box_id': safeBoxId,
         'payment_method': paymentMethod,
-        'created_by': 'admin',
       }),
     );
     if (response.statusCode != 200) {
@@ -7609,7 +7613,9 @@ class ApiService {
     );
     if (response.statusCode != 200) {
       final error = json.decode(utf8.decode(response.bodyBytes));
-      throw ApiException.text(error['error'] ?? 'فشل في تحديث المكافأة');
+      throw ApiException.text(
+        error['message'] ?? error['error'] ?? 'فشل في تحديث المكافأة',
+      );
     }
   }
 

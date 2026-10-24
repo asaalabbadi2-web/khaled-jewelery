@@ -726,6 +726,15 @@ def update_bonus(bonus_id):
 
         data = request.get_json() or {}
 
+        # A bonus its rule computed is the rule's (bonus study م3ب): the next run
+        # recomputes it -- a typed amount was undone unsaid -- and a typed period
+        # moved it off its (employee, rule, period), so the run made it again:
+        # two bonuses for one period. Its note stays the manager's.
+        if bonus.bonus_rule_id is not None and {'amount', 'period_start', 'period_end'} & set(data):
+            return jsonify({'success': False, 'error': 'computed_by_rule',
+                            'message': 'مبلغ هذه المكافأة وفترتها تحسبهما قاعدتها، ويعيد التشغيل التالي حسابهما. '
+                                       'لمبلغ آخر: ارفضها، وأضف مكافأة يدوية بسببها'}), 400
+
         # الحقول المسموح تعديلها قبل الاعتماد
         if 'amount' in data:
             amount = data.get('amount')
