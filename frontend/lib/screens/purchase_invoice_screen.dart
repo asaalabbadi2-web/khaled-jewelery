@@ -13,6 +13,7 @@ import '../providers/auth_provider.dart';
 import '../providers/settings_provider.dart';
 import '../theme/app_theme.dart';
 import '../widgets/adaptive_invoice_summary_dialog.dart';
+import '../widgets/invoice_review_dialog.dart';
 import '../widgets/invoice_settings_sheet.dart';
 import '../widgets/original_invoice_selector.dart';
 import '../widgets/inline_number_cell.dart';
@@ -2704,7 +2705,6 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
   }
 
   String _fmtMoney(double value) => formatAmount(value);
-  String _fmtWeight(double value) => formatGrams(value);
 
   Future<bool> _showPreSaveInvoiceSummary() async {
     if (!mounted) return false;
@@ -2784,8 +2784,11 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
     // What the save does to what we owe the supplier: a purchase adds to it,
     // a return takes from it (it said «سيزداد» for both).
     String cash(double v) => '${_fmtMoney(v)} $currency';
+    // What the save does to what we owe: said in the supplier's box, not
+    // among the warnings (ADR-060 ف١).
+    final effectLines = <String>[];
     if (netCashDue.abs() > 0.01) {
-      notices.add(
+      effectLines.add(
         supplierCashEffect(
           netCashDue,
           isReturn: _isSupplierReturnMode,
@@ -2794,7 +2797,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
       );
     }
     if (netGoldDueMain.abs() > 0.001) {
-      notices.add(
+      effectLines.add(
         supplierGoldEffect(
           netGoldDueMain,
           isReturn: _isSupplierReturnMode,
@@ -2829,149 +2832,74 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
       }
     }
 
-    return await showAdaptiveInvoiceSummaryDialog<bool>(
-          context: context,
-          title: 'مراجعة فاتورة ${_kind.label}',
-          subtitle: 'راجع البيانات الأساسية سريعاً قبل تنفيذ الحفظ.',
-          icon: Icons.receipt_long_rounded,
-          accentColor: AppSemanticColors.of(context).invoice(_kind).fg,
-          statusTitle: 'حالة التسوية',
-          statusMessage: _settlementModeLabel(_settlementMode),
-          statusTone: InvoiceSummaryStatusTone.neutral,
-          metrics: [
-            InvoiceSummaryMetric(
-              label: 'الإجمالي',
-              value: '${_fmtMoney(grandTotal)} $currency',
-              icon: Icons.payments_outlined,
-              accentColor: _tone.gold.fg,
-              emphasize: true,
+    String branch = '';
+    for (final b in _branches) {
+      if ('${b['id']}' == '$_selectedBranchId') branch = '${b['name'] ?? ''}';
+    }
+    // ADR-060 ف١: read as a receipt; a supplier's purchase adds what the save
+    // does to what we owe them. Its gold is paid in gold: the lines say
+    // their wage.
+    return showInvoiceReview(
+      context,
+      InvoiceReview(
+        title: 'مراجعة فاتورة ${_kind.label}',
+        subtitle: [
+          if (supplierName.isNotEmpty) supplierName,
+          if (branch.isNotEmpty) branch,
+          _vatApplied ? 'بضريبة' : 'بلا ضريبة',
+        ].join(' · '),
+        icon: Icons.inventory_rounded,
+        tone: AppSemanticColors.of(context).invoice(_kind),
+        currency: currency,
+        amountLabel: 'الأجرة',
+        notices: [for (final n in notices) InvoiceReviewNotice(n)],
+        lines: [
+          for (final item in _inlineItems)
+            InvoiceReviewLine(
+              name: item.name,
+              karat: item.karat.round(),
+              weight: item.goldWeight,
+              amount: item.weightGrams * item.wagePerGram,
             ),
-            InvoiceSummaryMetric(
-              label: 'الضريبة',
-              value: _vatApplied ? 'بضريبة' : 'بلا ضريبة',
-              icon: Icons.receipt_long_outlined,
-              accentColor: AppSemanticColors.of(context).info.fg,
+        ],
+        tax: _taxTotal > 0 ? _taxTotal : null,
+        total: grandTotal,
+        payments: [
+          if (_selectedPaymentMethodId != null && paidCash > 0.01)
+            InvoiceReviewAmount(
+              _paymentMethods
+                      .where((m) => m['id'] == _selectedPaymentMethodId)
+                      .map<String>((m) => m['name']?.toString() ?? 'مدفوع')
+                      .firstOrNull ??
+                  'مدفوع',
+              paidCash,
             ),
-            if (_selectedPaymentMethodId != null && paidCash > 0.01)
-              InvoiceSummaryMetric(
-                label: 'طريقة السداد',
-                value: '${_fmtMoney(paidCash)} $currency',
-                icon: Icons.credit_card_outlined,
-                accentColor: _tone.info.fg,
-                fullWidth: true,
-                highlightCard: true,
-                details: [
-                  InvoiceSummaryMetricDetail(
-                    label:
-                        _paymentMethods
-                            .where((m) => m['id'] == _selectedPaymentMethodId)
-                            .map<String>(
-                              (m) => m['name']?.toString() ?? 'غير محدد',
-                            )
-                            .firstOrNull ??
-                        'غير محدد',
-                    value: '${_fmtMoney(paidCash)} $currency',
-                    accentColor: _tone.info.fg,
-                  ),
-                ],
-              ),
-            if (totalWeight > 0)
-              InvoiceSummaryMetric(
-                label: 'إجمالي الوزن',
-                value: '${_fmtWeight(totalWeight)} جم',
-                icon: Icons.scale_outlined,
-                accentColor: _tone.info.fg,
-                fullWidth: true,
-              ),
-            // ── تفاصيل ثانوية (تظهر بعد الثلاثة الأساسية عند التمرير) ──
-            if (supplierName.isNotEmpty)
-              InvoiceSummaryMetric(
-                label: 'المورد',
-                value: supplierName,
-                icon: Icons.person_outline_rounded,
-                accentColor: _tone.info.fg,
-              ),
-            InvoiceSummaryMetric(
-              label: _isSupplierReturnMode
-                  ? 'نقد يُخصم مما علينا بهذا المرتجع'
-                  : 'نقد علينا بهذه الفاتورة',
-              value: '${_fmtMoney(netCashDue)} $currency',
-              icon: Icons.money,
-              accentColor: _tone.ready.fg,
+        ],
+        facts: [('التسوية', _settlementModeLabel(_settlementMode))],
+        effectsTitle: 'ما علينا للمورد',
+        effectsSaid: effectLines,
+        effects: [
+          if (currentCashBalance != null && projectedCashBalance != null)
+            InvoiceReviewEffect(
+              label: 'نقد',
+              now: supplierCashPosition(currentCashBalance, formatCash: cash),
+              after: supplierCashPosition(projectedCashBalance, formatCash: cash),
             ),
-            InvoiceSummaryMetric(
-              label: _isSupplierReturnMode
-                  ? 'ذهب يُخصم مما علينا بهذا المرتجع (عيار $mainKarat)'
-                  : 'ذهب علينا بهذه الفاتورة (عيار $mainKarat)',
-              value: '${_fmtWeight(netGoldDueMain)} جم',
-              icon: Icons.monitor_weight_outlined,
-              accentColor: _tone.karat24.fg,
+          if (currentGoldBalanceMain != null && projectedGoldBalanceMain != null)
+            InvoiceReviewEffect(
+              label: 'ذهب بعيار $mainKarat',
+              now: supplierGoldPosition(
+                currentGoldBalanceMain,
+                mainKarat: mainKarat,
+              ),
+              after: supplierGoldPosition(
+                projectedGoldBalanceMain,
+                mainKarat: mainKarat,
+              ),
             ),
-            if (currentGoldBalanceMain != null)
-              InvoiceSummaryMetric(
-                label: 'مع المورد الآن (ذهب)',
-                value: supplierGoldPosition(
-                  currentGoldBalanceMain,
-                  mainKarat: mainKarat,
-                ),
-                icon: Icons.monitor_weight_outlined,
-                accentColor: _tone.info.fg,
-                badgeLabel: 'الحالي',
-                badgeColor: _tone.info.fg,
-              ),
-            if (projectedGoldBalanceMain != null)
-              InvoiceSummaryMetric(
-                label: 'مع المورد بعد الحفظ (ذهب)',
-                value: supplierGoldPosition(
-                  projectedGoldBalanceMain,
-                  mainKarat: mainKarat,
-                ),
-                icon: Icons.monitor_weight_outlined,
-                accentColor: _tone.gold.fg,
-                badgeLabel: 'بعد الحفظ',
-                badgeColor: _tone.gold.fg,
-              ),
-            if (currentCashBalance != null)
-              InvoiceSummaryMetric(
-                label: 'مع المورد الآن (نقد)',
-                value: supplierCashPosition(
-                  currentCashBalance,
-                  formatCash: cash,
-                ),
-                icon: Icons.account_balance_outlined,
-                accentColor: _tone.info.fg,
-                badgeLabel: 'الحالي',
-                badgeColor: _tone.info.fg,
-              ),
-            if (projectedCashBalance != null)
-              InvoiceSummaryMetric(
-                label: 'مع المورد بعد الحفظ (نقد)',
-                value: supplierCashPosition(
-                  projectedCashBalance,
-                  formatCash: cash,
-                ),
-                icon: Icons.trending_up_rounded,
-                accentColor: _tone.gold.fg,
-                badgeLabel: 'بعد الحفظ',
-                badgeColor: _tone.gold.fg,
-              ),
-          ],
-          notices: notices,
-          closeValue: false,
-          actions: const [
-            InvoiceSummaryAction.secondary(
-              label: 'رجوع',
-              icon: Icons.arrow_back_rounded,
-              value: false,
-            ),
-            InvoiceSummaryAction.primary(
-              label: 'حفظ الفاتورة',
-              icon: Icons.save_rounded,
-              value: true,
-            ),
-          ],
-        ) ??
-        false;
+        ],
+      ),
+    );
   }
 
   @override

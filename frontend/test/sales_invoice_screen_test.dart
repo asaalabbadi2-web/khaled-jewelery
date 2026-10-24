@@ -1258,13 +1258,54 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('مراجعة فاتورة بيع'), findsOneWidget);
       Finder inReview(Finder f) => find.descendant(
-        of: find.byKey(const Key('invoice-summary')),
+        of: find.byKey(const Key('invoice-review')),
         matching: f,
       );
       expect(inReview(find.textContaining('آجل')), findsOneWidget);
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('invoice-review-due')),
+          matching: find.text('آجل على «مؤسسة الأمل»'),
+        ),
+        findsOneWidget,
+      );
       expect(inReview(find.text('المتبقي')), findsNothing);
       expect(inReview(find.text('المدفوع (نقدي)')), findsNothing);
-      expect(inReview(find.text('المدفوع')), findsOneWidget);
+    });
+
+    // ف١: a receipt -- each line numbered in a table; Enter saves, Esc
+    // goes back to the invoice.
+    testWidgets('the review lists each line in its table', (tester) async {
+      await open(tester, api: FakeSalesApi(), saved: draft(payments: paidInFull));
+      await tester.tap(saveButton());
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('invoice-review-line-0')), findsOneWidget);
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('invoice-review-line-0')),
+          matching: find.textContaining('سلسال'),
+        ),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('Enter saves from the review; Esc goes back unsaved', (
+      tester,
+    ) async {
+      final api = FakeSalesApi();
+      await open(tester, api: api, saved: draft(payments: paidInFull));
+      await tester.tap(saveButton());
+      await tester.pumpAndSettle();
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await settle(tester);
+      expect(find.byKey(const Key('invoice-review')), findsNothing);
+      expect(api.added, isEmpty);
+
+      await tester.tap(saveButton());
+      await tester.pumpAndSettle();
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await settle(tester);
+      expect(api.added, hasLength(1));
     });
 
     Future<FakeSalesApi> saveOne(

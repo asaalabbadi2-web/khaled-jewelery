@@ -17,6 +17,7 @@ import '../widgets/pay_box.dart';
 import '../widgets/invoice_settings_sheet.dart';
 import '../widgets/sales_category_entry_row.dart';
 import '../widgets/adaptive_invoice_summary_dialog.dart';
+import '../widgets/invoice_review_dialog.dart';
 import '../widgets/party_picker_dialog.dart';
 import '../widgets/searchable_picker_field.dart';
 import 'settings_screen_enhanced.dart';
@@ -2231,120 +2232,42 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
         'سعر البيع أقل من التكلفة وقد تحتاج الفاتورة إلى اعتماد مدير.',
       );
     }
-    final lineDetails = [
-      for (final item in _items)
-        InvoiceSummaryMetricDetail(
-          label:
-              '${item.name} • ${cu.formatAmount(item.karat, decimals: 0)}k • ${cu.formatGrams(item.weight)} جم',
-          value: '${cu.formatAmount(item.totalWithTax)} $currency',
-          accentColor: AppSemanticColors.of(context).karat(item.karat.round()).fg,
-        ),
-    ];
-    final weightBreakdown = _buildWeightBreakdownLines(
-      _items.map((item) => item.toJson()),
+    // ADR-060 ف١: read as a receipt -- the lines in a table, what they come
+    // to, how it is paid, and what remains, once.
+    String branch = '';
+    for (final b in _branches) {
+      if ('${b['id']}' == '$_selectedBranchId') branch = '${b['name'] ?? ''}';
+    }
+    return showInvoiceReview(
+      context,
+      InvoiceReview(
+        title: 'مراجعة فاتورة ${_kind.label}',
+        subtitle: [customerLabel, if (branch.isNotEmpty) branch].join(' · '),
+        icon: Icons.point_of_sale_rounded,
+        tone: AppSemanticColors.of(context).invoice(_kind),
+        currency: currency,
+        notices: [for (final w in warnings) InvoiceReviewNotice(w)],
+        lines: [
+          for (final item in _items)
+            InvoiceReviewLine(
+              name: item.name,
+              karat: item.karat.round(),
+              weight: item.weight,
+              amount: item.totalWithTax,
+            ),
+        ],
+        tax: totalTax > 0 ? totalTax : null,
+        total: total,
+        payments: [
+          for (final p in _payments)
+            InvoiceReviewAmount(p.paymentMethodName, p.amount),
+          if (barterTotal > 0.01) InvoiceReviewAmount('مقايضة', barterTotal),
+        ],
+        due: remaining > 0.01
+            ? InvoiceReviewAmount('آجل على «$customerLabel»', remaining)
+            : null,
+      ),
     );
-    return await showAdaptiveInvoiceSummaryDialog<bool>(
-          context: context,
-          title: 'مراجعة فاتورة ${_kind.label}',
-          subtitle: 'راجع البيانات الأساسية سريعاً قبل تنفيذ الحفظ.',
-          icon: Icons.receipt_long_rounded,
-          accentColor: AppSemanticColors.of(context).invoice(_kind).fg,
-          statusTitle: 'حالة السداد',
-          statusMessage: remaining > 0.01
-              ? 'آجل على «$customerLabel»: ${cu.formatAmount(remaining)} $currency'
-              : 'تمت التسوية بالكامل',
-          statusTone: remaining > 0.01
-              ? InvoiceSummaryStatusTone.due
-              : InvoiceSummaryStatusTone.success,
-          metrics: [
-            InvoiceSummaryMetric(
-              label: 'الإجمالي',
-              value: '${cu.formatAmount(total)} $currency',
-              icon: Icons.payments_outlined,
-              accentColor: _tone.gold.fg,
-              emphasize: true,
-            ),
-            InvoiceSummaryMetric(
-              label: 'الأصناف',
-              value: '$itemsCount',
-              icon: Icons.inventory_2_outlined,
-              accentColor: _tone.info.fg,
-              fullWidth: true,
-              details: lineDetails,
-            ),
-            if (_payments.isNotEmpty)
-              InvoiceSummaryMetric(
-                label: 'طريقة السداد',
-                value: _payments.length == 1
-                    ? _payments.first.paymentMethodName
-                    : '${_payments.length} وسائل دفع',
-                icon: Icons.credit_card_outlined,
-                accentColor: _tone.info.fg,
-                fullWidth: true,
-                highlightCard: true,
-                details: [
-                  for (final p in _payments)
-                    InvoiceSummaryMetricDetail(
-                      label: p.paymentMethodName,
-                      value: '${cu.formatAmount(p.amount)} $currency',
-                      accentColor: _tone.info.fg,
-                    ),
-                ],
-              ),
-            if (totalWeight > 0)
-              InvoiceSummaryMetric(
-                label: 'إجمالي الوزن',
-                value: '${cu.formatGrams(totalWeight)} جم',
-                icon: Icons.scale_outlined,
-                accentColor: _tone.info.fg,
-                fullWidth: true,
-                details: weightBreakdown,
-              ),
-            // ── تفاصيل ثانوية (تظهر بعد الثلاثة الأساسية عند التمرير) ──
-            if (customerLabel.trim().isNotEmpty)
-              InvoiceSummaryMetric(
-                label: 'العميل',
-                value: customerLabel.trim(),
-                icon: Icons.person_outline_rounded,
-                accentColor: _tone.info.fg,
-              ),
-            if (totalTax > 0)
-              InvoiceSummaryMetric(
-                label: 'الضريبة',
-                value: '${cu.formatAmount(totalTax)} $currency',
-                icon: Icons.receipt_long_outlined,
-                accentColor: _tone.warning.fg,
-              ),
-            InvoiceSummaryMetric(
-              label: 'المدفوع',
-              value: '${cu.formatAmount(paidCash)} $currency',
-              icon: Icons.account_balance_wallet_outlined,
-              accentColor: _tone.ready.fg,
-            ),
-            if (barterTotal > 0.01)
-              InvoiceSummaryMetric(
-                label: 'المقايضة',
-                value: '${cu.formatAmount(barterTotal)} $currency',
-                icon: Icons.swap_horiz_rounded,
-                accentColor: _tone.info.fg,
-              ),
-          ],
-          notices: warnings,
-          closeValue: false,
-          actions: const [
-            InvoiceSummaryAction.secondary(
-              label: 'رجوع',
-              icon: Icons.arrow_back_rounded,
-              value: false,
-            ),
-            InvoiceSummaryAction.primary(
-              label: 'حفظ الفاتورة',
-              icon: Icons.save_rounded,
-              value: true,
-            ),
-          ],
-        ) ??
-        false;
   }
 
   /// From the press to the server's answer, including the review: a second

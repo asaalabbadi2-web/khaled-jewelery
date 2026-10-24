@@ -154,8 +154,8 @@ void main() {
   });
 
   group('price warnings (what is paid against the live gold price)', () {
-    List<String> warn(double paid, {double karat = 21, double w = 10}) =>
-        scrapPurchasePriceWarnings(
+    List<String> warn(double paid, {double karat = 21, double w = 10}) => [
+      for (final w in scrapPurchasePriceWarnings(
           lines: [
             ScrapLineFacts(
               standing: w,
@@ -167,7 +167,21 @@ void main() {
           ],
           goldPrice24k: 480,
           formatCash: cash,
-        );
+        ))
+        w.text,
+    ];
+
+    test('a warning says its line', () {
+      final w = scrapPurchasePriceWarnings(
+        lines: [
+          ScrapLineFacts(standing: 10, stones: 0, weight: 10, karat: 21, total: 4200),
+          ScrapLineFacts(standing: 10, stones: 0, weight: 10, karat: 21, total: 4500),
+        ],
+        goldPrice24k: 480,
+        formatCash: cash,
+      );
+      expect(w.single.line, 1);
+    });
 
     // 10 g of 21k at a 24k price of 480: 4,200.00 live.
     test('above the live price is held for the manager', () {

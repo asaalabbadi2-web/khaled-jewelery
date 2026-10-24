@@ -16,6 +16,7 @@ import '../widgets/pay_box.dart';
 import '../widgets/scrap_purchase_entry_row.dart';
 import '../utils/scrap_purchase_readiness.dart';
 import '../widgets/adaptive_invoice_summary_dialog.dart';
+import '../widgets/invoice_review_dialog.dart';
 import '../utils/invoice_direct_print.dart';
 import '../utils.dart';
 import '../widgets/app_feedback.dart';
@@ -1406,99 +1407,55 @@ class _ScrapPurchaseInvoiceScreenState
     required int imagesCount,
   }) async {
     final currency = _settingsProvider.currencySymbolText;
-    final weightBreakdown = _buildWeightBreakdownLines(
-      _items.map((item) => item.toJson()),
-    );
-
-    // What remains is said once, in the status (ADR-060 ف٠); an invoice
-    // without notes is not a warning -- it buried the ones that are.
-    final notices = <String>[];
-    if (imagesCount == 0) {
-      notices.add('لم يتم إرفاق صور للذهب.');
+    String branch = '';
+    for (final b in _branches) {
+      if ('${b['id']}' == '$_selectedBranchId') branch = '${b['name'] ?? ''}';
     }
-    notices.addAll(
-      scrapPurchasePriceWarnings(
-        lines: _lineFacts(),
-        goldPrice24k: _goldPrice24k,
-        formatCash: _formatCurrency,
+    // ADR-060 ف١: read as a receipt. What remains is said once; a price
+    // notice names its line, and the line is marked.
+    return showInvoiceReview(
+      context,
+      InvoiceReview(
+        title: 'مراجعة فاتورة ${InvoiceKind.purchaseScrap.label}',
+        subtitle: [
+          customerLabel.trim(),
+          if (branch.isNotEmpty) branch,
+        ].where((s) => s.isNotEmpty).join(' · '),
+        icon: Icons.recycling_rounded,
+        tone: AppSemanticColors.of(context).invoice(InvoiceKind.purchaseScrap),
+        currency: currency,
+        notices: [
+          for (final w in scrapPurchasePriceWarnings(
+            lines: _lineFacts(),
+            goldPrice24k: _goldPrice24k,
+            formatCash: _formatCurrency,
+          ))
+            InvoiceReviewNotice(w.text, line: w.line),
+          if (imagesCount == 0)
+            const InvoiceReviewNotice('لم يتم إرفاق صور للذهب.'),
+        ],
+        lines: [
+          for (final item in _items)
+            InvoiceReviewLine(
+              name: item.name,
+              karat: item.karat.round(),
+              weight: item.weight,
+              amount: item.totalWithTax,
+            ),
+        ],
+        total: total,
+        payments: [
+          for (final p in _payments)
+            InvoiceReviewAmount(p.paymentMethodName, p.amount),
+        ],
+        due: remaining > 0.01
+            ? InvoiceReviewAmount('متبقي للعميل', remaining)
+            : null,
+        facts: [
+          if (imagesCount > 0) ('الصور المرفقة', '$imagesCount'),
+        ],
       ),
     );
-
-    return await showAdaptiveInvoiceSummaryDialog<bool>(
-          context: context,
-          title: 'مراجعة فاتورة ${InvoiceKind.purchaseScrap.label}',
-          subtitle: 'راجع البيانات الأساسية سريعاً قبل تنفيذ الحفظ.',
-          icon: Icons.receipt_long_rounded,
-          accentColor: AppSemanticColors.of(
-            context,
-          ).invoice(InvoiceKind.purchaseScrap).fg,
-          statusTitle: 'حالة السداد',
-          statusMessage: remaining > 0.01
-              ? 'متبقي ${formatAmount(remaining)} $currency'
-              : 'تم الدفع بالكامل',
-          statusTone: remaining > 0.01
-              ? InvoiceSummaryStatusTone.due
-              : InvoiceSummaryStatusTone.success,
-          metrics: [
-            if (customerLabel.trim().isNotEmpty)
-              InvoiceSummaryMetric(
-                label: 'العميل',
-                value: customerLabel.trim(),
-                icon: Icons.person_outline_rounded,
-                accentColor: _tone.info.fg,
-              ),
-            InvoiceSummaryMetric(
-              label: 'عدد الأصناف',
-              value: itemsCount.toString(),
-              icon: Icons.inventory_2_outlined,
-              accentColor: _tone.info.fg,
-            ),
-            InvoiceSummaryMetric(
-              label: 'الإجمالي',
-              value: '${formatAmount(total)} $currency',
-              icon: Icons.payments_outlined,
-              accentColor: _tone.gold.fg,
-              emphasize: true,
-            ),
-            InvoiceSummaryMetric(
-              label: 'المدفوع',
-              value: '${formatAmount(paid)} $currency',
-              icon: Icons.account_balance_wallet_outlined,
-              accentColor: _tone.ready.fg,
-            ),
-            if (totalWeight > 0)
-              InvoiceSummaryMetric(
-                label: 'إجمالي الوزن',
-                value: '${formatGrams(totalWeight)} جم',
-                icon: Icons.scale_outlined,
-                accentColor: _tone.info.fg,
-                fullWidth: true,
-                details: weightBreakdown,
-              ),
-            if (imagesCount > 0)
-              InvoiceSummaryMetric(
-                label: 'الصور المرفقة',
-                value: imagesCount.toString(),
-                icon: Icons.image_outlined,
-                accentColor: _tone.info.fg,
-              ),
-          ],
-          notices: notices,
-          closeValue: false,
-          actions: const [
-            InvoiceSummaryAction.secondary(
-              label: 'رجوع',
-              icon: Icons.arrow_back_rounded,
-              value: false,
-            ),
-            InvoiceSummaryAction.primary(
-              label: 'حفظ الفاتورة',
-              icon: Icons.save_rounded,
-              value: true,
-            ),
-          ],
-        ) ??
-        false;
   }
 
   // ==================== Calculations ====================

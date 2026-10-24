@@ -175,29 +175,36 @@ ScrapPurchaseReadiness scrapPurchaseReadiness(
 /// What the buyer should see before saving, from what the buyer can see --
 /// the live gold price: paying above it holds the invoice for the manager
 /// (above_live_price, 0.5 % over), and far under it is a mistyped amount.
-List<String> scrapPurchasePriceWarnings({
+///
+/// Each says its line ([line], 0-based): the review marks it and goes to it
+/// (ADR-060 ف١).
+List<({int line, String text})> scrapPurchasePriceWarnings({
   required List<ScrapLineFacts> lines,
   required double goldPrice24k,
   required String Function(double) formatCash,
 }) {
   if (goldPrice24k <= 0) return const [];
-  final out = <String>[];
+  final out = <({int line, String text})>[];
   for (var i = 0; i < lines.length; i++) {
     final l = lines[i];
     if (!l.hasWeight || l.total <= 0) continue;
     final live = goldPrice24k * l.karat / 24.0;
     final perGram = l.total / l.weight;
     if (perGram > live * 1.005) {
-      out.add(
-        'السطر ${i + 1}: تدفع ${formatCash(perGram)} للجرام، أعلى من السعر '
-        'المباشر (${formatCash(live)}): تُحفظ الفاتورة ويُحجز '
-        'لاعتماد المدير.',
-      );
+      out.add((
+        line: i,
+        text:
+            'السطر ${i + 1}: تدفع ${formatCash(perGram)} للجرام، أعلى من السعر '
+            'المباشر (${formatCash(live)}): تُحفظ الفاتورة ويُحجز '
+            'لاعتماد المدير.',
+      ));
     } else if (perGram < live * 0.5) {
-      out.add(
-        'السطر ${i + 1}: ${formatCash(perGram)} للجرام أقل بكثير من السعر '
-        'المباشر (${formatCash(live)}). تأكد من المبلغ والوزن.',
-      );
+      out.add((
+        line: i,
+        text:
+            'السطر ${i + 1}: ${formatCash(perGram)} للجرام أقل بكثير من السعر '
+            'المباشر (${formatCash(live)}). تأكد من المبلغ والوزن.',
+      ));
     }
   }
   return out;

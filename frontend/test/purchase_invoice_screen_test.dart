@@ -712,6 +712,25 @@ void main() {
     expectNoTextVanishesOnDark(tester);
   });
 
+  // ADR-060 ف١: what the save does to what we owe the supplier is said in
+  // the supplier's box, not among the warnings.
+  testWidgets('the review says the supplier\'s effect in its own box', (
+    tester,
+  ) async {
+    await open(tester, api: FakePurchaseApi(), saved: draft());
+    await tester.tap(footerSave());
+    await settle(tester);
+    expect(find.byKey(const Key('invoice-review')), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('invoice-review-effects')),
+        matching: find.textContaining('ما علينا للمورد'),
+      ),
+      findsWidgets,
+    );
+    expect(find.byKey(const Key('invoice-review-line-0')), findsOneWidget);
+  });
+
   // ADR-060 ف٠: after the save, what the server saved -- its number, what was
   // paid and its payment state; the summary said the total and the weight.
   testWidgets('after the save: the number, what was paid, and what is owed', (
