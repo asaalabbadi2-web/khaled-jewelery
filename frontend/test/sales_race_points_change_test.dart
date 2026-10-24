@@ -42,7 +42,8 @@ class _Api extends ApiService {
         'metric': 'points',
         'champion': {'name': 'مسعد المهري'},
         'admin_summary': {'total_sales_amount': 120000.0, 'total_purchase_amount': 30000.0, 'total_points': 2400},
-        'team_points': 2400, 'weekly_target_points': 3000, 'remaining_points': 600, 'target_progress': 0.8,
+        'team_goal': {'period': 'monthly', 'period_label': 'الشهري', 'metric': 'points', 'unit': 'نقطة',
+                      'value': 4200, 'target': 5000, 'progress': 0.84, 'reached': false, 'employees': 5},
         'ranking': [
           for (final (i, name) in ['مسعد المهري', 'يوسف الشعبي', 'صالح العبادي', 'خالد الحربي'].indexed)
             {'name': name, 'score': 1200.0 - i * 200, 'share': 0.4 - i * 0.1, 'count': 10 - i,
@@ -138,6 +139,8 @@ void main() {
     await _pump(tester, theme: DarkTheme.theme, settingsTab: false);
     expect(find.text('1,200'), findsWidgets, reason: 'points in the one number format');
     expect(find.bySemanticsLabel('تصدّر السباق 7 أشهر'), findsOneWidget);
+    expect(find.text('4,200 من 5,000 نقطة'), findsOneWidget, reason: 'the team goal is a ring, every period');
+    expect(find.text('84%'), findsOneWidget);
     expect(find.bySemanticsLabel('بلغ هدفه 2 مرات'), findsOneWidget);
     expectNoTextVanishesOnDark(tester);
     expectNoLightSurfaceOnDark(tester);

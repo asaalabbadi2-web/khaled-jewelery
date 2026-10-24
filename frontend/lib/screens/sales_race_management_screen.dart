@@ -14,6 +14,7 @@ import '../widgets/app_feedback.dart';
 import '../widgets/app_state_views.dart';
 import '../widgets/confirm_financial_action.dart';
 import '../widgets/race_honours_badges.dart';
+import '../widgets/goal_ring_tile.dart';
 import '../widgets/app_bar_tab_bar.dart';
 
 /// نظام إدارة سباق المبيعات المتكامل.
@@ -86,14 +87,10 @@ class _SalesRaceManagementScreenState extends State<SalesRaceManagementScreen> {
     'month': {'amounts': 'all', 'points': 'all', 'share': 'all', 'team_summary': 'all'},
   };
   String _selectedVisibilityPeriod = 'today';
-  double _weeklyTarget = 2000.0;
-  double _monthlyTarget = 8000.0;
 
   final TextEditingController _pointsCtrl = TextEditingController();
   final TextEditingController _cashAmountCtrl = TextEditingController();
   final TextEditingController _pointsPerInvoiceCtrl = TextEditingController();
-  final TextEditingController _weeklyTargetCtrl = TextEditingController();
-  final TextEditingController _monthlyTargetCtrl = TextEditingController();
 
   @override
   void initState() {
@@ -107,8 +104,6 @@ class _SalesRaceManagementScreenState extends State<SalesRaceManagementScreen> {
     _pointsCtrl.dispose();
     _cashAmountCtrl.dispose();
     _pointsPerInvoiceCtrl.dispose();
-    _weeklyTargetCtrl.dispose();
-    _monthlyTargetCtrl.dispose();
     super.dispose();
   }
 
@@ -197,15 +192,9 @@ class _SalesRaceManagementScreenState extends State<SalesRaceManagementScreen> {
         }
       }
     }
-    _weeklyTarget =
-        (cfg['weekly_sales_target_weight'] as num?)?.toDouble() ?? 2000.0;
-    _monthlyTarget =
-        (cfg['monthly_sales_target_weight'] as num?)?.toDouble() ?? 8000.0;
     _pointsCtrl.text = _typed(_pointsPerGram);
     _cashAmountCtrl.text = _typed(_cashAmountPerPoint);
     _pointsPerInvoiceCtrl.text = _typed(_pointsPerInvoice);
-    _weeklyTargetCtrl.text = _typed(_weeklyTarget);
-    _monthlyTargetCtrl.text = _typed(_monthlyTarget);
   }
 
   Future<void> _saveConfig() async {
@@ -239,22 +228,6 @@ class _SalesRaceManagementScreenState extends State<SalesRaceManagementScreen> {
       return;
     }
 
-    final parsedTarget = double.tryParse(_weeklyTargetCtrl.text.trim());
-    final parsedMonthlyTarget = double.tryParse(_monthlyTargetCtrl.text.trim());
-    if (parsedTarget == null || parsedTarget < 0) {
-      _showSnack(
-        isAr ? 'قيمة الهدف الأسبوعي غير صالحة' : 'Invalid weekly target value',
-        isError: true,
-      );
-      return;
-    }
-    if (parsedMonthlyTarget == null || parsedMonthlyTarget < 0) {
-      _showSnack(
-        isAr ? 'قيمة الهدف الشهري غير صالحة' : 'Invalid monthly target value',
-        isError: true,
-      );
-      return;
-    }
     final points = <String, Object>{
       'points_source': _pointsSource,
       'cash_amount_per_point': parsedCashAmount,
@@ -281,8 +254,6 @@ class _SalesRaceManagementScreenState extends State<SalesRaceManagementScreen> {
         'show_invoice_count': _showInvoiceCount,
         'show_champion': _showChampion,
         'period_visibility': _periodVisibility,
-        'weekly_sales_target_weight': parsedTarget,
-        'monthly_sales_target_weight': parsedMonthlyTarget,
       });
       if (!mounted) return;
       _applyConfig(saved);
@@ -424,10 +395,14 @@ class _SalesRaceManagementScreenState extends State<SalesRaceManagementScreen> {
             else ...[
               _buildChampionAndSummaryRow(isAr),
               const SizedBox(height: 16),
-              if (_period == 'week' || _period == 'month') ...[
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 2),
-                  child: _buildWeeklyGoalCard(isAr),
+              // The team's monthly goal (bonus study م3ح), whatever period
+              // the board shows.
+              if (_data!['team_goal'] is Map) ...[
+                _card(
+                  child: TeamGoalTile(
+                    goal: _data!['team_goal'] as Map,
+                    format: (v) => cu.formatAmount(v, decimals: v == v.truncate() ? 0 : 1),
+                  ),
                 ),
                 const SizedBox(height: 16),
               ],
@@ -705,255 +680,6 @@ class _SalesRaceManagementScreenState extends State<SalesRaceManagementScreen> {
           ),
         ),
       ],
-    );
-  }
-
-  Widget _buildWeeklyGoalCard(bool isAr) {
-    final data = _data!;
-    final isMonth = _period == 'month';
-    final metric = (data['metric'] ?? 'weight_g').toString();
-    final teamWeight = (data['team_weight_g'] as num?)?.toDouble();
-    final weeklyTarget = (data['weekly_target_weight_g'] as num?)?.toDouble();
-    final teamPoints = (data['team_points'] as num?)?.toInt();
-    final weeklyTargetPoints = (data['weekly_target_points'] as num?)?.toInt();
-    final targetProgress = (data['target_progress'] as num?)?.toDouble() ?? 0.0;
-    final remainingWeight = (data['remaining_weight_g'] as num?)?.toDouble();
-    final remainingPoints = (data['remaining_points'] as num?)?.toInt();
-
-    final usePoints = metric == 'points';
-    final currentValue = usePoints ? teamPoints?.toDouble() : teamWeight;
-    final targetValue = usePoints ? weeklyTargetPoints?.toDouble() : weeklyTarget;
-    final effectiveTargetProgress =
-        (currentValue != null && targetValue != null && targetValue > 0)
-        ? (currentValue / targetValue).clamp(0.0, 1.0)
-        : targetProgress.clamp(0.0, 1.0);
-    final isGoalAchieved =
-        currentValue != null && targetValue != null &&
-        targetValue > 0 && currentValue >= targetValue;
-    final goalColor = isGoalAchieved
-        ? _tones.ready.fg
-        : (effectiveTargetProgress < 0.5 ? _tones.warning.fg : _tones.info.fg);
-
-    String? n(num? v, int decimals) => v == null ? null : cu.formatAmount(v, decimals: decimals);
-    final teamVal = usePoints ? n(teamPoints, 0) : n(teamWeight, 1);
-    final targetVal = usePoints ? n(weeklyTargetPoints, 0) : n(weeklyTarget, 0);
-    final remainingVal = usePoints ? n(remainingPoints, 0) : n(remainingWeight, 1);
-    final unit = usePoints ? (isAr ? ' نقطة' : ' pts') : (isAr ? ' جم' : ' g');
-    final percentText = '${(effectiveTargetProgress * 100).round()}%';
-
-    if (teamVal == null || targetVal == null) return const SizedBox.shrink();
-
-    return _card(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Icon(Icons.flag_rounded, size: 20, color: goalColor),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            isMonth
-                                ? (isAr ? 'هدف الفريق الشهري' : 'Team Monthly Goal')
-                                : (isAr ? 'هدف الفريق الأسبوعي' : 'Team Weekly Goal'),
-                            style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                              fontWeight: FontWeight.w800,
-                              color: goalColor,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      isGoalAchieved
-                          ? (isAr
-                                ? 'الهدف أُغلق بنجاح، وما زال المجال مفتوحاً لتوسيع الصدارة'
-                                : 'The goal is closed successfully, with room to extend the lead')
-                          : isMonth
-                              ? (isAr
-                                    ? 'لوحة مركزة توضح أين وصل الفريق هذا الشهر'
-                                    : 'A focused panel showing where the team stands this month')
-                              : (isAr
-                                    ? 'لوحة مركزة توضح أين وصل الفريق هذا الأسبوع'
-                                    : 'A focused panel showing where the team stands this week'),
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.68),
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 8),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                decoration: BoxDecoration(
-                  color: goalColor.withValues(alpha: 0.08),
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: goalColor.withValues(alpha: 0.16)),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    Text(
-                      percentText,
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        color: goalColor,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                    Text(
-                      isAr ? 'إنجاز' : 'Progress',
-                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                        color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.55),
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 14),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-            decoration: BoxDecoration(
-              color: _sheen.withValues(alpha: 0.82),
-              borderRadius: BorderRadius.circular(18),
-              border: Border.all(
-                color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.06),
-              ),
-            ),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        isAr ? 'المحقق حتى الآن' : 'Achieved so far',
-                        style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                          color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.56),
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                      const SizedBox(height: 6),
-                      Text(
-                        '$teamVal$unit',
-                        style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                          color: goalColor,
-                          fontWeight: FontWeight.w900,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                Container(
-                  width: 1,
-                  height: 42,
-                  color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.08),
-                ),
-                const SizedBox(width: 14),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      isAr ? 'الهدف' : 'Target',
-                      style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                        color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.56),
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      '$targetVal$unit',
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        color: _cs.primary,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-          if (!isGoalAchieved && remainingVal != null) ...[
-            const SizedBox(height: 10),
-            Align(
-              alignment: AlignmentDirectional.centerStart,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                decoration: BoxDecoration(
-                  color: _tones.warning.fg.withValues(alpha: 0.08),
-                  borderRadius: BorderRadius.circular(999),
-                  border: Border.all(color: _tones.warning.fg.withValues(alpha: 0.16)),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      Icons.timelapse_rounded,
-                      size: 15,
-                      color: _tones.warning.fg,
-                    ),
-                    const SizedBox(width: 6),
-                    Text(
-                      isAr ? 'المتبقي: $remainingVal$unit' : 'Remaining: $remainingVal$unit',
-                      style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                        color: _tones.warning.fg,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ],
-          const SizedBox(height: 14),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(999),
-            child: TweenAnimationBuilder<double>(
-              tween: Tween<double>(
-                begin: 0,
-                end: effectiveTargetProgress,
-              ),
-              duration: const Duration(milliseconds: 800),
-              curve: Curves.easeOutCubic,
-              builder: (context, value, child) => LinearProgressIndicator(
-                value: value,
-                minHeight: 12,
-                backgroundColor: Theme.of(context)
-                    .colorScheme
-                    .onSurface
-                    .withValues(alpha: 0.08),
-                valueColor: AlwaysStoppedAnimation<Color>(goalColor),
-              ),
-            ),
-          ),
-          const SizedBox(height: 10),
-          Text(
-            isGoalAchieved
-                ? (isAr
-                      ? 'الأسبوع محسوم رقمياً، والواجهة تعرضه الآن بشكل أكثر مباشرة ووضوحاً.'
-                      : 'The week is numerically secured, and the UI now presents it more directly and clearly.')
-                : (isAr
-                      ? 'المشهد ما زال مفتوحاً، والهدف ضمن مدى الوصول إذا استمر الأداء بهذا النسق.'
-                      : 'The race is still open, and the goal remains reachable if this pace continues.'),
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-              color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.74),
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-        ],
-      ),
     );
   }
 
@@ -1681,42 +1407,11 @@ class _SalesRaceManagementScreenState extends State<SalesRaceManagementScreen> {
             ),
           ),
           const SizedBox(height: 20),
-          _buildSectionHeader(
-            isAr ? 'هدف الأسبوع بالجرام' : 'Weekly Target (grams)',
-            Icons.flag_rounded,
-          ),
-          const SizedBox(height: 8),
-          _card(
-            child: TextField(
-              controller: _weeklyTargetCtrl,
-              keyboardType: const TextInputType.numberWithOptions(
-                decimal: true,
-              ),
-              decoration: InputDecoration(
-                labelText: isAr ? 'الهدف الأسبوعي (جرام)' : 'Weekly target (g)',
-                suffixText: isAr ? 'جم' : 'g',
-                border: const OutlineInputBorder(),
-              ),
-            ),
-          ),
-          const SizedBox(height: 20),
-          _buildSectionHeader(
-            isAr ? 'هدف الشهر بالجرام' : 'Monthly Target (grams)',
-            Icons.flag_rounded,
-          ),
-          const SizedBox(height: 8),
-          _card(
-            child: TextField(
-              controller: _monthlyTargetCtrl,
-              keyboardType: const TextInputType.numberWithOptions(
-                decimal: true,
-              ),
-              decoration: InputDecoration(
-                labelText: isAr ? 'الهدف الشهري (جرام)' : 'Monthly target (g)',
-                suffixText: isAr ? 'جم' : 'g',
-                border: const OutlineInputBorder(),
-              ),
-            ),
+          // The team's goal is no figure here: it is its employees'
+          // monthly goals summed (bonus study م3ح).
+          _buildNoticeCard(
+            icon: Icons.flag_outlined,
+            message: 'هدف الفريق الشهري مجموع أهداف الموظفين الشهرية، يُضبط من هدف كل موظف.',
           ),
           const SizedBox(height: 20),
           _buildSectionHeader(

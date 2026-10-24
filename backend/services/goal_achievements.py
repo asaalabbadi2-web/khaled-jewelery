@@ -180,3 +180,42 @@ def goal_progress(employee, today: date) -> list:
             'tier': tier, 'next_tier': nxt, 'to_next': (float(nxt['from']) - value) if nxt else None,
         })
     return goals
+
+
+def team_goal(today: date) -> dict | None:
+    """The team's monthly goal (bonus study م3ح; the owner: «مجموع أهداف
+    الموظفين»): the active employees with a monthly goal, their targets summed
+    and their values this month summed, each by the measure and target that
+    pay it. Goals of another metric than most of theirs are left out and
+    counted in `other_metric`. None without a monthly goal."""
+    from models import Employee
+    start, end = _bounds('monthly', today)
+    by_metric: dict = {}
+    for emp in Employee.query.filter(Employee.is_active.is_(True), Employee.goal_monthly_enabled.is_(True)).all():
+        metric = emp.goal_metric or 'weight'
+        target = goal_target(emp, 'monthly', metric)
+        if target is None or float(target) <= 0:
+            continue
+        rule = goal_rule(emp, 'monthly')
+        if rule is not None and rule.valid_window(start, end) is None:
+            continue
+        value = goal_performance(emp, metric, start, end)
+        if metric == 'points':
+            value = int(round(value))
+        acc = by_metric.setdefault(metric, {'target': 0.0, 'value': 0.0, 'employees': 0})
+        acc['target'] += float(target)
+        acc['value'] += value
+        acc['employees'] += 1
+    if not by_metric:
+        return None
+    metric, acc = max(by_metric.items(), key=lambda item: item[1]['employees'])
+    digits = 0 if metric in ('points', 'invoices') else 3
+    target, value = round(acc['target'], digits), round(acc['value'], digits)
+    if digits == 0:
+        target, value = int(target), int(value)
+    return {
+        'period': 'monthly', 'period_label': 'الشهري', 'metric': metric, 'unit': UNITS[metric],
+        'value': value, 'target': target, 'progress': round(value / target, 4) if target else 0.0,
+        'reached': value >= target, 'employees': acc['employees'],
+        'other_metric': sum(a['employees'] for m, a in by_metric.items() if m != metric),
+    }

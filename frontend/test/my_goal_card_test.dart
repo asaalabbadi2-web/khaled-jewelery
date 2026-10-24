@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:frontend/api_service.dart';
 import 'package:frontend/providers/settings_provider.dart';
 import 'package:frontend/theme/app_theme.dart';
+import 'package:frontend/widgets/goal_ring_tile.dart';
 import 'package:frontend/widgets/my_goal_card.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -31,7 +32,7 @@ Map<String, dynamic> _goal({int value = 1200, Map<String, dynamic>? tier, Map<St
 };
 
 Future<void> _pump(WidgetTester tester, ApiService api,
-    {ThemeData? theme, Size size = const Size(900, 900), bool framed = true}) async {
+    {ThemeData? theme, Size size = const Size(900, 900), bool framed = true, Widget? alongside}) async {
   SharedPreferences.setMockInitialValues({});
   final settings = SettingsProvider();
   await settings.loadSettings(fetchRemote: false);
@@ -42,7 +43,7 @@ Future<void> _pump(WidgetTester tester, ApiService api,
     value: settings,
     child: MaterialApp(
       theme: theme ?? LightTheme.theme,
-      home: Directionality(textDirection: TextDirection.rtl, child: Scaffold(body: MyGoalCard(api: api, framed: framed))),
+      home: Directionality(textDirection: TextDirection.rtl, child: Scaffold(body: MyGoalCard(api: api, framed: framed, alongside: alongside))),
     ),
   ));
   await tester.pumpAndSettle();
@@ -93,7 +94,7 @@ void main() {
 
   testWidgets('each goal is a ring with its percent, not another linear bar', (tester) async {
     await _pump(tester, _Api(() async => [_goal(value: 800, reached: false, toNext: 200, amount: 0)]));
-    final ring = find.byKey(const Key('my-goal-ring'));
+    final ring = find.byKey(const Key('goal-ring'));
     expect(ring, findsOneWidget);
     expect(find.descendant(of: ring, matching: find.text('80%')), findsOneWidget);
     expect(find.descendant(of: ring, matching: find.byType(CircularProgressIndicator)), findsOneWidget);
@@ -104,5 +105,25 @@ void main() {
     await _pump(tester, _Api(() async => [_goal()]), framed: false);
     expect(find.text('هدفي الشهري'), findsOneWidget);
     expect(find.byType(Card), findsNothing);
+  });
+
+  const team = {'period': 'monthly', 'period_label': 'الشهري', 'unit': 'نقطة', 'value': 4200, 'target': 5000,
+                'progress': 0.84, 'reached': false, 'employees': 5};
+
+  for (final (name, size) in [('desktop', const Size(900, 900)), ('phone', const Size(360, 800))]) {
+    testWidgets('mine and the team\'s side by side in one row, on a $name', (tester) async {
+      await _pump(tester, _Api(() async => [_goal()]), framed: false, size: size,
+          alongside: TeamGoalTile(goal: team, format: (v) => '$v'));
+      expect(tester.takeException(), isNull);
+      final mine = tester.getCenter(find.byKey(const Key('my-goal-monthly')));
+      final ours = tester.getCenter(find.byKey(const Key('team-goal')));
+      expect((mine.dy - ours.dy).abs(), lessThan(1), reason: 'one row, not a column');
+      expect(find.text('ينقص الفريق 800 نقطة'), findsOneWidget);
+    });
+  }
+
+  testWidgets('no goal of mine, the team\'s alone', (tester) async {
+    await _pump(tester, _Api(() async => []), framed: false, alongside: TeamGoalTile(goal: team, format: (v) => '$v'));
+    expect(find.byKey(const Key('team-goal')), findsOneWidget);
   });
 }

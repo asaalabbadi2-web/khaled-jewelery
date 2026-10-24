@@ -1705,58 +1705,11 @@ def get_home_leaderboard():
             'badge': '🥇',
         }
 
-    # Phase 2: weekly/monthly team goal
-    target_progress = 0.0
-    team_weight_g = None
-    weekly_target_weight_g = None
-    remaining_weight_g = None
-
-    team_points = None
-    weekly_target_points = None
-    remaining_points = None
-
-    if period in ('week', 'month'):
-        team_weight_g, team_points = metric_obj.compute_team_weight(
-            base_filters, points_per_gram, _metric_aux
-        )
-        # Override team_points with the sum of individually-computed employee
-        # points so that the progress bar matches the leaderboard cards.
-        if _sum_individual_points > 0:
-            team_points = _sum_individual_points
-
-        if settings_row is None:
-            try:
-                settings_row = _get_settings_singleton(create_if_missing=True)
-            except Exception:
-                settings_row = None
-
-        if period == 'month':
-            _target_attr = 'monthly_sales_target_weight'
-            _default_target = 8000.0
-        else:
-            _target_attr = 'weekly_sales_target_weight'
-            _default_target = 2000.0
-
-        weekly_target_weight_g = _to_float(
-            getattr(settings_row, _target_attr, None) if settings_row else None,
-            _default_target,
-        )
-        if weekly_target_weight_g < 0:
-            weekly_target_weight_g = 0.0
-
-        weekly_target_points = int(round(float(weekly_target_weight_g) * points_per_gram))
-
-        if weekly_target_weight_g > 0:
-            target_progress = float(team_weight_g / weekly_target_weight_g)
-            target_progress = max(0.0, min(1.0, target_progress))
-            remaining_weight_g = round(max(0.0, weekly_target_weight_g - team_weight_g), 3)
-            if team_points is None:
-                team_points = int(round(float(team_weight_g) * points_per_gram))
-            remaining_points = max(0, int(weekly_target_points or 0) - int(team_points or 0))
-        else:
-            target_progress = 0.0
-            remaining_weight_g = 0.0
-            remaining_points = 0
+    # The team's monthly goal: its employees' monthly goals summed, by the one
+    # measure (bonus study م3ح) -- whatever period the race shows. It was a
+    # weight in the settings turned into points by the points per gram.
+    from services.goal_achievements import team_goal as _team_goal
+    team_goal = _team_goal(date.today())
 
     payload = {
         'period': period,
@@ -1780,13 +1733,7 @@ def get_home_leaderboard():
         'effective_period': effective_period,
         'effective_start_date': start_dt.date().isoformat() if start_dt else None,
         'effective_source_date': effective_source_date,
-        'target_progress': target_progress,
-        'team_weight_g': team_weight_g,
-        'weekly_target_weight_g': weekly_target_weight_g,
-        'remaining_weight_g': remaining_weight_g,
-        'team_points': team_points,
-        'weekly_target_points': weekly_target_points,
-        'remaining_points': remaining_points,
+        'team_goal': team_goal,
     }
 
     # Admin summary visibility is controlled by team_summary_visibility setting.
