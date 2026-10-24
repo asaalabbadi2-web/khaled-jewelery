@@ -7328,6 +7328,27 @@ class ApiService {
     }
   }
 
+  /// What a tiered rule would have paid, period by period, beside what was
+  /// paid -- before it is saved (bonus study م2). Nothing is written.
+  Future<Map<String, dynamic>> previewBonusRule(
+    Map<String, dynamic> rule, {
+    int periods = 6,
+  }) async {
+    final token = await _requireAuthToken();
+    final response = await http.post(
+      Uri.parse('$_baseUrl/bonus-rules/preview'),
+      headers: _jsonHeaders(token: token),
+      body: json.encode({'rule': rule, 'periods': periods}),
+    );
+    final body = json.decode(utf8.decode(response.bodyBytes));
+    if (response.statusCode == 200 && body is Map<String, dynamic>) return body;
+    throw ApiException.text(
+      body is Map<String, dynamic>
+          ? (body['message'] ?? body['error'] ?? 'تعذّرت المعاينة').toString()
+          : 'تعذّرت المعاينة',
+    );
+  }
+
   Future<Map<String, dynamic>> createBonusRule(
     Map<String, dynamic> data,
   ) async {

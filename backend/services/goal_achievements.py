@@ -70,9 +70,13 @@ def goal_performance(employee, metric: str, start, end) -> float:
 
 
 def goal_target(employee, period_name: str, metric: str):
-    """A goal paid by a points rule aims at the rule's threshold -- one number,
-    not the employee's beside it (999.9 and 1,000)."""
+    """A goal paid by a rule aims at the rule's threshold -- a tiered rule's
+    first tier, a points rule's min_points -- one number, not the employee's
+    beside it (999.9 and 1,000)."""
     rule = goal_rule(employee, period_name)
+    if rule is not None and rule.rule_type == 'tiered' and rule.tiers \
+            and METRIC_MEASURES.get(metric) == rule.measure:
+        return float(rule.tiers[0]['from'])                 # the first tier is the goal (م2)
     if rule is not None and rule.rule_type == 'points_based' and metric == 'points':
         threshold = (rule.conditions or {}).get('min_points')
         if threshold:

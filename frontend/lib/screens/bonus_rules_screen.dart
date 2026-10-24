@@ -9,6 +9,7 @@ import '../models/invoice_type_model.dart';
 import 'package:provider/provider.dart';
 import '../providers/settings_provider.dart';
 import '../widgets/app_feedback.dart';
+import '../widgets/tiered_rule_editor.dart';
 
 class BonusRulesScreen extends StatefulWidget {
   final ApiService api;
@@ -216,9 +217,7 @@ class _BonusRulesScreenState extends State<BonusRulesScreen> {
           rule.name,
           style: const TextStyle(fontWeight: FontWeight.bold),
         ),
-        subtitle: Text(
-          '${BonusRuleModel.getRuleTypeNameAr(rule.ruleType)} - ${BonusRuleModel.getBonusTypeNameAr(rule.bonusType)}',
-        ),
+        subtitle: Text(rule.summaryAr),
         children: [
           Padding(
             padding: const EdgeInsets.all(16),
@@ -234,10 +233,11 @@ class _BonusRulesScreenState extends State<BonusRulesScreen> {
                   Text(rule.description!),
                   const SizedBox(height: 12),
                 ],
-                _buildInfoRow(
-                  isAr ? 'القيمة:' : 'Value:',
-                  '${rule.bonusValue}',
-                ),
+                if (rule.ruleType != 'tiered')
+                  _buildInfoRow(
+                    isAr ? 'القيمة:' : 'Value:',
+                    '${rule.bonusValue}',
+                  ),
                 _buildInfoRow(
                   isAr ? 'الحد الأدنى:' : 'Min:',
                   '${rule.minBonus}',
@@ -408,7 +408,10 @@ class _BonusRuleDialogState extends State<_BonusRuleDialog> {
   late TextEditingController _profitPercentInvoiceController;
   late TextEditingController _minPointsController;
 
-  String _selectedRuleType = 'sales_target';
+  String _selectedRuleType = 'tiered';
+
+  /// A tiered rule's measure, period and tiers (bonus study م2).
+  late TieredTerms _tiered;
   String _selectedBonusType = 'percentage';
   String _selectedPointsPeriod = 'month';
   bool _isActive = true;
@@ -469,7 +472,8 @@ class _BonusRuleDialogState extends State<_BonusRuleDialog> {
           ? rule.conditions!['min_points'].toString()
           : '',
     );
-    _selectedRuleType = rule?.ruleType ?? 'sales_target';
+    _selectedRuleType = rule?.ruleType ?? 'tiered';
+    _tiered = rule?.ruleType == 'tiered' ? TieredTerms.of(rule!) : TieredTerms.blank();
     _selectedBonusType = rule?.bonusType ?? 'percentage';
     _selectedPointsPeriod =
         (rule?.conditions?['points_period'] as String?) ?? 'month';
@@ -577,6 +581,11 @@ class _BonusRuleDialogState extends State<_BonusRuleDialog> {
 
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
+    final tiered = _selectedRuleType == 'tiered';
+    if (tiered && _tiered.error != null) {
+      AppFeedback.error(context, _tiered.error!, title: 'الشرائح');
+      return;
+    }
 
     setState(() => _saving = true);
     try {
@@ -586,8 +595,9 @@ class _BonusRuleDialogState extends State<_BonusRuleDialog> {
             ? null
             : _descController.text.trim(),
         'rule_type': _selectedRuleType,
-        'bonus_type': _selectedBonusType,
-        'bonus_value': double.parse(_valueController.text),
+        if (tiered) ..._tiered.toJson(),
+        if (!tiered) 'bonus_type': _selectedBonusType,
+        if (!tiered) 'bonus_value': double.parse(_valueController.text),
         'min_bonus': double.parse(_minController.text),
         'max_bonus': _maxController.text.isEmpty
             ? null
@@ -615,6 +625,9 @@ class _BonusRuleDialogState extends State<_BonusRuleDialog> {
       );
 
       final conditions = <String, dynamic>{};
+      if (tiered) {
+        // a tiered rule says all its terms in them; nothing in conditions
+      } else {
       if (minSales != null) conditions['min_sales'] = minSales;
       if (minProfit != null) conditions['min_profit'] = minProfit;
       if (minAttendance != null) {
@@ -627,6 +640,7 @@ class _BonusRuleDialogState extends State<_BonusRuleDialog> {
         final minPts = tryParse(_minPointsController.text);
         if (minPts != null) conditions['min_points'] = minPts;
         conditions['points_period'] = _selectedPointsPeriod;
+      }
       }
       if (conditions.isNotEmpty) {
         payload['conditions'] = conditions;
@@ -721,6 +735,22 @@ class _BonusRuleDialogState extends State<_BonusRuleDialog> {
                   }),
                 ),
                 const SizedBox(height: 12),
+                if (_selectedRuleType == 'tiered') ...[
+                  TieredRuleEditor(
+                    initial: _tiered,
+                    api: widget.api,
+                    scope: () => {
+                      if (_selectedEmployeeIds.isNotEmpty)
+                        'target_employee_ids': _selectedEmployeeIds,
+                      'min_bonus': double.tryParse(_minController.text) ?? 0.0,
+                      if (_maxController.text.trim().isNotEmpty)
+                        'max_bonus': double.tryParse(_maxController.text),
+                    },
+                    onChanged: (t) => _tiered = t,
+                  ),
+                  const SizedBox(height: 12),
+                ],
+                if (_selectedRuleType != 'tiered')
                 DropdownButtonFormField<String>(
                   value: _selectedBonusType,
                   decoration: InputDecoration(
@@ -737,7 +767,8 @@ class _BonusRuleDialogState extends State<_BonusRuleDialog> {
                       .toList(),
                   onChanged: (v) => setState(() => _selectedBonusType = v!),
                 ),
-                const SizedBox(height: 12),
+                if (_selectedRuleType != 'tiered') const SizedBox(height: 12),
+                if (_selectedRuleType != 'tiered')
                 TextFormField(
                   controller: _valueController,
                   decoration: InputDecoration(

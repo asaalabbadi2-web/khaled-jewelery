@@ -31,52 +31,30 @@ from services.bonus_accounts import (bonus_expense_account, bonus_payable_parent
 bonus_bp = Blueprint('bonuses', __name__)
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-# Feature Flag Helper
-# ══════════════════════════════════════════════════════════════════════════════
-
-_FLAGGED_TYPES = {
-    'attendance':  ('bonus_attendance_enabled',  'Attendance'),
-    'performance': ('bonus_performance_enabled', 'Performance'),
-}
-
-# The rule types the calculator computes (bonus study م0, ث10): «مخصصة» has no
-# branch in it -- a rule of it was saved and paid nothing, unsaid.
-NOT_BUILT_RULE_TYPES = {'custom'}
+# The rule types the calculator computes (bonus study م0, ث10; م2): «مخصصة» has
+# no branch -- a rule of it was saved and paid nothing, unsaid -- and «الحضور»
+# and «الأداء» answered with figures written in the code (100 %, 4.5) behind a
+# flag; the owner: removed until there is attendance and rating data.
+NOT_BUILT_RULE_TYPES = {'custom': 'مخصصة', 'attendance': 'الحضور', 'performance': 'الأداء'}
 
 
 def _refuse_rule_type_not_built(rule_type):
     if rule_type in NOT_BUILT_RULE_TYPES:
         return jsonify({'success': False, 'error': 'rule_type_not_built',
-                        'message': 'نوع القاعدة «مخصصة» لا يُحسب: اختر نوعًا يحسبه النظام'}), 400
+                        'message': f'نوع القاعدة «{NOT_BUILT_RULE_TYPES[rule_type]}» لا يُحسب: '
+                                   'اختر نوعًا يحسبه النظام، والشرائح أوسعها'}), 400
     return None
 
 
-def _check_bonus_type_flag(rule_type: str):
-    """
-    يتحقق من أن نوع المكافأة مُفعَّل في إعدادات النظام.
-
-    Returns:
-        None          — النوع مسموح (لا قيد عليه، أو مُفعَّل)
-        (False, str)  — النوع محظور؛ الـ str هو رسالة الخطأ للـ route
-    """
-    if rule_type not in _FLAGGED_TYPES:
-        return None
-
-    setting_attr, display_name = _FLAGGED_TYPES[rule_type]
+def _tiered_terms(data, rule=None):
+    """A tiered rule's measure, period and tiers from the body (the rule's own
+    where the body is silent), validated by the one rule -- or a refusal."""
+    from services.bonus_tiers import TiersRefused, validate
+    merged = {key: data.get(key, getattr(rule, key, None)) for key in ('measure', 'period', 'tiers')}
     try:
-        from models import Settings
-        from core.settings import _get_settings_singleton
-        settings = _get_settings_singleton(create_if_missing=False)
-        if settings and bool(getattr(settings, setting_attr, False)):
-            return None  # مُفعَّل
-    except Exception:
-        pass  # في حالة الخطأ نُطبَّق الرفض الآمن (safe-deny)
-
-    return False, (
-        f'نوع المكافأة "{display_name}" غير مفعّل في إعدادات النظام. '
-        f'فعّله من الإعدادات → المكافآت → {display_name} لتتمكن من استخدامه.'
-    )
+        return validate(merged), None
+    except TiersRefused as refused:
+        return None, (jsonify({'success': False, 'error': refused.code, 'message': refused.message}), 400)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -298,8 +276,9 @@ def create_bonus_rule():
     try:
         data = request.get_json()
         
-        # التحقق من البيانات المطلوبة
-        required_fields = ['name', 'rule_type', 'bonus_type', 'bonus_value']
+        # التحقق من البيانات المطلوبة -- a tiered rule says its terms, not a bonus type
+        tiered = data.get('rule_type') == 'tiered'
+        required_fields = ['name', 'rule_type'] if tiered else ['name', 'rule_type', 'bonus_type', 'bonus_value']
         for field in required_fields:
             if field not in data:
                 return jsonify({
@@ -310,12 +289,11 @@ def create_bonus_rule():
         refused = _refuse_rule_type_not_built(data.get('rule_type'))
         if refused:
             return refused
-
-        # Feature Flag: attendance و performance محظوران ما لم يُفعَّلا من الإعدادات
-        flag_check = _check_bonus_type_flag(data.get('rule_type', ''))
-        if flag_check is not None:
-            _, msg = flag_check
-            return jsonify({'success': False, 'message': msg, 'code': 'bonus_type_disabled'}), 422
+        terms = (None, None, None)
+        if tiered:
+            terms, refused = _tiered_terms(data)
+            if refused:
+                return refused
 
         # points_source: يُقبل فقط على points_based مع اكتمال إعدادات المسار
         ps_error = _validate_points_source(
@@ -353,8 +331,11 @@ def create_bonus_rule():
             description=data.get('description'),
             rule_type=data['rule_type'],
             conditions=data.get('conditions'),
-            bonus_type=data['bonus_type'],
-            bonus_value=data['bonus_value'],
+            bonus_type='tiers' if tiered else data['bonus_type'],
+            bonus_value=0.0 if tiered else data['bonus_value'],
+            measure=terms[0],
+            period=terms[1],
+            tiers=terms[2],
             min_bonus=data.get('min_bonus', 0.0),
             max_bonus=data.get('max_bonus'),
             target_departments=data.get('target_departments'),
@@ -385,6 +366,75 @@ def create_bonus_rule():
         }), 500
 
 
+@bonus_bp.route('/bonus-rules/preview', methods=['POST'])
+@require_auth
+@require_any_permission('bonus_rule.create', 'bonus.calculate', 'bonus.approve')
+def preview_bonus_rule():
+    """What a tiered rule would have paid, period by period, beside what was
+    paid (bonus study م2) -- before it is saved. Body: {rule: {measure,
+    period, tiers, min_bonus?, max_bonus?, target_employee_ids?}, until:
+    'YYYY-MM-DD', periods: n (default 6, at most 24)}. Nothing is written."""
+    from bonus_calculator import _apply_limits
+    from services.bonus_tiers import pays, tier_for
+    from services.performance_measures import measure
+    data = request.get_json(silent=True) or {}
+    body = data.get('rule') or {}
+    if body.get('rule_type', 'tiered') != 'tiered':
+        return jsonify({'success': False, 'error': 'preview_tiered_only',
+                        'message': 'المعاينة لقاعدة الشرائح'}), 400
+    terms, refused = _tiered_terms(body)
+    if refused:
+        return refused
+    measure_name, period, tiers = terms
+    try:
+        until = datetime.strptime(data.get('until') or date.today().isoformat(), '%Y-%m-%d').date()
+        count = max(1, min(int(data.get('periods') or 6), 24))
+    except (TypeError, ValueError):
+        return jsonify({'success': False, 'error': 'invalid_preview',
+                        'message': 'until بصيغة YYYY-MM-DD، وperiods عدد'}), 400
+    rule = BonusRule(rule_type='tiered', measure=measure_name, period=period, tiers=tiers,
+                     min_bonus=body.get('min_bonus') or 0.0, max_bonus=body.get('max_bonus'),
+                     target_employee_ids=body.get('target_employee_ids'), is_active=True)
+
+    windows = []
+    if period == 'monthly':
+        year, month = until.year, until.month
+        for _ in range(count):
+            start = date(year, month, 1)
+            end = (date(year + month // 12, month % 12 + 1, 1) - timedelta(days=1))
+            windows.append((start, end))
+            year, month = (year, month - 1) if month > 1 else (year - 1, 12)
+    else:
+        step = 7 if period == 'weekly' else 1
+        start = until - timedelta(days=until.weekday()) if period == 'weekly' else until
+        for _ in range(count):
+            windows.append((start, start + timedelta(days=step - 1)))
+            start -= timedelta(days=step)
+    windows.reverse()
+
+    employees = [e for e in Employee.query.filter_by(is_active=True).order_by(Employee.id)
+                 if rule.is_valid_for_employee(e)]
+    rows, total, total_paid = [], 0.0, 0.0
+    for start, end in windows:
+        for emp in employees:
+            value = measure(measure_name, emp.id, start, end)
+            if measure_name == 'points':
+                value = int(round(value))
+            tier = tier_for(tiers, value)
+            amount = _apply_limits(rule, pays(tier, value))[0] if tier is not None else 0.0
+            paid = float(db.session.query(func.coalesce(func.sum(EmployeeBonus.amount), 0.0)).filter(
+                EmployeeBonus.employee_id == emp.id, EmployeeBonus.period_start == start,
+                EmployeeBonus.period_end == end, EmployeeBonus.status.in_(('approved', 'paid'))).scalar() or 0.0)
+            rows.append({'period_start': start.isoformat(), 'period_end': end.isoformat(),
+                         'employee_id': emp.id, 'employee': emp.name, 'value': round(value, 3),
+                         'tier_from': tier['from'] if tier is not None else None,
+                         'amount': round(amount, 2), 'paid': round(paid, 2)})
+            total += amount
+            total_paid += paid
+    return jsonify({'success': True, 'rows': rows, 'total': round(total, 2), 'total_paid': round(total_paid, 2),
+                    'measure': measure_name, 'period': period, 'tiers': tiers}), 200
+
+
 @bonus_bp.route('/bonus-rules/<int:rule_id>', methods=['PUT'])
 @require_auth
 @require_any_permission('bonus_rule.update', 'bonus.calculate', 'bonus.approve')
@@ -394,15 +444,16 @@ def update_bonus_rule(rule_id):
         rule = BonusRule.query.get_or_404(rule_id)
         data = request.get_json()
 
-        # Feature Flag: الـ rule_type الفعلي بعد التحديث يجب أن يكون مُفعَّلاً
         effective_type = data.get('rule_type', rule.rule_type)
         refused = _refuse_rule_type_not_built(effective_type)
         if refused:
             return refused
-        flag_check = _check_bonus_type_flag(effective_type)
-        if flag_check is not None:
-            _, msg = flag_check
-            return jsonify({'success': False, 'message': msg, 'code': 'bonus_type_disabled'}), 422
+        if effective_type == 'tiered':
+            terms, refused = _tiered_terms(data, rule)
+            if refused:
+                return refused
+            rule.measure, rule.period, rule.tiers = terms
+            rule.bonus_type, rule.bonus_value = 'tiers', 0.0
 
         # points_source: إذا تم تغييره، تحقق من المسار الفعلي بعد التحديث
         if 'points_source' in data:
@@ -435,9 +486,9 @@ def update_bonus_rule(rule_id):
             rule.rule_type = data['rule_type']
         if 'conditions' in data:
             rule.conditions = data['conditions']
-        if 'bonus_type' in data:
+        if 'bonus_type' in data and effective_type != 'tiered':
             rule.bonus_type = data['bonus_type']
-        if 'bonus_value' in data:
+        if 'bonus_value' in data and effective_type != 'tiered':
             rule.bonus_value = data['bonus_value']
         if 'min_bonus' in data:
             rule.min_bonus = data['min_bonus']
@@ -2478,22 +2529,8 @@ def bonus_estimate_for_invoice(invoice_id):
     for rule in rules:
         if not rule.is_valid_for_employee(employee):
             continue
-        if not BonusCalculator._is_rule_type_enabled(rule.rule_type):
-            continue
-
-        result = None
-        if rule.rule_type == 'sales_target':
-            result = BonusCalculator.calculate_sales_bonus(employee, rule, period_start, period_end)
-        elif rule.rule_type == 'profit_based':
-            result = BonusCalculator.calculate_profit_bonus(employee, rule, period_start, period_end)
-        elif rule.rule_type == 'fixed':
-            result = BonusCalculator.calculate_fixed_bonus(employee, rule, period_start, period_end)
-        elif rule.rule_type == 'points_based':
-            result = BonusCalculator.calculate_points_bonus(employee, rule, period_start, period_end)
-        elif rule.rule_type == 'attendance':
-            result = BonusCalculator.calculate_attendance_bonus(employee, rule, period_start, period_end)
-        elif rule.rule_type == 'performance':
-            result = BonusCalculator.calculate_performance_bonus(employee, rule, period_start, period_end)
+        # One dispatch (bonus study م2): the calculator's own, tiers included.
+        result = BonusCalculator._compute(employee, rule, period_start, period_end)
 
         if result is None:
             continue

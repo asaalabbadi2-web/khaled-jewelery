@@ -38,6 +38,8 @@ PERIODS = ('daily', 'weekly', 'monthly')
 
 
 def rule_period(rule) -> str:
+    if getattr(rule, 'period', None) in PERIODS:          # a tiered rule says it (م2)
+        return rule.period
     conditions = rule.conditions or {}
     period = conditions.get('period') or _POINTS_PERIODS.get(conditions.get('points_period'))
     return period if period in PERIODS else 'monthly'
@@ -76,6 +78,10 @@ def _formula_string(rule) -> str:
     """صيغة قابلة للقراءة تُحفظ في calculation_snapshot.calculation.formula."""
     v = rule.bonus_value
     rt, bt = rule.rule_type, rule.bonus_type
+    if rt == 'tiered':
+        tiers = '، '.join(f"من {t['from']:g}: " + (f"{t['per_unit']:g} لكل وحدة" if t.get('per_unit') is not None
+                                                  else f"{t['amount']:g} ثابت") for t in (rule.tiers or []))
+        return f'{rule.measure} للفترة {rule.period} → كله بسعر الشريحة التي بلغها ({tiers})'
     if rt == 'points_based' and bt == 'points_per_unit':
         src = getattr(rule, 'points_source', None)
         if src == 'cash':
@@ -87,10 +93,6 @@ def _formula_string(rule) -> str:
         ('sales_target',  'percentage'):        f'salary × {v}%',
         ('sales_target',  'fixed'):             f'ثابت: {v}',
         ('sales_target',  'sales_percentage'):  f'total_sales × {v}%',
-        ('attendance',    'percentage'):        f'salary × {v}%',
-        ('attendance',    'fixed'):             f'ثابت: {v}',
-        ('performance',   'percentage'):        f'salary × {v}%',
-        ('performance',   'fixed'):             f'ثابت: {v}',
         ('fixed',         'percentage'):        f'salary × {v}%',
         ('fixed',         'fixed'):             f'ثابت: {v}',
         ('profit_based',  'percentage'):        f'salary × {v}%',
@@ -104,6 +106,37 @@ def _formula_string(rule) -> str:
 
 class BonusCalculator:
     """حاسبة المكافآت للموظفين"""
+
+    @staticmethod
+    def calculate_tiered_bonus(employee, rule, period_start, period_end):
+        """A tiered rule (bonus study م2): its measure for the employee over the
+        period (the one measure, ADR-058), all of it at the tier it reached,
+        then the rule's cap. Points are whole, as the race shows them."""
+        from services.bonus_tiers import pays, tier_for
+        from services.performance_measures import activity, measure, TYPES
+        if not employee.id:
+            return None
+        value = measure(rule.measure, employee.id, period_start, period_end)
+        if rule.measure == 'points':
+            value = int(round(value))
+        tier = tier_for(rule.tiers, value)
+        if tier is None:
+            return None
+        raw_amount = pays(tier, value)
+        amount, min_applied, max_applied = _apply_limits(rule, raw_amount)
+        if amount <= 0:
+            return None
+        calculation_data = {
+            'measure': rule.measure,
+            'period': rule.period,
+            'value': value,
+            'tier': tier,
+            'tiers': rule.tiers,
+            'invoice_count': len(activity(employee.id, period_start, period_end, TYPES[rule.measure])),
+        }
+        if rule.measure == 'points':
+            calculation_data['employee_points'] = value
+        return raw_amount, amount, calculation_data, min_applied, max_applied
 
     @staticmethod
     def calculate_sales_bonus(employee, rule, period_start, period_end):
@@ -133,54 +166,6 @@ class BonusCalculator:
             "sales_amount": total_sales,
             "sales_target": sales_target,
             "achievement_percentage": (total_sales / sales_target * 100) if sales_target > 0 else 0,
-            "base_salary": employee.salary,
-        }
-        return raw_amount, amount, calculation_data, min_applied, max_applied
-
-    @staticmethod
-    def calculate_attendance_bonus(employee, rule, period_start, period_end):
-        """حساب مكافأة الحضور (placeholder)."""
-        conditions = rule.conditions or {}
-        required_attendance = conditions.get("attendance_percentage", 95)
-        actual_attendance = 100.0
-        if actual_attendance < required_attendance:
-            return None
-
-        raw_amount = 0.0
-        if rule.bonus_type == "percentage":
-            raw_amount = employee.salary * (rule.bonus_value / 100)
-        elif rule.bonus_type == "fixed":
-            raw_amount = rule.bonus_value
-
-        amount, min_applied, max_applied = _apply_limits(rule, raw_amount)
-
-        calculation_data = {
-            "attendance_percentage": actual_attendance,
-            "required_attendance": required_attendance,
-            "base_salary": employee.salary,
-        }
-        return raw_amount, amount, calculation_data, min_applied, max_applied
-
-    @staticmethod
-    def calculate_performance_bonus(employee, rule, period_start, period_end):
-        """حساب مكافأة الأداء (placeholder)."""
-        conditions = rule.conditions or {}
-        required_rating = conditions.get("performance_rating", 4.0)
-        actual_rating = 4.5
-        if actual_rating < required_rating:
-            return None
-
-        raw_amount = 0.0
-        if rule.bonus_type == "percentage":
-            raw_amount = employee.salary * (rule.bonus_value / 100)
-        elif rule.bonus_type == "fixed":
-            raw_amount = rule.bonus_value
-
-        amount, min_applied, max_applied = _apply_limits(rule, raw_amount)
-
-        calculation_data = {
-            "performance_rating": actual_rating,
-            "required_rating": required_rating,
             "base_salary": employee.salary,
         }
         return raw_amount, amount, calculation_data, min_applied, max_applied
@@ -398,28 +383,11 @@ class BonusCalculator:
         return raw_amount, amount, calculation_data, min_applied, max_applied
 
     @staticmethod
-    def _is_rule_type_enabled(rule_type: str) -> bool:
-        """يتحقق من Feature Flag للأنواع التي تعتمد على بيانات غير مكتملة."""
-        _flagged = {
-            'attendance':  'bonus_attendance_enabled',
-            'performance': 'bonus_performance_enabled',
-        }
-        if rule_type not in _flagged:
-            return True
-        try:
-            from core.settings import _get_settings_singleton
-            settings = _get_settings_singleton(create_if_missing=False)
-            return bool(settings and getattr(settings, _flagged[rule_type], False))
-        except Exception:
-            return False  # safe-deny عند أي خطأ في قراءة الإعدادات
-
-    @staticmethod
     def _compute(employee, rule, period_start, period_end):
         """(raw, amount, data, min_applied, max_applied) by the rule's type, or None."""
         calculators = {
+            'tiered': BonusCalculator.calculate_tiered_bonus,
             'sales_target': BonusCalculator.calculate_sales_bonus,
-            'attendance': BonusCalculator.calculate_attendance_bonus,
-            'performance': BonusCalculator.calculate_performance_bonus,
             'fixed': BonusCalculator.calculate_fixed_bonus,
             'profit_based': BonusCalculator.calculate_profit_bonus,
             'points_based': BonusCalculator.calculate_points_bonus,
@@ -434,8 +402,6 @@ class BonusCalculator:
         is written."""
         if not rule.is_active or not rule.is_valid_for_employee(employee):
             return 0.0
-        if not BonusCalculator._is_rule_type_enabled(rule.rule_type):
-            return 0.0
         result = BonusCalculator._compute(employee, rule, period_start, period_end)
         return float(result[1]) if result else 0.0
 
@@ -443,10 +409,6 @@ class BonusCalculator:
     def calculate_bonus(employee, rule, period_start, period_end):
         """حساب المكافأة بناءً على نوع القاعدة."""
         if not rule.is_active or not rule.is_valid_for_employee(employee):
-            return None
-
-        # Feature Flag: تجاوز القواعد ذات الأنواع غير المُفعَّلة
-        if not BonusCalculator._is_rule_type_enabled(rule.rule_type):
             return None
 
         result = BonusCalculator._compute(employee, rule, period_start, period_end)

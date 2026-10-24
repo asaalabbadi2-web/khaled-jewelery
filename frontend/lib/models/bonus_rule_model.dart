@@ -18,6 +18,12 @@ class BonusRuleModel {
   final DateTime? createdAt;
   final String? createdBy;
 
+  /// A tiered rule's terms (bonus study م2): what it measures, over which
+  /// period, and its tiers -- [{from, per_unit | amount}], ascending.
+  final String? measure;
+  final String? period;
+  final List<Map<String, dynamic>>? tiers;
+
   const BonusRuleModel({
     this.id,
     required this.name,
@@ -37,6 +43,9 @@ class BonusRuleModel {
     this.validTo,
     this.createdAt,
     this.createdBy,
+    this.measure,
+    this.period,
+    this.tiers,
   });
 
   factory BonusRuleModel.fromJson(Map<String, dynamic> json) {
@@ -76,6 +85,11 @@ class BonusRuleModel {
           ? DateTime.parse(json['created_at'] as String)
           : null,
       createdBy: json['created_by'] as String?,
+      measure: json['measure'] as String?,
+      period: json['period'] as String?,
+      tiers: (json['tiers'] as List<dynamic>?)
+          ?.map((t) => Map<String, dynamic>.from(t as Map))
+          .toList(),
     );
   }
 
@@ -157,10 +171,10 @@ class BonusRuleModel {
   /// م0, ث10) -- «مخصصة» has no calculator, «الحضور» and «الأداء» are refused
   /// by their flag -- and [current], when a rule is already of another.
   static const List<String> computedRuleTypes = [
+    'tiered', // شرائح: يقول ما قالته «على أساس النقاط» وأكثر (م2)
     'sales_target',
     'fixed',
     'profit_based',
-    'points_based',
   ];
 
   static List<String> ruleTypesFor(String? current) => [
@@ -187,6 +201,8 @@ class BonusRuleModel {
   /// أسماء الأنواع بالعربية
   static String getRuleTypeNameAr(String ruleType) {
     switch (ruleType) {
+      case 'tiered':
+        return 'شرائح';
       case 'sales_target':
         return 'هدف مبيعات';
       case 'attendance':
@@ -204,6 +220,23 @@ class BonusRuleModel {
       default:
         return ruleType;
     }
+  }
+
+  /// One line saying the rule: a tiered one its measure, period and tiers
+  /// (bonus study م2) -- «tiers» was shown as it is stored.
+  String get summaryAr {
+    if (ruleType != 'tiered') {
+      return '${getRuleTypeNameAr(ruleType)} - ${getBonusTypeNameAr(bonusType)}';
+    }
+    const measures = {'points': 'النقاط', 'sales': 'المبيعات', 'sold_weight': 'الوزن المباع', 'count': 'عدد الفواتير'};
+    const periods = {'daily': 'يومي', 'weekly': 'أسبوعي', 'monthly': 'شهري'};
+    String n(num v) => v == v.truncate() ? '${v.toInt()}' : '$v';
+    final steps = [
+      for (final t in tiers ?? const <Map<String, dynamic>>[])
+        'من ${n(t['from'] as num)}: '
+            '${t['per_unit'] != null ? '${n(t['per_unit'] as num)} لكل وحدة' : '${n(t['amount'] as num)} ثابت'}',
+    ];
+    return 'شرائح · ${measures[measure] ?? measure} · ${periods[period] ?? period} · ${steps.join('، ')}';
   }
 
   static String getBonusTypeNameAr(String bonusType) {

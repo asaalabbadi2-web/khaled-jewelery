@@ -5010,6 +5010,12 @@ class BonusRule(db.Model):
     applicable_invoice_types = db.Column(db.JSON)
     # NULL = مسار gold (التوافق الخلفي) — 'gold' أو 'cash' عند points_based فقط
     points_source = db.Column(db.String(10), nullable=True)
+    # A tiered rule is data (bonus study م2): what it measures (the one measure,
+    # ADR-058), over which period, and its tiers -- [{from, per_unit | amount}],
+    # ascending; all the measure is paid at the tier it reached.
+    measure = db.Column(db.String(20), nullable=True)
+    period = db.Column(db.String(10), nullable=True)
+    tiers = db.Column(db.JSON, nullable=True)
     is_active = db.Column(db.Boolean, default=True)
     valid_from = db.Column(db.Date)
     valid_to = db.Column(db.Date)
@@ -5053,6 +5059,9 @@ class BonusRule(db.Model):
             'target_employee_ids': self.target_employee_ids,
             'applicable_invoice_types': self.applicable_invoice_types,
             'points_source': self.points_source,
+            'measure': self.measure,
+            'period': self.period,
+            'tiers': self.tiers,
             'is_active': self.is_active,
             'valid_from': self.valid_from.isoformat() if self.valid_from else None,
             'valid_to': self.valid_to.isoformat() if self.valid_to else None,
@@ -5073,6 +5082,9 @@ class BonusRule(db.Model):
             'conditions': self.conditions,
             'applicable_invoice_types': self.applicable_invoice_types,
             'points_source': self.points_source,
+            'measure': self.measure,
+            'period': self.period,
+            'tiers': self.tiers,
             'valid_from': self.valid_from.isoformat() if self.valid_from else None,
             'valid_to': self.valid_to.isoformat() if self.valid_to else None,
         }
