@@ -4753,13 +4753,22 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
   ) async {
     if (!mounted) return;
 
+    // A supplier's return is the purchase screen's, its original chosen (25
+    // Oct 2026): the general return form refunded the gold's value in cash.
+    final supplierReturn = returnType == 'مرتجع شراء (مورد)';
     final result = await Navigator.of(context).push<bool>(
       MaterialPageRoute(
-        builder: (_) => AddReturnInvoiceScreen(
-          api: _apiService,
-          returnType: returnType,
-          prefilledOriginalInvoice: invoice,
-        ),
+        builder: (_) => supplierReturn
+            ? PurchaseInvoiceScreen(
+                supplierReturnMode: true,
+                originalInvoiceId: (invoice['id'] as num?)?.toInt(),
+                supplierId: (invoice['supplier_id'] as num?)?.toInt(),
+              )
+            : AddReturnInvoiceScreen(
+                api: _apiService,
+                returnType: returnType,
+                prefilledOriginalInvoice: invoice,
+              ),
       ),
     );
 

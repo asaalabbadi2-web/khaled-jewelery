@@ -3500,6 +3500,32 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
         # Clear invalid/unusable customer ids so we never hit DB-level FK failures later.
         data['customer_id'] = None
     
+    # A supplier's return refunds in cash at most what it charges the supplier
+    # in cash -- its wages, their VAT and the gold's VAT; the gold goes back by
+    # weight, never posted in cash (RETURN-WAGE-1). The general return form,
+    # made for a customer, refunded the gold's value too: a receipt of cash
+    # never received, and a debt to the supplier with no cause (the owner, 25
+    # Oct 2026: one form for a supplier's return, the purchase screen's).
+    if invoice_type == 'مرتجع شراء (مورد)':
+        def _money(value):
+            try:
+                return float(normalize_number(str(value))) if value not in (None, '', False) else 0.0
+            except Exception:
+                return 0.0
+        _charged = round(sum(_money(data.get(key)) for key in (
+            ('manufacturing_wage_cash' if data.get('manufacturing_wage_cash') not in (None, '') else
+             'wage_cash' if data.get('wage_cash') not in (None, '') else 'wage_subtotal'),
+            'wage_tax_total', 'gold_tax_total')), 2)
+        _payments = [p for p in (data.get('payments') or []) if isinstance(p, dict)]
+        _refund = round(sum(_money(p.get('amount')) for p in _payments)
+                        if _payments else _money(data.get('amount_paid')), 2)
+        if _refund > _charged + 0.01:
+            return jsonify({
+                'error': 'supplier_return_refund_exceeds', 'refund': _refund, 'allowed': _charged,
+                'message': (f'مرتجع المورد يُسترد نقدًا بقدر ما يُقيَّد على المورد نقدًا ({_charged:,.2f}: '
+                            'الأجور وضريبتها)، والذهب يعود وزنًا. سجّل المرتجع من شاشة شراء المورد.'),
+            }), 400
+
     # 🆕 Validation للمرتجعات
     return_types = ['مرتجع بيع', 'مرتجع شراء', 'مرتجع شراء (مورد)']
     if invoice_type in return_types:

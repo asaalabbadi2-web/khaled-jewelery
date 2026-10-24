@@ -3469,11 +3469,15 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
       final karatRaw = item['karat'] ?? 21;
       final karat = _toDouble(karatRaw);
 
+      // An invoice item's `wage` is the wage a gram, as the server keeps it
+      // (weight × wage = the purchase's wages). It was taken as the line's
+      // whole wage and divided by its weight: the return's line said the wage
+      // a gram as its wage (12.75 for 72.22 g, not 920.81).
       var wagePerGram = _toDouble(
-        item['manufacturing_wage_per_gram'] ?? item['wage_per_gram'],
+        item['manufacturing_wage_per_gram'] ?? item['wage_per_gram'] ?? item['wage'],
       );
       if (wagePerGram <= 0 && weightPerUnit > 0) {
-        final wageTotal = _toDouble(item['wage_total'] ?? item['wage']);
+        final wageTotal = _toDouble(item['wage_total']);
         if (wageTotal > 0) wagePerGram = wageTotal / weightPerUnit;
       }
 

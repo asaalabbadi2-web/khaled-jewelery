@@ -14,6 +14,7 @@ import '../theme/app_theme.dart';
 import '../utils.dart';
 import '../utils/invoice_direct_print.dart';
 import '../utils/currency_utils.dart' as cu;
+import 'purchase_invoice_screen.dart';
 
 class _ReturnPaymentEntry {
   final int paymentMethodId;
@@ -501,9 +502,15 @@ class _AddReturnInvoiceScreenState extends State<AddReturnInvoiceScreen> {
     );
   }
 
+  /// A supplier's return is not this form's: it is the purchase screen's,
+  /// which posts it as its purchase reversed (25 Oct 2026). This form, made
+  /// for a customer whose refund is cash, refunded the gold's value in cash.
+  bool get _isSupplierReturn => widget.returnType == 'مرتجع شراء (مورد)';
+
   @override
   void initState() {
     super.initState();
+    if (_isSupplierReturn) return;
     _loadCurrencySettings();
     _loadInvoiceUiSettingsFromPrefs();
     _fetchPaymentMethods();
@@ -2591,6 +2598,14 @@ class _AddReturnInvoiceScreenState extends State<AddReturnInvoiceScreen> {
 
   @override
   Widget build(BuildContext context) {
+    if (_isSupplierReturn) {
+      return PurchaseInvoiceScreen(
+        apiService: widget.api,
+        supplierReturnMode: true,
+        originalInvoiceId: _parseOptionalInt(widget.prefilledOriginalInvoice?['id']),
+        supplierId: _parseOptionalInt(widget.prefilledOriginalInvoice?['supplier_id']),
+      );
+    }
     context.watch<SettingsProvider>();
 
     if (_wholeMode) return _buildWholeReturn();

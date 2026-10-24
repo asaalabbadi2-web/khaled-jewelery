@@ -1523,11 +1523,12 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
       keywords: const ['فاتورة مرتجع', 'مورد'],
       color: _tone.sectionRed.fg,
       onSelected: () async {
+        // One form for a supplier's return, the purchase screen's (25 Oct
+        // 2026): the general return form refunded the gold's value in cash.
         final result = await Navigator.push(
           context,
           MaterialPageRoute(
-            builder: (_) =>
-                AddReturnInvoiceScreen(api: api, returnType: 'مرتجع شراء (مورد)'),
+            builder: (_) => const PurchaseInvoiceScreen(supplierReturnMode: true),
           ),
         );
         if (result == true) await _loadAllData();
