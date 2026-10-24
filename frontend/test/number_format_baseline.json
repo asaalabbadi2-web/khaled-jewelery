@@ -10,7 +10,6 @@
   "lib/screens/add_supplier_screen.dart": 2,
   "lib/screens/add_voucher_screen.dart": 2,
   "lib/screens/barcode_print_screen.dart": 2,
-  "lib/screens/bonus_analytics_screen.dart": 6,
   "lib/screens/calculate_bonuses_screen.dart": 2,
   "lib/screens/clearing_settlement_screen.dart": 3,
   "lib/screens/customers_screen.dart": 3,

@@ -633,6 +633,76 @@ def get_bonuses():
         }), 500
 
 
+@bonus_bp.route('/bonuses/analytics', methods=['GET'])
+@require_any_permission('bonus.calculate', 'bonus.approve', 'bonus.pay')
+@require_auth
+def bonuses_analytics():
+    """What was granted, by the bonus's period (bonus study م3و). Query: from,
+    to (YYYY-MM-DD, the bonus's period_start within them). Granted is approved
+    and paid -- what the books carry; pending is apart; a rejected or reversed
+    bonus is in no amount. The page computed it all itself, summing every
+    state, a rejected bonus as given."""
+    try:
+        start = datetime.strptime(request.args.get('from', ''), '%Y-%m-%d').date()
+        end = datetime.strptime(request.args.get('to', ''), '%Y-%m-%d').date()
+    except ValueError:
+        return jsonify({'success': False, 'error': 'invalid_window',
+                        'message': 'from و to بصيغة YYYY-MM-DD'}), 400
+    granted_states = ('approved', 'paid')
+    rows = (db.session.query(EmployeeBonus, Employee, BonusRule)
+            .join(Employee, Employee.id == EmployeeBonus.employee_id)
+            .outerjoin(BonusRule, BonusRule.id == EmployeeBonus.bonus_rule_id)
+            .filter(EmployeeBonus.period_start >= start, EmployeeBonus.period_start <= end).all())
+
+    statuses = {s: 0 for s in ('pending', 'approved', 'paid', 'rejected', 'reversed')}
+    granted_total = pending_total = 0.0
+    by_employee, by_rule, by_department = {}, {}, {}
+    by_month = {}
+    month = start.replace(day=1)
+    while month <= end:
+        by_month[month.strftime('%Y-%m')] = 0.0
+        month = (month + timedelta(days=32)).replace(day=1)
+    for bonus, emp, rule in rows:
+        statuses[bonus.status] = statuses.get(bonus.status, 0) + 1
+        amount = float(bonus.amount or 0.0)
+        if bonus.status == 'pending':
+            pending_total += amount
+        if bonus.status not in granted_states:
+            continue
+        granted_total += amount
+        e = by_employee.setdefault(emp.id, {'employee_id': emp.id, 'name': emp.name, 'amount': 0.0, 'count': 0})
+        e['amount'] += amount
+        e['count'] += 1
+        r = by_rule.setdefault(rule.id if rule else None,
+                               {'rule_id': rule.id if rule else None, 'name': rule.name if rule else 'يدوية',
+                                'amount': 0.0})
+        r['amount'] += amount
+        by_month[bonus.period_start.strftime('%Y-%m')] = by_month.get(bonus.period_start.strftime('%Y-%m'), 0.0) \
+            + amount
+        d = by_department.setdefault(emp.department or 'غير محدد',
+                                     {'department': emp.department or 'غير محدد', 'amount': 0.0, 'ids': set()})
+        d['amount'] += amount
+        d['ids'].add(emp.id)
+
+    def ranked(items):
+        return sorted(({**i, 'amount': round(i['amount'], 2)} for i in items), key=lambda i: -i['amount'])
+
+    decided = statuses['approved'] + statuses['paid'] + statuses['rejected']
+    return jsonify({
+        'success': True, 'from': start.isoformat(), 'to': end.isoformat(),
+        'granted_total': round(granted_total, 2), 'pending_total': round(pending_total, 2),
+        'statuses': statuses,
+        # Of the bonuses decided (approved, paid or rejected), the share granted.
+        'approval_rate': round((statuses['approved'] + statuses['paid']) / decided, 4) if decided else None,
+        'by_employee': ranked(by_employee.values()),
+        'by_rule': ranked({**r, 'share': round(r['amount'] / granted_total, 4) if granted_total else 0.0}
+                          for r in by_rule.values()),
+        'by_month': [{'month': m, 'amount': round(a, 2)} for m, a in sorted(by_month.items())],
+        'by_department': ranked({'department': d['department'], 'amount': d['amount'],
+                                 'employees': len(d['ids'])} for d in by_department.values()),
+    }), 200
+
+
 @bonus_bp.route('/bonuses', methods=['POST'])
 @require_auth
 @require_any_permission('bonus.calculate', 'bonus.approve')

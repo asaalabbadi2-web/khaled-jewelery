@@ -1,24 +1,29 @@
 // frontend/lib/screens/bonus_analytics_screen.dart
 //
-// شاشة تحليلات المكافآت — احترافية
+// تحليلات المكافآت (bonus study م3و): ما مُنح -- المعتمد والمدفوع، ما تحمله
+// الدفاتر -- بفترة المكافأة، من الخادم (`/bonuses/analytics`). المعلّق وحده،
+// والمرفوض والمعكوس في لا مبلغ. كانت الشاشة تحسب كل شيء بنفسها من كل
+// المكافآت بكل حالاتها، فتعدّ المرفوضة ممنوحة، و«سنة» كانت كل ما كان.
 //
 // المحتوى:
-//   1. Period Filter (آخر 30/90/365 يوم)
-//   2. Top Employees (أعلى 5 موظفين بمكافآت)
-//   3. Distribution by Rule (donut)
-//   4. Trend Chart (آخر 6 شهور)
-//   5. Approval Rate (KPI ring)
-//   6. By Department (متوسط لكل قسم)
-
-import 'dart:math' as math;
+//   1. الفترة (آخر 30/90/365 يومًا)
+//   2. أعلى الموظفين
+//   3. التوزيع حسب القاعدة
+//   4. الاتجاه شهرًا شهرًا
+//   5. معدل الاعتماد
+//   6. حسب القسم
 
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart' hide TextDirection;
+import 'package:provider/provider.dart';
 
 import '../api_service.dart';
-import '../models/employee_bonus_model.dart';
+import '../providers/settings_provider.dart';
+import '../theme/app_chart_palette.dart';
 import '../theme/app_theme.dart';
+import '../utils/currency_utils.dart' as cu;
+import '../widgets/app_state_views.dart';
 
 enum _AnalyticsPeriod { last30, last90, lastYear }
 
@@ -38,24 +43,18 @@ class BonusAnalyticsScreen extends StatefulWidget {
 
 class _BonusAnalyticsScreenState extends State<BonusAnalyticsScreen> {
   bool _loading = false;
-  String? _error;
-
-  List<EmployeeBonusModel> _allBonuses = [];
+  Object? _error;
+  Map<String, dynamic>? _data;
   _AnalyticsPeriod _period = _AnalyticsPeriod.lastYear;
 
-  List<EmployeeBonusModel> get _bonuses {
-    if (_allBonuses.isEmpty || _period == _AnalyticsPeriod.lastYear) {
-      return _allBonuses;
-    }
-    final now = DateTime.now();
-    final days = _period == _AnalyticsPeriod.last30 ? 30 : 90;
-    final start = now.subtract(Duration(days: days));
-    return _allBonuses
-        .where((b) => !b.periodStart.isBefore(start))
-        .toList();
-  }
+  static final _day = DateFormat('yyyy-MM-dd');
 
-  // ─── دورة الحياة ────────────────────────────────────────
+  int get _days => switch (_period) {
+        _AnalyticsPeriod.last30 => 30,
+        _AnalyticsPeriod.last90 => 90,
+        _AnalyticsPeriod.lastYear => 365,
+      };
+
   @override
   void initState() {
     super.initState();
@@ -67,74 +66,93 @@ class _BonusAnalyticsScreenState extends State<BonusAnalyticsScreen> {
       _loading = true;
       _error = null;
     });
+    final today = DateTime.now();
     try {
-      final data = await widget.api.getBonuses();
-      if (!mounted) return;
-      final parsed = data
-          .map((j) => EmployeeBonusModel.fromJson(j as Map<String, dynamic>))
-          .toList();
-      setState(() => _allBonuses = parsed);
+      final data = await widget.api.getBonusAnalytics(
+        from: _day.format(today.subtract(Duration(days: _days))),
+        to: _day.format(today),
+      );
+      if (mounted) setState(() => _data = data);
     } catch (e) {
-      if (!mounted) return;
-      setState(() => _error = e.toString());
+      if (mounted) setState(() => _error = e);
     } finally {
       if (mounted) setState(() => _loading = false);
     }
   }
 
-  // ─── helpers ────────────────────────────────────────────
-  String _periodLabel(BuildContext context) {
+  void _choose(_AnalyticsPeriod p) {
+    if (p == _period) return;
+    setState(() => _period = p);
+    _load();
+  }
+
+  String get _currency => context.read<SettingsProvider>().currencySymbolText;
+
+  String _money(num v) => '${cu.formatAmount(v, decimals: 0)} $_currency';
+
+  List<Map> _list(String key) => ((_data?[key] as List?) ?? const []).whereType<Map>().toList();
+
+  String _periodLabel() {
     final isAr = widget.isArabic;
-    switch (_period) {
-      case _AnalyticsPeriod.last30:
-        return isAr ? 'آخر 30 يوم' : 'Last 30 days';
-      case _AnalyticsPeriod.last90:
-        return isAr ? 'آخر 90 يوم' : 'Last 90 days';
-      case _AnalyticsPeriod.lastYear:
-        return isAr ? 'آخر سنة' : 'Last year';
-    }
+    return switch (_period) {
+      _AnalyticsPeriod.last30 => isAr ? 'آخر 30 يومًا' : 'Last 30 days',
+      _AnalyticsPeriod.last90 => isAr ? 'آخر 90 يومًا' : 'Last 90 days',
+      _AnalyticsPeriod.lastYear => isAr ? 'آخر سنة' : 'Last year',
+    };
   }
 
-  String _formatCurrency(num value) {
-    if (value.abs() >= 1000000) {
-      return '${(value / 1000000).toStringAsFixed(1)}M';
-    } else if (value.abs() >= 1000) {
-      return '${(value / 1000).toStringAsFixed(0)}K';
-    }
-    return value.toStringAsFixed(0);
-  }
-
-  // ─── البناء ─────────────────────────────────────────────
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     final isAr = widget.isArabic;
-
-    if (_loading && _allBonuses.isEmpty) {
-      return const Center(child: CircularProgressIndicator());
+    if (_loading && _data == null) return const AppLoadingView(summaryBlocks: 2, rows: 4);
+    if (_error != null && _data == null) {
+      return AppErrorView(title: 'تعذّر تحميل التحليلات', error: _error!, onRetry: _load);
     }
-
-    if (_error != null && _allBonuses.isEmpty) {
-      return _buildError(theme, isAr);
-    }
-
-    if (_bonuses.isEmpty) {
-      return _buildEmpty(theme, isAr);
-    }
+    final statuses = Map<String, dynamic>.from((_data?['statuses'] as Map?) ?? const {});
+    final nothing = statuses.values.every((v) => (v as num? ?? 0) == 0);
 
     return RefreshIndicator(
       onRefresh: _load,
-      color: AppColors.primaryGold,
       child: LayoutBuilder(
         builder: (context, constraints) {
-          final isWide = constraints.maxWidth >= 760;
+          final wide = constraints.maxWidth >= 760;
+          final cards = nothing
+              ? <Widget>[
+                  AppEmptyView(
+                    title: 'لا مكافآت في ${_periodLabel()}',
+                    hint: 'جرّب فترة أطول.',
+                    icon: Icons.insights_outlined,
+                    actionLabel: 'آخر سنة',
+                    onAction: () => _choose(_AnalyticsPeriod.lastYear),
+                  ),
+                ]
+              : wide
+                  ? [
+                      _summary(isAr),
+                      const SizedBox(height: AppSpace.md),
+                      _pair(_topEmployees(isAr), _byRule(isAr)),
+                      const SizedBox(height: AppSpace.md),
+                      _trend(isAr),
+                      const SizedBox(height: AppSpace.md),
+                      _pair(_approvalRate(isAr, statuses), _byDepartment(isAr)),
+                    ]
+                  : [
+                      _summary(isAr),
+                      for (final card in [
+                        _topEmployees(isAr),
+                        _byRule(isAr),
+                        _trend(isAr),
+                        _approvalRate(isAr, statuses),
+                        _byDepartment(isAr),
+                      ]) ...[const SizedBox(height: AppSpace.md), card],
+                    ];
           return ListView(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.all(AppSpace.lg),
             children: [
-              _buildPeriodSelector(theme, isAr),
-              const SizedBox(height: 14),
-              if (isWide) ..._buildWideLayout(theme, isAr) else ..._buildNarrowLayout(theme, isAr),
-              const SizedBox(height: 16),
+              _periodSelector(isAr),
+              const SizedBox(height: AppSpace.md),
+              ...cards,
+              const SizedBox(height: AppSpace.lg),
             ],
           );
         },
@@ -142,913 +160,408 @@ class _BonusAnalyticsScreenState extends State<BonusAnalyticsScreen> {
     );
   }
 
-  // ─── Layouts ────────────────────────────────────────────
-  List<Widget> _buildWideLayout(ThemeData theme, bool isAr) {
-    return [
-      Row(
+  Widget _pair(Widget a, Widget b) => Row(
         crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Expanded(child: _buildTopEmployees(theme, isAr)),
-          const SizedBox(width: 12),
-          Expanded(child: _buildDistributionByRule(theme, isAr)),
-        ],
-      ),
-      const SizedBox(height: 12),
-      _buildTrendChart(theme, isAr),
-      const SizedBox(height: 12),
-      Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Expanded(child: _buildApprovalRate(theme, isAr)),
-          const SizedBox(width: 12),
-          Expanded(child: _buildByDepartment(theme, isAr)),
-        ],
-      ),
-    ];
-  }
+        children: [Expanded(child: a), const SizedBox(width: AppSpace.md), Expanded(child: b)],
+      );
 
-  List<Widget> _buildNarrowLayout(ThemeData theme, bool isAr) {
-    return [
-      _buildTopEmployees(theme, isAr),
-      const SizedBox(height: 12),
-      _buildDistributionByRule(theme, isAr),
-      const SizedBox(height: 12),
-      _buildTrendChart(theme, isAr),
-      const SizedBox(height: 12),
-      _buildApprovalRate(theme, isAr),
-      const SizedBox(height: 12),
-      _buildByDepartment(theme, isAr),
-    ];
-  }
-
-  // ═══════════════════════════════════════════════════════
-  // Period Selector
-  // ═══════════════════════════════════════════════════════
-  Widget _buildPeriodSelector(ThemeData theme, bool isAr) {
-    return Container(
-      padding: const EdgeInsets.all(4),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainerHighest.withValues(alpha: 0.4),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Row(
-        children: _AnalyticsPeriod.values.map((p) {
-          final isActive = _period == p;
-          final label = switch (p) {
-            _AnalyticsPeriod.last30 => isAr ? '30 يوم' : '30 days',
-            _AnalyticsPeriod.last90 => isAr ? '90 يوم' : '90 days',
-            _AnalyticsPeriod.lastYear => isAr ? 'سنة' : 'Year',
-          };
-          return Expanded(
-            child: InkWell(
-              onTap: () => setState(() => _period = p),
-              borderRadius: BorderRadius.circular(6),
-              child: Container(
-                padding: const EdgeInsets.symmetric(vertical: 8),
-                decoration: BoxDecoration(
-                  color: isActive ? theme.cardColor : Colors.transparent,
-                  borderRadius: BorderRadius.circular(6),
-                  border: isActive
-                      ? Border.all(
-                          color: AppColors.primaryGold.withValues(alpha: 0.3),
-                        )
-                      : null,
-                ),
-                child: Text(
-                  label,
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700,
-                    color: isActive
-                        ? AppColors.primaryGold
-                        : theme.hintColor,
-                  ),
-                ),
-              ),
-            ),
-          );
-        }).toList(),
-      ),
+  Widget _periodSelector(bool isAr) {
+    return SegmentedButton<_AnalyticsPeriod>(
+      key: const Key('analytics-period'),
+      segments: [
+        ButtonSegment(value: _AnalyticsPeriod.last30, label: Text(isAr ? '30 يومًا' : '30 days')),
+        ButtonSegment(value: _AnalyticsPeriod.last90, label: Text(isAr ? '90 يومًا' : '90 days')),
+        ButtonSegment(value: _AnalyticsPeriod.lastYear, label: Text(isAr ? 'سنة' : 'Year')),
+      ],
+      selected: {_period},
+      showSelectedIcon: false,
+      onSelectionChanged: (v) => _choose(v.first),
     );
   }
 
-  // ═══════════════════════════════════════════════════════
-  // 1. Top Employees
-  // ═══════════════════════════════════════════════════════
-  Widget _buildTopEmployees(ThemeData theme, bool isAr) {
-    final byEmp = <String, double>{};
-    for (final b in _bonuses) {
-      final name = b.employee?.fullName ?? '—';
-      byEmp[name] = (byEmp[name] ?? 0) + b.amount;
-    }
-    final sorted = byEmp.entries.toList()
-      ..sort((a, b) => b.value.compareTo(a.value));
-    final top = sorted.take(5).toList();
-    final maxValue = top.isEmpty ? 1.0 : top.first.value;
+  /// What was granted and what waits, said first.
+  Widget _summary(bool isAr) {
+    final theme = Theme.of(context);
+    final tones = AppSemanticColors.of(context);
+    Widget figure(String label, String value, SemanticTone tone, Key key) => Expanded(
+          child: Container(
+            key: key,
+            padding: const EdgeInsets.all(AppSpace.md),
+            decoration: BoxDecoration(
+              color: tone.container,
+              borderRadius: BorderRadius.circular(AppRadius.control),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(label, style: theme.textTheme.labelMedium?.copyWith(color: tone.onContainer)),
+                const SizedBox(height: AppSpace.xs),
+                Text(value,
+                    style: theme.textTheme.titleLarge
+                        ?.copyWith(color: tone.onContainer, fontWeight: FontWeight.w800)),
+              ],
+            ),
+          ),
+        );
+    return Row(children: [
+      figure('مُنح (معتمد ومدفوع)', _money((_data?['granted_total'] as num?) ?? 0), tones.gold,
+          const Key('analytics-granted')),
+      const SizedBox(width: AppSpace.md),
+      figure('ينتظر الاعتماد', _money((_data?['pending_total'] as num?) ?? 0), tones.warning,
+          const Key('analytics-pending')),
+    ]);
+  }
 
+  Widget _topEmployees(bool isAr) {
+    final rows = _list('by_employee').take(5).toList();
+    final max = rows.isEmpty ? 1.0 : ((rows.first['amount'] as num?) ?? 1).toDouble();
     return _AnalyticsCard(
-      icon: Icons.emoji_events_rounded,
-      iconColor: AppColors.primaryGold,
+      icon: Icons.emoji_events_outlined,
       title: isAr ? 'أعلى الموظفين مكافآت' : 'Top employees',
-      subtitle: _periodLabel(context),
-      meta: '${top.length} ${isAr ? "موظفين" : "employees"}',
-      child: top.isEmpty
-          ? _miniEmpty(theme, isAr ? 'لا يوجد موظفين' : 'No employees')
-          : Column(
-              children: top.asMap().entries.map((e) {
-                final rank = e.key + 1;
-                final entry = e.value;
-                final pct = maxValue > 0 ? entry.value / maxValue : 0.0;
-                final medalColor = switch (rank) {
-                  1 => AppColors.primaryGold,
-                  2 => theme.hintColor,
-                  3 => AppColors.invoicePurchaseScrap,
-                  _ => theme.hintColor.withValues(alpha: 0.5),
-                };
-                return Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 5),
-                  child: Row(
-                    children: [
-                      Container(
-                        width: 22,
-                        height: 22,
-                        decoration: BoxDecoration(
-                          color: medalColor.withValues(alpha: 0.15),
-                          shape: BoxShape.circle,
-                          border: Border.all(
-                            color: medalColor.withValues(alpha: 0.35),
-                            width: 0.5,
-                          ),
-                        ),
-                        child: Center(
-                          child: Text(
-                            '$rank',
-                            style: TextStyle(
-                              fontSize: 10,
-                              fontWeight: FontWeight.w800,
-                              color: medalColor,
-                            ),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      SizedBox(
-                        width: 80,
-                        child: Text(
-                          entry.key,
-                          style: TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w600,
-                            color: theme.textTheme.bodyLarge?.color,
-                          ),
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(3),
-                          child: LinearProgressIndicator(
-                            value: pct,
-                            minHeight: 5,
-                            backgroundColor:
-                                theme.dividerColor.withValues(alpha: 0.3),
-                            valueColor: AlwaysStoppedAnimation<Color>(
-                              rank == 1
-                                  ? AppColors.primaryGold
-                                  : medalColor,
-                            ),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      SizedBox(
-                        width: 56,
-                        child: Text(
-                          _formatCurrency(entry.value),
-                          textAlign: TextAlign.end,
-                          style: TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w800,
-                            color: AppColors.primaryGold,
-                            fontFeatures: const [FontFeature.tabularFigures()],
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                );
-              }).toList(),
-            ),
+      subtitle: _periodLabel(),
+      child: rows.isEmpty
+          ? _miniEmpty('لا شيء مُنح')
+          : Column(children: [
+              for (final (i, r) in rows.indexed)
+                _BarRow(
+                  rank: i + 1,
+                  label: '${r['name']}',
+                  value: _money((r['amount'] as num?) ?? 0),
+                  fraction: max > 0 ? ((r['amount'] as num?) ?? 0) / max : 0,
+                ),
+            ]),
     );
   }
 
-  // ═══════════════════════════════════════════════════════
-  // 2. Distribution by Rule (Donut)
-  // ═══════════════════════════════════════════════════════
-  Widget _buildDistributionByRule(ThemeData theme, bool isAr) {
-    final byRule = <String, double>{};
-    for (final b in _bonuses) {
-      final key = b.bonusRule?.name ?? (isAr ? 'بدون قاعدة' : 'No rule');
-      byRule[key] = (byRule[key] ?? 0) + b.amount;
+  Widget _byRule(bool isAr) {
+    final theme = Theme.of(context);
+    final palette = AppChartPalette.categorical(context);
+    final rules = _list('by_rule');
+    // Colour follows the rule, not its rank: by its id, manual last.
+    final ids = [for (final r in rules) r['rule_id']]..sort((a, b) {
+        if (a == null) return 1;
+        if (b == null) return -1;
+        return (a as num).compareTo(b as num);
+      });
+    Color colorOf(Map r) {
+      final slot = ids.indexOf(r['rule_id']);
+      return slot >= 0 && slot < palette.length ? palette[slot] : AppChartPalette.other(context);
     }
-    final sorted = byRule.entries.toList()
-      ..sort((a, b) => b.value.compareTo(a.value));
-    final top = sorted.take(4).toList();
-    final total = byRule.values.fold<double>(0, (s, v) => s + v);
-
-    final colors = [
-      AppColors.primaryGold,
-      AppColors.success,
-      AppColors.info,
-      AppColors.invoicePurchaseNew,
-    ];
 
     return _AnalyticsCard(
       icon: Icons.donut_large_rounded,
-      iconColor: AppColors.invoicePurchaseNew,
       title: isAr ? 'التوزيع حسب القاعدة' : 'By rule',
-      subtitle: '${isAr ? "الإجمالي" : "Total"} ${_formatCurrency(total)}',
-      child: top.isEmpty
-          ? _miniEmpty(theme, isAr ? 'لا توجد بيانات' : 'No data')
-          : Row(
-              children: [
-                SizedBox(
-                  width: 90,
-                  height: 90,
-                  child: PieChart(
-                    PieChartData(
-                      sectionsSpace: 1.5,
-                      centerSpaceRadius: 24,
-                      startDegreeOffset: -90,
-                      sections: top.asMap().entries.map((e) {
-                        final i = e.key;
-                        final entry = e.value;
-                        return PieChartSectionData(
-                          value: entry.value,
-                          color: colors[i % colors.length],
-                          title: '',
-                          radius: 18,
-                          showTitle: false,
-                          borderSide: BorderSide(
-                            color: theme.cardColor,
-                            width: 1.5,
-                          ),
-                        );
-                      }).toList(),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisSize: MainAxisSize.min,
-                    children: top.asMap().entries.map((e) {
-                      final i = e.key;
-                      final entry = e.value;
-                      final pct = total > 0 ? (entry.value / total) * 100 : 0.0;
-                      return Padding(
+      subtitle: '${isAr ? 'الإجمالي' : 'Total'} ${_money((_data?['granted_total'] as num?) ?? 0)}',
+      child: rules.isEmpty
+          ? _miniEmpty('لا شيء مُنح')
+          : Row(children: [
+              SizedBox(
+                width: 96,
+                height: 96,
+                child: PieChart(PieChartData(
+                  sectionsSpace: 2,
+                  centerSpaceRadius: 26,
+                  startDegreeOffset: -90,
+                  sections: [
+                    for (final r in rules)
+                      PieChartSectionData(
+                        value: ((r['amount'] as num?) ?? 0).toDouble(),
+                        color: colorOf(r),
+                        radius: 18,
+                        showTitle: false,
+                      ),
+                  ],
+                )),
+              ),
+              const SizedBox(width: AppSpace.md),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    for (final r in rules)
+                      Padding(
                         padding: const EdgeInsets.symmetric(vertical: 3),
-                        child: Row(
-                          children: [
-                            Container(
-                              width: 8,
-                              height: 8,
-                              decoration: BoxDecoration(
-                                color: colors[i % colors.length],
-                                shape: BoxShape.circle,
-                              ),
-                            ),
-                            const SizedBox(width: 6),
-                            Expanded(
-                              child: Text(
-                                entry.key,
-                                style: TextStyle(
-                                  fontSize: 10.5,
-                                  color: theme.textTheme.bodyMedium?.color,
-                                ),
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                            Text(
-                              '${pct.toStringAsFixed(0)}%',
-                              style: TextStyle(
-                                fontSize: 10,
-                                fontWeight: FontWeight.w800,
-                                color: colors[i % colors.length],
-                                fontFeatures: const [FontFeature.tabularFigures()],
-                              ),
-                            ),
-                          ],
-                        ),
-                      );
-                    }).toList(),
-                  ),
+                        child: Row(children: [
+                          Container(
+                            width: 10,
+                            height: 10,
+                            decoration: BoxDecoration(color: colorOf(r), shape: BoxShape.circle),
+                          ),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: Text('${r['name']}',
+                                style: theme.textTheme.bodySmall, overflow: TextOverflow.ellipsis),
+                          ),
+                          Text(
+                            '${cu.formatAmount((((r['share'] as num?) ?? 0) * 100), decimals: 0)}% · '
+                            '${_money((r['amount'] as num?) ?? 0)}',
+                            textDirection: TextDirection.ltr,
+                            style: theme.textTheme.labelSmall?.copyWith(fontWeight: FontWeight.w700),
+                          ),
+                        ]),
+                      ),
+                  ],
                 ),
-              ],
-            ),
+              ),
+            ]),
     );
   }
 
-  // ═══════════════════════════════════════════════════════
-  // 3. Trend Chart (last 6 months)
-  // ═══════════════════════════════════════════════════════
-  Widget _buildTrendChart(ThemeData theme, bool isAr) {
-    final now = DateTime.now();
-    // Build the last 6 months explicitly to avoid month-0 edge cases.
-    final months = List.generate(6, (i) {
-      final offsetMonths = 5 - i;
-      var y = now.year;
-      var m = now.month - offsetMonths;
-      while (m < 1) { m += 12; y -= 1; }
-      return DateTime(y, m, 1);
-    });
-
-    final monthTotals = <double>[];
-    for (final m in months) {
-      final next = DateTime(m.year, m.month + 1, 1);
-      final total = _bonuses
-          .where((b) =>
-              b.periodStart.isAfter(m.subtract(const Duration(days: 1))) &&
-              b.periodStart.isBefore(next))
-          .fold<double>(0, (s, b) => s + b.amount);
-      monthTotals.add(total);
-    }
-
-    final maxValue = monthTotals.isEmpty
-        ? 1.0
-        : monthTotals.reduce(math.max);
-    final lastValue = monthTotals.isNotEmpty ? monthTotals.last : 0.0;
-    final prevValue =
-        monthTotals.length >= 2 ? monthTotals[monthTotals.length - 2] : 0.0;
-    final pctChange = prevValue > 0
-        ? ((lastValue - prevValue) / prevValue * 100)
-        : null;
-
-    // Use 'en' as safe fallback; Arabic locale may not be initialized on web.
-    DateFormat monthFmt;
-    try {
-      monthFmt = DateFormat.MMM(isAr ? 'ar' : 'en');
-    } catch (_) {
-      monthFmt = DateFormat.MMM('en');
+  Widget _trend(bool isAr) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    final months = _list('by_month');
+    final values = [for (final m in months) ((m['amount'] as num?) ?? 0).toDouble()];
+    final max = values.fold<double>(0, (a, b) => a > b ? a : b);
+    final bar = AppChartPalette.single(context);
+    String label(int i) {
+      final parts = '${months[i]['month']}'.split('-');
+      return parts.length == 2 ? '${int.tryParse(parts[1]) ?? parts[1]}/${parts[0].substring(2)}' : '';
     }
 
     return _AnalyticsCard(
-      icon: Icons.trending_up_rounded,
-      iconColor: AppColors.info,
-      title: isAr ? 'اتجاه المكافآت' : 'Bonuses trend',
-      subtitle: isAr ? 'آخر 6 شهور' : 'Last 6 months',
-      meta: pctChange != null
-          ? '${pctChange >= 0 ? "▲" : "▼"} ${pctChange.abs().toStringAsFixed(1)}%'
-          : null,
-      metaColor: pctChange != null
-          ? (pctChange >= 0 ? AppColors.success : AppColors.error)
-          : null,
-      child: maxValue == 0
-          ? _miniEmpty(theme, isAr ? 'لا توجد بيانات' : 'No data')
+      icon: Icons.bar_chart_rounded,
+      title: isAr ? 'المُنح شهرًا شهرًا' : 'Granted by month',
+      subtitle: _periodLabel(),
+      child: max == 0
+          ? _miniEmpty('لا شيء مُنح')
           : SizedBox(
-              height: 130,
-              child: BarChart(
-                BarChartData(
-                  alignment: BarChartAlignment.spaceAround,
-                  minY: 0.0,
-                  maxY: maxValue * 1.15,
-                  gridData: FlGridData(
-                    show: true,
-                    drawVerticalLine: false,
-                    horizontalInterval: (maxValue / 3).clamp(1.0, 1e12),
-                    getDrawingHorizontalLine: (_) => FlLine(
-                      color: theme.dividerColor.withValues(alpha: 0.3),
-                      strokeWidth: 0.5,
-                      dashArray: [4, 4],
-                    ),
-                  ),
-                  borderData: FlBorderData(show: false),
-                  titlesData: FlTitlesData(
-                    show: true,
-                    leftTitles: const AxisTitles(
-                        sideTitles: SideTitles(showTitles: false)),
-                    rightTitles: const AxisTitles(
-                        sideTitles: SideTitles(showTitles: false)),
-                    topTitles: const AxisTitles(
-                        sideTitles: SideTitles(showTitles: false)),
-                    bottomTitles: AxisTitles(
-                      sideTitles: SideTitles(
-                        showTitles: true,
-                        reservedSize: 22,
-                        getTitlesWidget: (value, meta) {
-                          final i = value.isNaN || value.isInfinite
-                              ? -1
-                              : value.round();
-                          if (i < 0 || i >= months.length) {
-                            return const SizedBox.shrink();
-                          }
-                          String label;
-                          try {
-                            label = monthFmt.format(months[i]);
-                          } catch (_) {
-                            label = '${months[i].month}';
-                          }
-                          return Padding(
-                            padding: const EdgeInsets.only(top: 4),
-                            child: Text(
-                              label,
-                              style: TextStyle(
-                                fontSize: 9.5,
-                                color: theme.hintColor,
-                              ),
-                            ),
-                          );
-                        },
-                      ),
-                    ),
-                  ),
-                  barTouchData: BarTouchData(
-                    enabled: true,
-                    touchTooltipData: BarTouchTooltipData(
-                      getTooltipColor: (_) =>
-                          AppColors.primaryGold.withValues(alpha: 0.95),
-                      tooltipPadding:
-                          const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                      getTooltipItem: (group, _, rod, _) {
-                        return BarTooltipItem(
-                          _formatCurrency(rod.toY),
-                          const TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.w800,
-                            fontSize: 11,
-                          ),
+              height: 150,
+              child: BarChart(BarChartData(
+                alignment: BarChartAlignment.spaceAround,
+                minY: 0,
+                maxY: max * 1.15,
+                gridData: FlGridData(
+                  show: true,
+                  drawVerticalLine: false,
+                  horizontalInterval: (max / 3).clamp(1.0, 1e12),
+                  getDrawingHorizontalLine: (_) => FlLine(color: cs.outlineVariant, strokeWidth: 0.5),
+                ),
+                borderData: FlBorderData(show: false),
+                titlesData: FlTitlesData(
+                  leftTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                  rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                  topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                  bottomTitles: AxisTitles(
+                    sideTitles: SideTitles(
+                      showTitles: true,
+                      reservedSize: 22,
+                      getTitlesWidget: (value, meta) {
+                        final i = value.round();
+                        if (i < 0 || i >= months.length) return const SizedBox.shrink();
+                        return Padding(
+                          padding: const EdgeInsets.only(top: 4),
+                          child: Text(label(i),
+                              style: theme.textTheme.labelSmall?.copyWith(color: cs.onSurfaceVariant)),
                         );
                       },
                     ),
                   ),
-                  barGroups: monthTotals.asMap().entries.map((e) {
-                    final i = e.key;
-                    final value = e.value;
-                    final isLast = i == monthTotals.length - 1;
-                    return BarChartGroupData(
-                      x: i,
-                      barRods: [
-                        BarChartRodData(
-                          toY: value,
-                          gradient: LinearGradient(
-                            begin: Alignment.bottomCenter,
-                            end: Alignment.topCenter,
-                            colors: isLast
-                                ? [
-                                    AppColors.primaryGold,
-                                    AppColors.darkGold,
-                                  ]
-                                : [
-                                    AppColors.primaryGold
-                                        .withValues(alpha: 0.5),
-                                    AppColors.primaryGold
-                                        .withValues(alpha: 0.7),
-                                  ],
-                          ),
-                          width: 18,
-                          borderRadius: const BorderRadius.vertical(
-                            top: Radius.circular(4),
-                          ),
-                        ),
-                      ],
-                    );
-                  }).toList(),
                 ),
-              ),
-            ),
-    );
-  }
-
-  // ═══════════════════════════════════════════════════════
-  // 4. Approval Rate
-  // ═══════════════════════════════════════════════════════
-  Widget _buildApprovalRate(ThemeData theme, bool isAr) {
-    final approved = _bonuses.where((b) => b.status == 'approved').length;
-    final paid = _bonuses.where((b) => b.status == 'paid').length;
-    final rejected = _bonuses.where((b) => b.status == 'rejected').length;
-    final pending = _bonuses.where((b) => b.status == 'pending').length;
-    final total = approved + paid + rejected;
-    final rate = total > 0 ? ((approved + paid) / total * 100) : 0.0;
-
-    return _AnalyticsCard(
-      icon: Icons.verified_rounded,
-      iconColor: AppColors.success,
-      title: isAr ? 'معدل الاعتماد' : 'Approval rate',
-      subtitle: isAr ? 'من المعالجة' : 'of processed',
-      child: Row(
-        children: [
-          // Ring
-          SizedBox(
-            width: 80,
-            height: 80,
-            child: Stack(
-              alignment: Alignment.center,
-              children: [
-                SizedBox(
-                  width: 80,
-                  height: 80,
-                  child: CircularProgressIndicator(
-                    value: rate / 100,
-                    strokeWidth: 8,
-                    backgroundColor:
-                        theme.dividerColor.withValues(alpha: 0.3),
-                    valueColor: AlwaysStoppedAnimation<Color>(
-                      rate >= 75
-                          ? AppColors.success
-                          : rate >= 50
-                              ? AppColors.warning
-                              : AppColors.error,
+                barTouchData: BarTouchData(
+                  enabled: true,
+                  touchTooltipData: BarTouchTooltipData(
+                    getTooltipColor: (_) => cs.inverseSurface,
+                    getTooltipItem: (group, _, rod, _) => BarTooltipItem(
+                      '${label(group.x)}\n${_money(rod.toY)}',
+                      theme.textTheme.labelMedium!.copyWith(color: cs.onInverseSurface),
                     ),
                   ),
                 ),
-                Text(
-                  '${rate.toStringAsFixed(0)}%',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w800,
-                    color: rate >= 75
-                        ? AppColors.success
-                        : rate >= 50
-                            ? AppColors.warning
-                            : AppColors.error,
-                  ),
-                ),
-              ],
+                barGroups: [
+                  for (final (i, v) in values.indexed)
+                    BarChartGroupData(x: i, barRods: [
+                      BarChartRodData(
+                        toY: v,
+                        color: bar,
+                        width: months.length > 8 ? 12 : 18,
+                        borderRadius: const BorderRadius.vertical(top: Radius.circular(4)),
+                      ),
+                    ]),
+                ],
+              )),
             ),
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                _statRow(theme, Icons.check_circle_rounded,
-                    AppColors.success, isAr ? 'معتمدة' : 'Approved', '$approved'),
-                const SizedBox(height: 5),
-                _statRow(theme, Icons.task_alt_rounded,
-                    AppColors.primaryGold, isAr ? 'مدفوعة' : 'Paid', '$paid'),
-                const SizedBox(height: 5),
-                _statRow(theme, Icons.cancel_rounded, AppColors.error,
-                    isAr ? 'مرفوضة' : 'Rejected', '$rejected'),
-                const SizedBox(height: 5),
-                _statRow(
-                    theme,
-                    Icons.pending_actions_rounded,
-                    AppColors.warning,
-                    isAr ? 'معلّقة' : 'Pending',
-                    '$pending'),
-              ],
-            ),
-          ),
-        ],
-      ),
     );
   }
 
-  Widget _statRow(ThemeData theme, IconData icon, Color color, String label,
-      String value) {
-    return Row(
-      children: [
-        Icon(icon, size: 13, color: color),
-        const SizedBox(width: 6),
-        Expanded(
-          child: Text(
-            label,
-            style: TextStyle(
-              fontSize: 10.5,
-              color: theme.textTheme.bodyMedium?.color,
-            ),
-          ),
-        ),
-        Text(
-          value,
-          style: TextStyle(
-            fontSize: 11.5,
-            fontWeight: FontWeight.w800,
-            color: color,
-            fontFeatures: const [FontFeature.tabularFigures()],
-          ),
-        ),
-      ],
-    );
-  }
-
-  // ═══════════════════════════════════════════════════════
-  // 5. By Department
-  // ═══════════════════════════════════════════════════════
-  Widget _buildByDepartment(ThemeData theme, bool isAr) {
-    final byDept = <String, List<double>>{};
-    for (final b in _bonuses) {
-      final dept = b.employee?.department ?? (isAr ? 'غير محدد' : 'Unspecified');
-      byDept.putIfAbsent(dept, () => []).add(b.amount);
-    }
-    final sorted = byDept.entries.map((e) {
-      final avg = e.value.isEmpty
-          ? 0.0
-          : e.value.reduce((a, b) => a + b) / e.value.length;
-      return MapEntry(e.key, avg);
-    }).toList()
-      ..sort((a, b) => b.value.compareTo(a.value));
-
-    final top = sorted.take(5).toList();
-    final maxValue = top.isEmpty ? 1.0 : top.first.value;
-
-    final colors = [
-      AppColors.primaryGold,
-      AppColors.success,
-      AppColors.info,
-      AppColors.invoicePurchaseNew,
-      AppColors.invoiceSaleScrap,
-    ];
-
+  Widget _approvalRate(bool isAr, Map<String, dynamic> statuses) {
+    final theme = Theme.of(context);
+    final tones = AppSemanticColors.of(context);
+    final rate = (_data?['approval_rate'] as num?)?.toDouble();
+    final tone = rate == null
+        ? tones.sectionSlate
+        : rate >= 0.75
+            ? tones.ready
+            : rate >= 0.5
+                ? tones.warning
+                : tones.blocked;
+    int n(String key) => (statuses[key] as num?)?.toInt() ?? 0;
+    Widget stat(IconData icon, SemanticTone tone, String label, int value) => Padding(
+          padding: const EdgeInsets.symmetric(vertical: 2),
+          child: Row(children: [
+            Icon(icon, size: 14, color: tone.fg),
+            const SizedBox(width: 6),
+            Expanded(child: Text(label, style: theme.textTheme.bodySmall)),
+            Text('$value', style: theme.textTheme.labelMedium?.copyWith(fontWeight: FontWeight.w800)),
+          ]),
+        );
     return _AnalyticsCard(
-      icon: Icons.business_center_rounded,
-      iconColor: AppColors.invoiceSaleScrap,
-      title: isAr ? 'متوسط لكل قسم' : 'Avg by department',
-      subtitle: '${top.length} ${isAr ? "أقسام" : "departments"}',
-      child: top.isEmpty
-          ? _miniEmpty(theme, isAr ? 'لا توجد أقسام' : 'No departments')
-          : Column(
-              children: top.asMap().entries.map((e) {
-                final i = e.key;
-                final entry = e.value;
-                final pct = maxValue > 0 ? entry.value / maxValue : 0.0;
-                final color = colors[i % colors.length];
-                return Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 5),
-                  child: Row(
-                    children: [
-                      SizedBox(
-                        width: 80,
-                        child: Text(
-                          entry.key,
-                          style: TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w600,
-                            color: theme.textTheme.bodyLarge?.color,
-                          ),
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(3),
-                          child: LinearProgressIndicator(
-                            value: pct,
-                            minHeight: 5,
-                            backgroundColor:
-                                theme.dividerColor.withValues(alpha: 0.3),
-                            valueColor: AlwaysStoppedAnimation<Color>(color),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      SizedBox(
-                        width: 56,
-                        child: Text(
-                          _formatCurrency(entry.value),
-                          textAlign: TextAlign.end,
-                          style: TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w800,
-                            color: color,
-                            fontFeatures: const [FontFeature.tabularFigures()],
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                );
-              }).toList(),
+      icon: Icons.verified_outlined,
+      title: isAr ? 'معدل الاعتماد' : 'Approval rate',
+      subtitle: isAr ? 'من المكافآت التي فُصل فيها' : 'of those decided',
+      child: Row(children: [
+        SizedBox(
+          width: 80,
+          height: 80,
+          child: Stack(alignment: Alignment.center, children: [
+            SizedBox(
+              width: 80,
+              height: 80,
+              child: CircularProgressIndicator(
+                value: rate ?? 0,
+                strokeWidth: 8,
+                backgroundColor: theme.colorScheme.outlineVariant,
+                valueColor: AlwaysStoppedAnimation<Color>(tone.fg),
+              ),
             ),
-    );
-  }
-
-  // ═══════════════════════════════════════════════════════
-  // Helpers
-  // ═══════════════════════════════════════════════════════
-  Widget _miniEmpty(ThemeData theme, String label) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 24),
-      child: Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              Icons.bar_chart_rounded,
-              size: 32,
-              color: theme.hintColor.withValues(alpha: 0.5),
-            ),
-            const SizedBox(height: 6),
             Text(
-              label,
-              style: TextStyle(
-                fontSize: 11,
-                color: theme.hintColor,
-              ),
+              rate == null ? '—' : '${cu.formatAmount(rate * 100, decimals: 0)}%',
+              key: const Key('analytics-rate'),
+              style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
             ),
-          ],
+          ]),
         ),
-      ),
+        const SizedBox(width: AppSpace.md),
+        Expanded(
+          child: Column(children: [
+            stat(Icons.check_circle_outline, tones.ready, 'معتمدة', n('approved')),
+            stat(Icons.task_alt_rounded, tones.info, 'مدفوعة', n('paid')),
+            stat(Icons.cancel_outlined, tones.blocked, 'مرفوضة', n('rejected')),
+            stat(Icons.pending_actions_outlined, tones.warning, 'معلّقة', n('pending')),
+            if (n('reversed') > 0) stat(Icons.undo_rounded, tones.sectionSlate, 'معكوسة', n('reversed')),
+          ]),
+        ),
+      ]),
     );
   }
 
-  Widget _buildEmpty(ThemeData theme, bool isAr) {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: 64,
-            height: 64,
-            decoration: BoxDecoration(
-              color: AppColors.primaryGold.withValues(alpha: 0.10),
-              shape: BoxShape.circle,
-            ),
-            child: Icon(
-              Icons.insights_rounded,
-              size: 32,
-              color: AppColors.primaryGold,
-            ),
-          ),
-          const SizedBox(height: 14),
-          Text(
-            isAr ? 'لا توجد بيانات للتحليل' : 'No data to analyze',
-            style: TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.w700,
-              color: theme.textTheme.bodyLarge?.color,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 32),
-            child: Text(
-              isAr
-                  ? 'ستظهر التحليلات بمجرد إنشاء أول مجموعة من المكافآت'
-                  : 'Analytics will appear once bonuses are created',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 12,
-                color: theme.hintColor,
-              ),
-            ),
-          ),
-          const SizedBox(height: 16),
-          OutlinedButton.icon(
-            onPressed: _load,
-            icon: const Icon(Icons.refresh_rounded, size: 16),
-            label: Text(isAr ? 'تحديث' : 'Refresh'),
-          ),
-        ],
-      ),
+  Widget _byDepartment(bool isAr) {
+    final rows = _list('by_department').take(5).toList();
+    final max = rows.isEmpty ? 1.0 : ((rows.first['amount'] as num?) ?? 1).toDouble();
+    return _AnalyticsCard(
+      icon: Icons.apartment_rounded,
+      title: isAr ? 'حسب القسم' : 'By department',
+      subtitle: _periodLabel(),
+      child: rows.isEmpty
+          ? _miniEmpty('لا شيء مُنح')
+          : Column(children: [
+              for (final r in rows)
+                _BarRow(
+                  label: '${r['department']} (${r['employees']})',
+                  value: _money((r['amount'] as num?) ?? 0),
+                  fraction: max > 0 ? ((r['amount'] as num?) ?? 0) / max : 0,
+                ),
+            ]),
     );
   }
 
-  Widget _buildError(ThemeData theme, bool isAr) {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(Icons.error_outline_rounded,
-              size: 48, color: AppColors.error.withValues(alpha: 0.7)),
-          const SizedBox(height: 12),
-          Text(
-            isAr ? 'تعذّر تحميل التحليلات' : 'Failed to load analytics',
-            style: TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.w700,
-              color: theme.textTheme.bodyLarge?.color,
-            ),
-          ),
-          const SizedBox(height: 12),
-          OutlinedButton.icon(
-            onPressed: _load,
-            icon: const Icon(Icons.refresh_rounded, size: 16),
-            label: Text(isAr ? 'إعادة المحاولة' : 'Try again'),
-          ),
-        ],
+  Widget _miniEmpty(String label) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: AppSpace.lg),
+      child: Center(
+        child: Text(label, style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
       ),
     );
   }
 }
 
+/// One magnitude as a bar beside its name and figure: one hue, the text in
+/// the text colours.
+class _BarRow extends StatelessWidget {
+  const _BarRow({this.rank, required this.label, required this.value, required this.fraction});
 
-// ═══════════════════════════════════════════════════════════════
-// Reusable Analytics Card
-// ═══════════════════════════════════════════════════════════════
-class _AnalyticsCard extends StatelessWidget {
-  final IconData icon;
-  final Color iconColor;
-  final String title;
-  final String? subtitle;
-  final String? meta;
-  final Color? metaColor;
-  final Widget child;
-
-  const _AnalyticsCard({
-    required this.icon,
-    required this.iconColor,
-    required this.title,
-    this.subtitle,
-    this.meta,
-    this.metaColor,
-    required this.child,
-  });
+  final int? rank;
+  final String label;
+  final String value;
+  final num fraction;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Container(
-      padding: const EdgeInsets.all(13),
-      decoration: BoxDecoration(
-        color: theme.cardColor,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: theme.dividerColor.withValues(alpha: 0.4),
-          width: 0.5,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.02),
-            blurRadius: 6,
-            offset: const Offset(0, 2),
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(children: [
+        if (rank != null) ...[
+          SizedBox(
+            width: 18,
+            child: Text('$rank',
+                style: theme.textTheme.labelSmall?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
           ),
         ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Row(
-            children: [
-              Container(
-                width: 28,
-                height: 28,
-                decoration: BoxDecoration(
-                  color: iconColor.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(7),
-                ),
-                child: Icon(icon, size: 15, color: iconColor),
-              ),
-              const SizedBox(width: 8),
+        SizedBox(
+          width: 110,
+          child: Text(label, style: theme.textTheme.bodySmall, overflow: TextOverflow.ellipsis),
+        ),
+        const SizedBox(width: AppSpace.sm),
+        Expanded(
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(4),
+            child: LinearProgressIndicator(
+              value: fraction.toDouble().clamp(0.0, 1.0),
+              minHeight: 6,
+              backgroundColor: theme.colorScheme.outlineVariant.withValues(alpha: 0.5),
+              valueColor: AlwaysStoppedAnimation<Color>(AppChartPalette.single(context)),
+            ),
+          ),
+        ),
+        const SizedBox(width: AppSpace.sm),
+        Text(value,
+            textDirection: TextDirection.ltr,
+            style: theme.textTheme.labelMedium?.copyWith(fontWeight: FontWeight.w700)),
+      ]),
+    );
+  }
+}
+
+class _AnalyticsCard extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String? subtitle;
+  final Widget child;
+
+  const _AnalyticsCard({required this.icon, required this.title, this.subtitle, required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    return Card(
+      margin: EdgeInsets.zero,
+      child: Padding(
+        padding: const EdgeInsets.all(AppSpace.md),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(children: [
+              Icon(icon, size: 18, color: cs.primary),
+              const SizedBox(width: AppSpace.sm),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
                   children: [
-                    Text(
-                      title,
-                      style: TextStyle(
-                        fontSize: 12.5,
-                        fontWeight: FontWeight.w700,
-                        color: theme.textTheme.bodyLarge?.color,
-                      ),
-                    ),
-                    if (subtitle != null) ...[
-                      const SizedBox(height: 1),
-                      Text(
-                        subtitle!,
-                        style: TextStyle(
-                          fontSize: 10,
-                          color: theme.hintColor,
-                        ),
-                      ),
-                    ],
+                    Text(title, style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700)),
+                    if (subtitle != null)
+                      Text(subtitle!, style: theme.textTheme.bodySmall?.copyWith(color: cs.onSurfaceVariant)),
                   ],
                 ),
               ),
-              if (meta != null)
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 7,
-                    vertical: 2.5,
-                  ),
-                  decoration: BoxDecoration(
-                    color: (metaColor ?? theme.hintColor)
-                        .withValues(alpha: 0.10),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: Text(
-                    meta!,
-                    style: TextStyle(
-                      fontSize: 10,
-                      fontWeight: FontWeight.w700,
-                      color: metaColor ?? theme.hintColor,
-                    ),
-                  ),
-                ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          child,
-        ],
+            ]),
+            const SizedBox(height: AppSpace.md),
+            child,
+          ],
+        ),
       ),
     );
   }

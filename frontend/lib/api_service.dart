@@ -7443,6 +7443,26 @@ class ApiService {
     ];
   }
 
+  /// What was granted, by the bonus's period from [from] to [to]
+  /// (YYYY-MM-DD): by employee, rule, month and department, pending apart
+  /// (bonus study م3و). The server computes it all.
+  Future<Map<String, dynamic>> getBonusAnalytics({
+    required String from,
+    required String to,
+  }) async {
+    final response = await _authedGet(
+      Uri.parse('$_baseUrl/bonuses/analytics').replace(
+        queryParameters: {'from': from, 'to': to},
+      ),
+    );
+    if (response.statusCode == 200) {
+      return Map<String, dynamic>.from(
+        json.decode(utf8.decode(response.bodyBytes)) as Map,
+      );
+    }
+    throw _apiError(response, fallback: 'تعذّر تحميل تحليلات المكافآت');
+  }
+
   Future<List<dynamic>> getBonuses({
     int? employeeId,
     String? status,
