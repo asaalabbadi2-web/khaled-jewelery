@@ -15,8 +15,8 @@ import '../widgets/invoice_settings_sheet.dart';
 import '../widgets/pay_box.dart';
 import '../widgets/scrap_purchase_entry_row.dart';
 import '../utils/scrap_purchase_readiness.dart';
-import '../widgets/adaptive_invoice_summary_dialog.dart';
 import '../widgets/invoice_review_dialog.dart';
+import '../widgets/invoice_saved_dialog.dart';
 import '../utils/invoice_direct_print.dart';
 import '../utils.dart';
 import '../widgets/app_feedback.dart';
@@ -1294,8 +1294,9 @@ class _ScrapPurchaseInvoiceScreenState
             ];
 
       String? approvalWarning;
+      // Why it is held, each reason alone (ADR-060 ف٢).
+      final parts = <String>[];
       if (approvalRequired) {
-        final parts = <String>[];
         if (approvalReasons.contains('above_live_price')) {
           final above = (response['above_live_price'] is Map)
               ? Map<String, dynamic>.from(response['above_live_price'])
@@ -1354,8 +1355,11 @@ class _ScrapPurchaseInvoiceScreenState
           ? 'print'
           : await _showPostSaveInvoiceSummary(
               invoice: invoiceForPrint,
-              approvalRequired: approvalRequired,
-              approvalWarning: approvalWarning,
+              held: approvalRequired
+                  ? (parts.isEmpty
+                        ? const ['تحتاج اعتماد مدير قبل الترحيل.']
+                        : [for (final p in parts) p.replaceFirst('⚠️ ', '')])
+                  : const [],
             );
 
       if (!mounted) return;
@@ -1568,150 +1572,27 @@ class _ScrapPurchaseInvoiceScreenState
 
   Future<String?> _showPostSaveInvoiceSummary({
     required Map<String, dynamic> invoice,
-    bool approvalRequired = false,
-    String? approvalWarning,
+    List<String> held = const [],
   }) async {
-    double asDouble(dynamic value) {
-      if (value is num) return value.toDouble();
-      return double.tryParse(value?.toString() ?? '') ?? 0.0;
-    }
-
-    final facts = InvoiceSavedFacts.of(invoice);
-    final totalWeight = asDouble(invoice['total_weight']);
-
     final customerName = (invoice['customer_name'] ?? invoice['customer'] ?? '')
         .toString()
         .trim();
-
-    final currency = _settingsProvider.currencySymbolText;
-    final weightBreakdown = _buildWeightBreakdownLines(
-      invoice['items'] is List
-          ? List<dynamic>.from(invoice['items'])
-          : const [],
+    final action = await showInvoiceSaved(
+      context,
+      InvoiceSaved(
+        title: 'حُفظت فاتورة ${InvoiceKind.purchaseScrap.label}',
+        facts: InvoiceSavedFacts.of(invoice),
+        currency: _settingsProvider.currencySymbolText,
+        party: customerName,
+        held: held,
+      ),
     );
-
-    return await showAdaptiveInvoiceSummaryDialog<String>(
-          context: context,
-          title: 'تم حفظ الفاتورة',
-          subtitle: 'تم حفظ فاتورة شراء الكسر بنجاح',
-          icon: Icons.check_circle,
-          accentColor: _tone.ready.fg,
-          highlightMessage: 'فاتورة الشراء ${facts.number}',
-          statusTitle: approvalRequired ? 'حالة الفاتورة' : 'حالة السداد',
-          statusMessage: approvalRequired
-              ? 'تحتاج اعتماد مدير'
-              : facts.statusLine((v) => '${formatAmount(v)} $currency'),
-          statusTone: approvalRequired || facts.owes
-              ? InvoiceSummaryStatusTone.due
-              : InvoiceSummaryStatusTone.success,
-          metrics: [
-              InvoiceSummaryMetric(
-                label: 'رقم الفاتورة',
-                value: facts.number,
-                icon: Icons.tag_rounded,
-                accentColor: _tone.gold.fg,
-              ),
-            if (customerName.isNotEmpty)
-              InvoiceSummaryMetric(
-                label: 'العميل',
-                value: customerName,
-                icon: Icons.person_outline_rounded,
-                accentColor: _tone.info.fg,
-              ),
-            InvoiceSummaryMetric(
-              label: 'الإجمالي',
-              value: '${formatAmount(facts.total)} $currency',
-              icon: Icons.payments_outlined,
-              accentColor: _tone.gold.fg,
-              emphasize: true,
-            ),
-            InvoiceSummaryMetric(
-              label: 'المدفوع',
-              value: '${formatAmount(facts.paid)} $currency',
-              icon: Icons.account_balance_wallet_outlined,
-              accentColor: _tone.ready.fg,
-            ),
-            if (totalWeight > 0)
-              InvoiceSummaryMetric(
-                label: 'إجمالي الوزن',
-                value: '${formatGrams(totalWeight)} جم',
-                icon: Icons.scale_outlined,
-                accentColor: _tone.info.fg,
-                fullWidth: true,
-                details: weightBreakdown,
-              ),
-          ],
-          notices: approvalRequired && approvalWarning != null
-              ? [approvalWarning]
-              : [],
-          actions: [
-            InvoiceSummaryAction.secondary(
-              label: 'طباعة',
-              icon: Icons.print_rounded,
-              value: 'print',
-            ),
-            InvoiceSummaryAction.secondary(
-              label: 'مشاركة',
-              icon: Icons.share_rounded,
-              value: 'share',
-            ),
-            InvoiceSummaryAction.secondary(
-              label: 'فاتورة جديدة',
-              icon: Icons.add_circle_outline_rounded,
-              value: 'new_invoice',
-            ),
-            InvoiceSummaryAction.primary(
-              label: 'تم',
-              icon: Icons.check_rounded,
-              value: 'done',
-            ),
-          ],
-        ) ??
-        'close';
-  }
-
-  List<InvoiceSummaryMetricDetail> _buildWeightBreakdownLines(
-    Iterable<dynamic> rawItems,
-  ) {
-    double asDouble(dynamic value) {
-      if (value is num) return value.toDouble();
-      return double.tryParse(value?.toString() ?? '') ?? 0.0;
-    }
-
-    String formatKarat(dynamic value) {
-      final karat = asDouble(value);
-      if ((karat - karat.roundToDouble()).abs() < 0.001) {
-        return karat.round().toString();
-      }
-      return karat.toStringAsFixed(1);
-    }
-
-    final byKarat = <String, double>{};
-    for (final raw in rawItems) {
-      if (raw is! Map) continue;
-      final item = Map<String, dynamic>.from(raw);
-      final weight = asDouble(item['weight']);
-      if (weight <= 0) continue;
-      final karatLabel = formatKarat(item['karat']);
-      byKarat[karatLabel] = (byKarat[karatLabel] ?? 0) + weight;
-    }
-
-    final entries = byKarat.entries.toList()
-      ..sort(
-        (a, b) => (double.tryParse(b.key) ?? 0).compareTo(
-          double.tryParse(a.key) ?? 0,
-        ),
-      );
-
-    return entries
-        .map(
-          (entry) => InvoiceSummaryMetricDetail(
-            label: '${entry.key}k',
-            value: '${formatGrams(entry.value)} جم',
-            accentColor: _tone.karat(double.tryParse(entry.key)?.round() ?? 0).fg,
-          ),
-        )
-        .toList();
+    return switch (action) {
+      InvoiceSavedAction.print => 'print',
+      InvoiceSavedAction.share => 'share',
+      InvoiceSavedAction.newInvoice => 'new_invoice',
+      InvoiceSavedAction.done => 'done',
+    };
   }
 
   // Open the reusable AddCustomerScreen so we can enforce identity fields when needed

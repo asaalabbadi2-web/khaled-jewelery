@@ -191,7 +191,7 @@ void main() {
     api.hold!.complete();
     await settle(tester);
     expect(api.added, hasLength(1));
-    expect(find.text('تم حفظ الفاتورة'), findsOneWidget);
+    expect(find.byKey(const Key('invoice-saved')), findsOneWidget);
   });
 
   testWidgets('Ctrl+S saves a ready invoice', (tester) async {
@@ -750,10 +750,10 @@ void main() {
     await settle(tester);
 
     Finder inSummary(Finder f) => find.descendant(
-      of: find.byKey(const Key('invoice-summary')),
+      of: find.byKey(const Key('invoice-saved')),
       matching: f,
     );
-    expect(find.text('تم حفظ الفاتورة'), findsOneWidget);
+    expect(find.byKey(const Key('invoice-saved')), findsOneWidget);
     expect(inSummary(find.text('PUR-2026-031')), findsOneWidget);
     expect(inSummary(find.textContaining('#901')), findsNothing);
     expect(inSummary(find.text('المدفوع')), findsOneWidget);

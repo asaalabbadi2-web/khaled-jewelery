@@ -1325,10 +1325,36 @@ void main() {
       tester,
     ) async {
       await saveOne(tester, {'invoice_number': 'SELL-2026-412', 'status': 'paid'});
-      expect(find.text('تم حفظ الفاتورة'), findsOneWidget);
+      expect(find.byKey(const Key('invoice-saved')), findsOneWidget);
       expect(find.text('SELL-2026-412'), findsOneWidget);
       expect(find.text('#701'), findsNothing);
       expect(find.text('مسدَّدة بالكامل'), findsOneWidget);
+    });
+
+    // ف٢: short, the server's; N starts the next invoice.
+    testWidgets('after the save: where it stands is the server\'s', (
+      tester,
+    ) async {
+      await saveOne(tester, {
+        'invoice_number': 'SELL-2026-414',
+        'status': 'paid',
+        'is_posted': true,
+      });
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('invoice-saved-stand')),
+          matching: find.text('مرحَّلة'),
+        ),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('N after the save starts a new invoice', (tester) async {
+      await saveOne(tester, {'invoice_number': 'SELL-2026-415'});
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyN);
+      await settle(tester);
+      expect(find.byKey(const Key('invoice-saved')), findsNothing);
+      expect(find.text('أضف أصناف الفاتورة'), findsWidgets);
     });
 
     testWidgets('an approval needed is said once, in the summary', (
@@ -1339,7 +1365,7 @@ void main() {
         'approval_required': true,
         'approval_reasons': ['below_cost'],
       });
-      expect(find.text('تم حفظ الفاتورة'), findsOneWidget);
+      expect(find.byKey(const Key('invoice-saved')), findsOneWidget);
       expect(find.textContaining('بيع تحت التكلفة'), findsOneWidget);
       expect(find.byType(SnackBar), findsNothing);
     });

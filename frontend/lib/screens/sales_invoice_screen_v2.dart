@@ -16,8 +16,8 @@ import '../widgets/inline_number_cell.dart';
 import '../widgets/pay_box.dart';
 import '../widgets/invoice_settings_sheet.dart';
 import '../widgets/sales_category_entry_row.dart';
-import '../widgets/adaptive_invoice_summary_dialog.dart';
 import '../widgets/invoice_review_dialog.dart';
+import '../widgets/invoice_saved_dialog.dart';
 import '../widgets/party_picker_dialog.dart';
 import '../widgets/searchable_picker_field.dart';
 import 'settings_screen_enhanced.dart';
@@ -2466,8 +2466,10 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
             ];
 
       String? approvalWarning;
+      // Why it is held, each reason alone -- the summary says them under its
+      // «تنتظر اعتماد المدير» (ADR-060 ف٢).
+      final parts = <String>[];
       if (approvalRequired && !suppressPostSaveApprovalWarning) {
-        final parts = <String>[];
         if (approvalReasons.contains('below_cost') && response['below_cost'] is! Map) {
           // Without costing.view the server says "under cost", not the cost (ADR-036).
           parts.add('⚠️ بيع تحت التكلفة — يحتاج اعتماد المدير');
@@ -2556,8 +2558,11 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
           ? 'print'
           : await _showPostSaveInvoiceSummary(
               invoice: invoiceForPrint,
-              approvalRequired: approvalRequired,
-              approvalWarning: approvalWarning,
+              held: approvalRequired
+                  ? (parts.isEmpty
+                        ? const ['تحتاج اعتماد مدير قبل الترحيل.']
+                        : [for (final p in parts) p.replaceFirst('⚠️ ', '')])
+                  : const [],
             );
 
       if (!mounted) return;
@@ -2677,163 +2682,27 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
 
   Future<String?> _showPostSaveInvoiceSummary({
     required Map<String, dynamic> invoice,
-    required bool approvalRequired,
-    String? approvalWarning,
+    List<String> held = const [],
   }) async {
-    double asDouble(dynamic value) {
-      if (value is num) return value.toDouble();
-      return double.tryParse(value?.toString() ?? '') ?? 0.0;
-    }
-
-    final facts = InvoiceSavedFacts.of(invoice);
-    final totalWeight = asDouble(invoice['total_weight']);
-    final totalTax = asDouble(invoice['total_tax']);
-
     final customerName = (invoice['customer_name'] ?? invoice['customer'] ?? '')
         .toString()
         .trim();
-    final weightBreakdown = _buildWeightBreakdownLines(
-      invoice['items'] is List
-          ? List<dynamic>.from(invoice['items'])
-          : const [],
+    final action = await showInvoiceSaved(
+      context,
+      InvoiceSaved(
+        title: 'حُفظت فاتورة ${_kind.label}',
+        facts: InvoiceSavedFacts.of(invoice),
+        currency: _settingsProvider.currencySymbolText,
+        party: customerName,
+        held: held,
+      ),
     );
-
-    final currency = _settingsProvider.currencySymbolText;
-    final notices = <String>[
-      if ((approvalWarning ?? '').trim().isNotEmpty) approvalWarning!,
-    ];
-
-    return await showAdaptiveInvoiceSummaryDialog<String>(
-      context: context,
-      title: 'تم حفظ الفاتورة',
-      subtitle: approvalRequired
-          ? 'تم الحفظ لكن الفاتورة تحتاج اعتماد مدير قبل الترحيل.'
-          : 'يمكنك الطباعة أو المشاركة أو الإغلاق من هنا.',
-      icon: approvalRequired
-          ? Icons.pending_actions_rounded
-          : Icons.check_circle,
-      accentColor: approvalRequired ? _tone.warning.fg : _tone.ready.fg,
-      highlightMessage: approvalRequired
-          ? 'تم حفظ الفاتورة وتنتظر الاعتماد'
-          : 'تم حفظ الفاتورة بنجاح',
-      statusTitle: 'حالة السداد',
-      statusMessage: facts.statusLine((v) => '${cu.formatAmount(v)} $currency'),
-      statusTone: facts.owes
-          ? InvoiceSummaryStatusTone.due
-          : InvoiceSummaryStatusTone.success,
-      metrics: [
-          InvoiceSummaryMetric(
-            label: 'رقم الفاتورة',
-            value: facts.number,
-            icon: Icons.tag_rounded,
-            accentColor: _tone.gold.fg,
-          ),
-        if (customerName.isNotEmpty)
-          InvoiceSummaryMetric(
-            label: 'العميل',
-            value: customerName,
-            icon: Icons.person_outline_rounded,
-            accentColor: _tone.info.fg,
-          ),
-        InvoiceSummaryMetric(
-          label: 'الإجمالي',
-          value: '${cu.formatAmount(facts.total)} $currency',
-          icon: Icons.payments_outlined,
-          accentColor: _tone.gold.fg,
-        ),
-        InvoiceSummaryMetric(
-          label: 'المدفوع',
-          value: '${cu.formatAmount(facts.paid)} $currency',
-          icon: Icons.account_balance_wallet_outlined,
-          accentColor: _tone.ready.fg,
-          emphasize: true,
-        ),
-        if (totalWeight > 0)
-          InvoiceSummaryMetric(
-            label: 'إجمالي الوزن',
-            value: '${cu.formatGrams(totalWeight)} جم',
-            icon: Icons.scale_outlined,
-            accentColor: _tone.info.fg,
-            fullWidth: true,
-            details: weightBreakdown,
-          ),
-        if (totalTax > 0)
-          InvoiceSummaryMetric(
-            label: 'الضريبة',
-            value: '${cu.formatAmount(totalTax)} $currency',
-            icon: Icons.receipt_long_outlined,
-            accentColor: _tone.warning.fg,
-          ),
-      ],
-      notices: notices,
-      closeValue: null,
-      actions: const [
-        InvoiceSummaryAction.secondary(
-          label: 'طباعة',
-          icon: Icons.print_rounded,
-          value: 'print',
-        ),
-        InvoiceSummaryAction.secondary(
-          label: 'مشاركة',
-          icon: Icons.share_rounded,
-          value: 'share',
-        ),
-        InvoiceSummaryAction.secondary(
-          label: 'فاتورة جديدة',
-          icon: Icons.add_circle_outline_rounded,
-          value: 'new_invoice',
-        ),
-        InvoiceSummaryAction.primary(
-          label: 'تم',
-          icon: Icons.check_rounded,
-          value: 'done',
-        ),
-      ],
-    );
-  }
-
-  List<InvoiceSummaryMetricDetail> _buildWeightBreakdownLines(
-    Iterable<dynamic> rawItems,
-  ) {
-    double asDouble(dynamic value) {
-      if (value is num) return value.toDouble();
-      return double.tryParse(value?.toString() ?? '') ?? 0.0;
-    }
-
-    String formatKarat(dynamic value) {
-      final karat = asDouble(value);
-      if ((karat - karat.roundToDouble()).abs() < 0.001) {
-        return karat.round().toString();
-      }
-      return karat.toStringAsFixed(1);
-    }
-
-    final byKarat = <String, double>{};
-    for (final raw in rawItems) {
-      if (raw is! Map) continue;
-      final item = Map<String, dynamic>.from(raw);
-      final weight = asDouble(item['weight']);
-      if (weight <= 0) continue;
-      final karatLabel = formatKarat(item['karat']);
-      byKarat[karatLabel] = (byKarat[karatLabel] ?? 0) + weight;
-    }
-
-    final entries = byKarat.entries.toList()
-      ..sort(
-        (a, b) => (double.tryParse(b.key) ?? 0).compareTo(
-          double.tryParse(a.key) ?? 0,
-        ),
-      );
-
-    return entries
-        .map(
-          (entry) => InvoiceSummaryMetricDetail(
-            label: '${entry.key}k',
-            value: '${cu.formatGrams(entry.value)} جم',
-            accentColor: _tone.karat(double.tryParse(entry.key)?.round() ?? 0).fg,
-          ),
-        )
-        .toList();
+    return switch (action) {
+      InvoiceSavedAction.print => 'print',
+      InvoiceSavedAction.share => 'share',
+      InvoiceSavedAction.newInvoice => 'new_invoice',
+      InvoiceSavedAction.done => 'done',
+    };
   }
 
   // 🆕 Helper methods لأيقونات وألوان طرق الدفع

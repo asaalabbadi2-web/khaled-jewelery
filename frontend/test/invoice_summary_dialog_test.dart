@@ -2,13 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:frontend/theme/app_theme.dart';
-import 'package:frontend/utils/invoice_saved_facts.dart';
 import 'package:frontend/widgets/adaptive_invoice_summary_dialog.dart';
 
 import 'support/shots.dart';
 
-/// ADR-060 ف٠: the invoice's review and its summary after the save say what
-/// is true, once, and open where it is read.
+/// ADR-060 ف٠: the old summary dialog opened at its top, its notices above.
+/// No screen uses it since ف٢ (invoice_saved_dialog.dart); it is kept until
+/// its deletion can pass the CI quality guard (ADR-060 Known follow-ups), and
+/// this test with it.
 void main() {
   setUpAll(() async {
     final cairo = FontLoader('Cairo');
@@ -96,53 +97,6 @@ void main() {
         tester.getRect(find.byKey(const Key('invoice-summary-notices'))).top,
         lessThan(tester.getRect(find.text('ملخص الفاتورة')).top),
       );
-    });
-  });
-
-  group('what the server says of a saved invoice', () {
-    test('its number is the invoice\'s, not the row\'s', () {
-      expect(
-        InvoiceSavedFacts.of({'id': 4187, 'invoice_number': 'SELL-2026-412'})
-            .number,
-        'SELL-2026-412',
-      );
-      expect(InvoiceSavedFacts.of({'id': 4187}).number, '#4187');
-    });
-
-    test('a supplier purchase owes its cash obligation, not its total', () {
-      // The total holds the gold's value; the cash owed is the wage + VAT.
-      final f = InvoiceSavedFacts.of({
-        'total': 23525.0,
-        'cash_obligation': 3075.0,
-        'amount_paid': 3075.0,
-        'status': 'partially_paid',
-      });
-      expect(f.cashDue, 0);
-      expect(f.owes, isTrue, reason: 'its gold is still owed');
-      expect(f.statusLine((v) => '$v'), 'مسدَّدة جزئيًا');
-    });
-
-    test('what is owed in cash is said once, with the state', () {
-      final f = InvoiceSavedFacts.of({
-        'total': 18450.0,
-        'amount_paid': 17200.0,
-        'status': 'partially_paid',
-      });
-      expect(f.cashDue, 1250.0);
-      expect(
-        f.statusLine((v) => v.toStringAsFixed(2)),
-        'مسدَّدة جزئيًا · متبقي 1250.00 نقدًا',
-      );
-    });
-
-    test('settled is the server\'s word', () {
-      final f = InvoiceSavedFacts.of({
-        'total': 100.0,
-        'amount_paid': 100.0,
-        'status': 'paid',
-      });
-      expect(f.owes, isFalse);
-      expect(f.statusLine((v) => '$v'), 'مسدَّدة بالكامل');
     });
   });
 }

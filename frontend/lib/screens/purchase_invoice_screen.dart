@@ -12,8 +12,8 @@ import '../models/safe_box_model.dart';
 import '../providers/auth_provider.dart';
 import '../providers/settings_provider.dart';
 import '../theme/app_theme.dart';
-import '../widgets/adaptive_invoice_summary_dialog.dart';
 import '../widgets/invoice_review_dialog.dart';
+import '../widgets/invoice_saved_dialog.dart';
 import '../widgets/invoice_settings_sheet.dart';
 import '../widgets/original_invoice_selector.dart';
 import '../widgets/inline_number_cell.dart';
@@ -2197,50 +2197,6 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
 
   String _formatWeight(double value) => '${formatGrams(value)} جم';
 
-  List<InvoiceSummaryMetricDetail> _buildWeightBreakdownLines(
-    Iterable<dynamic> rawItems,
-  ) {
-    double asDouble(dynamic value) {
-      if (value is num) return value.toDouble();
-      return double.tryParse(value?.toString() ?? '') ?? 0.0;
-    }
-
-    String formatKarat(dynamic value) {
-      final karat = asDouble(value);
-      if ((karat - karat.roundToDouble()).abs() < 0.001) {
-        return karat.round().toString();
-      }
-      return karat.toStringAsFixed(1);
-    }
-
-    final byKarat = <String, double>{};
-    for (final raw in rawItems) {
-      if (raw is! Map) continue;
-      final item = Map<String, dynamic>.from(raw);
-      final weight = asDouble(item['weight']);
-      if (weight <= 0) continue;
-      final karatLabel = formatKarat(item['karat']);
-      byKarat[karatLabel] = (byKarat[karatLabel] ?? 0) + weight;
-    }
-
-    final entries = byKarat.entries.toList()
-      ..sort(
-        (a, b) => (double.tryParse(b.key) ?? 0).compareTo(
-          double.tryParse(a.key) ?? 0,
-        ),
-      );
-
-    return entries
-        .map(
-          (entry) => InvoiceSummaryMetricDetail(
-            label: '${entry.key}k',
-            value: '${formatGrams(entry.value)} جم',
-            accentColor: _tone.karat(double.tryParse(entry.key)?.round() ?? 0).fg,
-          ),
-        )
-        .toList();
-  }
-
   /// The one answer the save button and the status read: ready only when the
   /// server would take the invoice as it stands (utils/purchase_readiness.dart).
   PurchaseReadiness _readiness() {
@@ -2537,110 +2493,33 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
         // ignore
       }
 
-      double totalWeight = 0.0;
-      if (invoiceForPrint['items'] is List) {
-        for (final item in (invoiceForPrint['items'] as List<dynamic>)) {
-          totalWeight += (item['weight'] ?? 0.0) as num;
-        }
-      }
-
       final settingsProvider = Provider.of<SettingsProvider>(
         context,
         listen: false,
       );
       final currency = settingsProvider.currencySymbolText;
-      final weightBreakdown = _buildWeightBreakdownLines(
-        invoiceForPrint['items'] is List
-            ? List<dynamic>.from(invoiceForPrint['items'])
-            : const [],
-      );
-
       // What the server saved (ADR-060 ف٠): its number, what was paid, and
       // its payment state -- the dialog said the total and the weight alone.
       final facts = InvoiceSavedFacts.of(invoiceForPrint);
       final shouldPrint = _uiAutoOpenPrintAfterSave
           ? 'print'
-          : await showAdaptiveInvoiceSummaryDialog<String>(
-                  context: context,
-                  title: 'تم حفظ الفاتورة',
-                  subtitle: _isSupplierReturnMode
-                      ? 'تم حفظ مرتجع الشراء بنجاح'
-                      : 'تم حفظ فاتورة الشراء بنجاح',
-                  icon: Icons.check_circle,
-                  accentColor: _tone.ready.fg,
-                  highlightMessage: _isSupplierReturnMode
-                      ? 'مرتجع الشراء ${facts.number}'
-                      : 'فاتورة الشراء ${facts.number}',
-                  statusTitle: 'حالة السداد',
-                  statusMessage: facts.statusLine(
-                    (v) => '${formatAmount(v)} $currency',
-                  ),
-                  statusTone: facts.owes
-                      ? InvoiceSummaryStatusTone.due
-                      : InvoiceSummaryStatusTone.success,
-                  metrics: [
-                      InvoiceSummaryMetric(
-                        label: 'رقم الفاتورة',
-                        value: facts.number,
-                        icon: Icons.tag_rounded,
-                        accentColor: _tone.gold.fg,
-                      ),
-                    if ((invoiceForPrint['supplier_name'] ?? '')
-                        .toString()
-                        .isNotEmpty)
-                      InvoiceSummaryMetric(
-                        label: 'المورد',
-                        value: invoiceForPrint['supplier_name'] ?? '',
-                        icon: Icons.person_outline_rounded,
-                        accentColor: _tone.info.fg,
-                      ),
-                    InvoiceSummaryMetric(
-                      label: 'الإجمالي',
-                      value: '${formatAmount(facts.total)} $currency',
-                      icon: Icons.payments_outlined,
-                      accentColor: _tone.gold.fg,
-                      emphasize: true,
-                    ),
-                    InvoiceSummaryMetric(
-                      label: 'المدفوع',
-                      value: '${formatAmount(facts.paid)} $currency',
-                      icon: Icons.account_balance_wallet_outlined,
-                      accentColor: _tone.ready.fg,
-                    ),
-                    if (totalWeight > 0)
-                      InvoiceSummaryMetric(
-                        label: 'إجمالي الوزن',
-                        value: '${formatGrams(totalWeight)} جم',
-                        icon: Icons.scale_outlined,
-                        accentColor: _tone.info.fg,
-                        fullWidth: true,
-                        details: weightBreakdown,
-                      ),
-                  ],
-                  actions: [
-                    InvoiceSummaryAction.secondary(
-                      label: 'طباعة',
-                      icon: Icons.print_rounded,
-                      value: 'print',
-                    ),
-                    InvoiceSummaryAction.secondary(
-                      label: 'مشاركة',
-                      icon: Icons.share_rounded,
-                      value: 'share',
-                    ),
-                    InvoiceSummaryAction.secondary(
-                      label: 'فاتورة جديدة',
-                      icon: Icons.add_circle_outline_rounded,
-                      value: 'new_invoice',
-                    ),
-                    InvoiceSummaryAction.primary(
-                      label: 'تم',
-                      icon: Icons.check_rounded,
-                      value: 'done',
-                    ),
-                  ],
-                ) ??
-                'close';
+          : switch (await showInvoiceSaved(
+              context,
+              InvoiceSaved(
+                title: _isSupplierReturnMode
+                    ? 'حُفظ مرتجع الشراء'
+                    : 'حُفظت فاتورة ${_kind.label}',
+                facts: facts,
+                currency: currency,
+                partyLabel: 'المورد',
+                party: '${invoiceForPrint['supplier_name'] ?? ''}'.trim(),
+              ),
+            )) {
+              InvoiceSavedAction.print => 'print',
+              InvoiceSavedAction.share => 'share',
+              InvoiceSavedAction.newInvoice => 'new_invoice',
+              InvoiceSavedAction.done => 'done',
+            };
 
       if (!mounted) return;
       if (shouldPrint == 'print') {
