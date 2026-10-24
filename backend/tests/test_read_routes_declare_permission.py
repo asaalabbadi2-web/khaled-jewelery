@@ -38,6 +38,7 @@ ALLOWED = {
     ('bonus_routes.py', 'get_invoice_types'): 'a fixed list of invoice type names',
     ('routes/reports.py', 'get_home_leaderboard'): 'the sales race on the home screen, for every employee',
     ('routes/employees.py', 'get_unseen_achievements'): OWN + ' achievements',
+    ('routes/employees.py', 'my_goal_progress'): OWN + ' goals so far («هدفي», ADR-058)',
     ('routes/employees.py', 'list_employees'): 'names only without employees.view (the owner, 2 Oct 2026: the invoice list filters by seller)',
     ('routes/invoices.py', 'pending_actions'): 'counts and lists only for those who approve; zeros for the rest (the bell)',
     ('routes/vouchers.py', 'get_vouchers'): 'vouchers.view, or a seller reading their own invoice\'s vouchers (in its body)',

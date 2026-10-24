@@ -1581,7 +1581,11 @@ def get_home_leaderboard():
         if _goal_attr:
             emp = _emp_by_id.get(it['id'])
             if emp:
-                raw_t = getattr(emp, _goal_attr, None)
+                # The goal's one target (ADR-058): a goal paid by a rule aims
+                # at the rule's threshold, not the employee's number beside it.
+                from services.goal_achievements import goal_target as _goal_target
+                raw_t = _goal_target(emp, {'today': 'daily', 'week': 'weekly', 'month': 'monthly'}[period],
+                                     {'count': 'invoices'}.get(metric, metric))
                 if raw_t is not None:
                     try:
                         t = float(raw_t)

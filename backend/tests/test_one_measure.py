@@ -179,3 +179,43 @@ def test_the_month_s_bonus_takes_its_goal_s_achievement_not_a_second():
     db.session.flush()
     (got,) = GoalAchievement.query.filter_by(employee_id=emp.id).all()
     assert (got.bonus_id, got.bonus_amount) == (bonus.id, pytest.approx(3500.0))
+
+
+def test_the_home_screen_s_check_records_the_goal_by_the_one_measure():
+    """The home screen calls /achievements/check-progress on every return --
+    not goal-check: it was a fourth count (the seller or the poster, the
+    employee's own target, actual × the rule's value), the one the app shows.
+    It records by the one measure, at the rule's threshold, for what it pays."""
+    from flask import g
+
+    from app import app as flask_app
+    from auth_decorators import generate_token
+    rule = _points_rule()
+    emp, username = _employee(goal=True, rule=rule)             # its own target 5,000: the rule's is 1,000
+    _sale(emp.id, None, datetime.now().replace(day=1, hour=10), profit_cash=60000.0)
+    user = AppUser.query.filter_by(username=username).one()
+    g.pop('current_user', None)
+    resp = flask_app.test_client().post('/api/achievements/check-progress',
+                                        headers={'Authorization': f'Bearer {generate_token(user)}'}, json={})
+    assert resp.status_code == 200, resp.get_data(as_text=True)[:300]
+    (shown,) = resp.get_json()['achievements']
+    assert shown['bonus_amount'] == pytest.approx(1200 * 2.5)
+    (got,) = GoalAchievement.query.filter_by(employee_id=emp.id).all()
+    assert got.metrics['target'] == pytest.approx(1000.0)
+
+
+def test_the_race_s_goal_ring_aims_at_the_rule_s_threshold(auth_headers):
+    """The ring round an employee's photo on the race measured the period's
+    score against the employee's own target (999.9), not the threshold its
+    rule pays at (1,000): one goal, one number."""
+    from flask import g
+
+    from app import app as flask_app
+    rule = _points_rule()
+    emp, _ = _employee(goal=True, rule=rule)                 # its own target 5,000
+    _sale(emp.id, None, datetime.now().replace(hour=9, minute=0), profit_cash=60000.0)
+    g.pop('current_user', None)
+    resp = flask_app.test_client().get('/api/home/leaderboard?period=month&metric=points', headers=auth_headers)
+    assert resp.status_code == 200, resp.get_data(as_text=True)[:300]
+    (row,) = [r for r in resp.get_json()['ranking'] if r['id'] == emp.id]
+    assert row['goal_target'] == pytest.approx(1000.0)

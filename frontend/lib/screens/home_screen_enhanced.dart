@@ -77,6 +77,7 @@ import '../features/invoice/widgets/barcode_scanner_screen.dart';
 import '../widgets/pending_approvals_dialog.dart';
 import '../widgets/goal_achievement_celebration.dart';
 import '../widgets/goal_progress_ring.dart';
+import '../widgets/my_goal_card.dart';
 import 'inventory_balance_screen.dart';
 import 'inventory_audit_screen.dart';
 import 'gold_reservations_list_screen.dart';
@@ -2761,13 +2762,29 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
                       builder: (context, constraints) {
                         final isWide = constraints.maxWidth >= 900;
 
+                        if (!showSalesRaceCard && isWide) {
+                          return Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [MyGoalCard(api: api), _buildQuickActions()],
+                          );
+                        }
                         if (isWide && showSalesRaceCard) {
                           // Source HTML layout in RTL:
                           // first child renders on the right => Sales Race on right, Quick Access on left.
                           return Row(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Expanded(flex: 9, child: _buildLeaderboardCard(isAr)),
+                              Expanded(
+                                flex: 9,
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                                  children: [
+                                    // «هدفي» (bonus study م3): hidden without a goal
+                                    MyGoalCard(api: api),
+                                    _buildLeaderboardCard(isAr),
+                                  ],
+                                ),
+                              ),
                               const SizedBox(width: 20),
                               Expanded(flex: 11, child: _buildQuickActions()),
                             ],
@@ -2779,6 +2796,8 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             _buildQuickActions(),
+                            const SizedBox(height: 16),
+                            MyGoalCard(api: api),
                             if (showSalesRaceCard) ...[
                               const SizedBox(height: 16),
                               _buildLeaderboardCard(isAr),

@@ -138,3 +138,45 @@ def record_goal_achievements(today: date, now: datetime, employee=None) -> list:
             db.session.flush()
             recorded.append(achievement)
     return recorded
+
+
+UNITS = {'points': 'نقطة', 'weight': 'جم', 'invoices': 'فاتورة'}
+
+
+def goal_progress(employee, today: date) -> list:
+    """«هدفي» (bonus study م3): each enabled goal so far -- its value, its target,
+    what its rule pays so far, the tier reached and how far the next is -- by
+    the same measure, target and rule that pay it."""
+    from bonus_calculator import BonusCalculator
+    from services.bonus_tiers import tier_for
+    metric = employee.goal_metric or 'weight'
+    goals = []
+    for period_name, label in PERIODS:
+        if not getattr(employee, f'goal_{period_name}_enabled', False):
+            continue
+        target = goal_target(employee, period_name, metric)
+        if target is None or float(target) <= 0:
+            continue
+        start, end = _bounds(period_name, today)
+        value = goal_performance(employee, metric, start, end)
+        if metric == 'points':
+            value = int(round(value))
+        rule = goal_rule(employee, period_name)
+        tiers = rule.tiers if rule is not None and rule.rule_type == 'tiered' \
+            and METRIC_MEASURES.get(metric) == rule.measure else None
+        tier = tier_for(tiers, value) if tiers else None
+        upcoming = [t for t in tiers or [] if float(t['from']) > value]
+        nxt = min(upcoming, key=lambda t: float(t['from'])) if upcoming else None
+        if rule is not None:
+            amount = BonusCalculator.estimate(employee, rule, start, end)
+        else:
+            amount = float(getattr(employee, f'goal_bonus_{period_name}', None) or 0.0) \
+                if value >= float(target) else 0.0
+        goals.append({
+            'period': period_name, 'period_label': label, 'metric': metric, 'unit': UNITS.get(metric, ''),
+            'value': value, 'target': float(target), 'progress': round(value / float(target), 4),
+            'reached': value >= float(target), 'amount_so_far': round(amount, 2),
+            'rule': {'id': rule.id, 'name': rule.name} if rule is not None else None,
+            'tier': tier, 'next_tier': nxt, 'to_next': (float(nxt['from']) - value) if nxt else None,
+        })
+    return goals

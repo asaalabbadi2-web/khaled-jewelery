@@ -7949,6 +7949,19 @@ class ApiService {
     }
   }
 
+  /// «هدفي» (bonus study م3): the signed-in employee's goals so far, as they
+  /// will be paid -- value, target, what is paid so far, the next tier.
+  Future<List<Map<String, dynamic>>> getMyGoalProgress() async {
+    final response = await _authedGet(Uri.parse('$_baseUrl/achievements/progress'));
+    final body = json.decode(utf8.decode(response.bodyBytes));
+    if (response.statusCode == 200 && body is Map) {
+      return ((body['goals'] as List?) ?? const []).cast<Map<String, dynamic>>();
+    }
+    throw ApiException.text(
+      body is Map ? (body['message'] ?? body['error'] ?? 'تعذّر تحميل الهدف').toString() : 'تعذّر تحميل الهدف',
+    );
+  }
+
   /// يفحص أداء الموظف المرتبط بالمستخدم الحالي ويُنشئ
   /// GoalAchievement تلقائياً إن تحقق الهدف الشخصي.
   /// يُستدعى عند كل عودة للشاشة الرئيسية.
