@@ -946,20 +946,16 @@ def purchase_cash_obligation(*, invoice_type, office_id, total, wage_subtotal,
     and add_invoice's payment check before the invoice exists, PURCHASE-CASH-1).
 
     Every invoice but a supplier purchase ('شراء'): its total. A supplier
-    purchase: its wages (none when the supplier takes them in gold) and its VAT
-    -- the gold's value is settled in gold. A closing-office purchase keeps its
-    total (it is settled in cash). See Invoice.cash_obligation for the history.
+    purchase: its wages and its VAT -- the gold's value is settled in gold. The
+    wage is cash whatever the supplier's old flag (ADR-061: a wage paid in gold
+    settles a cash debt). A closing-office purchase keeps its total (it is
+    settled in cash). See Invoice.cash_obligation for the history. [supplier]
+    is kept for the callers; it no longer changes the answer.
     """
     if (invoice_type or '').strip() != 'شراء' or office_id is not None:
         return float(total or 0.0)
-    wage_cash = float(wage_subtotal or 0.0)
-    try:
-        wage_type = (getattr(supplier, 'default_wage_type', None) or 'cash') if supplier is not None else 'cash'
-    except Exception:
-        wage_type = 'cash'
-    if str(wage_type).strip().lower() == 'gold':
-        wage_cash = 0.0
-    return round(wage_cash + float(wage_tax_total or 0.0) + float(gold_tax_total or 0.0), 2)
+    return round(float(wage_subtotal or 0.0) + float(wage_tax_total or 0.0)
+                 + float(gold_tax_total or 0.0), 2)
 
 
 class Invoice(db.Model):

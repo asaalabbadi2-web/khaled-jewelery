@@ -117,7 +117,6 @@ class _AddSupplierScreenState extends State<AddSupplierScreen> {
 
   bool _ensureAccounts = true;
 
-  String _defaultWageType = 'cash';
 
   bool get _isEditMode => widget.supplier != null;
 
@@ -162,9 +161,6 @@ class _AddSupplierScreenState extends State<AddSupplierScreen> {
       text: widget.supplier?['country'] ?? '',
     );
 
-    final rawWageType = widget.supplier?['default_wage_type'];
-    final normalized = (rawWageType ?? 'cash').toString().trim().toLowerCase();
-    _defaultWageType = normalized == 'gold' ? 'gold' : 'cash';
 
     if (!_isEditMode) {
       _loadNextSupplierCode();
@@ -223,7 +219,6 @@ class _AddSupplierScreenState extends State<AddSupplierScreen> {
       'state': _stateController.text.trim(),
       'postal_code': _postalCodeController.text.trim(),
       'country': _countryController.text.trim(),
-      'default_wage_type': _defaultWageType,
       'ensure_accounts': _ensureAccounts,
     };
 
@@ -709,35 +704,7 @@ class _AddSupplierScreenState extends State<AddSupplierScreen> {
                                     : 'Classification',
                               ),
                             ),
-                            _ResponsiveField(
-                              child: DropdownButtonFormField<String>(
-                                initialValue: _defaultWageType,
-                                decoration: InputDecoration(
-                                  labelText: widget.isArabic
-                                      ? 'نوع أجور المصنعية الافتراضي'
-                                      : 'Default wage type',
-                                  border: const OutlineInputBorder(),
-                                ),
-                                items: [
-                                  DropdownMenuItem<String>(
-                                    value: 'cash',
-                                    child: Text(
-                                      widget.isArabic ? 'نقد (ريال)' : 'Cash',
-                                    ),
-                                  ),
-                                  DropdownMenuItem<String>(
-                                    value: 'gold',
-                                    child: Text(
-                                      widget.isArabic ? 'ذهب (وزن)' : 'Gold',
-                                    ),
-                                  ),
-                                ],
-                                onChanged: (value) {
-                                  if (value == null) return;
-                                  setState(() => _defaultWageType = value);
-                                },
-                              ),
-                            ),
+                            // No wage type: the wage is cash always (ADR-061).
                           ],
                           palette: palette,
                         ),

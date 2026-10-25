@@ -12,7 +12,7 @@ total for them by definition.
 
 Formula (Phase 12A-12C, empirically verified against real production data —
 see invoice #52 and others in the yasargold_realprod_20260920 restore):
-    cash_obligation = wage_subtotal (0 if the supplier is gold-wage-paid)
+    cash_obligation = wage_subtotal (cash always -- ADR-061)
                      + wage_tax_total
                      + gold_tax_total
 """
@@ -166,20 +166,19 @@ class TestCashObligationProperty:
             )
             assert inv.cash_obligation == 2864.65
 
-    def test_gold_payable_wage_is_excluded_entirely(self):
-        """When the supplier is paid its manufacturing wage in gold weight
-        instead of cash (Supplier.default_wage_type='gold'), wage_subtotal is
-        not a cash debt at all — only its VAT (always cash) and any gold VAT
-        remain. Not observed in real production today (0 suppliers currently
-        use default_wage_type='gold'), but this is the exact rule Phase
-        12A/12C established and it must not silently regress."""
+    def test_a_supplier_flagged_gold_still_owes_its_wage_in_cash(self):
+        """Phase 12A/12C excluded the wage of a supplier paid in gold
+        (Supplier.default_wage_type='gold') from the cash it is owed. The owner
+        reversed it, 25 Oct 2026 (ADR-061): the wage is cash always -- one paid
+        in gold settles a cash debt. Its purchases posted the wage twice and
+        were refused; no supplier used the flag."""
         with app.app_context():
             supplier = _supplier(default_wage_type='gold')
             inv = _purchase_invoice(
                 supplier.id, total=50000.0, gold_subtotal=46000.0,
                 wage_subtotal=2491.0, wage_tax_total=373.65, gold_tax_total=0.0,
             )
-            assert inv.cash_obligation == 373.65
+            assert inv.cash_obligation == 2864.65
 
 
 class TestInvoicePaymentStateServiceUsesCashObligationForPurchases:

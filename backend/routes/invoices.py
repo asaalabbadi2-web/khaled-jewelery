@@ -7699,46 +7699,13 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
                 # الذهب يتم عبر مقايضة (يتسلم خاماً ويسلم مشغولاً) وليس بيعاً نقدياً.
                 valuation_bridge_cash = round(gold_tax_total, 2)
 
-                # Supplier-specific wage settlement type:
-                # - cash: wage is a SAR payable on supplier
-                # - gold: wage is converted to gold weight (main karat) payable on supplier,
-                #         while the cash-equivalent wage cost is balanced via the bridge
-                supplier_obj = None
-                try:
-                    supplier_obj = Supplier.query.get(new_invoice.supplier_id) if new_invoice.supplier_id else None
-                except Exception:
-                    supplier_obj = None
-
-                supplier_wage_type = (
-                    (supplier_obj.default_wage_type if supplier_obj else None) or 'cash'
-                )
-                if not isinstance(supplier_wage_type, str):
-                    supplier_wage_type = str(supplier_wage_type)
-                supplier_wage_type = supplier_wage_type.strip().lower()
-                if supplier_wage_type not in ('cash', 'gold'):
-                    supplier_wage_type = 'cash'
-
-                wage_gold_weight_main = 0.0
+                # The wage is owed in cash, always (ADR-061; the owner, 25 Oct 2026:
+                # «الأجرة دائمًا نقد حتى وإن كانت ذهبًا: تُحوَّل إلى نقد وتُسجَّل نقدًا»).
+                # A wage paid in gold later settles this cash debt. It was turned
+                # into gold for a supplier flagged 'gold' and posted twice -- cash
+                # here and gold on the memo -- and the entry, unbalanced by that
+                # weight, was refused.
                 wage_cash_liability = wage_cash
-                wage_gold_weight_field = None
-                if supplier_wage_type == 'gold' and wage_cash > 0:
-                    try:
-                        price_snapshot = get_current_gold_price()
-                        price_main = _to_float(price_snapshot.get('price_per_gram_main_karat'), 0.0)
-                        if price_main > 0:
-                            main_karat = get_main_karat()
-                            candidate_field = f"weight_{int(round(float(main_karat)))}k_credit"
-                            if candidate_field in dual_entry_params:
-                                wage_gold_weight_main = round(wage_cash / price_main, 3)
-                                wage_gold_weight_field = candidate_field
-                                wage_cash_liability = 0.0
-                                valuation_bridge_cash = round(valuation_bridge_cash + wage_cash, 2)
-                            else:
-                                supplier_wage_type = 'cash'
-                    except Exception as exc:
-                        print(f"⚠️ Failed to convert wage cash to gold weight: {exc}")
-                        wage_gold_weight_main = 0.0
-                        wage_cash_liability = wage_cash
                 if valuation_bridge_cash > 0:
                     create_dual_journal_entry(
                         journal_entry_id=journal_entry.id,
@@ -7795,23 +7762,6 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
                             description="التزام المورد - ذهب (وزن)",
                             **supplier_weight_kwargs,
                         )
-
-                # Supplier wage as gold (main karat)
-                if supplier_memo_account_id and wage_gold_weight_main > 0 and wage_gold_weight_field:
-                        create_dual_journal_entry(
-                            journal_entry_id=journal_entry.id,
-                            account_id=supplier_memo_account_id,
-                            apply_golden_rule=False,
-                            description="التزام المورد - أجور مصنعية (ذهب)",
-                        **{wage_gold_weight_field: round(wage_gold_weight_main, 3)},
-                        )
-                        try:
-                            new_invoice.payment_gold_weight = round(
-                                _to_float(new_invoice.payment_gold_weight, 0.0) + wage_gold_weight_main,
-                                3,
-                            )
-                        except Exception:
-                            pass
 
                 # سطر التزام المورد (نقد) للأجور + ضريبة الأجور
                 if supplier_fin_account_id and wage_payable_cash > 0:

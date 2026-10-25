@@ -331,9 +331,10 @@ class InvoicePaymentStateService:
             return 'paid' if total_settled >= total - CASH_EPSILON else 'partially_paid'
 
         # A zero CASH obligation is SATISFIED, not merely untouched. This is a
-        # real shape, not a corner case: Phase 13 gives a purchase invoice a
-        # cash_obligation of 0 when the supplier's wage is paid in gold
-        # (default_wage_type='gold'), so its entire obligation is the gold. The
+        # real shape, not a corner case: a purchase with no wage and no VAT
+        # has a cash_obligation of 0, so its entire obligation is the gold
+        # (the wage is cash always since ADR-061; it was also a supplier paid
+        # its wage in gold, under Phase 13). The
         # legacy zero-total rule above ("paid only if something was paid")
         # belongs to a cash-only world; applied here it would hold such an
         # invoice at partially_paid forever with its gold fully settled.

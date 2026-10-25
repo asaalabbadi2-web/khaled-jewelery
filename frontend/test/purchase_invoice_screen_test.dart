@@ -731,6 +731,42 @@ void main() {
     expect(find.byKey(const Key('invoice-review-line-0')), findsOneWidget);
   });
 
+  // ADR-061: the wage is cash always -- a supplier flagged to take it in gold
+  // is owed the same cash, and no wage turned into gold.
+  testWidgets('a supplier flagged for a gold wage is owed its wage in cash', (
+    tester,
+  ) async {
+    Future<List<String>> effect(String flag) async {
+      await open(
+        tester,
+        api: FakePurchaseApi(supplierWageType: flag),
+        saved: draft(),
+      );
+      await tester.tap(footerSave());
+      await settle(tester);
+      final said = [
+        for (final t in tester.widgetList<Text>(
+          find.descendant(
+            of: find.byKey(const Key('invoice-review-effects')),
+            matching: find.byType(Text),
+          ),
+        ))
+          t.data ?? '',
+      ];
+      await tester.tap(find.byKey(const Key('invoice-review-back')));
+      await settle(tester);
+      // A fresh tree for the next supplier: the same app keeps its routes.
+      await tester.pumpWidget(const SizedBox());
+      await settle(tester);
+      return said;
+    }
+
+    final cash = await effect('cash');
+    final gold = await effect('gold');
+    expect(cash.any((t) => t.contains('نقدًا')), isTrue, reason: '$cash');
+    expect(gold, cash);
+  });
+
   // ADR-060 ف٠: after the save, what the server saved -- its number, what was
   // paid and its payment state; the summary said the total and the weight.
   testWidgets('after the save: the number, what was paid, and what is owed', (

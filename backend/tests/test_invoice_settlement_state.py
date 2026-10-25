@@ -428,13 +428,15 @@ class TestTheThreeTradeShapes:
 
     # ---- 2) worked-gold supplier, wage paid in gold ----
 
-    def test_supplier_gold_wage_is_decided_by_the_gold_alone(self):
-        """cash_obligation is 0 here by Phase 13's rule, so the gold is the whole
-        obligation — and a zero cash debt must read as satisfied rather than
-        holding the invoice at partial forever."""
-        supplier = self._supplier_with_wage_type('gold')
+    def test_a_purchase_owing_no_cash_is_decided_by_the_gold_alone(self):
+        """A purchase with no wage and no VAT owes no cash (cash_obligation 0),
+        so the gold is the whole obligation -- and a zero cash debt must read as
+        satisfied rather than holding the invoice at partial forever. (It was
+        a supplier paid its wage in gold; the wage is cash always since
+        ADR-061, so the shape is a purchase with no wage.)"""
+        supplier = self._supplier_with_wage_type('cash')
         invoice = self._invoice_for(
-            supplier.id, total=99999.0, wage=1000.0, tracked=True,
+            supplier.id, total=99999.0, wage=0.0, tracked=True,
         )
         assert invoice.cash_obligation == 0.0
         _obligation(invoice.id, karat=21.0, weight=150.0)

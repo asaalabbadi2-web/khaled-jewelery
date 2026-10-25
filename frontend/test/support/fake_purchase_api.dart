@@ -8,8 +8,15 @@ import 'package:frontend/models/safe_box_model.dart';
 /// and the invoices it was asked to save. [hold] keeps a save in flight.
 /// Values are fixed as the server would return them; no accounting is faked.
 class FakePurchaseApi extends ApiService {
-  FakePurchaseApi({this.settings = const {}, this.statement = const {}})
-    : super(baseUrl: 'http://fake.test');
+  FakePurchaseApi({
+    this.settings = const {},
+    this.statement = const {},
+    this.supplierWageType = 'cash',
+  }) : super(baseUrl: 'http://fake.test');
+
+  /// The first supplier's old flag: 'gold' is what a supplier set to take
+  /// its wage in gold carried (ADR-061: the wage is cash all the same).
+  final String supplierWageType;
 
   final Map<String, dynamic> settings;
 
@@ -34,7 +41,7 @@ class FakePurchaseApi extends ApiService {
     {
       'id': 1,
       'name': 'مصنع الريّان للذهب',
-      'default_wage_type': 'cash',
+      'default_wage_type': supplierWageType,
       'tax_number': '300000000000003',
     },
     {'id': 2, 'name': 'مؤسسة النور', 'default_wage_type': 'cash'},

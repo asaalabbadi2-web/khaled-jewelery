@@ -41,6 +41,19 @@ from accounting.mappings import get_account_id_by_number
 
 suppliers_bp = Blueprint('suppliers', __name__)
 
+
+# A supplier's wage is owed in cash, always (ADR-061; the owner, 25 Oct 2026:
+# «الأجرة دائمًا نقد حتى وإن كانت ذهبًا: تُحوَّل إلى نقد وتُسجَّل نقدًا»). A supplier
+# is not set to take it in gold: such a supplier's purchases could not be saved.
+_WAGE_IS_CASH = {
+    'error': 'wage_is_cash',
+    'message': 'أجرة المورد تُسجَّل نقدًا دائمًا؛ ما يُدفع منها ذهبًا يُسدِّد دينًا نقديًا.',
+}
+
+
+def _asks_gold_wage(data) -> bool:
+    return str(data.get('default_wage_type') or '').strip().lower() == 'gold'
+
 @suppliers_bp.route('/suppliers/next-code', methods=['GET'])
 @require_permission('suppliers.create')
 def get_next_supplier_code():
@@ -226,13 +239,9 @@ def add_supplier():
             from party_account_service import SUPPLIER_PARENT, party_parent
             account_category = party_parent(SUPPLIER_PARENT)   # the mapped role (CHART-002)
 
-        raw_wage_type = data.get('default_wage_type')
-        wage_type = (raw_wage_type or 'cash')
-        if not isinstance(wage_type, str):
-            wage_type = str(wage_type)
-        wage_type = wage_type.strip().lower()
-        if wage_type not in ('cash', 'gold'):
-            wage_type = 'cash'
+        if _asks_gold_wage(data):
+            return jsonify(_WAGE_IS_CASH), 400
+        wage_type = 'cash'
 
         new_supplier = Supplier(
             supplier_code=supplier_code,
@@ -295,6 +304,8 @@ def update_supplier(id):
     """تحديث بيانات المورد (النظام الهجين)"""
     supplier = Supplier.query.get_or_404(id)
     data = request.json
+    if _asks_gold_wage(data):
+        return jsonify(_WAGE_IS_CASH), 400
 
     supplier.name = data.get('name', supplier.name)
     supplier.phone = data.get('phone', supplier.phone)
@@ -310,15 +321,7 @@ def update_supplier(id):
     supplier.classification = data.get('classification', supplier.classification)
 
     if 'default_wage_type' in data:
-        raw_wage_type = data.get('default_wage_type')
-        wage_type = (raw_wage_type or 'cash')
-        if not isinstance(wage_type, str):
-            wage_type = str(wage_type)
-        wage_type = wage_type.strip().lower()
-        if wage_type in ('cash', 'gold'):
-            supplier.default_wage_type = wage_type
-        else:
-            supplier.default_wage_type = 'cash'
+        supplier.default_wage_type = 'cash'
 
     if 'default_safe_box_id' in data:
         raw_safe_box_id = data.get('default_safe_box_id')

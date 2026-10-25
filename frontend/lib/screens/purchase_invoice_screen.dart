@@ -1193,26 +1193,10 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
   Set<int> _vatExemptKaratsFromSettings() =>
       context.read<SettingsProvider>().vatExemptKarats.toSet();
 
-  String _selectedSupplierDefaultWageType() {
-    final selectedId = _selectedSupplierId;
-    if (selectedId == null) return 'cash';
-    try {
-      final supplier = _suppliers.firstWhere(
-        (s) => _parseId(s['id']) == selectedId,
-        orElse: () => <String, dynamic>{},
-      );
-      final raw = supplier['default_wage_type'] ?? supplier['defaultWageType'];
-      final normalized = (raw ?? 'cash').toString().trim().toLowerCase();
-      return normalized == 'gold' ? 'gold' : 'cash';
-    } catch (_) {
-      return 'cash';
-    }
-  }
-
+  // The wage is cash always (ADR-061): one paid in gold settles a cash debt.
   double _cashDueForSupplier() {
-    final wageType = _selectedSupplierDefaultWageType();
     return _round(
-      (wageType == 'cash' ? _wageSubtotal : 0.0) +
+      _wageSubtotal +
           _goldTaxTotal +
           _wageTaxTotal +
           _stonesSubtotal +
@@ -1223,7 +1207,6 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
 
   double _supplierMainEquivalentWeight() {
     final weightSummary = _aggregateInlineWeightByKarat();
-    final wageType = _selectedSupplierDefaultWageType();
     final mainKarat = _mainKaratFromSettings().toDouble();
     if (mainKarat <= 0) return 0.0;
 
@@ -1233,15 +1216,6 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
       final weight = entry.value;
       if (karat <= 0 || weight <= 0) continue;
       mainEquivalentWeight += weight * (karat / mainKarat);
-    }
-
-    // If supplier wages are settled in gold, convert wage cash value to gold weight (main karat)
-    // and include it in the main-equivalent view.
-    if (wageType == 'gold' && _wageSubtotal > 0) {
-      final priceMain = _resolveGoldPrice(mainKarat);
-      if (priceMain > 0) {
-        mainEquivalentWeight += (_wageSubtotal / priceMain);
-      }
     }
 
     return _round(mainEquivalentWeight, 3);

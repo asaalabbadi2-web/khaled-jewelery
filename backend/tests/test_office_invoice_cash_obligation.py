@@ -116,13 +116,15 @@ class TestWorkedGoldSupplierIsUnchanged:
         )
         assert invoice.cash_obligation == 1400.0
 
-    def test_wage_in_gold_still_excludes_the_wage(self):
+    def test_a_wage_flagged_gold_is_owed_in_cash(self):
+        """It excluded the wage (Phase 13: 400.0). The owner reversed it,
+        25 Oct 2026 (ADR-061): the wage is cash always."""
         supplier = _supplier(wage_type='gold')
         invoice = _invoice(
             supplier_id=supplier.id, total=99999.0,
             wage=1000.0, wage_tax=150.0, gold_tax=250.0,
         )
-        assert invoice.cash_obligation == 400.0
+        assert invoice.cash_obligation == 1400.0
 
     def test_a_supplier_invoice_still_carries_a_gold_obligation(self):
         supplier = _supplier()
