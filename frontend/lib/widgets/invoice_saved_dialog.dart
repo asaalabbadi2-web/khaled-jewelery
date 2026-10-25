@@ -8,12 +8,12 @@ import '../utils/invoice_saved_facts.dart';
 /// ADR-060 ف٢: what is said once an invoice is saved -- short, and all of it
 /// the server's (InvoiceSavedFacts): its number, to copy; where it stands
 /// (posted, awaiting posting, or held for the manager, and why); what it came
-/// to, what was paid and what remains. Then what to do next: print, share, a
-/// new invoice, or done.
+/// to, what was paid and what remains. Then what to do next: print, share,
+/// view it among the invoices, a new invoice, or done.
 ///
-/// P prints, N starts a new invoice, Enter and Esc are done.
+/// P prints, V views it, N starts a new invoice, Enter and Esc are done.
 
-enum InvoiceSavedAction { print, share, newInvoice, done }
+enum InvoiceSavedAction { print, share, view, newInvoice, done }
 
 class InvoiceSaved {
   const InvoiceSaved({
@@ -381,6 +381,15 @@ class _InvoiceSavedDialogState extends State<_InvoiceSavedDialog> {
                           Icons.share_rounded,
                           'مشاركة',
                         ),
+                        if (facts.id != null) ...[
+                          const SizedBox(width: AppSpace.sm),
+                          action(
+                            InvoiceSavedAction.view,
+                            Icons.receipt_long_rounded,
+                            'عرض الفاتورة',
+                            key: 'V',
+                          ),
+                        ],
                         const SizedBox(width: AppSpace.sm),
                         action(
                           InvoiceSavedAction.newInvoice,
@@ -416,6 +425,9 @@ class _InvoiceSavedDialogState extends State<_InvoiceSavedDialog> {
             _close(InvoiceSavedAction.print),
         const SingleActivator(LogicalKeyboardKey.keyN): () =>
             _close(InvoiceSavedAction.newInvoice),
+        if (facts.id != null)
+          const SingleActivator(LogicalKeyboardKey.keyV): () =>
+              _close(InvoiceSavedAction.view),
         const SingleActivator(LogicalKeyboardKey.enter): () =>
             _close(InvoiceSavedAction.done),
         const SingleActivator(LogicalKeyboardKey.numpadEnter): () =>

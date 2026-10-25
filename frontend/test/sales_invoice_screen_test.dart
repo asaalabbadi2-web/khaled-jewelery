@@ -8,6 +8,7 @@ import 'package:frontend/providers/auth_provider.dart';
 import 'package:frontend/providers/sales_race_refresh_provider.dart';
 import 'package:frontend/models/safe_box_model.dart';
 import 'package:frontend/providers/settings_provider.dart';
+import 'package:frontend/screens/invoices_list_screen.dart';
 import 'package:frontend/screens/sales_invoice_screen_v2.dart';
 import 'package:frontend/theme/app_theme.dart';
 import 'package:provider/provider.dart';
@@ -1355,6 +1356,19 @@ void main() {
       await settle(tester);
       expect(find.byKey(const Key('invoice-saved')), findsNothing);
       expect(find.text('أضف أصناف الفاتورة'), findsWidgets);
+    });
+
+    testWidgets('V after the save opens the invoice among the invoices', (
+      tester,
+    ) async {
+      await saveOne(tester, {'invoice_number': 'SELL-2026-416'});
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyV);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+      final list = tester.widget<InvoicesListScreen>(
+        find.byType(InvoicesListScreen),
+      );
+      expect(list.openInvoiceId, 701);
     });
 
     testWidgets('an approval needed is said once, in the summary', (

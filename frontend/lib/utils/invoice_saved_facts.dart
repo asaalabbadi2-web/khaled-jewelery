@@ -11,6 +11,7 @@
 ///   its cash and its gold are both settled.
 class InvoiceSavedFacts {
   const InvoiceSavedFacts._({
+    required this.id,
     required this.number,
     required this.total,
     required this.paid,
@@ -29,7 +30,9 @@ class InvoiceSavedFacts {
         : total;
     final number = '${invoice['invoice_number'] ?? ''}'.trim();
     final due = obligation - paid;
+    final id = invoice['id'];
     return InvoiceSavedFacts._(
+      id: id is int ? id : int.tryParse('${id ?? ''}'),
       number: number.isNotEmpty ? number : '#${invoice['id'] ?? ''}',
       total: total,
       paid: paid,
@@ -39,6 +42,8 @@ class InvoiceSavedFacts {
     );
   }
 
+  /// The row's id: what opens the invoice («عرض الفاتورة»), never what is said.
+  final int? id;
   final String number;
   final double total;
   final double paid;

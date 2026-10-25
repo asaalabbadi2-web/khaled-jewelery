@@ -192,7 +192,22 @@ void main() {
       expect(find.byTooltip('نُسخ الرقم'), findsOneWidget);
     });
 
+    testWidgets('«عرض الفاتورة» is offered when the invoice has an id', (
+      tester,
+    ) async {
+      final actions = await open(tester, invoice: owing);
+      await tester.tap(find.byKey(const Key('invoice-saved-view')));
+      await tester.pumpAndSettle();
+      expect(actions, [InvoiceSavedAction.view]);
+    });
+
+    testWidgets('and not without one', (tester) async {
+      await open(tester, invoice: {...owing}..remove('id'));
+      expect(find.byKey(const Key('invoice-saved-view')), findsNothing);
+    });
+
     for (final (key, action) in [
+      (LogicalKeyboardKey.keyV, InvoiceSavedAction.view),
       (LogicalKeyboardKey.keyP, InvoiceSavedAction.print),
       (LogicalKeyboardKey.keyN, InvoiceSavedAction.newInvoice),
       (LogicalKeyboardKey.enter, InvoiceSavedAction.done),

@@ -14,6 +14,7 @@ import '../providers/settings_provider.dart';
 import '../theme/app_theme.dart';
 import '../widgets/invoice_review_dialog.dart';
 import '../widgets/invoice_saved_dialog.dart';
+import 'invoices_list_screen.dart';
 import '../widgets/invoice_settings_sheet.dart';
 import '../widgets/original_invoice_selector.dart';
 import '../widgets/inline_number_cell.dart';
@@ -2517,6 +2518,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
             )) {
               InvoiceSavedAction.print => 'print',
               InvoiceSavedAction.share => 'share',
+              InvoiceSavedAction.view => 'view',
               InvoiceSavedAction.newInvoice => 'new_invoice',
               InvoiceSavedAction.done => 'done',
             };
@@ -2554,6 +2556,10 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
       } else if (shouldPrint == 'new_invoice') {
         await _clearLocalDraft();
         _resetAfterSave();
+      } else if (shouldPrint == 'view' && invoiceForPrint['id'] is int) {
+        await _clearLocalDraft();
+        // «عرض الفاتورة» (ADR-060 ف٢): its sheet in the invoices list.
+        if (mounted) openSavedInvoice(context, invoiceForPrint['id'] as int);
       } else {
         await _clearLocalDraft();
         // 'done' or null → return to home

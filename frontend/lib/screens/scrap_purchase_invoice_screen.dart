@@ -17,6 +17,7 @@ import '../widgets/scrap_purchase_entry_row.dart';
 import '../utils/scrap_purchase_readiness.dart';
 import '../widgets/invoice_review_dialog.dart';
 import '../widgets/invoice_saved_dialog.dart';
+import 'invoices_list_screen.dart';
 import '../utils/invoice_direct_print.dart';
 import '../utils.dart';
 import '../widgets/app_feedback.dart';
@@ -1392,6 +1393,9 @@ class _ScrapPurchaseInvoiceScreenState
       if (!mounted) return;
       if (shouldPrint == 'new_invoice') {
         _resetAfterSave();
+      } else if (shouldPrint == 'view' && invoiceForPrint['id'] is int) {
+        // «عرض الفاتورة» (ADR-060 ف٢): its sheet in the invoices list.
+        openSavedInvoice(context, invoiceForPrint['id'] as int);
       } else {
         // 'done' or null → return to home
         Navigator.of(context).popUntil((route) => route.isFirst);
@@ -1590,6 +1594,7 @@ class _ScrapPurchaseInvoiceScreenState
     return switch (action) {
       InvoiceSavedAction.print => 'print',
       InvoiceSavedAction.share => 'share',
+      InvoiceSavedAction.view => 'view',
       InvoiceSavedAction.newInvoice => 'new_invoice',
       InvoiceSavedAction.done => 'done',
     };

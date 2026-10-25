@@ -18,6 +18,7 @@ import '../widgets/invoice_settings_sheet.dart';
 import '../widgets/sales_category_entry_row.dart';
 import '../widgets/invoice_review_dialog.dart';
 import '../widgets/invoice_saved_dialog.dart';
+import 'invoices_list_screen.dart';
 import '../widgets/party_picker_dialog.dart';
 import '../widgets/searchable_picker_field.dart';
 import 'settings_screen_enhanced.dart';
@@ -2602,6 +2603,9 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
         }
       } else if (shouldPrint == 'new_invoice') {
         _resetAfterSave();
+      } else if (shouldPrint == 'view' && invoiceForPrint['id'] is int) {
+        // «عرض الفاتورة» (ADR-060 ف٢): its sheet in the invoices list.
+        openSavedInvoice(context, invoiceForPrint['id'] as int);
       } else {
         // 'done' or null → return to home
         if (mounted) Navigator.of(context).popUntil((route) => route.isFirst);
@@ -2700,6 +2704,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
     return switch (action) {
       InvoiceSavedAction.print => 'print',
       InvoiceSavedAction.share => 'share',
+      InvoiceSavedAction.view => 'view',
       InvoiceSavedAction.newInvoice => 'new_invoice',
       InvoiceSavedAction.done => 'done',
     };

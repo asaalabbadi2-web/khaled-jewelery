@@ -83,14 +83,31 @@ class _InvoiceTabConfig {
   });
 }
 
+/// After an invoice is saved, «عرض الفاتورة» (ADR-060 ف٢): the invoice screen
+/// is left for home, and the invoices list opens with that invoice's sheet --
+/// where it is printed, shared, returned, or its remainder settled.
+void openSavedInvoice(BuildContext context, int invoiceId) {
+  final navigator = Navigator.of(context);
+  navigator.popUntil((route) => route.isFirst);
+  navigator.push(
+    MaterialPageRoute(
+      builder: (_) => InvoicesListScreen(openInvoiceId: invoiceId),
+    ),
+  );
+}
+
 class InvoicesListScreen extends StatefulWidget {
   final bool isArabic;
   final bool embedded;
+
+  /// An invoice to open as the list opens (its sheet, as a tap on its row).
+  final int? openInvoiceId;
 
   const InvoicesListScreen({
     super.key,
     this.isArabic = true,
     this.embedded = false,
+    this.openInvoiceId,
   });
 
   @override
@@ -254,6 +271,12 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
     DataSyncBus.itemsRevision.addListener(_itemsRevisionListener!);
     _loadInvoices();
     _warmFilterLookups();
+    final openId = widget.openInvoiceId;
+    if (openId != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _openInvoicePreview({'id': openId});
+      });
+    }
   }
 
   @override
