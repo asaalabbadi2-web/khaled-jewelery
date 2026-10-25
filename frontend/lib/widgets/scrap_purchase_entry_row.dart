@@ -60,9 +60,11 @@ class _ScrapPurchaseEntryRowState extends State<ScrapPurchaseEntryRow> {
   final _amountFocus = FocusNode();
 
   Map<String, dynamic>? _category;
-  late int _karat = _buyableKarats.contains(widget.mainKarat)
-      ? widget.mainKarat
-      : 21;
+  late int _karat = _startKarat;
+
+  /// The karat a line starts from: the settings' main karat -- never a fixed
+  /// one (the owner, 20 Oct 2026); the settings hold it among the buyable.
+  int get _startKarat => widget.mainKarat;
   String? _error;
 
   int? get _lockedKarat =>
@@ -123,11 +125,18 @@ class _ScrapPurchaseEntryRowState extends State<ScrapPurchaseEntryRow> {
         amount: amount,
       ),
     );
-    setState(() => _error = null);
+    // Every field starts over for the next category (the owner, 25 Oct
+    // 2026): the row held its category for a repeat that seldom came.
+    setState(() {
+      _error = null;
+      _category = null;
+      _karat = _startKarat;
+    });
+    _categoryText.clear();
     _standing.clear();
     _stones.clear();
     _amount.clear();
-    _standingFocus.requestFocus();
+    _categoryFocus.requestFocus();
   }
 
   InputDecoration _decoration(String label) => InputDecoration(

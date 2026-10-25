@@ -37,7 +37,7 @@ double? _categoryWage(Map<String, dynamic> category) {
 }
 
 /// A sale's lines typed in one row (SALES-UX-3): the category, its weight,
-/// Enter. The category's karat and wage hold when it has them; the weight is
+/// Enter to the amount, Enter. The category's karat and wage hold when it has them; the weight is
 /// the line's, the count a note. 2,549 of the 2,576 lines on the 6 Oct copy
 /// are category lines, and a dialog opened for each.
 class SalesCategoryEntryRow extends StatefulWidget {
@@ -64,6 +64,7 @@ class _SalesCategoryEntryRowState extends State<SalesCategoryEntryRow> {
   final _categoryFocus = FocusNode();
   final _weightFocus = FocusNode();
   final _wageFocus = FocusNode();
+  final _amountFocus = FocusNode();
   TextEditingController? _categoryText;
 
   Map<String, dynamic>? _category;
@@ -84,6 +85,7 @@ class _SalesCategoryEntryRowState extends State<SalesCategoryEntryRow> {
     _categoryFocus.dispose();
     _weightFocus.dispose();
     _wageFocus.dispose();
+    _amountFocus.dispose();
     super.dispose();
   }
 
@@ -129,10 +131,20 @@ class _SalesCategoryEntryRowState extends State<SalesCategoryEntryRow> {
         amount: (amount != null && amount > 0) ? amount : null,
       ),
     );
-    setState(() => _error = null);
+    // Every field starts over for the next category (the owner, 25 Oct
+    // 2026): the line was added, and the row held its category, wage and
+    // count for a repeat that seldom came.
+    setState(() {
+      _error = null;
+      _category = null;
+      _karat = widget.mainKarat;
+    });
+    _categoryText?.clear();
     _weight.clear();
     _amount.clear();
-    _weightFocus.requestFocus();
+    _wage.text = '0';
+    _count.text = '1';
+    _categoryFocus.requestFocus();
   }
 
   InputDecoration _decoration(String label) => InputDecoration(
@@ -242,8 +254,10 @@ class _SalesCategoryEntryRowState extends State<SalesCategoryEntryRow> {
         decoration: _decoration('الوزن الكلي (جم)'),
         keyboardType: const TextInputType.numberWithOptions(decimal: true),
         inputFormatters: typedNumberFormatters(),
-        textInputAction: TextInputAction.done,
-        onSubmitted: (_) => _add(),
+        // Enter goes on to the amount; the line is added from there (the
+        // owner, 25 Oct 2026: Enter on the weight skipped the amount).
+        textInputAction: TextInputAction.next,
+        onSubmitted: (_) => _amountFocus.requestFocus(),
       ),
     );
 
@@ -265,6 +279,7 @@ class _SalesCategoryEntryRowState extends State<SalesCategoryEntryRow> {
       child: TextField(
         key: const Key('sales-entry-amount'),
         controller: _amount,
+        focusNode: _amountFocus,
         decoration: _decoration('الإجمالي (اختياري)'),
         keyboardType: const TextInputType.numberWithOptions(decimal: true),
         inputFormatters: typedNumberFormatters(),

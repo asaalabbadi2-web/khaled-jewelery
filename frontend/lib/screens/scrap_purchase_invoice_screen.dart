@@ -1828,11 +1828,9 @@ class _ScrapPurchaseInvoiceScreenState
                       children: [
                         _buildSummaryCard(),
                         const SizedBox(height: 24),
-                        _buildGoldImagesSection(),
-                        const SizedBox(height: 24),
-                        _buildNotesSection(),
-                        const SizedBox(height: 24),
                         _buildPaymentSection(),
+                        const SizedBox(height: 24),
+                        _buildExtrasSection(),
                       ],
                     ),
                   ),
@@ -1845,11 +1843,9 @@ class _ScrapPurchaseInvoiceScreenState
               const SizedBox(height: 24),
               _buildSummaryCard(),
               const SizedBox(height: 24),
-              _buildGoldImagesSection(),
-              const SizedBox(height: 24),
-              _buildNotesSection(),
-              const SizedBox(height: 24),
               _buildPaymentSection(),
+              const SizedBox(height: 24),
+              _buildExtrasSection(),
             ],
             const SizedBox(height: 32),
           ],
@@ -3108,16 +3104,48 @@ class _ScrapPurchaseInvoiceScreenState
   }
 
   // ==================== Gold Images Section ====================
-  Widget _buildGoldImagesSection() {
+  /// The gold's photos and the purchase notes, folded (the owner, 25 Oct
+  /// 2026): seldom used, they pushed the payment down the screen. Opened by
+  /// request; open from the start when they hold something; the header says
+  /// what they hold.
+  Widget _buildExtrasSection() {
+    final theme = Theme.of(context);
+    final held = [
+      if (_goldImages.isNotEmpty) '${_goldImages.length} صورة',
+      if (_purchaseNotesController.text.trim().isNotEmpty) 'ملاحظة',
+      if (_goldCondition != _goldConditionOptions[1]) 'الحالة: $_goldCondition',
+    ];
+    return Card(
+      key: const Key('scrap-extras'),
+      elevation: 2,
+      clipBehavior: Clip.antiAlias,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: ExpansionTile(
+        initiallyExpanded: held.isNotEmpty,
+        shape: const Border(),
+        collapsedShape: const Border(),
+        leading: Icon(Icons.photo_library_outlined, color: theme.colorScheme.primary),
+        title: Text(
+          'صور الذهب وملاحظات الشراء',
+          style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+        ),
+        subtitle: Text(
+          held.isEmpty ? 'اختياري' : held.join(' · '),
+          style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+        ),
+        children: [
+          _buildGoldImagesSection(embedded: true),
+          _buildNotesSection(embedded: true),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildGoldImagesSection({bool embedded = false}) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
 
-    return Card(
-      elevation: 2,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      child: Padding(
-        padding: const EdgeInsets.all(24.0),
-        child: Column(
+    final column = Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
@@ -3207,25 +3235,30 @@ class _ScrapPurchaseInvoiceScreenState
               ),
             ],
           ],
-        ),
+        );
+    // Inside the folded card (_buildExtrasSection) it has no card of its own.
+    if (embedded) {
+      return Padding(padding: const EdgeInsets.fromLTRB(16, 0, 16, 16), child: column);
+    }
+    return Card(
+      elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: Padding(
+        padding: const EdgeInsets.all(24.0),
+        child: column,
       ),
     );
   }
 
   // ==================== Notes Section ====================
-  Widget _buildNotesSection() {
+  Widget _buildNotesSection({bool embedded = false}) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
     final selectedCondition = _goldConditionOptions.contains(_goldCondition)
         ? _goldCondition
         : _goldConditionOptions[1];
 
-    return Card(
-      elevation: 2,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-      child: Padding(
-        padding: const EdgeInsets.all(24.0),
-        child: Column(
+    final column = Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
@@ -3287,7 +3320,17 @@ class _ScrapPurchaseInvoiceScreenState
               ),
             ),
           ],
-        ),
+        );
+    // Inside the folded card (_buildExtrasSection) it has no card of its own.
+    if (embedded) {
+      return Padding(padding: const EdgeInsets.fromLTRB(16, 0, 16, 16), child: column);
+    }
+    return Card(
+      elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: Padding(
+        padding: const EdgeInsets.all(24.0),
+        child: column,
       ),
     );
   }

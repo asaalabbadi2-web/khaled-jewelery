@@ -442,12 +442,17 @@ void main() {
       expect(find.text('12.50'), findsOneWidget); // standing
       expect(find.text('12.00'), findsOneWidget); // net: standing - stones
       expect(find.textContaining('4,800.00'), findsWidgets);
-      // Ready for the next one: the weights cleared, back at the standing.
+      // Ready for the next category (the owner, 25 Oct 2026): every field
+      // starts over, the cursor in the category.
       final standing = tester.widget<TextField>(
         find.byKey(const Key('scrap-entry-standing')),
       );
       expect(standing.controller!.text, isEmpty);
-      expect(standing.focusNode!.hasFocus, isTrue);
+      final category = tester.widget<TextField>(
+        find.byKey(const Key('scrap-entry-category')),
+      );
+      expect(category.controller!.text, isEmpty);
+      expect(category.focusNode!.hasFocus, isTrue);
     });
 
     testWidgets('a line with an amount and no weight is taken', (tester) async {
@@ -541,4 +546,26 @@ void main() {
       expectNoTextVanishesOnDark(tester);
     },
   );
+
+  group('the photos and notes folded (the owner, 25 Oct 2026)', () {
+    testWidgets('folded under the payment, opened by request', (tester) async {
+      await open(tester, api: FakeSalesApi());
+
+      final extras = find.byKey(const Key('scrap-extras'));
+      expect(extras, findsOneWidget);
+      expect(find.text('اختياري'), findsOneWidget);
+      expect(find.widgetWithText(TextField, 'ملاحظات إضافية'), findsNothing, reason: 'folded');
+      expect(
+        tester.getTopLeft(find.text('وسائل الدفع')).dy,
+        lessThan(tester.getTopLeft(extras).dy),
+        reason: 'the payment comes before them',
+      );
+
+      await tester.ensureVisible(find.text('صور الذهب وملاحظات الشراء'));
+      await tester.tap(find.text('صور الذهب وملاحظات الشراء'));
+      await tester.pumpAndSettle();
+      expect(find.widgetWithText(TextField, 'ملاحظات إضافية'), findsOneWidget);
+      expect(find.text('التقاط صورة'), findsOneWidget);
+    });
+  });
 }

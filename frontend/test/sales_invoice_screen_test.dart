@@ -565,11 +565,14 @@ void main() {
       await tester.pumpAndSettle();
     }
 
+    /// The weight, Enter to the amount, Enter adds the line.
     Future<void> weigh(WidgetTester tester, String weight) async {
       await tester.enterText(
         find.byKey(const Key('sales-entry-weight')),
         weight,
       );
+      await tester.testTextInput.receiveAction(TextInputAction.next);
+      await tester.pumpAndSettle();
       await tester.testTextInput.receiveAction(TextInputAction.done);
       await tester.pumpAndSettle();
     }
@@ -588,12 +591,48 @@ void main() {
         findsOneWidget,
       ); // in the table
       expect(find.text('1 صنف'), findsWidgets);
-      // The weight is cleared and held for the next line.
-      final field = tester.widget<TextField>(
+      // Every field starts over for the next category (the owner, 25 Oct
+      // 2026), the cursor in the category.
+      final weightField = tester.widget<TextField>(
         find.byKey(const Key('sales-entry-weight')),
       );
-      expect(field.controller!.text, isEmpty);
-      expect(field.focusNode!.hasFocus, isTrue);
+      expect(weightField.controller!.text, isEmpty);
+      final categoryField = tester.widget<TextField>(
+        find.byKey(const Key('sales-entry-category')),
+      );
+      expect(categoryField.controller!.text, isEmpty);
+      expect(categoryField.focusNode!.hasFocus, isTrue);
+      expect(
+        tester.widget<TextField>(find.byKey(const Key('sales-entry-count'))).controller!.text,
+        '1',
+      );
+    });
+
+    testWidgets('Enter on the weight goes on to the amount, not past it', (
+      tester,
+    ) async {
+      await open(tester, api: FakeSalesApi(categories: categories));
+
+      await pick(tester, 'سل', 'سلاسل');
+      await tester.enterText(find.byKey(const Key('sales-entry-weight')), '5');
+      await tester.testTextInput.receiveAction(TextInputAction.next);
+      await tester.pumpAndSettle();
+
+      expect(find.text('لم تتم إضافة أصناف بعد'), findsOneWidget, reason: 'not added yet');
+      final amount = tester.widget<TextField>(find.byKey(const Key('sales-entry-amount')));
+      expect(amount.focusNode!.hasFocus, isTrue);
+    });
+
+    testWidgets('a category\'s wage and karat do not stay for the next line', (
+      tester,
+    ) async {
+      await open(tester, api: FakeSalesApi(categories: categories));
+
+      await pick(tester, 'بنا', 'بناجر');
+      await weigh(tester, '30');
+
+      expect(find.text('الأجرة من التصنيف'), findsNothing);
+      expect(find.text('عيار التصنيف 21'), findsNothing);
     });
 
     testWidgets('a category with a karat holds it, and one with a wage', (
