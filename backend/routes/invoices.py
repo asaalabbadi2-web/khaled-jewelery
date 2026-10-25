@@ -7314,30 +7314,16 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
                 if supplier_memo_account_id:
                     _ensure_weight_tracking_account(supplier_memo_account_id)
 
-                # تجميع أوزان المورد (يمكن تمريرها من الواجهة، وإلا نستخدم أوزان الأصناف)
-                supplier_gold_lines = data.get('supplier_gold_lines') or data.get('supplier_gold_weights')
-                supplier_gold_by_karat = {}
-
-                if isinstance(supplier_gold_lines, list):
-                    for line in supplier_gold_lines:
-                        karat_key = _normalize_karat(line.get('karat'))
-                        weight = _to_float(line.get('weight', 0), 0.0)
-                        if not karat_key or weight <= 0:
-                            continue
-                        supplier_gold_by_karat[karat_key] = supplier_gold_by_karat.get(karat_key, 0.0) + weight
-                elif isinstance(supplier_gold_lines, dict):
-                    for karat, weight in supplier_gold_lines.items():
-                        weight_val = _to_float(weight, 0.0)
-                        if weight_val <= 0:
-                            continue
-                        karat_key = _normalize_karat(karat)
-                        if not karat_key:
-                            continue
-                        supplier_gold_by_karat[karat_key] = supplier_gold_by_karat.get(karat_key, 0.0) + weight_val
-
-                if not supplier_gold_by_karat:
-                    # استخدام الأوزان الفعلية من karat_lines
-                    supplier_gold_by_karat = {k: v for k, v in gold_by_karat.items() if v > 0}
+                # What the invoice adds to the supplier -- its cash and its gold --
+                # read once (services/supplier_purchase_effect.py): the lines
+                # below post it, and the purchase preview says it before the save.
+                from services.supplier_purchase_effect import supplier_purchase_owed
+                owed = supplier_purchase_owed(
+                    data, items_gold_by_karat=gold_by_karat,
+                    priced_stones_value=priced_stones_value,
+                    priced_stones_tax=priced_stones_tax,
+                )
+                supplier_gold_by_karat = owed.supplier_gold_by_karat
 
                 # حفظ إجمالي الذهب (عيار رئيسي) في الفاتورة للرجوع إليه لاحقاً
                 supplier_gold_main = sum(
@@ -7348,8 +7334,8 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
                 new_invoice.payment_gold_karat = get_main_karat()
 
                 # قراءة القيم النقدية من الطلب أو حسابها
-                gold_tax_total = _to_float(data.get('gold_tax_total', 0), 0.0)
-                wage_tax_total = _to_float(data.get('wage_tax_total', 0), 0.0)
+                gold_tax_total = owed.gold_vat
+                wage_tax_total = owed.wage_vat
                 total_vat_source = (
                     data.get('vat_receivable_cash')
                     or data.get('total_tax')
@@ -7358,13 +7344,7 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
                     or 0
                 )
                 total_vat = _to_float(total_vat_source, 0.0)
-                wage_cash = _to_float(
-                    data.get('manufacturing_wage_cash')
-                    or data.get('wage_cash')
-                    or data.get('total_wage')
-                    or data.get('wage_subtotal')
-                    or 0
-                , 0.0)
+                wage_cash = owed.wage
 
                 valuation_cash_total = data.get('valuation_cash_total')
                 if valuation_cash_total is None and isinstance(data.get('valuation'), dict):
@@ -7442,21 +7422,9 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
                             )
 
                 # --- 1) إثبات المخزون (نقد + وزن لكل عيار) ---
-                # 🆕 تخزين الأوزان الفعلية للقيود الوزنية (من karat_lines فقط، بدون المصنعية)
-                actual_gold_weights_for_memo = {}
-                if karat_lines_data and isinstance(karat_lines_data, list):
-                    for line_data in karat_lines_data:
-                        k = _normalize_karat(line_data.get('karat'))
-                        w = _to_float(line_data.get('weight_grams', 0), 0.0)
-                        if k and w > 0:
-                            actual_gold_weights_for_memo[k] = actual_gold_weights_for_memo.get(k, 0.0) + w
-                
-                # Weight source used for posting physical gold purchase lines.
-                # Some clients do not send `karat_lines` for supplier purchases; in that case,
-                # fall back to supplier_gold_by_karat derived from items/request.
-                physical_gold_weights_for_posting = dict(actual_gold_weights_for_memo or {})
-                if not physical_gold_weights_for_posting:
-                    physical_gold_weights_for_posting = dict(supplier_gold_by_karat or {})
+                # The physical gold posted: the karat lines' weights (without the
+                # wage), else the supplier's gold -- as the one reading says it.
+                physical_gold_weights_for_posting = dict(owed.posted_gold_by_karat)
 
                 # Track which karats had an inventory weight debit posted.
                 posted_weight_debits = set()
@@ -7697,15 +7665,14 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
                 # A) ضريبة الذهب فقط (إذا كانت الضريبة على كامل قيمة الذهب - نادر)
                 # قيمة الذهب نفسها (valuation_cash_total) ليست التزاماً نقدياً على المورد:
                 # الذهب يتم عبر مقايضة (يتسلم خاماً ويسلم مشغولاً) وليس بيعاً نقدياً.
-                valuation_bridge_cash = round(gold_tax_total, 2)
+                valuation_bridge_cash = round(owed.gold_vat, 2)
 
                 # The wage is owed in cash, always (ADR-061; the owner, 25 Oct 2026:
                 # «الأجرة دائمًا نقد حتى وإن كانت ذهبًا: تُحوَّل إلى نقد وتُسجَّل نقدًا»).
                 # A wage paid in gold later settles this cash debt. It was turned
                 # into gold for a supplier flagged 'gold' and posted twice -- cash
                 # here and gold on the memo -- and the entry, unbalanced by that
-                # weight, was refused.
-                wage_cash_liability = wage_cash
+                # weight, was refused. The wage is in owed.wage_payable below.
                 if valuation_bridge_cash > 0:
                     create_dual_journal_entry(
                         journal_entry_id=journal_entry.id,
@@ -7718,7 +7685,7 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
                 # B) الأجور + ضريبة الأجور:
                 # - Wage VAT is always cash.
                 # - Wage itself may be cash payable or gold payable depending on supplier.
-                wage_payable_cash = round(wage_cash_liability + wage_tax_total, 2)
+                wage_payable_cash = owed.wage_payable
 
                 # --- 5) المورد دائن بالذهب (حسب العيارات) ---
                 # Weight postings are always on supplier memo account.
@@ -7797,7 +7764,7 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
                     create_dual_journal_entry(
                         journal_entry_id=journal_entry.id,
                         account_id=supplier_fin_account_id,
-                        cash_credit=round(priced_stones_value + priced_stones_tax, 2),
+                        cash_credit=owed.stones_payable,
                         apply_golden_rule=False,
                         description="التزام المورد - أحجار مسعَّرة + ضريبتها",
                     )
