@@ -2574,56 +2574,113 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
     final totalWeight = _round(_totalWeight, 3);
     final grandTotal = _round(_grandTotal, 2);
 
-    final dueCash = _cashDueForSupplier();
-    final paidCash = _cashPaid();
-    final netCashDue = _round(dueCash - paidCash, 2);
-
-    final dueGoldMain = _supplierMainEquivalentWeight();
-    final paidGoldMain = _goldPaidMainEquivalent();
-    final netGoldDueMain = _round(dueGoldMain - paidGoldMain, 3);
-
-    Map<String, dynamic>? supplierStatement;
-    String? statementError;
-    try {
-      supplierStatement = await _api.getSupplierStatement(supplierId);
-    } catch (e) {
-      statementError = e.toString();
-    }
-
     final mainKarat = _mainKaratFromSettings();
+    final currency = Provider.of<SettingsProvider>(
+      context,
+      listen: false,
+    ).currencySymbolText;
+    String cash(double v) => '${_fmtMoney(v)} $currency';
+    // What the user entered as paid now (an input, not a working-out).
+    final paidCash = _cashPaid();
 
     double? currentCashBalance;
     double? currentGoldBalanceMain;
     double? projectedCashBalance;
     double? projectedGoldBalanceMain;
+    String? statementError;
+    // What the save does to what we owe: said in the supplier's box, not
+    // among the warnings (ADR-060 ف١).
+    final effectLines = <String>[];
 
-    if (supplierStatement != null) {
+    if (_isSupplierReturnMode) {
+      // A supplier return keeps its own entry (ADR-059) and this reading.
+      final dueCash = _cashDueForSupplier();
+      final netCashDue = _round(dueCash - paidCash, 2);
+
+      final dueGoldMain = _supplierMainEquivalentWeight();
+      final paidGoldMain = _goldPaidMainEquivalent();
+      final netGoldDueMain = _round(dueGoldMain - paidGoldMain, 3);
+
+      Map<String, dynamic>? supplierStatement;
       try {
-        currentCashBalance = _toDouble(
-          normalizeNumber('${supplierStatement['closing_balance_cash'] ?? 0}'),
-        );
-        currentGoldBalanceMain = _toDouble(
-          normalizeNumber(
-            '${supplierStatement['closing_balance_gold_normalized'] ?? 0}',
-          ),
-        );
+        supplierStatement = await _api.getSupplierStatement(supplierId);
+      } catch (e) {
+        statementError = AppFeedback.messageOf(e);
+      }
 
-        if (_isSupplierReturnMode) {
+      if (supplierStatement != null) {
+        try {
+          currentCashBalance = _toDouble(
+            normalizeNumber('${supplierStatement['closing_balance_cash'] ?? 0}'),
+          );
+          currentGoldBalanceMain = _toDouble(
+            normalizeNumber(
+              '${supplierStatement['closing_balance_gold_normalized'] ?? 0}',
+            ),
+          );
+
+          // A return takes from what we owe.
           projectedCashBalance = _round(currentCashBalance + netCashDue, 2);
           projectedGoldBalanceMain = _round(
             currentGoldBalanceMain + netGoldDueMain,
             3,
           );
-        } else {
-          projectedCashBalance = _round(currentCashBalance - netCashDue, 2);
-          projectedGoldBalanceMain = _round(
-            currentGoldBalanceMain - netGoldDueMain,
-            3,
+        } catch (_) {
+          // Keep balances null if parsing fails.
+        }
+      }
+      if (netCashDue.abs() > 0.01) {
+        effectLines.add(
+          supplierCashEffect(netCashDue, isReturn: true, formatCash: cash),
+        );
+      }
+      if (netGoldDueMain.abs() > 0.001) {
+        effectLines.add(
+          supplierGoldEffect(netGoldDueMain, isReturn: true, mainKarat: mainKarat),
+        );
+      }
+    } else {
+      // A purchase: the server's preview -- the save's own request, read as the
+      // save reads it (ADR-060 ف٣ س٣). The screen worked it out itself.
+      try {
+        final preview = await _api.previewSupplierPurchase(
+          _buildInvoicePayload(),
+        );
+        double figure(Object? v) => (v as num?)?.toDouble() ?? 0.0;
+        final now = Map<String, dynamic>.from(preview['now'] as Map);
+        final after = Map<String, dynamic>.from(preview['after'] as Map);
+        currentCashBalance = figure(now['cash']);
+        currentGoldBalanceMain = figure(now['gold_main']);
+        projectedCashBalance = figure(after['cash']);
+        projectedGoldBalanceMain = figure(after['gold_main']);
+        // Debit minus credit: a fall is more owed to the supplier, a rise less.
+        final cashMoves = _round(projectedCashBalance - currentCashBalance, 2);
+        final goldMoves = _round(
+          projectedGoldBalanceMain - currentGoldBalanceMain,
+          3,
+        );
+        if (cashMoves.abs() > 0.01) {
+          effectLines.add(
+            supplierCashEffect(
+              cashMoves,
+              isReturn: cashMoves > 0,
+              formatCash: cash,
+            ),
           );
         }
-      } catch (_) {
-        // Keep balances null if parsing fails.
+        if (goldMoves.abs() > 0.001) {
+          effectLines.add(
+            supplierGoldEffect(
+              goldMoves,
+              isReturn: goldMoves > 0,
+              mainKarat: mainKarat,
+            ),
+          );
+        }
+      } catch (e) {
+        statementError = AppFeedback.messageOf(e);
       }
+      if (!mounted) return false;
     }
 
     String supplierName = '';
@@ -2635,35 +2692,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
       supplierName = '';
     }
 
-    final currency = Provider.of<SettingsProvider>(
-      context,
-      listen: false,
-    ).currencySymbolText;
     final notices = <String>[];
-    // What the save does to what we owe the supplier: a purchase adds to it,
-    // a return takes from it (it said «سيزداد» for both).
-    String cash(double v) => '${_fmtMoney(v)} $currency';
-    // What the save does to what we owe: said in the supplier's box, not
-    // among the warnings (ADR-060 ف١).
-    final effectLines = <String>[];
-    if (netCashDue.abs() > 0.01) {
-      effectLines.add(
-        supplierCashEffect(
-          netCashDue,
-          isReturn: _isSupplierReturnMode,
-          formatCash: cash,
-        ),
-      );
-    }
-    if (netGoldDueMain.abs() > 0.001) {
-      effectLines.add(
-        supplierGoldEffect(
-          netGoldDueMain,
-          isReturn: _isSupplierReturnMode,
-          mainKarat: mainKarat,
-        ),
-      );
-    }
     // An exception to the supplier's usual VAT is seen, not missed (PURCHASE-VAT-1).
     if (!_vatApplied && _supplierHasTaxNumber) {
       notices.add('بلا ضريبة، والمورد له رقم ضريبي');
@@ -2672,7 +2701,9 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
     }
     if (statementError != null) {
       notices.add(
-        'تعذر جلب الرصيد الحالي من السيرفر. سيتم المتابعة بدون عرض رصيد تفصيلي.',
+        _isSupplierReturnMode
+            ? 'تعذر جلب الرصيد الحالي من السيرفر. سيتم المتابعة بدون عرض رصيد تفصيلي.'
+            : 'تعذّر حساب أثر الفاتورة على المورد من الخادم: $statementError',
       );
     }
     final gp24k = (_goldPrice?['price_24k'] as num?)?.toDouble() ?? 0.0;

@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:frontend/api_service.dart';
 import 'package:frontend/providers/auth_provider.dart';
 import 'package:frontend/providers/settings_provider.dart';
 import 'package:frontend/screens/purchase_invoice_screen.dart';
@@ -518,16 +519,17 @@ void main() {
     testWidgets('the review says where we stand and what the save does', (
       tester,
     ) async {
-      final api = FakePurchaseApi(
-        statement: {
-          'closing_balance_cash': -1500,
-          'closing_balance_gold_normalized': -10,
-        },
-      );
+      // Where we stand and after are the server's preview (ADR-060 ف٣ س٣).
+      final api = FakePurchaseApi()
+        ..preview = const {
+          'now': {'cash': -1500.0, 'gold_main': -10.0},
+          'after': {'cash': -1800.0, 'gold_main': -20.0},
+        };
       await open(tester, api: api, saved: draft());
 
       await pressCtrlS(tester);
       expect(find.textContaining('علينا له 1,500.00'), findsOneWidget);
+      expect(find.textContaining('علينا له 1,800.00'), findsOneWidget);
       expect(find.textContaining('(دائن)'), findsWidgets);
       expect(
         find.textContaining('سيزيد ما علينا للمورد نقدًا'),
@@ -731,40 +733,49 @@ void main() {
     expect(find.byKey(const Key('invoice-review-line-0')), findsOneWidget);
   });
 
-  // ADR-061: the wage is cash always -- a supplier flagged to take it in gold
-  // is owed the same cash, and no wage turned into gold.
-  testWidgets('a supplier flagged for a gold wage is owed its wage in cash', (
+  // ADR-060 ف٣ س٣: the purchase review's supplier effect is the server's
+  // preview, asked with the save's own request -- the screen worked it out
+  // itself (and a supplier flagged for a gold wage was owed it in gold:
+  // ADR-061, now the server's law alone).
+  testWidgets('the review asks the server what the save does to the supplier', (
     tester,
   ) async {
-    Future<List<String>> effect(String flag) async {
-      await open(
-        tester,
-        api: FakePurchaseApi(supplierWageType: flag),
-        saved: draft(),
-      );
-      await tester.tap(footerSave());
-      await settle(tester);
-      final said = [
-        for (final t in tester.widgetList<Text>(
-          find.descendant(
-            of: find.byKey(const Key('invoice-review-effects')),
-            matching: find.byType(Text),
-          ),
-        ))
-          t.data ?? '',
-      ];
-      await tester.tap(find.byKey(const Key('invoice-review-back')));
-      await settle(tester);
-      // A fresh tree for the next supplier: the same app keeps its routes.
-      await tester.pumpWidget(const SizedBox());
-      await settle(tester);
-      return said;
-    }
+    final api = FakePurchaseApi()
+      ..preview = const {
+        'now': {'cash': -1000.0, 'gold_main': 0.0},
+        'after': {'cash': -1250.0, 'gold_main': -12.5},
+      };
+    await open(tester, api: api, saved: draft());
+    await tester.tap(footerSave());
+    await settle(tester);
 
-    final cash = await effect('cash');
-    final gold = await effect('gold');
-    expect(cash.any((t) => t.contains('نقدًا')), isTrue, reason: '$cash');
-    expect(gold, cash);
+    expect(api.previewed, hasLength(1));
+    expect(api.previewed.single['supplier_id'], 1);
+    expect(api.previewed.single['invoice_type'], 'شراء');
+    Finder inEffects(Finder f) => find.descendant(
+      of: find.byKey(const Key('invoice-review-effects')),
+      matching: f,
+    );
+    expect(inEffects(find.textContaining('سيزيد ما علينا للمورد نقدًا بـ 250.00')),
+        findsOneWidget);
+    expect(inEffects(find.textContaining('12.500 جم')), findsWidgets);
+    expect(inEffects(find.textContaining('علينا له 1,250.00')), findsOneWidget);
+  });
+
+  testWidgets('when the server cannot say it, the review says so -- not its own '
+      'working-out', (tester) async {
+    final api = FakePurchaseApi()
+      ..previewRefusal = ApiException.text('العيار الرئيسي غير مضبوط في الإعدادات');
+    await open(tester, api: api, saved: draft());
+    await tester.tap(footerSave());
+    await settle(tester);
+
+    expect(find.byKey(const Key('invoice-review')), findsOneWidget);
+    expect(
+      find.textContaining('تعذّر حساب أثر الفاتورة على المورد من الخادم'),
+      findsOneWidget,
+    );
+    expect(find.byKey(const Key('invoice-review-effects')), findsNothing);
   });
 
   // ADR-060 ف٠: after the save, what the server saved -- its number, what was

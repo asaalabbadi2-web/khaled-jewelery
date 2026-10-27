@@ -1962,6 +1962,24 @@ class ApiService {
     }
   }
 
+  /// What saving this supplier purchase would do to what we owe the supplier,
+  /// before it is saved (ADR-060 ف٣): the save's own request, read by the
+  /// server as the save reads it. `now` / `invoice` / `paid` / `after`, each
+  /// with `cash` and `gold_main` -- debit minus credit, negative is owed.
+  Future<Map<String, dynamic>> previewSupplierPurchase(
+    Map<String, dynamic> invoice,
+  ) async {
+    final response = await _authedPost(
+      Uri.parse('$_baseUrl/invoices/purchase-preview'),
+      body: json.encode(invoice),
+    );
+    if (response.statusCode == 200) {
+      return json.decode(utf8.decode(response.bodyBytes));
+    } else {
+      throw _apiError(response);
+    }
+  }
+
   Future<Map<String, dynamic>> getSupplierStatement(int supplierId, {bool includeCancelled = false}) async {
     final response = await _authedGet(
       Uri.parse('$_baseUrl/suppliers/$supplierId/statement').replace(

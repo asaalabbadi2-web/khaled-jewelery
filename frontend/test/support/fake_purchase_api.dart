@@ -8,15 +8,8 @@ import 'package:frontend/models/safe_box_model.dart';
 /// and the invoices it was asked to save. [hold] keeps a save in flight.
 /// Values are fixed as the server would return them; no accounting is faked.
 class FakePurchaseApi extends ApiService {
-  FakePurchaseApi({
-    this.settings = const {},
-    this.statement = const {},
-    this.supplierWageType = 'cash',
-  }) : super(baseUrl: 'http://fake.test');
-
-  /// The first supplier's old flag: 'gold' is what a supplier set to take
-  /// its wage in gold carried (ADR-061: the wage is cash all the same).
-  final String supplierWageType;
+  FakePurchaseApi({this.settings = const {}, this.statement = const {}})
+    : super(baseUrl: 'http://fake.test');
 
   final Map<String, dynamic> settings;
 
@@ -41,7 +34,7 @@ class FakePurchaseApi extends ApiService {
     {
       'id': 1,
       'name': 'مصنع الريّان للذهب',
-      'default_wage_type': supplierWageType,
+      'default_wage_type': 'cash',
       'tax_number': '300000000000003',
     },
     {'id': 2, 'name': 'مؤسسة النور', 'default_wage_type': 'cash'},
@@ -93,6 +86,27 @@ class FakePurchaseApi extends ApiService {
     'manufacturing_wage_mode': 'expense',
     ...settings,
   };
+
+  /// The server's preview of the purchase (ADR-060 ف٣): what the save would
+  /// do to what we owe the supplier -- fixed, as the server would say it
+  /// (debit minus credit, negative is owed). [previewRefusal], when set, is
+  /// thrown instead; [previewed] are the requests the screen asked about.
+  Map<String, dynamic> preview = const {
+    'now': {'cash': 0.0, 'gold_main': 0.0},
+    'after': {'cash': -500.0, 'gold_main': -10.0},
+  };
+  Object? previewRefusal;
+  final previewed = <Map<String, dynamic>>[];
+
+  @override
+  Future<Map<String, dynamic>> previewSupplierPurchase(
+    Map<String, dynamic> invoice,
+  ) async {
+    previewed.add(invoice);
+    final refusal = previewRefusal;
+    if (refusal != null) throw refusal;
+    return preview;
+  }
 
   @override
   Future<Map<String, dynamic>> getSupplierStatement(
