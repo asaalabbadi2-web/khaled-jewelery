@@ -7,6 +7,7 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 
 import '../pdf/invoice_print_facts.dart';
+import '../theme/pdf_print_ink.dart';
 import '../pdf/pdf_sar_cache.dart';
 import '../pdf/pdf_text_utils.dart';
 import '../providers/settings_provider.dart';
@@ -81,8 +82,8 @@ class InvoicePdfBuilder {
     final fontRegBytes = PdfSarCache.fontRegBytes!;
     final fontBoldBytes = PdfSarCache.fontBoldBytes!;
 
-    const amberColor = PdfColor.fromInt(0xFF8B6914);
-    const darkColor = PdfColor.fromInt(0xFF1A1A1A);
+    const amberColor = PdfColor.fromInt(0xFF8B6914); // raw: the SAR symbol's tints,
+    const darkColor = PdfColor.fromInt(0xFF1A1A1A); // raw: chosen by mode below
     final isNewSar = settings?.currencyIsNewSar == true;
     if (isNewSar) {
       await Future.wait([
@@ -141,7 +142,7 @@ class InvoicePdfBuilder {
       fontBold = pw.Font.helveticaBold();
     }
     if (options.blackAndWhite && logoBytes != null) {
-      logoBytes = PdfSarCache.toGrayscalePng(logoBytes);
+      logoBytes = PdfSarCache.toBlackAndWhitePng(logoBytes);
     }
     pw.MemoryImage? logoImage = logoBytes != null
         ? pw.MemoryImage(logoBytes)
@@ -233,19 +234,23 @@ class InvoicePdfBuilder {
     // All assets captured from main thread — no rootBundle / dart:ui here.
 
     // Theme colors — B&W palette swaps amber tones for strong grays.
-    final gold   = options.blackAndWhite ? const PdfColor.fromInt(0xFF1A1A1A) : const PdfColor.fromInt(0xFF8B6914);
-    final goldMid = options.blackAndWhite ? const PdfColor.fromInt(0xFF333333) : const PdfColor.fromInt(0xFFA07820);
-    final goldBg  = options.blackAndWhite ? const PdfColor.fromInt(0xFFF0F0F0) : const PdfColor.fromInt(0xFFFBF7EE);
-    final border  = options.blackAndWhite ? const PdfColor.fromInt(0xFF888888) : const PdfColor.fromInt(0xFFE8D899);
-    const text = PdfColor.fromInt(0xFF1A1A1A);
-    const muted = PdfColor.fromInt(0xFF444444);
+    // Every color by what it does (PRINT-2): in black and white, ink is
+    // black and a background white -- no faint gray.
+    final paint = PdfInk(blackAndWhite: options.blackAndWhite);
+    final gold = paint.ink(const PdfColor.fromInt(0xFF8B6914));
+    final goldMid = paint.ink(const PdfColor.fromInt(0xFFA07820));
+    final goldBg = paint.fill(const PdfColor.fromInt(0xFFFBF7EE));
+    final border = paint.ink(const PdfColor.fromInt(0xFFE8D899));
+    final text = paint.ink(const PdfColor.fromInt(0xFF1A1A1A));
+    final muted = paint.ink(const PdfColor.fromInt(0xFF444444));
 
     // Widget builder for a cash amount with optional SAR image inline.
     pw.Widget buildAmountWidget(
       double amount, {
       double size = 11,
-      PdfColor color = text,
+      PdfColor? color,
     }) {
+      color ??= text;
       final numStr = NumberFormat(
         '#,##0.00',
         options.isArabic ? 'ar' : 'en',
@@ -498,15 +503,15 @@ class InvoicePdfBuilder {
           pw.Container(
             height: 4,
             decoration: options.blackAndWhite
-                ? const pw.BoxDecoration(color: PdfColor.fromInt(0xFF1A1A1A))
-                : pw.BoxDecoration(
+                ? pw.BoxDecoration(color: paint.fill(const PdfColor.fromInt(0xFF1A1A1A)))
+                : const pw.BoxDecoration(
                     gradient: pw.LinearGradient(
                       colors: [
-                        PdfColor.fromInt(0xFF8B6914),
-                        PdfColor.fromInt(0xFFC9A84C),
-                        PdfColor.fromInt(0xFFE8C97A),
-                        PdfColor.fromInt(0xFFC9A84C),
-                        PdfColor.fromInt(0xFF8B6914),
+                        PdfColor.fromInt(0xFF8B6914), // raw: color print only
+                        PdfColor.fromInt(0xFFC9A84C), // raw: color print only
+                        PdfColor.fromInt(0xFFE8C97A), // raw: color print only
+                        PdfColor.fromInt(0xFFC9A84C), // raw: color print only
+                        PdfColor.fromInt(0xFF8B6914), // raw: color print only
                       ],
                     ),
                   ),
@@ -555,7 +560,6 @@ class InvoicePdfBuilder {
       return pw.Container(
         padding: const pw.EdgeInsets.all(12),
         decoration: pw.BoxDecoration(
-          color: PdfColors.white,
           borderRadius: pw.BorderRadius.circular(8),
         ),
         child: pw.Column(
@@ -593,8 +597,7 @@ class InvoicePdfBuilder {
       return pw.Container(
         padding: const pw.EdgeInsets.symmetric(horizontal: 18, vertical: 12),
         decoration: pw.BoxDecoration(
-          color: PdfColors.white,
-          border: pw.Border.all(color: border, width: 0.8),
+          border: pw.Border.all(color: border, width: options.blackAndWhite ? 1.5 : 0.8),
           borderRadius: pw.BorderRadius.circular(10),
         ),
         child: pw.Align(
@@ -753,7 +756,7 @@ class InvoicePdfBuilder {
             pw.SizedBox(height: 6),
             pw.Container(
               height: 0.9,
-              color: const PdfColor.fromInt(0xFFDDDDDD),
+              color: paint.ink(const PdfColor.fromInt(0xFFDDDDDD)),
               margin: const pw.EdgeInsets.only(top: 2, bottom: 6),
             ),
             rowW(
@@ -784,7 +787,10 @@ class InvoicePdfBuilder {
     }
 
     pw.Widget buildItemsTable() {
-      const headerTextColor = PdfColor.fromInt(0xFF3A3A3A);
+      // In black and white the head of the table is a black band, its words white.
+      final headerTextColor = options.blackAndWhite
+          ? PdfColors.white
+          : paint.ink(const PdfColor.fromInt(0xFF3A3A3A));
 
       String formatKaratCell(String raw) {
         final k = safeStr(raw);
@@ -814,7 +820,7 @@ class InvoicePdfBuilder {
             style: pw.TextStyle(
               fontSize: narrow ? (header ? 8.5 : 8) : (header ? 10.5 : 10),
               fontWeight: header ? pw.FontWeight.bold : pw.FontWeight.normal,
-              color: header ? headerTextColor : PdfColor.fromInt(0xFF222222),
+              color: header ? headerTextColor : paint.ink(const PdfColor.fromInt(0xFF222222)),
             ),
             textDirection: pw.TextDirection.ltr,
             textAlign: pw.TextAlign.center,
@@ -850,9 +856,9 @@ class InvoicePdfBuilder {
 
       return pw.Table(
         border: pw.TableBorder(
-          top: pw.BorderSide(color: border, width: 0.8),
-          bottom: pw.BorderSide(color: border, width: 0.8),
-          horizontalInside: pw.BorderSide(color: border, width: 0.35),
+          top: pw.BorderSide(color: border, width: paint.rule(0.8)),
+          bottom: pw.BorderSide(color: border, width: options.blackAndWhite ? 1.2 : 0.8),
+          horizontalInside: pw.BorderSide(color: border, width: paint.rule(0.35)),
         ),
         columnWidths: options.isArabic
             ? <int, pw.TableColumnWidth>{
@@ -863,7 +869,8 @@ class InvoicePdfBuilder {
         children: [
           pw.TableRow(
             decoration: pw.BoxDecoration(
-              color: PdfColors.white,
+              // The band is ink in black and white.
+              color: options.blackAndWhite ? text : PdfColors.white,
               border: pw.Border(
                 bottom: pw.BorderSide(color: goldMid, width: 0.8),
               ),
@@ -904,7 +911,7 @@ class InvoicePdfBuilder {
               decoration: pw.BoxDecoration(
                 color: (idx % 2 == 0)
                     ? PdfColors.white
-                    : PdfColor.fromInt(0xFFFCFAF5),
+                    : paint.fill(const PdfColor.fromInt(0xFFFCFAF5)),
               ),
               children: options.isArabic ? cells.reversed.toList() : cells,
             );
@@ -914,7 +921,7 @@ class InvoicePdfBuilder {
     }
 
     pw.Widget buildSignatures() {
-      final c = PdfColor.fromInt(0xFFDDDDDD);
+      final c = paint.ink(const PdfColor.fromInt(0xFFDDDDDD));
       // A supplier signs what it delivered; we sign what we received.
       final labelCustomer = ofSupplier
           ? (options.isArabic ? ar('توقيع المورد') : 'Supplier Signature')
@@ -991,9 +998,9 @@ class InvoicePdfBuilder {
       return pw.Container(
         margin: const pw.EdgeInsets.only(top: 16),
         padding: const pw.EdgeInsets.only(top: 10),
-        decoration: const pw.BoxDecoration(
+        decoration: pw.BoxDecoration(
           border: pw.Border(
-            top: pw.BorderSide(color: PdfColor.fromInt(0xFFDDDDDD)),
+            top: pw.BorderSide(color: paint.ink(const PdfColor.fromInt(0xFFDDDDDD)), width: paint.rule(0.5)),
           ),
         ),
         child: pw.Row(
@@ -1260,7 +1267,7 @@ class InvoicePdfBuilder {
                   e.toString(),
                   style: pw.TextStyle(
                     fontSize: 8,
-                    color: PdfColor.fromInt(0xFF555555),
+                    color: paint.ink(const PdfColor.fromInt(0xFF555555)),
                   ),
                   textDirection: pw.TextDirection.ltr,
                   textAlign: pw.TextAlign.center,

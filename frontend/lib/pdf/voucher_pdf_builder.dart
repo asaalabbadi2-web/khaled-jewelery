@@ -6,21 +6,22 @@ import 'package:intl/intl.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 
+import '../theme/pdf_print_ink.dart';
 import '../pdf/pdf_sar_cache.dart';
 import '../pdf/pdf_text_utils.dart';
 import '../providers/settings_provider.dart';
 
 // ── PDF colour palette (matches existing voucher/statement design) ───────────
 class VoucherPdfColors {
-  static const amberDark = PdfColor.fromInt(0xFF8B6914);
-  static const amberMid = PdfColor.fromInt(0xFFA07820);
-  static const amberLight = PdfColor.fromInt(0xFFFBF7EE);
-  static const amberBorder = PdfColor.fromInt(0xFFE8D899);
-  static const greenTagBg = PdfColor.fromInt(0xFFEAF5EF);
-  static const grayBg = PdfColor.fromInt(0xFFF7F6F2);
-  static const grayBorder = PdfColor.fromInt(0xFFEBEBEB);
-  static const grayMuted = PdfColor.fromInt(0xFF555555);
-  static const black = PdfColor.fromInt(0xFF1A1A1A);
+  static const amberDark = PdfColor.fromInt(0xFF8B6914); // raw: the named palette, read by role below
+  static const amberMid = PdfColor.fromInt(0xFFA07820); // raw: the named palette, read by role below
+  static const amberLight = PdfColor.fromInt(0xFFFBF7EE); // raw: the named palette, read by role below
+  static const amberBorder = PdfColor.fromInt(0xFFE8D899); // raw: the named palette, read by role below
+  static const greenTagBg = PdfColor.fromInt(0xFFEAF5EF); // raw: the named palette, read by role below
+  static const grayBg = PdfColor.fromInt(0xFFF7F6F2); // raw: the named palette, read by role below
+  static const grayBorder = PdfColor.fromInt(0xFFEBEBEB); // raw: the named palette, read by role below
+  static const grayMuted = PdfColor.fromInt(0xFF555555); // raw: the named palette, read by role below
+  static const black = PdfColor.fromInt(0xFF1A1A1A); // raw: the named palette, read by role below
 }
 
 class VoucherPdfOptions {
@@ -76,13 +77,13 @@ class VoucherPdfBuilder {
     final isNewSar = settings?.currencyIsNewSar == true;
     if (isNewSar) {
       await Future.wait([
-        PdfSarCache.tinted(VoucherPdfColors.amberDark),
+        PdfSarCache.tinted(VoucherPdfColors.amberDark), // raw: the SAR symbol's tint
         PdfSarCache.tinted(VoucherPdfColors.black),
       ]);
     }
     // In B&W mode always use the dark tint so it prints clearly.
     final sarAmberBytes = isNewSar
-        ? PdfSarCache.tintedBytes(options.blackAndWhite ? VoucherPdfColors.black : VoucherPdfColors.amberDark)
+        ? PdfSarCache.tintedBytes(options.blackAndWhite ? VoucherPdfColors.black : VoucherPdfColors.amberDark) // raw: the SAR symbol's tint
         : null;
     final sarBlackBytes = isNewSar
         ? PdfSarCache.tintedBytes(VoucherPdfColors.black)
@@ -129,7 +130,7 @@ class VoucherPdfBuilder {
       fontBold = pw.Font.helveticaBold();
     }
     if (options.blackAndWhite && logoBytes != null) {
-      logoBytes = PdfSarCache.toGrayscalePng(logoBytes);
+      logoBytes = PdfSarCache.toBlackAndWhitePng(logoBytes);
     }
     pw.MemoryImage? logoImage = logoBytes != null
         ? pw.MemoryImage(logoBytes)
@@ -143,10 +144,13 @@ class VoucherPdfBuilder {
     final cashCurrencySymbol = cashSym;
 
     // Colour palette — B&W mode replaces amber tones with strong grays.
-    final PdfColor bwAccent  = options.blackAndWhite ? VoucherPdfColors.black : VoucherPdfColors.amberDark;
-    final PdfColor bwMid     = options.blackAndWhite ? const PdfColor.fromInt(0xFF333333) : VoucherPdfColors.amberMid;
-    final PdfColor bwBg      = options.blackAndWhite ? const PdfColor.fromInt(0xFFF0F0F0) : VoucherPdfColors.amberLight;
-    final PdfColor bwBorder  = options.blackAndWhite ? const PdfColor.fromInt(0xFF888888) : VoucherPdfColors.amberBorder;
+    // Every color by what it does (PRINT-2): in black and white, ink is
+    // black and a background white -- no faint gray.
+    final paint = PdfInk(blackAndWhite: options.blackAndWhite);
+    final PdfColor bwAccent = paint.ink(VoucherPdfColors.amberDark);
+    final PdfColor bwMid = paint.ink(VoucherPdfColors.amberMid);
+    final PdfColor bwBg = paint.fill(VoucherPdfColors.amberLight);
+    final PdfColor bwBorder = paint.ink(VoucherPdfColors.amberBorder);
 
     final bool isA5 =
         (format.width <= PdfPageFormat.a5.width + 1 &&
@@ -174,8 +178,8 @@ class VoucherPdfBuilder {
       font ??= fontBold;
       final numStr = pdfVisualArabic(currencyFmt.format(amt));
       final sarImg =
-          (color == VoucherPdfColors.amberDark ||
-              color == VoucherPdfColors.amberMid ||
+          (color == VoucherPdfColors.amberDark || // raw: which SAR tint
+              color == VoucherPdfColors.amberMid || // raw: which SAR tint
               color == VoucherPdfColors.black ||
               options.blackAndWhite)
           ? sarBlack
@@ -543,10 +547,10 @@ class VoucherPdfBuilder {
       decoration: pw.BoxDecoration(
         border: last
             ? null
-            : const pw.Border(
+            : pw.Border(
                 bottom: pw.BorderSide(
-                  color: VoucherPdfColors.grayBorder,
-                  width: 0.5,
+                  color: paint.ink(VoucherPdfColors.grayBorder),
+                  width: paint.rule(0.5),
                 ),
               ),
       ),
@@ -561,15 +565,15 @@ class VoucherPdfBuilder {
       pw.Widget goldRule({double height = 4}) => pw.Container(
         height: height,
         decoration: options.blackAndWhite
-            ? const pw.BoxDecoration(color: PdfColor.fromInt(0xFF1A1A1A))
+            ? pw.BoxDecoration(color: paint.fill(const PdfColor.fromInt(0xFF1A1A1A)))
             : const pw.BoxDecoration(
                 gradient: pw.LinearGradient(
                   colors: [
-                    PdfColor.fromInt(0xFF8B6914),
-                    PdfColor.fromInt(0xFFC9A84C),
-                    PdfColor.fromInt(0xFFE8C97A),
-                    PdfColor.fromInt(0xFFC9A84C),
-                    PdfColor.fromInt(0xFF8B6914),
+                    PdfColor.fromInt(0xFF8B6914), // raw: color print only
+                    PdfColor.fromInt(0xFFC9A84C), // raw: color print only
+                    PdfColor.fromInt(0xFFE8C97A), // raw: color print only
+                    PdfColor.fromInt(0xFFC9A84C), // raw: color print only
+                    PdfColor.fromInt(0xFF8B6914), // raw: color print only
                   ],
                 ),
               ),
@@ -589,7 +593,7 @@ class VoucherPdfBuilder {
               style: pw.TextStyle(
                 font: fontReg,
                 fontSize: 8,
-                color: PdfColor.fromInt(0xFF444444),
+                color: paint.ink(const PdfColor.fromInt(0xFF444444)),
               ),
             ),
             pw.SizedBox(width: 6),
@@ -599,7 +603,7 @@ class VoucherPdfBuilder {
               style: pw.TextStyle(
                 font: fontReg,
                 fontSize: 8,
-                color: PdfColor.fromInt(0xFF333333),
+                color: paint.ink(const PdfColor.fromInt(0xFF333333)),
               ),
             ),
           ],
@@ -637,7 +641,7 @@ class VoucherPdfBuilder {
                             style: pw.TextStyle(
                               font: fontReg,
                               fontSize: 7,
-                              color: PdfColor.fromInt(0xFF444444),
+                              color: paint.ink(const PdfColor.fromInt(0xFF444444)),
                             ),
                           ),
                         ),
@@ -649,7 +653,7 @@ class VoucherPdfBuilder {
                             style: pw.TextStyle(
                               font: fontBold,
                               fontSize: 8.5,
-                              color: PdfColor.fromInt(0xFF222222),
+                              color: paint.ink(const PdfColor.fromInt(0xFF222222)),
                             ),
                           ),
                         ),
@@ -662,7 +666,7 @@ class VoucherPdfBuilder {
                             style: pw.TextStyle(
                               font: fontReg,
                               fontSize: 7,
-                              color: PdfColor.fromInt(0xFF444444),
+                              color: paint.ink(const PdfColor.fromInt(0xFF444444)),
                             ),
                           ),
                         ),
@@ -675,7 +679,7 @@ class VoucherPdfBuilder {
                             style: pw.TextStyle(
                               font: fontBold,
                               fontSize: 8.5,
-                              color: PdfColor.fromInt(0xFF222222),
+                              color: paint.ink(const PdfColor.fromInt(0xFF222222)),
                             ),
                           ),
                         ),
@@ -694,7 +698,7 @@ class VoucherPdfBuilder {
                               style: pw.TextStyle(
                                 font: fontReg,
                                 fontSize: 7,
-                                color: PdfColor.fromInt(0xFF444444),
+                                color: paint.ink(const PdfColor.fromInt(0xFF444444)),
                               ),
                             ),
                           ),
@@ -707,7 +711,7 @@ class VoucherPdfBuilder {
                               style: pw.TextStyle(
                                 font: fontBold,
                                 fontSize: 8.5,
-                                color: PdfColor.fromInt(0xFF222222),
+                                color: paint.ink(const PdfColor.fromInt(0xFF222222)),
                               ),
                             ),
                           ),
@@ -730,7 +734,7 @@ class VoucherPdfBuilder {
                         style: pw.TextStyle(
                           font: fontBold,
                           fontSize: isA5 ? 18 : 22,
-                          color: PdfColor.fromInt(0xFF111111),
+                          color: paint.ink(const PdfColor.fromInt(0xFF111111)),
                         ),
                       ),
                       pw.SizedBox(height: 3),
@@ -739,7 +743,7 @@ class VoucherPdfBuilder {
                         style: pw.TextStyle(
                           font: fontReg,
                           fontSize: 8.5,
-                          color: PdfColor.fromInt(0xFF333333),
+                          color: paint.ink(const PdfColor.fromInt(0xFF333333)),
                           letterSpacing: 1.8,
                         ),
                       ),
@@ -775,7 +779,7 @@ class VoucherPdfBuilder {
                               style: pw.TextStyle(
                                 font: fontReg,
                                 fontSize: 6,
-                                color: PdfColor.fromInt(0xFF444444),
+                                color: paint.ink(const PdfColor.fromInt(0xFF444444)),
                               ),
                             ),
                           ],
@@ -816,7 +820,7 @@ class VoucherPdfBuilder {
                                     style: pw.TextStyle(
                                       font: fontBold,
                                       fontSize: 14,
-                                      color: PdfColor.fromInt(0xFF111111),
+                                      color: paint.ink(const PdfColor.fromInt(0xFF111111)),
                                     ),
                                   ),
                               ],
@@ -870,9 +874,9 @@ class VoucherPdfBuilder {
     pw.Widget buildStatusStrip() {
       final raw = voucher['status']?.toString().trim() ?? '';
       if (raw.isEmpty) return pw.SizedBox.shrink();
-      final PdfColor stripBg = PdfColor.fromInt(webStatus.background);
-      final PdfColor dotColor = PdfColor.fromInt(webStatus.dot);
-      final PdfColor textColor = PdfColor.fromInt(webStatus.foreground);
+      final PdfColor stripBg = paint.fill(PdfColor.fromInt(webStatus.background));
+      final PdfColor dotColor = paint.ink(PdfColor.fromInt(webStatus.dot));
+      final PdfColor textColor = paint.ink(PdfColor.fromInt(webStatus.foreground));
       return pw.Padding(
         padding: pw.EdgeInsets.symmetric(
           horizontal: isA5 ? 12 : 16,
@@ -889,8 +893,8 @@ class VoucherPdfBuilder {
               color: stripBg,
               borderRadius: pw.BorderRadius.circular(isA5 ? 10 : 12),
               border: pw.Border.all(
-                color: VoucherPdfColors.grayBorder,
-                width: 0.5,
+                color: paint.ink(VoucherPdfColors.grayBorder),
+                width: paint.rule(0.5),
               ),
             ),
             child: pw.Row(
@@ -944,7 +948,7 @@ class VoucherPdfBuilder {
                     style: pw.TextStyle(
                       font: fontReg,
                       fontSize: isA5 ? 9 : 10,
-                      color: PdfColor.fromInt(0xFF222222),
+                      color: paint.ink(const PdfColor.fromInt(0xFF222222)),
                     ),
                   ),
                 ),
@@ -965,7 +969,7 @@ class VoucherPdfBuilder {
                     style: pw.TextStyle(
                       font: fontReg,
                       fontSize: isA5 ? 9 : 10,
-                      color: PdfColor.fromInt(0xFF222222),
+                      color: paint.ink(const PdfColor.fromInt(0xFF222222)),
                     ),
                   ),
                 ),
@@ -986,7 +990,7 @@ class VoucherPdfBuilder {
                     style: pw.TextStyle(
                       font: fontReg,
                       fontSize: isA5 ? 9 : 10,
-                      color: PdfColor.fromInt(0xFF222222),
+                      color: paint.ink(const PdfColor.fromInt(0xFF222222)),
                     ),
                   ),
                 ),
@@ -1013,7 +1017,7 @@ class VoucherPdfBuilder {
               border: pw.Border(
                 bottom: pw.BorderSide(
                   color: bwBorder,
-                  width: 0.5,
+                  width: paint.rule(0.5),
                 ),
               ),
             ),
@@ -1040,7 +1044,7 @@ class VoucherPdfBuilder {
                 label,
                 size: isA5 ? 9 : 10,
                 bold: true,
-                color: const PdfColor.fromInt(0xFF333333),
+                color: paint.ink(const PdfColor.fromInt(0xFF333333)),
               ),
             ),
           ),
@@ -1065,7 +1069,7 @@ class VoucherPdfBuilder {
                     ? 'العيار: $goldKarat'
                     : 'Karat: $goldKarat',
                 size: isA5 ? 8 : 9,
-                color: const PdfColor.fromInt(0xFF555555),
+                color: paint.ink(const PdfColor.fromInt(0xFF555555)),
               ),
               pw.SizedBox(height: 2),
             ],
@@ -1100,14 +1104,14 @@ class VoucherPdfBuilder {
                     txt(
                       equivLabel,
                       size: isA5 ? 8 : 9,
-                      color: const PdfColor.fromInt(0xFF555555),
+                      color: paint.ink(const PdfColor.fromInt(0xFF555555)),
                     ),
                   ]
                 : [
                     txt(
                       equivLabel,
                       size: isA5 ? 8 : 9,
-                      color: const PdfColor.fromInt(0xFF555555),
+                      color: paint.ink(const PdfColor.fromInt(0xFF555555)),
                     ),
                     txt(
                       equivValue,
@@ -1136,7 +1140,7 @@ class VoucherPdfBuilder {
             txt(
               _amountInWords(options.isArabic, cashAmt),
               size: isA5 ? 7.5 : 8.5,
-              color: const PdfColor.fromInt(0xFF777777),
+              color: paint.ink(const PdfColor.fromInt(0xFF777777)),
             ),
             true,
           ),
@@ -1185,7 +1189,7 @@ class VoucherPdfBuilder {
                       style: pw.TextStyle(
                         font: fontBold,
                         fontSize: isA5 ? 9 : 10,
-                        color: const PdfColor.fromInt(0xFF333333),
+                        color: paint.ink(const PdfColor.fromInt(0xFF333333)),
                       ),
                     ),
                   ],
@@ -1207,7 +1211,7 @@ class VoucherPdfBuilder {
                 color: bwBg,
                 border: pw.Border.all(
                   color: bwBorder,
-                  width: 0.5,
+                  width: paint.rule(0.5),
                 ),
                 borderRadius: pw.BorderRadius.circular(8),
               ),
@@ -1251,10 +1255,10 @@ class VoucherPdfBuilder {
       tableRows.add(
         pw.TableRow(
           decoration: pw.BoxDecoration(
-            color: VoucherPdfColors.grayBg,
-            border: const pw.Border(
+            color: paint.fill(VoucherPdfColors.grayBg),
+            border: pw.Border(
               bottom: pw.BorderSide(
-                color: VoucherPdfColors.grayBorder,
+                color: paint.ink(VoucherPdfColors.grayBorder),
                 width: 1,
               ),
             ),
@@ -1263,22 +1267,22 @@ class VoucherPdfBuilder {
             tCell(
               options.isArabic ? 'البيان' : 'Description',
               bold: true,
-              bg: VoucherPdfColors.grayBg,
+              bg: paint.fill(VoucherPdfColors.grayBg),
             ),
             tCell(
               options.isArabic ? 'العيار' : 'Karat',
               bold: true,
-              bg: VoucherPdfColors.grayBg,
+              bg: paint.fill(VoucherPdfColors.grayBg),
             ),
             tCell(
               options.isArabic ? 'الصافي' : 'Net',
               bold: true,
-              bg: VoucherPdfColors.grayBg,
+              bg: paint.fill(VoucherPdfColors.grayBg),
             ),
             tCell(
               options.isArabic ? 'ملاحظة' : 'Note',
               bold: true,
-              bg: VoucherPdfColors.grayBg,
+              bg: paint.fill(VoucherPdfColors.grayBg),
             ),
           ],
         ),
@@ -1291,11 +1295,11 @@ class VoucherPdfBuilder {
         final netW = toDouble(row['netWeight']);
         tableRows.add(
           pw.TableRow(
-            decoration: const pw.BoxDecoration(
+            decoration: pw.BoxDecoration(
               border: pw.Border(
                 bottom: pw.BorderSide(
-                  color: VoucherPdfColors.grayBorder,
-                  width: 0.3,
+                  color: paint.ink(VoucherPdfColors.grayBorder),
+                  width: paint.rule(0.3),
                 ),
               ),
             ),
@@ -1303,7 +1307,7 @@ class VoucherPdfBuilder {
               tCell(row['description']?.toString() ?? '—'),
               tCell(karatKey),
               tCell('${goldFmt.format(netW)} ${options.isArabic ? 'جم' : 'g'}'),
-              tCell('—', textColor: VoucherPdfColors.grayMuted),
+              tCell('—', textColor: paint.ink(VoucherPdfColors.grayMuted)),
             ],
           ),
         );
@@ -1319,8 +1323,8 @@ class VoucherPdfBuilder {
             pw.Container(
               decoration: pw.BoxDecoration(
                 border: pw.Border.all(
-                  color: VoucherPdfColors.grayBorder,
-                  width: 0.5,
+                  color: paint.ink(VoucherPdfColors.grayBorder),
+                  width: paint.rule(0.5),
                 ),
                 borderRadius: pw.BorderRadius.circular(6),
               ),
@@ -1478,8 +1482,8 @@ class VoucherPdfBuilder {
               padding: pw.EdgeInsets.all(isA5 ? 8 : 10),
               decoration: pw.BoxDecoration(
                 border: pw.Border.all(
-                  color: VoucherPdfColors.grayBorder,
-                  width: 0.5,
+                  color: paint.ink(VoucherPdfColors.grayBorder),
+                  width: paint.rule(0.5),
                 ),
                 borderRadius: pw.BorderRadius.circular(6),
               ),
@@ -1487,7 +1491,7 @@ class VoucherPdfBuilder {
                 headers: headers,
                 data: data,
                 headerDecoration: pw.BoxDecoration(
-                  color: VoucherPdfColors.grayBg,
+                  color: paint.fill(VoucherPdfColors.grayBg),
                 ),
                 headerStyle: pw.TextStyle(
                   fontWeight: pw.FontWeight.bold,
@@ -1498,7 +1502,7 @@ class VoucherPdfBuilder {
                   horizontal: isA5 ? 2 : 4,
                   vertical: isA5 ? 2 : 3,
                 ),
-                border: pw.TableBorder.all(color: VoucherPdfColors.grayBorder),
+                border: pw.TableBorder.all(color: paint.ink(VoucherPdfColors.grayBorder)),
                 columnWidths: cw,
                 cellAlignments: ca,
               ),
@@ -1510,7 +1514,7 @@ class VoucherPdfBuilder {
                     ? '... تم إخفاء $hiddenAL سطر لضمان الطباعة في صفحة واحدة'
                     : '... $hiddenAL lines hidden to fit single page',
                 size: isA5 ? 7.5 : 9,
-                color: VoucherPdfColors.grayMuted,
+                color: paint.ink(VoucherPdfColors.grayMuted),
               ),
             ],
           ],
@@ -1525,14 +1529,14 @@ class VoucherPdfBuilder {
             sigTitle,
             size: isA5 ? 9 : 10,
             bold: true,
-            color: const PdfColor.fromInt(0xFF222222),
+            color: paint.ink(const PdfColor.fromInt(0xFF222222)),
           ),
           pw.SizedBox(height: isA5 ? 18 : 22),
           pw.Container(
-            decoration: const pw.BoxDecoration(
+            decoration: pw.BoxDecoration(
               border: pw.Border(
                 top: pw.BorderSide(
-                  color: PdfColor.fromInt(0xFF555555),
+                  color: paint.ink(const PdfColor.fromInt(0xFF555555)),
                   width: 1.2,
                 ),
               ),
@@ -1543,7 +1547,7 @@ class VoucherPdfBuilder {
                 name,
                 size: isA5 ? 8 : 9,
                 bold: true,
-                color: const PdfColor.fromInt(0xFF222222),
+                color: paint.ink(const PdfColor.fromInt(0xFF222222)),
               ),
             ),
           ),
@@ -1592,10 +1596,10 @@ class VoucherPdfBuilder {
         horizontal: isA5 ? 12 : 16,
         vertical: isA5 ? 5 : 7,
       ),
-      decoration: const pw.BoxDecoration(
-        color: VoucherPdfColors.grayBg,
+      decoration: pw.BoxDecoration(
+        color: paint.fill(VoucherPdfColors.grayBg),
         border: pw.Border(
-          top: pw.BorderSide(color: VoucherPdfColors.grayBorder, width: 0.5),
+          top: pw.BorderSide(color: paint.ink(VoucherPdfColors.grayBorder), width: paint.rule(0.5)),
         ),
       ),
       child: pw.Row(
@@ -1604,17 +1608,17 @@ class VoucherPdfBuilder {
           txt(
             voucherNum,
             size: isA5 ? 7 : 8,
-            color: VoucherPdfColors.grayMuted,
+            color: paint.ink(VoucherPdfColors.grayMuted),
           ),
           txt(
             '$companyName — ${options.isArabic ? 'جميع الحقوق محفوظة' : 'All rights reserved'}',
             size: isA5 ? 7 : 8,
-            color: VoucherPdfColors.grayMuted,
+            color: paint.ink(VoucherPdfColors.grayMuted),
           ),
           txt(
             '${options.isArabic ? 'طُبع بتاريخ' : 'Printed'}: $printDate',
             size: isA5 ? 7 : 8,
-            color: VoucherPdfColors.grayMuted,
+            color: paint.ink(VoucherPdfColors.grayMuted),
           ),
         ],
       ),

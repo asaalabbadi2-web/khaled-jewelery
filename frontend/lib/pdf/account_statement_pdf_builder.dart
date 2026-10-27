@@ -8,30 +8,39 @@ import 'package:pdf/widgets.dart' as pw;
 
 import '../models/account_statement_model.dart';
 import '../models/statement_period.dart';
+import '../theme/pdf_print_ink.dart';
 import 'pdf_text_utils.dart';
 
 // ═══════════════════════════════════════════════════════════════════
 //  DESIGN TOKENS  — single source of truth for the PDF theme
 // ═══════════════════════════════════════════════════════════════════
+//
+// Each color is read by what it does (PRINT-2): ink (text, rules) prints
+// black in black and white, a fill (a background) white. The statement took
+// a black-and-white option and never read it -- it printed its golds and
+// light rules as grays. [_paint] is set once at the start of build (a build
+// runs alone in its isolate).
+PdfInk _paint = const PdfInk(blackAndWhite: false);
+
 class _PdfColors {
-  static final gold       = pdf.PdfColor.fromHex('#8B6914');
-  static final goldMid    = pdf.PdfColor.fromHex('#A07820');
-  static final goldLight  = pdf.PdfColor.fromHex('#C9A84C');
-  static final goldBg     = pdf.PdfColor.fromHex('#FBF7EE');
-  static final borderLight= pdf.PdfColor.fromHex('#E8D899');
+  static pdf.PdfColor get gold => _paint.ink(pdf.PdfColor.fromHex('#8B6914'));
+  static pdf.PdfColor get goldMid => _paint.ink(pdf.PdfColor.fromHex('#A07820'));
+  static pdf.PdfColor get goldLight => _paint.ink(pdf.PdfColor.fromHex('#C9A84C'));
+  static pdf.PdfColor get goldBg => _paint.fill(pdf.PdfColor.fromHex('#FBF7EE'));
+  static pdf.PdfColor get borderLight => _paint.ink(pdf.PdfColor.fromHex('#E8D899'));
 
-  static final black  = pdf.PdfColor.fromHex('#111111');
-  static final dark   = pdf.PdfColor.fromHex('#222222');
-  static final body   = pdf.PdfColor.fromHex('#333333');
-  static final muted  = pdf.PdfColor.fromHex('#444444');
-  static final white  = pdf.PdfColors.white;
+  static pdf.PdfColor get black => _paint.ink(pdf.PdfColor.fromHex('#111111'));
+  static pdf.PdfColor get dark => _paint.ink(pdf.PdfColor.fromHex('#222222'));
+  static pdf.PdfColor get body => _paint.ink(pdf.PdfColor.fromHex('#333333'));
+  static pdf.PdfColor get muted => _paint.ink(pdf.PdfColor.fromHex('#444444'));
+  static final white = pdf.PdfColors.white;
 
-  static final negative = pdf.PdfColor.fromHex('#7B2537');   // dark burgundy
-  static final positive = pdf.PdfColor.fromHex('#2A5E42');   // muted forest green
+  static pdf.PdfColor get negative => _paint.ink(pdf.PdfColor.fromHex('#7B2537')); // dark burgundy
+  static pdf.PdfColor get positive => _paint.ink(pdf.PdfColor.fromHex('#2A5E42')); // muted forest green
 
   // Row banding colors (match the reference screenshot tone)
-  static final rowAlt  = pdf.PdfColor.fromHex('#F5EFE0');
-  static final rowOpen = pdf.PdfColor.fromHex('#EDE3C0');
+  static pdf.PdfColor get rowAlt => _paint.fill(pdf.PdfColor.fromHex('#F5EFE0'));
+  static pdf.PdfColor get rowOpen => _paint.fill(pdf.PdfColor.fromHex('#EDE3C0'));
 }
 
 class AccountStatementPdfBranding {
@@ -124,6 +133,7 @@ class AccountStatementPdfBuilder {
     })?
     debugProbe,
   }) async {
+    _paint = PdfInk(blackAndWhite: branding.blackAndWhite);
     // ── fonts ──────────────────────────────────────────────────────
     final fontData = preloadedRegularFont != null
         ? ByteData.view(preloadedRegularFont.buffer)
@@ -367,14 +377,17 @@ class AccountStatementPdfBuilder {
     // Gold gradient rule (top + bottom decorative stripe)
     pw.Widget goldRule({double height = 4}) => pw.Container(
           height: height,
-          decoration: const pw.BoxDecoration(
+          decoration: branding.blackAndWhite
+              // The gold rule, printed in ink.
+              ? pw.BoxDecoration(color: _paint.ink(pdf.PdfColor.fromHex('#8B6914')))
+              : const pw.BoxDecoration(
             gradient: pw.LinearGradient(
               colors: [
-                pdf.PdfColor.fromInt(0xFF8B6914),
-                pdf.PdfColor.fromInt(0xFFC9A84C),
-                pdf.PdfColor.fromInt(0xFFE8C97A),
-                pdf.PdfColor.fromInt(0xFFC9A84C),
-                pdf.PdfColor.fromInt(0xFF8B6914),
+                pdf.PdfColor.fromInt(0xFF8B6914), // raw: color print only
+                pdf.PdfColor.fromInt(0xFFC9A84C), // raw: color print only
+                pdf.PdfColor.fromInt(0xFFE8C97A), // raw: color print only
+                pdf.PdfColor.fromInt(0xFFC9A84C), // raw: color print only
+                pdf.PdfColor.fromInt(0xFF8B6914), // raw: color print only
               ],
             ),
           ),
@@ -433,7 +446,7 @@ class AccountStatementPdfBuilder {
           decoration: pw.BoxDecoration(
             color: highlighted
                 ? _PdfColors.goldBg
-                : pdf.PdfColor.fromHex('#FAFAF8'),
+                : _paint.fill(pdf.PdfColor.fromHex('#FAFAF8')),
             borderRadius: const pw.BorderRadius.all(pw.Radius.circular(3)),
           ),
           child: pw.Column(
@@ -700,13 +713,13 @@ class AccountStatementPdfBuilder {
                     style: pw.TextStyle(
                         font: baseFont,
                         fontSize: 8,
-                        color: pdf.PdfColor.fromHex('#444444')),
+                        color: _paint.ink(pdf.PdfColor.fromHex('#444444'))),
                   ),
                   buildCashAmt(
                     pdfVisualArabic((pricePerGram ?? 0).toStringAsFixed(2)),
                     font: boldFont,
                     fontSize: 8.5,
-                    color: pdf.PdfColor.fromHex('#222222'),
+                    color: _paint.ink(pdf.PdfColor.fromHex('#222222')),
                   ),
                 ],
               ),
@@ -1134,7 +1147,7 @@ class AccountStatementPdfBuilder {
                 decoration: pw.BoxDecoration(
                   border: pw.Border(
                     bottom: pw.BorderSide(
-                        color: _PdfColors.borderLight, width: 0.6),
+                        color: _PdfColors.borderLight, width: _paint.rule(0.6)),
                   ),
                 ),
                 child: pw.Row(
@@ -1173,8 +1186,8 @@ class AccountStatementPdfBuilder {
                 }).toList(),
                 data: allRows,
                 border: pw.TableBorder(
-                  bottom: pw.BorderSide(color: _PdfColors.borderLight, width: 0.5),
-                  horizontalInside: pw.BorderSide(color: _PdfColors.borderLight, width: 0.4),
+                  bottom: pw.BorderSide(color: _PdfColors.borderLight, width: _paint.rule(0.5)),
+                  horizontalInside: pw.BorderSide(color: _PdfColors.borderLight, width: _paint.rule(0.4)),
                 ),
                 cellPadding: pw.EdgeInsets.zero,
                 columnWidths: colWidths,
@@ -1283,7 +1296,7 @@ class AccountStatementPdfBuilder {
             style: pw.TextStyle(
                 font: font,
                 fontSize: 8,
-                color: pdf.PdfColor.fromHex('#444444')),
+                color: _paint.ink(pdf.PdfColor.fromHex('#444444'))),
           ),
         ],
       ),
@@ -1302,13 +1315,13 @@ class AccountStatementPdfBuilder {
               style: pw.TextStyle(
                   font: base,
                   fontSize: 8,
-                  color: pdf.PdfColor.fromHex('#444444'))),
+                  color: _paint.ink(pdf.PdfColor.fromHex('#444444')))),
             pw.Text(pdfVisualArabic(value),
               textDirection: pw.TextDirection.ltr,
               style: pw.TextStyle(
                   font: bold,
                   fontSize: 8.5,
-                  color: pdf.PdfColor.fromHex('#222222'))),
+                  color: _paint.ink(pdf.PdfColor.fromHex('#222222')))),
         ],
       ),
     );
@@ -1327,7 +1340,7 @@ class AccountStatementPdfBuilder {
             style: pw.TextStyle(
                 font: base,
                 fontSize: 7,
-                color: pdf.PdfColor.fromHex('#444444')),
+                color: _paint.ink(pdf.PdfColor.fromHex('#444444'))),
           ),
           pw.SizedBox(height: 3),
           pw.Text(
@@ -1336,7 +1349,7 @@ class AccountStatementPdfBuilder {
             style: pw.TextStyle(
                 font: bold,
                 fontSize: 9,
-                color: pdf.PdfColor.fromHex('#222222')),
+                color: _paint.ink(pdf.PdfColor.fromHex('#222222'))),
           ),
         ],
       ),

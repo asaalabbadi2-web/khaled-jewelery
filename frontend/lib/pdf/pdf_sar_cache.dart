@@ -71,12 +71,24 @@ class PdfSarCache {
     }
   }
 
-  /// Convert image bytes to grayscale PNG. Returns original bytes on failure.
-  static Uint8List toGrayscalePng(Uint8List bytes) {
+  /// The logo for a black-and-white print: its marks black, the rest as it
+  /// was -- grayscale left a gold logo a faint gray (PRINT-2). A pixel darker
+  /// than near-white is ink; its transparency is kept. The original bytes
+  /// on failure.
+  static Uint8List toBlackAndWhitePng(Uint8List bytes) {
     try {
       final decoded = img.decodeImage(bytes);
       if (decoded == null) return bytes;
-      return Uint8List.fromList(img.encodePng(img.grayscale(decoded)));
+      final out = decoded.convert(numChannels: 4);
+      for (final pixel in out) {
+        final luminance = (0.2126 * pixel.r + 0.7152 * pixel.g + 0.0722 * pixel.b) / pixel.maxChannelValue;
+        final v = luminance < 0.85 ? 0 : pixel.maxChannelValue;
+        pixel
+          ..r = v
+          ..g = v
+          ..b = v;
+      }
+      return Uint8List.fromList(img.encodePng(out));
     } catch (_) {
       return bytes;
     }
