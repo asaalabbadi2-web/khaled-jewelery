@@ -3450,6 +3450,28 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
     if not invoice_type:
         return jsonify({'error': 'invoice_type or transaction_type is required'}), 400
 
+    # A payment and a weight are never below nothing (ADR-062): a negative
+    # payment line was added to the check and skipped at the posting -- -200 and
+    # 1,200 paid a 1,000 sale and put 1,200 in the safe -- and a negative line
+    # was saved at 0.001 g. Before anything reads them.
+    from core.number_helpers import coerce_float as _sign_of
+    for _n, _payment in enumerate(data.get('payments') or [], start=1):
+        if isinstance(_payment, dict) and _sign_of(_payment.get('amount'), 0.0) < 0:
+            return jsonify({'error': 'negative_payment',
+                            'message': f'الدفعة {_n}: المبلغ لا يكون سالبًا'}), 400
+    for _n, _item in enumerate(data.get('items') or [], start=1):
+        if not isinstance(_item, dict):
+            continue
+        for _field in ('weight', 'standing_weight', 'stones_weight'):
+            if _sign_of(_item.get(_field), 0.0) < 0:
+                return jsonify({'error': 'negative_weight',
+                                'message': f'السطر {_n}: الوزن لا يكون سالبًا'}), 400
+    for _n, _line in enumerate(data.get('karat_lines') or [], start=1):
+        if isinstance(_line, dict) and _sign_of(
+                _line.get('weight_grams', _line.get('weight', _line.get('total_weight'))), 0.0) < 0:
+            return jsonify({'error': 'negative_weight',
+                            'message': f'سطر العيار {_n}: الوزن لا يكون سالبًا'}), 400
+
     # A supplier purchase's stones (ت4): a line's gold = its standing weight -
     # its stones priced by the carat; their value owed in riyals, with VAT as
     # the wages take it. Applied before anything reads the lines' weights.
