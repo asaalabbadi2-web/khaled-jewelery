@@ -3173,6 +3173,75 @@ def reverse_invoice(invoice_id):
     return resp_obj, status
 
 
+@invoices_bp.route('/invoices/purchase-preview', methods=['POST'])
+@require_permission('invoices.create')
+def preview_supplier_purchase():
+    """What saving this supplier purchase would do to what we owe the supplier --
+    before it is saved (ADR-060 ف٣ س٢).
+
+    The request is the one the save takes. It is read as the save reads it --
+    its priced stones, its items' gold, what it adds to the supplier
+    (services/supplier_purchase_effect) and what it pays now -- on a copy; and
+    the supplier's balance now is the server's reader's
+    (compute_live_supplier_balances). Nothing is written.
+
+    Amounts are debit minus credit on the supplier, as the suppliers list says
+    them: negative is what we owe the supplier. The gold is grams at the main
+    karat, by the one conversion (by_karat_in_main_karat).
+    """
+    import copy
+
+    from pricing.gold_price_service import MainKaratNotSet
+    from pricing.karat_service import by_karat_in_main_karat
+    from services.party_live_balances import compute_live_supplier_balances
+    from services.purchase_stones import StonesRefused, normalize as normalize_stones, tax_of as stones_tax_of
+    from services.supplier_purchase_effect import (
+        items_gold_by_karat, purchase_paid_now, supplier_purchase_owed,
+    )
+
+    data = copy.deepcopy(request.get_json(silent=True) or {})
+    try:
+        supplier = db.session.get(Supplier, int(data.get('supplier_id')))
+    except (TypeError, ValueError):
+        supplier = None
+    if supplier is None:
+        return jsonify({'error': 'supplier_required', 'message': 'المعاينة لفاتورة شراء من مورد مسمّى'}), 400
+
+    try:
+        stones = normalize_stones('شراء', data)
+    except StonesRefused as refused:
+        return jsonify({'error': refused.code, 'message': refused.message}), 400
+    stones_tax = (stones_tax_of(stones, vat_applied=data.get('vat_applied'), settings=Settings.query.first())
+                  if stones > 0 else 0.0)
+
+    owed = supplier_purchase_owed(data, items_gold_by_karat=items_gold_by_karat(data),
+                                  priced_stones_value=stones, priced_stones_tax=stones_tax)
+    paid = purchase_paid_now(data)
+    live = compute_live_supplier_balances([supplier]).get(supplier.id) or {}
+
+    karats = ('18', '21', '22', '24')
+    now_gold = {k: float(live.get(f'{k}k') or 0.0) for k in karats}
+    after_gold = {k: now_gold[k] - float(owed.gold_by_karat.get(k, 0.0)) + float(paid.gold_by_karat.get(k, 0.0))
+                  for k in karats}
+    now_cash = float(live.get('cash') or 0.0)
+
+    def main(by_karat):
+        return round(by_karat_in_main_karat({f'{k}k': float(by_karat.get(k, 0.0)) for k in karats}), 3)
+
+    try:
+        return jsonify({
+            'supplier_id': supplier.id,
+            'now': {'cash': round(now_cash, 2), 'gold_main': main(now_gold)},
+            'invoice': {'cash': owed.cash, 'gold_main': main(owed.gold_by_karat),
+                        'gold_by_karat': {k: round(v, 3) for k, v in owed.gold_by_karat.items()}},
+            'paid': {'cash': paid.cash, 'gold_main': main(paid.gold_by_karat)},
+            'after': {'cash': round(now_cash - owed.cash + paid.cash, 2), 'gold_main': main(after_gold)},
+        })
+    except MainKaratNotSet:
+        return jsonify({'error': 'main_karat_not_set',
+                        'message': 'العيار الرئيسي غير مضبوط في الإعدادات'}), 400
+
+
 @invoices_bp.route('/invoices', methods=['POST'])
 @require_permission('invoices.create')
 def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_invoice_type_id=None,
@@ -6073,45 +6142,16 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
         # --- 2. Aggregate Gold and Cash Totals ---
         total_cash = new_invoice.total
         
-        # Aggregate weights by karat from invoice items (using DB data)
-        gold_by_karat = {'18': 0.0, '21': 0.0, '22': 0.0, '24': 0.0}
+        # Aggregate weights by karat from the items (or the karat lines) -- read
+        # once (services/supplier_purchase_effect.items_gold_by_karat), as the
+        # purchase preview reads it before the save.
+        from services.supplier_purchase_effect import items_gold_by_karat as _items_gold_by_karat
+        gold_by_karat = _items_gold_by_karat(data)
 
         is_customer_scrap_purchase = (
             ((new_invoice.invoice_type or '').strip() in ('شراء من عميل', 'مرتجع شراء'))
             and (str(getattr(new_invoice, 'gold_type', '') or '').strip().lower() == 'scrap')
         )
-
-        def _register_gold_weight(karat_val, weight_val):
-            karat_float = _to_float(karat_val, 0.0)
-            weight_float = _to_float(weight_val, 0.0)
-            if karat_float <= 0 or weight_float <= 0:
-                return
-
-            karat_key = str(int(round(karat_float)))
-            if karat_key not in gold_by_karat:
-                gold_by_karat[karat_key] = 0.0
-            gold_by_karat[karat_key] += weight_float
-
-        if not has_valid_karat_lines:
-            for item_data in data.get('items', []):
-                item_id = item_data.get('item_id')
-                item = Item.query.get(item_id) if item_id else None
-
-                karat_value = item_data.get('karat') if item_data.get('karat') not in (None, '') else (item.karat if item else None)
-                weight_value = item_data.get('weight') if item_data.get('weight') is not None else (item.weight if item else None)
-
-                if weight_value is None:
-                    weight_value = item_data.get('total_weight')
-
-                # gold_by_karat = الوزن الصافي (بدون فصوص) → للقيود المحاسبية وحساب الربح
-                total_weight_value = _to_float(weight_value, 0.0)
-                _register_gold_weight(karat_value, total_weight_value)
-
-        if karat_lines_data and isinstance(karat_lines_data, list):
-            for line_data in karat_lines_data:
-                karat_val = line_data.get('karat')
-                weight_val = line_data.get('weight_grams', line_data.get('weight', line_data.get('total_weight')))
-                _register_gold_weight(karat_val, weight_val)
 
         # حساب وزن الفصوص الإجمالي من الأصناف — للتتبع المعلوماتي في SafeBoxTransaction فقط
         # لا يدخل في القيود المحاسبية
