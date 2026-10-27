@@ -53,6 +53,7 @@ void main() {
     'total_weight': 101.33,
     'total_weight_main_karat': 101.33,
     'wage_subtotal': 3613.6,
+    'gold_subtotal': 43005.47,
     'amount_paid': 3776.38,
     'cash_obligation': 4155.64,
     'status': 'partially_paid',
@@ -123,6 +124,7 @@ void main() {
       expect(owed.wages, 3613.6);
       expect(owed.tax, 542.04);
       expect(owed.cashDue, 4155.64, reason: 'not the total, 47,161.11, which holds the gold');
+      expect(owed.goldValue, 43005.47, reason: 'said only to explain');
     });
   });
 

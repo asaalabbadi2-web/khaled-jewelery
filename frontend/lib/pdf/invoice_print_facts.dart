@@ -60,11 +60,16 @@ List<({String method, double amount})> invoicePrintPayments(Map<dynamic, dynamic
 /// it: its gold at the main karat (`total_weight_main_karat`), its wages and
 /// VAT, and the cash it can be paid (`cash_obligation`) -- not its total,
 /// which also holds the gold's value (models.Invoice.cash_obligation).
-({double goldMain, double wages, double tax, double cashDue}) supplierPrintOwed(
+///
+/// What matters is the gold's weight, the wages and the VAT when there is
+/// any; the gold's cash value (`gold_subtotal`) is said only to explain
+/// (the owner, 28 Oct 2026).
+({double goldMain, double wages, double tax, double cashDue, double goldValue}) supplierPrintOwed(
   Map<dynamic, dynamic> invoice,
 ) => (
   goldMain: _number(invoice['total_weight_main_karat']),
   wages: _number(invoice['wage_subtotal']),
   tax: _number(invoice['total_tax']),
   cashDue: _number(invoice['cash_obligation']),
+  goldValue: _number(invoice['gold_subtotal']),
 );

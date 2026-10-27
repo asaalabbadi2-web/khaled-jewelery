@@ -619,19 +619,26 @@ class InvoicePdfBuilder {
       final goldLabel = mainKarat.isEmpty
           ? (options.isArabic ? 'ذهب بالعيار الرئيسي (جم)' : 'Gold at the main karat (g)')
           : (options.isArabic ? 'ذهب بعيار $mainKarat (جم)' : 'Gold at ${mainKarat}k (g)');
+      // What matters: the gold's weight, the wages, the VAT when there is
+      // any -- not the gold's cash value (the owner, 28 Oct 2026).
       final cells = [
         figure(
           goldLabel,
           pw.Text(
             weight(owed.goldMain),
-            style: pw.TextStyle(fontSize: 24, fontWeight: pw.FontWeight.bold, color: gold),
+            style: pw.TextStyle(fontSize: 22, fontWeight: pw.FontWeight.bold, color: gold),
             textDirection: pw.TextDirection.ltr,
           ),
         ),
         figure(
-          options.isArabic ? 'نقد مستحق' : 'Cash owed',
-          buildAmountWidget(owed.cashDue, size: 24, color: gold),
+          options.isArabic ? 'الأجور' : 'Wages',
+          buildAmountWidget(owed.wages, size: 22, color: gold),
         ),
+        if (owed.tax > 0.005)
+          figure(
+            options.isArabic ? 'الضريبة' : 'VAT',
+            buildAmountWidget(owed.tax, size: 22, color: gold),
+          ),
       ];
       return pw.Container(
         padding: const pw.EdgeInsets.symmetric(horizontal: 18, vertical: 12),
@@ -779,8 +786,15 @@ class InvoicePdfBuilder {
       String label,
       pw.Widget valueWidget, {
       bool strong = false,
+      bool aside = false,
     }) {
       final l = options.isArabic ? ar(label) : label;
+      // An aside: said small, to explain -- not a figure to act on.
+      final labelStyle = pw.TextStyle(
+        fontSize: aside ? 8.5 : null,
+        color: aside ? muted : null,
+        fontWeight: strong ? pw.FontWeight.bold : pw.FontWeight.normal,
+      );
       return pw.Padding(
         padding: const pw.EdgeInsets.only(top: 4),
         child: pw.Row(
@@ -788,26 +802,10 @@ class InvoicePdfBuilder {
           children: options.isArabic
               ? [
                   valueWidget,
-                  pw.Text(
-                    l,
-                    style: pw.TextStyle(
-                      fontWeight: strong
-                          ? pw.FontWeight.bold
-                          : pw.FontWeight.normal,
-                    ),
-                    textDirection: pw.TextDirection.ltr,
-                  ),
+                  pw.Text(l, style: labelStyle, textDirection: pw.TextDirection.ltr),
                 ]
               : [
-                  pw.Text(
-                    l,
-                    style: pw.TextStyle(
-                      fontWeight: strong
-                          ? pw.FontWeight.bold
-                          : pw.FontWeight.normal,
-                    ),
-                    textDirection: pw.TextDirection.ltr,
-                  ),
+                  pw.Text(l, style: labelStyle, textDirection: pw.TextDirection.ltr),
                   valueWidget,
                 ],
         ),
@@ -898,7 +896,8 @@ class InvoicePdfBuilder {
             crossAxisAlignment: pw.CrossAxisAlignment.stretch,
             children: [
               figureRow(options.isArabic ? 'أجور المصنعية' : 'Wages', buildAmountWidget(owed.wages)),
-              figureRow(options.isArabic ? 'الضريبة' : 'Tax', buildAmountWidget(owed.tax)),
+              if (owed.tax > 0.005)
+                figureRow(options.isArabic ? 'الضريبة' : 'Tax', buildAmountWidget(owed.tax)),
               pw.Container(
                 height: 0.9,
                 color: paint.ink(const PdfColor.fromInt(0xFFDDDDDD)),
@@ -909,6 +908,14 @@ class InvoicePdfBuilder {
                 buildAmountWidget(owed.cashDue),
                 strong: true,
               ),
+              if (owed.goldValue > 0.005) ...[
+                pw.SizedBox(height: 6),
+                figureRow(
+                  options.isArabic ? 'قيمة الذهب (للتوضيح)' : 'Gold value (for reference)',
+                  buildAmountWidget(owed.goldValue, size: 8.5, color: muted),
+                  aside: true,
+                ),
+              ],
             ],
           ),
         );
@@ -1309,13 +1316,19 @@ class InvoicePdfBuilder {
           pw.SizedBox(height: 3),
           if (ofSupplier) ...[
             pair(words(options.isArabic ? 'أجور المصنعية' : 'Wages'), buildAmountWidget(owed.wages, size: 9)),
-            pair(words(options.isArabic ? 'الضريبة' : 'Tax'), buildAmountWidget(owed.tax, size: 9)),
+            if (owed.tax > 0.005)
+              pair(words(options.isArabic ? 'الضريبة' : 'Tax'), buildAmountWidget(owed.tax, size: 9)),
             rule(),
             pair(words(options.isArabic ? 'النقد المستحق' : 'Cash owed', bold: true, size: 11), buildAmountWidget(owed.cashDue, size: 12)),
             pair(
               words(options.isArabic ? 'ذهب مستحق (جم)' : 'Gold owed (g)', bold: true),
               figure(weight(owed.goldMain), bold: true),
             ),
+            if (owed.goldValue > 0.005)
+              pair(
+                words(options.isArabic ? 'قيمة الذهب (للتوضيح)' : 'Gold value (for reference)', size: 7.5),
+                buildAmountWidget(owed.goldValue, size: 7.5, color: muted),
+              ),
           ] else ...[
             pair(words(options.isArabic ? 'المجموع الفرعي' : 'Subtotal'), buildAmountWidget(subtotal, size: 9)),
             pair(words(options.isArabic ? 'الضريبة' : 'Tax'), buildAmountWidget(tax, size: 9)),
