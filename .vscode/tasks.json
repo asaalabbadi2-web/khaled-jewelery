@@ -170,6 +170,23 @@
 			"problemMatcher": [],
 			"presentation": { "group": "backend", "reveal": "always" }
 		},
+		{
+			// The latest backup in ~/Downloads, restored locally: ERP :8002, screens :8090.
+			"label": "Local Copy: From Latest Backup",
+			"type": "shell",
+			"command": "./scripts/local-copy-from-latest-backup.sh",
+			"options": { "cwd": "${workspaceFolder}" },
+			"problemMatcher": [],
+			"presentation": { "group": "backend", "reveal": "always", "panel": "dedicated" }
+		},
+		{
+			"label": "Local Copy: From Latest Backup (fresh restore)",
+			"type": "shell",
+			"command": "./scripts/local-copy-from-latest-backup.sh --fresh",
+			"options": { "cwd": "${workspaceFolder}" },
+			"problemMatcher": [],
+			"presentation": { "group": "backend", "reveal": "always", "panel": "dedicated" }
+		},
 
 		// ─────────────────────────────────────────────────────────────
 		// FULL STACK — start all three services
