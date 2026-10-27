@@ -53,7 +53,7 @@ MATRIX = {
     'customers.view': 'MCE', 'customers.create': 'MCE', 'customers.edit': 'MC', 'customers.delete': 'M',
     'suppliers.view': 'MCE', 'suppliers.create': 'MC', 'suppliers.edit': 'MC', 'suppliers.delete': 'M',
     'items.view': 'MCSE', 'items.create': 'MS', 'items.edit': 'MS', 'items.delete': 'M', 'items.adjust': 'M',
-    'gold_price.view': 'MCSE', 'gold_price.update': 'M', 'costing.recompute': 'MC', 'costing.view': 'MC',
+    'gold_price.view': 'MCSE', 'gold_price.update': 'MCSE', 'costing.recompute': 'MC', 'costing.view': 'MC',
     'inventory.view': 'MCSE', 'inventory.count': 'MS', 'inventory.approve': 'M',
     'accounts.view': 'MC', 'accounts.create': 'C', 'accounts.edit': 'C', 'accounts.delete': '',
     'safe_boxes.view': 'MCSE', 'safe_boxes.create': 'M', 'safe_boxes.edit': 'M', 'safe_boxes.delete': 'M',

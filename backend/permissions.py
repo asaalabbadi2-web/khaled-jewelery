@@ -223,7 +223,7 @@ ROLE_PERMISSIONS = {
         'customers.view', 'customers.create', 'customers.edit',
         'suppliers.view', 'suppliers.create', 'suppliers.edit',
         'items.view',
-        'gold_price.view', 'costing.recompute', 'costing.view',
+        'gold_price.view', 'gold_price.update', 'costing.recompute', 'costing.view',
         'inventory.view',
         'accounts.view', 'accounts.create', 'accounts.edit',
         'safe_boxes.view', 'safe_boxes.transfer',
@@ -245,7 +245,7 @@ ROLE_PERMISSIONS = {
     # 4. أمين المخزون — الذهب الفعلي: تحويل الخزائن وتصحيح العيار والجرد والأصناف
     'storekeeper': [
         'items.view', 'items.create', 'items.edit',
-        'gold_price.view',
+        'gold_price.view', 'gold_price.update',
         'inventory.view', 'inventory.count',
         'safe_boxes.view', 'safe_boxes.transfer',
         'reports.inventory',
@@ -258,7 +258,7 @@ ROLE_PERMISSIONS = {
         'customers.view', 'customers.create',
         'suppliers.view',
         'items.view',
-        'gold_price.view',
+        'gold_price.view', 'gold_price.update',   # every user updates the live price (the owner, 27 Oct 2026)
         'inventory.view',
         'safe_boxes.view',
         'print.invoices',

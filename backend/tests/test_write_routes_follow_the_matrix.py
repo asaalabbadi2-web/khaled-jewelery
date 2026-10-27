@@ -23,7 +23,7 @@ CASES = [
     ('PUT', '/api/settings', ''),
     ('POST', '/api/gold-costing/reset', ''),
     ('POST', '/api/gold-costing/recompute', 'MC'),
-    ('POST', '/api/gold_price/update', 'M'),
+    ('POST', '/api/gold_price/update', 'MCSE'),   # every user (the owner, 27 Oct 2026)
     ('POST', '/api/payment-methods', 'C'),
     ('DELETE', '/api/customers/999999', 'M'),
     ('PUT', '/api/customers/999999', 'MC'),
