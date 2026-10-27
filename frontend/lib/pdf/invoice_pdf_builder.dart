@@ -566,35 +566,48 @@ class InvoicePdfBuilder {
       );
     }
 
+    // A box of its own: bordered, its title set off by a rule -- the gold,
+    // the payment and the totals side by side ran into one another (the
+    // owner, 28 Oct 2026).
     pw.Widget card({required String title, required pw.Widget child}) {
       final t = options.isArabic ? ar(title) : title;
       return pw.Container(
-        padding: const pw.EdgeInsets.all(12),
         decoration: pw.BoxDecoration(
-          borderRadius: pw.BorderRadius.circular(8),
+          border: pw.Border.all(color: border, width: paint.rule(0.8)),
+          borderRadius: pw.BorderRadius.circular(6),
         ),
         child: pw.Column(
           crossAxisAlignment: pw.CrossAxisAlignment.stretch,
           children: [
-            pw.Align(
-              alignment: options.isArabic
-                  ? pw.Alignment.centerRight
-                  : pw.Alignment.centerLeft,
-              child: pw.Text(
-                t,
-                style: pw.TextStyle(
-                  fontSize: 10,
-                  fontWeight: pw.FontWeight.bold,
-                  color: gold,
+            pw.Container(
+              padding: const pw.EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: pw.BoxDecoration(
+                border: pw.Border(
+                  bottom: pw.BorderSide(color: border, width: paint.rule(0.6)),
                 ),
-                textDirection: pw.TextDirection.ltr,
-                textAlign: options.isArabic
-                    ? pw.TextAlign.right
-                    : pw.TextAlign.left,
+              ),
+              child: pw.Align(
+                alignment: options.isArabic
+                    ? pw.Alignment.centerRight
+                    : pw.Alignment.centerLeft,
+                child: pw.Text(
+                  t,
+                  style: pw.TextStyle(
+                    fontSize: 10,
+                    fontWeight: pw.FontWeight.bold,
+                    color: gold,
+                  ),
+                  textDirection: pw.TextDirection.ltr,
+                  textAlign: options.isArabic
+                      ? pw.TextAlign.right
+                      : pw.TextAlign.left,
+                ),
               ),
             ),
-            pw.SizedBox(height: 6),
-            child,
+            pw.Padding(
+              padding: const pw.EdgeInsets.fromLTRB(10, 2, 10, 8),
+              child: child,
+            ),
           ],
         ),
       );
@@ -641,7 +654,7 @@ class InvoicePdfBuilder {
           ),
       ];
       return pw.Container(
-        padding: const pw.EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+        padding: const pw.EdgeInsets.symmetric(horizontal: 18, vertical: 8),
         decoration: pw.BoxDecoration(
           border: pw.Border.all(color: border, width: options.blackAndWhite ? 1.5 : 0.8),
           borderRadius: pw.BorderRadius.circular(10),
@@ -673,7 +686,7 @@ class InvoicePdfBuilder {
           : 'Grand Total';
 
       return pw.Container(
-        padding: const pw.EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+        padding: const pw.EdgeInsets.symmetric(horizontal: 18, vertical: 8),
         decoration: pw.BoxDecoration(
           border: pw.Border.all(color: border, width: options.blackAndWhite ? 1.5 : 0.8),
           borderRadius: pw.BorderRadius.circular(10),
@@ -701,8 +714,8 @@ class InvoicePdfBuilder {
                   ),
                   textDirection: pw.TextDirection.ltr,
                 ),
-                pw.SizedBox(height: 4),
-                buildAmountWidget(total, size: 28, color: gold),
+                pw.SizedBox(height: 2),
+                buildAmountWidget(total, size: 24, color: gold),
               ],
             ),
           ),
@@ -820,6 +833,16 @@ class InvoicePdfBuilder {
         child: pw.Column(
           crossAxisAlignment: pw.CrossAxisAlignment.stretch,
           children: [
+            if (facts.statusLabel.isNotEmpty)
+              figureRow(
+                options.isArabic ? 'الحالة' : 'Status',
+                pw.Text(
+                  options.isArabic ? ar(facts.statusLabel) : facts.statusLabel,
+                  style: pw.TextStyle(fontWeight: pw.FontWeight.bold, color: text),
+                  textDirection: pw.TextDirection.ltr,
+                ),
+                strong: true,
+              ),
             for (final p in payments)
               figureRow(
                 p.method.isEmpty ? (options.isArabic ? 'دفعة' : 'Payment') : p.method,
@@ -843,48 +866,6 @@ class InvoicePdfBuilder {
             ),
           ],
         ),
-      );
-    }
-
-    // Who sold it and where its payment stands, under the header.
-    pw.Widget buildInfoStrip() {
-      final pairs = <(String, String)>[
-        if (sellerName.isNotEmpty) (options.isArabic ? 'البائع' : 'Seller', sellerName),
-        if (facts.statusLabel.isNotEmpty) (options.isArabic ? 'الحالة' : 'Status', facts.statusLabel),
-      ];
-      if (pairs.isEmpty) return pw.SizedBox();
-      final cells = [
-        for (final (label, value) in pairs)
-          pw.Expanded(
-            child: pw.Padding(
-              padding: const pw.EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-              child: pw.Column(
-                crossAxisAlignment: options.isArabic
-                    ? pw.CrossAxisAlignment.end
-                    : pw.CrossAxisAlignment.start,
-                children: [
-                  pw.Text(
-                    options.isArabic ? ar(label) : label,
-                    style: pw.TextStyle(fontSize: 7.5, color: muted),
-                    textDirection: pw.TextDirection.ltr,
-                  ),
-                  pw.SizedBox(height: 1),
-                  pw.Text(
-                    options.isArabic ? ar(value) : value,
-                    style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold, color: text),
-                    textDirection: pw.TextDirection.ltr,
-                    maxLines: 1,
-                  ),
-                ],
-              ),
-            ),
-          ),
-      ];
-      return pw.Container(
-        decoration: pw.BoxDecoration(
-          border: pw.Border.all(color: border, width: paint.rule(0.6)),
-        ),
-        child: pw.Row(children: options.isArabic ? cells.reversed.toList() : cells),
       );
     }
 
@@ -993,7 +974,7 @@ class InvoicePdfBuilder {
       pw.Widget cell(String s, {bool header = false}) {
         final t = options.isArabic ? ar(s) : s;
         return pw.Padding(
-          padding: pw.EdgeInsets.symmetric(horizontal: narrow ? 3 : 10, vertical: narrow ? 6 : 8),
+          padding: pw.EdgeInsets.symmetric(horizontal: narrow ? 3 : 10, vertical: narrow ? 5 : 6),
           child: pw.Text(
             t,
             style: pw.TextStyle(
@@ -1109,8 +1090,11 @@ class InvoicePdfBuilder {
       );
     }
 
+    // Where it is signed (the owner, 28 Oct 2026): at the foot of the page,
+    // above the footer; what is signed above a solid line -- a row of faint
+    // dots did not show -- and who under it.
     pw.Widget buildSignatures() {
-      final c = paint.ink(const PdfColor.fromInt(0xFFDDDDDD));
+      final line = paint.ink(const PdfColor.fromInt(0xFF444444));
       // A supplier signs what it delivered; we sign what we received.
       final labelCustomer = ofSupplier
           ? (options.isArabic ? ar('توقيع المورد') : 'Supplier Signature')
@@ -1119,37 +1103,23 @@ class InvoicePdfBuilder {
           ? (options.isArabic ? ar('توقيع المستلم') : 'Received by')
           : (options.isArabic ? ar('توقيع البائع') : 'Seller Signature');
 
-      pw.Widget dottedLine() {
-        return pw.Container(
-          height: 1.6,
-          child: pw.Row(
-            mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-            children: List.generate(
-              24,
-              (_) => pw.Container(
-                width: 1.3,
-                height: 1.3,
-                decoration: pw.BoxDecoration(
-                  color: c,
-                  shape: pw.BoxShape.circle,
-                ),
-              ),
-            ),
-          ),
-        );
-      }
-
-      pw.Widget block(String label) {
+      pw.Widget block(String label, String name) {
         return pw.Expanded(
           child: pw.Column(
             crossAxisAlignment: pw.CrossAxisAlignment.stretch,
             children: [
-              pw.SizedBox(height: 6),
-              dottedLine(),
-              pw.SizedBox(height: 4),
               pw.Text(
                 label,
-                style: pw.TextStyle(fontSize: 8.5, color: muted),
+                style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold, color: text),
+                textDirection: pw.TextDirection.ltr,
+                textAlign: pw.TextAlign.center,
+              ),
+              pw.SizedBox(height: 26),
+              pw.Container(height: options.blackAndWhite ? 1.2 : 0.9, color: line),
+              pw.SizedBox(height: 3),
+              pw.Text(
+                name.isEmpty ? ' ' : (options.isArabic ? ar(name) : name),
+                style: pw.TextStyle(fontSize: 9, color: text),
                 textDirection: pw.TextDirection.ltr,
                 textAlign: pw.TextAlign.center,
               ),
@@ -1158,28 +1128,28 @@ class InvoicePdfBuilder {
         );
       }
 
-      return pw.Container(
-        margin: const pw.EdgeInsets.only(top: 12),
+      return pw.Padding(
+        padding: const pw.EdgeInsets.symmetric(horizontal: 24),
         child: pw.Row(
           children: options.isArabic
               ? [
-                  block(labelSeller),
-                  pw.SizedBox(width: 24),
-                  block(labelCustomer),
+                  block(labelSeller, sellerName),
+                  pw.SizedBox(width: 60),
+                  block(labelCustomer, partyName),
                 ]
               : [
-                  block(labelCustomer),
-                  pw.SizedBox(width: 24),
-                  block(labelSeller),
+                  block(labelCustomer, partyName),
+                  pw.SizedBox(width: 60),
+                  block(labelSeller, sellerName),
                 ],
         ),
       );
     }
 
     pw.Widget buildFooter() {
-      final left = options.isArabic
-          ? ar('تاريخ الطباعة: $printDate')
-          : 'Printed: $printDate';
+      // Words and the date apart: in one line the date was read into the
+      // words («تاريخ الطباعة2026-10-28 :»).
+      final leftWords = options.isArabic ? ar('تاريخ الطباعة:') : 'Printed:';
       final right = options.isArabic
           ? ar('شكراً لتعاملكم مع $companyName')
           : 'Thank you for choosing $companyName';
@@ -1195,10 +1165,20 @@ class InvoicePdfBuilder {
         child: pw.Row(
           mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
           children: [
-            pw.Text(
-              left,
-              style: pw.TextStyle(fontSize: 7.5, color: muted),
-              textDirection: pw.TextDirection.ltr,
+            pw.Row(
+              mainAxisSize: pw.MainAxisSize.min,
+              children: [
+                for (final part in options.isArabic
+                    ? [printDate, leftWords]
+                    : [leftWords, printDate]) ...[
+                  pw.Text(
+                    part,
+                    style: pw.TextStyle(fontSize: 7.5, color: muted),
+                    textDirection: pw.TextDirection.ltr,
+                  ),
+                  pw.SizedBox(width: 3),
+                ],
+              ],
             ),
             pw.Text(
               right,
@@ -1282,10 +1262,7 @@ class InvoicePdfBuilder {
           pair(words(options.isArabic ? 'التاريخ' : 'Date'), figure(dateText.isEmpty ? '—' : dateText, bold: true)),
           if (partyName.isNotEmpty)
             pair(words(partyLabel), words(partyName, bold: true)),
-          if (sellerName.isNotEmpty)
-            pair(words(options.isArabic ? 'البائع' : 'Seller'), words(sellerName, bold: true)),
-          if (facts.statusLabel.isNotEmpty)
-            pair(words(options.isArabic ? 'الحالة' : 'Status'), words(facts.statusLabel, bold: true)),
+
           rule(1.5),
           for (var i = 0; i < items.length; i++) ...[
             pair(
@@ -1340,10 +1317,16 @@ class InvoicePdfBuilder {
             figure(weight(effectiveTotalWeight), bold: true),
           ),
           rule(),
+          if (facts.statusLabel.isNotEmpty)
+            pair(words(options.isArabic ? 'الحالة' : 'Status'), words(facts.statusLabel, bold: true)),
           for (final p in payments)
             pair(words(p.method.isEmpty ? (options.isArabic ? 'دفعة' : 'Payment') : p.method), buildAmountWidget(p.amount, size: 9)),
           pair(words(options.isArabic ? 'المدفوع' : 'Paid'), buildAmountWidget(facts.paid, size: 9)),
           pair(words(options.isArabic ? 'المتبقي' : 'Left to pay', bold: true), buildAmountWidget(facts.cashDue, size: 10)),
+          if (sellerName.isNotEmpty) ...[
+            rule(),
+            pair(words(options.isArabic ? 'البائع' : 'Seller'), words(sellerName, bold: true)),
+          ],
           pw.SizedBox(height: 6),
           pw.Center(
             child: pw.BarcodeWidget(
@@ -1385,14 +1368,18 @@ class InvoicePdfBuilder {
             12 * PdfPageFormat.mm,
           ),
           theme: pw.ThemeData.withFont(base: fontReg, bold: fontBold),
-          footer: (_) => buildFooter(),
+          // The signatures at the foot of the page: nearly every invoice is
+          // one page (2,747 of 2,767 on the 27 Oct copy hold six lines or
+          // fewer); one of more pages is signed on each.
+          footer: (_) => pw.Column(
+            mainAxisSize: pw.MainAxisSize.min,
+            children: [buildSignatures(), buildFooter()],
+          ),
           build: (ctx) => [
             buildHeader(),
-            pw.SizedBox(height: 8),
-            buildInfoStrip(),
             pw.SizedBox(height: 10),
             buildHeroTotal(),
-            pw.SizedBox(height: 14),
+            pw.SizedBox(height: 10),
             pw.Align(
               alignment: options.isArabic
                   ? pw.Alignment.centerRight
@@ -1442,7 +1429,6 @@ class InvoicePdfBuilder {
               pw.SizedBox(height: 8),
               buildPayments(),
             ],
-            buildSignatures(),
           ],
         ),
       );
