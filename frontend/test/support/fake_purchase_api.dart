@@ -98,6 +98,11 @@ class FakePurchaseApi extends ApiService {
   Object? previewRefusal;
   final previewed = <Map<String, dynamic>>[];
 
+  /// Answers in turn, each after its delay -- an earlier request answered
+  /// after a later one (the screen keeps the latest). When none is left, the
+  /// [preview] at once.
+  final previewScript = <(Duration, Map<String, dynamic>)>[];
+
   @override
   Future<Map<String, dynamic>> previewSupplierPurchase(
     Map<String, dynamic> invoice,
@@ -105,6 +110,11 @@ class FakePurchaseApi extends ApiService {
     previewed.add(invoice);
     final refusal = previewRefusal;
     if (refusal != null) throw refusal;
+    if (previewScript.isNotEmpty) {
+      final (delay, answer) = previewScript.removeAt(0);
+      await Future<void>.delayed(delay);
+      return answer;
+    }
     return preview;
   }
 

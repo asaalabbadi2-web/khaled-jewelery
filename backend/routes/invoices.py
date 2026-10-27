@@ -3235,6 +3235,9 @@ def preview_supplier_purchase():
             'invoice': {'cash': owed.cash, 'gold_main': main(owed.gold_by_karat),
                         'gold_by_karat': {k: round(v, 3) for k, v in owed.gold_by_karat.items()}},
             'paid': {'cash': paid.cash, 'gold_main': main(paid.gold_by_karat)},
+            # What this invoice still leaves owed: what it adds less what is paid with it.
+            'remaining': {'cash': round(owed.cash - paid.cash, 2),
+                          'gold_main': round(main(owed.gold_by_karat) - main(paid.gold_by_karat), 3)},
             'after': {'cash': round(now_cash - owed.cash + paid.cash, 2), 'gold_main': main(after_gold)},
         })
     except MainKaratNotSet:

@@ -196,6 +196,7 @@ def test_the_preview_of_a_cash_payment_with_the_invoice(auth_headers, world):
                    payments=[{'payment_method_id': method.id, 'amount': 1000.0}])
     preview, after = _saved_after_preview(auth_headers, world, payload)
     assert preview['paid']['cash'] == 1000.0
+    assert preview['remaining']['cash'] == 0.0, 'paid in full'
     assert (preview['after']['cash'], preview['after']['gold_main']) == after
 
 
@@ -207,6 +208,10 @@ def test_the_preview_of_gold_paid_with_the_invoice(auth_headers, world):
                    gold_settlements=[{'safe_box_id': world['display'].id, 'karat': 21, 'weight': 5.0}])
     preview, after = _saved_after_preview(auth_headers, world, payload)
     assert preview['paid']['gold_main'] > 0
+    # What it still leaves owed: what it adds less what is paid -- the server's.
+    assert preview['remaining']['gold_main'] == round(
+        preview['invoice']['gold_main'] - preview['paid']['gold_main'], 3)
+    assert preview['remaining']['cash'] == round(preview['invoice']['cash'] - preview['paid']['cash'], 2)
     assert (preview['after']['cash'], preview['after']['gold_main']) == after
 
 

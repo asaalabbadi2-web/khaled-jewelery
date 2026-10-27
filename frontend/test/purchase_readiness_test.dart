@@ -29,6 +29,8 @@ void main() {
     bool goldSafesAvailable = true,
     int? forcedGoldSafeId,
     bool autoPostInvoices = true,
+    bool effectPending = false,
+    bool cashDueKnown = true,
   }) => PurchaseReadinessFacts(
     branchChosen: branchChosen,
     supplierChosen: supplierChosen,
@@ -45,7 +47,40 @@ void main() {
     goldSafesAvailable: goldSafesAvailable,
     forcedGoldSafeId: forcedGoldSafeId,
     autoPostInvoices: autoPostInvoices,
+    effectPending: effectPending,
+    cashDueKnown: cashDueKnown,
   );
+
+  // ADR-060 ف٣ س٤: what the invoice does to the supplier is the server's.
+  group('the server\'s preview', () {
+    test('while it works it out, nothing is saved', () {
+      final r = check(base(effectPending: true));
+      expect(r.isReady, isFalse);
+      expect(r.message, 'يُحسب أثر الفاتورة على المورد…');
+    });
+
+    test('when it could not say the cash owed, the cash paid is not held to '
+        'it here -- the server holds it at the save', () {
+      final r = check(base(
+        settlement: PurchaseSettlement.partial,
+        cashDue: 0,
+        cashPaid: 500,
+        allowPartialPayments: false,
+        cashDueKnown: false,
+      ));
+      expect(r.isReady, isTrue);
+    });
+
+    test('a known cash owed still holds what is paid', () {
+      final r = check(base(
+        settlement: PurchaseSettlement.partial,
+        cashDue: 100,
+        cashPaid: 500,
+      ));
+      expect(r.isReady, isFalse);
+      expect(r.target, PurchaseReadinessTarget.cashPaid);
+    });
+  });
 
   test('a complete credit purchase is ready', () {
     expect(check(base()).isReady, isTrue);

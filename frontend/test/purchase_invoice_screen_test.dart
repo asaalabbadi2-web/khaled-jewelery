@@ -68,6 +68,19 @@ void main() {
 
   /// Opens the screen from a home route on a wide window, restoring [saved]
   /// as the user's «complete later» invoice.
+  /// The screen asks the server what the invoice does to the supplier a
+  /// moment after the last change, and saves nothing before it answers
+  /// (ADR-060 ف٣ س٤): a test waits for it, as the user does.
+  Future<void> awaitPreview(WidgetTester tester) async {
+    // A late rebuild (a field left with Enter, its number formatted) asks
+    // again after the first wait: wait while the screen still says so.
+    for (var i = 0; i < 5; i++) {
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pumpAndSettle();
+      if (find.textContaining('يُحسب أثر الفاتورة').evaluate().isEmpty) break;
+    }
+  }
+
   Future<void> open(
     WidgetTester tester, {
     required FakePurchaseApi api,
@@ -129,7 +142,9 @@ void main() {
       await tester.tap(find.text('استعادة'));
       await tester.pumpAndSettle();
     }
+    await awaitPreview(tester);
   }
+
 
   /// Frames enough for dialogs and the fake server; a save in flight spins,
   /// so pumpAndSettle would never return.
@@ -217,7 +232,7 @@ void main() {
 
     await tester.enterText(find.widgetWithText(TextField, '18.00'), '20');
     await tester.testTextInput.receiveAction(TextInputAction.done);
-    await tester.pumpAndSettle();
+    await awaitPreview(tester);
 
     await pressCtrlS(tester);
     expect(find.text('مراجعة فاتورة شراء'), findsOneWidget);
@@ -312,7 +327,7 @@ void main() {
           await open(tester, api: api, saved: draft(supplierId: 1));
 
           await tester.tap(find.text('بلا ضريبة'));
-          await tester.pumpAndSettle();
+          await awaitPreview(tester);
           expect(find.text('غُيِّر لهذه الفاتورة'), findsOneWidget);
 
           await pressCtrlS(tester);
@@ -424,6 +439,7 @@ void main() {
       WidgetTester tester,
       FakePurchaseApi api,
     ) async {
+      await awaitPreview(tester);
       await pressCtrlS(tester);
       await tester.tap(find.text('حفظ الفاتورة').last);
       await settle(tester);
@@ -749,9 +765,10 @@ void main() {
     await tester.tap(footerSave());
     await settle(tester);
 
-    expect(api.previewed, hasLength(1));
-    expect(api.previewed.single['supplier_id'], 1);
-    expect(api.previewed.single['invoice_type'], 'شراء');
+    // Asked while it is written, and again by the review: the save's request.
+    expect(api.previewed, isNotEmpty);
+    expect(api.previewed.last['supplier_id'], 1);
+    expect(api.previewed.last['invoice_type'], 'شراء');
     Finder inEffects(Finder f) => find.descendant(
       of: find.byKey(const Key('invoice-review-effects')),
       matching: f,
@@ -772,10 +789,124 @@ void main() {
 
     expect(find.byKey(const Key('invoice-review')), findsOneWidget);
     expect(
-      find.textContaining('تعذّر حساب أثر الفاتورة على المورد من الخادم'),
+      find.descendant(
+        of: find.byKey(const Key('invoice-review')),
+        matching: find.textContaining('تعذّر حساب أثر الفاتورة على المورد من الخادم'),
+      ),
       findsOneWidget,
     );
     expect(find.byKey(const Key('invoice-review-effects')), findsNothing);
+  });
+
+  // ADR-060 ف٣ س٤: while the invoice is written, what it does to the supplier
+  // is the server's -- asked a moment after the last change; nothing saved
+  // before it answers; its refusal said, the save kept (the owner, 27 Oct).
+  group('what the invoice does to the supplier, while it is written', () {
+    Map<String, dynamic> answer(double cash, double gold) => {
+      'invoice': {'cash': cash, 'gold_main': gold},
+      'paid': {'cash': 0.0, 'gold_main': 0.0},
+      'remaining': {'cash': cash, 'gold_main': gold},
+      'now': {'cash': 0.0, 'gold_main': 0.0},
+      'after': {'cash': -cash, 'gold_main': -gold},
+    };
+
+    Finder inOwed(Finder f) => find.descendant(
+      of: find.byKey(const Key('purchase-owed-figures')),
+      matching: f,
+    );
+
+    /// A wage typed in the line's cell and committed with Enter, as the user
+    /// does -- the invoice takes a cell's value when it is committed.
+    Future<void> typeWage(WidgetTester tester, Finder cell, String value) async {
+      await tester.enterText(cell, value);
+      await tester.testTextInput.receiveAction(TextInputAction.done);
+    }
+
+    /// The line's wage cell, found by its controller: its text changes.
+    Finder wageCell(WidgetTester tester) {
+      final controller = tester
+          .widget<TextField>(find.widgetWithText(TextField, '18.00'))
+          .controller;
+      return find.byWidgetPredicate(
+        (w) => w is TextField && w.controller == controller,
+      );
+    }
+
+    testWidgets('the summary says the server\'s figures', (tester) async {
+      final api = FakePurchaseApi()..preview = answer(777.0, 12.345);
+      await open(tester, api: api, saved: draft());
+      expect(inOwed(find.textContaining('777.00')), findsOneWidget);
+      expect(inOwed(find.textContaining('12.345')), findsOneWidget);
+    });
+
+    testWidgets('it is asked once a moment after the typing, not per change', (
+      tester,
+    ) async {
+      final api = FakePurchaseApi();
+      await open(tester, api: api, saved: draft());
+      final before = api.previewed.length;
+      final wage = wageCell(tester);
+      for (final value in ['19', '20', '21']) {
+        await typeWage(tester, wage, value);
+        await tester.pump(const Duration(milliseconds: 100));
+      }
+      await awaitPreview(tester);
+      expect(api.previewed.length, before + 1);
+    });
+
+    testWidgets('an earlier answer that comes late does not undo a later one', (
+      tester,
+    ) async {
+      final api = FakePurchaseApi()..preview = answer(100.0, 1.0);
+      await open(tester, api: api, saved: draft());
+      api.previewScript
+        ..add((const Duration(seconds: 2), answer(111.0, 1.0)))
+        ..add((Duration.zero, answer(222.0, 2.0)));
+      final wage = wageCell(tester);
+      await typeWage(tester, wage, '19');
+      await tester.pump(const Duration(milliseconds: 400)); // the first asked
+      await typeWage(tester, wage, '20');
+      await tester.pump(const Duration(milliseconds: 400)); // the second asked
+      await tester.pump(const Duration(seconds: 3)); // the first comes late
+      await tester.pumpAndSettle();
+      expect(inOwed(find.textContaining('222.00')), findsOneWidget);
+      expect(inOwed(find.textContaining('111.00')), findsNothing);
+    });
+
+    testWidgets('nothing is saved before it answers', (tester) async {
+      final api = FakePurchaseApi();
+      await open(tester, api: api, saved: draft());
+      api.previewScript.add((const Duration(seconds: 5), answer(100.0, 1.0)));
+      await typeWage(tester, wageCell(tester), '20');
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(find.textContaining('يُحسب أثر الفاتورة على المورد'), findsWidgets);
+      expect(find.byKey(const Key('purchase-effect-note')), findsWidgets);
+
+      await pressCtrlS(tester);
+      expect(find.byKey(const Key('invoice-review')), findsNothing);
+      await tester.pump(const Duration(seconds: 5));
+      await tester.pumpAndSettle();
+    });
+
+    testWidgets('when the server cannot say it, it is said and the save kept', (
+      tester,
+    ) async {
+      final api = FakePurchaseApi()
+        ..previewRefusal = ApiException.text('العيار الرئيسي غير مضبوط في الإعدادات');
+      await open(tester, api: api, saved: draft());
+      expect(inOwed(find.text('—')), findsWidgets);
+      expect(
+        find.textContaining('تعذّر حساب أثر الفاتورة على المورد من الخادم'),
+        findsWidgets,
+      );
+      expect(find.text('جاهز للحفظ'), findsOneWidget);
+    });
+
+    testWidgets('a supplier return keeps its own reading', (tester) async {
+      final api = FakePurchaseApi();
+      await open(tester, api: api, saved: draft(), supplierReturn: true);
+      expect(api.previewed, isEmpty);
+    });
   });
 
   // ADR-060 ف٠: after the save, what the server saved -- its number, what was

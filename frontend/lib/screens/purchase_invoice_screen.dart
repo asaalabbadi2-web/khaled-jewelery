@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
 
@@ -1448,8 +1449,149 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
     }
   }
 
+  // ADR-060 ف٣ س٤: what the invoice does to the supplier, as the server works
+  // it out while the invoice is written -- its preview of the save's own
+  // request, asked a moment after the last change. The screen worked it out
+  // itself in four places (the save conditions, the partial settlement table,
+  // the barter inputs, the summary card). A supplier return keeps its own
+  // reading (ADR-059).
+  Map<String, dynamic>? _preview;
+  String? _previewError;
+  bool _previewPending = false;
+  String? _previewAsked;
+  int _previewSeq = 0;
+  Timer? _previewTimer;
+  static const _previewDelay = Duration(milliseconds: 350);
+
+  bool get _previewApplies =>
+      !_isSupplierReturnMode &&
+      _selectedSupplierId != null &&
+      _inlineItems.isNotEmpty;
+
+  /// From build: the request the save would send, without its clock; asked
+  /// again only when it changed, a moment after the last change.
+  void _keepPreviewCurrent() {
+    if (!_previewApplies) {
+      _previewTimer?.cancel();
+      _previewAsked = null;
+      _preview = null;
+      _previewError = null;
+      _previewPending = false;
+      return;
+    }
+    final asked = jsonEncode(_buildInvoicePayload()..remove('date'));
+    if (asked == _previewAsked) return;
+    _previewAsked = asked;
+    _previewPending = true;
+    // A later change makes an earlier answer stale: only the latest counts.
+    final seq = ++_previewSeq;
+    _previewTimer?.cancel();
+    _previewTimer = Timer(_previewDelay, () => _askPreview(seq));
+  }
+
+  Future<void> _askPreview(int seq) async {
+    try {
+      final preview = await _api.previewSupplierPurchase(
+        _buildInvoicePayload(),
+      );
+      if (!mounted || seq != _previewSeq) return;
+      setState(() {
+        _preview = preview;
+        _previewError = null;
+        _previewPending = false;
+      });
+    } catch (e) {
+      if (!mounted || seq != _previewSeq) return;
+      setState(() {
+        _preview = null;
+        _previewError = AppFeedback.messageOf(e);
+        _previewPending = false;
+      });
+    }
+  }
+
+  /// One of the preview's figures ('invoice', 'paid', 'remaining', 'now',
+  /// 'after'): cash and grams at the main karat -- null until the server said
+  /// it for the invoice as it stands.
+  ({double cash, double goldMain})? _previewFigure(String key) {
+    final preview = _preview;
+    if (preview == null) return null;
+    final figure = preview[key];
+    if (figure is! Map) return null;
+    double read(Object? v) => (v as num?)?.toDouble() ?? 0.0;
+    return (cash: read(figure['cash']), goldMain: read(figure['gold_main']));
+  }
+
+  /// What the invoice puts on the supplier, what is paid with it and what it
+  /// leaves -- the server's preview for a purchase (its last answer, dimmed
+  /// while a newer one is asked), the screen's own reading for a supplier
+  /// return (ADR-059). Null when the server has not said it, or could not.
+  ({double dueCash, double dueGold, double paidGold, double leftCash, double leftGold})?
+  _owed() {
+    if (!_previewApplies) {
+      final dueCash = _cashDueForSupplier();
+      final dueGold = _supplierMainEquivalentWeight();
+      final paidGold = _goldPaidMainEquivalent();
+      return (
+        dueCash: dueCash,
+        dueGold: dueGold,
+        paidGold: paidGold,
+        leftCash: _round(dueCash - _cashPaid(), 2),
+        leftGold: _round(dueGold - paidGold, 3),
+      );
+    }
+    final invoice = _previewFigure('invoice');
+    final paid = _previewFigure('paid');
+    final left = _previewFigure('remaining');
+    if (invoice == null || paid == null || left == null) return null;
+    return (
+      dueCash: invoice.cash,
+      dueGold: invoice.goldMain,
+      paidGold: paid.goldMain,
+      leftCash: left.cash,
+      leftGold: left.goldMain,
+    );
+  }
+
+  /// The figures, dimmed while the server works out a newer answer, with what
+  /// is happening said: «يُحدَّث…», or why there are none.
+  Widget _owedFigures(Widget figures) {
+    if (!_previewApplies) return figures;
+    final theme = Theme.of(context);
+    // The server's words (AppFeedback.messageOf), not the exception's.
+    final refusal = _previewError;
+    final note = refusal != null
+        ? 'تعذّر حساب أثر الفاتورة على المورد من الخادم: $refusal'
+        : (_previewPending ? 'يُحدَّث…' : null);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        AnimatedOpacity(
+          opacity: _previewPending ? 0.45 : 1,
+          duration: const Duration(milliseconds: 150),
+          child: figures,
+        ),
+        if (note != null)
+          Padding(
+            padding: const EdgeInsets.only(top: 4),
+            child: Text(
+              note,
+              key: const Key('purchase-effect-note'),
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: refusal != null
+                    ? theme.colorScheme.error
+                    : theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
   @override
   void dispose() {
+    _previewTimer?.cancel();
     _cashPaidController.dispose();
     _goldPaidWeightController.dispose();
     _gold24kCommissionPerGramController.dispose();
@@ -2207,7 +2349,9 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
           _PurchaseSettlementMode.barter => PurchaseSettlement.barter,
           _PurchaseSettlementMode.partial => PurchaseSettlement.partial,
         },
-        cashDue: _cashDueForSupplier(),
+        cashDue: _previewApplies
+            ? (_previewFigure('invoice')?.cash ?? 0.0)
+            : _cashDueForSupplier(),
         cashPaid: _cashPaid(),
         paymentMethodsAvailable: _paymentMethods.isNotEmpty,
         paymentMethodChosen: _selectedPaymentMethodId != null,
@@ -2218,6 +2362,8 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
             ? _employeeGoldSafeId
             : null,
         autoPostInvoices: _autoPostInvoices,
+        effectPending: _previewApplies && _previewPending,
+        cashDueKnown: !_previewApplies || _previewFigure('invoice') != null,
       ),
       formatCash: _formatCurrency,
     );
@@ -2799,6 +2945,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
     final size = MediaQuery.of(context).size;
     final isWideLayout = size.width >= 1100;
 
+    _keepPreviewCurrent();
     final readiness = _readiness();
 
     final leftColumn = <Widget>[
@@ -3527,13 +3674,15 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
   }
 
   Widget _buildPartialSettlementMiniTable() {
-    final dueCash = _cashDueForSupplier();
-    final dueGoldMain = _supplierMainEquivalentWeight();
+    // The server's (ADR-060 ف٣ س٤); «—» while it has not said it.
+    final owed = _owed();
     final paidCash = _cashPaid();
-    final paidGoldMain = _goldPaidMainEquivalent();
-
-    final remainingCash = _round(dueCash - paidCash, 2);
-    final remainingGold = _round(dueGoldMain - paidGoldMain, 3);
+    String money(double? v) => v == null ? '—' : _formatCurrency(v);
+    String grams(double? v) => v == null ? '—' : _formatWeight(v);
+    final dueCash = owed?.dueCash;
+    final dueGoldMain = owed?.dueGold;
+    final remainingCash = owed?.leftCash ?? 0.0;
+    final remainingGold = owed?.leftGold ?? 0.0;
 
     final theme = Theme.of(context);
     final paidColor = theme.colorScheme.tertiary;
@@ -3572,7 +3721,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
           style: TextStyle(fontWeight: FontWeight.bold),
         ),
         const SizedBox(height: 10),
-        Table(
+        _owedFigures(Table(
           columnWidths: const {
             0: FlexColumnWidth(1.2),
             1: FlexColumnWidth(1.0),
@@ -3595,7 +3744,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
             TableRow(
               children: [
                 valueCell('نقد'),
-                valueCell(_formatCurrency(dueCash)),
+                valueCell(money(dueCash)),
                 Padding(
                   padding: const EdgeInsets.symmetric(
                     vertical: 6,
@@ -3623,7 +3772,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
                   ),
                 ),
                 valueCell(
-                  _formatCurrency(remainingCash),
+                  money(owed?.leftCash),
                   color: remainingCash.abs() > 0.01 ? remainingColor : null,
                   fontWeight: remainingCash.abs() > 0.01
                       ? FontWeight.w800
@@ -3634,7 +3783,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
             TableRow(
               children: [
                 valueCell('ذهب (مكافئ)'),
-                valueCell(_formatWeight(dueGoldMain)),
+                valueCell(grams(dueGoldMain)),
                 Padding(
                   padding: const EdgeInsets.symmetric(
                     vertical: 6,
@@ -3668,7 +3817,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
                   ),
                 ),
                 valueCell(
-                  _formatWeight(remainingGold),
+                  grams(owed?.leftGold),
                   color: remainingGold.abs() > 0.0005 ? remainingColor : null,
                   fontWeight: remainingGold.abs() > 0.0005
                       ? FontWeight.w800
@@ -3677,16 +3826,16 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
               ],
             ),
           ],
-        ),
+        )),
         _buildGoldSettlementsEditor(requiredSettlement: false),
       ],
     );
   }
 
   Widget _buildBarterSettlementInputs() {
-    final dueGoldMain = _supplierMainEquivalentWeight();
-    final paidGoldMain = _goldPaidMainEquivalent();
-    final remainingGold = _round(dueGoldMain - paidGoldMain, 3);
+    // The server's (ADR-060 ف٣ س٤); «—» while it has not said it.
+    final owed = _owed();
+    String grams(double? v) => v == null ? '—' : _formatWeight(v);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -3718,9 +3867,12 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
         ),
         _buildGoldSettlementsEditor(requiredSettlement: true),
         const SizedBox(height: 10),
-        Text(
-          'المستحق (مكافئ): ${_formatWeight(dueGoldMain)} | المدفوع (مكافئ): ${_formatWeight(paidGoldMain)} | المتبقي: ${_formatWeight(remainingGold)}',
-          style: Theme.of(context).textTheme.bodySmall,
+        _owedFigures(
+          Text(
+            'المستحق (مكافئ): ${grams(owed?.dueGold)} | المدفوع (مكافئ): ${grams(owed?.paidGold)} | المتبقي: ${grams(owed?.leftGold)}',
+            key: const Key('purchase-barter-figures'),
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
         ),
       ],
     );
@@ -3734,8 +3886,8 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
   Widget _buildSummaryCard() {
     final theme = Theme.of(context);
     final mainKarat = _mainKaratFromSettings();
-    final goldOwed = _supplierMainEquivalentWeight();
-    final cashOwed = _cashDueForSupplier();
+    // The server's (ADR-060 ف٣ س٤); «—» while it has not said it.
+    final owed = _owed();
     final byKarat = _aggregateInlineWeightByKarat();
 
     return Card(
@@ -3751,23 +3903,26 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
               style: theme.textTheme.titleMedium,
             ),
             const SizedBox(height: 12),
-            Wrap(
-              spacing: 12,
-              runSpacing: 12,
-              children: [
-                _buildMetricTile(
-                  icon: Icons.balance,
-                  label: 'ذهب (مكافئ عيار $mainKarat)',
-                  value: _formatWeight(goldOwed),
-                  iconColor: theme.colorScheme.primary,
-                ),
-                _buildMetricTile(
-                  icon: Icons.payments_outlined,
-                  label: 'نقد (أجور وضريبة)',
-                  value: _formatCurrency(cashOwed),
-                  iconColor: theme.colorScheme.tertiary,
-                ),
-              ],
+            _owedFigures(
+              Wrap(
+                key: const Key('purchase-owed-figures'),
+                spacing: 12,
+                runSpacing: 12,
+                children: [
+                  _buildMetricTile(
+                    icon: Icons.balance,
+                    label: 'ذهب (مكافئ عيار $mainKarat)',
+                    value: owed == null ? '—' : _formatWeight(owed.dueGold),
+                    iconColor: theme.colorScheme.primary,
+                  ),
+                  _buildMetricTile(
+                    icon: Icons.payments_outlined,
+                    label: 'نقد (أجور وضريبة)',
+                    value: owed == null ? '—' : _formatCurrency(owed.dueCash),
+                    iconColor: theme.colorScheme.tertiary,
+                  ),
+                ],
+              ),
             ),
             const SizedBox(height: 16),
             _buildVatDecision(),

@@ -81,6 +81,15 @@ class PurchaseReadinessFacts {
   /// no gold settlement on an unposted invoice.
   final bool autoPostInvoices;
 
+  /// The server is working out what the invoice does to the supplier (its
+  /// live preview, ADR-060 ف٣): nothing is saved on a figure not yet its
+  /// answer to the invoice as it stands (the owner, 27 Oct 2026).
+  final bool effectPending;
+
+  /// [cashDue] is known. When the server could not say it, the cash paid is
+  /// not held to it here -- the server holds it at the save.
+  final bool cashDueKnown;
+
   const PurchaseReadinessFacts({
     required this.branchChosen,
     required this.supplierChosen,
@@ -97,6 +106,8 @@ class PurchaseReadinessFacts {
     this.goldSafesAvailable = true,
     this.forcedGoldSafeId,
     this.autoPostInvoices = true,
+    this.effectPending = false,
+    this.cashDueKnown = true,
   });
 }
 
@@ -182,9 +193,17 @@ PurchaseReadiness purchaseReadiness(
     );
   }
 
+  if (facts.effectPending) {
+    return notReady(
+      'يُحسب أثر الفاتورة على المورد…',
+      PurchaseReadinessTarget.none,
+    );
+  }
+
   // Cash is sent only for a partial settlement (the payload's rule).
   if (facts.settlement == PurchaseSettlement.partial && facts.cashPaid > 0) {
-    if (facts.cashPaid - facts.cashDue > kPurchaseCashTolerance) {
+    if (facts.cashDueKnown &&
+        facts.cashPaid - facts.cashDue > kPurchaseCashTolerance) {
       return notReady(
         'المدفوع نقدًا أكبر من النقد المستحق (${formatCash(facts.cashDue)})',
         PurchaseReadinessTarget.cashPaid,
@@ -196,7 +215,9 @@ PurchaseReadiness purchaseReadiness(
         PurchaseReadinessTarget.paymentMethod,
       );
     }
-    final isPartial = facts.cashDue - facts.cashPaid > kPurchaseCashTolerance;
+    final isPartial =
+        facts.cashDueKnown &&
+        facts.cashDue - facts.cashPaid > kPurchaseCashTolerance;
     if (isPartial && !facts.allowPartialPayments) {
       return notReady(
         'الدفع النقدي الجزئي غير مفعّل في الإعدادات؛ '
