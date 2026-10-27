@@ -232,6 +232,17 @@ def _is_receivable_pm(pm) -> bool:
         return False
 
 
+def _carried_by_its_voucher(pay) -> bool:
+    """The payment's voucher (source_voucher_id) has its own standing entry."""
+    from models import Voucher
+    voucher_id = getattr(pay, 'source_voucher_id', None)
+    voucher = Voucher.query.get(int(voucher_id)) if voucher_id else None
+    if voucher is None or not voucher.journal_entry_id:
+        return False
+    entry = JournalEntry.query.get(int(voucher.journal_entry_id))
+    return entry is not None and not entry.is_deleted
+
+
 def _create_deferred_payment_entries(invoice: Invoice, posted_by: str) -> None:
     """
     عند ترحيل فاتورة كانت محفوظة بوضع 'غير مرحّلة' (unposted_mode):
@@ -278,6 +289,13 @@ def _create_deferred_payment_entries(invoice: Invoice, posted_by: str) -> None:
         except Exception:
             pay_id = 0
         if pay_id <= 0:
+            continue
+
+        # A payment carried by its own voucher is in the books already: the
+        # voucher's entry paid it and its safe row says so. A reservation's
+        # deposit is one (Phase 9C); posting its purchase paid it again
+        # (RES-...-0038, 26 Oct 2026: 53,123.62 out of the main cash twice).
+        if _carried_by_its_voucher(pay):
             continue
 
         # ── SafeBoxTransaction idempotency ──
