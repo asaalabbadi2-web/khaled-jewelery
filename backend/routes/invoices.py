@@ -4131,6 +4131,7 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
     # value, settled in gold. The one formula: models.purchase_cash_obligation.
     payable_total = data_total
     payable_label = 'إجمالي الفاتورة'
+    from services.supplier_purchase_effect import purchase_wage as _purchase_wage
     if invoice_type == 'شراء':
         try:
             _payable_supplier = Supplier.query.get(int(data['supplier_id'])) if data.get('supplier_id') else None
@@ -4140,7 +4141,8 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
             invoice_type=invoice_type,
             office_id=data.get('office_id') or None,
             total=data_total,
-            wage_subtotal=_to_float_request(data.get('wage_subtotal', 0.0)),
+            # The wage the supplier's entry posts -- one reading (ADR-060).
+            wage_subtotal=_purchase_wage(data),
             wage_tax_total=_to_float_request(data.get('wage_tax_total', 0.0)),
             gold_tax_total=_to_float_request(data.get('gold_tax_total', 0.0)),
             supplier=_payable_supplier,
@@ -4472,7 +4474,9 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
             total_tax=_extract_float('total_tax'),
             total_cost=_extract_float('total_cost'),
             gold_subtotal=_extract_float('gold_subtotal'),
-            wage_subtotal=_extract_float('wage_subtotal'),
+            # A supplier purchase keeps the wage its entry posts (ADR-060).
+            wage_subtotal=(_purchase_wage(data) if invoice_type == 'شراء'
+                           else _extract_float('wage_subtotal')),
             gold_tax_total=_extract_float('gold_tax_total'),
             wage_tax_total=_extract_float('wage_tax_total'),
             apply_gold_tax=bool(data.get('apply_gold_tax', False)),

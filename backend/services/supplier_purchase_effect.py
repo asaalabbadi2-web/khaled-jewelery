@@ -53,6 +53,22 @@ def _weights(lines) -> dict:
     return out
 
 
+def purchase_wage(data: dict) -> float:
+    """A supplier purchase's wage, as its entry posts it -- the one reading
+    (ADR-060): the payment check, the invoice's stored wage_subtotal and the
+    supplier's entry all take it. They read wage_subtotal alone, the entry
+    manufacturing_wage_cash first; a wage named only so was posted and never
+    known to be owed."""
+    return coerce_float(
+        data.get('manufacturing_wage_cash')
+        or data.get('wage_cash')
+        or data.get('total_wage')
+        or data.get('wage_subtotal')
+        or 0,
+        0.0,
+    )
+
+
 @dataclass(frozen=True)
 class SupplierPurchaseOwed:
     """What the invoice adds to the supplier. Amounts are as the request says
@@ -114,14 +130,7 @@ def supplier_purchase_owed(data: dict, *, items_gold_by_karat: dict,
 
     return SupplierPurchaseOwed(
         gold_vat=coerce_float(data.get('gold_tax_total', 0), 0.0),
-        wage=coerce_float(
-            data.get('manufacturing_wage_cash')
-            or data.get('wage_cash')
-            or data.get('total_wage')
-            or data.get('wage_subtotal')
-            or 0,
-            0.0,
-        ),
+        wage=purchase_wage(data),
         wage_vat=coerce_float(data.get('wage_tax_total', 0), 0.0),
         stones=float(priced_stones_value or 0.0),
         stones_vat=float(priced_stones_tax or 0.0),

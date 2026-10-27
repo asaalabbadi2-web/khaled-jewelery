@@ -21,7 +21,7 @@ import pytest
 from sqlalchemy import func
 
 from app import app as flask_app
-from models import Account, JournalEntry, JournalEntryLine, PaymentMethod, SafeBox, Settings, Supplier, db
+from models import Account, Invoice, JournalEntry, JournalEntryLine, PaymentMethod, SafeBox, Settings, Supplier, db
 from services.supplier_purchase_effect import supplier_purchase_owed
 
 KARATS = ('18', '21', '22', '24')
@@ -190,8 +190,7 @@ def test_the_preview_of_a_cash_payment_with_the_invoice(auth_headers, world):
     build, _ = SHAPES['items only, no VAT']
     payload = build(world)
     # The cash owed in full (the wage, 1,000): partial payments are off by default.
-    # The wage under every name the screen sends it: the payment check reads
-    # wage_subtotal alone (ADR-060 Known follow-ups).
+    # The wage under every name, as the screen sends it.
     payload.update(settlement_method='partial', amount_paid=1000.0, wage_subtotal=1000.0,
                    wage_cash=1000.0,
                    payments=[{'payment_method_id': method.id, 'amount': 1000.0}])
@@ -223,3 +222,46 @@ def test_a_preview_needs_a_named_supplier(auth_headers):
                                         json={'invoice_type': 'شراء', 'items': []})
     assert resp.status_code == 400
     assert resp.get_json()['error'] == 'supplier_required'
+
+
+# ---- one wage: the one the supplier's entry posts (ADR-060 Known follow-ups) ----
+# The payment check and the invoice's stored wage read wage_subtotal alone, the
+# supplier's entry manufacturing_wage_cash first: a wage named only the second
+# way was posted to the supplier, and the invoice neither took its payment nor
+# knew it was owed.
+
+def _cash_method():
+    method = PaymentMethod(name=f'نقدًا {_uid()}', payment_type='cash')
+    db.session.add(method)
+    db.session.flush()
+    return method
+
+
+def test_a_wage_named_as_the_entry_reads_it_is_paid_and_kept(auth_headers, world):
+    method = _cash_method()
+    build, _ = SHAPES['items only, no VAT']   # the wage as manufacturing_wage_cash only
+    payload = build(world)
+    assert 'wage_subtotal' not in payload
+    payload.update(settlement_method='partial', amount_paid=1000.0,
+                   payments=[{'payment_method_id': method.id, 'amount': 1000.0}])
+    resp = flask_app.test_client().post('/api/invoices', headers=auth_headers, json=payload)
+    assert resp.status_code == 201, resp.get_data(as_text=True)[:400]
+    db.session.expire_all()
+    invoice = db.session.get(Invoice, resp.get_json()['id'])
+    assert invoice.wage_subtotal == 1000.0
+    assert invoice.cash_obligation == 1000.0
+    assert invoice.status == 'paid'
+
+
+def test_when_the_names_differ_the_invoice_wage_is_the_posted_one(auth_headers, world):
+    build, _ = SHAPES['items only, no VAT']
+    payload = build(world)
+    payload['wage_subtotal'] = 800.0   # the entry posts manufacturing_wage_cash, 1,000
+    resp = flask_app.test_client().post('/api/invoices', headers=auth_headers, json=payload)
+    assert resp.status_code == 201, resp.get_data(as_text=True)[:400]
+    db.session.expire_all()
+    cash, _ = _moved(resp.get_json()['id'], world['accounts'].financial.id)
+    invoice = db.session.get(Invoice, resp.get_json()['id'])
+    assert cash == 1000.0
+    assert invoice.wage_subtotal == 1000.0
+    assert invoice.cash_obligation == 1000.0
