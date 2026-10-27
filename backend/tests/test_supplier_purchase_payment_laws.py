@@ -171,7 +171,8 @@ def test_gold_a_stock_safe_does_not_hold_is_refused(auth_headers, world):
     assert body['error'] == 'gold_safe_short'
     assert (body['safe_box_id'], body['karat'], body['weight']) == (safe.id, 21, 5.0)
     # Its balance is not the seller's (ADR-036): the refusal does not say it.
-    assert 'held' not in body and '3' not in body['message']
+    # (Its 3 g as the message writes grams -- the safe's random name may hold a 3.)
+    assert 'held' not in body and '3.000' not in body['message']
 
 
 def test_two_lines_on_one_safe_are_held_together(auth_headers, world):
