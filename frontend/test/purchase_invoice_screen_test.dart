@@ -909,6 +909,127 @@ void main() {
     });
   });
 
+  // ADR-062: what is paid with the purchase is held to what it owes and to
+  // what we hold; the screen fills what is left from the server's figures.
+  group('paying with the purchase', () {
+    Map<String, dynamic> answer({
+      double payable = 300.0,
+      double invoiceCash = 300.0,
+      double goldLeft = 12.5,
+      Map<String, double> goldAt = const {'21': 12.5, '24': 10.938},
+    }) => {
+      'invoice': {'cash': invoiceCash, 'gold_main': 12.5},
+      'payable': {'cash': payable},
+      'paid': {'cash': 0.0, 'gold_main': 12.5 - goldLeft},
+      'remaining': {
+        'cash': invoiceCash,
+        'gold_main': goldLeft,
+        'gold_at_karat': goldAt,
+      },
+      'now': {'cash': 0.0, 'gold_main': 0.0},
+      'after': {'cash': -invoiceCash, 'gold_main': -goldLeft},
+    };
+
+    testWidgets('the ways to settle say what they do', (tester) async {
+      await open(tester, api: FakePurchaseApi(), saved: draft());
+      expect(find.text('سداد ذهب'), findsOneWidget);
+      expect(find.text('نقد وذهب'), findsOneWidget);
+      expect(find.text('مقايضة'), findsNothing);
+      expect(find.text('سداد الآن'), findsNothing);
+    });
+
+    testWidgets('the gold left is filled at the line\'s karat, as the server '
+        'says it', (tester) async {
+      final api = FakePurchaseApi()..preview = answer();
+      await open(
+        tester,
+        api: api,
+        saved: draft(
+          settlement: 'barter',
+          goldSettlements: [
+            {'safe_box_id': 5, 'karat': 21, 'weight': '0.000'},
+          ],
+        ),
+      );
+      await tester.tap(find.byKey(const Key('purchase-settle-gold-left')));
+      await tester.pumpAndSettle();
+      expect(find.widgetWithText(TextFormField, '12.500'), findsOneWidget);
+    });
+
+    testWidgets('nothing is left to fill when the gold is paid', (tester) async {
+      final api = FakePurchaseApi()..preview = answer(goldLeft: 0, goldAt: const {});
+      await open(tester, api: api, saved: draft(settlement: 'barter'));
+      expect(find.byKey(const Key('purchase-settle-gold-left')), findsNothing);
+    });
+
+    testWidgets('the cash is paid in full with one press: what the save takes', (
+      tester,
+    ) async {
+      final api = FakePurchaseApi()..preview = answer();
+      await open(tester, api: api, saved: draft(settlement: 'partial'));
+      await tester.tap(find.byKey(const Key('purchase-pay-cash-in-full')));
+      await tester.pumpAndSettle();
+      expect(find.text('300.00'), findsWidgets);
+      expect(find.widgetWithText(TextFormField, '300.00'), findsOneWidget);
+    });
+
+    testWidgets('a stock safe says what it holds, and gives no more', (
+      tester,
+    ) async {
+      final api = FakePurchaseApi()
+        ..goldSafeHolds = 3.0
+        ..preview = answer();
+      await open(
+        tester,
+        api: api,
+        saved: draft(
+          settlement: 'barter',
+          goldSettlements: [
+            {'safe_box_id': 5, 'karat': 21, 'weight': '5.000'},
+          ],
+        ),
+      );
+      expect(find.textContaining('متاح 3.000'), findsWidgets);
+      expect(
+        find.textContaining('لا يكفي ذهب عيار 21 في خزينة سطر السداد 1'),
+        findsWidgets,
+      );
+    });
+
+    testWidgets('a safe whose balance is not sent says none', (tester) async {
+      final api = FakePurchaseApi()..preview = answer();
+      await open(
+        tester,
+        api: api,
+        saved: draft(
+          settlement: 'barter',
+          goldSettlements: [
+            {'safe_box_id': 5, 'karat': 21, 'weight': '5.000'},
+          ],
+        ),
+      );
+      expect(find.textContaining('متاح'), findsNothing);
+    });
+
+    testWidgets('gold beyond what is owed is not saved', (tester) async {
+      final api = FakePurchaseApi()..preview = answer(goldLeft: -7.5);
+      await open(
+        tester,
+        api: api,
+        saved: draft(
+          settlement: 'barter',
+          goldSettlements: [
+            {'safe_box_id': 5, 'karat': 21, 'weight': '20.000'},
+          ],
+        ),
+      );
+      expect(
+        find.textContaining('الذهب المسدَّد أكبر من الذهب المستحق بـ 7.500'),
+        findsWidgets,
+      );
+    });
+  });
+
   // ADR-060 ف٠: after the save, what the server saved -- its number, what was
   // paid and its payment state; the summary said the total and the weight.
   testWidgets('after the save: the number, what was paid, and what is owed', (

@@ -1,3 +1,5 @@
+import 'currency_utils.dart';
+
 /// Whether a supplier purchase invoice can be saved, and if not, the first
 /// reason and where it is.
 ///
@@ -13,9 +15,10 @@
 /// reservation's purchase) is not saved from this screen -- an edit replaces
 /// the invoice with what the screen sends, and it would drop them.
 ///
-/// Cash is held to the cash the supplier is owed (wages and VAT --
-/// Invoice.cash_obligation, Phase 13), stricter than add_invoice, which
-/// compares payments against the invoice total that includes the gold value.
+/// Cash is held to the cash the save takes with the invoice (wages and VAT --
+/// Invoice.cash_obligation, Phase 13), as the server's preview says it. The
+/// gold paid is held to the gold owed, and a stock safe's gold to what it
+/// holds when its balance is the user's to see (ADR-062).
 enum PurchaseReadinessKind { empty, notReady, ready }
 
 enum PurchaseSettlement { credit, barter, partial }
@@ -45,11 +48,17 @@ class PurchaseGoldLineFacts {
   /// The karat the chosen safe is fixed to, when it is.
   final int? safeFixedKarat;
 
+  /// What the chosen safe holds of this line's karat, when it is one of our
+  /// stock safes and its balance is the user's to see (ADR-036) -- null
+  /// otherwise: the server holds it at the save.
+  final double? safeHolds;
+
   const PurchaseGoldLineFacts({
     required this.safeId,
     required this.karat,
     required this.weight,
     this.safeFixedKarat,
+    this.safeHolds,
   });
 
   bool get isEmpty => safeId == null && weight <= 0;
@@ -90,6 +99,11 @@ class PurchaseReadinessFacts {
   /// not held to it here -- the server holds it at the save.
   final bool cashDueKnown;
 
+  /// The gold the invoice still leaves owed after what is paid with it, at
+  /// the main karat -- the server's (its preview's `remaining`); negative when
+  /// more is paid than owed. Null when it has not said it.
+  final double? goldLeftMain;
+
   const PurchaseReadinessFacts({
     required this.branchChosen,
     required this.supplierChosen,
@@ -108,6 +122,7 @@ class PurchaseReadinessFacts {
     this.autoPostInvoices = true,
     this.effectPending = false,
     this.cashDueKnown = true,
+    this.goldLeftMain,
   });
 }
 
@@ -129,6 +144,9 @@ class PurchaseReadiness {
 
 /// The server's tolerance for a VAT figure and for cash (backend `tol = 0.01`).
 const double kPurchaseCashTolerance = 0.01;
+
+/// The server's tolerance for a weight (three decimals, backend `GRAM`).
+const double kPurchaseGramTolerance = 0.0005;
 
 PurchaseReadiness purchaseReadiness(
   PurchaseReadinessFacts facts, {
@@ -276,6 +294,33 @@ PurchaseReadiness purchaseReadiness(
       if (fixed != null && fixed != line.karat) {
         return notReady(
           'خزينة سطر السداد $n لعيار $fixed فقط',
+          PurchaseReadinessTarget.goldLine,
+          i,
+        );
+      }
+    }
+
+    final left = facts.goldLeftMain;
+    if (used.isNotEmpty && left != null && left < -kPurchaseGramTolerance) {
+      return notReady(
+        'الذهب المسدَّد أكبر من الذهب المستحق بـ ${formatGrams(-left)} جم',
+        PurchaseReadinessTarget.goldLine,
+        used.last,
+      );
+    }
+
+    // A safe gives what it holds, its lines together (the server's sum).
+    final wanted = <String, double>{};
+    for (final i in used) {
+      final line = facts.goldLines[i];
+      final holds = line.safeHolds;
+      if (holds == null) continue;
+      final key = '${line.safeId}_${line.karat}';
+      wanted[key] = (wanted[key] ?? 0) + line.weight;
+      if (wanted[key]! - holds > kPurchaseGramTolerance) {
+        return notReady(
+          'لا يكفي ذهب عيار ${line.karat} في خزينة سطر السداد ${i + 1} '
+          '(المتاح ${formatGrams(holds)} جم)',
           PurchaseReadinessTarget.goldLine,
           i,
         );

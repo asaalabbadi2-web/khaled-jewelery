@@ -31,6 +31,7 @@ void main() {
     bool autoPostInvoices = true,
     bool effectPending = false,
     bool cashDueKnown = true,
+    double? goldLeftMain,
   }) => PurchaseReadinessFacts(
     branchChosen: branchChosen,
     supplierChosen: supplierChosen,
@@ -49,6 +50,7 @@ void main() {
     autoPostInvoices: autoPostInvoices,
     effectPending: effectPending,
     cashDueKnown: cashDueKnown,
+    goldLeftMain: goldLeftMain,
   );
 
   // ADR-060 ف٣ س٤: what the invoice does to the supplier is the server's.
@@ -316,6 +318,78 @@ void main() {
       expect(
         r.message,
         'الترحيل التلقائي معطّل، والفاتورة غير المرحّلة لا تقبل سداد ذهب؛ أزل سداد الذهب',
+      );
+    });
+
+    // ADR-062: no more gold than is owed (gold_settled_over_owed).
+    test('gold paid beyond what is owed names the last line', () {
+      final r = check(
+        base(
+          settlement: PurchaseSettlement.barter,
+          goldLines: const [
+            line21,
+            PurchaseGoldLineFacts(safeId: 6, karat: 21, weight: 30),
+          ],
+          goldLeftMain: -30,
+        ),
+      );
+      expect(r.target, PurchaseReadinessTarget.goldLine);
+      expect(r.index, 1);
+      expect(r.message, 'الذهب المسدَّد أكبر من الذهب المستحق بـ 30.000 جم');
+    });
+
+    test('gold paid up to what is owed is ready', () {
+      expect(
+        check(
+          base(
+            settlement: PurchaseSettlement.barter,
+            goldLines: [line21],
+            goldLeftMain: 0,
+          ),
+        ).isReady,
+        isTrue,
+      );
+    });
+
+    // ADR-062: a stock safe gives what it holds (gold_safe_short).
+    test('a safe that does not hold the gold names the line', () {
+      final r = check(
+        base(
+          settlement: PurchaseSettlement.barter,
+          goldLines: const [
+            PurchaseGoldLineFacts(safeId: 5, karat: 21, weight: 5, safeHolds: 3),
+          ],
+        ),
+      );
+      expect(r.target, PurchaseReadinessTarget.goldLine);
+      expect(r.index, 0);
+      expect(r.message, 'لا يكفي ذهب عيار 21 في خزينة سطر السداد 1 (المتاح 3.000 جم)');
+    });
+
+    test('two lines on one safe are held together', () {
+      final r = check(
+        base(
+          settlement: PurchaseSettlement.barter,
+          goldLines: const [
+            PurchaseGoldLineFacts(safeId: 5, karat: 21, weight: 5, safeHolds: 8),
+            PurchaseGoldLineFacts(safeId: 5, karat: 21, weight: 5, safeHolds: 8),
+          ],
+        ),
+      );
+      expect(r.index, 1);
+    });
+
+    test('a safe whose balance is not known is the server\'s to hold', () {
+      expect(
+        check(
+          base(
+            settlement: PurchaseSettlement.barter,
+            goldLines: const [
+              PurchaseGoldLineFacts(safeId: 5, karat: 21, weight: 50),
+            ],
+          ),
+        ).isReady,
+        isTrue,
       );
     });
 

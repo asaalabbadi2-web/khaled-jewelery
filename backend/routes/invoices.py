@@ -3195,8 +3195,9 @@ def preview_supplier_purchase():
     from pricing.karat_service import by_karat_in_main_karat
     from services.party_live_balances import compute_live_supplier_balances
     from services.purchase_stones import StonesRefused, normalize as normalize_stones, tax_of as stones_tax_of
+    from pricing.karat_service import convert_from_main_karat
     from services.supplier_purchase_effect import (
-        items_gold_by_karat, purchase_paid_now, supplier_purchase_owed,
+        items_gold_by_karat, purchase_paid_now, purchase_wage, supplier_purchase_owed,
     )
 
     data = copy.deepcopy(request.get_json(silent=True) or {})
@@ -3228,7 +3229,18 @@ def preview_supplier_purchase():
     def main(by_karat):
         return round(by_karat_in_main_karat({f'{k}k': float(by_karat.get(k, 0.0)) for k in karats}), 3)
 
+    # The cash the save takes with it -- the payment check's one formula
+    # (models.purchase_cash_obligation, PURCHASE-CASH-1).
+    payable_cash = purchase_cash_obligation(
+        invoice_type='شراء', office_id=data.get('office_id') or None,
+        total=_coerce_float(data.get('total'), 0.0), wage_subtotal=purchase_wage(data),
+        wage_tax_total=_coerce_float(data.get('wage_tax_total'), 0.0),
+        gold_tax_total=_coerce_float(data.get('gold_tax_total'), 0.0), supplier=supplier,
+        stones_payable=owed.stones_payable, karat_diff_fee=owed.karat_diff_fee,
+        karat_diff_commission=owed.karat_diff_commission)
+
     try:
+        gold_left = round(main(owed.gold_by_karat) - main(paid.gold_by_karat), 3)
         return jsonify({
             'supplier_id': supplier.id,
             'now': {'cash': round(now_cash, 2), 'gold_main': main(now_gold)},
@@ -3236,8 +3248,12 @@ def preview_supplier_purchase():
                         'gold_by_karat': {k: round(v, 3) for k, v in owed.gold_by_karat.items()}},
             'paid': {'cash': paid.cash, 'gold_main': main(paid.gold_by_karat)},
             # What this invoice still leaves owed: what it adds less what is paid with it.
-            'remaining': {'cash': round(owed.cash - paid.cash, 2),
-                          'gold_main': round(main(owed.gold_by_karat) - main(paid.gold_by_karat), 3)},
+            'payable': {'cash': payable_cash},
+            # The gold left is said at each karat too, by the one conversion:
+            # what a line in that karat would pay of it (ADR-062).
+            'remaining': {'cash': round(owed.cash - paid.cash, 2), 'gold_main': gold_left,
+                          'gold_at_karat': {k: round(convert_from_main_karat(gold_left, int(k)), 3)
+                                            for k in karats}},
             'after': {'cash': round(now_cash - owed.cash + paid.cash, 2), 'gold_main': main(after_gold)},
         })
     except MainKaratNotSet:
@@ -4149,9 +4165,27 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
             wage_tax_total=_to_float_request(data.get('wage_tax_total', 0.0)),
             gold_tax_total=_to_float_request(data.get('gold_tax_total', 0.0)),
             supplier=_payable_supplier,
+            # Every cash debt it posts (ADR-062): its priced stones, as normalized above.
+            stones_payable=priced_stones_value + priced_stones_tax,
+            karat_diff_fee=max(_to_float_request(data.get('karat_diff_pay_total', 0.0)), 0.0),
+            karat_diff_commission=max(_to_float_request(data.get('karat_diff_earn_total', 0.0)), 0.0),
         )
         if payable_total != data_total:
             payable_label = 'النقد المستحق للمورد'
+        # What may be paid with it (ADR-062): «آجل» pays nothing now, and no
+        # more gold than it owes. The stock safes' gold is held at the gold lines.
+        from services.supplier_purchase_effect import (
+            items_gold_by_karat as _payment_items_gold, purchase_paid_now as _payment_paid_now,
+            purchase_payment_refusal as _payment_refusal, supplier_purchase_owed as _payment_owed,
+        )
+        from pricing.gold_price_service import MainKaratNotSet as _PaymentMainKaratNotSet
+        try:
+            _refusal = _payment_refusal(
+                data, _payment_owed(data, items_gold_by_karat=_payment_items_gold(data)), _payment_paid_now(data))
+        except _PaymentMainKaratNotSet:
+            return jsonify({'error': 'main_karat_not_set', 'message': 'العيار الرئيسي غير مضبوط في الإعدادات'}), 400
+        if _refusal is not None:
+            return jsonify(_refusal.body()), 400
     if _return_refundable is not None and _return_refundable < data_total - 0.01:
         payable_total = _return_refundable
         payable_label = 'ما دُفع في الفاتورة الأصلية'
@@ -4482,6 +4516,9 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
                            else _extract_float('wage_subtotal')),
             gold_tax_total=_extract_float('gold_tax_total'),
             wage_tax_total=_extract_float('wage_tax_total'),
+            # Its priced stones as normalized above (ت4), kept: the cash it owes (ADR-062).
+            stones_subtotal=round(priced_stones_value, 2),
+            stones_tax_total=round(priced_stones_tax, 2),
             apply_gold_tax=bool(data.get('apply_gold_tax', False)),
             vat_applied=vat_decision,
             settlement_method=data.get('settlement_method'),
@@ -5795,7 +5832,15 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
 
                 line_weight = _to_float_request(line.get('weight', line.get('weight_grams', 0.0)), 0.0)
                 line_karat = _to_float_request(line.get('karat', line.get('gold_karat', 0.0)), 0.0)
-                if line_weight <= 0 or line_karat <= 0:
+                # A line is gold or empty (ADR-062): one that is neither was
+                # answered «saved» and dropped.
+                if line_weight < 0 or (line_weight > 0 and line_karat <= 0):
+                    db.session.rollback()
+                    return jsonify({
+                        'error': 'invalid_gold_settlement_line',
+                        'message': f'سطر سداد الذهب {idx + 1}: الوزن موجب وعياره معلوم، أو يُترك فارغًا',
+                    }), 400
+                if line_weight == 0:
                     continue
 
                 safe_id, err = _resolve_gold_safe_id(line.get('safe_box_id'))
@@ -5880,6 +5925,31 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
                     pass
 
                 created_any = True
+
+            # Our stock gives only the gold it holds (ADR-062): a supplier
+            # purchase's gold, by safe and karat, against the safe's ledger
+            # balance before the invoice. A party's gold safe (no stock
+            # location) is gold owed, in the party's balance -- not held so.
+            # Its balance is not the seller's (ADR-036): the refusal names
+            # the safe, not what it holds.
+            if invoice_type == 'شراء' and resolved_gold_settlements_lines:
+                from services.live_balances import safe_box_balance as _held_by_safe
+                _wanted = {}
+                for _row in resolved_gold_settlements_lines:
+                    _key = (int(_row['safe_box_id']), int(_row['karat']))
+                    _wanted[_key] = _wanted.get(_key, 0.0) + float(_row['weight'])
+                for (_safe_id, _karat), _weight in _wanted.items():
+                    _safe = SafeBox.query.get(_safe_id)
+                    if _safe is None or _safe.holds_party_gold:
+                        continue
+                    _held = float(_held_by_safe(_safe)['weight'].get(f'{_karat}k') or 0.0)
+                    if _weight - _held > 0.0005:
+                        db.session.rollback()
+                        return jsonify({
+                            'error': 'gold_safe_short',
+                            'message': f'لا يكفي ذهب عيار {_karat} في «{_safe.name}» لسداد {_weight:.3f} جم',
+                            'safe_box_id': _safe_id, 'karat': _karat, 'weight': round(_weight, 3),
+                        }), 400
 
             if created_any:
                 new_invoice.settled_gold_weight = round(float(total_main_equiv), 3)

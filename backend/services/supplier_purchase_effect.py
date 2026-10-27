@@ -7,7 +7,9 @@ save takes its supplier lines' amounts from it, and the purchase preview
 (before saving) says them -- so what is previewed is what is posted.
 
 What the invoice adds to the supplier (ADR-061: the wage is cash, always):
-  cash -- the gold's VAT, the wage and its VAT, priced stones and their VAT;
+  cash -- the gold's VAT, the wage and its VAT, priced stones and their VAT,
+          and a karat-difference fee less its commission (posted with the
+          invoice by accounting/karat_diff_commission);
   gold -- grams by karat: the karat lines' weights, else the supplier's gold
           lines (or weights) the request names, else the items' gold.
 
@@ -15,6 +17,9 @@ What is paid with it (purchase_paid_now): the cash the request pays (its
 payments, else amount_paid -- the save makes the one the other's sum) and the
 gold it settles, by karat (gold_settlements, else settled_gold_weight at
 settled_gold_karat).
+
+What may be paid with it (purchase_payment_refusal, ADR-062): «آجل» pays
+nothing now, and the gold paid is no more than the gold owed.
 
 It reads; it posts nothing. The one table it reads is an item's own karat and
 weight, when a line names an item and not them -- as the save did.
@@ -79,6 +84,10 @@ class SupplierPurchaseOwed:
     wage_vat: float
     stones: float
     stones_vat: float
+    # The karat-difference fee the company pays the supplier, and the
+    # commission it earns from it (karat_diff_pay_total / karat_diff_earn_total).
+    karat_diff_fee: float = 0.0
+    karat_diff_commission: float = 0.0
     # The supplier's gold as the request names it (or the items'): what the
     # invoice records as paid in gold, and whether gold is owed at all.
     supplier_gold_by_karat: dict = field(default_factory=dict)
@@ -97,8 +106,10 @@ class SupplierPurchaseOwed:
 
     @property
     def cash(self) -> float:
-        """Every cash credit the save posts on the supplier's account."""
-        return round(round(self.gold_vat, 2) + self.wage_payable + self.stones_payable, 2)
+        """Every cash credit the save posts on the supplier's account, net of
+        the karat-difference commission it debits."""
+        return round(round(self.gold_vat, 2) + self.wage_payable + self.stones_payable
+                     + round(self.karat_diff_fee, 2) - round(self.karat_diff_commission, 2), 2)
 
     @property
     def gold_by_karat(self) -> dict:
@@ -134,6 +145,8 @@ def supplier_purchase_owed(data: dict, *, items_gold_by_karat: dict,
         wage_vat=coerce_float(data.get('wage_tax_total', 0), 0.0),
         stones=float(priced_stones_value or 0.0),
         stones_vat=float(priced_stones_tax or 0.0),
+        karat_diff_fee=max(coerce_float(data.get('karat_diff_pay_total'), 0.0), 0.0),
+        karat_diff_commission=max(coerce_float(data.get('karat_diff_earn_total'), 0.0), 0.0),
         supplier_gold_by_karat=supplier_gold,
         posted_gold_by_karat=dict(from_lines or supplier_gold),
     )
@@ -214,3 +227,49 @@ def purchase_paid_now(data: dict) -> PaidNow:
         if key and weight > 0:
             gold[key] = weight
     return PaidNow(cash=round(cash, 2), gold_by_karat=gold)
+
+
+KARATS = ('18', '21', '22', '24')
+GRAM = 0.0005   # the weights' tolerance (three decimals)
+
+
+def gold_main(by_karat: dict) -> float:
+    """Grams at the main karat of {'21': g, ...} -- the one conversion
+    (by_karat_in_main_karat); MainKaratNotSet when the settings hold none."""
+    from pricing.karat_service import by_karat_in_main_karat
+    return round(by_karat_in_main_karat({f'{k}k': float(by_karat.get(k, 0.0)) for k in KARATS}), 3)
+
+
+@dataclass(frozen=True)
+class PaymentRefusal:
+    code: str
+    message: str
+    details: dict = field(default_factory=dict)
+
+    def body(self) -> dict:
+        return {'error': self.code, 'message': self.message, **self.details}
+
+
+def purchase_payment_refusal(data: dict, owed: SupplierPurchaseOwed, paid: PaidNow) -> PaymentRefusal | None:
+    """Why what a supplier purchase pays with it cannot be taken (ADR-062) --
+    None when it can. The cash is held to what is owed by the payment check
+    (PURCHASE-CASH-1); the gold a stock safe holds by the save, which knows
+    the safe.
+
+    1. «آجل» (settlement_method 'credit') pays nothing now: no cash, no gold.
+    2. The gold paid is no more than the gold owed, at the main karat -- a
+       karat other than the one owed pays its equivalent.
+    """
+    method = str(data.get('settlement_method') or data.get('settlement_mode') or '').strip().lower()
+    paid_gold = gold_main(paid.gold_by_karat)
+    if method == 'credit' and (paid.cash > 0.005 or paid_gold > GRAM):
+        return PaymentRefusal('credit_pays_nothing_now',
+                              'الفاتورة آجلة فلا يُدفع معها شيء؛ اختر «نقد وذهب» أو «سداد ذهب» لتسدّد الآن')
+    owed_gold = gold_main(owed.gold_by_karat)
+    if paid_gold - owed_gold > GRAM:
+        return PaymentRefusal(
+            'gold_settled_over_owed',
+            f'الذهب المسدَّد ({paid_gold:.3f} جم) أكبر من الذهب المستحق للمورد في هذه الفاتورة '
+            f'({owed_gold:.3f} جم بالعيار الرئيسي)',
+            {'owed_gold_main': owed_gold, 'paid_gold_main': paid_gold})
+    return None

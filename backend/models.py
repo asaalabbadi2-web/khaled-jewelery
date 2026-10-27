@@ -941,12 +941,17 @@ def is_cash_customer(customer):
 
 
 def purchase_cash_obligation(*, invoice_type, office_id, total, wage_subtotal,
-                             wage_tax_total, gold_tax_total, supplier) -> float:
+                             wage_tax_total, gold_tax_total, supplier,
+                             stones_payable=0.0, karat_diff_fee=0.0,
+                             karat_diff_commission=0.0) -> float:
     """The cash an invoice can be paid -- the one formula (Invoice.cash_obligation,
     and add_invoice's payment check before the invoice exists, PURCHASE-CASH-1).
 
     Every invoice but a supplier purchase ('شراء'): its total. A supplier
-    purchase: its wages and its VAT -- the gold's value is settled in gold. The
+    purchase: every cash debt it posts on the supplier -- the gold's value is
+    settled in gold. Its wages and their VAT, the gold's VAT, its priced stones
+    and their VAT ([stones_payable]), and a karat-difference fee less its
+    commission (the owner, 27 Oct 2026, ADR-062); never below nothing. The
     wage is cash whatever the supplier's old flag (ADR-061: a wage paid in gold
     settles a cash debt). A closing-office purchase keeps its total (it is
     settled in cash). See Invoice.cash_obligation for the history. [supplier]
@@ -954,8 +959,9 @@ def purchase_cash_obligation(*, invoice_type, office_id, total, wage_subtotal,
     """
     if (invoice_type or '').strip() != 'شراء' or office_id is not None:
         return float(total or 0.0)
-    return round(float(wage_subtotal or 0.0) + float(wage_tax_total or 0.0)
-                 + float(gold_tax_total or 0.0), 2)
+    owed = (float(wage_subtotal or 0.0) + float(wage_tax_total or 0.0) + float(gold_tax_total or 0.0)
+            + float(stones_payable or 0.0) + float(karat_diff_fee or 0.0) - float(karat_diff_commission or 0.0))
+    return max(round(owed, 2), 0.0)
 
 
 class Invoice(db.Model):
@@ -1001,6 +1007,10 @@ class Invoice(db.Model):
     wage_subtotal = db.Column(db.Float, default=0.0)
     gold_tax_total = db.Column(db.Float, default=0.0)
     wage_tax_total = db.Column(db.Float, default=0.0)
+    # A supplier purchase's stones priced by the carat and their VAT, as the
+    # save took them (ت4) -- frozen: the cash it owes (ADR-062).
+    stones_subtotal = db.Column(db.Float, nullable=True, default=0.0)
+    stones_tax_total = db.Column(db.Float, nullable=True, default=0.0)
     apply_gold_tax = db.Column(db.Boolean, default=False)
     # A supplier purchase's VAT decision (PURCHASE-VAT-1): True / False as the
     # user decided it on the invoice; NULL where none was recorded.
@@ -1206,6 +1216,9 @@ class Invoice(db.Model):
             wage_tax_total=self.wage_tax_total,
             gold_tax_total=self.gold_tax_total,
             supplier=self.supplier,
+            stones_payable=float(self.stones_subtotal or 0.0) + float(self.stones_tax_total or 0.0),
+            karat_diff_fee=self.karat_diff_pay_total,
+            karat_diff_commission=self.karat_diff_earn_total,
         )
 
     def to_dict(self):

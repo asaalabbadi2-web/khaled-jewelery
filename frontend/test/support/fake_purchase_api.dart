@@ -13,6 +13,11 @@ class FakePurchaseApi extends ApiService {
 
   final Map<String, dynamic> settings;
 
+  /// What the 21k gold safe holds, as the server sends it to a user who may
+  /// see it (ADR-036) -- the safe then one of our stock safes (ADR-045).
+  /// Null: no balance sent, as to a seller.
+  double? goldSafeHolds;
+
   /// The supplier's statement as the server reports it: debit minus credit.
   final Map<String, dynamic> statement;
   final added = <Map<String, dynamic>>[];
@@ -77,6 +82,13 @@ class FakePurchaseApi extends ApiService {
       'account_id': 50,
       'karat': 21,
       'is_default': true,
+      if (goldSafeHolds != null) ...{
+        'stock_location': 'scrap',
+        'balance': {
+          'cash': 0.0,
+          'weight': {'18k': 0.0, '21k': goldSafeHolds, '22k': 0.0, '24k': 0.0},
+        },
+      },
     }),
   ];
 
