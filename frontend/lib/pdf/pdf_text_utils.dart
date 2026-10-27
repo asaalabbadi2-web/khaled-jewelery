@@ -100,6 +100,50 @@ String pdfVisualArabic(String input) {
     }
   }
 
+  // Paired brackets take one direction, from what they hold (the bidi
+  // algorithm's N0): Arabic or a number inside -- the text's own direction;
+  // only Latin inside -- the Latin before them, when there is. A closing
+  // bracket after «...-00566» was read alone and leapt to the far end of
+  // «دفعات فاتورة SELL-2026-546 (RV-2026-00566)» (PRINT-4). Resolved first,
+  // they count as strong for the neutrals around them.
+  {
+    const closerOf = {0x28: 0x29, 0x5B: 0x5D, 0x7B: 0x7D, 0x00AB: 0x00BB};
+    final open = <int>[];
+    for (var i = 0; i < shapedRunes.length; i++) {
+      final r = shapedRunes[i];
+      if (closerOf.containsKey(r)) {
+        open.add(i);
+        continue;
+      }
+      if (open.isEmpty || closerOf[shapedRunes[open.last]] != r) continue;
+      final o = open.removeLast();
+      var holdsRtl = false, holdsLatin = false;
+      for (var j = o + 1; j < i; j++) {
+        final rr = shapedRunes[j];
+        if (isStrongRtl(rr) || (rr >= 0x30 && rr <= 0x39) || (rr >= 0x660 && rr <= 0x669) || (rr >= 0x6F0 && rr <= 0x6F9)) {
+          holdsRtl = true;
+        } else if (isStrongLtr(rr)) {
+          holdsLatin = true;
+        }
+      }
+      var dir = -1;
+      if (!holdsRtl && holdsLatin) {
+        // Only Latin inside: as the Latin before the pair, if any.
+        for (var j = o - 1; j >= 0; j--) {
+          if (strong[j] != 0) {
+            final digit = shapedRunes[j] >= 0x30 && shapedRunes[j] <= 0x39;
+            dir = (strong[j] == 1 && !digit) ? 1 : -1;
+            break;
+          }
+        }
+      }
+      for (final k in [o, i]) {
+        strong[k] = dir;
+        rtlFlags[k] = dir == -1;
+      }
+    }
+  }
+
   bool isNeutralThatShouldStickToRtl(int r) {
     // Whitespace (keep with RTL so word spacing doesn't disappear/split)
     if (r == 0x20 /* space */) return true;
@@ -202,12 +246,14 @@ String pdfVisualArabic(String input) {
       }
     }
 
-    // If both sides agree on RTL, or RTL is the only nearby strong direction,
-    // treat as RTL so it stays with the Arabic run.
-    final shouldBeRtl =
-        (left == -1 && right == -1) ||
-        (left == -1 && right == 0) ||
-        (left == 0 && right == -1);
+    // The text is Arabic, so its direction is right to left: a neutral
+    // takes it unless both its sides are left to right (the Unicode bidi
+    // algorithm's N1/N2). Between an Arabic word and a number it took the
+    // number's side and stood beyond it -- «بنجرة ذهب 21» printed «21»
+    // touching «ذهب», «تاريخ الطباعة: 2026-10-28» printed «: 2026-10-28
+    // تاريخ الطباعة» (PRINT-4). Between two numbers or Latin words -- a
+    // date's dashes, «PAYMENT - PV» -- it stays with them.
+    final shouldBeRtl = !(left == 1 && right == 1);
 
     if (shouldBeRtl) rtlFlags[i] = true;
   }

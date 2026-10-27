@@ -543,14 +543,16 @@ class VoucherPdfBuilder {
       ),
     );
 
+    // The parts are set off by a rule that shows in color too (the owner,
+    // 28 Oct 2026: parts with no visual divide ran into one another).
     pw.Widget section(pw.Widget child, {bool last = false}) => pw.Container(
       decoration: pw.BoxDecoration(
         border: last
             ? null
             : pw.Border(
                 bottom: pw.BorderSide(
-                  color: paint.ink(VoucherPdfColors.grayBorder),
-                  width: paint.rule(0.5),
+                  color: bwBorder,
+                  width: 0.8,
                 ),
               ),
       ),
@@ -922,6 +924,46 @@ class VoucherPdfBuilder {
       );
     }
 
+    // A detail: what it is, then its value -- apart. In one line the value
+    // was read into the label («السبب: دفعة فاتورة202»,
+    // «أنشئ بواسطة deposit_paid_twice :»).
+    pw.Widget detailRow(String label, String value) {
+      final labelText = pw.Text(
+        pdfVisualArabic('$label:'),
+        textDirection: pw.TextDirection.ltr,
+        style: pw.TextStyle(
+          font: fontBold,
+          fontSize: isA5 ? 9 : 10,
+          color: paint.ink(const PdfColor.fromInt(0xFF555555)),
+        ),
+      );
+      final valueText = pw.Text(
+        pdfVisualArabic(value),
+        textDirection: pw.TextDirection.ltr,
+        textAlign: options.isArabic ? pw.TextAlign.right : pw.TextAlign.left,
+        style: pw.TextStyle(
+          font: fontReg,
+          fontSize: isA5 ? 9 : 10,
+          color: paint.ink(const PdfColor.fromInt(0xFF222222)),
+        ),
+      );
+      // The value takes the rest of the line, held to the reading side.
+      final valueCell = pw.Expanded(
+        child: pw.Align(
+          alignment: options.isArabic ? pw.Alignment.centerRight : pw.Alignment.centerLeft,
+          child: valueText,
+        ),
+      );
+      // The page reads right to left: the label first, on the right.
+      return pw.Padding(
+        padding: pw.EdgeInsets.only(bottom: isA5 ? 4 : 6),
+        child: pw.Row(
+          crossAxisAlignment: pw.CrossAxisAlignment.start,
+          children: [labelText, pw.SizedBox(width: 6), valueCell],
+        ),
+      );
+    }
+
     pw.Widget buildDetails() => section(
       pw.Column(
         crossAxisAlignment: pw.CrossAxisAlignment.stretch,
@@ -932,67 +974,14 @@ class VoucherPdfBuilder {
             child: pw.Column(
               crossAxisAlignment: pw.CrossAxisAlignment.stretch,
               children: [
-                pw.Align(
-                  alignment: options.isArabic
-                      ? pw.Alignment.centerRight
-                      : pw.Alignment.centerLeft,
-                  child: pw.Text(
-                    pdfVisualArabic(
-                      '${options.isArabic ? 'الطرف' : 'Party'}: '
-                      '${party.isEmpty ? '—' : party}',
-                    ),
-                    textDirection: pw.TextDirection.ltr,
-                    textAlign: options.isArabic
-                        ? pw.TextAlign.right
-                        : pw.TextAlign.left,
-                    style: pw.TextStyle(
-                      font: fontReg,
-                      fontSize: isA5 ? 9 : 10,
-                      color: paint.ink(const PdfColor.fromInt(0xFF222222)),
-                    ),
-                  ),
+                detailRow(options.isArabic ? 'الطرف' : 'Party', party.isEmpty ? '—' : party),
+                detailRow(
+                  options.isArabic ? 'السبب' : 'Reason',
+                  description.trim().isEmpty ? '—' : description.trim(),
                 ),
-                pw.SizedBox(height: isA5 ? 4 : 6),
-                pw.Align(
-                  alignment: options.isArabic
-                      ? pw.Alignment.centerRight
-                      : pw.Alignment.centerLeft,
-                  child: pw.Text(
-                    pdfVisualArabic(
-                      '${options.isArabic ? 'السبب' : 'Reason'}: '
-                      '${description.trim().isEmpty ? '—' : description.trim()}',
-                    ),
-                    textDirection: pw.TextDirection.ltr,
-                    textAlign: options.isArabic
-                        ? pw.TextAlign.right
-                        : pw.TextAlign.left,
-                    style: pw.TextStyle(
-                      font: fontReg,
-                      fontSize: isA5 ? 9 : 10,
-                      color: paint.ink(const PdfColor.fromInt(0xFF222222)),
-                    ),
-                  ),
-                ),
-                pw.SizedBox(height: isA5 ? 4 : 6),
-                pw.Align(
-                  alignment: options.isArabic
-                      ? pw.Alignment.centerRight
-                      : pw.Alignment.centerLeft,
-                  child: pw.Text(
-                    pdfVisualArabic(
-                      '${options.isArabic ? 'أنشئ بواسطة' : 'Created by'}: '
-                      '${createdBy.isEmpty ? 'system' : createdBy}',
-                    ),
-                    textDirection: pw.TextDirection.ltr,
-                    textAlign: options.isArabic
-                        ? pw.TextAlign.right
-                        : pw.TextAlign.left,
-                    style: pw.TextStyle(
-                      font: fontReg,
-                      fontSize: isA5 ? 9 : 10,
-                      color: paint.ink(const PdfColor.fromInt(0xFF222222)),
-                    ),
-                  ),
+                detailRow(
+                  options.isArabic ? 'أنشئ بواسطة' : 'Created by',
+                  createdBy.isEmpty ? 'system' : createdBy,
                 ),
               ],
             ),
@@ -1536,7 +1525,7 @@ class VoucherPdfBuilder {
             decoration: pw.BoxDecoration(
               border: pw.Border(
                 top: pw.BorderSide(
-                  color: paint.ink(const PdfColor.fromInt(0xFF555555)),
+                  color: paint.ink(const PdfColor.fromInt(0xFF222222)),
                   width: 1.2,
                 ),
               ),
@@ -1615,10 +1604,17 @@ class VoucherPdfBuilder {
             size: isA5 ? 7 : 8,
             color: paint.ink(VoucherPdfColors.grayMuted),
           ),
-          txt(
-            '${options.isArabic ? 'طُبع بتاريخ' : 'Printed'}: $printDate',
-            size: isA5 ? 7 : 8,
-            color: paint.ink(VoucherPdfColors.grayMuted),
+          // The date apart from its words («طبع بتاريخ2026/10/28 01:05 :»).
+          pw.Row(
+            mainAxisSize: pw.MainAxisSize.min,
+            children: [
+              for (final part in options.isArabic
+                  ? [printDate, 'طبع بتاريخ:']
+                  : ['Printed:', printDate]) ...[
+                txt(part, size: isA5 ? 7 : 8, color: paint.ink(VoucherPdfColors.grayMuted)),
+                pw.SizedBox(width: 3),
+              ],
+            ],
           ),
         ],
       ),

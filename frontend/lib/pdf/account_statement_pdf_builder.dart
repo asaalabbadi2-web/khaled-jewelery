@@ -443,10 +443,16 @@ class AccountStatementPdfBuilder {
         {bool highlighted = false}) =>
         pw.Container(
           padding: const pw.EdgeInsets.symmetric(horizontal: 8, vertical: 9),
+          // Each figure a box of its own: six side by side ran into one
+          // another (the owner, 28 Oct 2026).
           decoration: pw.BoxDecoration(
             color: highlighted
                 ? _PdfColors.goldBg
                 : _paint.fill(pdf.PdfColor.fromHex('#FAFAF8')),
+            border: pw.Border.all(
+              color: _PdfColors.borderLight,
+              width: highlighted ? 1.2 : _paint.rule(0.6),
+            ),
             borderRadius: const pw.BorderRadius.all(pw.Radius.circular(3)),
           ),
           child: pw.Column(
@@ -468,6 +474,12 @@ class AccountStatementPdfBuilder {
             ],
           ),
         );
+
+    pw.Widget filterSeparator() => pw.Text('  |  ',
+        style: pw.TextStyle(font: baseFont, fontSize: 7.5, color: _PdfColors.borderLight));
+
+    // The head's words: white on its black band in black and white.
+    final onBand = branding.blackAndWhite ? _paint.ink(pdf.PdfColor.fromHex('#FFFFFF')) : null;
 
     // Table header cell (two-line: title + unit)
     pw.Widget headerCell(String text, {bool isDesc = false}) {
@@ -497,7 +509,7 @@ class AccountStatementPdfBuilder {
               style: pw.TextStyle(
                 font: boldFont,
                 fontSize: isDesc ? 8 : 7.5,
-                color: _PdfColors.dark,
+                color: onBand ?? _PdfColors.dark,
               ),
             ),
             if (unit != null) ...[
@@ -509,7 +521,7 @@ class AccountStatementPdfBuilder {
                 style: pw.TextStyle(
                   font: baseFont,
                   fontSize: 6.2,
-                  color: _PdfColors.muted,
+                  color: onBand ?? _PdfColors.muted,
                 ),
               ),
             ],
@@ -1102,13 +1114,13 @@ class AccountStatementPdfBuilder {
                     totals.goldDebit.toStringAsFixed(3),
                     _PdfColors.positive,
                   )),
-                  pw.SizedBox(width: 3),
+                  pw.SizedBox(width: 6),
                   pw.Expanded(child: balCell(
                     'دائن ذهب   جم',
                     totals.goldCredit.toStringAsFixed(3),
                     _PdfColors.negative,
                   )),
-                  pw.SizedBox(width: 3),
+                  pw.SizedBox(width: 6),
                   pw.Expanded(child: balCell(
                     'رصيد الذهب   جم',
                     periodClosingGold.toStringAsFixed(3),
@@ -1121,13 +1133,13 @@ class AccountStatementPdfBuilder {
                     commaFmt.format(totals.cashDebit),
                     _PdfColors.positive,
                   )),
-                  pw.SizedBox(width: 3),
+                  pw.SizedBox(width: 6),
                   pw.Expanded(child: balCell(
                     'دائن نقد',
                     commaFmt.format(totals.cashCredit),
                     _PdfColors.negative,
                   )),
-                  pw.SizedBox(width: 3),
+                  pw.SizedBox(width: 6),
                   pw.Expanded(child: balCell(
                     'رصيد النقد',
                     commaFmt.format(periodClosingCash),
@@ -1155,16 +1167,16 @@ class AccountStatementPdfBuilder {
                   children: [
                     filterChip(label: 'الفترة', value: dateRange == null ? 'جميع الفترات' : dateRangeText),
                     pw.SizedBox(width: 4),
-                    pw.Text('  |  ', style: pw.TextStyle(font: baseFont, fontSize: 7.5, color: _PdfColors.borderLight)),
+                    filterSeparator(),
                     pw.SizedBox(width: 4),
                     filterChip(label: 'العيار', value: '$mainKarat'),
                     pw.SizedBox(width: 4),
-                    pw.Text('  |  ', style: pw.TextStyle(font: baseFont, fontSize: 7.5, color: _PdfColors.borderLight)),
+                    filterSeparator(),
                     pw.SizedBox(width: 4),
                     filterChip(label: 'العرض', value: viewModeLabel),
                     if (goldPriceChipRendered) ...[
                       pw.SizedBox(width: 4),
-                      pw.Text('  |  ', style: pw.TextStyle(font: baseFont, fontSize: 7.5, color: _PdfColors.borderLight)),
+                      filterSeparator(),
                       pw.SizedBox(width: 4),
                       filterChip(label: 'سعر الجرام', value: pricePerGram!.toStringAsFixed(2)),
                     ],
@@ -1182,7 +1194,13 @@ class AccountStatementPdfBuilder {
                 headers: columns.map((c) {
                   final cell =
                       headerCell(c.header, isDesc: c.key == descKey);
-                  return pw.Container(color: _PdfColors.goldBg, child: cell);
+                  // A dark band in black and white, its words white (PRINT-2).
+                  return pw.Container(
+                    color: branding.blackAndWhite
+                        ? _paint.fill(pdf.PdfColor.fromHex('#111111'))
+                        : _PdfColors.goldBg,
+                    child: cell,
+                  );
                 }).toList(),
                 data: allRows,
                 border: pw.TableBorder(
