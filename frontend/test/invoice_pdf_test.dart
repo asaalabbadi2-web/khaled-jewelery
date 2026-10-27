@@ -27,6 +27,12 @@ void main() {
     'total': 18692.81,
     'total_tax': 0.0,
     'total_weight': 39.4,
+    'amount_paid': 18692.81,
+    'cash_obligation': 18692.81,
+    'status': 'paid',
+    'payments': [
+      {'payment_method_name': 'نقداً', 'amount': 18692.81},
+    ],
     'items': [
       {'name': 'طقم ذهب21', 'karat': 21.0, 'quantity': 1, 'weight': 19.5, 'net': 9385.74},
       {'name': 'بنجرة ذهب21', 'karat': 21.0, 'quantity': 2, 'weight': 11.3, 'net': 5167.72},
@@ -45,6 +51,15 @@ void main() {
     'total': 47161.11,
     'total_tax': 542.04,
     'total_weight': 101.33,
+    'total_weight_main_karat': 101.33,
+    'wage_subtotal': 3613.6,
+    'amount_paid': 3776.38,
+    'cash_obligation': 4155.64,
+    'status': 'partially_paid',
+    'employee_name': 'admin',
+    'payments': [
+      {'payment_method_name': 'نقداً', 'amount': 3776.38},
+    ],
     'items': [
       {'name': 'اطارات السبايك', 'karat': 21.0, 'quantity': 1, 'weight': 50.87, 'wage': 32.0},
       {'name': 'دبل', 'karat': 21.0, 'quantity': 1, 'weight': 47.49, 'wage': 39.35},
@@ -77,6 +92,37 @@ void main() {
       expect(isSupplierInvoiceType('مرتجع شراء (مورد)'), isTrue);
       expect(isSupplierInvoiceType('شراء من عميل'), isFalse);
       expect(isSupplierInvoiceType('بيع'), isFalse);
+    });
+  });
+
+  // PRINT-3: what was paid, and what a supplier is owed, as the server says it.
+  group('what the print says of payment', () {
+    test('each payment, its method and amount', () {
+      expect(invoicePrintPayments(sale), [(method: 'نقداً', amount: 18692.81)]);
+    });
+
+    test('a line of nothing is left out', () {
+      expect(
+        invoicePrintPayments({
+          'payments': [
+            {'payment_method_name': 'شبكة', 'amount': 0},
+            {'payment_method_name': 'نقداً', 'amount': 50.0},
+          ],
+        }),
+        [(method: 'نقداً', amount: 50.0)],
+      );
+    });
+
+    test('no payments, none printed', () {
+      expect(invoicePrintPayments(const {}), isEmpty);
+    });
+
+    test('a supplier is owed its gold and the cash the server holds it to', () {
+      final owed = supplierPrintOwed(supplierPurchase);
+      expect(owed.goldMain, 101.33);
+      expect(owed.wages, 3613.6);
+      expect(owed.tax, 542.04);
+      expect(owed.cashDue, 4155.64, reason: 'not the total, 47,161.11, which holds the gold');
     });
   });
 

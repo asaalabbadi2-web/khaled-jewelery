@@ -11,6 +11,7 @@ import '../theme/pdf_print_ink.dart';
 import '../pdf/pdf_sar_cache.dart';
 import '../pdf/pdf_text_utils.dart';
 import '../providers/settings_provider.dart';
+import '../utils/invoice_saved_facts.dart';
 import '../utils/invoice_type_label.dart';
 
 class InvoicePdfOptions {
@@ -203,6 +204,16 @@ class InvoicePdfBuilder {
     final partyLabel = ofSupplier
         ? (options.isArabic ? 'المورد' : 'Supplier')
         : (options.isArabic ? 'العميل' : 'Customer');
+
+    // What was paid and what is left, as the server says it -- the dialog
+    // after the save reads the same facts (PRINT-3). A supplier purchase owes
+    // its gold and the cash the server holds it to, not its total, which also
+    // holds the gold's value.
+    final facts = InvoiceSavedFacts.of(invoice);
+    final payments = invoicePrintPayments(invoice);
+    final owed = supplierPrintOwed(invoice);
+    final sellerName = safeStr(invoice['employee_name']);
+    final mainKarat = safeStr(settings?.settings['main_karat']);
 
     final total = toDouble(invoice['total']);
     final tax = toDouble(invoice['total_tax']);
@@ -528,7 +539,7 @@ class InvoicePdfBuilder {
               children: [
                 // Ensure Stack has a concrete size; otherwise a Stack with only
                 // Positioned children may end up with zero size and fail layout.
-                pw.SizedBox(height: 120),
+                pw.SizedBox(height: 136),
                 pw.Positioned(
                   top: 0,
                   right: 0,
@@ -536,8 +547,8 @@ class InvoicePdfBuilder {
                 ),
                 pw.Positioned(
                   top: 0,
-                  left: side,
-                  right: side,
+                  left: side + 6,
+                  right: side + 6,
                   child: pw.Align(
                     alignment: pw.Alignment.topCenter,
                     child: center,
@@ -589,7 +600,67 @@ class InvoicePdfBuilder {
       );
     }
 
+    // A supplier's: what the invoice leaves owed to it, gold and cash.
+    pw.Widget buildSupplierOwed() {
+      pw.Widget figure(String label, pw.Widget value) => pw.Column(
+        crossAxisAlignment: options.isArabic
+            ? pw.CrossAxisAlignment.end
+            : pw.CrossAxisAlignment.start,
+        children: [
+          pw.Text(
+            options.isArabic ? ar(label) : label,
+            style: pw.TextStyle(fontSize: 10, color: muted),
+            textDirection: pw.TextDirection.ltr,
+          ),
+          pw.SizedBox(height: 4),
+          value,
+        ],
+      );
+      final goldLabel = mainKarat.isEmpty
+          ? (options.isArabic ? 'ذهب بالعيار الرئيسي (جم)' : 'Gold at the main karat (g)')
+          : (options.isArabic ? 'ذهب بعيار $mainKarat (جم)' : 'Gold at ${mainKarat}k (g)');
+      final cells = [
+        figure(
+          goldLabel,
+          pw.Text(
+            weight(owed.goldMain),
+            style: pw.TextStyle(fontSize: 24, fontWeight: pw.FontWeight.bold, color: gold),
+            textDirection: pw.TextDirection.ltr,
+          ),
+        ),
+        figure(
+          options.isArabic ? 'نقد مستحق' : 'Cash owed',
+          buildAmountWidget(owed.cashDue, size: 24, color: gold),
+        ),
+      ];
+      return pw.Container(
+        padding: const pw.EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+        decoration: pw.BoxDecoration(
+          border: pw.Border.all(color: border, width: options.blackAndWhite ? 1.5 : 0.8),
+          borderRadius: pw.BorderRadius.circular(10),
+        ),
+        child: pw.Column(
+          crossAxisAlignment: options.isArabic
+              ? pw.CrossAxisAlignment.end
+              : pw.CrossAxisAlignment.start,
+          children: [
+            pw.Text(
+              options.isArabic ? ar('علينا للمورد بهذه الفاتورة') : 'Owed to the supplier by this invoice',
+              style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold, color: gold),
+              textDirection: pw.TextDirection.ltr,
+            ),
+            pw.SizedBox(height: 6),
+            pw.Row(
+              mainAxisAlignment: pw.MainAxisAlignment.spaceAround,
+              children: options.isArabic ? cells.reversed.toList() : cells,
+            ),
+          ],
+        ),
+      );
+    }
+
     pw.Widget buildHeroTotal() {
+      if (ofSupplier) return buildSupplierOwed();
       final label = options.isArabic
           ? ar('الإجمالي النهائي')
           : 'Grand Total';
@@ -703,45 +774,146 @@ class InvoicePdfBuilder {
       );
     }
 
+    // A label and its figure on one line, the label on the reading side.
+    pw.Widget figureRow(
+      String label,
+      pw.Widget valueWidget, {
+      bool strong = false,
+    }) {
+      final l = options.isArabic ? ar(label) : label;
+      return pw.Padding(
+        padding: const pw.EdgeInsets.only(top: 4),
+        child: pw.Row(
+          mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+          children: options.isArabic
+              ? [
+                  valueWidget,
+                  pw.Text(
+                    l,
+                    style: pw.TextStyle(
+                      fontWeight: strong
+                          ? pw.FontWeight.bold
+                          : pw.FontWeight.normal,
+                    ),
+                    textDirection: pw.TextDirection.ltr,
+                  ),
+                ]
+              : [
+                  pw.Text(
+                    l,
+                    style: pw.TextStyle(
+                      fontWeight: strong
+                          ? pw.FontWeight.bold
+                          : pw.FontWeight.normal,
+                    ),
+                    textDirection: pw.TextDirection.ltr,
+                  ),
+                  valueWidget,
+                ],
+        ),
+      );
+    }
+
+    // How it was paid (PRINT-3): each payment, what is paid, what is left --
+    // the server's figures.
+    pw.Widget buildPayments() {
+      return card(
+        title: options.isArabic ? 'الدفع' : 'Payment',
+        child: pw.Column(
+          crossAxisAlignment: pw.CrossAxisAlignment.stretch,
+          children: [
+            for (final p in payments)
+              figureRow(
+                p.method.isEmpty ? (options.isArabic ? 'دفعة' : 'Payment') : p.method,
+                buildAmountWidget(p.amount),
+              ),
+            if (payments.isEmpty)
+              figureRow(
+                options.isArabic ? 'لم يُدفع شيء' : 'Nothing paid',
+                pw.Text('—', textDirection: pw.TextDirection.ltr),
+              ),
+            pw.Container(
+              height: 0.9,
+              color: paint.ink(const PdfColor.fromInt(0xFFDDDDDD)),
+              margin: const pw.EdgeInsets.only(top: 8, bottom: 6),
+            ),
+            figureRow(options.isArabic ? 'المدفوع' : 'Paid', buildAmountWidget(facts.paid)),
+            figureRow(
+              options.isArabic ? 'المتبقي' : 'Left to pay',
+              buildAmountWidget(facts.cashDue),
+              strong: facts.cashDue > 0,
+            ),
+          ],
+        ),
+      );
+    }
+
+    // Who sold it and where its payment stands, under the header.
+    pw.Widget buildInfoStrip() {
+      final pairs = <(String, String)>[
+        if (sellerName.isNotEmpty) (options.isArabic ? 'البائع' : 'Seller', sellerName),
+        if (facts.statusLabel.isNotEmpty) (options.isArabic ? 'الحالة' : 'Status', facts.statusLabel),
+      ];
+      if (pairs.isEmpty) return pw.SizedBox();
+      final cells = [
+        for (final (label, value) in pairs)
+          pw.Expanded(
+            child: pw.Padding(
+              padding: const pw.EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              child: pw.Column(
+                crossAxisAlignment: options.isArabic
+                    ? pw.CrossAxisAlignment.end
+                    : pw.CrossAxisAlignment.start,
+                children: [
+                  pw.Text(
+                    options.isArabic ? ar(label) : label,
+                    style: pw.TextStyle(fontSize: 7.5, color: muted),
+                    textDirection: pw.TextDirection.ltr,
+                  ),
+                  pw.SizedBox(height: 1),
+                  pw.Text(
+                    options.isArabic ? ar(value) : value,
+                    style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold, color: text),
+                    textDirection: pw.TextDirection.ltr,
+                    maxLines: 1,
+                  ),
+                ],
+              ),
+            ),
+          ),
+      ];
+      return pw.Container(
+        decoration: pw.BoxDecoration(
+          border: pw.Border.all(color: border, width: paint.rule(0.6)),
+        ),
+        child: pw.Row(children: options.isArabic ? cells.reversed.toList() : cells),
+      );
+    }
+
     pw.Widget buildTotals() {
-      pw.Widget rowW(
-        String label,
-        pw.Widget valueWidget, {
-        bool strong = false,
-      }) {
-        final l = options.isArabic ? ar(label) : label;
-        return pw.Padding(
-          padding: const pw.EdgeInsets.only(top: 4),
-          child: pw.Row(
-            mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-            children: options.isArabic
-                ? [
-                    valueWidget,
-                    pw.Text(
-                      l,
-                      style: pw.TextStyle(
-                        fontWeight: strong
-                            ? pw.FontWeight.bold
-                            : pw.FontWeight.normal,
-                      ),
-                      textDirection: pw.TextDirection.ltr,
-                    ),
-                  ]
-                : [
-                    pw.Text(
-                      l,
-                      style: pw.TextStyle(
-                        fontWeight: strong
-                            ? pw.FontWeight.bold
-                            : pw.FontWeight.normal,
-                      ),
-                      textDirection: pw.TextDirection.ltr,
-                    ),
-                    valueWidget,
-                  ],
+      if (ofSupplier) {
+        return card(
+          title: options.isArabic ? 'النقد المستحق' : 'Cash owed',
+          child: pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.stretch,
+            children: [
+              figureRow(options.isArabic ? 'أجور المصنعية' : 'Wages', buildAmountWidget(owed.wages)),
+              figureRow(options.isArabic ? 'الضريبة' : 'Tax', buildAmountWidget(owed.tax)),
+              pw.Container(
+                height: 0.9,
+                color: paint.ink(const PdfColor.fromInt(0xFFDDDDDD)),
+                margin: const pw.EdgeInsets.only(top: 8, bottom: 6),
+              ),
+              figureRow(
+                options.isArabic ? 'النقد المستحق' : 'Cash owed',
+                buildAmountWidget(owed.cashDue),
+                strong: true,
+              ),
+            ],
           ),
         );
       }
+      final rowW = figureRow;
 
       return card(
         title: options.isArabic ? 'الإجماليات' : 'Totals',
@@ -833,7 +1005,9 @@ class InvoicePdfBuilder {
 
       String moneyValue(dynamic v) => toDouble(v).toStringAsFixed(2);
 
-      const colCount = 7;
+      // A supplier's line has no price: its gold is owed in gold. It says
+      // its wage per gram (the «—» of the price and the total said nothing).
+      final colCount = ofSupplier ? 6 : 7;
       final colWidths = <int, pw.TableColumnWidth>{
         0: const pw.FlexColumnWidth(0.7),
         1: const pw.FlexColumnWidth(3),
@@ -841,7 +1015,7 @@ class InvoicePdfBuilder {
         3: const pw.FlexColumnWidth(0.9),
         4: const pw.FlexColumnWidth(1.2),
         5: const pw.FlexColumnWidth(1.3),
-        6: const pw.FlexColumnWidth(1.4),
+        if (!ofSupplier) 6: const pw.FlexColumnWidth(1.4),
       };
 
       final headers = <pw.Widget>[
@@ -850,8 +1024,12 @@ class InvoicePdfBuilder {
         cell(options.isArabic ? 'العيار' : 'Karat', header: true),
         cell(options.isArabic ? 'العدد' : 'Qty', header: true),
         cell(options.isArabic ? 'الوزن' : 'Weight', header: true),
-        cell(options.isArabic ? 'سعر الجرام' : 'Price/g', header: true),
-        cell(options.isArabic ? 'الإجمالي' : 'Total', header: true),
+        if (ofSupplier)
+          cell(options.isArabic ? 'أجرة الجرام' : 'Wage/g', header: true)
+        else ...[
+          cell(options.isArabic ? 'سعر الجرام' : 'Price/g', header: true),
+          cell(options.isArabic ? 'الإجمالي' : 'Total', header: true),
+        ],
       ];
 
       return pw.Table(
@@ -903,8 +1081,12 @@ class InvoicePdfBuilder {
               cell(formatKaratCell(karat)),
               cell(qtyInt.toString()),
               cell(w),
-              cell(priceText),
-              cell(netText),
+              if (ofSupplier)
+                cell(toDouble(item['wage']) > 0 ? moneyValue(item['wage']) : '—')
+              else ...[
+                cell(priceText),
+                cell(netText),
+              ],
             ];
 
             return pw.TableRow(
@@ -1093,11 +1275,21 @@ class InvoicePdfBuilder {
           pair(words(options.isArabic ? 'التاريخ' : 'Date'), figure(dateText.isEmpty ? '—' : dateText, bold: true)),
           if (partyName.isNotEmpty)
             pair(words(partyLabel), words(partyName, bold: true)),
+          if (sellerName.isNotEmpty)
+            pair(words(options.isArabic ? 'البائع' : 'Seller'), words(sellerName, bold: true)),
+          if (facts.statusLabel.isNotEmpty)
+            pair(words(options.isArabic ? 'الحالة' : 'Status'), words(facts.statusLabel, bold: true)),
           rule(1.5),
           for (var i = 0; i < items.length; i++) ...[
             pair(
               words('${i + 1}. ${safeStr(items[i]['name'] ?? items[i]['item_name'])}', bold: true),
-              lineNet(items[i]) != 0
+              ofSupplier
+                  ? wordsAndFigure(
+                      options.isArabic ? 'أجرة الجرام' : 'Wage/g',
+                      NumberFormat('#,##0.00', 'en').format(toDouble(items[i]['wage'])),
+                      size: 8,
+                    )
+                  : lineNet(items[i]) != 0
                   ? buildAmountWidget(lineNet(items[i]), size: 8.5)
                   : figure('—'),
             ),
@@ -1115,14 +1307,30 @@ class InvoicePdfBuilder {
             pw.Container(height: 0.6, color: border),
           ],
           pw.SizedBox(height: 3),
-          pair(words(options.isArabic ? 'المجموع الفرعي' : 'Subtotal'), buildAmountWidget(subtotal, size: 9)),
-          pair(words(options.isArabic ? 'الضريبة' : 'Tax'), buildAmountWidget(tax, size: 9)),
-          rule(),
-          pair(words(options.isArabic ? 'الإجمالي' : 'Total', bold: true, size: 11), buildAmountWidget(total, size: 12)),
+          if (ofSupplier) ...[
+            pair(words(options.isArabic ? 'أجور المصنعية' : 'Wages'), buildAmountWidget(owed.wages, size: 9)),
+            pair(words(options.isArabic ? 'الضريبة' : 'Tax'), buildAmountWidget(owed.tax, size: 9)),
+            rule(),
+            pair(words(options.isArabic ? 'النقد المستحق' : 'Cash owed', bold: true, size: 11), buildAmountWidget(owed.cashDue, size: 12)),
+            pair(
+              words(options.isArabic ? 'ذهب مستحق (جم)' : 'Gold owed (g)', bold: true),
+              figure(weight(owed.goldMain), bold: true),
+            ),
+          ] else ...[
+            pair(words(options.isArabic ? 'المجموع الفرعي' : 'Subtotal'), buildAmountWidget(subtotal, size: 9)),
+            pair(words(options.isArabic ? 'الضريبة' : 'Tax'), buildAmountWidget(tax, size: 9)),
+            rule(),
+            pair(words(options.isArabic ? 'الإجمالي' : 'Total', bold: true, size: 11), buildAmountWidget(total, size: 12)),
+          ],
           pair(
             words(options.isArabic ? 'إجمالي الوزن (جم)' : 'Total weight (g)'),
             figure(weight(effectiveTotalWeight), bold: true),
           ),
+          rule(),
+          for (final p in payments)
+            pair(words(p.method.isEmpty ? (options.isArabic ? 'دفعة' : 'Payment') : p.method), buildAmountWidget(p.amount, size: 9)),
+          pair(words(options.isArabic ? 'المدفوع' : 'Paid'), buildAmountWidget(facts.paid, size: 9)),
+          pair(words(options.isArabic ? 'المتبقي' : 'Left to pay', bold: true), buildAmountWidget(facts.cashDue, size: 10)),
           pw.SizedBox(height: 6),
           pw.Center(
             child: pw.BarcodeWidget(
@@ -1167,7 +1375,9 @@ class InvoicePdfBuilder {
           footer: (_) => buildFooter(),
           build: (ctx) => [
             buildHeader(),
-            pw.SizedBox(height: 14),
+            pw.SizedBox(height: 8),
+            buildInfoStrip(),
+            pw.SizedBox(height: 10),
             buildHeroTotal(),
             pw.SizedBox(height: 14),
             pw.Align(
@@ -1190,45 +1400,35 @@ class InvoicePdfBuilder {
             pw.SizedBox(height: 6),
             buildItemsTable(),
             pw.SizedBox(height: 12),
-            // Under-table section: gold details on the right, totals on the left.
-            pw.Row(
-              crossAxisAlignment: pw.CrossAxisAlignment.start,
-              children: options.isArabic
-                  ? [
-                      pw.Expanded(
-                        child: pw.Align(
-                          alignment: pw.Alignment.topLeft,
-                          child: pw.Container(width: 250, child: buildTotals()),
-                        ),
-                      ),
-                      pw.SizedBox(width: 10),
-                      pw.Container(width: 1, height: 92, color: border),
-                      pw.SizedBox(width: 10),
-                      pw.Expanded(
-                        child: pw.Align(
-                          alignment: pw.Alignment.topRight,
-                          child: buildGoldSummary(),
-                        ),
-                      ),
-                    ]
-                  : [
-                      pw.Expanded(
-                        child: pw.Align(
-                          alignment: pw.Alignment.topLeft,
-                          child: buildGoldSummary(),
-                        ),
-                      ),
-                      pw.SizedBox(width: 10),
-                      pw.Container(width: 1, height: 92, color: border),
-                      pw.SizedBox(width: 10),
-                      pw.Expanded(
-                        child: pw.Align(
-                          alignment: pw.Alignment.topRight,
-                          child: pw.Container(width: 250, child: buildTotals()),
-                        ),
-                      ),
-                    ],
-            ),
+            // Under the table: the totals, how it was paid, and the gold --
+            // side by side on wide paper; the payment under them on A5 (PRINT-3).
+            if (format.width >= PdfPageFormat.a4.width * 0.8)
+              pw.Row(
+                crossAxisAlignment: pw.CrossAxisAlignment.start,
+                children: [
+                  for (final w in options.isArabic
+                      ? [buildTotals(), buildPayments(), buildGoldSummary()]
+                      : [buildGoldSummary(), buildPayments(), buildTotals()]) ...[
+                    pw.Expanded(child: w),
+                    pw.SizedBox(width: 8),
+                  ],
+                ]..removeLast(),
+              )
+            else ...[
+              pw.Row(
+                crossAxisAlignment: pw.CrossAxisAlignment.start,
+                children: [
+                  for (final w in options.isArabic
+                      ? [buildTotals(), buildGoldSummary()]
+                      : [buildGoldSummary(), buildTotals()]) ...[
+                    pw.Expanded(child: w),
+                    pw.SizedBox(width: 8),
+                  ],
+                ]..removeLast(),
+              ),
+              pw.SizedBox(height: 8),
+              buildPayments(),
+            ],
             buildSignatures(),
           ],
         ),

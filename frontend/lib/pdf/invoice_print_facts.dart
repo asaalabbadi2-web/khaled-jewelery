@@ -40,3 +40,31 @@ bool isSupplierInvoiceType(Object? type) {
   final kind = (type ?? '').toString().trim();
   return kind == 'شراء' || kind == 'مرتجع شراء (مورد)';
 }
+
+/// The payments the server recorded on an invoice: each method's name and
+/// amount, in the order paid (`payments`). Lines of nothing are left out.
+List<({String method, double amount})> invoicePrintPayments(Map<dynamic, dynamic> invoice) {
+  final raw = invoice['payments'];
+  if (raw is! List) return const [];
+  return [
+    for (final p in raw.whereType<Map>())
+      if (_number(p['amount']).abs() > 0.005)
+        (
+          method: '${p['payment_method_name'] ?? p['method'] ?? ''}'.trim(),
+          amount: _number(p['amount']),
+        ),
+  ];
+}
+
+/// What a supplier purchase leaves owed to the supplier, as the server keeps
+/// it: its gold at the main karat (`total_weight_main_karat`), its wages and
+/// VAT, and the cash it can be paid (`cash_obligation`) -- not its total,
+/// which also holds the gold's value (models.Invoice.cash_obligation).
+({double goldMain, double wages, double tax, double cashDue}) supplierPrintOwed(
+  Map<dynamic, dynamic> invoice,
+) => (
+  goldMain: _number(invoice['total_weight_main_karat']),
+  wages: _number(invoice['wage_subtotal']),
+  tax: _number(invoice['total_tax']),
+  cashDue: _number(invoice['cash_obligation']),
+);
