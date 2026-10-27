@@ -5778,24 +5778,28 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
                   If client explicitly selected a different safe, fail.
                 - Otherwise: use requested_safe_id, falling back to main scrap gold safe.
                 - If employee gold safes disabled: prevent routing into employee gold safe (reroute to main scrap).
+
+                Returns (safe_id, None), or (None, response) -- the response one
+                value, (body, status): returned as three, its reason was lost to
+                «too many values to unpack» (ADR-062).
                 """
                 if employee_gold_enabled and emp_gold_safe_id:
                     if requested_safe_id not in (None, '', False):
                         try:
                             if int(requested_safe_id) != int(emp_gold_safe_id):
                                 db.session.rollback()
-                                return None, jsonify({
+                                return None, (jsonify({
                                     'error': 'gold_settlement_forced_employee_safe',
                                     'message': 'تم تفعيل خزائن ذهب الموظفين، ويجب أن يتم سداد الذهب على خزينة ذهب الموظف فقط',
                                     'employee_gold_safe_box_id': emp_gold_safe_id,
                                     'requested_safe_box_id': requested_safe_id,
-                                }), 400
+                                }), 400)
                         except Exception:
                             db.session.rollback()
-                            return None, jsonify({
+                            return None, (jsonify({
                                 'error': 'invalid_gold_safe_box_id',
                                 'message': 'خزينة الذهب غير صحيحة',
-                            }), 400
+                            }), 400)
                     return int(emp_gold_safe_id), None
 
                 # Not forced: honor request if present.
@@ -5807,10 +5811,10 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
                     resolved = int(resolved)
                 except Exception:
                     db.session.rollback()
-                    return None, jsonify({
+                    return None, (jsonify({
                         'error': 'missing_or_invalid_gold_safe_box',
                         'message': 'يجب تحديد خزينة ذهب صحيحة للمقايضة/السداد بالذهب',
-                    }), 400
+                    }), 400)
 
                 # If employee gold safes are disabled, prevent routing into employee gold safe.
                 try:

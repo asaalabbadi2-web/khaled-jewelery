@@ -208,6 +208,43 @@ def test_a_gold_line_that_is_no_gold_is_refused(auth_headers, world, line):
     assert resp.get_json()['error'] == 'invalid_gold_settlement_line'
 
 
+# ---- a gold safe refused is refused with its reason ----
+# Measured on the 27 Oct copy (employee gold safes on): any other safe than the
+# employee's was answered «Failed to create invoice: too many values to
+# unpack» -- the resolver returned (None, body, 400) where (None, response)
+# was read, so its reason was lost.
+
+def _employee_with_custody(holds_21=50.0):
+    from models import Employee, Settings
+    custody = _gold_safe(location='custody', holds_21=holds_21)
+    employee = Employee(employee_code=f'E-{_uid()}', name=f'موظف {_uid()}', salary=0.0, is_active=True,
+                        gold_safe_box_id=custody.id)
+    db.session.add(employee)
+    Settings.query.first().employee_gold_safes_enabled = True
+    db.session.flush()
+    return employee, custody
+
+
+def _by(employee, payload):
+    return {**payload, 'allow_employee_override': True, 'employee_id': employee.id}
+
+
+def test_another_safe_than_the_employees_is_refused_saying_so(auth_headers, world):
+    employee, _ = _employee_with_custody()
+    other = _gold_safe(holds_21=50.0)
+    resp = _save(auth_headers, _by(employee, _purchase(world, settlement_method='barter',
+                                                       gold_settlements=[_gold(other, 21, 2.0)])))
+    assert resp.status_code == 400, resp.get_data(as_text=True)[:300]
+    assert resp.get_json()['error'] == 'gold_settlement_forced_employee_safe'
+
+
+def test_the_employees_safe_is_taken(auth_headers, world):
+    employee, custody = _employee_with_custody()
+    resp = _save(auth_headers, _by(employee, _purchase(world, settlement_method='barter',
+                                                       gold_settlements=[_gold(custody, 21, 2.0)])))
+    assert resp.status_code == 201, resp.get_data(as_text=True)[:300]
+
+
 # ---- the preview says what the save takes ----
 
 def _preview(headers, payload):
