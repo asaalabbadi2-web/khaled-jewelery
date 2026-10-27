@@ -568,4 +568,13 @@ void main() {
       expect(find.text('التقاط صورة'), findsOneWidget);
     });
   });
+
+  // The owner (25 Oct 2026): the branch's field showed its icon twice, its
+  // own and its chosen branch's.
+  testWidgets('the branch\'s field wears its icon once', (tester) async {
+    await open(tester, api: FakeSalesApi(), editing: invoice());
+    final field = find.byType(DropdownButtonFormField<int>);
+    expect(find.descendant(of: field, matching: find.text('الفرع الرئيسي')), findsOneWidget);
+    expect(find.descendant(of: field, matching: find.byIcon(Icons.account_tree)), findsOneWidget);
+  });
 }

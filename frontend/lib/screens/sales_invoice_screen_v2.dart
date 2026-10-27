@@ -3642,27 +3642,16 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                       final id = _parseInt(branch['id']);
                       if (id == null) return null;
                       final name = (branch['name'] ?? 'فرع').toString();
+                      // The branch's name alone: the field already wears
+                      // the branch icon (the owner, 25 Oct 2026: it showed twice).
                       return DropdownMenuItem<int>(
                         value: id,
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(
-                              Icons.account_tree,
-                              color: colorScheme.primary,
-                              size: 20,
-                            ),
-                            const SizedBox(width: 10),
-                            Flexible(
-                              child: Text(
-                                name,
-                                style: theme.textTheme.bodyMedium?.copyWith(
-                                  fontWeight: FontWeight.w600,
-                                ),
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                          ],
+                        child: Text(
+                          name,
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            fontWeight: FontWeight.w600,
+                          ),
+                          overflow: TextOverflow.ellipsis,
                         ),
                       );
                     })
