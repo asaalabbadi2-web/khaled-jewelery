@@ -6,6 +6,7 @@ import 'package:intl/intl.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 
+import '../pdf/invoice_print_facts.dart';
 import '../pdf/pdf_sar_cache.dart';
 import '../pdf/pdf_text_utils.dart';
 import '../providers/settings_provider.dart';
@@ -41,11 +42,35 @@ class InvoicePdfBuilder {
     return base;
   }
 
+  /// The invoice's PDF; a page saying it could not be made when it fails.
   static Future<Uint8List> buildBytes({
     required Map<String, dynamic> invoice,
     required PdfPageFormat format,
     required InvoicePdfOptions options,
     SettingsProvider? settings,
+  }) => _build(invoice: invoice, format: format, options: options, settings: settings);
+
+  /// The invoice's PDF, or the error that kept it from being made -- what
+  /// the tests read (buildBytes answers it with a page saying so).
+  static Future<Uint8List> buildDocument({
+    required Map<String, dynamic> invoice,
+    required PdfPageFormat format,
+    required InvoicePdfOptions options,
+    SettingsProvider? settings,
+  }) => _build(
+    invoice: invoice,
+    format: format,
+    options: options,
+    settings: settings,
+    rethrowErrors: true,
+  );
+
+  static Future<Uint8List> _build({
+    required Map<String, dynamic> invoice,
+    required PdfPageFormat format,
+    required InvoicePdfOptions options,
+    SettingsProvider? settings,
+    bool rethrowErrors = false,
   }) async {
     // ═══ Main thread: lazy-load assets into cache on first print ═══
     await Future.wait([
@@ -154,7 +179,10 @@ class InvoicePdfBuilder {
     String safeStr(dynamic v) => (v ?? '').toString().trim();
 
     final invoiceType = safeStr(invoice['invoice_type']);
-    final invoiceNumber = (safeStr(invoice['invoice_type_id']).isNotEmpty)
+    // The number as the shop writes it (SELL-2026-1689), not its sequence alone.
+    final invoiceNumber = safeStr(invoice['invoice_number']).isNotEmpty
+        ? safeStr(invoice['invoice_number'])
+        : (safeStr(invoice['invoice_type_id']).isNotEmpty)
         ? '#${safeStr(invoice['invoice_type_id'])}'
         : (safeStr(invoice['id']).isNotEmpty)
         ? '#${safeStr(invoice['id'])}'
@@ -163,12 +191,17 @@ class InvoicePdfBuilder {
     final dateText = fmtDate(invoice['date']);
     final printDate = fmtDate(DateTime.now().toIso8601String());
 
+    // A supplier's invoice names its supplier -- the server sends the
+    // supplier's name as customer_name too, so the type decides, not the field.
     final customerName = safeStr(invoice['customer_name']);
     final supplierName = safeStr(invoice['supplier_name']);
-    final partyName = customerName.isNotEmpty ? customerName : supplierName;
-    final partyLabel = customerName.isNotEmpty
-        ? (options.isArabic ? 'العميل' : 'Customer')
-        : (options.isArabic ? 'المورد' : 'Supplier');
+    final ofSupplier = isSupplierInvoiceType(invoice['invoice_type']);
+    final partyName = ofSupplier && supplierName.isNotEmpty && supplierName != 'N/A'
+        ? supplierName
+        : (customerName.isNotEmpty ? customerName : supplierName);
+    final partyLabel = ofSupplier
+        ? (options.isArabic ? 'المورد' : 'Supplier')
+        : (options.isArabic ? 'العميل' : 'Customer');
 
     final total = toDouble(invoice['total']);
     final tax = toDouble(invoice['total_tax']);
@@ -186,26 +219,12 @@ class InvoicePdfBuilder {
               .toList()
         : <Map<String, dynamic>>[];
 
-    final totalsByKarat = <String, double>{};
-    double computedTotalWeight = 0.0;
-    for (final item in items) {
-      final karat = safeStr(item['karat']);
-      final qty = toDouble(item['quantity']);
-      final qtySafe = qty <= 0 ? 1.0 : qty;
-
-      final totalW = toDouble(item['total_weight']);
-      final perItemW = toDouble(item['weight']);
-      final fallbackW = toDouble(item['weight'] ?? item['total_weight']);
-      final lineW = totalW > 0
-          ? totalW
-          : (perItemW > 0 ? perItemW * qtySafe : fallbackW);
-      if (lineW <= 0) continue;
-
-      computedTotalWeight += lineW;
-      if (karat.isNotEmpty) {
-        totalsByKarat[karat] = (totalsByKarat[karat] ?? 0) + lineW;
-      }
-    }
+    // A line's weight is its own, never times its count (PRINT-1).
+    final totalsByKarat = invoiceWeightByKarat(items);
+    final computedTotalWeight = items.fold<double>(
+      0.0,
+      (sum, item) => sum + invoiceLineWeight(item),
+    );
 
     final effectiveTotalWeight = totalWeight > 0
         ? totalWeight
@@ -304,7 +323,8 @@ class InvoicePdfBuilder {
                     pw.Expanded(
                       child: pw.Align(
                         alignment: pw.Alignment.centerRight,
-                        child: valueText,
+                        // Smaller on narrow paper, never cut (A5's VAT number).
+                        child: pw.FittedBox(fit: pw.BoxFit.scaleDown, child: valueText),
                       ),
                     ),
                     pw.SizedBox(width: 6),
@@ -344,14 +364,19 @@ class InvoicePdfBuilder {
                 ),
                 pw.SizedBox(width: 6),
               ],
-              pw.Text(
-                options.isArabic ? ar(companyName) : companyName,
-                style: pw.TextStyle(
-                  fontSize: 14,
-                  fontWeight: pw.FontWeight.bold,
-                  color: gold,
+              pw.Flexible(
+                child: pw.FittedBox(
+                  fit: pw.BoxFit.scaleDown,
+                  child: pw.Text(
+                    options.isArabic ? ar(companyName) : companyName,
+                    style: pw.TextStyle(
+                      fontSize: 14,
+                      fontWeight: pw.FontWeight.bold,
+                      color: gold,
+                    ),
+                    textDirection: pw.TextDirection.ltr,
+                  ),
                 ),
-                textDirection: pw.TextDirection.ltr,
               ),
             ],
           ),
@@ -378,14 +403,20 @@ class InvoicePdfBuilder {
       final center = pw.Column(
         crossAxisAlignment: pw.CrossAxisAlignment.center,
         children: [
-          pw.Text(
-            headerTitle,
-            style: pw.TextStyle(
-              fontSize: 24,
-              fontWeight: pw.FontWeight.bold,
-              color: gold,
+          // One line, made smaller when it is long: wrapped, a title written
+          // for a left-to-right line read its words in the wrong order
+          // («شراء جديد» over «فاتورة») and squeezed the QR code below it.
+          pw.FittedBox(
+            fit: pw.BoxFit.scaleDown,
+            child: pw.Text(
+              headerTitle,
+              style: pw.TextStyle(
+                fontSize: 24,
+                fontWeight: pw.FontWeight.bold,
+                color: gold,
+              ),
+              textDirection: pw.TextDirection.ltr,
             ),
-            textDirection: pw.TextDirection.ltr,
           ),
           pw.SizedBox(height: 3),
           pw.Container(height: 1, width: 58, color: goldMid),
@@ -456,6 +487,11 @@ class InvoicePdfBuilder {
         ],
       );
 
+      // The sides take what the paper leaves: at 170 points each they took
+      // all of A5's width, and the QR code between them none (PRINT-1).
+      final inner = format.width - 28 * PdfPageFormat.mm - 28;
+      final side = inner * 0.35 < 170 ? inner * 0.35 : 170.0;
+
       return pw.Column(
         crossAxisAlignment: pw.CrossAxisAlignment.stretch,
         children: [
@@ -491,12 +527,12 @@ class InvoicePdfBuilder {
                 pw.Positioned(
                   top: 0,
                   right: 0,
-                  child: pw.SizedBox(width: 170, child: right),
+                  child: pw.SizedBox(width: side, child: right),
                 ),
                 pw.Positioned(
                   top: 0,
-                  left: 170,
-                  right: 170,
+                  left: side,
+                  right: side,
                   child: pw.Align(
                     alignment: pw.Alignment.topCenter,
                     child: center,
@@ -505,7 +541,7 @@ class InvoicePdfBuilder {
                 pw.Positioned(
                   top: 0,
                   left: 0,
-                  child: pw.SizedBox(width: 170, child: left),
+                  child: pw.SizedBox(width: side, child: left),
                 ),
               ],
             ),
@@ -594,10 +630,7 @@ class InvoicePdfBuilder {
     }
 
     pw.Widget buildGoldSummary() {
-      final uniqueKarats = <String>{
-        for (final item in items)
-          if (safeStr(item['karat']).isNotEmpty) safeStr(item['karat']),
-      };
+      final uniqueKarats = totalsByKarat.keys.toSet();
 
       final karatText = uniqueKarats.isEmpty
           ? '—'
@@ -733,6 +766,23 @@ class InvoicePdfBuilder {
       );
     }
 
+    double lineNet(Map<String, dynamic> item) {
+      final candidates = <dynamic>[
+        item['net'],
+        item['net_amount'],
+        item['net_total'],
+        item['subtotal'],
+        item['line_total'],
+        item['total'],
+        item['amount'],
+      ];
+      for (final c in candidates) {
+        final v = toDouble(c);
+        if (v != 0) return v;
+      }
+      return 0.0;
+    }
+
     pw.Widget buildItemsTable() {
       const headerTextColor = PdfColor.fromInt(0xFF3A3A3A);
 
@@ -753,14 +803,16 @@ class InvoicePdfBuilder {
         return k;
       }
 
+      // A5 is narrow: at A4's padding and size a weight broke over two lines.
+      final narrow = format.width < PdfPageFormat.a4.width * 0.8;
       pw.Widget cell(String s, {bool header = false}) {
         final t = options.isArabic ? ar(s) : s;
         return pw.Padding(
-          padding: const pw.EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+          padding: pw.EdgeInsets.symmetric(horizontal: narrow ? 3 : 10, vertical: narrow ? 6 : 8),
           child: pw.Text(
             t,
             style: pw.TextStyle(
-              fontSize: header ? 10.5 : 10,
+              fontSize: narrow ? (header ? 8.5 : 8) : (header ? 10.5 : 10),
               fontWeight: header ? pw.FontWeight.bold : pw.FontWeight.normal,
               color: header ? headerTextColor : PdfColor.fromInt(0xFF222222),
             ),
@@ -771,35 +823,7 @@ class InvoicePdfBuilder {
         );
       }
 
-      double lineNet(Map<String, dynamic> item) {
-        final candidates = <dynamic>[
-          item['net'],
-          item['net_amount'],
-          item['net_total'],
-          item['subtotal'],
-          item['line_total'],
-          item['total'],
-          item['amount'],
-        ];
-        for (final c in candidates) {
-          final v = toDouble(c);
-          if (v != 0) return v;
-        }
-        return 0.0;
-      }
-
-      double lineWeight(Map<String, dynamic> item) {
-        final qty = toDouble(item['quantity']);
-        final qtySafe = qty <= 0 ? 1.0 : qty;
-
-        final totalW = toDouble(item['total_weight']);
-        final perItemW = toDouble(item['weight']);
-        final fallbackW = toDouble(item['weight'] ?? item['total_weight']);
-        final w = totalW > 0
-            ? totalW
-            : (perItemW > 0 ? perItemW * qtySafe : fallbackW);
-        return w;
-      }
+      double lineWeight(Map<String, dynamic> item) => invoiceLineWeight(item);
 
       String moneyValue(dynamic v) => toDouble(v).toStringAsFixed(2);
 
@@ -891,12 +915,13 @@ class InvoicePdfBuilder {
 
     pw.Widget buildSignatures() {
       final c = PdfColor.fromInt(0xFFDDDDDD);
-      final labelCustomer = options.isArabic
-          ? ar('توقيع العميل')
-          : 'Customer Signature';
-      final labelSeller = options.isArabic
-          ? ar('توقيع البائع')
-          : 'Seller Signature';
+      // A supplier signs what it delivered; we sign what we received.
+      final labelCustomer = ofSupplier
+          ? (options.isArabic ? ar('توقيع المورد') : 'Supplier Signature')
+          : (options.isArabic ? ar('توقيع العميل') : 'Customer Signature');
+      final labelSeller = ofSupplier
+          ? (options.isArabic ? ar('توقيع المستلم') : 'Received by')
+          : (options.isArabic ? ar('توقيع البائع') : 'Seller Signature');
 
       pw.Widget dottedLine() {
         return pw.Container(
@@ -990,10 +1015,138 @@ class InvoicePdfBuilder {
       );
     }
 
+    // An 80 mm roll has no page length (PRINT-1): one page as long as the
+    // receipt, in one column -- the A4 header and its seven columns do not
+    // fit, and a page of no length failed every invoice («تعذر إنشاء
+    // الفاتورة للطباعة»).
+    pw.Widget buildRoll() {
+      pw.Widget words(String s, {bool bold = false, double size = 8.5}) =>
+          pw.Text(
+            options.isArabic ? ar(s) : s,
+            textDirection: pw.TextDirection.ltr,
+            style: pw.TextStyle(
+              fontSize: size,
+              fontWeight: bold ? pw.FontWeight.bold : null,
+              color: text,
+            ),
+          );
+      pw.Widget figure(String s, {bool bold = false, double size = 8.5}) =>
+          pw.Text(
+            s,
+            textDirection: pw.TextDirection.ltr,
+            style: pw.TextStyle(
+              fontSize: size,
+              fontWeight: bold ? pw.FontWeight.bold : null,
+              color: text,
+            ),
+          );
+      // [first] on the reading side, [second] on the other.
+      pw.Widget pair(pw.Widget first, pw.Widget second) => pw.Padding(
+        padding: const pw.EdgeInsets.symmetric(vertical: 1.5),
+        child: pw.Row(
+          mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+          children: options.isArabic ? [second, first] : [first, second],
+        ),
+      );
+      // Words and a figure side by side, each written its own way.
+      pw.Widget wordsAndFigure(String w, String f, {double size = 8.5}) =>
+          pw.Row(
+            mainAxisSize: pw.MainAxisSize.min,
+            children: options.isArabic
+                ? [figure(f, size: size), pw.SizedBox(width: 3), words(w, size: size)]
+                : [words(w, size: size), pw.SizedBox(width: 3), figure(f, size: size)],
+          );
+      pw.Widget rule([double h = 1]) => pw.Container(
+        height: h,
+        color: gold,
+        margin: const pw.EdgeInsets.symmetric(vertical: 3),
+      );
+
+      final rollTitle = options.isArabic
+          ? (invoiceType.isNotEmpty ? 'فاتورة ${invoiceTypeLabel(invoice)}' : 'فاتورة')
+          : (invoiceType.isNotEmpty ? 'Invoice ($invoiceType)' : 'Invoice');
+
+      return pw.Column(
+        crossAxisAlignment: pw.CrossAxisAlignment.stretch,
+        children: [
+          pw.Center(child: words(companyName, bold: true, size: 13)),
+          if (companyVat.trim().isNotEmpty)
+            pw.Center(child: wordsAndFigure(options.isArabic ? 'الرقم الضريبي:' : 'VAT No:', companyVat)),
+          if (companyPhone.trim().isNotEmpty)
+            pw.Center(child: wordsAndFigure(options.isArabic ? 'هاتف:' : 'Phone:', companyPhone)),
+          rule(1.5),
+          pw.Center(
+            child: pw.FittedBox(
+              fit: pw.BoxFit.scaleDown,
+              child: words(rollTitle, bold: true, size: 13),
+            ),
+          ),
+          pw.Center(child: figure(invoiceNumber, bold: true, size: 11)),
+          pw.SizedBox(height: 3),
+          pair(words(options.isArabic ? 'التاريخ' : 'Date'), figure(dateText.isEmpty ? '—' : dateText, bold: true)),
+          if (partyName.isNotEmpty)
+            pair(words(partyLabel), words(partyName, bold: true)),
+          rule(1.5),
+          for (var i = 0; i < items.length; i++) ...[
+            pair(
+              words('${i + 1}. ${safeStr(items[i]['name'] ?? items[i]['item_name'])}', bold: true),
+              lineNet(items[i]) != 0
+                  ? buildAmountWidget(lineNet(items[i]), size: 8.5)
+                  : figure('—'),
+            ),
+            pair(
+              pw.Row(
+                mainAxisSize: pw.MainAxisSize.min,
+                children: [
+                  wordsAndFigure(options.isArabic ? 'عيار' : 'Karat', invoiceKaratText(items[i]['karat']), size: 8),
+                  pw.SizedBox(width: 8),
+                  wordsAndFigure(options.isArabic ? 'العدد' : 'Qty', '${items[i]['quantity'] ?? 1}', size: 8),
+                ],
+              ),
+              figure('${weight(invoiceLineWeight(items[i]))} g', size: 8),
+            ),
+            pw.Container(height: 0.6, color: border),
+          ],
+          pw.SizedBox(height: 3),
+          pair(words(options.isArabic ? 'المجموع الفرعي' : 'Subtotal'), buildAmountWidget(subtotal, size: 9)),
+          pair(words(options.isArabic ? 'الضريبة' : 'Tax'), buildAmountWidget(tax, size: 9)),
+          rule(),
+          pair(words(options.isArabic ? 'الإجمالي' : 'Total', bold: true, size: 11), buildAmountWidget(total, size: 12)),
+          pair(
+            words(options.isArabic ? 'إجمالي الوزن (جم)' : 'Total weight (g)'),
+            figure(weight(effectiveTotalWeight), bold: true),
+          ),
+          pw.SizedBox(height: 6),
+          pw.Center(
+            child: pw.BarcodeWidget(
+              barcode: pw.Barcode.qrCode(),
+              data: 'invoice_no=$invoiceNumber',
+              width: 80,
+              height: 80,
+              color: gold,
+            ),
+          ),
+          pw.SizedBox(height: 6),
+          pw.Center(child: words(options.isArabic ? 'شكراً لتعاملكم مع $companyName' : 'Thank you for choosing $companyName', size: 8)),
+          pw.Center(child: wordsAndFigure(options.isArabic ? 'تاريخ الطباعة:' : 'Printed:', printDate, size: 8)),
+        ],
+      );
+    }
+
     final title = options.isArabic ? 'فاتورة' : 'Invoice';
     final doc = pw.Document(title: title, author: companyName);
 
     try {
+      if (format.height == double.infinity) {
+        doc.addPage(
+          pw.Page(
+            pageFormat: format,
+            theme: pw.ThemeData.withFont(base: fontReg, bold: fontBold),
+            build: (_) => buildRoll(),
+          ),
+        );
+        return doc.save();
+      }
       doc.addPage(
         pw.MultiPage(
           pageFormat: format,
@@ -1076,6 +1229,7 @@ class InvoicePdfBuilder {
 
       return doc.save();
     } catch (e, st) {
+      if (rethrowErrors) rethrow;
       // Log for devtool/console debugging (especially on web).
       // ignore: avoid_print
       print('InvoicePdfBuilder failed: $e\n$st');
