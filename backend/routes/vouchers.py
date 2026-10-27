@@ -1529,6 +1529,16 @@ def cancel_voucher(voucher_id):
         # same class of bug as AV-2026-00223. Safe to call unconditionally: a
         # voucher with no attribution rows removes none.
         remove_attributions_for_voucher(voucher.id)
+        # A reservation's deposit voucher: the reservation holds what its
+        # standing vouchers paid (RES-...-0040 read paid after its voucher's
+        # cancellation, and refused its own).
+        if voucher.reference_type == 'office_reservation' and voucher.reference_id:
+            from models import OfficeReservation
+            from services.reservation_deposit import sync_deposit
+            reservation = OfficeReservation.query.get(int(voucher.reference_id))
+            if reservation is not None:
+                db.session.flush()
+                sync_deposit(reservation)
         # Its cash attributions too: every invoice it paid is recomputed, not
         # only the one it names (attribute_cash_to_invoice, 2 Oct 2026).
         recompute_invoices_paid_by(voucher.id)

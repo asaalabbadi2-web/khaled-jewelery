@@ -183,14 +183,8 @@ def create_office_reservation():
     else:
         paid_amount = float(total_amount)
 
-    payment_status = data.get('payment_status')
-    if not payment_status:
-        if paid_amount >= total_amount and total_amount > 0:
-            payment_status = 'paid'
-        elif paid_amount > 0:
-            payment_status = 'partial'
-        else:
-            payment_status = 'pending'
+    from services.reservation_deposit import payment_status_of
+    payment_status = data.get('payment_status') or payment_status_of(paid_amount, total_amount)
 
     # Phase 9C: payment_method_id is required whenever a deposit is being
     # recorded — matches add_invoice_payment's own validation exactly (same
@@ -919,27 +913,30 @@ def cancel_office_reservation(reservation_id: int):
     if (reservation.status or '').lower() == 'cancelled':
         return jsonify(_serialize_office_reservation(reservation)), 200
 
-    paid_amount = float(getattr(reservation, 'paid_amount', 0.0) or 0.0)
-    if paid_amount > 0:
-        return jsonify({'error': 'لا يمكن إلغاء حجز عليه دفعات. قم بعمل سند عكس/استرجاع أولاً'}), 400
-
-    try:
-        linked_voucher = Voucher.query.filter_by(
-            reference_type='office_reservation',
-            reference_id=reservation.id,
-        ).first()
-    except Exception:
-        linked_voucher = None
-
-    if linked_voucher is not None:
-        return jsonify({'error': 'لا يمكن إلغاء حجز مرتبط بسند دفع. قم بإلغاء السند أولاً'}), 400
+    # What its standing vouchers paid, not a figure written at creation: a
+    # cancelled voucher stands in the way of nothing (RES-...-0040).
+    from services.reservation_deposit import standing_deposit_vouchers, sync_deposit
+    standing = standing_deposit_vouchers(reservation)
+    if standing:
+        numbers = '، '.join(v.voucher_number for v in standing)
+        return jsonify({
+            'error': 'reservation_deposit_standing',
+            'message': f'لا يمكن إلغاء الحجز وعربونه قائم: ألغِ سند العربون {numbers} أولاً، ثم ألغِ الحجز.',
+            'vouchers': [v.voucher_number for v in standing],
+        }), 400
+    sync_deposit(reservation)
 
     # ── قيد عكسي للوزن: إعادة الذهب من المكتب إلى مخزون الكسر ──────────
+    # Only the gold a reservation sent at its creation, before 1 Oct 2026
+    # (_created_with_weight_entry). An execution's entry is reversed by
+    # «إلغاء التنفيذ»; taken here too, its gold left the office's deposit a
+    # second time (RES-...-0039, 27 Oct 2026: WGT-2026-00059).
     try:
         wgt_je = (
             JournalEntry.query
             .filter_by(reference_type='office_reservation', reference_id=reservation.id)
             .filter(JournalEntry.entry_number.like('WGT-%'))
+            .filter(JournalEntry.description.like('إرسال ذهب للحجز%'))
             .filter(JournalEntry.is_deleted.is_(False))
             .first()
         )
