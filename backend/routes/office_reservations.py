@@ -826,6 +826,9 @@ def reverse_office_reservation_settlement_for_invoice(invoice, *, created_by=Non
             db.session.add(JournalEntryLine(
                 journal_entry_id=reversal_entry.id,
                 account_id=orig.account_id,
+                # The party the line was (RESERVATION-BALANCE-1).
+                customer_id=orig.customer_id,
+                supplier_id=orig.supplier_id,
                 cash_debit=orig.cash_credit or 0.0,
                 cash_credit=orig.cash_debit or 0.0,
                 description=f'عكس: {orig.description}' if orig.description else 'عكس تسوية حجز',
@@ -958,7 +961,8 @@ def cancel_office_reservation(reservation_id: int):
             affected_account_ids = set()
             karats = (18, 21, 22, 24)
             for orig in orig_lines:
-                rev_kwargs = {'journal_entry_id': rev_entry.id, 'account_id': orig.account_id, 'description': orig.description}
+                rev_kwargs = {'journal_entry_id': rev_entry.id, 'account_id': orig.account_id, 'description': orig.description,
+                              'customer_id': orig.customer_id, 'supplier_id': orig.supplier_id}
                 for k in karats:
                     d = getattr(orig, f'debit_{k}k') or 0.0
                     c = getattr(orig, f'credit_{k}k') or 0.0

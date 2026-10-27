@@ -6,7 +6,7 @@ from typing import Dict, Iterable, List, Optional
 
 from sqlalchemy import and_, func, or_
 
-from models import Account, JournalEntry, JournalEntryLine, Office, OfficeReservation, Supplier, db
+from models import Account, JournalEntry, JournalEntryLine, Office, Supplier, db
 
 _DB_COLUMN_CACHE: Dict[tuple, bool] = {}
 
@@ -158,24 +158,9 @@ def compute_live_supplier_balances(
     elif _db_has_column('journal_entry', 'is_posted'):
         jl_filters.append(func.coalesce(JournalEntry.is_posted, True) == True)
 
-    # Exclude journal entries that are linked to cancelled or rejected office reservations.
-    # A cancelled reservation should have no financial impact on the supplier balance.
-    try:
-        _cancelled_res_je_ids = (
-            db.session.query(JournalEntry.id)
-            .join(
-                OfficeReservation,
-                and_(
-                    JournalEntry.reference_type == 'office_reservation',
-                    JournalEntry.reference_id == OfficeReservation.id,
-                ),
-            )
-            .filter(OfficeReservation.status.in_(['cancelled', 'rejected']))
-            .subquery()
-        )
-        jl_filters.append(JournalEntry.id.notin_(_cancelled_res_je_ids))
-    except Exception:
-        pass
+    # A cancelled reservation's entries are read as they are: its execution's
+    # reversal names the purchase, not the reservation, and leaving out the
+    # execution alone put its amount in the office's favour (RESERVATION-BALANCE-1).
 
     # Always return an entry for each supplier in input.
     balances_by_supplier: Dict[int, Dict[str, float]] = {
