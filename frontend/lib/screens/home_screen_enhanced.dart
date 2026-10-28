@@ -13,6 +13,7 @@ import '../providers/quick_actions_provider.dart';
 import '../providers/settings_provider.dart';
 import '../providers/auth_provider.dart';
 import '../providers/sales_race_refresh_provider.dart';
+import '../models/gold_prices.dart';
 import '../models/quick_action_item.dart';
 import '../widgets/gold_price_bar.dart';
 import '../widgets/user_avatar_widget.dart';
@@ -126,8 +127,12 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
 
   // Data
   double? goldPrice;
-  // The server's sell and buy per gram by karat (PRICE-BUY-1).
+  // The server's sell and buy per gram by karat (PRICE-BUY-1), now and at the
+  // day's opening -- the closing office's (OFFICE-PRICE-1).
   Map<String, dynamic>? goldPricesPerGram;
+  Map<String, dynamic>? goldOpeningPricesPerGram;
+  GoldPrices _tickerPrices = GoldPrices.none;
+  GoldPrices _tickerOpening = GoldPrices.none;
   DateTime? goldPriceDate;
   double? goldPriceOpening;
   DateTime? goldPriceOpeningDate;
@@ -138,7 +143,6 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
   List safeBoxes = [];
 
   // Currency data
-  double exchangeRate = 3.75; // سعر الصرف الافتراضي (دولار -> ريال سعودي)
   String currencySymbol = 'ر.س';
   int currencyDecimalPlaces = 2;
   // The settings' main karat from the start -- never a fixed one.
@@ -693,6 +697,11 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
               : (response['price_usd_per_oz'] as num?)?.toDouble();
           final perGram = response['prices_per_gram'];
           goldPricesPerGram = perGram is Map ? Map<String, dynamic>.from(perGram) : null;
+          final openingPerGram = response['opening_prices_per_gram'];
+          goldOpeningPricesPerGram =
+              openingPerGram is Map ? Map<String, dynamic>.from(openingPerGram) : null;
+          _tickerPrices = GoldPrices.fromResponse(response);
+          _tickerOpening = GoldPrices.openingFromResponse(response);
 
           if (response['date'] != null) {
             // Sent marked UTC ('Z', 2 Oct 2026): shown in the device's time.
@@ -2713,9 +2722,9 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
           GoldPriceBar(
             goldPrice: goldPrice,
             pricesPerGram: goldPricesPerGram,
+            openingPricesPerGram: goldOpeningPricesPerGram,
             goldPriceOpening: goldPriceOpening,
             goldPriceDate: goldPriceDate,
-            exchangeRate: exchangeRate,
             mainKarat: mainKarat,
             isUpdating: _isGoldPriceUpdatingNow,
             onRefresh: _updateGoldPriceNow,
@@ -3582,10 +3591,9 @@ class _HomeScreenEnhancedState extends State<HomeScreenEnhanced>
     final settings = context.watch<SettingsProvider>();
     return GoldPriceTickerBar(
       isArabic: widget.isArabic,
-      ouncePriceUsd: goldPrice,
-      openingOuncePriceUsd: goldPriceOpening,
+      prices: _tickerPrices,
+      openingPrices: _tickerOpening,
       currencySymbol: settings.currencySymbolText,
-      exchangeRate: exchangeRate,
       refreshInterval: settings.goldPriceTickerRefreshInterval,
     );
   }

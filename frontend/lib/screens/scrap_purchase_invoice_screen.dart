@@ -14,6 +14,7 @@ import 'add_customer_screen.dart';
 import '../widgets/invoice_settings_sheet.dart';
 import '../widgets/pay_box.dart';
 import '../widgets/scrap_purchase_entry_row.dart';
+import '../models/gold_prices.dart';
 import '../utils/scrap_purchase_readiness.dart';
 import '../widgets/invoice_review_dialog.dart';
 import '../widgets/invoice_saved_dialog.dart';
@@ -109,10 +110,13 @@ class _ScrapPurchaseInvoiceScreenState
   List<Map<String, dynamic>> _purchaseItems = [];
 
   // Gold Price & Settings
-  double _goldPrice24k = 0.0;
-  // The market's buy price per gram of 24k -- the server's, by the settings'
+  // Each karat's price as the server makes it -- the closing office's (OFFICE-PRICE-1).
+  GoldPrices _goldPrices = GoldPrices.none;
+  double get _goldPrice24k => _goldPrices.k24;
+  // The market's buy price of each karat -- the server's, by the settings'
   // ratio (PRICE-BUY-1); it was this screen's own 0.98.
-  double _marketBuy24k = 0.0;
+  GoldPrices _marketBuy = GoldPrices.none;
+  // The suggested price a 24k gram (the last purchase's, gold costing) -- 0 without one.
   double _purchasePrice24k = 0.0;
   late SettingsProvider _settingsProvider;
 
@@ -207,7 +211,7 @@ class _ScrapPurchaseInvoiceScreenState
           quantity: int0(m['quantity']) ?? 1,
           weight: num0(m['weight']),
           wage: num0(m['wage']),
-          goldPrice24k: _effectivePurchasePrice24k,
+          purchasePrices: _effectivePurchasePrices,
           mainKarat: _settingsProvider.mainKarat,
           isCategoryLine: m['item_id'] == null,
         );
@@ -339,7 +343,7 @@ class _ScrapPurchaseInvoiceScreenState
         quantity: count,
         weight: standing,
         wage: wage,
-        goldPrice24k: _effectivePurchasePrice24k,
+        purchasePrices: _effectivePurchasePrices,
         mainKarat: _settingsProvider.mainKarat,
         isCategoryLine: true,
       );
@@ -475,12 +479,8 @@ class _ScrapPurchaseInvoiceScreenState
       final priceData = await apiService.getGoldPrice();
       if (!mounted) return;
       setState(() {
-        final fetched = _parseDouble(priceData['price_24k']);
-        _goldPrice24k = fetched;
-        _marketBuy24k = _buy24kFrom(priceData);
-        if (_purchasePrice24k <= 0) {
-          _purchasePrice24k = _marketBuy24k;
-        }
+        _goldPrices = GoldPrices.fromResponse(priceData);
+        _marketBuy = GoldPrices.fromResponse(priceData, buy: true);
       });
     } catch (e) {
       _showError(e, title: 'فشل تحميل سعر الذهب');
@@ -502,16 +502,11 @@ class _ScrapPurchaseInvoiceScreenState
     }
   }
 
-  /// The server's buy price per gram of 24k from a GET /gold_price answer.
-  double _buy24kFrom(Map<String, dynamic> priceData) {
-    final perGram = priceData['prices_per_gram'];
-    final row = perGram is Map ? perGram['24'] : null;
-    return row is Map ? _parseDouble(row['buy']) : 0.0;
-  }
-
-  double get _effectivePurchasePrice24k {
-    if (_purchasePrice24k > 0) return _purchasePrice24k;
-    return _marketBuy24k;
+  /// What a line is bought at: the suggested 24k price by each karat's
+  /// fineness when there is one, else the market's buy price of each karat.
+  GoldPrices get _effectivePurchasePrices {
+    if (_purchasePrice24k > 0) return GoldPrices({24: _purchasePrice24k});
+    return _marketBuy;
   }
 
   int? _parseInt(dynamic value) {
@@ -779,15 +774,12 @@ class _ScrapPurchaseInvoiceScreenState
     try {
       final apiService = _api;
       final priceData = await apiService.getGoldPrice();
-      final newPrice = _parseDouble(priceData['price_24k']);
-      if (newPrice > 0) {
+      final fresh = GoldPrices.fromResponse(priceData);
+      if (fresh.known) {
         if (mounted) {
           setState(() {
-            _goldPrice24k = newPrice;
-            _marketBuy24k = _buy24kFrom(priceData);
-            if (_purchasePrice24k <= 0) {
-              _purchasePrice24k = _marketBuy24k;
-            }
+            _goldPrices = fresh;
+            _marketBuy = GoldPrices.fromResponse(priceData, buy: true);
           });
         }
         debugPrint(
@@ -830,7 +822,7 @@ class _ScrapPurchaseInvoiceScreenState
           quantity: quantity,
           weight: weight,
           wage: wage,
-          goldPrice24k: _effectivePurchasePrice24k,
+          purchasePrices: _effectivePurchasePrices,
           mainKarat: _settingsProvider.mainKarat,
         ),
       );
@@ -999,11 +991,11 @@ class _ScrapPurchaseInvoiceScreenState
       final apiService = _api;
       final priceData = await apiService.getGoldPrice();
       if (!mounted) return;
-      final fetched = _parseDouble(priceData['price_24k']);
-      if (fetched > 0) {
+      final fresh = GoldPrices.fromResponse(priceData);
+      if (fresh.known) {
         setState(() {
-          _goldPrice24k = fetched;
-          _marketBuy24k = _buy24kFrom(priceData);
+          _goldPrices = fresh;
+          _marketBuy = GoldPrices.fromResponse(priceData, buy: true);
         });
       }
     } catch (_) {
@@ -1012,8 +1004,7 @@ class _ScrapPurchaseInvoiceScreenState
   }
 
   bool _validateItemsAgainstLiveGoldPrice() {
-    final live24k = _goldPrice24k;
-    if (live24k <= 0) {
+    if (!_goldPrices.known) {
       _showError('تعذر التحقق من السعر: سعر الذهب المباشر غير متاح حالياً');
       return false;
     }
@@ -1060,7 +1051,7 @@ class _ScrapPurchaseInvoiceScreenState
         return false;
       }
 
-      final livePerGram = live24k * (item.karat / 24.0);
+      final livePerGram = _goldPrices.of(item.karat);   // the karat's own (OFFICE-PRICE-1)
       final paidPerGram = item.net / item.weight;
       final maxAllowed = livePerGram * (1 + tolerancePct);
 
@@ -1435,7 +1426,7 @@ class _ScrapPurchaseInvoiceScreenState
         notices: [
           for (final w in scrapPurchasePriceWarnings(
             lines: _lineFacts(),
-            goldPrice24k: _goldPrice24k,
+            goldPrices: _goldPrices,
             formatCash: _formatCurrency,
           ))
             InvoiceReviewNotice(w.text, line: w.line),
@@ -1890,7 +1881,7 @@ class _ScrapPurchaseInvoiceScreenState
                             ),
                             const SizedBox(width: 4),
                             Text(
-                              'أونصة: \$${formatAmount((_goldPrice24k * 31.1035 / 3.75), decimals: 0)}',
+                              'أونصة: \$${formatAmount(_goldPrices.ounceUsd, decimals: 0)}',
                               style: Theme.of(context).textTheme.labelSmall?.copyWith(color: AppSemanticColors.invoiceBar(context, InvoiceKind.purchaseScrap).foreground, fontWeight: FontWeight.w700,),
                             ),
                             Padding(
@@ -1901,7 +1892,8 @@ class _ScrapPurchaseInvoiceScreenState
                               ),
                             ),
                             ...([24, 22, 21, 18].map((k) {
-                              final gp = _goldPrice24k * k / 24;
+                              // A purchase shows the market's buy price (the owner, 29 Oct 2026).
+                              final gp = _marketBuy.of(k);
                               final isMain = k == _settingsProvider.mainKarat;
                               return Padding(
                                 padding: const EdgeInsets.only(right: 10),
@@ -4334,7 +4326,7 @@ class InvoiceItem {
   int quantity; // العدد (يدخل يدوياً)
   double weight;
   double wage; // أجور المصنعية للجرام الواحد
-  final double goldPrice24k; // سعر الشراء لعيار 24 بعد أي خصم مطبق
+  final GoldPrices purchasePrices; // سعر شراء كل عيار بعد أي خصم مطبق
   final int mainKarat;
   final bool isCategoryLine;
 
@@ -4355,14 +4347,14 @@ class InvoiceItem {
     required this.quantity,
     required this.weight,
     required this.wage,
-    required this.goldPrice24k,
+    required this.purchasePrices,
     required this.mainKarat,
     this.isCategoryLine = false,
   });
 
   // حساب سعر الجرام الخام (سعر الذهب فقط حسب العيار)
   double calculatePricePerGram() {
-    return goldPrice24k * (karat / 24.0);
+    return purchasePrices.of(karat);
   }
 
   // تكلفة الشراء/جرام = سعر شراء الجرام المباشر للعيار (بدون مصنعية)

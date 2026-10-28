@@ -35,7 +35,6 @@ Dual accounting system helpers (cash + weight)
 Note: These functions must be called from within a Flask app context
 """
 
-from pricing.constants import SAR_USD_PEG, TROY_OZ_TO_GRAMS
 
 
 def _get_main_karat_value(db_session):
@@ -284,13 +283,12 @@ def create_dual_journal_entry(journal_entry_id, account_id, cash_debit=0, cash_c
             if not latest_price:
                 raise Exception("لا يوجد سعر ذهب محفوظ")
             
-            price_per_gram_24k_sar = (latest_price.price / TROY_OZ_TO_GRAMS) * SAR_USD_PEG
-            
             # الحصول على العيار الرئيسي من الإعدادات
             main_karat = _get_main_karat_value(db.session)
             
-            # 🔧 FIXED: حساب السعر للعيار الرئيسي (SAR/gram)
-            gold_price_main_karat = (price_per_gram_24k_sar * main_karat) / 24.0
+            # سعر العيار الرئيسي (SAR/gram): سعر مكتب التسكير بشروط حفظه (OFFICE-PRICE-1)
+            from pricing.office_price import row_gram_price
+            gold_price_main_karat = row_gram_price(latest_price, main_karat)
             
             if gold_price_main_karat > 0:
                 # تطبيق القاعدة الذهبية

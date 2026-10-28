@@ -3261,6 +3261,19 @@ def preview_supplier_purchase():
                         'message': 'العيار الرئيسي غير مضبوط في الإعدادات'}), 400
 
 
+def _karat_price(gold_price_data, karat, price_24k) -> float:
+    """A karat's own price a gram from get_current_gold_price() -- the office's
+    are not proportional to 24k (OFFICE-PRICE-1); by 24k only when it has none."""
+    try:
+        karat = int(round(float(karat)))
+    except (TypeError, ValueError):
+        karat = 0
+    by_karat = (gold_price_data or {}).get('price_per_gram_by_karat') or {}
+    if by_karat.get(karat):
+        return float(by_karat[karat])
+    return float(price_24k or 0.0) * karat / 24.0
+
+
 @invoices_bp.route('/invoices', methods=['POST'])
 @require_permission('invoices.create')
 def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_invoice_type_id=None,
@@ -4675,7 +4688,11 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
                     karat_float = _to_float(item_karat, get_main_karat())
                     if karat_float <= 0:
                         karat_float = get_main_karat()
-                    direct_price_per_gram = (price_per_gram_24k * karat_float) / 24.0
+                    # The market's buy price: the office's x the settings' ratio (the owner,
+                    # 29 Oct 2026: a purchase by the market's buy price, a sale by its sell price).
+                    from pricing.buy_price import buy_price_ratio
+                    direct_price_per_gram = (_karat_price(gold_price_data, karat_float, price_per_gram_24k)
+                                             * buy_price_ratio())
                 diff_weight = standing_weight_val - stones_weight_val - weight_per_item
                 purchase_profit_cash += diff_weight * direct_price_per_gram
 
@@ -4938,7 +4955,8 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
                         0.0,
                     )
                     paid_per_gram = (total_paid / effective_weight) if effective_weight > 0 else 0.0
-                    live_per_gram = (float(price_per_gram_24k or 0.0) * float(karat_val) / 24.0) if price_per_gram_24k > 0 else 0.0
+                    live_per_gram = (_karat_price(gold_price_data, karat_val, price_per_gram_24k)
+                                     if price_per_gram_24k > 0 else 0.0)
                     max_allowed = live_per_gram * tol_factor
 
                     if live_per_gram > 0 and paid_per_gram > max_allowed:
@@ -7037,11 +7055,12 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
 
             # الفصوص لا تدخل القيود — تُتابَع معلوماتياً عبر SafeBoxTransaction.stones_weight فقط
 
-            # ─── نقاط السباق: profit_gold = وزن مشترى - مقابله بسعر السوق ───
+            # ─── نقاط السباق: profit_gold = وزن مشترى - مقابله بسعر شراء السوق ───
             # المنطق: الموظف دفع X ريال واستلم Y جرام
-            # مقابل X ريال بسعر اليوم = X / سعر الجرام (عيار رئيسي)
-            # الربح الحقيقي = Y - (X / سعر_الجرام) → كمية الذهب الزائدة عن السعر
-            # نفس مبدأ المبيعات: profit_gold = profit_cash / سعر_الجرام
+            # مقابل X ريال بسعر اليوم = X / سعر شراء الجرام (عيار رئيسي)
+            # الربح الحقيقي = Y - (X / سعر_الشراء) → كمية الذهب الزائدة عن السعر
+            # البيع بسعر بيع السوق والشراء بسعر شرائه: سعر المكتب × نسبة الشراء
+            # في الإعدادات (المالك، 29 أكتوبر 2026؛ OFFICE-PRICE-1)
             _mk = get_main_karat()
             _weight_main_karat = sum(
                 float(w or 0) * int(k) / _mk
@@ -7053,6 +7072,8 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
                 'price_per_gram_main_karat',
                 _gold_price_now2.get('price_main_karat', 350.0),
             )
+            from pricing.buy_price import buy_price_ratio
+            _price_main2 = float(_price_main2 or 0) * buy_price_ratio()
             _cash_paid = float(total_cash or 0)
             _cost_in_gold = (_cash_paid / _price_main2) if _price_main2 > 0 else _weight_main_karat
             _purchase_profit_gold = max(0.0, _weight_main_karat - _cost_in_gold)

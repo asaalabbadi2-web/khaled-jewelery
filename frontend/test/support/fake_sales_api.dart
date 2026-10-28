@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:frontend/api_service.dart';
 import 'package:frontend/models/safe_box_model.dart';
+import 'gold_price_answer.dart';
 
 /// The server as the sales screen sees it, in memory: what it was sent is
 /// kept to be read back; [hold] keeps a save in flight.
@@ -41,7 +42,7 @@ class FakeSalesApi extends ApiService {
   final customersAdded = <Map<String, dynamic>>[];
 
   @override
-  Future<Map<String, dynamic>> getGoldPrice() async => {'price_24k': 480.0};
+  Future<Map<String, dynamic>> getGoldPrice() async => goldPriceAnswer(480.0);
 
   @override
   Future<List<Map<String, dynamic>>> getBranches({

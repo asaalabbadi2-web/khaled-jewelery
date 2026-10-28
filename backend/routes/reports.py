@@ -35,7 +35,6 @@ from core.database import _db_has_column
 from core.dates import _parse_iso_date
 from auth_decorators import get_current_user, require_auth, require_permission
 
-from pricing.constants import SAR_USD_PEG, TROY_OZ_TO_GRAMS
 from pricing.karat_service import convert_to_main_karat, get_main_karat, line_karat
 from accounting.mappings import (DEFAULT_MAPPING_OPERATION_TYPE, get_account_id_by_number, get_account_id_for_mapping,
                                  require_account)
@@ -3077,12 +3076,13 @@ def get_gold_price_history_report():
         .all()
     )
 
-    usd_to_sar_factor = SAR_USD_PEG / TROY_OZ_TO_GRAMS
+    # Riyals a gram are each price's own: the office's, by the terms it was
+    # saved with -- by the ounce before them (OFFICE-PRICE-1).
+    from pricing.office_price import row_gram_price
+    main_karat = get_main_karat()
 
-    def usd_oz_to_sar_gram(value):
-        if value in (None, 0):
-            return 0.0 if value == 0 else None
-        return value * usd_to_sar_factor
+    def mean(values):
+        return sum(values) / len(values) if values else 0.0
 
     def round_money(value, digits=2):
         if value is None:
@@ -3111,6 +3111,7 @@ def get_gold_price_history_report():
     for row in price_rows:
         timestamp = price_clock.to_riyadh(row.date or now)
         price_value = float(row.price or 0.0)
+        sar_24, sar_main = row_gram_price(row, 24), row_gram_price(row, main_karat)
         key = bucket_key(timestamp)
         bucket = bucket_map.get(key)
         if bucket is None:
@@ -3125,8 +3126,12 @@ def get_gold_price_history_report():
                 'last_price': None,
                 'first_date': None,
                 'last_date': None,
+                'sar_24': [],
+                'sar_main': [],
             }
             bucket_map[key] = bucket
+        bucket['sar_24'].append(sar_24)
+        bucket['sar_main'].append(sar_main)
 
         bucket['count'] += 1
         bucket['total_price'] += price_value
@@ -3138,7 +3143,8 @@ def get_gold_price_history_report():
         bucket['last_price'] = price_value
         bucket['last_date'] = timestamp
 
-        price_points.append({'bucket': key, 'price_usd': price_value, 'timestamp': timestamp})
+        price_points.append({'bucket': key, 'price_usd': price_value, 'timestamp': timestamp,
+                             'sar_24': sar_24, 'sar_main': sar_main})
 
     if not price_points:
         return jsonify({
@@ -3172,14 +3178,12 @@ def get_gold_price_history_report():
         price_points = [point for point in price_points if point['bucket'] in keep_set]
 
     series_payload = []
-    main_karat = get_main_karat()
-    main_ratio = main_karat / 24.0
 
     for bucket in bucket_map.values():
         avg_price = bucket['total_price'] / bucket['count'] if bucket['count'] else 0.0
-        avg_sar_24 = usd_oz_to_sar_gram(avg_price)
-        high_sar = usd_oz_to_sar_gram(bucket['max_price']) if bucket['max_price'] is not None else None
-        low_sar = usd_oz_to_sar_gram(bucket['min_price']) if bucket['min_price'] is not None else None
+        avg_sar_24 = mean(bucket['sar_24'])
+        high_sar = max(bucket['sar_24']) if bucket['sar_24'] else None
+        low_sar = min(bucket['sar_24']) if bucket['sar_24'] else None
         change_percent = None
         if bucket['first_price'] and bucket['first_price'] != 0:
             change_percent = ((bucket['last_price'] - bucket['first_price']) / bucket['first_price']) * 100
@@ -3197,7 +3201,7 @@ def get_gold_price_history_report():
             'points': bucket['count'],
             'avg_price_usd': round_money(avg_price),
             'avg_price_sar_24k': round_money(avg_sar_24),
-            'avg_price_sar_main_karat': round_money(avg_sar_24 * main_ratio if avg_sar_24 is not None else None),
+            'avg_price_sar_main_karat': round_money(mean(bucket['sar_main'])),
             'high_price_usd': round_money(bucket['max_price']),
             'low_price_usd': round_money(bucket['min_price']),
             'high_price_sar_24k': round_money(high_sar),
@@ -3216,7 +3220,7 @@ def get_gold_price_history_report():
 
     prices_list = [entry['price_usd'] for entry in price_series]
     avg_price_usd = sum(prices_list) / len(prices_list)
-    avg_price_sar_24 = usd_oz_to_sar_gram(avg_price_usd)
+    avg_price_sar_24 = mean([entry['sar_24'] for entry in price_series])
     percent_change = None
     if start_point['price_usd']:
         percent_change = ((end_point['price_usd'] - start_point['price_usd']) / start_point['price_usd']) * 100
@@ -3230,25 +3234,25 @@ def get_gold_price_history_report():
         'buckets_count': len(series_payload),
         'start_price_usd': round_money(start_point['price_usd']),
         'end_price_usd': round_money(end_point['price_usd']),
-        'start_price_sar_24k': round_money(usd_oz_to_sar_gram(start_point['price_usd'])),
-        'end_price_sar_24k': round_money(usd_oz_to_sar_gram(end_point['price_usd'])),
+        'start_price_sar_24k': round_money(start_point['sar_24']),
+        'end_price_sar_24k': round_money(end_point['sar_24']),
         'average_price_usd': round_money(avg_price_usd),
         'average_price_sar_24k': round_money(avg_price_sar_24),
-        'average_price_sar_main_karat': round_money(avg_price_sar_24 * main_ratio if avg_price_sar_24 is not None else None),
+        'average_price_sar_main_karat': round_money(mean([entry['sar_main'] for entry in price_series])),
         'absolute_change_usd': round_money(end_point['price_usd'] - start_point['price_usd']),
         'absolute_change_sar_24k': round_money(
-            usd_oz_to_sar_gram(end_point['price_usd']) - usd_oz_to_sar_gram(start_point['price_usd'])
+            end_point['sar_24'] - start_point['sar_24']
         ),
         'percent_change': round_money(percent_change),
         'volatility_percent': round_money(volatility_percent),
         'highest_price': {
             'value_usd': round_money(highest_point['price_usd']),
-            'value_sar_24k': round_money(usd_oz_to_sar_gram(highest_point['price_usd'])),
+            'value_sar_24k': round_money(highest_point['sar_24']),
             'timestamp': highest_point['timestamp'].isoformat(),
         },
         'lowest_price': {
             'value_usd': round_money(lowest_point['price_usd']),
-            'value_sar_24k': round_money(usd_oz_to_sar_gram(lowest_point['price_usd'])),
+            'value_sar_24k': round_money(lowest_point['sar_24']),
             'timestamp': lowest_point['timestamp'].isoformat(),
         },
         'main_karat': main_karat,
@@ -3256,8 +3260,8 @@ def get_gold_price_history_report():
 
     latest_price = {
         'price_usd': round_money(end_point['price_usd']),
-        'price_sar_24k': round_money(usd_oz_to_sar_gram(end_point['price_usd'])),
-        'price_sar_main_karat': round_money(usd_oz_to_sar_gram(end_point['price_usd']) * main_ratio),
+        'price_sar_24k': round_money(end_point['sar_24']),
+        'price_sar_main_karat': round_money(end_point['sar_main']),
         'timestamp': end_point['timestamp'].isoformat(),
     }
 
@@ -3468,11 +3472,12 @@ def get_gold_position_report():
         })
 
     latest_price = GoldPrice.query.order_by(GoldPrice.date.desc()).first()
-    usd_to_sar_per_gram = SAR_USD_PEG / TROY_OZ_TO_GRAMS
     price_reference = None
     if latest_price and latest_price.price:
-        per_gram_24k = round_weight(latest_price.price * usd_to_sar_per_gram)
-        per_gram_main = round_weight(per_gram_24k * (main_karat / 24.0))
+        # The office's price, by the terms it was saved with (OFFICE-PRICE-1).
+        from pricing.office_price import row_gram_price
+        per_gram_24k = round_weight(row_gram_price(latest_price, 24))
+        per_gram_main = round_weight(row_gram_price(latest_price, main_karat))
         price_reference = {
             'source_date': latest_price.date.isoformat() if latest_price.date else None,
             'price_usd_ounce': round_weight(latest_price.price),
@@ -3543,7 +3548,8 @@ def get_weight_based_income_statement():
         latest_gold_price = GoldPrice.query.order_by(GoldPrice.date.desc()).first()
         live_gold_price_per_gram_24k = 0.0
         if latest_gold_price and latest_gold_price.price:
-            live_gold_price_per_gram_24k = (latest_gold_price.price / TROY_OZ_TO_GRAMS) * SAR_USD_PEG
+            from pricing.office_price import row_gram_price
+            live_gold_price_per_gram_24k = row_gram_price(latest_gold_price, 24)   # the office's (OFFICE-PRICE-1)
         if live_gold_price_per_gram_24k <= 0:
             live_gold_price_per_gram_24k = 400.0  # fallback يمنع القسمة على صفر
 
@@ -3557,7 +3563,8 @@ def get_weight_based_income_statement():
         latest_gold_price = GoldPrice.query.order_by(GoldPrice.date.desc()).first()
         live_gold_price_per_gram_24k = 0.0
         if latest_gold_price and latest_gold_price.price:
-            live_gold_price_per_gram_24k = (latest_gold_price.price / TROY_OZ_TO_GRAMS) * SAR_USD_PEG
+            from pricing.office_price import row_gram_price
+            live_gold_price_per_gram_24k = row_gram_price(latest_gold_price, 24)   # the office's (OFFICE-PRICE-1)
         if live_gold_price_per_gram_24k <= 0:
             live_gold_price_per_gram_24k = 400.0  # قيمة احتياطية لضمان عدم القسمة على صفر
 
@@ -3574,7 +3581,8 @@ def get_weight_based_income_statement():
         gold_price_source = 'not_available'
         gold_price_updated_at = None
         if latest_gold_price and latest_gold_price.price:
-            live_gold_price_per_gram_24k = (latest_gold_price.price / TROY_OZ_TO_GRAMS) * SAR_USD_PEG
+            from pricing.office_price import row_gram_price
+            live_gold_price_per_gram_24k = row_gram_price(latest_gold_price, 24)   # the office's (OFFICE-PRICE-1)
             gold_price_source = 'database'
             gold_price_updated_at = latest_gold_price.date.isoformat() if latest_gold_price.date else None
         if live_gold_price_per_gram_24k <= 0:
@@ -5362,7 +5370,8 @@ def get_admin_dashboard():
     try:
         latest = GoldPrice.query.order_by(GoldPrice.date.desc()).first()
         if latest and latest.price:
-            spot_price_24k_per_gram = (float(latest.price) / TROY_OZ_TO_GRAMS) * SAR_USD_PEG
+            from pricing.office_price import row_gram_price
+            spot_price_24k_per_gram = row_gram_price(latest, 24)   # the office's (OFFICE-PRICE-1)
             spot_price_timestamp = latest.date.isoformat() if latest.date else None
     except Exception:
         spot_price_24k_per_gram = None
@@ -5729,7 +5738,8 @@ def get_admin_dashboard():
             .first()
         )
         if yesterday_price and yesterday_price.price and spot_price_24k_per_gram:
-            yesterday_spot = (float(yesterday_price.price) / TROY_OZ_TO_GRAMS) * SAR_USD_PEG
+            from pricing.office_price import row_gram_price
+            yesterday_spot = row_gram_price(yesterday_price, 24)
             if yesterday_spot > 0:
                 gold_price_change_pct = ((spot_price_24k_per_gram - yesterday_spot) / yesterday_spot) * 100
     except Exception:

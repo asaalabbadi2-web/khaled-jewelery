@@ -11,9 +11,12 @@ class GoldPriceBar extends StatelessWidget {
   /// (GET /gold_price, PRICE-BUY-1): the buy price is the market's times the
   /// settings' ratio -- read here, never computed.
   final Map<String, dynamic>? pricesPerGram;
+
+  /// The day's opening, each karat's, the server's (OFFICE-PRICE-1): the change
+  /// is the server's price less this -- the office's karats are not the ounce's.
+  final Map<String, dynamic>? openingPricesPerGram;
   final double? goldPriceOpening;
   final DateTime? goldPriceDate;
-  final double exchangeRate;
   final int mainKarat;
   final bool isUpdating;
   final VoidCallback? onRefresh;
@@ -26,9 +29,9 @@ class GoldPriceBar extends StatelessWidget {
     super.key,
     this.goldPrice,
     this.pricesPerGram,
+    this.openingPricesPerGram,
     this.goldPriceOpening,
     this.goldPriceDate,
-    this.exchangeRate = 3.75,
     required this.mainKarat,
     this.isUpdating = false,
     this.onRefresh,
@@ -42,18 +45,13 @@ class GoldPriceBar extends StatelessWidget {
     return all.where((k) => k != main).toList();
   }
 
-  double _gramPrice(double ouncePrice, int karat) =>
-      (ouncePrice / 31.1035) * (karat / 24.0) * exchangeRate;
-
-  double? _serverPrice(int karat, String side) {
-    final row = pricesPerGram?['$karat'];
+  double? _serverPrice(int karat, String side, [Map<String, dynamic>? prices]) {
+    final row = (prices ?? pricesPerGram)?['$karat'];
     final value = row is Map ? row[side] : null;
     return value is num ? value.toDouble() : null;
   }
 
-  double? _sell(double? ouncePrice, int karat) =>
-      _serverPrice(karat, 'sell') ??
-      (ouncePrice != null ? _gramPrice(ouncePrice, karat) : null);
+  double? _sell(int karat) => _serverPrice(karat, 'sell');
 
   String _formatPrice(double value) => NumberFormat('#,##0.00', 'en').format(value);
 
@@ -62,19 +60,20 @@ class GoldPriceBar extends StatelessWidget {
     return '${normalized.abs().toStringAsFixed(2)}%';
   }
 
-  /// SAR change per gram for a given karat (current vs opening).
+  /// SAR change per gram for a given karat (current vs opening), both the server's.
   double? _changeAbsGram(int karat) {
-    if (goldPrice == null || goldPriceOpening == null || goldPriceOpening == 0) {
-      return null;
-    }
-    return _gramPrice(goldPrice!, karat) - _gramPrice(goldPriceOpening!, karat);
+    final now = _serverPrice(karat, 'sell');
+    final opening = _serverPrice(karat, 'sell', openingPricesPerGram);
+    if (now == null || opening == null || opening == 0) return null;
+    return now - opening;
   }
 
+  /// The main karat's change since the opening, in percent.
   double? _changePercent() {
-    if (goldPrice == null || goldPriceOpening == null || goldPriceOpening == 0) {
-      return null;
-    }
-    return ((goldPrice! - goldPriceOpening!) / goldPriceOpening!) * 100;
+    final now = _serverPrice(mainKarat, 'sell');
+    final opening = _serverPrice(mainKarat, 'sell', openingPricesPerGram);
+    if (now == null || opening == null || opening == 0) return null;
+    return ((now - opening) / opening) * 100;
   }
 
   String _relativeTimeLabel() {
@@ -113,7 +112,6 @@ class GoldPriceBar extends StatelessWidget {
             if (compact) {
               return _buildPrimaryCard(
                 palette: palette,
-                ouncePrice: goldPrice,
                 changePercent: changePercent,
                 isUp: isUp,
               );
@@ -130,7 +128,6 @@ class GoldPriceBar extends StatelessWidget {
                   flex: 22,
                   child: _buildPrimaryCard(
                     palette: palette,
-                    ouncePrice: goldPrice,
                     changePercent: changePercent,
                     isUp: isUp,
                   ),
@@ -144,7 +141,6 @@ class GoldPriceBar extends StatelessWidget {
                         palette: palette,
                         karat: k,
                         color: palette.karat(k),
-                        ouncePrice: goldPrice,
                         trendText: _formatPercent(changePercent),
                         changeAbsGram: _changeAbsGram(k),
                         isUp: isUp,
@@ -214,11 +210,10 @@ class GoldPriceBar extends StatelessWidget {
 
   Widget _buildPrimaryCard({
     required _GoldBarPalette palette,
-    required double? ouncePrice,
     required double? changePercent,
     required bool isUp,
   }) {
-    final sell = _sell(ouncePrice, mainKarat);
+    final sell = _sell(mainKarat);
     final buy = _serverPrice(mainKarat, 'buy');
 
     return Container(
@@ -394,12 +389,11 @@ class GoldPriceBar extends StatelessWidget {
     required _GoldBarPalette palette,
     required int karat,
     required Color color,
-    required double? ouncePrice,
     required String trendText,
     double? changeAbsGram,
     required bool isUp,
   }) {
-    final sell = _sell(ouncePrice, karat);
+    final sell = _sell(karat);
     final buy = _serverPrice(karat, 'buy');
 
     return Container(

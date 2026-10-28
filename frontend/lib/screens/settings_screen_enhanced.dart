@@ -126,6 +126,11 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
   final TextEditingController _goldToleranceGramsController = TextEditingController(text: '0.05');
   // سعر الشراء = سعر السوق × النسبة (PRICE-BUY-1)؛ تُعرض بالمئة.
   final TextEditingController _buyPricePercentController = TextEditingController(text: '98');
+  // The closing office's terms (OFFICE-PRICE-1): what the server prices gold by.
+  final TextEditingController _officeMainFeesController = TextEditingController(text: '1.35');
+  final TextEditingController _officeCustomFeesController = TextEditingController(text: '43');
+  final TextEditingController _officeDiscount21Controller = TextEditingController(text: '0.75');
+  final TextEditingController _officeDiscount18Controller = TextEditingController(text: '1');
   // حدّ اعتماد المحاسب (ADR-036 R4): يعتمد سندات غيره ما دونه؛ 0 = لا شيء.
   final TextEditingController _accountantLimitCashController = TextEditingController(text: '0');
   final TextEditingController _accountantLimitGoldController = TextEditingController(text: '0');
@@ -198,6 +203,10 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
   void dispose() {
     _goldToleranceGramsController.dispose();
     _buyPricePercentController.dispose();
+    _officeMainFeesController.dispose();
+    _officeCustomFeesController.dispose();
+    _officeDiscount21Controller.dispose();
+    _officeDiscount18Controller.dispose();
     _accountantLimitCashController.dispose();
     _accountantLimitGoldController.dispose();
     _systemScrollController.dispose();
@@ -398,6 +407,10 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
         _buyPricePercentController.text = (buyRatio * 100)
             .toStringAsFixed(2)
             .replaceFirst(RegExp(r'\.?0+$'), '');
+        _officeMainFeesController.text = '${(settings['office_main_fees_usd'] as num?) ?? 1.35}';
+        _officeCustomFeesController.text = '${(settings['office_custom_fees_usd'] as num?) ?? 43}';
+        _officeDiscount21Controller.text = '${(settings['office_discount_21'] as num?) ?? 0.75}';
+        _officeDiscount18Controller.text = '${(settings['office_discount_18'] as num?) ?? 1}';
         _accountantLimitCashController.text =
             '${(settings['accountant_approval_limit_cash'] as num?) ?? 0}';
         _accountantLimitGoldController.text =
@@ -578,6 +591,10 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
           double.tryParse(_goldToleranceGramsController.text.trim()) ?? 0.05,
       'buy_price_ratio':
           (double.tryParse(_buyPricePercentController.text.trim()) ?? 98) / 100,
+      'office_main_fees_usd': double.tryParse(_officeMainFeesController.text.trim()) ?? 1.35,
+      'office_custom_fees_usd': double.tryParse(_officeCustomFeesController.text.trim()) ?? 43,
+      'office_discount_21': double.tryParse(_officeDiscount21Controller.text.trim()) ?? 0.75,
+      'office_discount_18': double.tryParse(_officeDiscount18Controller.text.trim()) ?? 1,
       'accountant_approval_limit_cash':
           double.tryParse(_accountantLimitCashController.text.trim()) ?? 0.0,
       'accountant_approval_limit_gold_grams':
@@ -1306,6 +1323,45 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
                 labelText: 'النسبة من سعر السوق (%)',
                 helperText: 'مثلًا 98 — من 50 إلى 100',
               ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 20),
+        _buildSectionCard(
+          icon: Icons.storefront_outlined,
+          iconColor: _primaryColor,
+          title: 'سعر مكتب التسكير',
+          children: [
+            Text(
+              'سعر السوق في النظام هو سعر مكتب التسكير لا سعر الأونصة العالمي: '
+              'كيلو عيار 24 = (الأونصة + الرسوم الرئيسية + الرسوم الخاصة) × 32.148 × 3.75، '
+              'وغرام 21 = الكيلو ÷ 1143 − خصم 21، وغرام 18 = الكيلو ÷ 1333 − خصم 18، و22 من 21. '
+              'عدّلها حين يغيّرها المكتب؛ يُسعَّر بها البيع التالي فورًا، وتبقى الأسعار السابقة بشروطها.',
+              style: Theme.of(context).textTheme.bodyMedium,
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _officeMainFeesController,
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              decoration: const InputDecoration(labelText: 'الرسوم الرئيسية (دولار للأونصة)'),
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _officeCustomFeesController,
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              decoration: const InputDecoration(labelText: 'الرسوم الخاصة (دولار للأونصة)'),
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _officeDiscount21Controller,
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              decoration: const InputDecoration(labelText: 'خصم عيار 21 (ريال للغرام)'),
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _officeDiscount18Controller,
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              decoration: const InputDecoration(labelText: 'خصم عيار 18 (ريال للغرام)'),
             ),
           ],
         ),

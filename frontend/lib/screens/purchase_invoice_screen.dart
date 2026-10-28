@@ -9,6 +9,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../api_service.dart';
 import '../models/category_model.dart';
+import '../models/gold_prices.dart';
 import '../models/safe_box_model.dart';
 import '../providers/auth_provider.dart';
 import '../providers/settings_provider.dart';
@@ -807,6 +808,8 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
   String? _categoriesError;
 
   Map<String, dynamic>? _goldPrice;
+  // Each karat's price as the server makes it -- the closing office's (OFFICE-PRICE-1).
+  GoldPrices _goldPrices = GoldPrices.none;
   // An invoice being edited holds weight lines without items (an office
   // reservation's purchase). The screen neither shows nor sends them, so it
   // does not save it: an edit replaces the invoice with what is sent.
@@ -1986,14 +1989,14 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
       if (!mounted) return;
 
       final enriched = Map<String, dynamic>.from(price);
-      final base24 = _toDouble(enriched['price_24k']);
-      enriched['price_24k'] = base24;
-      enriched['price_22k'] = base24 * 22 / 24;
-      enriched['price_21k'] = base24 * 21 / 24;
-      enriched['price_18k'] = base24 * 18 / 24;
+      final prices = GoldPrices.fromResponse(price);
+      for (final k in const [24, 22, 21, 18]) {
+        enriched['price_${k}k'] = prices.of(k);
+      }
 
       setState(() {
         _goldPrice = enriched;
+        _goldPrices = prices;
         _applyCombinedTotals();
       });
     } catch (e) {
@@ -2110,12 +2113,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
     return double.tryParse(value.toString()) ?? 0.0;
   }
 
-  double _resolveGoldPrice(double karat) {
-    if (_goldPrice == null) return 0.0;
-    final base24 = _toDouble(_goldPrice!['price_24k']);
-    if (base24 <= 0) return 0.0;
-    return (base24 * karat) / 24.0;
-  }
+  double _resolveGoldPrice(double karat) => _goldPrices.of(karat);
 
   /// A line's VAT: computed, never typed, on the values the line carries --
   /// the manual ones when priced by hand -- as the server checks it
@@ -3089,7 +3087,7 @@ class _PurchaseInvoiceScreenState extends State<PurchaseInvoiceScreen> {
                               return Padding(
                                 padding: const EdgeInsets.only(right: 10),
                                 child: Text(
-                                  '${k}k: ${formatAmount((gp24 * k / 24))}',
+                                  '${k}k: ${formatAmount(_goldPrices.of(k))}',
                                   style: Theme.of(context).textTheme.labelSmall?.copyWith(color: invoiceBar.foreground, decoration: isMain ? TextDecoration.underline : null, fontWeight: isMain
                                         ? FontWeight.w800
                                         : FontWeight.w500,),

@@ -577,4 +577,13 @@ void main() {
     expect(find.descendant(of: field, matching: find.text('الفرع الرئيسي')), findsOneWidget);
     expect(find.descendant(of: field, matching: find.byIcon(Icons.account_tree)), findsOneWidget);
   });
+
+  // The owner, 29 Oct 2026: a purchase shows the market's buy price, a sale its
+  // sell price (OFFICE-PRICE-1). The fake's 21k: 420 sell, 411.60 buy.
+  testWidgets('the price strip of a purchase says the buy price', (tester) async {
+    await open(tester, api: FakeSalesApi());
+    await settle(tester);
+    expect(find.textContaining('21k: 411.6'), findsOneWidget);
+    expect(find.textContaining('21k: 420'), findsNothing);
+  });
 }

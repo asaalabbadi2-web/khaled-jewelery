@@ -18,9 +18,8 @@ from gold_costing_service import GoldCostingService, ScrapCostingService
 from gold_price import fetch_gold_price, save_gold_price
 from models import GoldPrice, InventoryCostingConfig, Invoice, db
 from utils import get_main_karat
-from pricing.constants import SAR_USD_PEG, TROY_OZ_TO_GRAMS
 from pricing import price_clock
-from pricing.buy_price import buy_price_ratio, gram_prices
+from pricing.buy_price import buy_price_ratio
 from core.environment import is_production
 
 pricing_bp = Blueprint('pricing', __name__)
@@ -28,6 +27,28 @@ pricing_bp = Blueprint('pricing', __name__)
 # ---------------------------------------------------------------------------
 # Gold Price
 # ---------------------------------------------------------------------------
+
+def _price_answer(row, opening, source: str) -> dict:
+    """A saved price as the screens read it: the office's (OFFICE-PRICE-1), by its own terms."""
+    from pricing.buy_price import row_prices
+    from pricing.office_price import row_gram_price
+    main_karat = get_main_karat()
+    return {
+        'price_24k': round(row_gram_price(row, 24), 2),
+        'price_main_karat': round(row_gram_price(row, main_karat), 2),
+        'main_karat': main_karat,
+        'price_usd_per_oz': row.price,
+        'opening_price_usd_per_oz': (opening.price if opening else row.price),
+        'opening_date': price_clock.iso_utc(opening.date if (opening and opening.date) else row.date),
+        'currency': 'ر.س',
+        'date': price_clock.iso_utc(row.date),
+        'source': source,
+        'buy_price_ratio': buy_price_ratio(),
+        'prices_per_gram': row_prices(row),
+        # The day's opening, each karat by its own row's terms: a change is two of these.
+        'opening_prices_per_gram': row_prices(opening or row),
+    }
+
 
 @pricing_bp.route('/gold_price', methods=['GET'])
 def get_gold_price():
@@ -50,61 +71,51 @@ def get_gold_price():
         try:
             price_usd = fetch_gold_price()
             if price_usd:
-                price_per_gram_sar = (price_usd / TROY_OZ_TO_GRAMS) * SAR_USD_PEG
                 save_gold_price(current_app._get_current_object(), price_usd)
-                print(f'[SUCCESS] تم جلب وحفظ سعر جديد: ${price_usd}/أونصة = {price_per_gram_sar:.2f} ر.س/جم')
-                main_karat = get_main_karat()
-                return jsonify({
-                    'price_24k': round(price_per_gram_sar, 2),
-                    'price_main_karat': round((price_per_gram_sar * main_karat) / 24.0, 2),
-                    'main_karat': main_karat,
-                    'price_usd_per_oz': price_usd,
-                    'opening_price_usd_per_oz': (opening.price if opening else price_usd),
-                    'opening_date': price_clock.iso_utc(opening.date if (opening and opening.date) else now),
-                    'currency': 'ر.س',
-                    'date': price_clock.iso_utc(now),
-                    'source': 'API',
-                    'buy_price_ratio': buy_price_ratio(),
-                    'prices_per_gram': gram_prices(price_usd),
-                })
+                saved = GoldPrice.query.order_by(GoldPrice.date.desc()).first()
+                print(f'[SUCCESS] تم جلب وحفظ سعر جديد: ${price_usd}/أونصة')
+                return jsonify(_price_answer(saved, opening or saved, 'API'))
         except Exception as e:
             print(f'[ERROR] فشل جلب السعر من API: {e}')
             if latest:
-                price_per_gram_sar = (latest.price / TROY_OZ_TO_GRAMS) * SAR_USD_PEG
-                main_karat = get_main_karat()
-                return jsonify({
-                    'price_24k': round(price_per_gram_sar, 2),
-                    'price_main_karat': round((price_per_gram_sar * main_karat) / 24.0, 2),
-                    'main_karat': main_karat,
-                    'price_usd_per_oz': latest.price,
-                    'opening_price_usd_per_oz': (opening.price if opening else latest.price),
-                    'opening_date': price_clock.iso_utc(opening.date if (opening and opening.date) else latest.date),
-                    'currency': 'ر.س',
-                    'date': price_clock.iso_utc(latest.date),
-                    'source': 'Database (Fallback)',
-                    'buy_price_ratio': buy_price_ratio(),
-                    'prices_per_gram': gram_prices(latest.price),
-                })
+                return jsonify(_price_answer(latest, opening, 'Database (Fallback)'))
 
     if latest:
-        price_per_gram_sar = (latest.price / TROY_OZ_TO_GRAMS) * SAR_USD_PEG
-        main_karat = get_main_karat()
-        return jsonify({
-            'price_24k': round(price_per_gram_sar, 2),
-            'price_main_karat': round((price_per_gram_sar * main_karat) / 24.0, 2),
-            'main_karat': main_karat,
-            'price_usd_per_oz': latest.price,
-            'opening_price_usd_per_oz': (opening.price if opening else latest.price),
-            'opening_date': price_clock.iso_utc(opening.date if (opening and opening.date) else latest.date),
-            'currency': 'ر.س',
-            'date': price_clock.iso_utc(latest.date),
-            'source': 'Database (Cached)',
-            'buy_price_ratio': buy_price_ratio(),
-            'prices_per_gram': gram_prices(latest.price),
-        })
+        return jsonify(_price_answer(latest, opening, 'Database (Cached)'))
 
     return jsonify({'price_24k': 0, 'price_usd_per_oz': 0, 'currency': 'ر.س', 'date': None,
                     'error': 'لا يوجد سعر ذهب متاح'}), 404
+
+@pricing_bp.route('/gold_price/quote', methods=['GET'])
+@require_permission('gold_price.update')
+def quote_gold_price():
+    """A price before it is saved: an ounce (price_usd_per_oz) or the office's
+    24k gram (price_sar_per_gram_24k), and what it is in the other and in every
+    karat, by the settings' terms (OFFICE-PRICE-1) -- the manual screen's
+    confirmation, which said it by the ounce."""
+    from pricing.buy_price import gram_prices
+    from pricing.office_price import gram_price, ounce_for_gram_24, settings_terms
+    terms = settings_terms()
+    try:
+        if request.args.get('price_usd_per_oz'):
+            ounce = float(request.args['price_usd_per_oz'])
+        elif request.args.get('price_sar_per_gram_24k'):
+            ounce = ounce_for_gram_24(float(request.args['price_sar_per_gram_24k']), terms)
+        else:
+            ounce = 0.0
+    except ValueError:
+        ounce = 0.0
+    if ounce <= 0:
+        return jsonify({'error': 'invalid_price', 'message': 'أدخل سعر أونصة أو سعر غرام عيار 24 أكبر من صفر'}), 400
+    main_karat = get_main_karat()
+    return jsonify({
+        'price_usd_per_oz': round(ounce, 4),
+        'price_24k': round(gram_price(ounce, 24, terms), 2),
+        'price_main_karat': round(gram_price(ounce, main_karat, terms), 2),
+        'main_karat': main_karat,
+        'prices_per_gram': gram_prices(ounce, terms=terms),
+    })
+
 
 @pricing_bp.route('/public/gold_price', methods=['GET'])
 def get_gold_price_public():

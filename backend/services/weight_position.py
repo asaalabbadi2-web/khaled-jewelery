@@ -378,22 +378,22 @@ def scrap_prices(until: dt.date):
     import bisect
     from models import GoldPrice, db
     from pricing.buy_price import buy_price_ratio
-    from pricing.constants import SAR_USD_PEG, TROY_OZ_TO_GRAMS
     from pricing.gold_price_service import get_main_karat
+    from pricing.office_price import row_gram_price
     end = dt.datetime.combine(until, dt.time.max)
     last = (db.session.query(db.func.max(GoldPrice.date).label('at'))
             .filter(GoldPrice.date <= end).group_by(db.func.date(GoldPrice.date)).subquery())
-    rows = (db.session.query(GoldPrice.date, GoldPrice.price)
-            .filter(GoldPrice.date.in_(db.select(last.c.at))).order_by(GoldPrice.date).all())
-    days = [when.date() for when, _ in rows]
-    ratio, main = buy_price_ratio(), float(get_main_karat())
+    rows = GoldPrice.query.filter(GoldPrice.date.in_(db.select(last.c.at))).order_by(GoldPrice.date).all()
+    days = [row.date.date() for row in rows]
+    ratio, main = buy_price_ratio(), int(get_main_karat())
+    # The market is the closing office's, each day by the terms it was saved with (OFFICE-PRICE-1).
+    markets = [row_gram_price(row, main) for row in rows]
 
     def price_on(day: dt.date):
         at = bisect.bisect_right(days, day) - 1
-        if at < 0 or not rows[at][1]:
+        if at < 0 or not markets[at]:
             return 0.0, 'لا سعر'
-        market = float(rows[at][1]) / TROY_OZ_TO_GRAMS * SAR_USD_PEG * main / 24.0
-        return market * ratio, f'سعر الكسر: السوق × {ratio:g}'
+        return markets[at] * ratio, f'سعر الكسر: السوق × {ratio:g}'
     return price_on
 
 

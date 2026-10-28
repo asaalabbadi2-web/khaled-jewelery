@@ -1707,6 +1707,24 @@ class ApiService {
     }
   }
 
+  /// A price before it is saved: an ounce or the office's 24k gram, and what it
+  /// is in the other and in every karat -- the server's (OFFICE-PRICE-1).
+  Future<Map<String, dynamic>> quoteGoldPrice({
+    double? priceUsdPerOz,
+    double? priceSarPerGram24k,
+  }) async {
+    final query = priceUsdPerOz != null
+        ? {'price_usd_per_oz': '$priceUsdPerOz'}
+        : {'price_sar_per_gram_24k': '${priceSarPerGram24k ?? 0}'};
+    final response = await _authedGet(
+      Uri.parse('$_baseUrl/gold_price/quote').replace(queryParameters: query),
+    );
+    if (response.statusCode == 200) {
+      return json.decode(utf8.decode(response.bodyBytes));
+    }
+    throw _apiError(response);
+  }
+
   /// آخر 24 ساعة من أسعار الذهب — للـ sparkline
   Future<List<Map<String, dynamic>>> getGoldPrice24h() async {
     try {

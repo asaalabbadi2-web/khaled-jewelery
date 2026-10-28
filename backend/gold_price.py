@@ -170,7 +170,9 @@ def _push_to_commerce(price: float) -> None:
 def save_gold_price(app, price):
     with app.app_context():
         from models import GoldPrice
-        gp = GoldPrice(price=price, date=datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None))
+        from pricing.office_price import stamp
+        # Saved with the office's terms of the moment (OFFICE-PRICE-1).
+        gp = stamp(GoldPrice(price=price, date=datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)))
         db.session.add(gp)
         db.session.commit()
     _push_to_commerce(price)

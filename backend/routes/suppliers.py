@@ -1076,12 +1076,9 @@ def get_supplier_weight_summary(supplier_id):
     gold_price_data = get_current_gold_price()
     price_24k = gold_price_data.get('price_per_gram_24k', 0) or 0
 
-    prices_by_karat = {
-        '18': round(price_24k * 18 / 24, 2),
-        '21': round(price_24k * 21 / 24, 2),
-        '22': round(price_24k * 22 / 24, 2),
-        '24': round(price_24k, 2),
-    }
+    # Each karat's own office price (OFFICE-PRICE-1).
+    by_karat = gold_price_data.get('price_per_gram_by_karat') or {}
+    prices_by_karat = {str(k): round(float(by_karat.get(k) or price_24k * k / 24), 2) for k in (18, 21, 22, 24)}
 
     # Derived, not cached: this endpoint multiplies these weights by live gold
     # prices to produce monetary valuations, so a stale weight became a wrong

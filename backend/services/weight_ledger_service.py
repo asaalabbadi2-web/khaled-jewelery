@@ -111,16 +111,12 @@ class WeightLedgerService:
                     GoldPrice.id.desc()
                 ).first()
                 
-                if latest_price:
-                    # 🔧 حساب السعر بناءً على سعر 24k المحفوظ
-                    price_24k = getattr(latest_price, 'price_per_gram_24k', 0.0)
-                    
-                    if price_24k > 0:
-                        self._direct_price_cache = {}
-                        for k in [18, 21, 22, 24]:
-                            self._direct_price_cache[k] = (price_24k * k) / 24.0
-                        
-                        return self._direct_price_cache.get(target_karat, 0.0)
+                if latest_price and latest_price.price:
+                    # The office's price of each karat (OFFICE-PRICE-1). It read a
+                    # price_per_gram_24k the row never had, and fell back to 400.
+                    from pricing.office_price import KARATS, row_gram_price
+                    self._direct_price_cache = {k: row_gram_price(latest_price, k) for k in KARATS}
+                    return self._direct_price_cache.get(target_karat, 0.0)
             except Exception as e:
                 logger.warning(f"Failed to fetch gold price: {e}")
         

@@ -97,9 +97,21 @@ class _GoldPriceManualScreenEnhancedState
       return;
     }
 
-    final double newSarPerGram = _useUsdInput
-        ? _usdToSar(usdValue!)
-        : sarValue!;
+    // What the entry stands for -- in the other unit and at 24k -- is the
+    // server's: the office's price, its fees off or on (OFFICE-PRICE-1).
+    final Map<String, dynamic> quote;
+    try {
+      quote = await _apiService.quoteGoldPrice(
+        priceUsdPerOz: _useUsdInput ? usdValue : null,
+        priceSarPerGram24k: _useUsdInput ? null : sarValue,
+      );
+    } catch (e) {
+      if (mounted) AppFeedback.error(context, e, title: 'تعذر حساب السعر');
+      return;
+    }
+    if (!mounted) return;
+    final double newSarPerGram = (quote['price_24k'] as num?)?.toDouble() ?? 0.0;
+    final double priceUsdPerOz = (quote['price_usd_per_oz'] as num?)?.toDouble() ?? 0.0;
 
     // تأكيد التحديث
     final confirm = await _showConfirmDialog(newSarPerGram);
@@ -110,11 +122,7 @@ class _GoldPriceManualScreenEnhancedState
     try {
       final oldPrice = _currentPrice;
 
-      // Backend stores gold price as USD/oz. Convert when user inputs ${context.read<SettingsProvider>().currencySymbolText}/gram.
-      final double priceUsdPerOz = _useUsdInput
-          ? usdValue!
-          : _sarToUsdPerOz(sarValue!);
-
+      // Backend stores gold price as USD/oz: the ounce the server quoted for the entry.
       await _apiService.updateGoldPrice(priceUsdPerOz: priceUsdPerOz);
       await _loadCurrentPrice();
 
@@ -137,14 +145,6 @@ class _GoldPriceManualScreenEnhancedState
       setState(() => _isUpdating = false);
       _showMessage('فشل التحديث: $e', isError: true);
     }
-  }
-
-  double _usdToSar(double priceUsdPerOz) {
-    return (priceUsdPerOz / 31.1035) * 3.75;
-  }
-
-  double _sarToUsdPerOz(double priceSarPerGram) {
-    return (priceSarPerGram / 3.75) * 31.1035;
   }
 
   Future<void> _instantUpdateFromInternet() async {

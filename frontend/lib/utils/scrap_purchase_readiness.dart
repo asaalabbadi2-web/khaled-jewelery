@@ -1,3 +1,5 @@
+import '../models/gold_prices.dart';
+
 /// Whether a scrap purchase from a customer can be saved, and if not, the
 /// first reason and where it is (SALES-UX-9).
 ///
@@ -180,15 +182,15 @@ ScrapPurchaseReadiness scrapPurchaseReadiness(
 /// (ADR-060 ف١).
 List<({int line, String text})> scrapPurchasePriceWarnings({
   required List<ScrapLineFacts> lines,
-  required double goldPrice24k,
+  required GoldPrices goldPrices,
   required String Function(double) formatCash,
 }) {
-  if (goldPrice24k <= 0) return const [];
+  if (!goldPrices.known) return const [];
   final out = <({int line, String text})>[];
   for (var i = 0; i < lines.length; i++) {
     final l = lines[i];
     if (!l.hasWeight || l.total <= 0) continue;
-    final live = goldPrice24k * l.karat / 24.0;
+    final live = goldPrices.of(l.karat);   // the karat's own (OFFICE-PRICE-1)
     final perGram = l.total / l.weight;
     if (perGram > live * 1.005) {
       out.add((

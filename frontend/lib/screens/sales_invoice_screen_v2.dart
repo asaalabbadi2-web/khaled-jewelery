@@ -27,6 +27,7 @@ import '../utils/arabic_number_formatter.dart';
 import '../utils/invoice_direct_print.dart';
 import '../utils/currency_utils.dart' as cu;
 import '../utils/invoice_saved_facts.dart';
+import '../models/gold_prices.dart';
 import '../utils/sales_readiness.dart';
 import '../widgets/app_feedback.dart';
 import '../widgets/app_shortcuts.dart';
@@ -112,7 +113,9 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
   String? _categoriesLoadingError;
 
   // Gold Price & Settings
-  double _goldPrice24k = 0.0;
+  // Each karat's price as the server makes it -- the closing office's (OFFICE-PRICE-1).
+  GoldPrices _goldPrices = GoldPrices.none;
+  double get _goldPrice24k => _goldPrices.k24;
 
   // Settings - accessible throughout the class
   late SettingsProvider _settingsProvider;
@@ -376,7 +379,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
           categoryId: toInt(map['category_id']),
           categoryName: map['category_name']?.toString(),
           count: toInt(map['count']) ?? 1,
-          goldPrice24k: _goldPrice24k,
+          goldPrices: _goldPrices,
           mainKarat: _settingsProvider.mainKarat,
           taxRate: toDouble(map['tax_rate']),
           avgGoldCostPerMainGram: _avgGoldCostPerMainGram,
@@ -594,7 +597,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
             categoryId: _parseInt(m['category_id']),
             categoryName: (m['category_name'] ?? '').toString(),
             count: count,
-            goldPrice24k: _goldPrice24k,
+            goldPrices: _goldPrices,
             mainKarat: _settingsProvider.mainKarat,
             taxRate: taxRate,
             avgGoldCostPerMainGram: _avgGoldCostPerMainGram,
@@ -699,7 +702,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
       final priceData = await apiService.getGoldPrice();
       if (!mounted) return;
       setState(() {
-        _goldPrice24k = _parseDouble(priceData['price_24k']);
+        _goldPrices = GoldPrices.fromResponse(priceData);
       });
       _applyGoldPriceToItems();
     } catch (e) {
@@ -1066,7 +1069,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
     if (_items.isEmpty) return;
     setState(() {
       for (final item in _items) {
-        item.updateGoldPrice(_goldPrice24k);
+        item.updateGoldPrice(_goldPrices);
       }
     });
   }
@@ -1278,9 +1281,9 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
           final net = line.netWeight(_parseDouble);
           final pricePerGram = line.effectivePricePerGram(
             _parseDouble,
-            _goldPrice24k,
+            _goldPrices,
           );
-          final value = line.value(_parseDouble, _goldPrice24k);
+          final value = line.value(_parseDouble, _goldPrices);
           if (net <= 0 || pricePerGram <= 0) return null;
           return <String, dynamic>{
             'name': 'ذهب كسر (مقايضة)',
@@ -1337,7 +1340,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
     if (!_enableBarter) return 0.0;
     final total = _barterLines.fold<double>(
       0.0,
-      (sum, line) => sum + line.value(_parseDouble, _goldPrice24k),
+      (sum, line) => sum + line.value(_parseDouble, _goldPrices),
     );
     return double.parse(total.toStringAsFixed(2));
   }
@@ -1466,11 +1469,11 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
     try {
       final apiService = _api;
       final priceData = await apiService.getGoldPrice();
-      final newPrice = _parseDouble(priceData['price_24k']);
-      if (newPrice > 0) {
+      final fresh = GoldPrices.fromResponse(priceData);
+      if (fresh.known) {
         if (mounted) {
           setState(() {
-            _goldPrice24k = newPrice;
+            _goldPrices = fresh;
           });
         }
       }
@@ -1549,7 +1552,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
           wageLocked: wageLocked,
           categoryId: categoryId,
           categoryName: categoryName,
-          goldPrice24k: _goldPrice24k,
+          goldPrices: _goldPrices,
           mainKarat: settings.mainKarat,
           taxRate: _uiDisableVat ? 0.0 : settings.taxRateForKarat(karat),
           avgGoldCostPerMainGram: _avgGoldCostPerMainGram,
@@ -1851,7 +1854,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
       weight: _parseDouble(manualData['weight']),
       wage: _parseDouble(manualData['wage']),
       count: manualData['count'] as int? ?? 1, // 🆕
-      goldPrice24k: _goldPrice24k,
+      goldPrices: _goldPrices,
       mainKarat: _settingsProvider.mainKarat,
       taxRate: _uiDisableVat
           ? 0.0
@@ -1977,7 +1980,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
         wage: wage,
         wageLocked: wageIsLocked,
         count: count,
-        goldPrice24k: _goldPrice24k,
+        goldPrices: _goldPrices,
         mainKarat: _settingsProvider.mainKarat,
         taxRate: _uiDisableVat
             ? 0.0
@@ -2224,7 +2227,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
           SalesLineFacts(weight: i.weight, karat: i.karat),
       ],
       net: total - totalTax - _items.fold<double>(0.0, (s, i) => s + i.stonesValue),
-      goldPrice24k: _goldPrice24k,
+      goldPrices: _goldPrices,
       formatCash: (v) => '${cu.formatAmount(v)} $currency',
     );
     warnings.addAll(priceWarnings);
@@ -3177,7 +3180,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                             ),
                             const SizedBox(width: 4),
                             Text(
-                              'أونصة: \$${cu.formatAmount((_goldPrice24k * 31.1035 / 3.75), decimals: 0)}',
+                              'أونصة: \$${cu.formatAmount(_goldPrices.ounceUsd, decimals: 0)}',
                               style: Theme.of(context).textTheme.labelSmall?.copyWith(color: invoiceBar.foreground, fontWeight: FontWeight.w700,),
                             ),
                             Padding(
@@ -3188,7 +3191,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                               ),
                             ),
                             ...([24, 22, 21, 18].map((k) {
-                              final gp = _goldPrice24k * k / 24;
+                              final gp = _goldPrices.of(k);
                               final isMain = k == _settingsProvider.mainKarat;
                               return Padding(
                                 padding: const EdgeInsets.only(right: 10),
@@ -5001,7 +5004,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                     ...List.generate(_barterLines.length, (index) {
                       final line = _barterLines[index];
                       final net = line.netWeight(_parseDouble);
-                      final value = line.value(_parseDouble, _goldPrice24k);
+                      final value = line.value(_parseDouble, _goldPrices);
 
                       return Container(
                         margin: const EdgeInsets.only(bottom: 10),
@@ -5297,7 +5300,7 @@ class InvoiceItem {
   final bool wageLocked; // محدد من التصنيف — غير قابل للتعديل
   final int? categoryId;
   final String? categoryName;
-  double goldPrice24k;
+  GoldPrices goldPrices;
   final int mainKarat;
   double taxRate;
   int count; // 🆕 عدد القطع لهذا الصنف
@@ -5332,7 +5335,7 @@ class InvoiceItem {
     this.categoryId,
     this.categoryName,
     this.count = 1,
-    required this.goldPrice24k,
+    required this.goldPrices,
     required this.mainKarat,
     required this.taxRate,
     required double avgGoldCostPerMainGram,
@@ -5342,7 +5345,7 @@ class InvoiceItem {
 
   // حساب سعر الجرام الخام (سعر الذهب فقط حسب العيار)
   double calculatePricePerGram() {
-    return goldPrice24k * (karat / 24.0);
+    return goldPrices.of(karat);
   }
 
   double get weightInMainKarat {
@@ -5411,8 +5414,8 @@ class InvoiceItem {
     _avgManufacturingCostPerMainGram = avgManufacturingPerMainGram;
   }
 
-  void updateGoldPrice(double newPrice) {
-    goldPrice24k = newPrice;
+  void updateGoldPrice(GoldPrices prices) {
+    goldPrices = prices;
   }
 
   Map<String, dynamic> toJson() {
@@ -6501,18 +6504,17 @@ class _BarterLine {
 
   double effectivePricePerGram(
     double Function(dynamic) parseDouble,
-    double goldPrice24k,
+    GoldPrices prices,
   ) {
     final entered = pricePerGram(parseDouble);
     if (entered > 0) return entered;
-    if (goldPrice24k <= 0) return 0.0;
-    return goldPrice24k * (karat / 24.0);
+    return prices.of(karat);
   }
 
-  double value(double Function(dynamic) parseDouble, double goldPrice24k) {
+  double value(double Function(dynamic) parseDouble, GoldPrices prices) {
     final v =
         netWeight(parseDouble) *
-        effectivePricePerGram(parseDouble, goldPrice24k);
+        effectivePricePerGram(parseDouble, prices);
     return double.tryParse(v.toStringAsFixed(2)) ?? 0.0;
   }
 

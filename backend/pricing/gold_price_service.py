@@ -5,7 +5,6 @@ Extracted from routes.py to break the circular dependency:
 """
 from __future__ import annotations
 
-from .constants import SAR_USD_PEG, TROY_OZ_TO_GRAMS
 
 
 def request_memo() -> dict | None:
@@ -87,10 +86,18 @@ def get_current_gold_price() -> dict:
     source = "database"
     updated_at = None
 
+    from .office_price import KARATS as PRICED, row_gram_price
+
+    main_karat = get_main_karat()
+    price_per_gram_main_karat = 0.0
+    by_karat = {}
     latest = GoldPrice.query.order_by(GoldPrice.date.desc()).first()
     if latest and latest.price:
         try:
-            price_per_gram_24k = (latest.price / TROY_OZ_TO_GRAMS) * SAR_USD_PEG
+            # The office's price, by the terms it was saved with (OFFICE-PRICE-1).
+            price_per_gram_24k = row_gram_price(latest, 24)
+            price_per_gram_main_karat = row_gram_price(latest, main_karat)
+            by_karat = {karat: round(row_gram_price(latest, karat), 4) for karat in PRICED}
             updated_at = latest.date.isoformat() if latest.date else None
         except Exception as exc:
             print(f"⚠️ Failed to normalize gold price: {exc}")
@@ -99,13 +106,14 @@ def get_current_gold_price() -> dict:
     if price_per_gram_24k <= 0:
         source = "fallback"
         price_per_gram_24k = 400.0
-
-    main_karat = get_main_karat()
-    price_per_gram_main_karat = (price_per_gram_24k * main_karat) / 24.0
+        price_per_gram_main_karat = (price_per_gram_24k * main_karat) / 24.0
+        by_karat = {karat: round(price_per_gram_24k * karat / 24.0, 4) for karat in PRICED}
 
     return {
         "price_per_gram_24k": round(price_per_gram_24k, 4),
         "price_per_gram_main_karat": round(price_per_gram_main_karat, 4),
+        # Each karat's own: the office's are not proportional to 24k (OFFICE-PRICE-1).
+        "price_per_gram_by_karat": by_karat,
         "main_karat": main_karat,
         "source": source,
         "updated_at": updated_at,

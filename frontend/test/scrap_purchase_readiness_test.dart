@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:frontend/models/gold_prices.dart';
 import 'package:frontend/utils/scrap_purchase_readiness.dart';
 
 /// SALES-UX-9: the scrap purchase screen says «ready» only when it would be
@@ -165,7 +166,7 @@ void main() {
               total: paid,
             ),
           ],
-          goldPrice24k: 480,
+          goldPrices: const GoldPrices({24: 480}),
           formatCash: cash,
         ))
         w.text,
@@ -177,7 +178,7 @@ void main() {
           ScrapLineFacts(standing: 10, stones: 0, weight: 10, karat: 21, total: 4200),
           ScrapLineFacts(standing: 10, stones: 0, weight: 10, karat: 21, total: 4500),
         ],
-        goldPrice24k: 480,
+        goldPrices: const GoldPrices({24: 480}),
         formatCash: cash,
       );
       expect(w.single.line, 1);

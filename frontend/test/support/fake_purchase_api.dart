@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:frontend/api_service.dart';
 import 'package:frontend/models/safe_box_model.dart';
+import 'gold_price_answer.dart';
 
 /// The server, as the purchase invoice screen sees it: one branch, one
 /// supplier, a gold price, a bank transfer method, a bank and a 21k gold safe,
@@ -49,10 +50,8 @@ class FakePurchaseApi extends ApiService {
   Future<List<dynamic>> getCategories({bool includeInactive = false}) async => [];
 
   @override
-  Future<Map<String, dynamic>> getGoldPrice() async => {
-    'price_24k': 420.0,
-    'price_usd_per_oz': 2650.0,
-  };
+  Future<Map<String, dynamic>> getGoldPrice() async =>
+      goldPriceAnswer(420.0, ounceUsd: 2650.0);
 
   @override
   Future<List<dynamic>> getActivePaymentMethods({String? invoiceType}) async =>

@@ -19,7 +19,6 @@ from threading import Thread
 
 import schedule
 
-from pricing.constants import SAR_USD_PEG, TROY_OZ_TO_GRAMS
 
 
 ALERT_THRESHOLD_SAR: float = 50.0  # ريال — انظر تعليق الملف
@@ -68,7 +67,8 @@ class GoldAcquisitionReconciliationScheduler:
                 .first()
             )
             if latest_price:
-                ref_sar_gram_mk = (latest_price.price / TROY_OZ_TO_GRAMS) * SAR_USD_PEG * (main_karat / 24.0)
+                from pricing.office_price import row_gram_price
+                ref_sar_gram_mk = row_gram_price(latest_price, main_karat)
                 ratio = avg_buy_per_gram / ref_sar_gram_mk if ref_sar_gram_mk else None
                 prefix = (
                     f"{tag} [D-1(2b) obs] period={period_label} "

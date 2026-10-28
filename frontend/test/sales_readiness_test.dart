@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:frontend/models/gold_prices.dart';
 import 'package:frontend/utils/sales_readiness.dart';
 
 /// SALES-UX-2: the sales screen says «ready» only when the server would take
@@ -118,11 +119,11 @@ void main() {
     List<String> warn(double net) => salesPriceWarnings(
       lines: const [SalesLineFacts(weight: 10, karat: 21)],
       net: net,
-      goldPrice24k: 480,
+      goldPrices: const GoldPrices({24: 480, 21: 420}),
       formatCash: cash,
     );
 
-    // 10 g of 21k at a 24k price of 480: 4,200.00 of metal.
+    // 10 g of 21k at the server's 21k price of 420: 4,200.00 of metal.
     test('under the metal at market is a sale under cost', () {
       expect(warn(1000).single, contains('تحت التكلفة'));
     });
@@ -138,7 +139,7 @@ void main() {
         salesPriceWarnings(
           lines: const [SalesLineFacts(weight: 10, karat: 21)],
           net: 1,
-          goldPrice24k: 0,
+          goldPrices: GoldPrices.none,
           formatCash: cash,
         ),
         isEmpty,

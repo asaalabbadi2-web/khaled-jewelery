@@ -2118,6 +2118,13 @@ class GoldPrice(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     price = db.Column(db.Float, nullable=False)
     date = db.Column(db.DateTime, default=db.func.now())
+    # The closing office's terms this price was saved with (OFFICE-PRICE-1):
+    # frozen with it, so a change of terms moves no day already passed. Empty
+    # on every price before them -- priced by the ounce, as it was.
+    office_main_fees_usd = db.Column(db.Float, nullable=True)
+    office_custom_fees_usd = db.Column(db.Float, nullable=True)
+    office_discount_21 = db.Column(db.Float, nullable=True)
+    office_discount_18 = db.Column(db.Float, nullable=True)
 
 
 class InventoryCostingConfig(db.Model):
@@ -2735,6 +2742,13 @@ class Settings(db.Model):
     # سعر الشراء = سعر السوق × هذه النسبة (المالك، 14 أكتوبر 2026): سياسة لا قانون،
     # تُعدَّل من الإعدادات ويحسب بها الخادم (pricing/buy_price.py) -- كانت 0.98 في الواجهة.
     buy_price_ratio = db.Column(db.Float, nullable=False, default=0.98, server_default='0.98')
+    # The closing office's price (OFFICE-PRICE-1, the owner 28 Oct 2026): the ounce
+    # plus its fees, and its 21k and 18k discounts -- Dewan Al Dahab's terms today.
+    # Policy, the owner's; the formula is pricing/office_price.py.
+    office_main_fees_usd = db.Column(db.Float, nullable=False, default=1.35, server_default='1.35')
+    office_custom_fees_usd = db.Column(db.Float, nullable=False, default=43.0, server_default='43')
+    office_discount_21 = db.Column(db.Float, nullable=False, default=0.75, server_default='0.75')
+    office_discount_18 = db.Column(db.Float, nullable=False, default=1.0, server_default='1')
     # Under these the accountant approves another's voucher himself (ADR-036 R4); 0 = nothing.
     accountant_approval_limit_cash = db.Column(db.Float, default=0.0, server_default='0')
     accountant_approval_limit_gold_grams = db.Column(db.Float, default=0.0, server_default='0')
@@ -2908,6 +2922,10 @@ class Settings(db.Model):
             'gold_settlement_tolerance_grams': float(self.gold_settlement_tolerance_grams
                                                      if self.gold_settlement_tolerance_grams is not None else 0.05),
             'buy_price_ratio': float(self.buy_price_ratio if self.buy_price_ratio is not None else 0.98),
+            'office_main_fees_usd': float(self.office_main_fees_usd if self.office_main_fees_usd is not None else 1.35),
+            'office_custom_fees_usd': float(self.office_custom_fees_usd if self.office_custom_fees_usd is not None else 43.0),
+            'office_discount_21': float(self.office_discount_21 if self.office_discount_21 is not None else 0.75),
+            'office_discount_18': float(self.office_discount_18 if self.office_discount_18 is not None else 1.0),
             'accountant_approval_limit_cash': float(self.accountant_approval_limit_cash or 0.0),
             'accountant_approval_limit_gold_grams': float(self.accountant_approval_limit_gold_grams or 0.0),
 

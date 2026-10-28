@@ -714,6 +714,10 @@ def update_settings():
         'voucher_auto_post',
         'gold_settlement_tolerance_grams',
         'buy_price_ratio',
+        'office_main_fees_usd',
+        'office_custom_fees_usd',
+        'office_discount_21',
+        'office_discount_18',
         'accountant_approval_limit_cash',
         'accountant_approval_limit_gold_grams',
         'auto_post_invoices',
@@ -767,6 +771,31 @@ def update_settings():
             return jsonify({'error': 'invalid_buy_price_ratio',
                             'message': 'نسبة سعر الشراء بين 0.50 و1.00 من سعر السوق'}), 400
         settings.buy_price_ratio = _ratio
+
+    # شروط سعر مكتب التسكير (OFFICE-PRICE-1): رسوم بالدولار للأونصة وخصما عياري 21 و18
+    # بالريال للغرام، غير سالبة. يُحفظ سعر جديد بها فيقرأ به البيع التالي فورًا، وتبقى
+    # الأسعار السابقة بشروطها.
+    _terms = ('office_main_fees_usd', 'office_custom_fees_usd', 'office_discount_21', 'office_discount_18')
+    _terms_changed = False
+    for _key in _terms:
+        if _key in data:
+            try:
+                _value = float(data[_key])
+            except (TypeError, ValueError):
+                _value = None
+            if _value is None or not (0 <= _value <= (500 if _key.endswith('_usd') else 50)):
+                return jsonify({'error': 'invalid_office_price_terms',
+                                'message': 'رسوم المكتب بين 0 و500 دولار للأونصة، وخصم العيار بين 0 و50 ريالًا للغرام'}), 400
+            _terms_changed = _terms_changed or getattr(settings, _key, None) != _value
+            setattr(settings, _key, _value)
+    if _terms_changed:
+        from models import GoldPrice
+        from pricing.office_price import stamp, settings_terms
+        db.session.flush()
+        _latest = GoldPrice.query.order_by(GoldPrice.date.desc()).first()
+        if _latest is not None and _latest.price:
+            from pricing import price_clock
+            db.session.add(stamp(GoldPrice(price=_latest.price, date=price_clock.utc_now()), settings_terms()))
 
     # حدّ اعتماد المحاسب (ADR-036 R4): غير سالب؛ 0 = لا يعتمد شيئًا
     for _key in ('accountant_approval_limit_cash', 'accountant_approval_limit_gold_grams'):

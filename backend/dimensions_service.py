@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import hashlib
 
-from pricing.constants import SAR_USD_PEG, TROY_OZ_TO_GRAMS
 from dataclasses import dataclass
 from typing import Any, Dict, Tuple
 
@@ -212,14 +211,15 @@ def get_or_create_dimension_set(db_session, dimensions: list[DimensionInput]) ->
 
 
 def _get_price_per_gram_24k_sar(db_session) -> float | None:
-    """Return SAR/gram for 24k based on latest GoldPrice (ounce USD)."""
+    """Return SAR/gram for 24k: the office's, by the latest GoldPrice's terms (OFFICE-PRICE-1)."""
     try:
         from models import GoldPrice
+        from pricing.office_price import row_gram_price
 
         latest = db_session.query(GoldPrice).order_by(GoldPrice.date.desc()).first()
         if not latest or not latest.price:
             return None
-        return (float(latest.price) / TROY_OZ_TO_GRAMS) * SAR_USD_PEG
+        return row_gram_price(latest, 24)
     except Exception:
         return None
 

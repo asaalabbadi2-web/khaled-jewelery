@@ -1,3 +1,5 @@
+import '../models/gold_prices.dart';
+
 /// Whether a sale can be saved, and if not, the first reason and where it is.
 ///
 /// «Ready» means the server will take it (backend/routes/invoices.py
@@ -159,15 +161,15 @@ SalesReadiness salesReadiness(
 List<String> salesPriceWarnings({
   required List<SalesLineFacts> lines,
   required double net,
-  required double goldPrice24k,
+  required GoldPrices goldPrices,
   required String Function(double) formatCash,
 }) {
-  if (goldPrice24k <= 0 || net <= 0) return const [];
+  if (!goldPrices.known || net <= 0) return const [];
   var weight = 0.0;
   var market = 0.0;
   for (final l in lines) {
     weight += l.weight;
-    market += l.weight * goldPrice24k * l.karat / 24.0;
+    market += l.weight * goldPrices.of(l.karat);   // each karat's own price (OFFICE-PRICE-1)
   }
   if (weight <= 0 || market <= 0) return const [];
 
