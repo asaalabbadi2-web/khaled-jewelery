@@ -959,6 +959,7 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
         ? DateTimeRange(start: rangeStart, end: rangeEnd!)
         : null;
 
+    final newestFirst = _byDate && !_sortAscending;
     Future<Uint8List> buildPdf() => AccountStatementPdfBuilder.build(
       fmt,
       statement: statement,
@@ -971,6 +972,8 @@ class _AccountStatementScreenState extends State<AccountStatementScreen> {
       filterType: filterType,
       showOnlyMovement: showOnlyMovement,
       branding: branding,
+      // The balance row at the top: the closing one when newest first.
+      newestFirst: newestFirst,
       preloadedRegularFont: fontBytes,
       preloadedBoldFont: boldFontBytes,
       preloadedFallbackLogo: fallbackLogoBytes,

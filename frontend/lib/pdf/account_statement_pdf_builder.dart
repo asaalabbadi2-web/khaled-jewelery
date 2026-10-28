@@ -10,6 +10,7 @@ import '../models/account_statement_model.dart';
 import '../models/statement_period.dart';
 import '../theme/pdf_print_ink.dart';
 import 'pdf_text_utils.dart';
+import 'statement_print_facts.dart';
 
 // ═══════════════════════════════════════════════════════════════════
 //  DESIGN TOKENS  — single source of truth for the PDF theme
@@ -70,6 +71,11 @@ class AccountStatementPdfBranding {
   });
 }
 
+// A number in a cell is set smaller to fit it, never cut; a description
+// wraps instead.
+pw.Widget _fitUnlessWrapping(bool wraps, pw.Widget text) =>
+    wraps ? text : pw.FittedBox(fit: pw.BoxFit.scaleDown, child: text);
+
 class AccountStatementPdfBuilder {
   static const String defaultLegalFooterText =
       'يعتبر هذا الكشف مصدقاً وصحيحاً ما لم يرد اعتراض خطي خلال 7 أيام من تاريخه. تطبق الشروط والأحكام.';
@@ -116,6 +122,9 @@ class AccountStatementPdfBuilder {
     required String filterType,
     required bool showOnlyMovement,
     required AccountStatementPdfBranding branding,
+    // The lines run newest first: the balance row at their top is then the
+    // closing one (statementEdgeRow).
+    bool newestFirst = false,
     String legalFooterText = defaultLegalFooterText,
     // Optional pre-loaded assets — pass these when calling from a background
     // isolate so that rootBundle (unavailable there) is never accessed inside.
@@ -442,6 +451,7 @@ class AccountStatementPdfBuilder {
     pw.Widget balCell(String label, String value, pdf.PdfColor valueColor,
         {bool highlighted = false}) =>
         pw.Container(
+          height: 54,
           padding: const pw.EdgeInsets.symmetric(horizontal: 8, vertical: 9),
           // Each figure a box of its own: six side by side ran into one
           // another (the owner, 28 Oct 2026).
@@ -465,11 +475,19 @@ class AccountStatementPdfBuilder {
                     font: boldFont, fontSize: 7.5, color: _PdfColors.goldMid),
               ),
               pw.SizedBox(height: 5),
-              pw.Text(
-                value,
-                textDirection: pw.TextDirection.ltr,
-                style:
-                    pw.TextStyle(font: boldFont, fontSize: 14, color: valueColor),
+              // The card keeps its size; a long figure is set smaller in it
+              // (the owner, 28 Oct 2026).
+              pw.Expanded(
+                child: pw.Center(
+                  child: pw.FittedBox(
+                    fit: pw.BoxFit.scaleDown,
+                    child: pw.Text(
+                      pdfVisualArabic(value),
+                      textDirection: pw.TextDirection.ltr,
+                      style: pw.TextStyle(font: boldFont, fontSize: 14, color: valueColor),
+                    ),
+                  ),
+                ),
               ),
             ],
           ),
@@ -545,7 +563,7 @@ class AccountStatementPdfBuilder {
               : (key == dateKey || key == refKey)
                   ? pw.Alignment.center
                   : pw.Alignment.center,
-          child: pw.Text(
+          child: _fitUnlessWrapping(key == descKey, pw.Text(
             pdfVisualArabic(pdfSanitize(text)),
             // Only description should wrap; keep numbers/refs stable.
             softWrap: key == descKey,
@@ -561,7 +579,7 @@ class AccountStatementPdfBuilder {
               fontSize: fontSize,
               color: color ?? _PdfColors.body,
             ),
-          ),
+          )),
         );
 
     // Build one data row's widget list (with color-coded debit/credit)
@@ -609,14 +627,8 @@ class AccountStatementPdfBuilder {
               bold = true;
             }
           }
-          if (c.key == goldBalKey) {
-            final v = double.tryParse(numRaw) ?? 0;
-            txtColor = v < 0 ? _PdfColors.negative : _PdfColors.positive;
-            bold = true;
-          }
-          if (c.key == cashBalKey) {
-            final v = double.tryParse(numRaw) ?? 0;
-            txtColor = v < 0 ? _PdfColors.negative : _PdfColors.positive;
+          if (c.key == goldBalKey || c.key == cashBalKey) {
+            txtColor = statementBalanceIsCredit(raw) ? _PdfColors.negative : _PdfColors.positive;
             bold = true;
           }
         }
@@ -630,19 +642,29 @@ class AccountStatementPdfBuilder {
     }
 
     // ── opening row + data rows ───────────────────────────────────
-    final openingValues = <String, String>{
-      dateKey: dateRange == null
-          ? '—'
-          : DateFormat('yyyy-MM-dd').format(dateRange.start),
+    // The opening balance before the oldest line, the closing one after the
+    // newest -- on top and at the foot as the lines run (statementEdgeRows).
+    final edges = statementEdgeRows(
+      newestFirst: newestFirst,
+      openingGold: period.openingGold,
+      openingCash: period.openingCash,
+      closingGold: periodClosingGold,
+      closingCash: periodClosingCash,
+      from: dateRange?.start,
+      to: dateRange?.end,
+    );
+    Map<String, String> balanceRowValues(StatementBalanceRow row) => <String, String>{
+      dateKey: row.date == null ? '—' : DateFormat('yyyy-MM-dd').format(row.date!),
       refKey: '—',
-      descKey: 'رصيد افتتاحي',
-      goldDebitKey: '0.000',
-      goldCreditKey: '0.000',
-      goldBalKey: period.openingGold.toStringAsFixed(3),
-      cashDebitKey: '0.00',
-      cashCreditKey: '0.00',
-      cashBalKey: commaFmt.format(period.openingCash),
+      descKey: row.label,
+      goldDebitKey: '—',
+      goldCreditKey: '—',
+      goldBalKey: statementBalance(row.gold, decimals: 3),
+      cashDebitKey: '—',
+      cashCreditKey: '—',
+      cashBalKey: statementBalance(row.cash, decimals: 2),
     };
+    final openingValues = balanceRowValues(edges.first);
 
     final allRows = <List<pw.Widget>>[
       buildRowCells(openingValues, isOpening: true),
@@ -674,16 +696,15 @@ class AccountStatementPdfBuilder {
             descKey: line.description,
             goldDebitKey: line.goldDebit.toStringAsFixed(3),
             goldCreditKey: line.goldCredit.toStringAsFixed(3),
-            goldBalKey:
-                (line.runningGoldBalance ?? 0).toStringAsFixed(3),
+            goldBalKey: statementBalance(line.runningGoldBalance ?? 0, decimals: 3),
             cashDebitKey: commaFmt.format(line.cashDebit),
             cashCreditKey: commaFmt.format(line.cashCredit),
-            cashBalKey:
-                commaFmt.format(line.runningCashBalance ?? 0),
+            cashBalKey: statementBalance(line.runningCashBalance ?? 0, decimals: 2),
           },
           isAlt: idx.isOdd,
         );
       }),
+      buildRowCells(balanceRowValues(edges.last), isOpening: true),
     ];
 
     // ── valuation card ────────────────────────────────────────────
@@ -1123,7 +1144,7 @@ class AccountStatementPdfBuilder {
                   pw.SizedBox(width: 6),
                   pw.Expanded(child: balCell(
                     'رصيد الذهب   جم',
-                    periodClosingGold.toStringAsFixed(3),
+                    statementBalance(periodClosingGold, decimals: 3),
                     periodClosingGold < 0 ? _PdfColors.negative : _PdfColors.gold,
                     highlighted: true,
                   )),
@@ -1142,7 +1163,7 @@ class AccountStatementPdfBuilder {
                   pw.SizedBox(width: 6),
                   pw.Expanded(child: balCell(
                     'رصيد النقد',
-                    commaFmt.format(periodClosingCash),
+                    statementBalance(periodClosingCash, decimals: 2),
                     periodClosingCash < 0 ? _PdfColors.negative : _PdfColors.positive,
                     highlighted: true,
                   )),
