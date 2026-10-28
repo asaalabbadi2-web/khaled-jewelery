@@ -49,6 +49,10 @@ String pdfShapeArabic(String input) {
 /// while reversing Arabic runs.
 String pdfVisualArabic(String input) {
   if (input.isEmpty) return input;
+  // Signs the font does not draw are written in ones it does, for every
+  // text printed -- not only where a template asked: the statement's
+  // arrows printed as unknown signs (PRINT-5).
+  input = pdfSanitize(input);
   if (!_containsArabicLetters(input)) return input;
 
   // Protect currency abbreviation from being split/reordered by punctuation.
@@ -170,6 +174,8 @@ String pdfVisualArabic(String input) {
     if (r == 0x002D /* - */) return true;
     if (r == 0x2013 /* – */ || r == 0x2014 /* — */) return true;
     if (r == 0x002E /* . */) return true;
+    // Mirrored with the Arabic they stand in (an arrow written «->», PRINT-5).
+    if (r == 0x003C /* < */ || r == 0x003E /* > */) return true;
 
     // Our private-use placeholders (used to protect tokens like ر.س).
     if (r >= 0xE000 && r <= 0xF8FF) return true;
@@ -310,6 +316,10 @@ int _mirrorBracketForRtl(int r) {
     0x7D => 0x7B, // } -> {
     0x00AB => 0x00BB, // « -> »
     0x00BB => 0x00AB, // » -> «
+    // Mirrored in Unicode too: in Arabic «مدى -> خزينة» (an arrow the font
+    // lacks, written in signs it has) pointed back at «مدى» (PRINT-5).
+    0x3C => 0x3E, // < -> >
+    0x3E => 0x3C, // > -> <
     _ => r,
   };
 }
@@ -509,10 +519,12 @@ String _shapeArabic(String input) {
       (false, false) => forms.isolated,
     };
 
-    // If this letter is fully isolated, prefer keeping the base codepoint
-    // only for yeh (ي). Some renderers/fonts display isolated yeh
-    // presentation forms oddly.
-    if (!connectPrev && !connectNext && r == 0x064A /* ي */) {
+    // Fully isolated yeh and alef maksura keep their base code points: the
+    // font (Cairo) has no isolated yeh (U+FEF1), and draws its isolated alef
+    // maksura (U+FEEF) as two dots alone -- «مدى» printed as «مدي», its
+    // alef maksura seeming joined to the dal (PRINT-5). Its base glyphs are
+    // the isolated shapes.
+    if (!connectPrev && !connectNext && (r == 0x064A /* ي */ || r == 0x0649 /* ى */)) {
       out.add(r);
     } else {
       out.add(shaped);

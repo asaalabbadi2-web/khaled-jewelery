@@ -1,5 +1,10 @@
+import 'dart:io';
+import 'dart:typed_data';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:frontend/pdf/pdf_text_utils.dart';
+// ignore: implementation_imports
+import 'package:pdf/src/pdf/font/ttf_parser.dart';
 
 /// PRINT-4: Arabic is laid out for the PDF in visual order (pdfVisualArabic).
 /// A neutral -- a space, a colon -- between an Arabic word and a number took
@@ -52,6 +57,54 @@ void main() {
 
     test('text with no Arabic is left as it is', () {
       expect(v('SELL-2026-1689'), 'SELL-2026-1689');
+    });
+  });
+
+  // PRINT-5 (the owner, 28 Oct 2026): «مدى» printed with its alef maksura
+  // joined to the dal, and the statement's arrow printed as an unknown
+  // sign. The font (Cairo) draws its isolated alef maksura form (U+FEEF) as
+  // two dots alone, and has no isolated yeh (U+FEF1) and no arrow (U+2192,
+  // 505 descriptions on the 27 Oct copy).
+  group('every sign printed is one the font draws', () {
+    final cairo = TtfParser(ByteData.view(
+      Uint8List.fromList(File('assets/fonts/Cairo-Regular.ttf').readAsBytesSync()).buffer,
+    )).charToGlyphIndexMap;
+    // Mapped in the font, drawn wrong: never to be printed.
+    const drawnWrong = {0xFEEF};
+
+    test('every Arabic letter, in each of its positions', () {
+      const beh = 'ب';
+      final bad = <String>[];
+      // The Arabic alphabet: hamza to ghain, feh to yeh (U+063B..U+063F
+      // are letters of other languages; U+0640 is the tatweel).
+      final alphabet = [for (var c = 0x621; c <= 0x63A; c++) c, for (var c = 0x641; c <= 0x64A; c++) c];
+      for (final letter in alphabet) {
+        final l = String.fromCharCode(letter);
+        for (final word in [l, '$l$beh', '$beh$l$beh', '$beh$l']) {
+          for (final r in pdfShapeArabic(word).runes) {
+            if (!cairo.containsKey(r) || drawnWrong.contains(r)) {
+              bad.add('${letter.toRadixString(16)} in «$word»: ${r.toRadixString(16)}');
+            }
+          }
+        }
+      }
+      expect(bad, isEmpty);
+    });
+
+    test('«مدى»: the alef maksura stands apart from the dal', () {
+      expect(pdfShapeArabic('مدى').runes.last, 0x649);
+      expect(pdfShapeArabic('على').runes.last, 0xFEF0, reason: 'joined after a joining letter');
+    });
+
+    test('an arrow is written in signs the font has', () {
+      final out = v('تسوية: مدى → خزينة بنك الرياض');
+      expect(out.runes.where((r) => !cairo.containsKey(r) && r != 0x20), isEmpty);
+      expect(out.contains('\u2192'), isFalse);
+    });
+
+    test('the arrow points the way the Arabic reads: from «مدى» to «خزينة»', () {
+      // Read right to left, the arrow points left, on to the next word.
+      expect(v('مدى → خزينة'), '${v('خزينة')} <- ${v('مدى')}');
     });
   });
 }
