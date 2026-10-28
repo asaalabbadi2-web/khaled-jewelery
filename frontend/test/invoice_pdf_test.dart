@@ -114,6 +114,27 @@ void main() {
       );
     });
 
+    test('a method paid twice is one line, its payments added', () {
+      // SELL-2026-1735: five payments, two of them «مدى».
+      expect(
+        invoicePrintPayments({
+          'payments': [
+            {'payment_method_name': 'مدى', 'amount': 14850.0},
+            {'payment_method_name': 'مدى', 'amount': 100.0},
+            {'payment_method_name': 'فيزا/ماستر', 'amount': 250.0},
+            {'payment_method_name': 'نقداً', 'amount': 16450.0},
+            {'payment_method_name': 'تحويل', 'amount': 5000.0},
+          ],
+        }),
+        [
+          (method: 'مدى', amount: 14950.0),
+          (method: 'فيزا/ماستر', amount: 250.0),
+          (method: 'نقداً', amount: 16450.0),
+          (method: 'تحويل', amount: 5000.0),
+        ],
+      );
+    });
+
     test('no payments, none printed', () {
       expect(invoicePrintPayments(const {}), isEmpty);
     });

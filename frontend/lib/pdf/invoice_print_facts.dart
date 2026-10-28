@@ -41,19 +41,22 @@ bool isSupplierInvoiceType(Object? type) {
   return kind == 'شراء' || kind == 'مرتجع شراء (مورد)';
 }
 
-/// The payments the server recorded on an invoice: each method's name and
-/// amount, in the order paid (`payments`). Lines of nothing are left out.
+/// The payments the server recorded on an invoice (`payments`), one line a
+/// method -- its payments added, in the order the methods were first used.
+/// SELL-2026-1735 was paid in five payments, two of them «مدى»; printed one
+/// to a line, the payment box ran long (the owner, 28 Oct 2026). Lines of
+/// nothing are left out.
 List<({String method, double amount})> invoicePrintPayments(Map<dynamic, dynamic> invoice) {
   final raw = invoice['payments'];
   if (raw is! List) return const [];
-  return [
-    for (final p in raw.whereType<Map>())
-      if (_number(p['amount']).abs() > 0.005)
-        (
-          method: '${p['payment_method_name'] ?? p['method'] ?? ''}'.trim(),
-          amount: _number(p['amount']),
-        ),
-  ];
+  final byMethod = <String, double>{};
+  for (final p in raw.whereType<Map>()) {
+    final amount = _number(p['amount']);
+    if (amount.abs() <= 0.005) continue;
+    final method = '${p['payment_method_name'] ?? p['method'] ?? ''}'.trim();
+    byMethod[method] = (byMethod[method] ?? 0) + amount;
+  }
+  return [for (final e in byMethod.entries) (method: e.key, amount: e.value)];
 }
 
 /// What a supplier purchase leaves owed to the supplier, as the server keeps
