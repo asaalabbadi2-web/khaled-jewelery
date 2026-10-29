@@ -7,6 +7,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:frontend/models/quick_action_item.dart';
 import 'package:frontend/providers/quick_actions_provider.dart';
+import 'package:frontend/theme/app_semantic_colors.dart';
 import 'package:frontend/utils/invoice_type_label.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -57,5 +58,21 @@ void main() {
       }
     }
     expect(found, isEmpty);
+  });
+
+  test('the kind, and so the color, an invoice is shown in', () {
+    InvoiceKind? k(Map<String, Object?> m) => invoiceKindOf(m);
+    expect(k({'invoice_type': 'بيع'}), InvoiceKind.sale);
+    expect(k({'invoice_type': 'بيع', 'gold_type': 'scrap'}), InvoiceKind.saleScrap);
+    expect(k({'invoice_type': 'بيع', 'gold_type': 'new'}), InvoiceKind.sale);
+    expect(k({'invoice_type': 'شراء'}), InvoiceKind.purchase);
+    expect(k({'invoice_type': 'شراء من مورد'}), InvoiceKind.purchase);
+    expect(k({'invoice_type': 'شراء', 'office_id': 3}), InvoiceKind.purchaseScrap);
+    expect(k({'invoice_type': 'شراء', 'invoice_type_label': 'شراء كسر من مكتب'}), InvoiceKind.purchaseScrap);
+    expect(k({'invoice_type': 'شراء من عميل'}), InvoiceKind.purchaseScrap);
+    for (final r in ['مرتجع بيع', 'مرتجع شراء', 'مرتجع شراء (مورد)', 'مرتجع شراء من مورد']) {
+      expect(k({'invoice_type': r}), InvoiceKind.returned, reason: r);
+    }
+    expect(k({'invoice_type': 'سند'}), isNull);
   });
 }

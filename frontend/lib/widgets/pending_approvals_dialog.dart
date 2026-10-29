@@ -4,6 +4,7 @@ import 'package:flutter_staggered_animations/flutter_staggered_animations.dart';
 import 'package:provider/provider.dart';
 import '../api_service.dart';
 import '../theme/app_semantic_colors.dart';
+import '../utils/invoice_type_label.dart';
 import '../providers/auth_provider.dart';
 import '../screens/posting_management_screen.dart';
 
@@ -1131,7 +1132,11 @@ class _PendingApprovalsDialogState extends State<PendingApprovalsDialog> {
     final createdBy = (invoice['created_by_name'] ?? '—').toString();
     final createdAt = invoice['created_at']?.toString();
 
-    final (guessedLabel, typeColor) = _getTypeInfo(type, isAr);
+    final guessedLabel = _guessTypeLabel(type, isAr);
+    // In its invoice's color -- a scrap sale's by its gold, a supplier's
+    // return as a return (it had read as no invoice's).
+    final kind = invoiceKindOf(invoice);
+    final typeColor = kind == null ? _tone.gold.fg : _tone.invoice(kind).fg;
     // The server's name -- «شراء كسر من مكتب» for an office's purchase, which
     // the type alone read «شراء جديد».
     final serverLabel = (invoice['invoice_type_label'] ?? '').toString();
@@ -1511,40 +1516,16 @@ class _PendingApprovalsDialogState extends State<PendingApprovalsDialog> {
 
   // ─────────────── Helpers ───────────────
 
-  (String, Color) _getTypeInfo(String type, bool isAr) {
-    switch (type) {
-      case 'بيع':
-      case 'sale':
-        return (isAr ? 'بيع' : 'Sale', _tone.invoiceSale.fg);
-      case 'scrap_sale':
-        return (isAr ? 'بيع كسر' : 'Scrap Sale', _tone.invoiceSaleScrap.fg);
-      case 'شراء':
-      case 'purchase':
-        return (isAr ? 'شراء جديد' : 'Purchase', _tone.invoicePurchase.fg);
-      case 'شراء من عميل':
-        return (isAr ? 'شراء كسر' : 'Cust. Buy', _tone.invoicePurchaseScrap.fg);
-      case 'scrap_purchase':
-      case 'شراء خردة':
-        return (
-          isAr ? 'شراء كسر' : 'Scrap Buy',
-          _tone.invoicePurchaseScrap.fg
-        );
-      case 'مرتجع بيع':
-      case 'sales_return':
-        return (
-          isAr ? 'مرتجع بيع' : 'Sale Ret.',
-          _tone.invoiceReturn.fg
-        );
-      case 'مرتجع شراء':
-      case 'purchase_return':
-        return (
-          isAr ? 'مرتجع شراء كسر' : 'Purch. Ret.',
-          _tone.invoiceReturn.fg
-        );
-      default:
-        return (isAr ? 'فاتورة' : 'Invoice', _tone.gold.fg);
-    }
-  }
+  String _guessTypeLabel(String type, bool isAr) => switch (type) {
+    'بيع' || 'sale' => isAr ? 'بيع' : 'Sale',
+    'scrap_sale' => isAr ? 'بيع كسر' : 'Scrap Sale',
+    'شراء' || 'purchase' => isAr ? 'شراء جديد' : 'Purchase',
+    'شراء من عميل' => isAr ? 'شراء كسر' : 'Cust. Buy',
+    'scrap_purchase' || 'شراء خردة' => isAr ? 'شراء كسر' : 'Scrap Buy',
+    'مرتجع بيع' || 'sales_return' => isAr ? 'مرتجع بيع' : 'Sale Ret.',
+    'مرتجع شراء' || 'purchase_return' => isAr ? 'مرتجع شراء كسر' : 'Purch. Ret.',
+    _ => isAr ? 'فاتورة' : 'Invoice',
+  };
 
   String _formatRelativeTime(String? iso, bool isAr) {
     if (iso == null) return '';

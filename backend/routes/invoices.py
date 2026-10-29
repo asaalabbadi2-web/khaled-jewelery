@@ -193,6 +193,8 @@ def pending_post_invoices():
                 'invoice_number': inv.invoice_number,
                 'invoice_type': inv_type,
                 'invoice_type_label': _invoice_type_label(inv_type, office_id=getattr(inv, 'office_id', None)),
+                # A scrap sale is stored «بيع»: its gold says it is one.
+                'gold_type': inv.gold_type,
                 'total_amount': float(inv.total or 0),
                 'party_name': party_name,
                 'created_by_name': creator,
@@ -307,6 +309,8 @@ def pending_actions():
                 'invoice_number': inv.invoice_number,
                 'invoice_type': inv_type,
                 'invoice_type_label': _invoice_type_label(inv_type, office_id=getattr(inv, 'office_id', None)),
+                # A scrap sale is stored «بيع»: its gold says it is one.
+                'gold_type': inv.gold_type,
                 'total_amount': float(inv.total or 0),
                 'party_name': party_name,
                 'created_by_name': creator,

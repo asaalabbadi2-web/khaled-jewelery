@@ -7,6 +7,8 @@
 /// من النوع حين لا يُرسل.
 library;
 
+import '../theme/app_semantic_colors.dart';
+
 const Map<String, String> _labels = {
   'شراء من عميل': 'شراء كسر',
   'شراء': 'شراء جديد',
@@ -31,4 +33,25 @@ String invoiceTypeLabel(Map<dynamic, dynamic> invoice) {
   final given = (invoice['invoice_type_label'] ?? '').toString().trim();
   if (given.isNotEmpty) return given;
   return invoiceTypeLabelOf(invoice['invoice_type'], officeId: invoice['office_id']);
+}
+
+/// The kind an invoice is shown in -- its color, as its screen's (the owner,
+/// 29 Oct 2026: «كل أيقونة لونها يطابق اللون الخاص بالفاتورة»). A scrap sale
+/// is stored «بيع» with gold_type 'scrap'; an office's «شراء» is scrap.
+/// Null for a type that is no invoice's.
+InvoiceKind? invoiceKindOf(Map<dynamic, dynamic> invoice) {
+  final type = (invoice['invoice_type'] ?? '').toString().trim();
+  final scrap = (invoice['gold_type'] ?? '').toString().trim().toLowerCase() == 'scrap';
+  final office = invoice['office_id'] != null ||
+      (invoice['invoice_type_label'] ?? '').toString().trim() == officeBuyLabel;
+  if (type.startsWith('مرتجع') || type == 'sales_return' || type == 'purchase_return') {
+    return InvoiceKind.returned;
+  }
+  return switch (type) {
+    'بيع' || 'sale' => scrap ? InvoiceKind.saleScrap : InvoiceKind.sale,
+    'scrap_sale' => InvoiceKind.saleScrap,
+    'شراء' || 'شراء من مورد' || 'purchase' => office ? InvoiceKind.purchaseScrap : InvoiceKind.purchase,
+    'شراء من عميل' || 'scrap_purchase' || 'شراء خردة' => InvoiceKind.purchaseScrap,
+    _ => null,
+  };
 }

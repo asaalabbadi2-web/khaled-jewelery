@@ -3157,10 +3157,10 @@ class _InvoicesListScreenState extends State<InvoicesListScreen>
       final statusColor = isCancelled
           ? colorScheme.onSurfaceVariant.withValues(alpha: 0.8)
           : (isPaid ? _tone.ready.fg : _tone.warning.fg);
-      final invoiceType = (invoice['invoice_type'] ?? '').toString();
-      final bool isPurchase =
-          invoiceType.contains('شراء') || invoiceType.toLowerCase() == 'buy';
-      final Color typeColor = isPurchase ? _tone.invoice(InvoiceKind.purchase).fg : colorScheme.primary;
+      // The type by the owner's name, in its invoice's color.
+      final invoiceType = invoiceTypeLabel(invoice);
+      final kind = invoiceKindOf(invoice);
+      final Color typeColor = kind == null ? colorScheme.primary : _tone.invoice(kind).fg;
       final invoiceDisplayNumber = _getInvoiceDisplayNumber(invoice);
 
       final employeeName = _extractInvoiceEmployeeName(invoice);
