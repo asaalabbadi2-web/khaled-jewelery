@@ -15,6 +15,7 @@ import '../widgets/invoice_settings_sheet.dart';
 import '../widgets/pay_box.dart';
 import '../widgets/scrap_purchase_entry_row.dart';
 import '../models/gold_prices.dart';
+import '../utils/payment_fee.dart';
 import '../utils/scrap_purchase_readiness.dart';
 import '../widgets/invoice_review_dialog.dart';
 import '../widgets/invoice_saved_dialog.dart';
@@ -623,21 +624,8 @@ class _ScrapPurchaseInvoiceScreenState
       return;
     }
 
-    final dynamic rawRate = method['commission_rate'] ?? 0.0;
-    final rate = rawRate is num
-        ? rawRate.toDouble()
-        : double.tryParse(rawRate.toString()) ?? 0.0;
-
-    // تقريب العمولة لمنزلتين عشريتين لتجنب مشاكل الدقة
-    final commission = double.parse((amount * (rate / 100)).toStringAsFixed(2));
-    // حساب ضريبة القيمة المضافة على العمولة بحسب الإعدادات
-    final commissionVat = double.parse(
-      (commission * _settingsProvider.taxRate).toStringAsFixed(2),
-    );
-    // الصافي = المبلغ - العمولة - ضريبة العمولة
-    final net = double.parse(
-      (amount - commission - commissionVat).toStringAsFixed(2),
-    );
+    // What the method deducts: its rate and its fixed amount (COMMISSION-3).
+    final fee = PaymentFee.of(method, amount, vatRate: _settingsProvider.taxRate);
 
     setState(() {
       _payments.add(
@@ -645,10 +633,11 @@ class _ScrapPurchaseInvoiceScreenState
           paymentMethodId: method['id'],
           paymentMethodName: method['name'],
           amount: amount,
-          commissionRate: rate,
-          commissionAmount: commission,
-          commissionVat: commissionVat,
-          netAmount: net,
+          commissionRate: fee.rate,
+          commissionFixed: fee.fixed,
+          commissionAmount: fee.commission,
+          commissionVat: fee.vat,
+          netAmount: fee.net,
           settlementDays: method['settlement_days'] ?? 0,
         ),
       );
@@ -3631,7 +3620,7 @@ class _ScrapPurchaseInvoiceScreenState
                                       fontWeight: FontWeight.w600,
                                     ),
                                   ),
-                                  if (payment.commissionRate > 0)
+                                  if (payment.commissionRate > 0 || payment.commissionFixed > 0)
                                     Container(
                                       margin: const EdgeInsets.only(top: 4),
                                       padding: const EdgeInsets.symmetric(
@@ -3645,7 +3634,7 @@ class _ScrapPurchaseInvoiceScreenState
                                         borderRadius: BorderRadius.circular(6),
                                       ),
                                       child: Text(
-                                        'عمولة ${payment.commissionRate}%',
+                                        'عمولة ${PaymentFee.label(payment.commissionRate, payment.commissionFixed)}',
                                         style: theme.textTheme.labelSmall
                                             ?.copyWith(
                                               color: _tone.warning.fg,
@@ -4554,6 +4543,7 @@ class PaymentEntry {
   String paymentMethodName;
   double amount;
   double commissionRate;
+  double commissionFixed; // المبلغ الثابت للعملية (COMMISSION-3) -- للعرض
   double commissionAmount;
   double commissionVat; // ضريبة القيمة المضافة على العمولة
   double netAmount;
@@ -4565,6 +4555,7 @@ class PaymentEntry {
     required this.paymentMethodName,
     required this.amount,
     required this.commissionRate,
+    this.commissionFixed = 0.0,
     required this.commissionAmount,
     required this.commissionVat,
     required this.netAmount,

@@ -14,6 +14,7 @@ import '../theme/app_theme.dart';
 import '../utils.dart';
 import '../utils/invoice_direct_print.dart';
 import '../utils/currency_utils.dart' as cu;
+import '../utils/payment_fee.dart';
 import 'purchase_invoice_screen.dart';
 
 class _ReturnPaymentEntry {
@@ -21,6 +22,7 @@ class _ReturnPaymentEntry {
   final String paymentMethodName;
   final double amount;
   final double commissionRate;
+  final double commissionFixed; // المبلغ الثابت للعملية (COMMISSION-3) -- للعرض
   final double commissionAmount;
   final double netAmount;
 
@@ -29,6 +31,7 @@ class _ReturnPaymentEntry {
     required this.paymentMethodName,
     required this.amount,
     required this.commissionRate,
+    this.commissionFixed = 0.0,
     required this.commissionAmount,
     required this.netAmount,
   });
@@ -324,16 +327,17 @@ class _AddReturnInvoiceScreenState extends State<AddReturnInvoiceScreen> {
     required Map<String, dynamic> method,
     required double amount,
   }) {
-    final rate = method['commission_rate'] as double;
-    final commission = double.parse((amount * rate / 100).toStringAsFixed(2));
-    final net = double.parse((amount - commission).toStringAsFixed(2));
+    // What the method deducts: its rate and its fixed amount (COMMISSION-3).
+    final fee = PaymentFee.of(method, amount,
+        vatRate: context.read<SettingsProvider>().taxRate);
     return _ReturnPaymentEntry(
       paymentMethodId: method['id'] as int,
       paymentMethodName: (method['name'] ?? '').toString(),
       amount: amount,
-      commissionRate: rate,
-      commissionAmount: commission,
-      netAmount: net,
+      commissionRate: fee.rate,
+      commissionFixed: fee.fixed,
+      commissionAmount: fee.commission,
+      netAmount: fee.net,
     );
   }
 
@@ -818,24 +822,8 @@ class _AddReturnInvoiceScreenState extends State<AddReturnInvoiceScreen> {
               normalized.isNotEmpty ? normalized.first : <String, dynamic>{},
         );
         if (pm.isNotEmpty) {
-          final rate = pm['commission_rate'] as double;
-          final commission = double.parse(
-            (_legacyEditAmount * rate / 100).toStringAsFixed(2),
-          );
-          setState(() {
-            _payments.add(
-              _ReturnPaymentEntry(
-                paymentMethodId: pm['id'] as int,
-                paymentMethodName: (pm['name'] ?? '').toString(),
-                amount: _legacyEditAmount,
-                commissionRate: rate,
-                commissionAmount: commission,
-                netAmount: double.parse(
-                  (_legacyEditAmount - commission).toStringAsFixed(2),
-                ),
-              ),
-            );
-          });
+          final entry = _buildPaymentEntry(method: pm, amount: _legacyEditAmount);
+          setState(() => _payments.add(entry));
         }
         _legacyEditPaymentMethod = null;
       }
@@ -2132,9 +2120,9 @@ class _AddReturnInvoiceScreenState extends State<AddReturnInvoiceScreen> {
                                     fontWeight: FontWeight.w600,
                                   ),
                                 ),
-                                if (p.commissionRate > 0)
+                                if (p.commissionRate > 0 || p.commissionFixed > 0)
                                   Text(
-                                    'عمولة ${p.commissionRate}%',
+                                    'عمولة ${PaymentFee.label(p.commissionRate, p.commissionFixed)}',
                                     style: theme.textTheme.bodySmall?.copyWith(
                                       color: Colors.orange,
                                     ),

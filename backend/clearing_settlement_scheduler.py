@@ -95,12 +95,10 @@ def public_holidays() -> frozenset:
 
 def settlement_fee(pm, gross_amount: float, transaction_count: int) -> float:
     """The commission a settlement of *gross_amount* over *transaction_count*
-    payments carries -- the only place a commission is taken (COMMISSION-1)."""
-    rate = float(getattr(pm, 'commission_rate', 0.0) or 0.0)
-    fixed = float(getattr(pm, 'commission_fixed_amount', 0.0) or 0.0)
-    if rate <= 0.0 and fixed <= 0.0:
-        return 0.0
-    return round((gross_amount * rate / 100.0) + (fixed * max(transaction_count, 1)), 2)
+    payments carries -- the only place a commission is taken (COMMISSION-1),
+    by the one computation an invoice's estimate is made by (COMMISSION-3)."""
+    from accounting.payment_commission import commission_of
+    return commission_of(pm, gross_amount, transaction_count)
 
 
 def net_reaching_the_bank(pm):

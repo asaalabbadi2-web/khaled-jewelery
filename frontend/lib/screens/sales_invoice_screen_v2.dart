@@ -28,6 +28,7 @@ import '../utils/invoice_direct_print.dart';
 import '../utils/currency_utils.dart' as cu;
 import '../utils/invoice_saved_facts.dart';
 import '../models/gold_prices.dart';
+import '../utils/payment_fee.dart';
 import '../utils/sales_readiness.dart';
 import '../widgets/app_feedback.dart';
 import '../widgets/app_shortcuts.dart';
@@ -1185,21 +1186,8 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
       return;
     }
 
-    // ✅ استخدام commission_rate بدلاً من commission
-    final rate = (method['commission_rate'] ?? 0.0) is String
-        ? double.tryParse(method['commission_rate'].toString()) ?? 0.0
-        : (method['commission_rate'] ?? 0.0).toDouble();
-
-    // تقريب العمولة لمنزلتين عشريتين لتجنب مشاكل الدقة
-    final commission = double.parse((amount * (rate / 100)).toStringAsFixed(2));
-    // حساب ضريبة القيمة المضافة على العمولة بحسب الإعدادات
-    final commissionVat = double.parse(
-      (commission * _effectiveVatRate).toStringAsFixed(2),
-    );
-    // الصافي = المبلغ - العمولة - ضريبة العمولة
-    final net = double.parse(
-      (amount - commission - commissionVat).toStringAsFixed(2),
-    );
+    // What the method deducts: its rate and its fixed amount (COMMISSION-3).
+    final fee = PaymentFee.of(method, amount, vatRate: _effectiveVatRate);
 
     setState(() {
       _payments.add(
@@ -1207,10 +1195,11 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
           paymentMethodId: method['id'],
           paymentMethodName: method['name'],
           amount: amount,
-          commissionRate: rate,
-          commissionAmount: commission,
-          commissionVat: commissionVat,
-          netAmount: net,
+          commissionRate: fee.rate,
+          commissionFixed: fee.fixed,
+          commissionAmount: fee.commission,
+          commissionVat: fee.vat,
+          netAmount: fee.net,
           settlementDays: method['settlement_days'] ?? 0,
           safeBoxId: _selectedSafeBoxId, // 🆕 إضافة معرف الخزينة
         ),
@@ -4746,7 +4735,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                                         ],
                                       ),
                                     ),
-                                  if (payment.commissionRate > 0)
+                                  if (payment.commissionRate > 0 || payment.commissionFixed > 0)
                                     Container(
                                       margin: const EdgeInsets.only(top: 4),
                                       padding: const EdgeInsets.symmetric(
@@ -4760,7 +4749,7 @@ class _SalesInvoiceScreenV2State extends State<SalesInvoiceScreenV2> {
                                         borderRadius: BorderRadius.circular(6),
                                       ),
                                       child: Text(
-                                        'عمولة ${payment.commissionRate}%',
+                                        'عمولة ${PaymentFee.label(payment.commissionRate, payment.commissionFixed)}',
                                         style: theme.textTheme.labelSmall
                                             ?.copyWith(
                                               color: _tone.warning.fg,
@@ -6443,6 +6432,7 @@ class PaymentEntry {
   String paymentMethodName;
   double amount;
   double commissionRate;
+  double commissionFixed; // المبلغ الثابت للعملية (COMMISSION-3) -- للعرض
   double commissionAmount;
   double commissionVat; // ضريبة القيمة المضافة على العمولة
   double netAmount;
@@ -6455,6 +6445,7 @@ class PaymentEntry {
     required this.paymentMethodName,
     required this.amount,
     required this.commissionRate,
+    this.commissionFixed = 0.0,
     required this.commissionAmount,
     required this.commissionVat,
     required this.netAmount,

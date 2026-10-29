@@ -93,4 +93,27 @@ void main() {
       expect(paid, [1]);
     });
   }
+
+  // COMMISSION-3 (the owner, 29 Oct 2026): a method says all it deducts --
+  // its rate and its fixed amount a transaction.
+  testWidgets('a method says its rate and its fixed amount', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: PayBox(
+            amount: TextEditingController(),
+            remaining: 1000,
+            currency: 'ر.س',
+            methods: const [
+              {'id': 4, 'name': 'تابي', 'payment_type': 'tabby', 'commission_rate': 6.99,
+               'commission_fixed_amount': 1.5},
+            ],
+            onPay: (_) {},
+            remainingText: const Text('المتبقي'),
+          ),
+        ),
+      ),
+    );
+    expect(find.textContaining('6.99% + 1.5'), findsOneWidget);
+  });
 }

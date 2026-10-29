@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import '../theme/app_button_styles.dart';
 import '../theme/app_semantic_colors.dart';
 import '../utils.dart';
+import '../utils/payment_fee.dart';
 
 /// The icon of a payment method by its type.
 IconData paymentMethodIcon(String paymentType) => switch (paymentType) {
@@ -98,12 +99,14 @@ class PayBox extends StatelessWidget {
     required bool prominent,
     required int shortcut,
   }) {
-    final rate = method['commission_rate'] ?? 0;
-    // The rate isolated left-to-right: «(0.8%)», not «(%0.8)».
+    // What it deducts, its rate and its fixed amount (COMMISSION-3), isolated
+    // left-to-right: «(0.8%)», «(6.99% + 1.5)», not «(%0.8)».
+    final fee = PaymentFee.of(method, 0, vatRate: 0);
+    final deducts = PaymentFee.label(fee.rate, fee.fixed);
     final ltr = String.fromCharCode(0x2066);
     final pop = String.fromCharCode(0x2069);
     final label = Text(
-      '${method['name'] ?? ''}${rate > 0 ? ' ($ltr$rate%$pop)' : ''}',
+      '${method['name'] ?? ''}${deducts.isNotEmpty ? ' ($ltr$deducts$pop)' : ''}',
     );
     final icon = Icon(
       paymentMethodIcon('${method['payment_type'] ?? ''}'),

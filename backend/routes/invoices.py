@@ -1576,10 +1576,11 @@ def _warn_if_safe_account_mismatches_payment_method(pm, safe_account_id, context
         pass
 
 def _compute_commission_fields(amount: float, pm) -> dict:
-    """Same formula used when an InvoicePayment is first created."""
-    # The commission is taken at the settlement, never at the invoice (COMMISSION-1).
-    rate = float(getattr(pm, 'commission_rate', 0.0) or 0.0)
-    return {'commission_rate': rate, 'commission_amount': 0.0, 'commission_vat': 0.0, 'net_amount': amount}
+    """Same formula used when an InvoicePayment is first created: what its method
+    will deduct at the settlement, kept on the payment (COMMISSION-3); the invoice
+    posts none (COMMISSION-1)."""
+    from accounting.payment_commission import payment_commission
+    return payment_commission(pm, amount)
 
 def _correct_invoice_payment_method_multi_split(invoice, ip, data):
     """N-way split: one InvoicePayment row that mixed 3+ payment methods.
@@ -2758,10 +2759,11 @@ def add_invoice_payment(invoice_id: int):
             'safe_box_id': resolved_safe_box_id,
         }), 400
 
-    commission_rate = _to_float(getattr(pm_obj, 'commission_rate', 0.0), 0.0)
-    # The commission is taken at the settlement, never at the invoice (COMMISSION-1).
-    commission_amount = commission_vat = 0.0
-    net_amount = amount
+    # What its method will deduct at the settlement, kept on the payment
+    # (COMMISSION-3); the invoice posts none (COMMISSION-1).
+    _fee = _compute_commission_fields(amount, pm_obj)
+    commission_rate, commission_amount = _fee['commission_rate'], _fee['commission_amount']
+    commission_vat, net_amount = _fee['commission_vat'], _fee['net_amount']
 
     try:
         payment = InvoicePayment(
@@ -5479,16 +5481,14 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
 
                 created_by_name = posted_by_username
                 
-                # حساب العمولة وضريبتها لهذه الدفعة
-                pm_commission_rate = _to_float(payment.get('commission_rate', pm_obj.commission_rate if pm_obj else 0.0))
-
-                if 'commission_amount' in payment:
-                    pm_commission_amount = _to_float(payment.get('commission_amount', 0.0))
-                else:
-                    pm_commission_amount = pm_amount * (pm_commission_rate / 100) if pm_commission_rate > 0 else 0.0
-
-                pm_commission_vat = _to_float(payment.get('commission_vat', pm_commission_amount * 0.15))  # 🆕 ضريبة 15%
-                pm_net_amount = _to_float(payment.get('net_amount', pm_amount - pm_commission_amount - pm_commission_vat))
+                # عمولة الدفعة وضريبتها من وسيلتها لا من الشاشة: النسبة والمبلغ الثابت
+                # للعملية (COMMISSION-3، المالك 29 أكتوبر 2026) -- كما تخصمها التسوية.
+                from accounting.payment_commission import payment_commission
+                _fee = payment_commission(pm_obj, pm_amount)
+                pm_commission_rate = _fee['commission_rate']
+                pm_commission_amount = _fee['commission_amount']
+                pm_commission_vat = _fee['commission_vat']
+                pm_net_amount = _fee['net_amount']
 
                 payment_notes = payment.get('notes')
                 if unposted_mode:
