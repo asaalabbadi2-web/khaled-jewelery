@@ -2749,6 +2749,10 @@ class Settings(db.Model):
     office_custom_fees_usd = db.Column(db.Float, nullable=False, default=43.0, server_default='43')
     office_discount_21 = db.Column(db.Float, nullable=False, default=0.75, server_default='0.75')
     office_discount_18 = db.Column(db.Float, nullable=False, default=1.0, server_default='1')
+    # An invoice's loss comes off its employee's points from this day (POINTS-DEFICIT-1,
+    # the owner 29 Oct 2026): before it, a loss is scored nothing, as it was. Set by
+    # its migration to the day it is deployed.
+    points_deficits_from = db.Column(db.Date, nullable=True)
     # Under these the accountant approves another's voucher himself (ADR-036 R4); 0 = nothing.
     accountant_approval_limit_cash = db.Column(db.Float, default=0.0, server_default='0')
     accountant_approval_limit_gold_grams = db.Column(db.Float, default=0.0, server_default='0')

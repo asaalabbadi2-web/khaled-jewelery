@@ -247,8 +247,9 @@ class PointsMetric(RaceMetric):
             aid = int(actor_id)
             # The card's two parts make its points: each rounded alone, 1.45 +
             # 1.45 showed 1 + 1 under 3 (20 Oct 2026). Purchases take the rest.
-            points = max(0, int(round(pts_total.get(aid, 0.0))))
-            points_sales = min(points, max(0, int(round(pts_sales.get(aid, 0.0)))))
+            # A loss comes off, below nothing if it comes to that (POINTS-DEFICIT-1).
+            points = int(round(pts_total.get(aid, 0.0)))
+            points_sales = int(round(pts_sales.get(aid, 0.0)))
             ranking_raw.append({
                 'id':              aid,
                 'name':            name_map.get(aid) or f'Employee {aid}',

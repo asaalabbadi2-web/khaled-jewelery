@@ -50,8 +50,10 @@ def _3314(headers, w):
 def test_the_correction_records_the_right_profit_and_the_paid_one_stays(auth_headers, world):
     original, correction = _3314(auth_headers, world)
     assert correction.before['profit']['profit_gold'] == pytest.approx(0.136)
-    # its price at the time: 330 / (3.3 - 0.136); the right weight 1.8 + 1.5 x 18/21 earns nothing at it
-    assert correction.after['profit']['profit_gold'] == pytest.approx(0.0)
+    # its price at the time: 330 / (3.3 - 0.136); the right weight 1.8 + 1.5 x 18/21 loses at it --
+    # the loss is kept, below nothing (POINTS-DEFICIT-1); it was recorded as nothing. Whether it
+    # costs points is the settings' day's (none here: the next test's -1.36 stands).
+    assert correction.after['profit']['profit_gold'] == pytest.approx(-0.078, abs=0.001)
     assert Invoice.query.get(original.id).profit_gold == pytest.approx(0.136), 'as paid'
 
 
@@ -109,6 +111,7 @@ def test_todays_race_takes_the_correction_from_the_buyer(auth_headers, world):
     invoice, line = _bought(auth_headers, world)
     original = Invoice.query.get(invoice['id'])
     original.profit_gold, original.employee_id = 0.136, world['holder'].id
+    original.profit_cash = 0.0                # bought before it had a cash profit: scored by its grams
     original.date = datetime.now()            # bought today, corrected today: one period
     db.session.flush()
 

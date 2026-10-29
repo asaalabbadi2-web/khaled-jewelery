@@ -7076,8 +7076,15 @@ def add_invoice(preserve_employee_id=None, preserve_posted_by=None, preserve_inv
             _price_main2 = float(_price_main2 or 0) * buy_price_ratio()
             _cash_paid = float(total_cash or 0)
             _cost_in_gold = (_cash_paid / _price_main2) if _price_main2 > 0 else _weight_main_karat
-            _purchase_profit_gold = max(0.0, _weight_main_karat - _cost_in_gold)
+            # A loss is kept, below nothing: it comes off the buyer's points from the
+            # settings' day (POINTS-DEFICIT-1); it was saved as nothing.
+            _purchase_profit_gold = _weight_main_karat - _cost_in_gold
             new_invoice.profit_gold = round(_purchase_profit_gold, 3)
+            # Its cash profit as a sale's (the owner, 29 Oct 2026): its gold at the
+            # market's buy price less what was paid, with the weight it kept off the
+            # books as before -- its points by the riyal, as a sale's.
+            new_invoice.profit_cash = round(float(new_invoice.profit_cash or 0.0)
+                                            + _purchase_profit_gold * _price_main2, 2)
 
         elif invoice_type == 'مرتجع بيع':
             # The cost of the gold coming back is its sale's, in the share returned --

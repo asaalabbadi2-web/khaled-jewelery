@@ -173,4 +173,6 @@ def test_a_sale_is_measured_by_the_offices_sell_price_and_a_purchase_by_its_buy_
     now, ratio, main = get_current_gold_price(), buy_price_ratio(), get_main_karat()
     buy_main = now['price_per_gram_main_karat'] * ratio
     assert invoice.profit_gold == pytest.approx(10.0 * 21 / main - 1500.0 / buy_main, abs=0.001)
-    assert invoice.profit_cash == pytest.approx(1.0 * now['price_per_gram_by_karat'][21] * ratio, abs=0.01)
+    # its cash profit: the gram its standing weight lost, and its gold profit, both at the buy price
+    assert invoice.profit_cash == pytest.approx(1.0 * now['price_per_gram_by_karat'][21] * ratio
+                                                + invoice.profit_gold * buy_main, abs=0.5)

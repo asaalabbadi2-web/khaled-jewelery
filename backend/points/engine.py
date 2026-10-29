@@ -111,6 +111,34 @@ def corrections_against(original_filter, start_dt, end_dt, *, end_inclusive: boo
     return [CorrectionDelta(c, o) for c, o in rows]
 
 
+def deficits_from():
+    """The day an invoice's loss starts coming off its points (POINTS-DEFICIT-1,
+    the owner 29 Oct 2026) -- the settings'; None: no loss counts."""
+    from models import Settings
+    settings = Settings.query.first()
+    return getattr(settings, 'points_deficits_from', None) if settings is not None else None
+
+
+def loss_counts(inv, since) -> bool:
+    """Whether *inv*'s loss comes off its points: on or after the day."""
+    when = getattr(inv, 'date', None)
+    if since is None or when is None:
+        return False
+    return (when.date() if hasattr(when, 'date') else when) >= since
+
+
+class _LossDay:
+    """The day, read from the settings the first time a loss asks for it: an
+    invoice list with no loss is scored without the database, as it was."""
+    def __init__(self):
+        self._read, self._day = False, None
+
+    def counts(self, inv) -> bool:
+        if not self._read:
+            self._read, self._day = True, deficits_from()
+        return loss_counts(inv, self._day)
+
+
 def db_query(*entities):
     from models import db
     return db.session.query(*entities)
@@ -118,16 +146,17 @@ def db_query(*entities):
 
 def _correction_points(c, *, points_source, cash_amount_per_point, points_per_gram, **_):
     """A correction's points: the right profit's points less the paid's, by the
-    formula an invoice is scored by (each clamped at nothing, as it is)."""
+    formula an invoice is scored by -- a loss below nothing only for an
+    invoice its day counts (POINTS-DEFICIT-1), as the invoice is scored."""
     cpp, ppg = max(0.01, float(cash_amount_per_point)), max(0.0, float(points_per_gram))
     purchase = str(c.invoice_type or '').strip() == 'شراء من عميل'
+    day = _LossDay()
 
     def scored(profit):
-        pc = max(0.0, float(profit.get('profit_cash') or 0.0))
-        pg = max(0.0, float(profit.get('profit_gold') or 0.0))
-        if points_source == 'profit_cash':
-            return pc / cpp if pc > 0 else (pg * ppg if purchase else 0.0)
-        return pg * ppg                           # gold_weight: the invoice's grams of profit
+        pc, pg = float(profit.get('profit_cash') or 0.0), float(profit.get('profit_gold') or 0.0)
+        counts = (pc < 0 or pg < 0) and day.counts(getattr(c, 'original_invoice', None))
+        return _profit_points(pc, pg, purchase=purchase, counts=counts, points_source=points_source,
+                              cpp=cpp, ppg=ppg)
     if points_source == 'sales_amount':
         return c.total / cpp
     if points_source == 'invoice_count':
@@ -135,6 +164,21 @@ def _correction_points(c, *, points_source, cash_amount_per_point, points_per_gr
     if points_source == 'sold_weight':
         return c.weight * ppg
     return scored(c.right) - scored(c.paid)
+
+
+def _profit_points(pc, pg, *, purchase, counts, points_source, cpp, ppg) -> float:
+    """An invoice's points from its profits. A sale earns its cash profit (or,
+    by grams, its gold profit); a customer's purchase too -- its gold at the
+    market's buy price less what was paid (the owner, 29 Oct 2026) -- and one
+    from before, which kept none, its grams. A loss below nothing comes off
+    when *counts* (POINTS-DEFICIT-1); it was floored at nothing, and still is
+    before the day."""
+    if points_source == 'profit_cash':
+        if purchase and pc == 0:
+            # A purchase from before it had a cash profit (29 Oct 2026): its grams.
+            return pg * ppg if pg > 0 or (counts and pg < 0) else 0.0
+        return pc / cpp if pc > 0 or (counts and pc < 0) else 0.0
+    return pg * ppg if pg > 0 or (counts and pg < 0) else 0.0      # gold_weight: the grams of profit
 
 
 def compute_invoices_points(
@@ -203,19 +247,20 @@ def _points_of(
     def _is_purchase(inv) -> bool:
         return str(getattr(inv, 'invoice_type', '') or '').strip() == 'شراء من عميل'
 
+    _day = _LossDay()
+
     # ── profit_cash mode ──────────────────────────────────────────────────────
     if points_source == 'profit_cash':
+        # A purchase from a customer keeps its profit in grams (profit_gold),
+        # not riyals (77720467, Jul 2026) -- the shared engine (6ff6b10b)
+        # read only the grams, so a purchase's riyal profit earned nothing.
         total = 0.0
         for inv in invoices:
-            pc = max(0.0, float(getattr(inv, 'profit_cash', 0.0) or 0.0))
-            if pc > 0.0:
-                total += pc / _cpp
-            elif _is_purchase(inv):
-                # A purchase from a customer keeps its profit in grams (profit_gold),
-                # not riyals (77720467, Jul 2026) -- the shared engine (6ff6b10b)
-                # read only the grams, so a purchase's riyal profit earned nothing.
-                pg = max(0.0, float(getattr(inv, 'profit_gold', 0.0) or 0.0))
-                total += pg * _ppg
+            pc = float(getattr(inv, 'profit_cash', 0.0) or 0.0)
+            pg = float(getattr(inv, 'profit_gold', 0.0) or 0.0)
+            total += _profit_points(pc, pg, purchase=_is_purchase(inv),
+                                    counts=(pc < 0 or pg < 0) and _day.counts(inv),
+                                    points_source='profit_cash', cpp=_cpp, ppg=_ppg)
         return total
 
     # ── sales_amount mode ─────────────────────────────────────────────────────
@@ -252,25 +297,25 @@ def _points_of(
     buckets: dict[tuple, float] = {}
 
     for inv in invoices:
-        inv_contributed = 0.0
+        any_line = False
         for item in (getattr(inv, 'items', None) or []):
             karat = getattr(item, 'karat', None)
             if not karat:
                 continue
-            pw = max(0.0, float(getattr(item, 'profit_weight', 0.0) or 0.0))
-            if pw == 0.0:
+            pw = float(getattr(item, 'profit_weight', 0.0) or 0.0)
+            if pw == 0.0 or (pw < 0.0 and not _day.counts(inv)):     # a loss from the day (POINTS-DEFICIT-1)
                 continue
             if _mk is None:
                 from models import _configured_main_karat_f
                 _mk = float(main_karat or _configured_main_karat_f())
             normalized = pw * float(karat) / _mk
-            inv_contributed += normalized
+            any_line = True
             bucket = (getattr(item, 'category_id', None), float(karat))
             buckets[bucket] = buckets.get(bucket, 0.0) + normalized
 
-        if inv_contributed == 0.0:
-            pg = max(0.0, float(getattr(inv, 'profit_gold', 0.0) or 0.0))
-            if pg > 0.0:
+        if not any_line:
+            pg = float(getattr(inv, 'profit_gold', 0.0) or 0.0)
+            if pg > 0.0 or (pg < 0.0 and _day.counts(inv)):
                 fb = (None, None)
                 buckets[fb] = buckets.get(fb, 0.0) + pg
 

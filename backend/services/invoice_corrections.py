@@ -108,16 +108,21 @@ def _profits(invoice: Invoice, old_line: dict, new_lines: list, cash_delta: floa
     """The purchase's profit as paid, and as it is right (ت-2). A customer's
     purchase earns the grams it bought over what its riyals buy at the price of
     its day: profit = main grams - riyals / price. That price is not kept; it
-    is the paid profit's (riyals / (main grams - profit)). A purchase that
-    earned nothing tells no price: its right profit is nothing too."""
+    is the paid profit's (riyals / (main grams - profit)) -- a loss's too, kept
+    below nothing (POINTS-DEFICIT-1). A purchase that earned nothing tells no
+    price: its right profit is nothing too."""
     paid = {'profit_gold': round(_f(invoice.profit_gold), 3), 'profit_cash': round(_f(invoice.profit_cash), 2)}
     lines = [_line_of(i) for i in InvoiceItem.query.filter_by(invoice_id=invoice.id).all()]
     grams = _main(lines)
     grams_right = grams - _main([old_line]) + _main(new_lines)
     cash = _f(invoice.total)
-    price = cash / (grams - paid['profit_gold']) if paid['profit_gold'] > GRAM and grams - paid['profit_gold'] > GRAM else None
-    right = max(0.0, grams_right - (cash + cash_delta) / price) if price else 0.0
-    return paid, {'profit_gold': round(right, 3), 'profit_cash': paid['profit_cash']}
+    price = (cash / (grams - paid['profit_gold'])
+             if abs(paid['profit_gold']) > GRAM and grams - paid['profit_gold'] > GRAM else None)
+    right = grams_right - (cash + cash_delta) / price if price else 0.0
+    # Its cash profit moves with its grams, at the same price (its gold at the buy
+    # price less what was paid, the owner 29 Oct 2026).
+    right_cash = paid['profit_cash'] + (right - paid['profit_gold']) * price if price else paid['profit_cash']
+    return paid, {'profit_gold': round(right, 3), 'profit_cash': round(right_cash, 2)}
 
 
 def _sale_profits(invoice: Invoice, old_line: dict, new_lines: list, net_delta: float) -> tuple[dict, dict, float]:

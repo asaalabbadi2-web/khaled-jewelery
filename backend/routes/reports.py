@@ -1594,13 +1594,8 @@ def get_home_leaderboard():
 
     ranking_raw.sort(key=lambda x: (x.get('score', 0.0), x.get('count', 0)), reverse=True)
 
-    # Sum of individual employee points — used later to keep admin_summary and
-    # team_points consistent with what is actually displayed per employee.
-    _sum_individual_points = sum(
-        max(0, int(it.get('points', 0) or 0)) for it in ranking_raw
-    )
-
-    total_score = sum(float(it.get('score') or 0.0) for it in ranking_raw) or 0.0
+    # A share is of what was earned: a row below nothing has none.
+    total_score = sum(max(0.0, float(it.get('score') or 0.0)) for it in ranking_raw) or 0.0
 
     # ── جلب بيانات الأهداف الشخصية لكل موظف (دفعة واحدة) ─────────────────
     _ranking_ids = [it['id'] for it in ranking_raw]
@@ -1629,7 +1624,7 @@ def get_home_leaderboard():
     ranking = []
     for it in ranking_raw:
         score_value = float(it.get('score') or 0.0)
-        share = (score_value / total_score) if total_score > 0 else 0.0
+        share = (max(0.0, score_value) / total_score) if total_score > 0 else 0.0
 
         # تقدم الهدف — خاص بالفترة المعروضة فقط، بدون نسبة مقيّدة بـ 1.0
         goal_target = None
@@ -1682,8 +1677,9 @@ def get_home_leaderboard():
     for r in ranking:
         r.update(_honours.get(r['id'], {'crowns': 0, 'goals_reached': 0}))
 
-    # Recompute after visibility filtering so total always = sum of displayed cards.
-    _display_total_points = sum(max(0, int(r.get('score', 0) or 0)) for r in ranking)
+    # Recompute after visibility filtering so total always = sum of displayed cards --
+    # a row below nothing too: its loss comes off the team's (POINTS-DEFICIT-1).
+    _display_total_points = sum(int(r.get('score', 0) or 0) for r in ranking)
 
     champion = None
     if ranking and bool(sales_race_config.get('show_champion', True)):
