@@ -22,6 +22,9 @@ from gold_price import fetch_gold_price, save_gold_price
 from models import GoldPrice, Settings, db
 
 
+MIN_INTERVAL_SECONDS = 10
+
+
 class GoldPriceScheduler:
     def __init__(self, app):
         self.app = app
@@ -36,14 +39,14 @@ class GoldPriceScheduler:
                 return False, "interval", 60
             enabled = bool(getattr(row, "gold_price_auto_update_enabled", False))
             mode = (getattr(row, "gold_price_auto_update_mode", None) or "interval").strip()
-            interval = getattr(row, "gold_price_auto_update_interval_minutes", None)
+            interval = getattr(row, "gold_price_auto_update_interval_seconds", None)
             try:
-                interval_minutes = int(interval) if interval is not None else 60
+                interval_seconds = int(interval) if interval is not None else 60
             except Exception:
-                interval_minutes = 60
-            return enabled, mode, interval_minutes
+                interval_seconds = 60
+            return enabled, mode, interval_seconds
 
-    def _apply_schedule(self, enabled: bool, mode: str, interval_minutes: int) -> None:
+    def _apply_schedule(self, enabled: bool, mode: str, interval_seconds: int) -> None:
         self._scheduler.clear("gold_price")
         if not enabled:
             print("[GoldPriceScheduler] Auto-update disabled")
@@ -64,16 +67,16 @@ class GoldPriceScheduler:
                 print(f"[GoldPriceScheduler] Invalid daily time '{at_time}': {exc}")
             return
 
-        # Default: interval mode (every N minutes)
+        # Default: interval mode, every N seconds -- 10 at the least: the source is a
+        # public feed (PRICE-LIVE-1, the owner 29 Oct 2026: 15).
         try:
-            minutes = int(interval_minutes)
+            seconds = int(interval_seconds)
         except Exception:
-            minutes = 60
-        if minutes < 1:
-            minutes = 1
+            seconds = 60
+        seconds = max(seconds, MIN_INTERVAL_SECONDS)
 
-        self._scheduler.every(minutes).minutes.do(self.update_from_internet).tag("gold_price")
-        print(f"[GoldPriceScheduler] Auto-update enabled every {minutes} minute(s)")
+        self._scheduler.every(seconds).seconds.do(self.update_from_internet).tag("gold_price")
+        print(f"[GoldPriceScheduler] Auto-update enabled every {seconds} second(s)")
 
     def update_from_internet(self) -> None:
         with self.app.app_context():
@@ -102,23 +105,27 @@ class GoldPriceScheduler:
 
         def run_loop() -> None:
             # Initial schedule build
-            enabled, mode, interval_minutes = self._read_config()
-            self._last_config = (enabled, mode, str(interval_minutes))
-            self._apply_schedule(enabled, mode, interval_minutes)
+            enabled, mode, interval_seconds = self._read_config()
+            self._last_config = (enabled, mode, str(interval_seconds))
+            self._apply_schedule(enabled, mode, interval_seconds)
+            last_read = time.monotonic()
 
             while self.is_running:
-                # Re-read config periodically and re-schedule if changed
-                try:
-                    enabled_now, mode_now, interval_now = self._read_config()
-                    fingerprint = (enabled_now, mode_now, str(interval_now))
-                    if self._last_config != fingerprint:
-                        self._last_config = fingerprint
-                        self._apply_schedule(enabled_now, mode_now, interval_now)
-                except Exception as exc:
-                    print(f"[GoldPriceScheduler] Config read failed: {exc}")
+                # Re-read config every 30 seconds and re-schedule if changed; run what
+                # is due every second (an interval may be 15 seconds).
+                if time.monotonic() - last_read >= 30:
+                    last_read = time.monotonic()
+                    try:
+                        enabled_now, mode_now, interval_now = self._read_config()
+                        fingerprint = (enabled_now, mode_now, str(interval_now))
+                        if self._last_config != fingerprint:
+                            self._last_config = fingerprint
+                            self._apply_schedule(enabled_now, mode_now, interval_now)
+                    except Exception as exc:
+                        print(f"[GoldPriceScheduler] Config read failed: {exc}")
 
                 self._scheduler.run_pending()
-                time.sleep(30)
+                time.sleep(1)
 
         Thread(target=run_loop, daemon=True).start()
         print("[GoldPriceScheduler] 🚀 Started")

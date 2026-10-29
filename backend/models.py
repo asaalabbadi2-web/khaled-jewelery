@@ -2764,7 +2764,9 @@ class Settings(db.Model):
     gold_price_auto_update_time = db.Column(db.String(5), default='09:00')
     # interval | daily
     gold_price_auto_update_mode = db.Column(db.String(20), default='interval')
-    gold_price_auto_update_interval_minutes = db.Column(db.Integer, default=60)
+    gold_price_auto_update_interval_minutes = db.Column(db.Integer, default=60)   # unread: the seconds below
+    # The interval in seconds, 10 at the least (PRICE-LIVE-1, the owner 29 Oct 2026: 15).
+    gold_price_auto_update_interval_seconds = db.Column(db.Integer, nullable=False, default=60, server_default='60')
 
     # 🆕 النسخ الاحتياطي التلقائي (على السيرفر)
     backup_auto_enabled = db.Column(db.Boolean, default=False)
@@ -2944,6 +2946,7 @@ class Settings(db.Model):
             'gold_price_auto_update_time': self.gold_price_auto_update_time or '09:00',
             'gold_price_auto_update_mode': (self.gold_price_auto_update_mode or 'interval'),
             'gold_price_auto_update_interval_minutes': int(self.gold_price_auto_update_interval_minutes or 60),
+            'gold_price_auto_update_interval_seconds': int(self.gold_price_auto_update_interval_seconds or 60),
             'backup_auto_enabled': bool(getattr(self, 'backup_auto_enabled', False)),
             'backup_auto_mode': (getattr(self, 'backup_auto_mode', None) or 'daily'),
             'backup_auto_time': (getattr(self, 'backup_auto_time', None) or '02:00'),

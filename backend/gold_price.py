@@ -167,13 +167,26 @@ def _push_to_commerce(price: float) -> None:
         print(f"[WARN] gold price push to Commerce failed: {exc}")
 
 
+def _utc_now() -> datetime.datetime:
+    return datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
+
+
 def save_gold_price(app, price):
     with app.app_context():
         from models import GoldPrice
         from pricing.office_price import stamp
-        # Saved with the office's terms of the moment (OFFICE-PRICE-1).
-        gp = stamp(GoldPrice(price=price, date=datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)))
-        db.session.add(gp)
+        now = _utc_now()
+        # A price a minute (PRICE-LIVE-1): one fetched in the clock minute its last was
+        # saved in replaces it -- the screens read the newest, the history keeps a price
+        # a minute. The minute of the clock, not the row's age: it moves with each.
+        minute = now.replace(second=0, microsecond=0)
+        latest = GoldPrice.query.order_by(GoldPrice.date.desc()).first()
+        if latest is not None and latest.date and latest.date.replace(second=0, microsecond=0) == minute:
+            latest.price, latest.date = price, now
+            gp = stamp(latest)                          # with the office's terms of the moment (OFFICE-PRICE-1)
+        else:
+            gp = stamp(GoldPrice(price=price, date=now))
+            db.session.add(gp)
         db.session.commit()
     _push_to_commerce(price)
 

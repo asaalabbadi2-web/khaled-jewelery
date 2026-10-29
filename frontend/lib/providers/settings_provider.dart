@@ -113,16 +113,24 @@ class SettingsProvider with ChangeNotifier {
     fallback: 60,
   );
 
+  /// The server's fetch interval in seconds (PRICE-LIVE-1) -- 10 at the least.
+  int get goldPriceAutoUpdateIntervalSeconds {
+    final seconds = _safeInt(
+      _settings['gold_price_auto_update_interval_seconds'],
+      fallback: goldPriceAutoUpdateIntervalMinutes * 60,
+    );
+    return seconds < 10 ? 10 : seconds;
+  }
+
   /// How often the UI ticker should poll the backend.
   /// - If auto-update is disabled: no polling (still loads once on mount).
-  /// - If enabled and mode is interval: use the configured interval.
+  /// - If enabled and mode is interval: the server's interval, in seconds.
   /// - If enabled and mode is daily: poll periodically to pick up the daily update.
   Duration? get goldPriceTickerRefreshInterval {
     if (!goldPriceAutoUpdateEnabled) return null;
     final mode = goldPriceAutoUpdateMode;
     if (mode == 'interval') {
-      final minutes = goldPriceAutoUpdateIntervalMinutes;
-      return Duration(minutes: minutes <= 0 ? 60 : minutes);
+      return Duration(seconds: goldPriceAutoUpdateIntervalSeconds);
     }
     // daily (or unknown): poll every 10 minutes.
     return const Duration(minutes: 10);

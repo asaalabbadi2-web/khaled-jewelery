@@ -1758,23 +1758,21 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
     );
   }
 
+  /// «كل 15 ثانية»، «كل دقيقة»، «كل 5 دقائق» -- the interval as it is said.
+  String _everySeconds(int seconds) {
+    if (seconds % 60 != 0) return 'كل $seconds ثانية';
+    final minutes = seconds ~/ 60;
+    if (minutes == 1) return 'كل دقيقة';
+    return minutes <= 10 ? 'كل $minutes دقائق' : 'كل $minutes دقيقة';
+  }
+
   Widget _buildSystemTab() {
     final settingsProvider = Provider.of<SettingsProvider>(context);
     final bool goldAutoEnabled =
         (settingsProvider.settings['gold_price_auto_update_enabled'] == true);
-    final int goldAutoIntervalMinutes =
-        (settingsProvider.settings['gold_price_auto_update_interval_minutes']
-            is num)
-        ? (settingsProvider.settings['gold_price_auto_update_interval_minutes']
-                  as num)
-              .toInt()
-        : int.tryParse(
-                settingsProvider
-                        .settings['gold_price_auto_update_interval_minutes']
-                        ?.toString() ??
-                    '',
-              ) ??
-              60;
+    // The interval in seconds (PRICE-LIVE-1).
+    final int goldAutoIntervalSeconds =
+        settingsProvider.goldPriceAutoUpdateIntervalSeconds;
     final weightConfig = settingsProvider.weightClosingSettings;
     final bool weightEnabled = weightConfig['enabled'] == true;
     final String weightPriceSource =
@@ -1847,11 +1845,11 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
               contentPadding: EdgeInsets.zero,
               leading: const Icon(Icons.schedule),
               title: const Text('فترة التحديث'),
-              subtitle: Text('كل $goldAutoIntervalMinutes دقيقة'),
+              subtitle: Text(_everySeconds(goldAutoIntervalSeconds)),
               trailing: const Icon(Icons.chevron_right),
               onTap: () async {
                 final controller = TextEditingController(
-                  text: goldAutoIntervalMinutes.toString(),
+                  text: goldAutoIntervalSeconds.toString(),
                 );
                 final picked = await showDialog<int>(
                   context: context,
@@ -1862,23 +1860,23 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
                         mainAxisSize: MainAxisSize.min,
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text('أدخل عدد الدقائق بين كل تحديث.'),
+                          const Text('أدخل عدد الثواني بين كل تحديث (10 على الأقل).'),
                           const SizedBox(height: 8),
                           Wrap(
                             spacing: 8,
                             runSpacing: 8,
                             children: [
                               OutlinedButton(
-                                onPressed: () => controller.text = '1',
-                                child: const Text('كل دقيقة'),
-                              ),
-                              OutlinedButton(
-                                onPressed: () => controller.text = '5',
-                                child: const Text('كل 5 دقائق'),
+                                onPressed: () => controller.text = '15',
+                                child: const Text('كل 15 ثانية'),
                               ),
                               OutlinedButton(
                                 onPressed: () => controller.text = '60',
-                                child: const Text('كل ساعة'),
+                                child: const Text('كل دقيقة'),
+                              ),
+                              OutlinedButton(
+                                onPressed: () => controller.text = '300',
+                                child: const Text('كل 5 دقائق'),
                               ),
                             ],
                           ),
@@ -1887,8 +1885,8 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
                             controller: controller,
                             keyboardType: TextInputType.number,
                             decoration: const InputDecoration(
-                              labelText: 'الدقائق',
-                              hintText: 'مثال: 1 أو 5 أو 60',
+                              labelText: 'الثواني',
+                              hintText: 'مثال: 15 أو 60 أو 300',
                             ),
                           ),
                         ],
@@ -1911,12 +1909,12 @@ class _SettingsScreenEnhancedState extends State<SettingsScreenEnhanced>
                 );
                 if (picked == null) return;
 
-                final minutes = picked < 1 ? 1 : picked;
+                final seconds = picked < 10 ? 10 : picked;
                 try {
                   await settingsProvider.updateSettings({
                     'gold_price_auto_update_enabled': true,
                     'gold_price_auto_update_mode': 'interval',
-                    'gold_price_auto_update_interval_minutes': minutes,
+                    'gold_price_auto_update_interval_seconds': seconds,
                   });
                   if (mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(

@@ -735,6 +735,7 @@ def update_settings():
         'gold_price_auto_update_time',
         'gold_price_auto_update_mode',
         'gold_price_auto_update_interval_minutes',
+        'gold_price_auto_update_interval_seconds',
         'backup_auto_enabled',
         'backup_auto_mode',
         'backup_auto_time',
@@ -1077,6 +1078,19 @@ def update_settings():
             if minutes > 10080:
                 minutes = 10080
             settings.gold_price_auto_update_interval_minutes = minutes
+            # The interval is in seconds (PRICE-LIVE-1): an older screen's minutes are those.
+            if 'gold_price_auto_update_interval_seconds' not in data:
+                settings.gold_price_auto_update_interval_seconds = minutes * 60
+    # فترة تحديث سعر الذهب بالثواني (PRICE-LIVE-1): 10 ثوانٍ على الأقل -- المصدر خدمة عامة
+    if 'gold_price_auto_update_interval_seconds' in data:
+        try:
+            _seconds = int(data['gold_price_auto_update_interval_seconds'])
+        except (TypeError, ValueError):
+            _seconds = None
+        if _seconds is None or not (10 <= _seconds <= 7 * 24 * 3600):
+            return jsonify({'error': 'invalid_gold_price_interval',
+                            'message': 'فترة تحديث السعر بين 10 ثوانٍ وأسبوع'}), 400
+        settings.gold_price_auto_update_interval_seconds = _seconds
 
     # 🆕 النسخ الاحتياطي التلقائي (على السيرفر)
     if 'backup_auto_enabled' in data:
